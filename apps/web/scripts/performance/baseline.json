@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "domNodes": {
+    "/home": 444,
+    "/activity": 449,
+    "/cash": 510,
+    "/invest": 687,
+    "/borrow": 425,
+    "/investments": 536,
+    "/balances": 526
+  },
+  "initialJs": {
+    "/home": 580838,
+    "/activity": 580838,
+    "/cash": 580838,
+    "/invest": 580838,
+    "/borrow": 580838,
+    "/investments": 580838,
+    "/balances": 580838
+  }
+}

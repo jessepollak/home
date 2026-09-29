@@ -1,6 +1,31 @@
 import { describe, expect, test } from "bun:test";
 import { getMarketDisplay, type MarketDataState } from "./invest-market";
 
+describe("stock reference display", () => {
+  const snapshot = {
+    assetId: "nvdac",
+    asOf: "2026-09-25T20:00:00.000Z",
+    sourceLabel: "Chainlink",
+  };
+  for (const { session, displayPrice, value, context, tone } of [
+    { session: "open", displayPrice: "$177.25", value: "$177.25", context: undefined, tone: "ready" },
+    { session: "closed", displayPrice: "$177.25", value: "$177.25", context: "Last close", tone: "ready" },
+    { session: "paused", displayPrice: "—", value: "—", context: "Paused", tone: "muted" },
+    { session: "stale", displayPrice: "—", value: "—", context: "Price delayed", tone: "muted" },
+  ] as const) {
+    test(`a ${session} reference shows ${value} ${context ?? "without context"}`, () => {
+      const display = getMarketDisplay("nvdac", { status: "ready", snapshots: [{ ...snapshot, displayPrice, session }] }, { regionId: "US" });
+      expect(display.value).toBe(value);
+      expect(display.context).toBe(context);
+      expect(display.tone).toBe(tone);
+    });
+  }
+
+  test("an unavailable reference has no snapshot and shows no price", () => {
+    expect(getMarketDisplay("nvdac", { status: "ready", snapshots: [] })).toMatchObject({ value: "—", tone: "muted" });
+  });
+});
+
 describe("invest market display", () => {
   test("never coerces unavailable, loading, failed, or missing crypto prices to zero", () => {
     const states: MarketDataState[] = [

@@ -76,6 +76,7 @@ describe("invite landing", () => {
       expect(response.status).toBe(303);
       expect(response.headers.get("location")).toBe("/");
       expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response.headers.get("set-cookie")).toContain(HOME_INVITE_COOKIE);
     }
   });
@@ -87,6 +88,7 @@ describe("invite landing", () => {
     for (const cookies of [native, cdp.join("; ")]) {
       const response = await land(request(cookies));
       expect(response.headers.get("location")).toBe("/home");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response.headers.get("set-cookie")).toBeNull();
     }
   });

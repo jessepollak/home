@@ -1,8 +1,10 @@
 import "server-only";
 
+import { parseAddress } from "@/shared/chain/hex";
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { emitServerEvent } from "@/server/observability/log";
 import { resolveSecretKeyring, type SecretKeyring } from "@/server/secrets/at-rest";
+import { isRecord, isUnknownArray } from "@/shared/guards";
 import { canOpenWebhookSecret } from "./webhook-secret";
 import {
   getWebhookSubscriptionStore,
@@ -18,6 +20,13 @@ export const CDP_SUBSCRIPTION_LIST_TTL_MS = 60_000;
 
 export interface BalanceWebhookSubscriptions {
   ensureAddressSubscribed(address: `0x${string}`): Promise<void>;
+}
+
+let sharedSubscriptions: BalanceWebhookSubscriptions | null = null;
+
+export function getBalanceWebhookSubscriptions(): BalanceWebhookSubscriptions {
+  sharedSubscriptions ??= createCdpWebhookSubscriptions();
+  return sharedSubscriptions;
 }
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -226,7 +235,7 @@ export function createCdpWebhookSubscriptions(options: {
         return;
       }
       try {
-        await ensure(normalizeAddress(address));
+        await ensure(parseAddress(address) ?? invalidSubscriptionAddress());
       } catch (error) { // oxlint-disable-line home/no-silent-catch -- the injected subscription-failure logger reports the failure; subscription setup never fails the webhook response
         logFailure(error instanceof Error ? error.message : "subscription-failed");
       }
@@ -279,9 +288,9 @@ async function requestJson(options: {
 }
 
 function parseSubscriptions(value: unknown): Subscription[] {
-  const rows = isRecord(value) && Array.isArray(value.subscriptions)
+  const rows = isRecord(value) && isUnknownArray(value.subscriptions)
     ? value.subscriptions
-    : Array.isArray(value) ? value : null;
+    : isUnknownArray(value) ? value : null;
   if (!rows) throw new Error("cdp-webhooks-invalid-list");
   return rows.flatMap(parseSubscription);
 }
@@ -289,7 +298,7 @@ function parseSubscriptions(value: unknown): Subscription[] {
 function parseSubscription(value: unknown): Subscription[] {
   if (!isRecord(value)) return [];
   const id = stringField(value, "subscriptionId", "id");
-  const eventTypes = Array.isArray(value.eventTypes)
+  const eventTypes = isUnknownArray(value.eventTypes)
     ? value.eventTypes.filter((entry): entry is string => typeof entry === "string")
     : typeof value.event_type === "string" ? [value.event_type] : [];
   const targetUrl = isRecord(value.target) && typeof value.target.url === "string"
@@ -312,10 +321,10 @@ function parseSubscription(value: unknown): Subscription[] {
 }
 
 function legacyLabels(value: unknown): Record<string, string> {
-  if (!Array.isArray(value)) return {};
+  if (!isUnknownArray(value)) return {};
   const filter = value.find((entry) => isRecord(entry) && entry.network === CDP_ACTIVITY_NETWORK);
   if (!isRecord(filter)) return {};
-  const addresses = Array.isArray(filter.addresses)
+  const addresses = isUnknownArray(filter.addresses)
     ? filter.addresses.filter((entry): entry is string => typeof entry === "string")
     : [];
   return { network: CDP_ACTIVITY_NETWORK, wallet_addresses: addresses.join(",") };
@@ -376,9 +385,8 @@ function isBaseActivitySubscription(subscription: Subscription): boolean {
     subscription.labels.network === CDP_ACTIVITY_NETWORK;
 }
 
-function normalizeAddress(address: string): `0x${string}` {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("invalid-subscription-address");
-  return address.toLowerCase() as `0x${string}`;
+function invalidSubscriptionAddress(): never {
+  throw new Error("invalid-subscription-address");
 }
 
 function validOrigin(value: string): string | null {
@@ -418,8 +426,4 @@ function observeSubscriptionFailure(reason: string): void {
     provider: reason,
     durationMs: 0,
   });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

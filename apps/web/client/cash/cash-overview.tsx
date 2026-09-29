@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { PiggyBank, Plus, RotateCw } from "lucide-react";
+import { useMemo, useRef } from "react";
+import { CircleAlertIcon, Eye, Percent, PiggyBank, Plus, RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import {
@@ -28,12 +28,15 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { presentBalances, presentMoneyGroups } from "@/shared/balances/present";
+import { FeatureIntro } from "@/components/ui/feature-intro";
+import { Alert, AlertDescription, AlertIcon } from "@/components/ui/alert";
+import { presentBalances, presentMoneyGroups, presentPendingCashout } from "@/shared/balances/present";
 import {
   selectBalanceTotals,
   selectVaultPositions,
 } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
+import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import {
   formatPresentationFiat,
   formatPresentationPercentage,
@@ -45,9 +48,13 @@ import {
 } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
+import { savingsRateLabel } from "./savings-management";
+import { verifiedEmptySavings } from "./verified-empty-savings";
+import type { SavingsPortfolioSummary } from "@/client/savings/portfolio-summary";
 
 export type CashOverviewProps = {
   snapshot: BalancesSnapshot | null;
+  pendingCashout?: PendingCashoutEstimate;
   balanceStatus?: "ready" | "loading" | "failed";
   metadata: MorphoVaultsResult | null;
   vaultStatus?: "ready" | "loading" | "failed";
@@ -63,13 +70,20 @@ export type CashOverviewProps = {
 
 export type SavingsDetailProps = Omit<
   CashOverviewProps,
-  "onOpenSavings" | "onAddMoney" | "rateLabel"
+  "onOpenSavings" | "rateLabel"
 > & {
-  onSavingsIntent?: () => void;
+  balanceStale?: boolean;
+  summary?: SavingsPortfolioSummary | null;
+  pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
+  pendingActionsLoading?: boolean;
+  pendingActionsError?: boolean;
+  depositEntryBlocked?: boolean;
+  onRetryActions?: () => void;
+  depositFailed?: boolean;
+  onStartSaving: () => void;
   onDepositVault: (candidate: MorphoVaultCandidate) => void;
-  onWithdrawVault: (candidate: MorphoVaultCandidate) => void;
+  onManageVault: (address: string) => void;
   onRetryVaults: () => void;
-  requestWithdrawChoice?: number;
   actionsAvailable?: boolean;
 };
 type SavingsDisplayVault = {
@@ -208,22 +222,6 @@ function RateLoadingPlaceholder() {
   return <>Loading rate</>;
 }
 
-function vaultRateLabel(
-  vault: SavingsDisplayVault,
-  metadata: MorphoVaultsResult | null,
-  nowMs: number
-): string {
-  if (!vault.candidate || !metadata) return "Rate unavailable";
-  const rate = getSavingsRateState(vault.candidate, {
-    metadataFetchedAt: metadata.source.fetchedAt,
-    metadataStale: metadata.stale,
-    nowMs,
-  });
-  return rate.status !== "unavailable"
-    ? `${formatPresentationPercentage(rate.value)} APY`
-    : "Rate unavailable";
-}
-
 function vaultHolding(vault: SavingsDisplayVault) {
   const amount =
     vault.position?.underlyingBalance?.status === "ready"
@@ -342,7 +340,6 @@ function SavingsVaultRow({
   rateLoading,
   nowMs,
   onActivate,
-  onIntent,
   activateLabel,
 }: {
   vault: SavingsDisplayVault;
@@ -350,7 +347,6 @@ function SavingsVaultRow({
   rateLoading: boolean;
   nowMs: number;
   onActivate?: (opener: HTMLElement) => void;
-  onIntent?: () => void;
   activateLabel?: string;
 }) {
   const { held, partial, amount } = vaultHolding(vault);
@@ -367,7 +363,7 @@ function SavingsVaultRow({
         rateLoading ? (
           <RateLoadingPlaceholder />
         ) : (
-          vaultRateLabel(vault, metadata, nowMs)
+          savingsRateLabel(vault.candidate, metadata, nowMs)
         )
       }
       value={
@@ -382,7 +378,6 @@ function SavingsVaultRow({
       }
       valueTone={partial ? "muted" : "default"}
       onActivate={onActivate}
-      onIntent={onActivate ? onIntent : undefined}
       activateLabel={activateLabel}
       chevron={Boolean(onActivate)}
     />
@@ -391,6 +386,7 @@ function SavingsVaultRow({
 
 export function CashOverview({
   snapshot,
+  pendingCashout = null,
   balanceStatus = "ready",
   metadata,
   vaultStatus = "ready",
@@ -406,6 +402,7 @@ export function CashOverview({
   const loading = balanceStatus === "loading";
   const failed = balanceStatus === "failed";
   const activeSnapshot = failed ? null : snapshot;
+  const pendingValue = activeSnapshot ? presentPendingCashout(activeSnapshot, pendingCashout) : null;
   const summary = useMemo(() => activeSnapshot
     ? presentBalances({
         status: "ready",
@@ -505,6 +502,13 @@ export function CashOverview({
                     unavailableValue()
                   )}
                 </div>
+                {pendingValue ? (
+                  <p className="flex items-baseline gap-1 text-sm text-muted-foreground tabular-nums" data-pending-cash-out>
+                    <span>Pending cash-out</span>
+                    <span aria-hidden="true">·</span>
+                    {pendingValue.value ? <MoneyTicker value={pendingValue.value} align="start" reserveDigits={false} /> : unavailableValue()}
+                  </p>
+                ) : null}
                 {!failed &&
                 (empty
                   ? vaultStatus !== "loading" && bestRate !== null
@@ -614,7 +618,7 @@ export function CashOverview({
                                 row.value
                               )
                             ) : (
-                              unavailableValue()
+                              "Unavailable"
                             )
                           }
                           valueTone={
@@ -705,18 +709,25 @@ export function SavingsDetail({
   vaultStatus = "ready",
   nowMs,
   now = Date.now,
-  onSavingsIntent,
   onDepositVault,
-  onWithdrawVault,
+  onManageVault,
   onRetryVaults,
   onRetryBalances,
+  onStartSaving,
   growthAuthority = null,
-  requestWithdrawChoice = 0,
   actionsAvailable = true,
+  balanceStale = false,
+  summary = null,
+  pendingDeposits = [],
+  pendingActionsLoading = false,
+  pendingActionsError = false,
+  depositEntryBlocked = false,
+  onRetryActions,
+  depositFailed = false,
 }: SavingsDetailProps) {
   const balanceFailed = balanceStatus === "failed";
   const activeSnapshot = balanceFailed ? null : snapshot;
-  const { candidates, holdings, withdrawTargets, total, partial, bestRate } = useMemo(() => savingsData(
+  const { candidates, holdings, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
     vaultStatus,
@@ -729,12 +740,6 @@ export function SavingsDetail({
     now,
     growthAuthority
   );
-  const withdrawable = holdings.filter(
-    ({ vault, held }) => vault.action && held &&
-      withdrawTargets.some(({ candidate }) =>
-        candidate.vaultAddress.toLowerCase() === vault.address.toLowerCase())
-  );
-  const hasHeld = holdings.some(({ held }) => held);
   const shown = holdings.filter(
     ({ held, partial: unreadable }) => held || unreadable
   );
@@ -756,32 +761,26 @@ export function SavingsDetail({
         nowMs,
       }).value === bestRate
   );
+  const bestRateStatus = best ? getSavingsRateState(best, {
+    metadataFetchedAt: metadata?.source.fetchedAt,
+    metadataStale: metadata?.stale,
+    nowMs,
+  }).status : "unavailable";
+  const verifiedEmpty = verifiedEmptySavings({
+    balanceStatus, snapshot, balanceStale, vaultStatus, summary, shownCount: shown.length,
+  });
+  const pendingEmpty = pendingDeposits.length > 0 && verifiedEmpty;
+  const pendingTotal = pendingDeposits.reduce((sum, deposit) => sum + BigInt(deposit.amountBaseUnits), BigInt(0));
+  const actionHistoryUnresolved = pendingActionsError && verifiedEmpty && !pendingEmpty;
+  const firstUse = verifiedEmpty && !pendingEmpty && !pendingActionsLoading && !actionHistoryUnresolved;
   const depositUnavailable =
     !actionsAvailable ||
     balanceStatus === "failed" ||
     activeSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       .status !== "ready" ||
-    vaultStatus !== "ready";
-  const [choosing, setChoosing] = useState(false);
-  const [previousRequest, setPreviousRequest] = useState(requestWithdrawChoice);
-  if (requestWithdrawChoice !== previousRequest) {
-    setPreviousRequest(requestWithdrawChoice);
-    setChoosing(true);
-  }
-  const withdrawRef = useRef<HTMLButtonElement>(null);
-  const choiceKey = withdrawable
-    .map(({ vault }) => vault.address.toLowerCase())
-    .join(":");
-  const [previousChoiceKey, setPreviousChoiceKey] = useState(choiceKey);
-  if (choiceKey !== previousChoiceKey) {
-    setPreviousChoiceKey(choiceKey);
-    setChoosing(false);
-  }
-  const choose = (candidate: MorphoVaultCandidate) => {
-    withdrawRef.current?.focus({ preventScroll: true });
-    setChoosing(false);
-    onWithdrawVault(candidate);
-  };
+    vaultStatus !== "ready" ||
+    depositEntryBlocked;
+  const startSavingRef = useRef<HTMLButtonElement>(null);
   const recovery = (
     <Empty>
       <EmptyHeader>
@@ -802,18 +801,8 @@ export function SavingsDetail({
     </Empty>
   );
   return (
-    <div
-      className="space-y-4"
-      onKeyDown={(event) => {
-        if (choosing && event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          setChoosing(false);
-          withdrawRef.current?.focus({ preventScroll: true });
-        }
-      }}
-    >
-      <Card
+    <div className="space-y-4">
+      {(!verifiedEmpty || pendingEmpty) ? <Card
         variant="flush"
         aria-label={balanceFailed ? "Balance unavailable" : "Savings balance"}
         aria-busy={balanceStatus === "loading" || undefined}
@@ -844,7 +833,8 @@ export function SavingsDetail({
                     align="start"
                     reserveDigits={false}
                     value={
-                      partial || growth === BigInt(0)
+                      pendingEmpty ? formatUsdStablecoinAmount(pendingTotal.toString())
+                      : partial || growth === BigInt(0)
                         ? formatUsdStablecoinAmount(total.toString())
                         : formatPresentationFiat(
                             { atoms: (total + growth).toString(), scale: 6 },
@@ -857,6 +847,7 @@ export function SavingsDetail({
                 )}
               </div>
             )}
+            {pendingEmpty ? <p className="text-sm text-muted-foreground">Pending</p> : null}
             {partial && !balanceFailed ? (
               <p
                 id="savings-balance-partial"
@@ -874,7 +865,7 @@ export function SavingsDetail({
                 </p>
               )
             ) : null}
-            {!balanceFailed &&
+            {!pendingEmpty && !balanceFailed &&
             vaultStatus === "ready" &&
             total === BigInt(0) &&
             !partial &&
@@ -890,54 +881,58 @@ export function SavingsDetail({
             </p>
           ) : null}
         </CardContent>
-      </Card>
-      {balanceFailed ? (onRetryBalances ? (
-        <Button
-          variant="outline"
-          size="lg"
-          className="h-11 w-full"
-          onClick={onRetryBalances}
-        >
-          <RotateCw aria-hidden="true" />
-          Try again
-        </Button>
-      ) : null) : (
-        <div
-          className={`grid gap-2 ${hasHeld ? "grid-cols-2" : "grid-cols-1"}`}
-        >
-          <Button
-            size="lg"
-            className="h-11"
-            disabled={depositUnavailable || !best}
-            {...(onSavingsIntent ? moneySheetIntent(onSavingsIntent) : {})}
-            onClick={() => best && onDepositVault(best)}
-          >
-            Deposit
-          </Button>
-          {hasHeld ? (
+      </Card> : null}
+      {pendingActionsLoading && verifiedEmpty && !pendingEmpty ? (
+        <Card aria-busy="true"><CardContent><Skeleton className="h-24 w-full" /><span className="sr-only">Loading savings</span></CardContent></Card>
+      ) : actionHistoryUnresolved ? (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>Couldn&apos;t check your deposits</EmptyTitle>
+            <EmptyDescription>Check your connection.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
             <Button
-              ref={withdrawRef}
               variant="outline"
               size="lg"
               className="h-11"
-              disabled={!actionsAvailable || !withdrawable.length}
-              aria-expanded={withdrawable.length > 1 ? choosing : undefined}
-              aria-controls={
-                withdrawable.length > 1 ? "your-savings" : undefined
-              }
-              {...(onSavingsIntent ? moneySheetIntent(onSavingsIntent) : {})}
-              onClick={() =>
-                withdrawable.length === 1
-                  ? choose(withdrawable[0].vault.action!)
-                  : setChoosing((current) => !current)
-              }
+              onClick={onRetryActions}
+              disabled={!onRetryActions}
             >
-              Withdraw
+              <RotateCw aria-hidden="true" />
+              Try again
             </Button>
-          ) : null}
-        </div>
-      )}
-      {shown.length ? (
+          </EmptyContent>
+        </Empty>
+      ) : firstUse ? (
+        <>
+          {depositFailed ? <Alert variant="destructive" role="alert"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>Your deposit didn&apos;t go through. Try again.</AlertDescription></Alert> : null}
+          <FeatureIntro
+            size="compact"
+            illustration="savings"
+            headline="Earn on your savings"
+            description="Rates can change and aren't guaranteed."
+            benefits={[
+              { icon: Percent, text: bestRate === null || bestRateStatus === "unavailable" ? "Rates are shown before you save"
+                : bestRateStatus === "stale" ? `Up to ${formatPresentationPercentage(bestRate)} APY at last update`
+                : `Up to ${formatPresentationPercentage(bestRate)} APY` },
+              { icon: Eye, text: "Review the rate before you confirm" },
+            ]}
+            primary={{ label: "Start saving", ref: startSavingRef, onClick: onStartSaving }}
+            availability={
+              !actionsAvailable ? { kind: "unavailable", reason: "Savings isn't available for this account." }
+              : !best ? { kind: "unavailable", reason: "Savings options aren't available right now.", recovery: { label: "Try again", onClick: onRetryVaults } }
+              : undefined
+            }
+          />
+        </>
+      ) : null}
+      {balanceFailed && onRetryBalances ? (
+        <Button variant="outline" size="lg" className="h-11 w-full" onClick={onRetryBalances}>
+          <RotateCw aria-hidden="true" />
+          Try again
+        </Button>
+      ) : null}
+      {shown.length || pendingEmpty ? (
         <section
           id="your-savings"
           aria-labelledby="your-savings-heading"
@@ -946,30 +941,27 @@ export function SavingsDetail({
           <Card>
             <CardHeader>
               <HomeSectionHeading id="your-savings-heading">
-                {choosing ? "Withdraw from" : "Your savings"}
+                Your savings
               </HomeSectionHeading>
             </CardHeader>
             <CardContent inset="list">
               <ul className="list-none p-0 [&_[data-slot=item]]:min-h-16">
-                {shown.map(({ vault, held }) => (
+                {shown.map(({ vault }) => (
                   <SavingsVaultRow
                     key={vault.address}
                     vault={vault}
                     metadata={vaultStatus === "failed" ? null : metadata}
                     rateLoading={vaultStatus === "loading"}
                     nowMs={nowMs}
-                    onIntent={onSavingsIntent}
-                    onActivate={
-                      choosing &&
-                      withdrawable.length > 1 &&
-                      held &&
-                      vault.action
-                        ? () => choose(vault.action!)
-                        : undefined
-                    }
-                    activateLabel={`Withdraw from ${vault.name}`}
+                    onActivate={actionsAvailable ? () => onManageVault(vault.address) : undefined}
+                    activateLabel={actionsAvailable ? `Manage ${vault.name}` : undefined}
                   />
                 ))}
+                {pendingEmpty ? pendingDeposits.map((deposit) => (
+                  <BalanceRow key={deposit.vaultAddress} icon={<GlyphMark size="sm"><PiggyBank className="size-4" /></GlyphMark>}
+                    iconTone="mark" label={deposit.vaultName} context="Pending"
+                    value={<MoneyTicker animated={false} value={formatUsdStablecoinAmount(deposit.amountBaseUnits)} />} chevron={false} />
+                )) : null}
               </ul>
               {vaultStatus === "failed" ? recovery : null}
             </CardContent>
@@ -982,6 +974,7 @@ export function SavingsDetail({
       ) : null}
       {!balanceFailed &&
       vaultStatus !== "failed" &&
+      !verifiedEmpty &&
       (vaultStatus === "loading" || other.length) ? (
         <section
           aria-labelledby="more-savings-heading"
@@ -989,9 +982,7 @@ export function SavingsDetail({
         >
           <Card>
             <CardHeader>
-              <HomeSectionHeading id="more-savings-heading">
-                More ways to save
-              </HomeSectionHeading>
+              <HomeSectionHeading id="more-savings-heading">More ways to save</HomeSectionHeading>
             </CardHeader>
             <CardContent inset="list">
               {!other.length ? (
@@ -1020,7 +1011,6 @@ export function SavingsDetail({
                         metadata={metadata}
                         rateLoading={vaultStatus === "loading"}
                         nowMs={nowMs}
-                        onIntent={onSavingsIntent}
                         onActivate={
                           depositUnavailable
                             ? undefined

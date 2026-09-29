@@ -394,12 +394,28 @@ describe("parseCdpSqlResponseEnvelope", () => {
         cached: false,
         executionTimestamp: receivedAt.toISOString(),
         executionTimeMs: 17,
-        rowCount: 1,
+        rowCount: 10,
       },
     });
 
     expect(parseCdpSqlResponseEnvelope(LIVE_CDP_SQL_X402_PAGE, receivedAt)).toEqual({
       result: LIVE_CDP_SQL_X402_PAGE.result,
+      metadata: {
+        cached: false,
+        executionTimestamp: receivedAt.toISOString(),
+        executionTimeMs: 0,
+        rowCount: 1,
+      },
+    });
+  });
+
+  test("rejects a non-array result and omits a non-array schema.columns", () => {
+    expect(parseCdpSqlResponseEnvelope({ result: { row: 1 } }, receivedAt)).toBeNull();
+    expect(parseCdpSqlResponseEnvelope({
+      result: [{ row: 1 }],
+      schema: { columns: "not-an-array" },
+    }, receivedAt)).toEqual({
+      result: [{ row: 1 }],
       metadata: {
         cached: false,
         executionTimestamp: receivedAt.toISOString(),

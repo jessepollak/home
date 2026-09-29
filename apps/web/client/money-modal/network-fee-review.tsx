@@ -1,7 +1,7 @@
 "use client";
 
 import { useHomeQuery, publicQueryKey } from "@/client/query/query-client";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { publicResource } from "@/client/query/public-resource";
 import { usePresentationRegionId, presentationQuoteForRegion } from "@/client/invest/presentation-quote";
 import { presentationRegions } from "@/config/regions";
 import { parseMarketPricesResponse } from "@/shared/invest/contracts/market-prices";
@@ -17,9 +17,7 @@ export function NetworkFeeReview({ fee }: { fee: Extract<MoneyActionNetworkFee, 
     staleTime: 60_000,
     retry: false,
     queryFn: async ({ signal }) => {
-      const response = await fetch("/api/market-prices", { headers: { ...deploymentHeaders(), accept: "application/json" }, cache: "no-store", signal });
-      if (!response.ok) throw new Error("Market prices unavailable");
-      const parsed = parseMarketPricesResponse(await response.json());
+      const parsed = parseMarketPricesResponse(await publicResource("/api/market-prices", { signal }));
       if (!parsed) throw new Error("Invalid market prices");
       return parsed;
     },

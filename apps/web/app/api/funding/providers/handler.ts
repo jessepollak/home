@@ -1,9 +1,8 @@
 import {
   authorizeFundingRequest,
-  fundingError,
-  fundingJson,
   type FundingSessionAuthorizer,
 } from "@/server/funding/core/auth";
+import { privateError, privateJson } from "@/server/http/private-response";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 import type { FundingDirection } from "@/shared/funding/provider-contract";
@@ -26,13 +25,13 @@ export async function handleFundingProvidersRequest(
   if ("response" in authorized) return authorized.response;
   const search = new URL(request.url).searchParams;
   const region = search.get("region");
-  if (!region) return fundingError("INVALID_REGION", "Choose a country first.", 400);
+  if (!region) return privateError("INVALID_REGION", "Choose a country first.", 400);
   const requestedDirection = search.get("direction") ?? "onramp";
   if (requestedDirection !== "onramp" && requestedDirection !== "offramp") {
-    return fundingError("INVALID_DIRECTION", "Choose a valid funding direction.", 400);
+    return privateError("INVALID_DIRECTION", "Choose a valid funding direction.", 400);
   }
   if (!dependencies.databaseUrl?.trim()) {
-    return fundingJson({
+    return privateJson({
       version: FUNDING_PROVIDERS_VERSION,
       direction: requestedDirection,
       providers: [],
@@ -40,7 +39,7 @@ export async function handleFundingProvidersRequest(
   }
 
   try {
-    return fundingJson({
+    return privateJson({
       version: FUNDING_PROVIDERS_VERSION,
       direction: requestedDirection,
       providers: await dependencies.listProviders(
@@ -50,7 +49,7 @@ export async function handleFundingProvidersRequest(
       ),
     });
   } catch {
-    return fundingError(
+    return privateError(
       "PROVIDERS_UNAVAILABLE",
       "Funding methods are unavailable.",
       503,

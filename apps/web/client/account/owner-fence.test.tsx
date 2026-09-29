@@ -6,6 +6,7 @@ import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client
 import type { VerifiedAccountSession } from "./session-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { BALANCES_VERSION } from "@/shared/balances/types";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const { useEffect } = await import("react");
@@ -477,7 +478,7 @@ describe("owner generation fence", () => {
       const view = render(owner(activeSdk));
       await waitFor(() => expect(currentClient().status).toBe("verified"));
       queryClient.setQueryData(ownerQueryKey(dataOwnerKey, "balances", "US"), {
-        version: 4,
+        version: BALANCES_VERSION,
         holdings: [{ id: "usdc", balance: { status: "ready", baseUnits: "1000000" } }],
       });
       const action = await currentClient().prepareMoneyAction("send", { amountBaseUnits: "1000000" });

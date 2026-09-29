@@ -13,6 +13,7 @@ import {
 } from "./after-action";
 import type { FreshUntilMovedClock } from "./fresh-until-moved";
 import { createHomeQueryClient, ownerQueryKey } from "./query-client";
+import { BALANCES_VERSION } from "@/shared/balances/types";
 
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const USDC_KEY = "eip155:8453/erc20:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -63,7 +64,7 @@ function fakeClock() {
 
 function balances(usdc: string, shares: string) {
   return {
-    version: 4,
+    version: BALANCES_VERSION,
     holdings: [
       { id: "usdc", key: USDC_KEY, balance: { status: "ready", baseUnits: usdc } },
       { id: "morpho-vault", key: VAULT_KEY, balance: { status: "ready", baseUnits: shares } },

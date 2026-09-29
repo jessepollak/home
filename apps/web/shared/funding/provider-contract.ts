@@ -1,6 +1,8 @@
 import type { CountryCode, FiatCurrencyCode } from "@/config/regions";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { FundingAsset } from "./assets";
+import type { CashoutQuote } from "./cash-out-quote";
+import type { FundingQuote } from "./contracts/quotes";
 
 export type FundingDirection = "onramp" | "offramp";
 export type FundingPaymentMethod = { id: string; label: string };
@@ -123,10 +125,9 @@ export type OfframpCatalog = {
 export type OfframpEstimate = {
   amountAtomic: string;
   currency: FiatCurrencyCode;
-  approximateFiatAmount: string;
+  quote: CashoutQuote;
   minConversionRate: string;
   intentAmountRange: { min: string; max: string };
-  etaSeconds: number | null;
   asOf: string;
 };
 
@@ -237,14 +238,7 @@ export type QuoteIntent = {
   customerRef?: string;
 };
 
-export type Quote = {
-  providerQuoteId?: string;
-  fiatAmount: string;
-  tokenAmountAtomic: string;
-  fees: Array<{ label: string; amount: string; currency: string }>;
-  feesKnown?: boolean;
-  expiresAt: string;
-};
+export type Quote = FundingQuote;
 
 export type OrderIntent = {
   homeOrderId: string;

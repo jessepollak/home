@@ -8,7 +8,10 @@ import type {
 import type { OwnerGenerationFence } from "./cdp-session-lifecycle";
 import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import { readJson } from "@/shared/http/read-json";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { parseCashoutPrepareErrorResponse } from "@/shared/actions/contracts/prepare";
+import { parseConfirmActionErrorResponse } from "@/shared/actions/contracts/confirm";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import {
   deploymentHeaders,
@@ -30,6 +33,7 @@ const walletFreeAccountResourcePrefixes = ["/api/account/country-preference", "/
 
 const accountResourcePrefixes = [
   ...walletFreeAccountResourcePrefixes,
+  "/api/account/email-request",
   "/api/invites/link",
   "/api/actions",
   "/api/activity/orders",
@@ -71,6 +75,15 @@ export function normalizeAccountResourcePath(path: string): string {
 export function accountResourceRequiresSmartAccount(safePath: string): boolean {
   const { pathname } = new URL(safePath, "https://home.invalid");
   return !walletFreeAccountResourcePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function actionErrorDetails(pathname: string, payload: unknown): { code: string; serverMessage: string } | null {
+  const parsed = /^\/api\/actions\/[^/]+\/confirm$/.test(pathname)
+    ? parseConfirmActionErrorResponse(payload)
+    : pathname === "/api/actions/prepare"
+      ? parseCashoutPrepareErrorResponse(payload)
+      : null;
+  return parsed ? { code: parsed.error.code, serverMessage: parsed.error.message } : null;
 }
 
 function responseErrorDetails(payload: unknown): {
@@ -184,7 +197,7 @@ export function useAuthenticatedTransport({
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
-          details = responseErrorDetails(await response.json());
+          details = responseErrorDetails(await readJson(response));
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
@@ -194,7 +207,7 @@ export function useAuthenticatedTransport({
         throw unavailable;
       }
       try {
-        const value: unknown = await response.json();
+        const value = await readJson(response);
         assertCurrent();
         return value;
       } catch (error) {
@@ -216,6 +229,7 @@ export function useAuthenticatedTransport({
   const fetchAccountResource = useCallback(
     async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
       const safePath = normalizeAccountResourcePath(path);
+      const pathname = new URL(safePath, "https://home.invalid").pathname;
       if (!session || status !== "verified" || verification !== "server" || !ownerKey ||
           (accountResourceRequiresSmartAccount(safePath) && !session.smartAccount)) {
         throw new TransferExecutionError("stale-session");
@@ -265,7 +279,8 @@ export function useAuthenticatedTransport({
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
-          details = responseErrorDetails(await response.json());
+          const payload = await readJson(response);
+          details = actionErrorDetails(pathname, payload) ?? responseErrorDetails(payload);
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
@@ -276,7 +291,7 @@ export function useAuthenticatedTransport({
         throw failure;
       }
       try {
-        const value = await response.json();
+        const value = await readJson(response);
         assertActive();
         if (/^\/api\/actions\/[^/]+\/handle$/.test(new URL(safePath, "https://home.invalid").pathname)) {
           const ownerDataKey = dataOwnerKey(session);

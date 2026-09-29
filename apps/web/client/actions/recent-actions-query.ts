@@ -15,7 +15,7 @@ export function retryRecentActions(failures: number, error: unknown): boolean {
   return failures < 2 && isTransientAccountResourceFailure(error);
 }
 
-const refetchFailedRecentActions = (query: { state: { status: string } }) => query.state.status === "error";
+export const refetchFailedRecentActions = (query: { state: { status: string } }) => query.state.status === "error";
 
 export const recentActionsQueryOptions = {
   staleTime: 10_000,
@@ -35,18 +35,20 @@ type RecentActionsQueryState = {
   errorUpdatedAt: number;
 };
 
-export function recentActionsStatus(query: RecentActionsQueryState): "loading" | "ready" | "error" {
+export function recentActionsStatus(query: RecentActionsQueryState, { tolerateStaleError = true }: { tolerateStaleError?: boolean } = {}): "loading" | "ready" | "error" {
   if (query.isError) {
-    const recentlyLoaded = query.hasData && query.errorUpdatedAt - query.dataUpdatedAt <= RECENT_ACTIONS_STALE_TOLERANCE_MS;
+    const recentlyLoaded = tolerateStaleError && query.hasData &&
+      query.errorUpdatedAt - query.dataUpdatedAt <= RECENT_ACTIONS_STALE_TOLERANCE_MS;
     return recentlyLoaded ? "ready" : "error";
   }
   return query.isPending ? "loading" : "ready";
 }
 
-export function useRecentActionsStatus(query: RecentActionsQueryState): "loading" | "ready" | "error" {
+export function useRecentActionsStatus(query: RecentActionsQueryState, options: { tolerateStaleError?: boolean } = {}): "loading" | "ready" | "error" {
+  const tolerateStaleError = options.tolerateStaleError !== false;
   const [expiredFor, setExpiredFor] = useState<number | null>(null);
-  const status = recentActionsStatus(query);
-  const hiddenFailureSince = query.isError && query.hasData && status === "ready" ? query.dataUpdatedAt : null;
+  const status = recentActionsStatus(query, { tolerateStaleError });
+  const hiddenFailureSince = tolerateStaleError && query.isError && query.hasData && status === "ready" ? query.dataUpdatedAt : null;
   useEffect(() => {
     if (hiddenFailureSince === null) return;
     const delay = Math.max(0, hiddenFailureSince + RECENT_ACTIONS_STALE_TOLERANCE_MS + 1 - Date.now());

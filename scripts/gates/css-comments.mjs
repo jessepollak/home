@@ -4,7 +4,7 @@ import path from "node:path";
 // home/no-comments rule covers TypeScript and TSX; this gate covers the CSS
 // and Python that Oxlint cannot parse. Test and story sources keep the Oxlint
 // rule's exclusions plus extra patterns (.spec., __tests__/, singular test/).
-const PRODUCT_LAYER_SKIP = /(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\.[^/]+$|\.stories\.[^/]+$/;
+const PRODUCT_LAYER_SKIP = /(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\.[^/]+$|\.stories\.(?:module\.)?(?:[cm]?[jt]sx?|css)$/;
 
 // The layers the comment policy covers. collectForbiddenComments scans only
 // these layers, so a new layer is a deliberate edit here instead of an implicit

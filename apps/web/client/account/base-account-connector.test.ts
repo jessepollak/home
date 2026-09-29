@@ -37,6 +37,8 @@ class ProviderFixture {
   };
   emitAccountsDuringConnect = false;
   walletConnectError: unknown = null;
+  emailConnectError: unknown = null;
+  dataCallback: unknown = undefined;
   signInCapability: unknown = { message: "signed SIWE message", signature: "0x1234" };
   personalSignError: unknown = null;
   disconnects = 0;
@@ -72,11 +74,15 @@ class ProviderFixture {
         return null;
       case "wallet_connect":
         if (this.walletConnectError) throw this.walletConnectError;
+        if (this.emailConnectError && JSON.stringify(args.params).includes("dataCallback")) throw this.emailConnectError;
         if (this.emitAccountsDuringConnect) this.emit("accountsChanged", this.accounts);
         return {
           accounts: this.accounts.map((address) => ({
             address,
-            capabilities: { signInWithEthereum: this.signInCapability },
+            capabilities: {
+              signInWithEthereum: this.signInCapability,
+              ...(this.dataCallback === undefined ? {} : { dataCallback: this.dataCallback }),
+            },
           })),
         };
       case "eth_requestAccounts":
@@ -103,6 +109,17 @@ class ProviderFixture {
   }
 
   async disconnect() { this.disconnects += 1; }
+}
+
+class EmailProviderFixture extends ProviderFixture {
+  emailResult: unknown = { capabilities: { dataCallback: { email: "Person@Example.COM" } } };
+  emailError: unknown = null;
+
+  override request(args: { method: string; params?: readonly unknown[] | object }): Promise<unknown> {
+    if (args.method !== "wallet_sendCalls") return super.request(args);
+    this.requests.push(args);
+    return this.emailError ? Promise.reject(this.emailError) : Promise.resolve(this.emailResult);
+  }
 }
 
 function asProvider(provider: ProviderFixture) {
@@ -555,6 +572,23 @@ describe("Base Account connector boundary", () => {
     });
   });
 
+  test("treats an unparseable changed account as an account change", async () => {
+    for (const accounts of [["0xAbcdef0123456789abcdef0123456789abcdef01"], ["not-an-address"]]) {
+      const provider = new ProviderFixture();
+      const invalidations: string[] = [];
+      const connection = await connectWithBaseProvider(
+        asProvider(provider),
+        CHALLENGE,
+        (reason) => { invalidations.push(reason); },
+      );
+      provider.emit("accountsChanged", accounts);
+      expect(invalidations).toEqual(["account-changed"]);
+      await expect(connection.assertUnchanged()).rejects.toMatchObject({
+        reason: "account-changed",
+      });
+    }
+  });
+
   test("rejects malformed signatures instead of forwarding them to CDP", async () => {
     const provider = new ProviderFixture();
     provider.signature = "not-hex";
@@ -567,5 +601,98 @@ describe("Base Account connector boundary", () => {
     await expect(connection.signMessage("fixture")).rejects.toMatchObject({
       reason: "invalid-provider-response",
     });
+  });
+
+  test("asks for the email in the sign-in request only when requested", async () => {
+    const plain = new ProviderFixture();
+    const withoutEmail = await connectWithBaseProvider(asProvider(plain), CHALLENGE, () => {});
+    expect(JSON.stringify(plain.requests)).not.toContain("dataCallback");
+    expect(withoutEmail.signInEmail).toBeUndefined();
+
+    const provider = new ProviderFixture();
+    provider.dataCallback = { email: " Person@Example.COM " };
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}, { requestEmail: true });
+    const connect = provider.requests.find(({ method }) => method === "wallet_connect") as { params: [{ capabilities: Record<string, unknown> }] };
+    expect(connect.params[0].capabilities.dataCallback).toEqual({ optional: true, requests: [{ type: "email", optional: true }] });
+    expect(connect.params[0].capabilities.signInWithEthereum).toMatchObject({ nonce: CHALLENGE.nonce });
+    expect(connection).toMatchObject({ kind: "proof", signature: "0x1234", signInEmail: { status: "email", email: "person@example.com" } });
+  });
+
+  test("classifies every sign-in email capability result without affecting the sign-in proof", async () => {
+    const cases: [unknown, unknown][] = [
+      [undefined, { status: "ignored" }],
+      [{ code: 4001, message: "User rejected" }, { status: "declined" }],
+      [{ code: 5000, message: "User closed" }, { status: "declined" }],
+      [{}, { status: "declined" }],
+      [{ code: 5700, message: "Unsupported capability" }, { status: "refused", code: 5700, message: "Unsupported capability" }],
+      [{ email: "not-an-email" }, { status: "refused", code: null, message: "malformed" }],
+      ["raw", { status: "refused", code: null, message: "malformed" }],
+    ];
+    for (const [dataCallback, expected] of cases) {
+      const provider = new ProviderFixture();
+      provider.dataCallback = dataCallback;
+      const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}, { requestEmail: true });
+      expect(connection).toMatchObject({ kind: "proof", message: "signed SIWE message" });
+      expect(connection.signInEmail).toEqual(expected as never);
+    }
+  });
+
+  test("retries sign-in once without the email capability when the wallet refuses the whole request", async () => {
+    for (const code of [5700, -32602]) {
+      const provider = new ProviderFixture();
+      provider.emailConnectError = { code, message: "capability not supported" };
+      const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {}, { requestEmail: true });
+      const connects = provider.requests.filter(({ method }) => method === "wallet_connect");
+      expect(connects).toHaveLength(2);
+      expect(JSON.stringify(connects[1])).not.toContain("dataCallback");
+      expect(connection.kind).toBe("proof");
+      expect(connection.signInEmail).toMatchObject({ status: "refused", code });
+    }
+
+    const cancelled = new ProviderFixture();
+    cancelled.emailConnectError = { code: 4001, message: "User rejected" };
+    await expect(connectWithBaseProvider(asProvider(cancelled), CHALLENGE, () => {}, { requestEmail: true }))
+      .rejects.toMatchObject({ reason: "cancelled" });
+    expect(cancelled.requests.filter(({ method }) => method === "wallet_connect")).toHaveLength(1);
+  });
+
+  test("requests only the email with no calls, callback URL or id, synchronously from the caller", async () => {
+    const provider = new EmailProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    const before = provider.requests.length;
+    const pending = connection.requestEmail!();
+    expect(provider.requests).toHaveLength(before + 1);
+    expect(provider.requests.at(-1)).toEqual({
+      method: "wallet_sendCalls",
+      params: [{
+        version: "2.0.0",
+        chainId: "0x2105",
+        from: ADDRESS,
+        atomicRequired: true,
+        calls: [],
+        capabilities: { dataCallback: { requests: [{ type: "email", optional: false }] } },
+      }],
+    });
+    expect(JSON.stringify(provider.requests.at(-1))).not.toContain("callbackURL");
+    expect(await pending).toEqual({ status: "email", email: "person@example.com", bundleId: null });
+  });
+
+  test("returns a bundle id when present and separates wallet rejection from other failures", async () => {
+    const provider = new EmailProviderFixture();
+    const connection = await connectWithBaseProvider(asProvider(provider), CHALLENGE, () => {});
+    provider.emailResult = { id: "0xbundle", capabilities: { dataCallback: { email: "a@b.co" } } };
+    expect(await connection.requestEmail!()).toEqual({ status: "email", email: "a@b.co", bundleId: "0xbundle" });
+    provider.emailResult = { id: "0xbundle", capabilities: {} };
+    expect(await connection.requestEmail!()).toEqual({ status: "failed", code: null, message: "malformed" });
+    for (const code of [4001, 5000]) {
+      provider.emailError = { code, message: "User rejected" };
+      expect(await connection.requestEmail!()).toEqual({ status: "declined" });
+    }
+    provider.emailError = { code: -32602, message: "Invalid params" };
+    expect(await connection.requestEmail!()).toEqual({ status: "failed", code: -32602, message: "Invalid params" });
+    provider.emailError = { code: 2147483648, message: "Out of range" };
+    expect(await connection.requestEmail!()).toEqual({ status: "failed", code: null, message: "Out of range" });
+    provider.emailError = new Error("boom");
+    expect(await connection.requestEmail!()).toEqual({ status: "failed", code: null, message: "boom" });
   });
 });

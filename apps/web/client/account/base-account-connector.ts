@@ -5,12 +5,13 @@ import { createWalletClient, custom } from "viem";
 import { base } from "viem/chains";
 import { connect } from "viem/experimental/erc7846";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
+import { isWalletCode } from "@/shared/account/contracts/email-request";
 import { BASE_CHAIN_ID } from "@/shared/account/session-types";
+import { parseAddress } from "@/shared/chain/hex";
 import { supportsBaseBatchGasHint } from "@/shared/actions/contracts/confirm";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const BASE_CHAIN_HEX = "0x2105";
-const evmAddressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hexPattern = /^0x(?:[0-9a-fA-F]{2})+$/;
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
 
@@ -47,8 +48,21 @@ export type BaseAccountCallStatus =
   | { status: "failed" }
   | { status: "complete"; transactionHash: `0x${string}` };
 
+export type SignInEmailCapability =
+  | { status: "email"; email: string }
+  | { status: "declined" }
+  | { status: "ignored" }
+  | { status: "refused"; code: number | null; message: string | null };
+
+export type EmailRequestResult =
+  | { status: "email"; email: string; bundleId: string | null }
+  | { status: "declined" }
+  | { status: "failed"; code: number | null; message: string | null };
+
 type ConnectedBaseAccountCommon = {
   address: `0x${string}`;
+  signInEmail?: SignInEmailCapability;
+  requestEmail?: () => Promise<EmailRequestResult>;
   assertUnchanged: () => Promise<void>;
   signMessage: (message: string) => Promise<`0x${string}`>;
   signTypedData: (typedData: unknown) => Promise<`0x${string}`>;
@@ -69,9 +83,12 @@ export type ConnectedBaseAccount = ConnectedBaseAccountCommon & (
   | { kind: "unsupported" }
 );
 
+export type BaseAccountConnectOptions = { requestEmail?: boolean };
+
 export type BaseAccountConnector = (
   challenge: NativeBaseChallenge,
   onInvalidated: (reason: BaseAccountInvalidation) => void,
+  options?: BaseAccountConnectOptions,
 ) => Promise<ConnectedBaseAccount>;
 
 export type BaseAccountRestorer = (
@@ -95,20 +112,41 @@ function isValidBatchGasLimit(value: string): boolean {
 function providerErrorCode(error: unknown): number | null {
   if (
     !error || typeof error !== "object" ||
-    !("code" in error) || typeof error.code !== "number" || !Number.isSafeInteger(error.code) ||
+    !("code" in error) || !isWalletCode(error.code) ||
     !("message" in error) || typeof error.message !== "string" || !error.message
   ) return null;
   return error.code;
 }
 
-function normalizeAddress(value: unknown): `0x${string}` | null {
-  return typeof value === "string" && evmAddressPattern.test(value)
-    ? (value.toLowerCase() as `0x${string}`)
-    : null;
+function walletMessage(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const text = "details" in value && typeof value.details === "string" && value.details
+    ? value.details
+    : "message" in value && typeof value.message === "string" ? value.message : "";
+  return text ? text.slice(0, 300) : null;
 }
 
+function reportedEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
+}
+
+function signInEmailFromCapability(value: unknown): SignInEmailCapability {
+  if (value === undefined) return { status: "ignored" };
+  const code = providerErrorCode(value);
+  if (code === 4001 || code === 5000) return { status: "declined" };
+  if (code !== null) return { status: "refused", code, message: walletMessage(value) };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { status: "refused", code: null, message: "malformed" };
+  if (!("email" in value) || value.email === undefined || value.email === null) return { status: "declined" };
+  const email = reportedEmail(value.email);
+  return email ? { status: "email", email } : { status: "refused", code: null, message: "malformed" };
+}
+
+const emailCapabilityRefusalCodes = [5700, -32602];
+
 function firstAddress(value: unknown): `0x${string}` | null {
-  return Array.isArray(value) ? normalizeAddress(value[0]) : null;
+  return Array.isArray(value) ? parseAddress(value[0]) : null;
 }
 
 function chainIdFromProvider(value: unknown): number | null {
@@ -132,6 +170,7 @@ async function openBaseProvider(
   onInvalidated: (reason: BaseAccountInvalidation) => void,
   interactive: boolean,
   challenge?: NativeBaseChallenge,
+  options: BaseAccountConnectOptions = {},
 ): Promise<ConnectedBaseAccount> {
   let invalidation: BaseAccountInvalidation | null = null;
   let connectedAddress: `0x${string}` | null = null;
@@ -147,11 +186,7 @@ async function openBaseProvider(
     if (!connectedAddress || !Array.isArray(accounts)) {
       return;
     }
-    const nextAddress = firstAddress(accounts);
-    if (accounts.length > 0 && !nextAddress) {
-      return;
-    }
-    if (nextAddress !== connectedAddress) {
+    if (firstAddress(accounts) !== connectedAddress) {
       invalidate("account-changed");
     }
   };
@@ -176,6 +211,7 @@ async function openBaseProvider(
   let resultKind: "proof" | "unsupported" = "unsupported";
   let proof: { message: string; signature: `0x${string}` } | null = null;
   let walletConnected = false;
+  let signInEmail: SignInEmailCapability | undefined;
   try {
     let accounts: unknown;
     if (interactive) {
@@ -185,8 +221,7 @@ async function openBaseProvider(
         params: [{ chainId: BASE_CHAIN_HEX }],
       });
       try {
-        const response = await connect(
-          createWalletClient({
+        const walletClient = createWalletClient({
             chain: base,
             transport: custom({
               request: async (args) => {
@@ -202,29 +237,46 @@ async function openBaseProvider(
                 }
               },
             }, { retryCount: 0 }),
-          }),
-          {
-            capabilities: {
-              unstable_signInWithEthereum: {
-                nonce: challenge.nonce,
-                chainId: challenge.chainId,
-                domain: challenge.domain,
-                uri: challenge.uri,
-                version: challenge.version,
-                statement: challenge.statement,
-                issuedAt: new Date(challenge.issuedAt),
-                expirationTime: new Date(challenge.expirationTime),
-              },
-            },
+        });
+        const signInWithEthereum = {
+          nonce: challenge.nonce,
+          chainId: challenge.chainId,
+          domain: challenge.domain,
+          uri: challenge.uri,
+          version: challenge.version,
+          statement: challenge.statement,
+          issuedAt: new Date(challenge.issuedAt),
+          expirationTime: new Date(challenge.expirationTime),
+        };
+        const connectOnce = (withEmail: boolean) => connect(walletClient, {
+          capabilities: {
+            unstable_signInWithEthereum: signInWithEthereum,
+            ...(withEmail ? { dataCallback: { optional: true, requests: [{ type: "email", optional: true }] } } : {}),
           },
-        );
+        });
+        let response: Awaited<ReturnType<typeof connectOnce>>;
+        if (options.requestEmail) {
+          try {
+            response = await connectOnce(true);
+          } catch (error) {
+            const code = error instanceof BaseAccountConnectorError ? null : providerErrorCode(error);
+            if (code === null || !emailCapabilityRefusalCodes.includes(code)) throw error;
+            signInEmail = { status: "refused", code, message: walletMessage(error) };
+            response = await connectOnce(false);
+          }
+        } else {
+          response = await connectOnce(false);
+        }
         accounts = response.accounts;
         if (!Array.isArray(accounts) || accounts.length !== 1) {
           throw new BaseAccountConnectorError("invalid-provider-response");
         }
         const account = accounts[0];
-        connectedAddress = normalizeAddress(account?.address);
+        connectedAddress = parseAddress(account?.address);
         if (!connectedAddress) throw new BaseAccountConnectorError("invalid-provider-response");
+        if (options.requestEmail && !signInEmail) {
+          signInEmail = signInEmailFromCapability((account.capabilities as Record<string, unknown> | undefined)?.dataCallback);
+        }
         const signIn = account.capabilities?.unstable_signInWithEthereum;
         const capabilityCode = providerErrorCode(signIn);
         if (capabilityCode !== null) {
@@ -331,7 +383,39 @@ async function openBaseProvider(
       ? { kind: "proof" as const, ...proof }
       : { kind: "unsupported" as const }),
     address: connectedAddress,
+    ...(signInEmail ? { signInEmail } : {}),
     assertUnchanged,
+    requestEmail() {
+      if (invalidation) return Promise.resolve({ status: "failed" as const, code: null, message: invalidation });
+      let pending: Promise<unknown>;
+      try {
+        pending = provider.request({
+          method: "wallet_sendCalls",
+          params: [{
+            version: "2.0.0",
+            chainId: BASE_CHAIN_HEX,
+            from: connectedAddress,
+            atomicRequired: true,
+            calls: [],
+            capabilities: { dataCallback: { requests: [{ type: "email", optional: false }] } },
+          }],
+        });
+      } catch (error) {
+        pending = Promise.reject(error);
+      }
+      return pending.then((result): EmailRequestResult => {
+        const capabilities = result && typeof result === "object" && "capabilities" in result ? result.capabilities : null;
+        const data = capabilities && typeof capabilities === "object" && "dataCallback" in capabilities ? capabilities.dataCallback : null;
+        const email = reportedEmail(data && typeof data === "object" && "email" in data ? data.email : null);
+        if (!email) return { status: "failed", code: null, message: "malformed" };
+        const id = result && typeof result === "object" && "id" in result ? result.id : null;
+        return { status: "email", email, bundleId: typeof id === "string" && id.length >= 1 && id.length <= 512 ? id : null };
+      }, (error: unknown): EmailRequestResult => {
+        const code = providerErrorCode(error);
+        if (code === 4001 || code === 5000) return { status: "declined" };
+        return { status: "failed", code, message: walletMessage(error) };
+      });
+    },
     async signMessage(message) {
       await assertUnchanged();
       let signature: unknown;
@@ -485,8 +569,9 @@ export function connectWithBaseProvider(
   provider: BaseAccountProvider,
   challenge: NativeBaseChallenge,
   onInvalidated: (reason: BaseAccountInvalidation) => void,
+  options?: BaseAccountConnectOptions,
 ): Promise<ConnectedBaseAccount> {
-  return openBaseProvider(provider, onInvalidated, true, challenge);
+  return openBaseProvider(provider, onInvalidated, true, challenge, options);
 }
 
 export function restoreWithBaseProvider(
@@ -513,7 +598,8 @@ async function createBaseProvider(): Promise<BaseAccountProvider> {
 export const connectBaseAccount: BaseAccountConnector = async (
   challenge,
   onInvalidated,
-) => connectWithBaseProvider(await createBaseProvider(), challenge, onInvalidated);
+  options,
+) => connectWithBaseProvider(await createBaseProvider(), challenge, onInvalidated, options);
 
 export const restoreBaseAccount: BaseAccountRestorer = async (
   onInvalidated,

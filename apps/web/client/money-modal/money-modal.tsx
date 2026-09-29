@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 
 const MoneyModalPendingContext = createContext({ pending: false, register: (_id: symbol, _pending: boolean) => {} });
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
@@ -73,13 +73,13 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     if (animations.step) {
       animations.step.onfinish = null;
       animations.step.oncancel = null;
-      void animations.step.finished.catch(() => {});
+      void animations.step.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the step animation rejects finished; focus recovery is handled separately
       animations.step.cancel();
     }
     if (animations.height) {
       animations.height.onfinish = null;
       animations.height.oncancel = null;
-      void animations.height.finished.catch(() => {});
+      void animations.height.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the height animation rejects finished; layout cleanup continues independently
       animations.height.cancel();
     }
     hostRef.current?.style.removeProperty("overflow");
@@ -109,7 +109,6 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     const prior = previous.current;
     previous.current = next;
     if (!prior) {
-      lastHeight.current = host.offsetHeight;
       stepFocusTarget(next, true).focus({ preventScroll: true });
       return;
     }
@@ -139,7 +138,7 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     };
     stepAnimation.onfinish = finishStep;
     stepAnimation.oncancel = finishStep;
-    if (reduced || Math.abs(endHeight - startHeight) < 1 || typeof host.animate !== "function") return;
+    if (reduced || startHeight <= 0 || Math.abs(endHeight - startHeight) < 1 || typeof host.animate !== "function") return;
     host.style.setProperty("overflow", "hidden");
     const heightAnimation = host.animate(
       [{ height: `${startHeight}px` }, { height: `${endHeight}px` }],
@@ -227,8 +226,10 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
     if (document.activeElement === active) active.blur();
   }, [open]);
 
+  const exit = useCallback(() => { onCancel(); }, [onCancel]);
+
   return (
-    <MoneyModalExitContext value={() => { onCancel(); }}>
+    <MoneyModalExitContext value={exit}>
     <Drawer open={open} modal keyboardAware swipeDirection="down" onOpenChange={(nextOpen, eventDetails) => {
       if (nextOpen) return;
       if (onCancel() === false) eventDetails.cancel();
@@ -273,7 +274,8 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, p
   }, []);
   const effectivePending = pending || registrants.size > 0;
   const handoff = useContext(MoneyModalHandoffContext);
-  return <MoneyModalPendingContext value={{ pending: effectivePending, register }}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
+  const pendingValue = useMemo(() => ({ pending: effectivePending, register }), [effectivePending, register]);
+  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 /** @public shared money-flow step contract (#1058) */

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { cryptoAssets, stockAssets } from "@/config/invest-assets";
+import type { TokenizedEquityReference } from "@/server/market-data/tokenized-equity/reader";
 import { createCodexRawQuotesReader } from "@/server/market-data/codex/raw-quotes";
 import { BALANCES_PRICE_MAX_AGE_MS } from "@/shared/balances/types";
 import type { PriceQuote } from "@/shared/balances/quotes";
@@ -6,6 +8,8 @@ import {
   BALANCES_PRICE_CONCURRENCY,
   createBalancesPricer,
   mapWithConcurrency,
+  STOCK_REFERENCE_MAX_AGE_MS,
+  STOCK_REFERENCE_REFRESH_MS,
 } from "./price";
 import { BORROW_MARKETS, DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
 import { exactDecimalToFraction } from "@/shared/balances/math";
@@ -183,6 +187,21 @@ describe("balances pricing", () => {
     for (const [index, gate] of gates.entries()) gate.resolve(index * 10);
     await expect(pending).resolves.toEqual([0, 10, 20, 30, 40, 50]);
   });
+
+  test("keeps the cash unit price even with zero wallet USDC", async () => {
+    const price = createTestPricer({ readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates() });
+    const result = await price({ ...read, holdings: [{ ...usdc, balance: { status: "ready", baseUnits: "0" } }] }, "US");
+    expect(result.holdings[0]?.value).toMatchObject({ status: "priced", amount: { atoms: "0" } });
+    expect(result.holdings[0]?.unitValue).toEqual({ currency: "USD", amount: { atoms: "1", scale: 0 } });
+  });
+  test("requests regional FX for a zero-balance cash holding", async () => {
+    const price = createTestPricer({ readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates() });
+    const result = await price({ ...read, holdings: [{ ...usdc, balance: { status: "ready", baseUnits: "0" } }] }, "DE");
+    expect(result.holdings[0]?.unitValue).toEqual({ currency: "EUR", amount: { atoms: "9", scale: 1 } });
+  });
+
 
   test("keeps the exact ERC-20 unit price independently of the holding's rounded value", async () => {
     const token = holding("0x4444444444444444444444444444444444444444", "volatile", "registry", { baseUnits: "1" });
@@ -598,6 +617,26 @@ describe("balances pricing", () => {
     }
   });
 
+  test("omits the cash unit price for a zero balance when the stored price is stale", async () => {
+    const now = new Date("2026-09-13T12:00:00.000Z");
+    const store = new MemoryPriceObservationStore();
+    await store.putMany([{
+      assetKey: usdc.key,
+      unitPrice: { atoms: "1", scale: 0 },
+      asOf: new Date(now.getTime() - 30 * 60 * 60 * 1_000).toISOString(),
+      fetchedAt: "2026-09-13T11:59:00.000Z",
+    }]);
+    const price = createTestPricer({
+      priceStore: store,
+      now: () => now,
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "unavailable")),
+      readExchangeRates: async () => rates(),
+    });
+    const result = await price({ ...read, holdings: [{ ...usdc, balance: { status: "ready", baseUnits: "0" } }] }, "US");
+    expect(result.holdings[0]?.value).toMatchObject({ status: "priced", amount: { atoms: "0" } });
+    expect(result.holdings[0]?.unitValue).toBeUndefined();
+  });
+
   test("serves an expiring stored observation and refreshes it in the background", async () => {
     const now = new Date("2026-09-13T12:00:00.000Z");
     const store = new MemoryPriceObservationStore();
@@ -869,5 +908,286 @@ describe("balances pricing", () => {
     expect(batches).toEqual([
       [firstRegistry.key, secondRegistry.key],
     ]);
+  });
+});
+
+const listedStock = stockAssets[0]!;
+const stockUpdatedAt = "2026-09-12T16:00:00.000Z";
+const stockBlock = { number: "1", timestamp: "2026-09-13T12:00:00.000Z" };
+const stockFeedPrice = { atoms: "12345678901", scale: 8 };
+function stockHolding(baseUnits = "100000000"): ReadHolding {
+  return {
+    ...holding(listedStock.contractAddress.toLowerCase(), listedStock.id, "registry", { baseUnits }),
+    decimals: listedStock.representation.decimals,
+    symbol: listedStock.representation.tokenSymbol,
+  };
+}
+function stockReference(status: "open" | "closed", price = stockFeedPrice): TokenizedEquityReference {
+  return { assetId: listedStock.id, status, price, updatedAt: stockUpdatedAt, roundId: "1", multiplierWad: "1000377118676784179", block: stockBlock };
+}
+
+describe("stock holding valuation", () => {
+  test.each([
+    { label: "open USD", status: "open", region: "US", currency: "USD", atoms: "123456789010000000000", unit: { atoms: "12345678901", scale: 8 } },
+    { label: "closed last close", status: "closed", region: "US", currency: "USD", atoms: "123456789010000000000", unit: { atoms: "12345678901", scale: 8 } },
+    { label: "non-USD FX", status: "open", region: "DE", currency: "EUR", atoms: "111111110109000000000", unit: { atoms: "111111110109", scale: 9 } },
+  ] as const)("prices $label from the feed without multiplying the registry multiplier", async ({ status, region, currency, atoms, unit }) => {
+    const codexInputs: string[] = [];
+    const feeds: string[][] = [];
+    const price = createTestPricer({
+      readPrices: async (inputs) => { codexInputs.push(...inputs.map((input) => input.assetKey)); return []; },
+      readExchangeRates: async () => rates(),
+      readStockReferences: async (inputs) => { feeds.push(inputs.map((feed) => feed.assetId)); return [stockReference(status)]; },
+    });
+    const result = await price({ ...read, holdings: [stockHolding()] }, region);
+    expect(feeds).toEqual([stockAssets.map((asset) => asset.id)]);
+    expect(codexInputs).toEqual([]);
+    expect(result.holdings[0]?.value).toEqual({
+      status: "priced", currency, amount: { atoms, scale: 18 }, asOf: stockUpdatedAt,
+      reference: { kind: "tokenized-equity", session: status },
+    });
+    expect(result.holdings[0]?.unitValue).toEqual({ currency, amount: unit });
+  });
+
+  test("a cached pass serves the last good reference and schedules the next read instead of waiting on the provider", async () => {
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let now = 0;
+    let reads = 0;
+    const price = createTestPricer({
+      nowMs: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: async () => { reads += 1; return [stockReference(reads === 1 ? "closed" : "open")]; },
+    });
+    const bootstrap = await price({ ...read, holdings: [stockHolding()] }, "US", "bootstrap");
+    expect(reads).toBe(1);
+    expect(bootstrap.holdings[0]?.value).toMatchObject({ status: "priced", reference: { kind: "tokenized-equity", session: "closed" } });
+    now = STOCK_REFERENCE_REFRESH_MS + 1;
+    const cached = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(reads).toBe(1);
+    expect(cached.holdings[0]?.value).toMatchObject({ status: "priced", reference: { session: "closed" } });
+    expect(cached.revalidating).toBe(false);
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0]!();
+    expect(reads).toBe(2);
+    const refreshed = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(refreshed.holdings[0]?.value).toMatchObject({ status: "priced", reference: { session: "open" } });
+    expect(refreshed.revalidating).toBe(false);
+    expect(reads).toBe(2);
+  });
+
+
+  test("a resolved all-unavailable batch past the age bound is unpriced and degraded", async () => {
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let now = 0;
+    let reads = 0;
+    const price = createTestPricer({
+      nowMs: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: async () => {
+        reads += 1;
+        return reads === 1 ? [stockReference("open")] : [{ assetId: listedStock.id, status: "unavailable", reason: "read-failed", block: null }];
+      },
+    });
+    await price({ ...read, holdings: [stockHolding()] }, "US", "bootstrap");
+    now = STOCK_REFERENCE_MAX_AGE_MS + 1;
+    const stale = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(stale.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+    expect(stale.revalidating).toBe(true);
+    await scheduled[0]!();
+    const afterFailure = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(afterFailure.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+    expect(afterFailure.revalidating).toBe(true);
+  });
+
+  test("a failing reference refresh keeps a thirty-second retry cadence", async () => {
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let now = 0;
+    const price = createTestPricer({
+      nowMs: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: async () => { throw new Error("oracle unavailable"); },
+    });
+    await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(scheduled).toHaveLength(1);
+    await scheduled[0]!();
+    now += STOCK_REFERENCE_REFRESH_MS - 1;
+    await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(scheduled).toHaveLength(1);
+    now += 2;
+    await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(scheduled).toHaveLength(2);
+  });
+
+  test("a cached pass stops pricing a stock once the retained reference outlives its usable age", async () => {
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let now = 0;
+    let reads = 0;
+    const price = createTestPricer({
+      nowMs: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: async () => {
+        reads += 1;
+        if (reads === 1) return [stockReference("open")];
+        throw new Error("oracle unavailable");
+      },
+    });
+    expect((await price({ ...read, holdings: [stockHolding()] }, "US", "bootstrap")).holdings[0]?.value).toMatchObject({ status: "priced" });
+    now = STOCK_REFERENCE_MAX_AGE_MS + 1;
+    const cached = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(cached.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+    expect(cached.revalidating).toBe(true);
+    expect(reads).toBe(1);
+    await scheduled[0]!();
+    expect(reads).toBe(2);
+    const afterFailure = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(afterFailure.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+    expect(afterFailure.revalidating).toBe(true);
+  });
+
+  test("a cached pass keeps a usable reference through one rejected refresh and shows a later pause", async () => {
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let now = 0;
+    let reads = 0;
+    const price = createTestPricer({
+      nowMs: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: async () => {
+        reads += 1;
+        if (reads === 1) return [stockReference("open")];
+        if (reads === 2) return [{ assetId: listedStock.id, status: "unavailable", reason: "read-failed", block: null }];
+        return [{ assetId: listedStock.id, status: "paused", lastPrice: stockFeedPrice, updatedAt: stockUpdatedAt, multiplierWad: "1000000000000000000", block: stockBlock }];
+      },
+    });
+    await price({ ...read, holdings: [stockHolding()] }, "US", "bootstrap");
+    now = STOCK_REFERENCE_REFRESH_MS + 1;
+    const cached = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(cached.holdings[0]?.value).toMatchObject({ status: "priced", reference: { session: "open" } });
+    await scheduled[0]!();
+    const afterRejection = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(afterRejection.holdings[0]?.value).toMatchObject({ status: "priced", reference: { session: "open" } });
+    now += STOCK_REFERENCE_REFRESH_MS + 1;
+    await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    await scheduled[scheduled.length - 1]!();
+    const afterPause = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(afterPause.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-paused" });
+  });
+  test("concurrent bootstrap reads share one in-flight reference read", async () => {
+    const pending = deferred<TokenizedEquityReference[]>();
+    let reads = 0;
+    const price = createTestPricer({
+      readStockReferences: async () => { reads += 1; return pending.promise; },
+    });
+    const first = price({ ...read, holdings: [stockHolding()] }, "US", "bootstrap");
+    const second = price({ ...read, holdings: [stockHolding()] }, "US", "bootstrap");
+    pending.resolve([stockReference("closed")]);
+    const [a, b] = await Promise.all([first, second]);
+    expect(reads).toBe(1);
+    expect(a.holdings[0]?.value).toMatchObject({ status: "priced", reference: { session: "closed" } });
+    expect(b.holdings[0]?.value).toMatchObject({ status: "priced", reference: { session: "closed" } });
+  });
+
+  test("a cached pass on a cold instance reports the stock unpriced without waiting for the provider", async () => {
+    const scheduled: Array<() => Promise<unknown>> = [];
+    const pending = deferred<TokenizedEquityReference[]>();
+    const price = createTestPricer({
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: () => pending.promise,
+    });
+    const cached = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(cached.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+    expect(cached.revalidating).toBe(true);
+    expect(scheduled).toHaveLength(1);
+    pending.resolve([stockReference("open")]);
+    await scheduled[0]!();
+    const warmed = await price({ ...read, holdings: [stockHolding()] }, "US", "cached");
+    expect(warmed.holdings[0]?.value).toMatchObject({ status: "priced" });
+    expect(warmed.revalidating).toBe(false);
+  });
+
+  test("does not read a stock feed for a region with no quote currency", async () => {
+    let reads = 0;
+    const price = createTestPricer({ readStockReferences: async () => { reads += 1; return [stockReference("open")]; } });
+    const result = await price({ ...read, holdings: [stockHolding()] }, "GLOBAL");
+    expect(reads).toBe(0);
+    expect(result.holdings[0]?.value).toEqual({ status: "unpriced", reason: "no-quote-currency" });
+  });
+
+  test.each([
+    { label: "paused", reference: { assetId: listedStock.id, status: "paused", lastPrice: stockFeedPrice, updatedAt: stockUpdatedAt, multiplierWad: "1000377118676784179", block: stockBlock }, reason: "price-paused" },
+    { label: "stale", reference: { assetId: listedStock.id, status: "stale", lastPrice: stockFeedPrice, updatedAt: stockUpdatedAt, multiplierWad: "1000377118676784179", block: stockBlock }, reason: "price-stale" },
+    { label: "unavailable", reference: { assetId: listedStock.id, status: "unavailable", reason: "read-failed", block: null }, reason: "price-unavailable" },
+  ] as const)("leaves a $label feed unpriced", async ({ reference, reason }) => {
+    const price = createTestPricer({
+      readPrices: async () => { throw new Error("stock must not use Codex"); },
+      readStockReferences: async () => [reference as TokenizedEquityReference],
+    });
+    const result = await price({ ...read, holdings: [stockHolding()] }, "US");
+    expect(result.holdings[0]?.value).toEqual({ status: "unpriced", reason });
+    expect(result.holdings[0]?.unitValue).toBeUndefined();
+  });
+
+  test.each([
+    { label: "reader throws", readStockReferences: async () => { throw new Error("oracle unavailable"); } },
+    { label: "reader omits asset", readStockReferences: async () => [] },
+  ])("marks stock price unavailable when $label", async ({ readStockReferences }) => {
+    const price = createTestPricer({ readStockReferences });
+    const result = await price({ ...read, holdings: [stockHolding()] }, "US");
+    expect(result.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+  });
+
+  test("does not read or price a removed listing", async () => {
+    let reads = 0;
+    const price = createTestPricer({
+      stockAssets: [{ ...listedStock, listing: "removed" }],
+      readPrices: async (inputs) => { expect(inputs).toEqual([]); return []; },
+      readStockReferences: async () => { reads += 1; return [stockReference("open")]; },
+    });
+    const result = await price({ ...read, holdings: [stockHolding()] }, "US");
+    expect(reads).toBe(0);
+    expect(result.holdings[0]?.value).toEqual({ status: "unpriced", reason: "asset-removed" });
+  });
+
+  test("preserves zero balance without reading a feed", async () => {
+    let reads = 0;
+    const price = createTestPricer({ readStockReferences: async () => { reads += 1; return [stockReference("open")]; } });
+    const result = await price({ ...read, holdings: [stockHolding("0")] }, "US");
+    expect(reads).toBe(0);
+    expect(result.holdings[0]?.value).toMatchObject({ status: "priced", amount: { atoms: "0", scale: 18 } });
+    expect(result.holdings[0]?.unitValue).toBeUndefined();
+  });
+
+  test("values 10^30 base units exactly to the cent at a large feed price", async () => {
+    const baseUnits = `1${"0".repeat(30)}`;
+    const answer = "9876543210987654321";
+    const price = createTestPricer({ readStockReferences: async () => [stockReference("open", { atoms: answer, scale: 8 })] });
+    const result = await price({ ...read, holdings: [stockHolding(baseUnits)] }, "US");
+    const value = result.holdings[0]?.value;
+    expect(value?.status).toBe("priced");
+    if (value?.status !== "priced") throw new Error("Expected stock valuation.");
+    const expectedCents = BigInt(baseUnits) * BigInt(answer) / BigInt(10) ** BigInt(14);
+    expect(BigInt(value.amount.atoms) / BigInt(10) ** BigInt(value.amount.scale - 2)).toBe(expectedCents);
+    expect(value.amount).toEqual({ atoms: (expectedCents * BigInt(10) ** BigInt(16)).toString(), scale: 18 });
+  });
+
+  test.each(["cbhype", "cbzec"])("keeps %s on Codex despite its B20-style address", async (assetId) => {
+    const asset = cryptoAssets.find((entry) => entry.id === assetId)!;
+    const wrapped = holding(asset.contractAddress.toLowerCase(), asset.id, "registry");
+    let stockReads = 0;
+    const codexInputs: string[] = [];
+    const price = createTestPricer({
+      readStockReferences: async () => { stockReads += 1; return []; },
+      readPrices: async (inputs) => { codexInputs.push(...inputs.map((input) => input.assetKey)); return inputs.map((input) => quote(input.assetKey, "fresh")); },
+    });
+    const result = await price({ ...read, holdings: [wrapped] }, "US");
+    expect(stockReads).toBe(0);
+    expect(codexInputs).toEqual([wrapped.key]);
+    expect(result.holdings[0]?.value.status).toBe("priced");
+  });
+
+  test("never reads a stock feed when there is no stock holding", async () => {
+    let reads = 0;
+    const price = createTestPricer({ readStockReferences: async () => { reads += 1; return []; } });
+    await price({ ...read, holdings: [usdc] }, "US");
+    expect(reads).toBe(0);
   });
 });

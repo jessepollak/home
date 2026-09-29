@@ -7,8 +7,11 @@ import {
   writeAnonymousCountryPreference,
 } from "@/config/country-preference";
 import {
+  ALL_REGIONS_OFFER,
   normalizeCountryCode,
+  presentedRegionId,
   resolvePresentation,
+  type RegionOffer,
   type CountryCode,
   type RegionId,
   type ResolutionSource,
@@ -30,6 +33,7 @@ export function useHomeRegion({
   accountReady = false,
   accountSettling = false,
   writeAccountPreference,
+  offer = ALL_REGIONS_OFFER,
 }: {
   detectedCountry: string | null;
   accountPreference?: CountryCode | null;
@@ -40,9 +44,10 @@ export function useHomeRegion({
   accountReady?: boolean;
   accountSettling?: boolean;
   writeAccountPreference?: AccountPreferenceWriter;
+  offer?: RegionOffer;
 }) {
   const savedAccountPreference = normalizeCountryCode(accountPreference);
-  const initial = resolvePresentation({ persistedCountry: savedAccountPreference, detectedCountry });
+  const initial = resolvePresentation({ persistedCountry: savedAccountPreference, detectedCountry, offer });
   const [storedRegionId, setRegionId] = useState<RegionId>(initial.region.id);
   const [storedResolutionSource, setResolutionSource] = useState<ResolutionSource>(initial.source);
   const [readiness, setReadiness] = useState({ identity: accountIdentity, ready: Boolean(savedAccountPreference) });
@@ -65,15 +70,17 @@ export function useHomeRegion({
   if (accountPreferencePending && accountIdentity !== heldIdentity) {
     setHeldIdentity(accountIdentity);
     if (!heldMatchesAccount) {
-      const placeholder = resolvePresentation({ detectedCountry });
+      const placeholder = resolvePresentation({ detectedCountry, offer });
       setRegionId(placeholder.region.id);
       setResolutionSource(placeholder.source);
     }
   }
   const awaitingNewIdentity = accountPreferencePending && accountIdentity !== heldIdentity && !heldMatchesAccount;
-  const placeholder = awaitingNewIdentity ? resolvePresentation({ detectedCountry }) : null;
-  const regionId = placeholder ? placeholder.region.id : storedRegionId;
-  const resolutionSource = placeholder ? placeholder.source : storedResolutionSource;
+  const placeholder = awaitingNewIdentity ? resolvePresentation({ detectedCountry, offer }) : null;
+  const candidateRegionId = placeholder ? placeholder.region.id : storedRegionId;
+  const withdrawn = candidateRegionId !== "GLOBAL" && !offer.offered.includes(candidateRegionId);
+  const regionId: RegionId = withdrawn ? "GLOBAL" : candidateRegionId;
+  const resolutionSource: ResolutionSource = withdrawn ? "fallback" : placeholder ? placeholder.source : storedResolutionSource;
 
   const writeExplicitAccountPreference = useCallback((country: CountryCode, version: number) => {
     setPreferenceMessage("");
@@ -85,7 +92,7 @@ export function useHomeRegion({
         if (!writeAccountPreference) throw new Error("Account unavailable");
         const stored = await writeAccountPreference(country, false);
         if (version !== selectionVersion.current || identity !== currentIdentity.current) return;
-        setRegionId(stored);
+        setRegionId(presentedRegionId(stored, offer));
         setPreferenceMessage("Country preference saved to your account.");
       } catch {
         if (version === selectionVersion.current && identity === currentIdentity.current) {
@@ -95,7 +102,7 @@ export function useHomeRegion({
       }
     })();
     pendingWrite.current = { identity, promise: write };
-  }, [writeAccountPreference]);
+  }, [offer, writeAccountPreference]);
 
   const writeBrowserPreference = useCallback((country: CountryCode) => {
     setBrowserPreference(country);
@@ -122,11 +129,11 @@ export function useHomeRegion({
       pendingSettlingSelection.current = null;
       selectionVersion.current = 0;
       setHeldSelection(null);
-      const resolved = resolvePresentation({ detectedCountry });
+      const resolved = resolvePresentation({ detectedCountry, offer });
       setRegionId(resolved.region.id);
       setResolutionSource(resolved.source);
     }
-  }, [accountOwner, detectedCountry]);
+  }, [accountOwner, detectedCountry, offer]);
 
   useEffect(() => {
     if (currentIdentity.current === accountIdentity) return;
@@ -153,16 +160,17 @@ export function useHomeRegion({
 
   useEffect(() => {
     if (savedAccountPreference && selectionVersion.current === 0) {
-      setRegionId(savedAccountPreference);
-      setResolutionSource("persisted");
+      const presented = presentedRegionId(savedAccountPreference, offer);
+      setRegionId(presented);
+      setResolutionSource(presented === "GLOBAL" ? "fallback" : "persisted");
       setReadiness({ identity: accountIdentity, ready: true });
     }
-  }, [accountIdentity, savedAccountPreference]);
+  }, [accountIdentity, offer, savedAccountPreference]);
 
   useEffect(() => {
     if (savedAccountPreference || accountPreferencePending) return;
     const browser = readAnonymousCountryPreference(() => window.localStorage);
-    const resolved = resolvePresentation({ persistedCountry: browser.country, detectedCountry });
+    const resolved = resolvePresentation({ persistedCountry: browser.country, detectedCountry, offer });
     const version = selectionVersion.current;
     let cancelled = false;
     const hydrationFrame = window.requestAnimationFrame(() => {
@@ -176,7 +184,7 @@ export function useHomeRegion({
       cancelled = true;
       window.cancelAnimationFrame(hydrationFrame);
     };
-  }, [accountIdentity, accountPreferencePending, detectedCountry, savedAccountPreference]);
+  }, [accountIdentity, accountPreferencePending, detectedCountry, offer, savedAccountPreference]);
 
   useEffect(() => {
     const held = pendingSettlingSelection.current;
@@ -217,20 +225,20 @@ export function useHomeRegion({
       .then((stored) => {
         if (mounted.current && version === selectionVersion.current && identity === currentIdentity.current &&
             stored !== browserPreference) {
-          setRegionId(stored);
+          setRegionId(presentedRegionId(stored, offer));
         }
       })
-      .catch(() => {
+      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed preference adoption resets the retry flag only for the current selection
         if (mounted.current && version === selectionVersion.current && identity === currentIdentity.current) {
           adoptionAttempted.current = false;
         }
       });
     pendingWrite.current = { identity, promise: write };
-  }, [accountReady, browserPreference, savedAccountPreference, signedIn, writeAccountPreference]);
+  }, [accountReady, browserPreference, offer, savedAccountPreference, signedIn, writeAccountPreference]);
 
   function selectRegion(nextRegionId: RegionId) {
     const country = normalizeCountryCode(nextRegionId);
-    if (!country) return;
+    if (!country || !offer.offered.includes(country)) return;
     const version = ++selectionVersion.current;
     setRegionId(country);
     setResolutionSource("explicit");
@@ -256,6 +264,7 @@ export function useHomeRegion({
     isPreferenceReady,
     preferenceMessage,
     selectRegion,
+    offeredCountries: offer.offered,
   };
 }
 

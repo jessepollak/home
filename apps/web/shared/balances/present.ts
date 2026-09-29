@@ -1,3 +1,4 @@
+import { findInvestAssetByAddress } from "@/config/invest-assets";
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { weightedAprWad } from "@/shared/borrowing/math";
 import {
@@ -7,6 +8,7 @@ import {
   presentationCurrencyName,
 } from "@/shared/formatting";
 import { exactDecimalToFraction } from "@/shared/balances/math";
+import { pricePendingCashout, type PendingCashoutEstimate } from "./pending-cashout";
 import { selectOwnedInvestments } from "./owned-investments";
 import {
   selectBalanceTotals,
@@ -46,8 +48,8 @@ export type MoneyGroupPresentation = {
 };
 
 export type MoneyBreakdownItem = {
-  id: "borrow" | "cash" | "investments";
-  label: "Borrow" | "Cash" | "Investments";
+  id: "borrow" | "cash" | "pending-cash-out" | "investments";
+  label: "Borrow" | "Cash" | "Pending cash-out" | "Investments";
   value: string;
   weight: number;
 };
@@ -83,11 +85,12 @@ export type BalancesPresentation = {
 
 export type PresentBalancesOptions = {
   showSmallBalances: boolean;
+  pendingCashout?: PendingCashoutEstimate;
 };
 
 export function presentBalances(
   state: BalancesState,
-  { showSmallBalances }: PresentBalancesOptions = {
+  { showSmallBalances, pendingCashout }: PresentBalancesOptions = {
     showSmallBalances: false,
   },
 ): BalancesPresentation {
@@ -119,8 +122,14 @@ export function presentBalances(
   }
 
   const net = selectBalanceTotals(state.snapshot).net;
+  const pending = pendingCashout?.state === "escrow" && BigInt(pendingCashout.baseUnits) > BigInt(0)
+    ? pricePendingCashout(state.snapshot, pendingCashout) : null;
+  const pendingUnpriced = pending === "unpriced" || pendingCashout?.state === "escrow" && pendingCashout.partial ||
+    pendingCashout?.state === "indeterminate" || pendingCashout?.state === "unreadable" || pendingCashout?.state === "loading";
+  const pendingValue = pending && pending !== "unpriced" && BigInt(pending.atoms) > BigInt(0) ? pending : null;
   const noCurrency = net.status === "no-quote-currency";
   const unavailable = net.status === "unavailable";
+  const combined = net.value && pendingValue ? signedNetWithPending(net.value, net.negative, pendingValue) : null;
   const partitions = presentMoneyGroupPartitions(state.snapshot);
   const investmentRows = showSmallBalances
     ? [...partitions.investmentRows, ...partitions.hiddenRows]
@@ -134,14 +143,14 @@ export function presentBalances(
     partitions.unpricedRows,
   );
   const summary = presentHomeSummary(state.snapshot, partitions);
-  const breakdown = presentBreakdown(state.snapshot);
+  const breakdown = presentBreakdown(state.snapshot, pendingValue);
 
   return {
     status: "ready",
     displayTotal: net.value && net.currency
-      ? `${net.negative ? "−" : ""}${formatPresentationFiat(net.value, net.currency, 2, state.snapshot.region)}`
+      ? `${(combined?.negative ?? net.negative) ? "−" : ""}${formatPresentationFiat(combined?.value ?? net.value, net.currency, 2, state.snapshot.region)}`
       : "—",
-    totalStatus: net.status === "partial"
+    totalStatus: net.status === "partial" || pendingUnpriced && !noCurrency && !unavailable
       ? "partial"
       : noCurrency || unavailable
         ? "unavailable"
@@ -150,7 +159,7 @@ export function presentBalances(
       ? "Choose a country in Account to set how money is shown"
       : unavailable
         ? "Balance unavailable"
-        : net.status === "partial"
+        : net.status === "partial" || pendingUnpriced
           ? "Some balances are unavailable"
           : undefined,
     ...(noCurrency ? { needsCountry: true as const } : {}),
@@ -162,6 +171,20 @@ export function presentBalances(
     hiddenCount: partitions.hiddenRows.length,
     ...(state.revalidating ? { revalidating: true as const } : {}),
   };
+}
+
+export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null } | null {
+  if (escrow?.state === "indeterminate") return { value: null };
+  if (escrow?.state !== "escrow" || BigInt(escrow.baseUnits) === BigInt(0)) return null;
+  const amount = pricePendingCashout(snapshot, escrow);
+  return amount === "unpriced" || BigInt(amount.atoms) === BigInt(0) || !snapshot.quoteCurrency
+    ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region) };
+}
+
+function signedNetWithPending(net: ExactDecimal, negative: boolean, pending: ExactDecimal): { value: ExactDecimal; negative: boolean } {
+  const scale = Math.max(net.scale, pending.scale);
+  const sum = (negative ? -scaledAtoms(net, scale) : scaledAtoms(net, scale)) + scaledAtoms(pending, scale);
+  return { value: { atoms: (sum < BigInt(0) ? -sum : sum).toString(), scale }, negative: sum < BigInt(0) };
 }
 
 export function presentMoneyGroups(snapshot: BalancesSnapshot): MoneyGroupPresentation[] {
@@ -199,13 +222,13 @@ function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
 
   for (const holding of selected.investments) {
     const row = presentAsset(holding, snapshot);
-    if (holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount)) {
+    if (holding.balance.status === "ready" && holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount)) {
       hiddenRows.push(row);
-    } else if (holding.value.status !== "priced" && holding.source === "wallet") {
+    } else if (holding.balance.status === "ready" && holding.value.status !== "priced" && holding.source === "wallet") {
       unpricedRows.push(row);
     } else {
       investmentRows.push(row);
-      visibleInvestmentHoldings.push(holding);
+      if (holding.balance.status === "ready") visibleInvestmentHoldings.push(holding);
     }
   }
   hiddenRows.sort(compareRows);
@@ -263,7 +286,9 @@ function presentHomeSummary(
     investments: {
       ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
-      ownedCount: selectOwnedInvestments(snapshot).length,
+      ownedCount: selectOwnedInvestments(snapshot).filter((row) =>
+        [row.wallet, ...row.collateral].some((holding) => holding?.balance.status === "ready"),
+      ).length,
     },
     borrow: presentBorrowSummary(snapshot, totals.borrow),
   };
@@ -327,7 +352,7 @@ function summaryAmount(total: BalancesTotal, region: RegionId): HomeSummaryAmoun
   return { status: "unavailable", value: null };
 }
 
-function presentBreakdown(snapshot: BalancesSnapshot): MoneyBreakdownItem[] {
+function presentBreakdown(snapshot: BalancesSnapshot, pending: ExactDecimal | null): MoneyBreakdownItem[] {
   const totals = selectBalanceTotals(snapshot);
   const hasDebt = selectBorrowPositions(snapshot).some((position) =>
     BigInt(position.debt.balance.baseUnits) > BigInt(0)
@@ -342,6 +367,8 @@ function presentBreakdown(snapshot: BalancesSnapshot): MoneyBreakdownItem[] {
       ? [{ id: "borrow" as const, label: "Borrow" as const, total: totals.borrow, sign: "−" as const }]
       : []),
     { id: "cash", label: "Cash", total: totals.cash, sign: "" },
+    ...(pending && snapshot.quoteCurrency ? [{ id: "pending-cash-out" as const, label: "Pending cash-out" as const,
+      total: { value: pending, currency: snapshot.quoteCurrency, status: "complete" as const }, sign: "" as const }] : []),
     { id: "investments", label: "Investments", total: totals.investments, sign: "" },
   ];
   const known = entries.flatMap((entry) =>
@@ -421,6 +448,17 @@ function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceR
 }
 
 function presentAsset(holding: Holding, snapshot: BalancesSnapshot): BalanceRowModel {
+  if (holding.balance.status === "unavailable") {
+    return {
+      key: holding.key,
+      group: "asset",
+      name: holding.name.trim() || holding.symbol.trim(),
+      mark: assetMark(holding),
+      primary: "Unavailable",
+      secondary: null,
+      tone: "error",
+    };
+  }
   const quantity = tokenQuantity(holding, snapshot);
   const mark = assetMark(holding);
   if (holding.value.status === "priced") {
@@ -498,7 +536,11 @@ function tokenQuantity(
     symbol,
     {
       cashCurrency: holding.cashCurrency,
-      category: holding.kind === "native" ? "crypto" : undefined,
+      category: holding.kind === "native"
+        ? "crypto"
+        : holding.contractAddress
+          ? findInvestAssetByAddress(holding.contractAddress)?.category
+          : undefined,
       regionId: snapshot.region,
     },
   );

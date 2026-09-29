@@ -2,11 +2,13 @@ import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list
 import type { ActivityOrder } from "@/shared/activity/contract-orders";
 import { compareActivityTransferKeys } from "@/shared/activity/contract";
 import { activityAssets, type ActivityTransfer } from "@/shared/activity/types";
+import type { CardPurchase } from "@/shared/cards/transactions-contract";
 import type { MoneyActionAmount } from "@/shared/money-actions/types";
 import { cashoutWithdrawForDeposit, outranksCashoutWithdraw, presentCashout } from "./cash-out-presenter";
 
 export type ActivityFeedItem =
-  | { kind: "order"; id: string; timestamp: string; order: ActivityOrder; withdraw?: RecentMoneyActionOperation }
+  | { kind: "order"; id: string; timestamp: string; order: ActivityOrder; withdraw?: RecentMoneyActionOperation; reviewed?: RecentMoneyActionOperation }
+  | { kind: "card"; id: string; timestamp: string; purchase: CardPurchase }
   | {
       kind: "transfer";
       id: string;
@@ -40,6 +42,7 @@ export function mergeActivityFeed(input: {
   transfers: readonly ActivityTransfer[];
   operations: readonly RecentMoneyActionOperation[];
   orders?: readonly ActivityOrder[];
+  cards?: readonly CardPurchase[];
   loadedThrough: string | null;
 }): ActivityFeedItem[] {
   const loadedThroughTime = input.loadedThrough === null ? null : Date.parse(input.loadedThrough);
@@ -64,6 +67,9 @@ export function mergeActivityFeed(input: {
       Date.parse(activityOperationTime(operation)) >= Date.parse(order.updatedAt);
     (current ? actionWins : orderWins).add(operation.action.id);
   }
+  const reviewedByOrder = new Map(input.operations.filter((operation) => orderWins.has(operation.action.id) &&
+    operation.action.metadata?.product === "cashout" && operation.action.metadata.operation === "deposit")
+    .map((operation) => [operation.action.id, operation]));
   for (const operation of input.operations) {
     if (!operation.transactionHash) continue;
     const hash = operation.transactionHash.toLowerCase();
@@ -86,6 +92,9 @@ export function mergeActivityFeed(input: {
   }
 
   return [
+    ...(input.cards ?? []).map((purchase): ActivityFeedItem => ({
+      kind: "card", id: purchase.id, timestamp: purchase.createdAt, purchase,
+    })),
     ...input.transfers.filter((transfer) => !actionIdsByHash.has(transfer.transactionHash.toLowerCase()) &&
       !fundingReceiptLogs.has(`${transfer.transactionHash.toLowerCase()}:${transfer.logIndex}`))
       .map((transfer): ActivityFeedItem => ({
@@ -118,7 +127,8 @@ export function mergeActivityFeed(input: {
       return isPendingActivityOrder(order) || loadedThroughTime === null || Date.parse(order.updatedAt) > loadedThroughTime;
     }).map((order): ActivityFeedItem => {
       const withdraw = order.kind === "cash-out" && order.orderId ? cashoutWithdrawForDeposit(order.orderId, input.operations) : undefined;
-      return { kind: "order", id: order.id, timestamp: order.updatedAt, order, ...(withdraw ? { withdraw } : {}) };
+      const reviewed = order.kind === "cash-out" ? reviewedByOrder.get(order.id) : undefined;
+      return { kind: "order", id: order.id, timestamp: order.updatedAt, order, ...(withdraw ? { withdraw } : {}), ...(reviewed ? { reviewed } : {}) };
     }),
   ].sort((left, right) => compareActivityFeedItems(left, right, loadedThroughTime));
 }

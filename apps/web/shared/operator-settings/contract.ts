@@ -1,9 +1,18 @@
-export const OPERATOR_SETTINGS_CONTRACT_VERSION = 1 as const;
+import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings } from "@/shared/fees/contract";
+import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
+import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
+import { INVEST_SETTINGS_DEFAULTS, parseInvestSettings, parseInvestSettingsWrite } from "./invest";
+import { parseRegionSettings, parseRegionSettingsWrite, REGION_SETTINGS_DEFAULTS } from "./regions";
+
+export { OPERATOR_SETTINGS_CONTRACT_VERSION } from "./envelope";
+/** @public parses settings responses for future administrator clients */
+export { parseSettingsResponse } from "./envelope";
 
 export type DomainDefinition<T> = {
   schemaVersion: number;
   defaults: T;
   parse(value: unknown): T | null;
+  parseWrite?: (value: unknown) => T | null;
   upgrade?: (fromVersion: number, value: unknown) => unknown;
 };
 
@@ -29,6 +38,10 @@ export function parseSupportSettings(value: unknown): SupportSettings | null {
 
 export const OPERATOR_SETTINGS_DOMAINS = {
   support: { schemaVersion: 1, defaults: { email: null, url: null }, parse: parseSupportSettings },
+  [BRAND_SETTINGS_DOMAIN]: { schemaVersion: OPERATOR_BRANDING_SCHEMA_VERSION, defaults: BRAND_DEFAULTS, parse: parseBrandSettings },
+  regions: { schemaVersion: 1, defaults: REGION_SETTINGS_DEFAULTS, parse: parseRegionSettings, parseWrite: parseRegionSettingsWrite },
+  invest: { schemaVersion: 1, defaults: INVEST_SETTINGS_DEFAULTS, parse: parseInvestSettings, parseWrite: parseInvestSettingsWrite },
+  fees: { schemaVersion: 1, defaults: OPERATOR_FEE_SETTINGS_DEFAULTS, parse: parseOperatorFeeSettings },
 } satisfies DomainRegistry;
 
 export type SettingsEntry<T = unknown> = {
@@ -37,7 +50,7 @@ export type SettingsEntry<T = unknown> = {
 };
 export type SettingsResponse = SettingsEntry & { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION };
 export type AllSettingsResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; domains: SettingsEntry[] };
-export type PutSettingsRequest = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; expectedRevision: number; value: unknown };
+export type PutSettingsRequest = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; expectedRevision: number; value: unknown; operator: `0x${string}` };
 export type AuditEntry = {
   id: string; occurredAt: string; actor: `0x${string}`;
 } & (
@@ -45,19 +58,14 @@ export type AuditEntry = {
   | { action: "customer.read"; target: { kind: "customer"; id: string }; purpose: string }
 );
 export type AuditListResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; entries: AuditEntry[]; nextCursor: string | null };
-export type OperatorSettingsErrorCode = "UNAUTHENTICATED" | "OPERATOR_FORBIDDEN" | "NOT_FOUND" | "INVALID_REQUEST" | "SETTINGS_CONFLICT" | "CROSS_ORIGIN" | "SETTINGS_UNAVAILABLE";
+export type OperatorSettingsErrorCode = "UNAUTHENTICATED" | "OPERATOR_FORBIDDEN" | "NOT_FOUND" | "INVALID_REQUEST" | "SETTINGS_CONFLICT" | "OPERATOR_CHANGED" | "CROSS_ORIGIN" | "SETTINGS_UNAVAILABLE";
 export type OperatorSettingsErrorResponse = { error: { code: OperatorSettingsErrorCode }; current?: SettingsResponse };
 
 export function parsePutSettingsRequest(value: unknown): PutSettingsRequest | null {
-  if (!isObject(value) || !exactKeys(value, ["version", "expectedRevision", "value"])) return null;
+  if (!isObject(value) || !exactKeys(value, ["version", "expectedRevision", "value", "operator"])) return null;
   if (value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 0) return null;
-  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value };
-}
-
-/** @public parses settings responses for future administrator clients */
-export function parseSettingsResponse(value: unknown): SettingsResponse | null {
-  if (!isObject(value) || value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || typeof value.domain !== "string" || !isSettings(value.settings)) return null;
-  return value as SettingsResponse;
+  if (typeof value.operator !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value.operator)) return null;
+  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value, operator: value.operator.toLowerCase() as `0x${string}` };
 }
 
 /** @public parses settings list responses for future administrator clients */
@@ -86,7 +94,7 @@ export function parseAuditListResponse(value: unknown): AuditListResponse | null
 export function parseOperatorSettingsErrorResponse(value: unknown): OperatorSettingsErrorResponse | null {
   if (!isObject(value) || !isObject(value.error)) return null;
   const code = value.error.code;
-  if (code !== "UNAUTHENTICATED" && code !== "OPERATOR_FORBIDDEN" && code !== "NOT_FOUND" && code !== "INVALID_REQUEST" && code !== "SETTINGS_CONFLICT" && code !== "CROSS_ORIGIN" && code !== "SETTINGS_UNAVAILABLE") return null;
+  if (code !== "UNAUTHENTICATED" && code !== "OPERATOR_FORBIDDEN" && code !== "NOT_FOUND" && code !== "INVALID_REQUEST" && code !== "SETTINGS_CONFLICT" && code !== "OPERATOR_CHANGED" && code !== "CROSS_ORIGIN" && code !== "SETTINGS_UNAVAILABLE") return null;
   return { error: { code }, ...(value.current ? { current: parseSettingsResponse(value.current) ?? undefined } : {}) };
 }
 
@@ -102,7 +110,4 @@ function exactKeys(value: Record<string, unknown>, keys: string[]): boolean {
 }
 function isAddress(value: unknown): value is `0x${string}` {
   return typeof value === "string" && /^0x[0-9a-f]{40}$/.test(value);
-}
-function isSettings(value: unknown): value is SettingsEntry["settings"] {
-  return isObject(value) && "value" in value && Number.isSafeInteger(value.revision) && (value.revision as number) >= 0 && (value.source === "default" || value.source === "stored") && (value.updatedAt === null || typeof value.updatedAt === "string") && (value.updatedBy === null || typeof value.updatedBy === "string");
 }

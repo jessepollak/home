@@ -126,6 +126,22 @@ describe("session validation boundary", () => {
     expect(session.smartAccount).toBeNull();
   });
 
+  test("treats an invalid expected address as a mismatch even without a smart account", async () => {
+    const fetchFixture: SessionFetch = async () =>
+      jsonResponse({
+        user: { subject: "cdp:test-subject" },
+        smartAccount: null,
+        accountProvider: "cdp-embedded",
+      });
+
+    await expect(validateAccountSession(
+      "test-access-token",
+      undefined,
+      fetchFixture,
+      { expectedAddress: "0xAbcdef0123456789abcdef0123456789abcdef01" },
+    )).rejects.toMatchObject({ reason: "address-mismatch" });
+  });
+
   test("maps only the disabled Base Account response to provider-disabled", async () => {
     const rows = [
       {

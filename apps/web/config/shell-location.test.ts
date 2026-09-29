@@ -3,8 +3,8 @@ import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import { erc20AssetKey, nativeAssetKey } from "@/shared/balances/types";
 import {
   flowHref, homeHrefWithOverlays, isCanonicalShellPathname, legacyShellRedirectHref, parseInboundUrlIntent,
-  parseShellLocation, parseShellOverlayIntent, searchParamsToString, shellHref, withoutFlowHref,
-  type ShellLocation,
+  parseShellLocation, parseShellOverlayIntent, readClientHistoryFlag, searchParamsToString, shellHref, withoutFlowHref,
+  type ShellHistoryFlag, type ShellLocation,
 } from "./shell-location";
 
 const DYNAMIC_ASSET_ID = "base:0x1111111111111111111111111111111111111111";
@@ -48,6 +48,33 @@ const fallbackLocations: Array<[string, ShellLocation]> = [
 ];
 
 describe("shell location", () => {
+  test("reads a history flag only when its stored value is boolean true", () => {
+    const flag = "fundingFlowPushed";
+    const key = "__homeFundingFlowPushed";
+    expect(readClientHistoryFlag(flag, { [key]: true })).toBe(true);
+    expect(readClientHistoryFlag("cashSavingsFlowPushed")).toBe(false);
+    for (const state of [undefined, null, "true", 1, [], {}, { [key]: "true" }, { [key]: 1 }, { [key]: false }]) {
+      expect(readClientHistoryFlag(flag, state)).toBe(false);
+    }
+  });
+  test("keeps each history flag independent and recognizes every written key", () => {
+    const onlyFunding = { __homeFundingFlowPushed: true };
+    expect(readClientHistoryFlag("fundingFlowPushed", onlyFunding)).toBe(true);
+    const otherFlags: ShellHistoryFlag[] = ["cashSavingsFlowPushed", "cashSavingsOpenedInApp", "investmentsHoldingOpenedInApp"];
+    for (const flag of otherFlags) {
+      expect(readClientHistoryFlag(flag, onlyFunding)).toBe(false);
+    }
+    const writtenState = {
+      __homeFundingFlowPushed: true,
+      __cashSavingsFlowPushed: true,
+      __cashSavingsOpenedInApp: true,
+      __investmentsHoldingOpenedInApp: true,
+    };
+    const flags: ShellHistoryFlag[] = ["fundingFlowPushed", ...otherFlags];
+    for (const flag of flags) {
+      expect(readClientHistoryFlag(flag, writtenState)).toBe(true);
+    }
+  });
   test("round-trips every canonical L1, asset, and verified Borrow market path", () => {
     for (const [pathname, expected] of canonicalLocations) {
       expect(parseShellLocation(pathname)).toEqual(expected);

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { isDeepStrictEqual } from "node:util";
-import { isUniqueViolation, type SqlExecutor } from "@/server/db/sql";
+import { isUniqueViolation, type SqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import { OPERATOR_SETTINGS_DOMAINS, type DomainRegistry, type SettingsEntry } from "@/shared/operator-settings/contract";
 
 export class OperatorSettingsCorruptError extends Error {}
@@ -41,9 +41,9 @@ export class OperatorSettingsStore {
     return { domain, settings: { value: parsed, revision, source: "stored", updatedAt: row.updated_at.toISOString(), updatedBy: row.updated_by } };
   }
 
-  async read(domain: string): Promise<SettingsEntry> {
+  async read(domain: string, options: SqlQueryOptions = {}): Promise<SettingsEntry> {
     this.definition(domain);
-    const result = await this.sql.query<SettingsRow>("SELECT * FROM operator_settings WHERE domain = $1", [domain]);
+    const result = await this.sql.query<SettingsRow>("SELECT * FROM operator_settings WHERE domain = $1", [domain], options);
     return this.effective(domain, result.rows[0]);
   }
 
@@ -54,7 +54,7 @@ export class OperatorSettingsStore {
 
   async write(input: { domain: string; expectedRevision: number; value: unknown; actor: string }): Promise<SettingsEntry> {
     const definition = this.definition(input.domain);
-    const parsed = definition.parse(input.value);
+    const parsed = (definition.parseWrite ?? definition.parse)(input.value);
     if (parsed === null || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new OperatorSettingsValidationError("Invalid settings write");
     try {
       return await this.sql.transaction(async (tx) => {

@@ -7,6 +7,7 @@ import {
   type AccountProviderRequest,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
+import { parseAddress } from "@/shared/chain/hex";
 import {
   isHomeSessionConfigured,
   readNativeBaseSession,
@@ -46,16 +47,12 @@ class InvalidVerifiedIdentityError extends Error {
   }
 }
 
-const compactJwtPattern = /^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
-const evmAddressPattern = /^0x[0-9a-fA-F]{40}$/;
-const subjectPattern = /^[a-zA-Z0-9-]{1,100}$/;
-
-function normalizeAddress(value: unknown): `0x${string}` {
-  if (typeof value !== "string" || !evmAddressPattern.test(value)) {
-    throw new InvalidVerifiedIdentityError();
-  }
-  return value.toLowerCase() as `0x${string}`;
+function invalidVerifiedIdentity(): never {
+  throw new InvalidVerifiedIdentityError();
 }
+
+const compactJwtPattern = /^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/;
+const subjectPattern = /^[a-zA-Z0-9-]{1,100}$/;
 
 function normalizeEmbeddedAddress(value: VerifiedEndUser): `0x${string}` | null {
   if (!Array.isArray(value.evmSmartAccountObjects)) {
@@ -66,7 +63,7 @@ function normalizeEmbeddedAddress(value: VerifiedEndUser): `0x${string}` | null 
     if (!account || typeof account !== "object" || !("address" in account)) {
       throw new InvalidVerifiedIdentityError();
     }
-    return normalizeAddress(account.address);
+    return parseAddress(account.address) ?? invalidVerifiedIdentity();
   });
 
   return smartAccounts[0] ?? null;
@@ -163,6 +160,7 @@ export type SessionHandlerDependencies = {
 const privateResponseHeaders = {
   "Cache-Control": "private, no-store, max-age=0",
   Pragma: "no-cache",
+  "Referrer-Policy": "no-referrer",
   Vary: `Cookie, Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
 } as const;
 

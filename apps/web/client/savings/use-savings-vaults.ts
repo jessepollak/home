@@ -6,7 +6,8 @@ import {
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
-import { deploymentHeaders } from "@/client/query/deployment-headers";
+import { publicResource } from "@/client/query/public-resource";
+import { publicQuery } from "@/client/query/query-options";
 import { parseVaultsResult } from "@/shared/savings/contracts/vaults";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { hasUsableSavingsRateObservation } from "./portfolio-summary";
@@ -45,12 +46,7 @@ function sameAsset(left: MorphoVaultCandidate["asset"], right: MorphoVaultCandid
 }
 
 async function fetchSavingsVaults(signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch("/api/savings/vaults", {
-    headers: { ...deploymentHeaders(), accept: "application/json" },
-    signal,
-  });
-  if (!response.ok) throw new Error("Vault request failed");
-  return response.json();
+  return publicResource("/api/savings/vaults", { signal });
 }
 
 export function useSavingsVaults({
@@ -61,10 +57,9 @@ export function useSavingsVaults({
   fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
 } = {}) {
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  return useHomeQuery<MorphoVaultsResult>({
-    queryKey: savingsVaultsKey,
+  return useHomeQuery(publicQuery<MorphoVaultsResult>({
+    scope: "savings-vaults",
     initialData: initialData ?? undefined,
-    staleTime: 60_000,
     refetchInterval: 60_000,
     retry: false,
     refetchOnWindowFocus: false,
@@ -73,5 +68,5 @@ export function useSavingsVaults({
       if (!data) throw new Error("Savings vault metadata is invalid.");
       return retainLastKnownSavingsRates(queryClient.getQueryData<MorphoVaultsResult>(savingsVaultsKey), data);
     },
-  });
+  }));
 }

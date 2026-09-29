@@ -9,6 +9,7 @@ import {
   accessErrorCode,
   accessSuccessDestination,
 } from "@/shared/access/contract";
+import { readJson } from "@/shared/http/read-json";
 
 export function AccessForm({ next }: { next: string }) {
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export function AccessForm({ next }: { next: string }) {
         cache: "no-store",
         redirect: "error",
       });
-      const payload = await response.json().catch(() => null);
+      const payload = await readJson(response).catch(() => null);
       const destination = response.ok ? accessSuccessDestination(payload) : null;
       if (destination) {
         window.location.assign(destination);

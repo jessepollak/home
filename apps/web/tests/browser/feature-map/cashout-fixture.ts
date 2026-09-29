@@ -4,7 +4,7 @@ const now = "2026-09-15T12:00:00.000Z";
 const expiry = "2099-01-01T00:00:00.000Z";
 export const cashoutFixtureDepositId = "fixture-escrow-1";
 export const cashoutFixtureProgress = {
-  version: 1, providerId: "peer", region: "US", depositId: cashoutFixtureDepositId,
+  version: 1, providerId: "peer", region: "US", depositId: cashoutFixtureDepositId, progressConfirmed: true,
   state: "awaiting-buyer", platform: "cashapp", platformLabel: "Cash App", amountAtomic: "50000000",
   filledAtomic: "0", returnedAtomic: "0", remainingAtomic: "50000000",
   withdrawable: true, withdrawing: false, etaSeconds: 3600, settledAt: null, updatedAt: now,
@@ -21,7 +21,11 @@ const owner = { ...sessionBody, subject: sessionBody.user.subject };
 export const cashoutFixtureAction = {
   id: "90100000-0000-4000-8000-000000000001", provider: "cdp-embedded", kind: "cash-out",
   summary: { title: "Cash out with Peer", amounts: [spend], warnings: [], expiresAt: expiry,
-    metadata: { ...baseMetadata, operation: "deposit", canonicalHandle: "fixture-payee" } },
+    metadata: { ...baseMetadata, operation: "deposit", canonicalHandle: "fixture-payee", quote: {
+      fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+      receive: { amount: "50.00", currency: "USD", approximate: true },
+      arrival: { source: "observed", kind: "within", seconds: 3600 },
+    } } },
   status: "confirmed", createdAt: now, confirmedAt: now,
   owner: { subject: owner.subject, address: sessionBody.smartAccount.address, chainId: 8453, accountProvider: "cdp-embedded" },
   cashout: cashoutFixtureProgress,

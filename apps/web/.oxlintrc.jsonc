@@ -137,7 +137,37 @@
     "jsx-a11y/aria-proptypes": "error",
     "jsx-a11y/aria-unsupported-elements": "error",
     "jsx-a11y/role-has-required-aria-props": "error",
-    "jsx-a11y/role-supports-aria-props": "error"
+    "jsx-a11y/role-supports-aria-props": "error",
+    "jsx-a11y/anchor-ambiguous-text": "error",
+    "jsx-a11y/anchor-has-content": "error",
+    "jsx-a11y/anchor-is-valid": "error",
+    "jsx-a11y/aria-activedescendant-has-tabindex": "error",
+    "jsx-a11y/aria-role": "error",
+    "jsx-a11y/autocomplete-valid": "error",
+    "jsx-a11y/click-events-have-key-events": "error",
+    "jsx-a11y/control-has-associated-label": "error",
+    "jsx-a11y/heading-has-content": "error",
+    "jsx-a11y/html-has-lang": "error",
+    "jsx-a11y/iframe-has-title": "error",
+    "jsx-a11y/img-redundant-alt": "error",
+    "jsx-a11y/interactive-supports-focus": "error",
+    "jsx-a11y/label-has-associated-control": ["error", { "controlComponents": ["Input", "NativeSelect", "Switch"] }],
+    "jsx-a11y/lang": "error",
+    "jsx-a11y/media-has-caption": "error",
+    "jsx-a11y/mouse-events-have-key-events": "error",
+    "jsx-a11y/no-access-key": "error",
+    "jsx-a11y/no-aria-hidden-on-focusable": "error",
+    "jsx-a11y/no-distracting-elements": "error",
+    "jsx-a11y/no-interactive-element-to-noninteractive-role": "error",
+    "jsx-a11y/no-noninteractive-element-interactions": "error",
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": "error",
+    "jsx-a11y/no-noninteractive-tabindex": "error",
+    "jsx-a11y/no-redundant-roles": "error",
+    "jsx-a11y/scope": "error",
+    "jsx-a11y/tabindex-no-positive": "error",
+    "react/no-array-index-key": "error",
+    "react/no-unstable-nested-components": "error",
+    "react/jsx-no-constructed-context-values": "error"
   },
   "overrides": [
     {
@@ -191,6 +221,32 @@
     },
     {
       "files": [
+        "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "lib/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "instrumentation*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "next.config.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "proxy.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-exploration-imports": "error"
+      }
+    },
+    {
+      "files": [
         "server/cdp/**/*.{ts,tsx}"
       ],
       "excludeFiles": [
@@ -213,14 +269,17 @@
       }
     },
     {
+      "files": ["{shared,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "rules": { "home/no-classic-zod-imports": "error" }
+    },
+    {
       "files": [
         "{app,client,components,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/tests/**",
-        "**/explorations/code-connect/**/*.figma.ts"
+        "**/tests/**"
       ],
       "rules": {
         "home/no-comments": "error"
@@ -237,7 +296,9 @@
       ],
       "rules": {
         "home/no-restyle": "error",
-        "home/no-literal-utility-styles": "error"
+        "home/no-literal-utility-styles": "error",
+        "home/no-descendant-has": "error",
+        "home/no-important-utilities": "error"
       }
     },
     {
@@ -363,6 +424,10 @@
       }
     },
     {
+      "files": ["**/*.pw.{ts,tsx}"],
+      "rules": { "home/no-request-only-playwright": "error" }
+    },
+    {
       "files": ["**/explorations/**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "rules": { "home/exploration-story-tag": "error" }
     },
@@ -370,6 +435,8 @@
       "files": [
         "oxlint/tests/**",
         "tests/helpers/migrations.ts",
+        "tests/helpers/route-contract-inventory.ts",
+        "tests/route-contract-inventory.test.ts",
         "tests/well-known/apple-pay-domain-association.test.ts",
         // #800 replays checked-in Reach data; this parser is not a source-assertion test.
         "tests/browser/feature-map/map.ts"
@@ -461,6 +528,7 @@
               "createClientPerformanceHandler",
               "emitServerEvent",
               "endHomeAuthRestoreStage",
+              "emitUpstreamCall",
               "finishHomeAuthRestore",
               "installClientErrorReporting",
               "markHomeAuthRestore",
@@ -478,10 +546,6 @@
           }
         ]
       }
-    },
-    {
-      "files": ["**/explorations/code-connect/**/*.figma.ts"],
-      "rules": {"import/no-anonymous-default-export": "off"}
     }
   ]
 }

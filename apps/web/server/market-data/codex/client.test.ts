@@ -48,8 +48,9 @@ describe("Codex market price reader", () => {
     expect(CODEX_TOKEN_PRICES_QUERY).not.toContain("GetTokenPricesInput");
     expect(CODEX_TOKEN_PRICES_QUERY).toContain("priceChange24");
   });
+  const codexAssets = investAssets.filter(({ category }) => category !== "stock");
 
-  test("sends one exact allowlisted Base batch and maps reversed scoped records by contract", async () => {
+  test("sends one exact allowlisted Base batch without stocks and maps reversed scoped records by contract", async () => {
     const seen: { url?: string; init?: RequestInit; body?: unknown } = {};
     const records = [...investAssets]
       .reverse()
@@ -78,37 +79,42 @@ describe("Codex market price reader", () => {
     expect(seen.body).toEqual({
       query: CODEX_TOKEN_PRICES_QUERY,
       variables: {
-        inputs: investAssets.map((asset) => ({
+        inputs: codexAssets.map((asset) => ({
           address: asset.contractAddress,
           networkId: asset.chainId,
         })),
       },
     });
-    expect(investAssets.length).toBeLessThanOrEqual(CODEX_MAX_TOKENS_PER_REQUEST);
+    expect(codexAssets.length).toBeLessThanOrEqual(CODEX_MAX_TOKENS_PER_REQUEST);
     expect(result.fetchedAt).toBe(NOW_ISO);
-    expect(result.markets.stock.status).toBe("ready");
+    expect(result.markets.stock).toBeUndefined();
     expect(result.markets.meme.status).toBe("ready");
-    if (result.markets.stock.status !== "ready") throw new Error("unreachable");
-    expect(result.markets.stock.snapshots.map(({ assetId }) => assetId)).toEqual(
+    if (result.markets.crypto.status !== "ready") throw new Error("unreachable");
+    expect(result.markets.crypto.snapshots.map(({ assetId }) => assetId)).toEqual(
       investAssets
-        .filter(({ category }) => category === "stock")
+        .filter(({ category }) => category === "crypto")
         .map(({ id }) => id),
     );
-    expect(result.markets.stock.snapshots[0]?.sourceUrl).toBe(
+    expect(result.markets.crypto.snapshots[0]?.sourceUrl).toBe(
       CODEX_PRICE_SOURCE_URL,
     );
-    expect(result.markets.stock.snapshots[0]?.asOf).toBe(NOW_ISO);
+    expect(result.markets.crypto.snapshots[0]?.asOf).toBe(NOW_ISO);
+    const pricedIds = Object.values(result.markets).flatMap((market) =>
+      market.status === "ready" ? market.snapshots.map(({ assetId }) => assetId) : []);
+    for (const stock of investAssets.filter(({ category }) => category === "stock")) {
+      expect(pricedIds).not.toContain(stock.id);
+    }
   });
 
-  test("attaches signed changeLabel from Codex priceChange24 on stock and crypto snapshots", async () => {
-    const nvidia = investAssets.find(({ id }) => id === "nvdac");
+  test("attaches signed changeLabel from Codex priceChange24 on crypto and meme snapshots", async () => {
+    const toshi = investAssets.find(({ id }) => id === "toshi");
     const bitcoin = investAssets.find(({ id }) => id === "cbbtc");
-    const apple = investAssets.find(({ id }) => id === "aaplc");
-    if (!nvidia || !bitcoin || !apple) throw new Error("expected invest roster ids");
+    const xrp = investAssets.find(({ id }) => id === "cbxrp");
+    if (!toshi || !bitcoin || !xrp) throw new Error("expected invest roster ids");
 
     const rows = [
       row({
-        address: nvidia.contractAddress,
+        address: toshi.contractAddress,
         price: "177.25",
         priceChange24: "0.0125",
       }),
@@ -118,7 +124,7 @@ describe("Codex market price reader", () => {
         priceChange24: "-0.0667",
       }),
       row({
-        address: apple.contractAddress,
+        address: xrp.contractAddress,
         price: "228.5",
         priceChange24: "0",
       }),
@@ -129,15 +135,15 @@ describe("Codex market price reader", () => {
       now,
     })();
 
-    const stock = result.markets.stock;
+    const meme = result.markets.meme;
     const crypto = result.markets.crypto;
-    expect(stock?.status).toBe("ready");
+    expect(meme?.status).toBe("ready");
     expect(crypto?.status).toBe("ready");
-    if (stock?.status !== "ready" || crypto?.status !== "ready") {
+    if (meme?.status !== "ready" || crypto?.status !== "ready") {
       throw new Error("unreachable");
     }
-    expect(stock.snapshots).toContainEqual({
-      assetId: "nvdac",
+    expect(meme.snapshots).toContainEqual({
+      assetId: "toshi",
       displayPrice: "$177.25",
       asOf: NOW_ISO,
       sourceLabel: "Codex",
@@ -152,8 +158,8 @@ describe("Codex market price reader", () => {
       sourceUrl: CODEX_PRICE_SOURCE_URL,
       changeLabel: "-6.67%",
     });
-    expect(stock.snapshots.find(({ assetId }) => assetId === "aaplc")).toEqual({
-      assetId: "aaplc",
+    expect(crypto.snapshots.find(({ assetId }) => assetId === "cbxrp")).toEqual({
+      assetId: "cbxrp",
       displayPrice: "$228.5",
       asOf: NOW_ISO,
       sourceLabel: "Codex",
@@ -162,14 +168,14 @@ describe("Codex market price reader", () => {
   });
 
   test("omits changeLabel when priceChange24 is missing, malformed, or non-finite", async () => {
-    const nvidia = investAssets.find(({ id }) => id === "nvdac");
-    const meta = investAssets.find(({ id }) => id === "metac");
-    if (!nvidia || !meta) throw new Error("expected invest roster ids");
+    const bitcoin = investAssets.find(({ id }) => id === "cbbtc");
+    const xrp = investAssets.find(({ id }) => id === "cbxrp");
+    if (!bitcoin || !xrp) throw new Error("expected invest roster ids");
 
     const rows = [
-      row({ address: nvidia.contractAddress, price: "177.25" }),
+      row({ address: bitcoin.contractAddress, price: "177.25" }),
       row({
-        address: meta.contractAddress,
+        address: xrp.contractAddress,
         price: "512",
         priceChange24: "\"nope\"",
       }),
@@ -180,18 +186,18 @@ describe("Codex market price reader", () => {
       now,
     })();
 
-    const stock = result.markets.stock;
-    expect(stock?.status).toBe("ready");
-    if (stock?.status !== "ready") throw new Error("unreachable");
-    expect(stock.snapshots.map(({ assetId, changeLabel }) => [assetId, changeLabel])).toEqual([
-      ["nvdac", undefined],
-      ["metac", undefined],
+    const crypto = result.markets.crypto;
+    expect(crypto?.status).toBe("ready");
+    if (crypto?.status !== "ready") throw new Error("unreachable");
+    expect(crypto.snapshots.map(({ assetId, changeLabel }) => [assetId, changeLabel])).toEqual([
+      ["cbbtc", undefined],
+      ["cbxrp", undefined],
     ]);
   });
 
   test("preserves raw decimal lexemes, including tiny prices, without Number coercion", async () => {
     const tiny = "0.0000000000000000001234567890123456789";
-    const asset = investAssets[0];
+    const asset = codexAssets[0];
     const reader = createCodexMarketPricesReader({
       apiKey: "fixture-key",
       fetchImpl: (async () =>
@@ -213,7 +219,7 @@ describe("Codex market price reader", () => {
   });
 
   test("treats null, zero, negative, malformed, stale, future, duplicate, and out-of-scope records as unavailable", async () => {
-    const [first, second, third, fourth, fifth, sixth] = investAssets;
+    const [first, second, third, fourth, fifth, sixth] = codexAssets;
     const stale = NOW_SECONDS - MARKET_PRICE_DISPLAY_FRESHNESS_MS / 1_000 - 1;
     const future = NOW_SECONDS + 61;
     const rows = [
@@ -294,5 +300,14 @@ describe("Codex market price reader", () => {
       now,
     });
     await expect(graphError()).rejects.toThrow("returned an error");
+  });
+
+  test("rejects a 206 partial price response instead of returning prices", async () => {
+    const partial = createCodexMarketPricesReader({
+      apiKey: "fixture-key",
+      fetchImpl: (async () => new Response('{"data":{"getTokenPrices":[]}}', { status: 206 })),
+      now,
+    });
+    await expect(partial()).rejects.toBeInstanceOf(CodexMarketDataError);
   });
 });

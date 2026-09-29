@@ -4,6 +4,7 @@ import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { MoneyAssetPrice } from "@/client/money-modal";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
+import { CASHOUT_PREPARE_ERRORS, isCashoutPrepareErrorCode } from "@/shared/actions/contracts/prepare";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,8 @@ import { FieldSeparator } from "@/components/ui/field";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { CopyableValue } from "@/components/copyable-value";
 import { PayoutMethodMarks } from "@/components/payout-method-marks";
-import { PayoutDestination } from "@/components/payout-destination";
+import { useReactiveExpiry } from "@/client/actions/expiry";
+import { cashoutQuoteFromLegacy, type CashoutQuote } from "@/shared/funding/cash-out-quote";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -33,6 +35,7 @@ import { normalizeTransferRecipientName } from "@/shared/transfers/recipient-nam
 import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
+  CashOutReview,
   MoneyConfirmSummary,
   moneyConfirmFromRow,
   MoneyConfirmFooter,
@@ -75,10 +78,10 @@ type CashoutRequest = {
   currency: string;
   payoutHandle: string;
   canonicalHandle: string | null;
-  approximateFiatAmount: string;
-  etaSeconds: number | null;
+  quote: CashoutQuote | null;
   depositId?: string;
 };
+type CashoutQuoteInput = Pick<CashoutRequest, "providerId" | "providerName" | "assetId" | "amountBaseUnits" | "platform" | "platformLabel" | "currency" | "payoutHandle"> & { canonicalHandle: string };
 export function SendDialog({
   open,
   address,
@@ -135,6 +138,8 @@ export function SendDialog({
   const [selectedPlatform, setSelectedPlatform] = useState<FundingOfframpBinding["paymentMethods"][number] | null>(null);
   const [payoutHandle, setPayoutHandle] = useState("");
   const [action, setAction] = useState<PreparedMoneyAction | null>(null);
+  const [serverExpiredId, setServerExpiredId] = useState<string | null>(null);
+  const [quoteNotice, setQuoteNotice] = useState<string | null>(null);
   const [step, setStep] = useState<SendStep>("amount");
   const [submission, setSubmission] = useState<"submitted" | "ambiguous" | "failed" | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | undefined>();
@@ -145,6 +150,8 @@ export function SendDialog({
   const routing = useOptionalHomeShellRouting();
   const [error, setError] = useState<string | null>(null);
   const resumedActionRef = useRef<string | null>(null);
+  const cashoutExpiry = useReactiveExpiry(cashout?.operation === "deposit" ? action?.expiresAt ?? null : null);
+  const quoteExpired = cashout?.operation === "deposit" && action !== null && (cashoutExpiry.expired || serverExpiredId === action.id);
   const selectedStillAvailable = !assetId || availableAssets?.some((asset) => asset.id === assetId) !== false;
   const activeAssetId = assetId && selectedStillAvailable ? assetId : availableAssets?.[0]?.id ?? null;
   function changeAmount(value: string) {
@@ -203,7 +210,7 @@ export function SendDialog({
           address: resolved && resolved.name === requestedName ? resolved.address : null,
         });
       })
-      .catch(() => {
+      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed recipient-name lookup falls back to an unresolved address unless this request was cancelled
         if (!cancelled) setResolution({ name: requestedName, address: null });
       });
     return () => { cancelled = true; };
@@ -223,7 +230,7 @@ export function SendDialog({
           });
         }
       })
-      .catch(() => {
+      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed recent-recipient lookup falls back to an empty list unless the request was cancelled
         if (!cancelled) {
           setRecentRecipientState({ ownerBoundary: requestedOwnerBoundary, recipients: [] });
         }
@@ -237,7 +244,7 @@ export function SendDialog({
     const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
       .then((value) => { if (!cancelled) setOfframps(readProviderBindings(value).filter((binding): binding is FundingOfframpBinding => binding.direction === "offramp")); })
-      .catch(() => { if (!cancelled) setOfframps(null); })
+      .catch(() => { if (!cancelled) setOfframps(null); }) // oxlint-disable-line home/no-silent-catch -- a failed provider read clears the list; finally marks this request loaded
       .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };
   }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary, providerRetry]);
@@ -269,7 +276,7 @@ export function SendDialog({
           symbol: spent.symbol, decimals: spent.decimals, amountBaseUnits: spent.amountBaseUnits,
           platform: metadata.platform, platformLabel: metadata.platformLabel, currency: metadata.currency,
           payoutHandle: metadata.canonicalHandle, canonicalHandle: metadata.canonicalHandle,
-          approximateFiatAmount: metadata.approximateFiatAmount, etaSeconds: metadata.etaSeconds ?? null,
+          quote: metadata.quote ?? cashoutQuoteFromLegacy(metadata),
         });
       } else if (resumed.kind === "cash-out-withdraw" && resumed.metadata?.product === "cashout" && resumed.metadata.operation === "withdraw") {
         const received = resumed.amounts.find((item) => item.direction === "receive");
@@ -282,7 +289,7 @@ export function SendDialog({
           operation: "withdraw", providerId: metadata.providerId, providerName: metadata.providerName, assetId: received.assetId,
           symbol: received.symbol, decimals: received.decimals, amountBaseUnits: received.amountBaseUnits,
           platform: metadata.platform, platformLabel: metadata.platformLabel, currency: metadata.currency,
-          payoutHandle: "", canonicalHandle: null, approximateFiatAmount: "0", etaSeconds: null, depositId: metadata.depositId,
+          payoutHandle: "", canonicalHandle: null, quote: null, depositId: metadata.depositId,
         });
       } else throw new TransferExecutionError("unavailable");
       setAction(resumed); setStep("confirm");
@@ -302,7 +309,7 @@ export function SendDialog({
     setAssetId(availableAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
     setResolution(null);
     setSubmission(null); setSubmittedAt(undefined); submittingRef.current = false; setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
-    setAction(null); setStep("amount"); setError(null);
+    setAction(null); setStep("amount"); setError(null); setQuoteNotice(null); setServerExpiredId(null);
   }
   function discardPreparedReview() {
     setAction(null); onInvalidResume?.();
@@ -310,6 +317,7 @@ export function SendDialog({
   function returnToCashoutHandle(focus: boolean) {
     prepareTokenRef.current += 1;
     discardPreparedReview();
+    setQuoteNotice(null);
     const binding = selectedOfframp?.providerId === cashout?.providerId && selectedOfframp?.region === regionId && selectedOfframp?.assetId === "base:usdc" && selectedOfframp?.currency === cashout?.currency &&
       selectedPlatform?.platform === cashout?.platform ? selectedOfframp :
       (providersLoaded ? offramps : null)?.find((item) => item.providerId === cashout?.providerId && item.region === regionId && item.assetId === "base:usdc" && item.currency === cashout?.currency &&
@@ -371,24 +379,14 @@ export function SendDialog({
       if (!canonicalHandle) throw new Error("invalid");
       const amountBaseUnits = parseTransferAmount(amount.replace(/\.$/, ""), selectedAsset.decimals);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      setStep("preparing"); setError(null);
-      const prepared = await prepareMoneyAction("cash-out", {
-        providerId: selectedOfframp.providerId, region: regionId, assetId: selectedOfframp.assetId,
-        amountBaseUnits, platform: selectedPlatform.platform, currency: selectedOfframp.currency, payoutHandle,
+      setStep("preparing"); setError(null); setQuoteNotice(null);
+      const next = await prepareCashoutReview({
+        providerId: selectedOfframp.providerId, providerName: selectedOfframp.displayName, assetId: selectedOfframp.assetId,
+        amountBaseUnits, platform: selectedPlatform.platform, platformLabel: selectedPlatform.label, currency: selectedOfframp.currency,
+        payoutHandle, canonicalHandle,
       });
       if (token !== prepareTokenRef.current) return;
-      if (prepared.kind !== "cash-out" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "deposit" ||
-        prepared.metadata.canonicalHandle !== canonicalHandle) throw new Error("invalid");
-      const metadata = prepared.metadata;
-      const spent = prepared.amounts.find((item) => item.direction === "spend");
-      if (!spent) throw new Error("invalid");
-      setCashout({
-        operation: "deposit", providerId: selectedOfframp.providerId, providerName: selectedOfframp.displayName, assetId: spent.assetId,
-        symbol: spent.symbol, decimals: spent.decimals, amountBaseUnits: spent.amountBaseUnits,
-        platform: selectedPlatform.platform, platformLabel: selectedPlatform.label, currency: selectedOfframp.currency,
-        payoutHandle, canonicalHandle: metadata.canonicalHandle, approximateFiatAmount: metadata.approximateFiatAmount, etaSeconds: metadata.etaSeconds ?? null,
-      });
-      setRequest(null); showPreparedReview(prepared);
+      setCashout(next.cashout); setRequest(null); showPreparedReview(next.prepared);
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded cash-out preparations cannot overwrite the edited destination
       if (token === prepareTokenRef.current) {
         setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle");
@@ -396,8 +394,45 @@ export function SendDialog({
     }
   }
 
+  async function prepareCashoutReview(input: CashoutQuoteInput): Promise<{ prepared: PreparedMoneyAction; cashout: CashoutRequest }> {
+    const prepared = await prepareMoneyAction("cash-out", {
+      providerId: input.providerId, region: regionId, assetId: input.assetId,
+      amountBaseUnits: input.amountBaseUnits, platform: input.platform, currency: input.currency, payoutHandle: input.payoutHandle,
+    });
+    if (prepared.kind !== "cash-out" || prepared.metadata?.product !== "cashout" || prepared.metadata.operation !== "deposit" ||
+      prepared.metadata.canonicalHandle !== input.canonicalHandle) throw new Error("invalid");
+    const metadata = prepared.metadata;
+    const spent = prepared.amounts.find((item) => item.direction === "spend");
+    if (!spent) throw new Error("invalid");
+    return { prepared, cashout: {
+      ...input, operation: "deposit", assetId: spent.assetId, symbol: spent.symbol, decimals: spent.decimals, amountBaseUnits: spent.amountBaseUnits,
+      canonicalHandle: metadata.canonicalHandle, quote: metadata.quote ?? cashoutQuoteFromLegacy(metadata),
+    } };
+  }
+
+  async function requoteCashout() {
+    if (!regionReady || cashout?.operation !== "deposit" || !cashout.canonicalHandle || !cashout.quote) return;
+    const previous = { ...cashout, canonicalHandle: cashout.canonicalHandle, quote: cashout.quote };
+    const token = ++prepareTokenRef.current;
+    setStep("preparing"); setError(null); setQuoteNotice(null);
+    try {
+      const next = await prepareCashoutReview({ ...previous, payoutHandle: previous.canonicalHandle });
+      if (token !== prepareTokenRef.current) return;
+      const receive = next.cashout.quote?.receive;
+      const changed = !receive || receive.currency !== previous.quote.receive.currency || !sameDecimal(receive.amount, previous.quote.receive.amount);
+      setCashout(next.cashout);
+      setQuoteNotice(changed ? "The quote changed. Check what you receive before you cash out." : null);
+      showPreparedReview(next.prepared);
+    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a superseded requote cannot overwrite a newer review
+      if (token === prepareTokenRef.current) {
+        setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("error");
+      }
+    }
+  }
+
   async function confirm() {
     if (!action || (!request && !cashout) || submittingRef.current || step !== "confirm") return;
+    if (cashout?.operation === "deposit" && (quoteExpired || cashoutExpiry.recheckExpired())) return;
     submittingRef.current = true;
     setStep("pending"); setError(null);
     try {
@@ -422,6 +457,9 @@ export function SendDialog({
         onSubmitted?.();
         setSubmission("ambiguous"); setStep("result");
         return;
+      }
+      if (cashout?.operation === "deposit" && isExpiredReview(caught)) {
+        setServerExpiredId(action.id); setStep("confirm"); return;
       }
       if (isUnavailableReview(caught)) {
         reset(); setError("This review is no longer available — start again."); onInvalidResume?.(); return;
@@ -515,22 +553,22 @@ export function SendDialog({
             onKeyDown={(event) => { if (event.key === "Enter" && canonicalizeCashPayee(selectedPlatform.platform, payoutHandle)) { event.preventDefault(); void prepareCashout(); } }}
           />
         </div> : null}
-        {(request || cashout) && (!request || requestAsset) && (step === "confirm" || busy || step === "error") ? <>
-          <MoneyConfirmSummary action={action} amount={confirmAmount} lead={cashout ? (cashout.operation === "withdraw" ? `You're withdrawing from ${cashout.providerName}` : `You're cashing out with ${cashout.providerName}`) : `You're sending ${requestAsset?.symbol ?? ""}`} destination={cashout?.operation === "deposit" && cashout.canonicalHandle ? <PayoutDestination platform={cashout.platform} label={cashout.platformLabel} destination={cashout.canonicalHandle} onEdit={() => returnToCashoutHandle(true)} /> : undefined} rows={cashout ? [
+        {cashout?.operation === "deposit" && cashout.quote && cashout.canonicalHandle && action && (step === "confirm" || busy || step === "error") ? <CashOutReview
+          action={action} amount={confirmAmount} quote={cashout.quote} providerName={cashout.providerName}
+          platform={cashout.platform} platformLabel={cashout.platformLabel} canonicalHandle={cashout.canonicalHandle}
+          onEdit={() => returnToCashoutHandle(true)}
+          notice={step === "preparing" ? null : quoteExpired ? { tone: "neutral", text: "This quote expired. Get a new quote to continue." } : quoteNotice ? { tone: "neutral", text: quoteNotice } : null}
+        /> : (request || cashout) && (!request || requestAsset) && (step === "confirm" || busy || step === "error") ? <>
+          <MoneyConfirmSummary action={action} amount={confirmAmount} lead={cashout ? `You're withdrawing from ${cashout.providerName}` : `You're sending ${requestAsset?.symbol ?? ""}`} rows={cashout ? [
             ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "Provider", value: cashout.providerName },
-            ...(cashout.operation === "withdraw" ? [{ label: "Payout app", value: cashout.platformLabel }] : []),
-            ...(cashout.operation === "deposit" ? [
-              { label: "Approximate receive", value: `≈ ${cashout.approximateFiatAmount} ${cashout.currency}` },
-              { label: "Estimated delivery", value: cashout.etaSeconds === null ? "Historical estimate unavailable" : `About ${formatEta(cashout.etaSeconds)}` },
-            ] : []),
+            { label: "Payout app", value: cashout.platformLabel },
             { label: "Network", value: "Base" },
           ] : [
             ...(action ? [moneyConfirmFromRow(action.owner)] : []),
             { label: "To", value: <CopyableValue value={request!.recipient} presentation="reveal" valueKind="address" className="-my-3 justify-end" /> },
             { label: "Asset", value: requestAsset?.symbol ?? "" }, { label: "Network", value: "Base" },
           ]} />
-          {cashout?.operation === "deposit" ? <StatusMessage>The fiat amount and delivery time are approximate, not guaranteed.</StatusMessage> : null}
         </> : null}
         {step === "preparing" ? <StatusMessage><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />Preparing review…</span></StatusMessage> : null}
         {error ? <StatusMessage tone="error" role="alert">{error}</StatusMessage> : null}
@@ -539,7 +577,7 @@ export function SendDialog({
       {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinueAmount} onPrimary={continueFromAmount} /> : null}
       {step === "destination" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={effectiveRecipient === null || resolving} onPrimary={() => void prepareSend()} /> : null}
       {step === "handle" ? <MoneyModalFooter primaryLabel="Review" primaryDisabled={!canonicalizeCashPayee(selectedPlatform?.platform ?? "", payoutHandle)} onPrimary={() => void prepareCashout()} /> : null}
-      {(step === "confirm" || step === "pending") && action ? <MoneyConfirmFooter action={action} primaryLabel={cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} submitting={step === "pending"} onPrimary={() => void confirm()} secondaryLabel="Back" onSecondary={back} /> : null}
+      {(step === "confirm" || step === "pending") && action ? <MoneyConfirmFooter action={action} actionExpired={quoteExpired} primaryLabel={quoteExpired ? "Get new quote" : cashout ? <>{cashout.operation === "withdraw" ? "Withdraw" : "Cash out"} <MoneyTicker value={confirmAmount} /></> : <>Send <MoneyTicker value={confirmAmount} /></>} submitting={step === "pending"} onPrimary={() => void (quoteExpired ? requoteCashout() : confirm())} secondaryLabel="Back" onSecondary={back} /> : null}
       {step === "error" ? <MoneyModalFooter primaryLabel="Try again" onPrimary={() => { setError(null); setStep("confirm"); }} secondaryLabel="Back" onSecondary={back} /> : null}
       </MoneyModalStep>
     </MoneyModal>
@@ -606,18 +644,24 @@ function CashoutItem({ binding, onSelect }: { binding: FundingOfframpBinding; on
   </Item>;
 }
 
-function formatEta(seconds: number): string {
-  if (seconds < 60) return `${seconds} sec`;
-  const minutes = Math.ceil(seconds / 60);
-  return `${minutes} min`;
+function sameDecimal(left: string, right: string): boolean {
+  const trim = (value: string) => value.includes(".") ? value.replace(/0+$/, "").replace(/\.$/, "") : value;
+  return trim(left) === trim(right);
+}
+function isExpiredReview(error: unknown): boolean {
+  if ((error as { code?: unknown } | null)?.code === "ACTION_EXPIRED") return true;
+  return error instanceof TransferExecutionError && error.reason === "unavailable" &&
+    (error as TransferExecutionError & { status?: unknown }).status === 410;
 }
 function StatusMessage({ children, tone = "neutral", role, ...props }: Omit<ComponentProps<typeof Alert>, "children"> & { children: ReactNode; tone?: "neutral" | "error" }) {
   return <Alert variant={tone === "error" ? "destructive" : "default"} role={role ?? (tone === "error" ? "alert" : "status")} {...props}>{tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}<AlertDescription>{children}</AlertDescription></Alert>;
 }
 function isUnavailableReview(error: unknown): boolean {
   if (!(error instanceof TransferExecutionError) || error.reason !== "unavailable") return false;
-  const status = (error as TransferExecutionError & { status?: unknown }).status;
-  return status === 404 || status === 410;
+  const details = error as TransferExecutionError & { status?: unknown; code?: unknown };
+  return details.status === 404 || details.status === 410 ||
+    details.code === CASHOUT_PREPARE_ERRORS.unavailable.code ||
+    details.code === CASHOUT_PREPARE_ERRORS["settings-unavailable"].code;
 }
 function messageForError(error: unknown, cashout: boolean): string {
   if (error instanceof TransferExecutionError && error.reason === "stale-session") return "Your account changed before submission. Sign in and try again.";
@@ -628,6 +672,6 @@ function messageForError(error: unknown, cashout: boolean): string {
 }
 function serverCashoutMessage(error: unknown): string {
   const value = error as { code?: unknown; serverMessage?: unknown };
-  if (typeof value.serverMessage === "string" && typeof value.code === "string" && value.code.startsWith("CASHOUT_")) return value.serverMessage;
+  if (typeof value.serverMessage === "string" && isCashoutPrepareErrorCode(value.code)) return value.serverMessage;
   return "Check the payout details and try again.";
 }

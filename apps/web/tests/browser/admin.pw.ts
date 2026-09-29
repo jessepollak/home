@@ -1,31 +1,12 @@
-import { createHash, createHmac } from "node:crypto";
+import { homeSessionToken } from "./fixtures/session";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
 const admin = "0x1111111111111111111111111111111111111111";
 const secondAdmin = "0x3333333333333333333333333333333333333333";
 const customer = "0x2222222222222222222222222222222222222222";
-const secret = "playwright-smoke-home-session-secret-32-bytes!!";
-
-function token(address: string): string {
-  const subject = `base-${createHash("sha256").update(address).digest("hex").slice(0, 32)}`;
-  const now = Date.now();
-  const encoded = Buffer.from(JSON.stringify({
-    version: 1,
-    session: {
-      user: { subject },
-      smartAccount: { address, chainId: 8453 },
-      accountProvider: "base-account",
-    },
-    issuedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + 60 * 60 * 1_000).toISOString(),
-  })).toString("base64url");
-  const input = `v1.${encoded}`;
-  return `${input}.${createHmac("sha256", Buffer.from(secret)).update(input).digest("base64url")}`;
-}
-
 async function setSession(context: BrowserContext, address: string) {
   await context.addCookies([{
-    name: "home-session", value: token(address), domain: "localhost", path: "/",
+    name: "home-session", value: homeSessionToken(address), domain: "localhost", path: "/",
     httpOnly: true, secure: false, sameSite: "Lax",
   }]);
 }
@@ -107,8 +88,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       ["Customers", "Customer search isn't available yet.", "/admin/customers"],
       ["Support", "Support inbox isn't available yet.", "/admin/support"],
       ["Growth", "Invite data isn't available.", "/admin/growth"],
-      ["Money", "Revenue isn't available yet.", "/admin/money"],
-      ["Settings", "No settings available yet.", "/admin/settings"],
+      ["Money", "Fee revenue is unavailable. Try again later.", "/admin/money"],
+      ["Settings", "Region settings need a database. Home is offering its built-in regions.", "/admin/settings"],
       ["Audit log", "Admin activity isn't recorded yet.", "/admin/audit"],
     ] as const;
     for (const [heading, empty, href] of sections) {
@@ -125,6 +106,10 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       await expect(page).toHaveURL(new RegExp(`${href}$`));
       await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
       await expect(page.getByText(empty)).toBeVisible();
+      if (heading === "Settings") {
+        await expect(page.getByText("Invest settings need a database. Home is showing its full catalog.")).toBeVisible();
+        await expect(page.getByText("Fee settings couldn’t load")).toBeVisible();
+      }
       if (viewport.width === 390) {
         const trigger = page.getByRole("button", { name: "Open sections menu" });
         await trigger.click();

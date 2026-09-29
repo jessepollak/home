@@ -12,9 +12,12 @@ import { getActionsStore, type ActionRow, type ActionsStore } from "@/server/act
 import { moneyActionOwner } from "@/server/money-actions/session";
 import { createProviderContext, environmentAvailable, resolveFundingMode, type FundingMode } from "@/server/funding/core/provider-context";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
+import { cashoutArrivalSeconds, parseCashoutQuote } from "@/shared/funding/cash-out-quote";
 import { getFundingProvider } from "@/server/funding/providers";
 import { assertPeerDepositCall } from "@/server/funding/providers/peer/offramp";
 import { UNKNOWN_WINDOW_MS } from "@/server/funding/cash-out-window";
+import { isRegionOffered } from "@/server/operator-settings/regions";
+import type { CashoutPrepareErrorReason } from "@/shared/actions/contracts/prepare";
 
 const APPROVE_ABI = parseAbi(["function approve(address spender,uint256 amount) returns (bool)"]);
 const ALLOWANCE_ABI = parseAbi(["function allowance(address owner,address spender) view returns (uint256)"]);
@@ -42,16 +45,12 @@ export type CashoutPreparationDependencies = {
   store?: Pick<ActionsStore, "list" | "hasUnsettledCashout" | "cashoutOrders">;
   now?: () => Date;
   readAllowance?: (owner: `0x${string}`, spender: `0x${string}`, signal?: AbortSignal) => Promise<bigint>;
+  regionOffered?: (region: string) => Promise<boolean>;
 };
 
 export class CashoutPreparationError extends Error {
   constructor(
-    readonly code:
-      | "invalid-input"
-      | "unavailable"
-      | "duplicate-unknown"
-      | "order-in-flight"
-      | "not-withdrawable",
+    readonly code: CashoutPrepareErrorReason,
     message: string,
   ) {
     super(message);
@@ -79,6 +78,9 @@ export async function prepareCashoutAction(
   const direction = binding?.directions.offramp;
   const env = dependencies.env ?? process.env;
   if (!provider?.offramp || !binding || !direction || !environmentAvailable(direction.env, env)) unavailable();
+  const regionOffered = await (dependencies.regionOffered ?? isRegionOffered)(binding.region).catch(() => null);
+  if (regionOffered === null) throw new CashoutPreparationError("settings-unavailable", "Cash out is unavailable right now. Try again shortly.");
+  if (!regionOffered) unavailable();
   const sandbox = resolveFundingMode(provider.manifest, "offramp", env) === "sandbox";
   const canonicalHandle = canonicalizeCashPayee(input.platform, input.payoutHandle);
   if (!canonicalHandle) throw new CashoutPreparationError("invalid-input", "Enter a valid payout destination.");
@@ -116,6 +118,10 @@ export async function prepareCashoutAction(
   const estimate = await provider.offramp.estimate({ amountAtomic: amount, platform: input.platform, currency: input.currency }, ctx);
   if (estimate.amountAtomic !== input.amountBaseUnits || estimate.currency !== input.currency ||
     estimate.minConversionRate !== "1" || BigInt(estimate.intentAmountRange.max) !== amount) unavailable();
+  const quote = parseCashoutQuote(estimate.quote);
+  if (!quote || quote.receive.currency !== input.currency || quote.fees.operator !== null ||
+    (quote.rate === null) !== (input.currency === "USD") ||
+    (quote.rate !== null && (quote.rate.from !== BASE_USDC.symbol || quote.rate.to !== input.currency))) unavailable();
   const prepared = await provider.offramp.prepareDeposit({
     owner: session.smartAccount.address,
     amountAtomic: amount,
@@ -151,7 +157,7 @@ export async function prepareCashoutAction(
     warnings: [
       `Payout app: ${direction.paymentMethods.find((method) => method.id === input.platform)?.label ?? input.platform}`,
       `Payout handle: ${canonicalHandle}`,
-      `Approximate receive: ≈ ${estimate.approximateFiatAmount} ${input.currency}; the rate and ETA are not guaranteed.`,
+      `Approximate receive: ≈ ${quote.receive.amount} ${input.currency}; the rate and ETA are not guaranteed.`,
       "USDC remains in Peer escrow until a buyer completes payment or you withdraw the unfilled balance.",
     ],
     expiresAt: new Date(now.getTime() + ACTION_EXPIRY_MS).toISOString(),
@@ -167,8 +173,9 @@ export async function prepareCashoutAction(
       currency: input.currency,
       canonicalHandle,
       payeeHash: prepared.payee.hash.toLowerCase() as `0x${string}`,
-      approximateFiatAmount: estimate.approximateFiatAmount,
-      etaSeconds: estimate.etaSeconds,
+      approximateFiatAmount: quote.receive.amount,
+      etaSeconds: cashoutArrivalSeconds(quote.arrival),
+      quote,
       minConversionRate: estimate.minConversionRate,
       intentAmountRange: estimate.intentAmountRange,
       estimateAsOf: estimate.asOf,

@@ -14,6 +14,8 @@ import { BASE_CBBTC, BASE_USDC } from "@/shared/assets/base";
 import { parseActivityPage } from "@/shared/activity/contract";
 import type { InvestmentsContentProps } from "./home-types";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
+import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
+import { readClientHistoryFlag } from "@/config/shell-location";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -119,6 +121,7 @@ const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
 const { parseShellLocation } = await import("@/config/shell-location");
 const { DashboardShell } = await import("./shell");
+const { CashExperience } = await import("@/client/cash/cash-experience");
 const { useOptionalHomeShellRouting } = await import("./panel-routing");
 const { PortfolioHomeExperience } = await import("./portfolio-home-experience");
 const { LandingShell } = await import("./landing-shell");
@@ -394,6 +397,16 @@ function CashFundingTrigger() {
   return <button onClick={() => routing?.setFlow("add-money", { mode: "push" })}>Add money in Cash</button>;
 }
 
+function EmptySavingsFunding({ view, onOpenSavings }: { view: "cash" | "savings"; onOpenSavings: () => void }) {
+  const routing = useOptionalHomeShellRouting();
+  return <CashExperience view={view} onOpenSavings={onOpenSavings} session={session()}
+    snapshot={buildBalancesSnapshotFixture()} balanceStatus="ready"
+    fetchVaults={async () => savingsVaultsBody(new Date().toISOString(), new Date().toISOString())}
+    onAddMoney={(options) => { routing?.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push" }); }}
+    prepareMoneyAction={async () => { throw new Error("Not part of this test"); }}
+    executeMoneyAction={async () => { throw new Error("Not part of this test"); }} />;
+}
+
 describe("pushed funding history", () => {
   test("Home to Cash to Add money closes without a duplicate Cash history entry", async () => {
     syncLocation("/home");
@@ -405,10 +418,10 @@ describe("pushed funding history", () => {
     expect(window.location.pathname).toBe("/cash");
     fireEvent.click(page().getByRole("button", { name: "Add money in Cash" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=add-money");
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=receive"));
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     fireEvent.click(within(await page().findByRole("dialog", { name: "Receive" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
     expect(historyEntries).toEqual(["/home", "/cash", "/cash?flow=receive"]);
@@ -440,11 +453,41 @@ describe("pushed funding history", () => {
     expect(emptyPrompt).not.toBe(prompt);
     emptyPrompt.focus();
     fireEvent.click(emptyPrompt);
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
     fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/home"));
     expect(historyEntries).toEqual(["/home", "/home?flow=add-money"]);
+  });
+
+  test("replacing a pushed savings picker with Add money closes back to savings without reopening", async () => {
+    syncLocation("/cash/savings");
+    historyEntries = ["/cash/savings"];
+    globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/savings/vaults"
+        ? Response.json(savingsVaultsBody(new Date().toISOString(), new Date().toISOString()))
+        : nativeFetch(input, init), { preconnect: nativeFetch.preconnect });
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="cash" initialLocation={parseShellLocation("/cash/savings")}
+      cashContent={({ view, onOpenSavings }) => <EmptySavingsFunding view={view} onOpenSavings={onOpenSavings} />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(await page().findByRole("button", { name: "Start saving" }));
+    const picker = await page().findByRole("dialog", { name: "Choose where to save" });
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=save-deposit");
+    expect(readClientHistoryFlag("cashSavingsFlowPushed")).toBe(true);
+    fireEvent.click(within(picker).getByRole("button", { name: "Add money" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=add-money");
+    expect(historyEntries).toEqual(["/cash/savings", "/cash/savings?flow=add-money"]);
+    expect(readClientHistoryFlag("fundingFlowPushed")).not.toBe(true);
+    expect(readClientHistoryFlag("cashSavingsFlowPushed")).toBe(true);
+    const funding = await page().findByRole("dialog", { name: "Add money" });
+    expectSheetOpen(funding);
+    expect(document.activeElement).not.toBe(page().getByRole("button", { name: "Start saving", hidden: true }));
+    fireEvent.click(within(funding).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings"));
+    expect(historyEntries).toEqual(["/cash/savings", "/cash/savings"]);
+    expect(page().queryByRole("dialog", { name: "Choose where to save" })?.hasAttribute("data-open")).not.toBe(true);
+    expect(pushCalls).toEqual(["/cash/savings?flow=save-deposit"]);
   });
 
   test("closing a direct funding deep link replaces its entry", async () => {
@@ -1217,7 +1260,7 @@ describe("Home shell routing and intents", () => {
       await page().findByRole("dialog", { name: "Received" });
       fireEvent.click(await page().findByRole("button", { name: "Bitcoin Asset" }));
       expect(window.location.pathname).toBe(`/investments/${btc}`);
-      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(readClientHistoryFlag("investmentsHoldingOpenedInApp")).toBe(true);
       expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(erc20AssetKey(BASE_CBBTC.address));
       expect(await page().findByRole("heading", { level: 1, name: "Bitcoin" })).toBeTruthy();
       await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
@@ -1297,7 +1340,7 @@ describe("Home shell routing and intents", () => {
       fireEvent.scroll(main);
       fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
       expect(window.location.pathname).toBe(INVESTMENT_PATH);
-      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(readClientHistoryFlag("investmentsHoldingOpenedInApp")).toBe(true);
       expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
       expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
       expect(main.scrollTop).toBe(0);
@@ -1788,7 +1831,7 @@ function refreshFixture() {
     if (url.startsWith("/api/session")) return Response.json(session());
     if (url.startsWith("/api/activity?")) {
       calls.activity += 1;
-      if (fail) throw new Error("Activity read unavailable");
+      if (fail) return Response.json({ invalid: true });
       const query = new URLSearchParams(url.split("?")[1]);
       const to = query.get("to")!;
       return Response.json({
@@ -1985,6 +2028,29 @@ describe("walletless country preference read", () => {
     } finally {
       observer.disconnect();
     }
+  });
+
+  test("shows balances in the global presentation when the saved country is no longer offered", async () => {
+    const fresh = buildBalancesSnapshotFixture({
+      region: "GLOBAL",
+      registry: { usdc: { balance: ready("1000000") } },
+    });
+    const requests: string[] = [];
+    const sessionFetch: SessionFetch = async (input) => {
+      const path = String(input);
+      requests.push(path);
+      if (path === "/api/session") return Response.json(session());
+      if (path === "/api/balances?region=GLOBAL") return Response.json(fresh);
+      throw new Error(`Unexpected read: ${path}`);
+    };
+    render(<AccountWalletSessionOwner sdk={sdk({ isSignedIn: true, ownerKey: OWNER, provisionalSession: session() })} sessionFetch={sessionFetch}>
+      <PortfolioHomeExperience detectedCountry="BR" accountPreference={{ accountProvider: "cdp-embedded", subject: "subject-home", regionId: "DE" }}
+        regionOffer={{ offered: ["BR"], defaultRegion: "BR" }} initialLocation={location} />
+    </AccountWalletSessionOwner>);
+    await waitForVerifiedShell();
+    await waitFor(() => expect(requests).toContain("/api/balances?region=GLOBAL"));
+    await waitFor(() => expect(page().getByRole("button", { name: "Choose a country in Account to set how money is shown" })).toBeTruthy());
+    expect(requests).not.toContain("/api/balances?region=BR");
   });
 
   test("discards a provisional country response after the owner changes", async () => {

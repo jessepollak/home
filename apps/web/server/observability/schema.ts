@@ -5,7 +5,7 @@ import {
   sanitizeRoutePath,
   scrubString,
 } from "@/shared/observability/scrub";
-import { HOME_AUTH_RESTORE_STAGES } from "@/shared/observability/client-performance.contract";
+import { HOME_AUTH_RESTORE_STAGES, HOME_ENGINES } from "@/shared/observability/client-performance.contract";
 import type {
   HomeAuthRestoreReport,
   HomeAuthSignOutReport,
@@ -106,12 +106,14 @@ export const SERVER_EVENT_KINDS = [
   "identity-webhook",
   "identity-reconcile",
   "identity-approval",
+  "cards-webhook",
   "balances-webhook",
   "balances-webhook-subscription",
   "balances-store",
   "balances-signal",
   "balances-valuation",
   "operator-registry",
+  "upstream-call",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
   "failed",
@@ -162,9 +164,30 @@ export const FUNDING_ORDER_CODES = [
   "PROVIDER_HTTP_5XX",
   "PROVIDER_TRANSPORT",
   "PROVIDER_INVALID_RESPONSE",
+  "UPSTREAM_ABORTED",
+  "UPSTREAM_TIMEOUT",
+  "UPSTREAM_TRANSPORT",
+  "UPSTREAM_HTTP_3XX",
+  "UPSTREAM_HTTP_4XX",
+  "UPSTREAM_HTTP_5XX",
+  "UPSTREAM_OVERSIZED",
+  "UPSTREAM_INVALID_RESPONSE",
 ] as const;
 export type ServerEventKind = (typeof SERVER_EVENT_KINDS)[number];
 export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
+export const UPSTREAM_CALL_CODES = [
+  "UPSTREAM_OK",
+  "UPSTREAM_ABORTED",
+  "UPSTREAM_TIMEOUT",
+  "UPSTREAM_TRANSPORT",
+  "UPSTREAM_HTTP_3XX",
+  "UPSTREAM_HTTP_4XX",
+  "UPSTREAM_HTTP_5XX",
+  "UPSTREAM_OVERSIZED",
+  "UPSTREAM_INVALID_RESPONSE",
+] as const;
+export type UpstreamCallCode = (typeof UPSTREAM_CALL_CODES)[number];
+export type UpstreamCallOutcome = "ok" | "skipped" | "unavailable" | "invalid";
 
 export type ObservabilityEvent =
   | HomeStartupReport
@@ -219,7 +242,18 @@ export type ObservabilityEvent =
       valuation: ActivityReadValuation;
     }
   | {
-      kind: ServerEventKind;
+      kind: "upstream-call";
+      route: string;
+      code: UpstreamCallCode;
+      outcome: UpstreamCallOutcome;
+      provider?: string;
+      "http.request.method": string;
+      "http.response.status_code"?: number;
+      "error.type"?: string;
+      durationMs: number;
+    }
+  | {
+      kind: Exclude<ServerEventKind, "upstream-call">;
       route: string;
       code: string;
       outcome: ServerEventOutcome;
@@ -260,6 +294,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         trigger: HomeNavigationReport["trigger"];
         cache: HomeNavigationReport["cache"];
         device: HomeNavigationReport["device"];
+        engine?: HomeNavigationReport["engine"];
         deployment: string;
         durationMs: number;
       }
@@ -270,6 +305,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         version: 1;
         cache: HomeScrollReport["cache"];
         device: HomeScrollReport["device"];
+        engine?: HomeScrollReport["engine"];
         deployment: string;
         durationMs: number;
         frameCount: number;
@@ -365,7 +401,18 @@ export type ObservabilityLogLine = ObservabilityLogBase &
       }
     | {
         level: "error" | "info";
-        kind: ServerEventKind;
+        kind: "upstream-call";
+        code: UpstreamCallCode;
+        outcome: UpstreamCallOutcome;
+        provider?: string;
+        "http.request.method": string;
+        "http.response.status_code"?: number;
+        "error.type"?: string;
+        durationMs: number;
+      }
+    | {
+        level: "error" | "info";
+        kind: Exclude<ServerEventKind, "upstream-call">;
         code: string;
         outcome: ServerEventOutcome;
         provider?: string;
@@ -429,6 +476,7 @@ export function normalizeObservabilityEvent(
       trigger: event.trigger,
       cache: event.cache,
       device: event.device,
+      ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
       deployment: typeof event.deployment === "string"
         ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
       durationMs: boundedInteger(event.durationMs, 10_000),
@@ -446,6 +494,7 @@ export function normalizeObservabilityEvent(
       version: 1,
       cache: event.cache,
       device: event.device,
+      ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
       deployment: typeof event.deployment === "string"
         ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
       durationMs: boundedInteger(event.durationMs, 30_000),
@@ -569,6 +618,33 @@ export function normalizeObservabilityEvent(
         quoteUnavailable: boundedInteger(event.valuation?.quoteUnavailable, 10_000),
         fxUnavailable: boundedInteger(event.valuation?.fxUnavailable, 10_000),
       },
+    };
+  }
+
+  if (event.kind === "upstream-call") {
+    const outcome: UpstreamCallOutcome =
+      event.outcome === "ok" || event.outcome === "skipped" || event.outcome === "invalid"
+        ? event.outcome : "unavailable";
+    const method = event["http.request.method"];
+    const status = event["http.response.status_code"];
+    const errorType = event["error.type"];
+    const provider = typeof event.provider === "string" && event.provider
+      ? sanitizeIdentifier(event.provider, "unknown").slice(0, 64)
+      : undefined;
+    return {
+      ...base,
+      level: outcome === "ok" || outcome === "skipped" ? "info" : "error",
+      kind: event.kind,
+      code: allowedValue(event.code, UPSTREAM_CALL_CODES, outcome === "ok" ? "UPSTREAM_OK" : "UPSTREAM_TRANSPORT"),
+      outcome,
+      ...(provider ? { provider } : {}),
+      "http.request.method": typeof method === "string" && /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/.test(method)
+        ? method : "_OTHER",
+      ...(typeof status === "number" && Number.isSafeInteger(status) && status >= 100 && status <= 599
+        ? { "http.response.status_code": status } : {}),
+      ...(typeof errorType === "string" && /^(?:aborted|timeout|transport|oversized|invalid_response|[1-5][0-9]{2})$/.test(errorType)
+        ? { "error.type": errorType } : {}),
+      durationMs: boundedInteger(event.durationMs, 30_000),
     };
   }
 

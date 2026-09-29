@@ -95,14 +95,29 @@ describe("AssetPosition", () => {
     await waitFor(() => expect(view.queryByText("Your balance")).toBeNull());
   });
 
-  test("a held stock shows its quantity with the value explicitly unavailable", async () => {
-    const view = show(stock, async () => patch((holding) => holding.id === "nvdac" ? {
-      ...holding, balance: { status: "ready", baseUnits: "1".padEnd(holding.decimals + 1, "0") },
-      value: { status: "priced", currency: "USD", amount: { atoms: "17960", scale: 2 }, asOf: new Date().toISOString() },
-    } : holding));
-    await waitFor(() => expect(view.getByText("Value unavailable")).toBeTruthy());
-    expect(view.queryByText("$179.60")).toBeNull();
-  });
+  const priced = { status: "priced", currency: "USD", amount: { atoms: "17960", scale: 2 }, asOf: "2026-09-25T20:00:00.000Z" } as const;
+  const stockCases: Array<{ name: string; value: Holding["value"]; shown: string; context: string | null }> = [
+    { name: "open reference", value: { ...priced, reference: { kind: "tokenized-equity", session: "open" } }, shown: "$179.60", context: null },
+    { name: "closed reference", value: { ...priced, reference: { kind: "tokenized-equity", session: "closed" } }, shown: "$179.60", context: "Last close" },
+    { name: "paused", value: { status: "unpriced", reason: "price-paused" }, shown: "—", context: "Paused" },
+    { name: "stale", value: { status: "unpriced", reason: "price-stale" }, shown: "—", context: "Price delayed" },
+    { name: "unavailable", value: { status: "unpriced", reason: "price-unavailable" }, shown: "—", context: "Value unavailable" },
+    { name: "removed", value: { status: "unpriced", reason: "asset-removed" }, shown: "—", context: "No longer listed" },
+  ];
+
+  for (const { name, value, shown, context } of stockCases) {
+    test(`a held stock with a ${name} value shows ${shown} ${context ?? "without context"}`, async () => {
+      const view = show(stock, async () => patch((holding) => holding.id === "nvdac" ? {
+        ...holding, balance: { status: "ready", baseUnits: "1".padEnd(holding.decimals + 1, "0") }, value,
+      } : holding));
+      await waitFor(() => expect(view.getByText(shown)).toBeTruthy());
+      for (const label of ["Last close", "Paused", "Price delayed", "Value unavailable", "No longer listed"]) {
+        if (label === context) expect(view.getByText(label)).toBeTruthy();
+        else expect(view.queryByText(label)).toBeNull();
+      }
+      if (shown === "—") expect(view.queryByText("$179.60")).toBeNull();
+    });
+  }
 });
 
 describe("findAssetHolding", () => {

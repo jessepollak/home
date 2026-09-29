@@ -7,6 +7,9 @@
   "customVariants": [
     "@custom-variant dark (&:is(.dark *))"
   ],
+  "sources": [
+    "@source not \"../oxlint\""
+  ],
   "topLevel": [
     ".dark",
     ":root",
@@ -54,7 +57,6 @@
       "--font-mono",
       "--font-sans",
       "--radius-2xl",
-      "--radius-3xl",
       "--radius-4xl",
       "--radius-lg",
       "--radius-md",
@@ -72,6 +74,7 @@
       "--background",
       "--balance-bar-cash",
       "--balance-bar-investments",
+      "--balance-bar-pending-cash-out",
       "--balance-cash",
       "--balance-investments",
       "--balance-savings",

@@ -2,6 +2,8 @@ import path from "node:path";
 
 const productionIsolationMessage =
   "Storybook and MSW are development-only; production modules must not import workshop packages, config, or stories";
+const explorationIsolationMessage =
+  "Exploration code is design-lane only; production modules must not import or re-export from explorations/";
 const sharedLayerMessage =
   "shared modules must remain runtime-agnostic and independent of web application layers";
 const clientLayerMessage = "client modules must not import the server layer";
@@ -11,6 +13,7 @@ const browserSdkMessage =
 const baseUiMessage =
   "@base-ui/react primitives may only be imported by owned components/ui wrappers";
 const locationMessage = "Do not assign a relative URL to location; use an absolute path or URL.";
+const classicZodMessage = "shared, client, and components modules must import zod/mini instead of classic zod";
 
 function sourceValue(node) {
   if (node?.type === "Literal" || node?.type === "StringLiteral") return node.value;
@@ -20,14 +23,72 @@ function sourceValue(node) {
   return undefined;
 }
 
+const assertionNodes = ["ParenthesizedExpression", "TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion", "TypeAssertionExpression"];
+const unknownSegment = Symbol("unknown");
+
+function mergeSegments(left, right) {
+  if (!left.length) return right;
+  if (!right.length) return left;
+  const last = left.at(-1);
+  const first = right[0];
+  if (typeof last === "string" && typeof first === "string") return [...left.slice(0, -1), last + first, ...right.slice(1)];
+  return [...left, ...right];
+}
+
+function combineSegments(lefts, rights) {
+  const combined = [];
+  for (const left of lefts) for (const right of rights) {
+    combined.push(mergeSegments(left, right));
+    if (combined.length > 4096) return [widenSegments(combined)];
+  }
+  return combined;
+}
+
+// A pathological alternative count must not erase known segments and let a
+// definite exploration import through, so widen the constructed alternatives
+// into one fail-closed sequence of every known segment seen.
+function widenSegments(alternatives) {
+  const segments = [unknownSegment];
+  for (const alternative of alternatives) for (const segment of alternative) {
+    if (typeof segment === "string" && segment.length && !segments.includes(segment)) segments.push(segment);
+  }
+  return segments;
+}
+
+
+function segmentAlternatives(node) {
+  if (node == null) return [[unknownSegment]];
+  if (assertionNodes.includes(node?.type)) return segmentAlternatives(node.expression);
+  if (node?.type === "Literal" || node?.type === "StringLiteral") return typeof node.value === "string" ? [[node.value]] : [[unknownSegment]];
+  if (node?.type === "BinaryExpression" && node.operator === "+") return combineSegments(segmentAlternatives(node.left), segmentAlternatives(node.right));
+  if (node?.type === "ConditionalExpression") return [...segmentAlternatives(node.consequent), ...segmentAlternatives(node.alternate)];
+  if (node?.type === "LogicalExpression") return [...segmentAlternatives(node.left), ...segmentAlternatives(node.right)];
+  if (node?.type !== "TemplateLiteral") return [[unknownSegment]];
+  let alternatives = [[]];
+  for (const [index, quasi] of node.quasis.entries()) {
+    const cooked = quasi.value.cooked;
+    alternatives = combineSegments(alternatives, [[typeof cooked === "string" ? cooked : unknownSegment]]);
+    if (index < node.expressions.length) alternatives = combineSegments(alternatives, segmentAlternatives(node.expressions[index]));
+  }
+  return alternatives;
+}
+
 function sourceVisitors(check) {
+  function visit(node) {
+    for (const segments of segmentAlternatives(node)) {
+      for (const segment of segments) {
+        if (typeof segment === "string" && segment.length) check(node, segment);
+      }
+    }
+  }
   return {
-    ImportDeclaration(node) { check(node.source); },
-    ExportNamedDeclaration(node) { if (node.source) check(node.source); },
-    ExportAllDeclaration(node) { check(node.source); },
-    ImportExpression(node) { check(node.source); },
+    ImportDeclaration(node) { visit(node.source); },
+    ExportNamedDeclaration(node) { if (node.source) visit(node.source); },
+    ExportAllDeclaration(node) { visit(node.source); },
+    ImportExpression(node) { visit(node.source); },
+    TSImportType(node) { visit(node.source); },
     CallExpression(node) {
-      if (node.callee.type === "Identifier" && node.callee.name === "require") check(node.arguments[0]);
+      if (node.callee.type === "Identifier" && node.callee.name === "require") visit(node.arguments[0]);
     },
   };
 }
@@ -36,11 +97,11 @@ function rule(message, reject) {
   return {
     meta: { type: "problem", schema: [], messages: { rejected: message } },
     create(context) {
-      return sourceVisitors((node) => {
-        const value = sourceValue(node);
-        if (typeof value === "string" && reject(value, context.filename)) {
-          context.report({ node, messageId: "rejected" });
-        }
+      const reported = new WeakSet();
+      return sourceVisitors((node, value) => {
+        if (typeof value !== "string" || reported.has(node) || !reject(value, context.filename)) return;
+        reported.add(node);
+        context.report({ node, messageId: "rejected" });
       });
     },
   };
@@ -77,6 +138,10 @@ function packageRoot(value) {
 }
 
 export const noStorybookImports = rule(productionIsolationMessage, isStorybookImport);
+export const noExplorationImports = rule(explorationIsolationMessage, (value) =>
+  /(?:^|\/)explorations(?:\/|$)/.test(value));
+export const noClassicZodImports = rule(classicZodMessage, (value) =>
+  value !== "zod/mini" && (value === "zod" || value.startsWith("zod/")));
 
 export const noClientServerImports = rule(clientLayerMessage, (value, filename) => {
   const current = layerForFilename(filename);

@@ -1,7 +1,9 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { describe, expect, test } from "bun:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
-import { keccak256 } from "viem";
+import { encodeFunctionData, erc20Abi, keccak256 } from "viem";
 import { makePaymasterApproval } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { stockAssets } from "@/config/invest-assets";
@@ -67,9 +69,29 @@ describe("trade confirmation", () => {
     });
     const result = await handler(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
     expect(result.status).toBe(200);
-    expect(await result.json()).toEqual({ version: 1, trade: null });
+    expect(await readJson(result)).toEqual({ version: 1, trade: null });
     const signedOut = createGetPendingTradeHandler({ authorize: async () => Response.json({ error: "unauthorized" }, { status: 401 }) });
     expect((await signedOut(new Request("https://home.test/api/actions/trade-pending"))).status).toBe(401);
+  });
+
+  test("rejects a legacy trade whose fee recipient is the owner before confirming", async () => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = {
+      product: "trade", direction: "buy", fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: ROUTER },
+      fromAmountBaseUnits: "1000000", expectedToAmountBaseUnits: "1000", minimumToAmountBaseUnits: "990",
+      operatorFee: { amountBaseUnits: "10000", bps: 100, recipient: OWNER, collectedBy: "in-batch-transfer",
+        token: { address: BASE_USDC_ADDRESS, decimals: 6, assetId: "usdc", symbol: "USDC" } },
+    } as unknown as TradeMoneyActionMetadata;
+    let confirms = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect((await result.json()).error.code).toBe("ACTION_EXPIRED");
+    expect(confirms).toBe(0);
   });
 
   test.each(["US", null] as const)("blocks a stock buy for %s through the real confirm handler", async (country) => {
@@ -86,7 +108,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(restrictedRequest, context);
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
   });
   test("allows stock to USDC past the guard in a US request", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
@@ -98,7 +120,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request("0x1234", "cdp-embedded"), context);
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
   });
   test.each(["base-account", "cdp-embedded"] as const)("finalizes a fee-prepended %s trade with an exact call commitment", async (provider) => {
     const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
@@ -116,13 +138,58 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request(signature, provider), context);
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
     expect(body.calls).toHaveLength(3);
     expect(body.calls[0]).toEqual(feeCall);
     expect(body.calls[1]).toEqual(approval);
     expect(body.calls[2].data).toStartWith("0x1234");
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
     expect(committed).toBe(keccak256(encodeCoinbaseExecuteBatch(body.calls)));
+  });
+  test.each(["base-account", "cdp-embedded"] as const)("finalizes the %s buy swap without changing the preceding operator transfer", async (provider) => {
+    const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
+    const recipient = "0x1234567890123456789012345678901234567890" as const;
+    const transfer = { to: BASE_USDC_ADDRESS, value: "0", data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, BigInt(10_000)] }) };
+    row.pending = { ...row.pending!, calls: [feeCall, transfer, approval, swap], swapCallIndex: 3 };
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"), verifySmartAccountSignature: async () => true,
+      estimateBaseBatch: async () => BigInt(150_000), markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => row, confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending!, calls: calls! } }) },
+    });
+    const response = await handler(request(signature, provider), context);
+    expect(response.status).toBe(200);
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
+    expect(body.calls).toHaveLength(4);
+    expect(body.calls[1]).toEqual(transfer);
+    expect(body.calls[3].data).toStartWith(swap.data);
+    expect(body.calls[3].data.length).toBeGreaterThan(swap.data.length);
+    if (provider === "base-account") expect(body.batchGasLimit).toBeDefined();
+  });
+  test.each(["base-account", "cdp-embedded"] as const)("finalizes only the middle swap and leaves the %s sell fee transfer unchanged", async (provider) => {
+    const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
+    const recipient = "0x1234567890123456789012345678901234567890" as const;
+    const transfer = { to: BASE_USDC_ADDRESS, value: "0", data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, BigInt(9)] }) };
+    row.pending = { ...row.pending!, calls: [...row.pending!.calls, transfer], swapCallIndex: 2 };
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"), verifySmartAccountSignature: async () => true,
+      estimateBaseBatch: async () => BigInt(150_000), markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => row, confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending!, calls: calls! } }) },
+    });
+    const response = await handler(request(signature, provider), context);
+    expect(response.status).toBe(200);
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
+    expect(body.calls).toHaveLength(4);
+    expect(body.calls[2].data).toStartWith(swap.data);
+    expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
+    expect(body.calls[3]).toEqual(transfer);
+    if (provider === "base-account") expect(body.batchGasLimit).toBeUndefined();
   });
   test("confirms a second trade while an earlier dispatched trade has no outcome", async () => {
     const previous = retryRow(String(Date.parse("2026-09-25T12:03:00.000Z") / 1000));
@@ -143,7 +210,7 @@ describe("trade confirmation", () => {
     const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
     const result = await handler(request(signature, "cdp-embedded"), context);
     expect(result.status).toBe(200);
-    expect((await result.json()).id).toBe(row.id);
+    expect(await readJson(result)).toMatchObject({ id: row.id });
     expect(confirmedIds).toEqual([row.id]);
     expect(rows.get(previous.id)?.outcome).toBeNull();
   });
@@ -156,7 +223,7 @@ describe("trade confirmation", () => {
     });
     const result = await handler(new Request(`https://home.test/api/actions/${ID}`, { headers: { "X-Home-Account-Provider": "cdp-embedded" } }), context);
     expect(result.status).toBe(200);
-    expect(await result.json()).toMatchObject({ kind: "trade", signing: { signer: "cdp-embedded", typedData: typed } });
+    expect(await readJson(result)).toMatchObject({ kind: "trade", signing: { signer: "cdp-embedded", typedData: typed } });
   });
   test("rejects an unauthorized embedded signer", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
@@ -167,7 +234,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request(await other.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } }), "cdp-embedded"), context);
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
   });
   test("returns ACTION_EXPIRED before verifying a stale signature", async () => {
     const row = tradeRow("base-account", "2026-09-25T12:00:00.000Z");
@@ -177,7 +244,7 @@ describe("trade confirmation", () => {
     });
     const response = await handler(request("0x1234", "base-account"), context);
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
   });
 });
 
@@ -212,7 +279,7 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(row);
     const response = await confirm("cdp-embedded");
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "TRADE_STOCK_RESTRICTED" } });
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
   });
 
@@ -221,7 +288,8 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(row, provider);
     const response = await confirm(provider);
     expect(response.status).toBe(200);
-    const body = await response.json();
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
     expect(body.calls).toEqual(finalized);
     expect(Boolean(body.batchGasLimit)).toBe(provider === "base-account");
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: provider === "base-account" ? 1 : 0 });
@@ -240,7 +308,7 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(confirmedRow(change));
     const response = await confirm("cdp-embedded");
     expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_NOT_FOUND" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_NOT_FOUND" } });
     expect(effects.confirms).toBe(0);
   });
 
@@ -251,7 +319,7 @@ describe("confirmed trade replay", () => {
     const { effects, confirm } = replayHandler(row);
     const response = await confirm("cdp-embedded");
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
   });
   test.each([undefined, "invalid", String(Date.parse("2026-09-25T12:04:00.000Z") / 1000)])("refuses replay with an invalid execution deadline %s", async (deadline) => {
@@ -260,7 +328,7 @@ describe("confirmed trade replay", () => {
     });
     const response = await replayHandler(row).confirm("cdp-embedded");
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
   });
   test("refuses replay within 30 seconds of the permit deadline", async () => {
     const row = confirmedRow((value) => {
@@ -268,7 +336,7 @@ describe("confirmed trade replay", () => {
     });
     const response = await replayHandler(row).confirm("cdp-embedded");
     expect(response.status).toBe(410);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
   });
 });
 
@@ -287,7 +355,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: { code: "ACTION_EXPIRED", message: "The trade quote expired. Get a new quote." } });
+    expect(await readJson(response)).toEqual({ error: { code: "ACTION_EXPIRED", message: "The trade quote expired. Get a new quote." } });
     expect(retries).toBe(0);
   });
   test("refuses retry after the maker deadline even when the taker permit remains valid", async () => {
@@ -300,7 +368,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
     expect(retries).toBe(0);
   });
   test.each([undefined, "invalid", String(Date.parse("2026-09-25T12:04:00.000Z") / 1000)])("refuses retry with an invalid execution deadline %s", async (deadline) => {
@@ -314,7 +382,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
+    expect(await readJson(response)).toMatchObject({ error: { code: "ACTION_EXPIRED" } });
     expect(retries).toBe(0);
   });
   test.each(["trade", "send"] as const)("allows an unexpired %s retry", async (kind) => {
@@ -328,7 +396,7 @@ describe("trade retry deadline", () => {
     });
     const response = await handler(retryRequest(), context);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ action: { id: ID } });
+    expect(await readJson(response)).toMatchObject({ action: { id: ID } });
     expect(retries).toBe(1);
   });
 });

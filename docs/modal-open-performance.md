@@ -39,7 +39,7 @@ Main-thread cost on the warm tap is one long task (about 75 ms at 4× CPU, 20 ms
 | Receive | Inside Add money | None; address comes from the verified session | Complies |
 | Send, Activity cash-out resume | Idle once verified; pointer-down and focus | Sheet no longer waits for its chunk; fee reserve and recipients still load in the open sheet | Loading shell |
 | Buy / Sell (Invest, Borrow Buy row) | Pointer-down and focus | Sheet no longer waits for its chunk; availability already loads with the page | Loading shell |
-| Save deposit / withdraw | Pointer-down and focus (was click only) | Sheet no longer waits for its chunk; vaults already load with Cash | Loading shell |
+| Save deposit / withdraw | None; the journey is imported with the Cash route | No deferred chunk or loading shell; the tray and its steps mount with the route | Complies |
 | Borrow direct market | Opens from route data | Sheet no longer waits for its chunk | Loading shell |
 | Borrow / Repay / collateral steps | Idle while management is open; pointer-down | Already a deferred step inside the open sheet | Already complied |
 | Activity detail | Pointer-down on the list | Sheet no longer waits for its chunk | Loading shell |

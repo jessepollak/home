@@ -40,6 +40,10 @@ export class CustomerResolver {
     });
   }
 
+  resolveCustomerInTransaction(tx: SqlExecutor, session: VerifiedAccountSession, at = new Date()): Promise<Resolution> {
+    return this.resolveInTransaction(tx, session, at, "sign_in");
+  }
+
   private async resolveInTransaction(
     tx: SqlExecutor, session: VerifiedAccountSession, at: Date,
     source: "sign_in" | "activity", email?: string | null, country?: string | null, inviteCode?: string | null,

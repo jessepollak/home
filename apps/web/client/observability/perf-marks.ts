@@ -122,7 +122,7 @@ export async function sendClientPerformanceReport(report: ClientPerformanceRepor
   const parsedReport = parseClientPerformanceReport(report);
   if (!parsedReport) return;
   try {
-    await fetch(CLIENT_PERFORMANCE_ENDPOINT, {
+    await fetch(`${CLIENT_PERFORMANCE_ENDPOINT}?kind=${encodeURIComponent(parsedReport.kind)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(parsedReport),

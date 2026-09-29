@@ -1,0 +1,26 @@
+[
+  {
+    "path": "apps/web/client/landing/supported-globe.module.css",
+    "reason": "Interactive SVG globe routes, markers, drag states, and masked static fallback require scoped selectors and geometry."
+  },
+  {
+    "path": "apps/web/client/liquid-glass/nav-lens.module.css",
+    "reason": "The lazy navigation lens needs scoped SVG-filter, mask, and compositor-transform layers plus a direct-child hover mirror of the real tabs."
+  },
+  {
+    "path": "apps/web/components/currency-mark.module.css",
+    "reason": "Stacked currency glyphs need scoped size and presentation selectors, including a flag outline pseudo-element."
+  },
+  {
+    "path": "apps/web/components/home-mark.module.css",
+    "reason": "The animated brand mark needs bundled font faces, exact letter geometry, and hover/focus artwork states."
+  },
+  {
+    "path": "apps/web/components/primary-navigation.module.css",
+    "reason": "The mobile navigation pill and glass floor require responsive state selectors and reduced-transparency/forced-colors fallbacks."
+  },
+  {
+    "path": "apps/web/components/ui/borrow-illustration.module.css",
+    "reason": "The SVG illustration has state-driven stroke-draw keyframes and view-box-relative tilt geometry."
+  }
+]

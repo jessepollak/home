@@ -7,6 +7,8 @@ import {
   type ObservabilityLogLine,
   type ServerEventKind,
   type ServerEventOutcome,
+  type UpstreamCallCode,
+  type UpstreamCallOutcome,
 } from "./schema";
 
 export type ObservabilityLogWriter = (
@@ -35,7 +37,7 @@ export function setObservabilityLogWriterForTests(
 }
 
 export function emitServerEvent(
-  kind: ServerEventKind,
+  kind: Exclude<ServerEventKind, "upstream-call">,
   fields: {
     route: string;
     code: string;
@@ -66,6 +68,33 @@ export function emitServerEvent(
       ...(ownerHash ? { ownerHash } : {}),
       ...(fields.rowId ? { rowId: fields.rowId } : {}),
       durationMs: fields.durationMs ?? 0,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+export function emitUpstreamCall(fields: {
+  route: string;
+  code: UpstreamCallCode;
+  outcome: UpstreamCallOutcome;
+  method: string;
+  statusCode?: number;
+  errorType?: string;
+  provider?: string;
+  durationMs: number;
+}): ObservabilityLogLine | undefined {
+  try {
+    return writeObservabilityEvent({
+      kind: "upstream-call",
+      route: fields.route,
+      code: fields.code,
+      outcome: fields.outcome,
+      "http.request.method": fields.method,
+      ...(fields.statusCode === undefined ? {} : { "http.response.status_code": fields.statusCode }),
+      ...(fields.errorType === undefined ? {} : { "error.type": fields.errorType }),
+      ...(fields.provider === undefined ? {} : { provider: fields.provider }),
+      durationMs: fields.durationMs,
     });
   } catch {
     return undefined;

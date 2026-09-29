@@ -1,11 +1,13 @@
 "use client";
 
 import {
+  MutationCache,
   QueryClient,
   QueryClientProvider,
   dehydrate,
   hydrate,
   useInfiniteQuery,
+  useMutation,
   useQuery,
   useQueryClient,
   type DehydratedState,
@@ -16,6 +18,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { recordHomeStartupCache } from "@/client/observability/perf-marks";
 import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
 import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
+import type { OwnerQueryScope, PublicQueryScope, QueryScope } from "./query-scopes";
+import { invalidateMutationScopes } from "./mutation-options";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
 export const ownerQueryCacheTtlMs = OWNER_SESSION_RETENTION_MS;
@@ -39,12 +43,16 @@ export function isSafeQueryIdentity(value: unknown): value is string {
     !value.includes("\n") && !value.includes("\r") && !forbiddenIdentityPattern.test(value);
 }
 
-export function ownerQueryKey(ownerKey: string, scope: string, ...parts: readonly unknown[]): QueryKey {
+export function ownerQueryKey(ownerKey: string, scope: OwnerQueryScope, ...parts: readonly unknown[]): QueryKey {
   return [ownerKey, scope, ...parts];
 }
 
-export function publicQueryKey(scope: string, ...parts: readonly unknown[]): QueryKey {
+export function publicQueryKey(scope: PublicQueryScope, ...parts: readonly unknown[]): QueryKey {
   return ["unauthenticated", scope, ...parts];
+}
+
+export function disabledQueryKey(scope: QueryScope, ...parts: readonly unknown[]): QueryKey {
+  return ["unauthenticated", `${scope}-disabled`, ...parts];
 }
 
 export function ownerQueryMeta(ownerKey: string, persistence: "memory" | "owner" = "owner"): HomeQueryMeta {
@@ -65,6 +73,7 @@ export function dehydrateOwnerQueries(
 ): DehydratedState {
   return dehydrate(queryClient, {
     shouldDehydrateQuery: (query) => shouldPersistOwnerQuery(query, ownerKey, now),
+    shouldDehydrateMutation: () => false,
   });
 }
 
@@ -144,6 +153,7 @@ export function clearOwnerQueryBoundary(
     queryClient.removeQueries({
       predicate: (query) => query.queryKey[0] !== preserveOwnerKey,
     });
+    queryClient.getMutationCache().clear();
   } else {
     queryClient.clear();
   }
@@ -215,13 +225,18 @@ let sharedClient: QueryClient | null = null;
 
 export function createHomeQueryClient(): QueryClient {
   return new QueryClient({
+    mutationCache: new MutationCache({
+      onSuccess: (_data, variables, _context, mutation, { client }) => {
+        void invalidateMutationScopes(client, mutation.meta, variables);
+      },
+    }),
     defaultOptions: {
       queries: {
         staleTime: 30_000,
         retry: false,
         refetchOnWindowFocus: false,
       },
-      mutations: { retry: false },
+      mutations: { retry: false, networkMode: "always", gcTime: 0 },
     },
   });
 }
@@ -244,6 +259,9 @@ export function HomeQueryClientProvider({ children }: { children: ReactNode }) {
 
 export const useHomeQuery: typeof useQuery = ((options: Parameters<typeof useQuery>[0]) =>
   useQuery(options, browserHomeQueryClient())) as typeof useQuery;
+
+export const useHomeMutation: typeof useMutation = ((options: Parameters<typeof useMutation>[0]) =>
+  useMutation(options, browserHomeQueryClient())) as typeof useMutation;
 
 export const useHomeInfiniteQuery: typeof useInfiniteQuery = ((options: Parameters<typeof useInfiniteQuery>[0]) =>
   useInfiniteQuery(options, browserHomeQueryClient())) as typeof useInfiniteQuery;

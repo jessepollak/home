@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BaseRpcError } from "@/server/chain/rpc";
@@ -29,7 +30,7 @@ describe("trade availability", () => {
     const response = await handler()(request());
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toContain("private, no-store");
-    expect(await response.json()).toEqual({ version: 2, status: "available", buy: "available", balanceBaseUnits: "7",
+    expect(await readJson(response)).toEqual({ version: 2, status: "available", buy: "available", balanceBaseUnits: "7",
       token: { assetId: "cbbtc", address: "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", symbol: "cbBTC", decimals: 8 } });
   });
   test.each(["pair", "not-pair", "check-failed"] as const)("checks exact-address %s before reading execution identity", async (kind) => {
@@ -47,7 +48,7 @@ describe("trade availability", () => {
       if (method === "eth_getCode") identityReads++;
       return rpc(method, params);
     } })(request(`base:${address}`));
-    const result = await response.json();
+    const result = await readJson(response);
     expect(pairReads).toBe(1);
     if (kind === "not-pair") {
       expect(identityReads).toBe(1);
@@ -59,7 +60,7 @@ describe("trade availability", () => {
   });
 
   test.each(["usdc", "unknown", "nvda"]) ("rejects unsupported asset %s", async (assetId) => {
-    expect(await (await handler()(request(assetId))).json()).toEqual({ version: 2, status: "unavailable", reason: "asset-unsupported" });
+    expect(await readJson((await handler()(request(assetId))))).toEqual({ version: 2, status: "unavailable", reason: "asset-unsupported" });
   });
   test.each([
     ["provider-unconfigured", {}, session, false],
@@ -71,24 +72,24 @@ describe("trade availability", () => {
         if (unsupported) throw new TradePreparationError("signer-unsupported");
         return { smartAccount: ACCOUNT, signerAddress: ACCOUNT, ownerIndex: 0, deployed: true };
       } })(request());
-    expect(await response.json()).toEqual({ version: 2, status: "unavailable", reason });
+    expect(await readJson(response)).toEqual({ version: 2, status: "unavailable", reason });
   });
   test.each([
     ["token-unreadable", async (method: string): Promise<string> => method === "eth_chainId" ? "0x2105" : "0x"],
     ["chain-unavailable", async () => { throw new BaseRpcError("offline", { code: "transport" }); }],
   ] as const)("reports %s", async (reason, failingRpc) => {
-    expect(await (await handler({ rpc: failingRpc })(request())).json()).toEqual({ version: 2, status: "unavailable", reason });
+    expect(await readJson((await handler({ rpc: failingRpc })(request())))).toEqual({ version: 2, status: "unavailable", reason });
   });
   test("buy-only block retains sell availability", async () => {
     const removed = new Set(["cbbtc"]);
     expect(tradeBuyBlocked("cbbtc", removed)).toBe(true);
     expect(tradeBuyBlocked("cbxrp", removed)).toBe(false);
-    expect(await (await handler({ buyBlocked: (id) => tradeBuyBlocked(id, removed) })(request())).json())
+    expect(await readJson((await handler({ buyBlocked: (id) => tradeBuyBlocked(id, removed) })(request()))))
       .toMatchObject({ status: "available", buy: "blocked", balanceBaseUnits: "7" });
   });
   test("rejects the wrong RPC chain without claiming token availability", async () => {
     const wrongChain = handler({ rpc: async (method, params) => method === "eth_chainId" ? "0x1" : rpc(method, params) });
-    expect(await (await wrongChain(request())).json()).toEqual({ version: 2, status: "unavailable", reason: "chain-unavailable" });
+    expect(await readJson((await wrongChain(request())))).toEqual({ version: 2, status: "unavailable", reason: "chain-unavailable" });
   });
   test("preserves authentication denial", async () => {
     const denied = handler({ authorize: async () => Response.json({ error: { code: "AUTH_REQUIRED" } }, { status: 401 }) });

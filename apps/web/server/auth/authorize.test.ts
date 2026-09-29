@@ -47,6 +47,7 @@ describe("authorizeSession", () => {
       } else {
         expect(result, entry.name).toBeInstanceOf(Response);
         expect((result as Response).status, entry.name).toBe(503);
+        expect((result as Response).headers.get("referrer-policy"), entry.name).toBe("no-referrer");
       }
     }
   });
@@ -69,6 +70,7 @@ describe("authorizeSession", () => {
       const result = await authorizeSession(request(), async () => Response.json(body));
       expect(result).toBeInstanceOf(Response);
       expect((result as Response).status).toBe(503);
+      expect((result as Response).headers.get("referrer-policy")).toBe("no-referrer");
     }
   });
 

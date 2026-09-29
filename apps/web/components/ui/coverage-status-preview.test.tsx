@@ -24,6 +24,7 @@ describe("CoverageStatusPreview", () => {
     expect(trigger.textContent).toBe("");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.getAttribute("type")).toBe("button");
     expect(view.queryByRole("dialog")).toBeNull();
 
     fireEvent.click(trigger);
@@ -50,5 +51,26 @@ describe("CoverageStatusPreview", () => {
     fireEvent.keyUp(trigger, { key: "Enter", code: "Enter" });
 
     await waitFor(() => expect(view.getByRole("dialog")).toBeTruthy());
+  });
+
+  test("reports open-state changes so a container can mark its row", async () => {
+    const changes: boolean[] = [];
+    const view = render(<CoverageStatusPreview {...props} onOpenChange={(open) => changes.push(open)} />);
+
+    fireEvent.click(view.getByRole("button", { name: props.accessibleName }));
+    await view.findByRole("dialog");
+
+    expect(changes).toEqual([true]);
+  });
+
+  test("reports close when an open preview unmounts", async () => {
+    const changes: boolean[] = [];
+    const view = render(<CoverageStatusPreview {...props} onOpenChange={(open) => changes.push(open)} />);
+
+    fireEvent.click(view.getByRole("button", { name: props.accessibleName }));
+    await view.findByRole("dialog");
+    view.unmount();
+
+    expect(changes).toEqual([true, false]);
   });
 });

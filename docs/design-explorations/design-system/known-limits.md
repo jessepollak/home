@@ -1,0 +1,5 @@
+# Known limits
+
+- Historical static boards could not demonstrate runtime number-flow, press scale, sheet springs, or reduced-motion behavior. Review these behaviors in Storybook stories and the production browser.
+- Historical proposals included InputOTP (adopted in #950), submit loading, ResultHeader and StatusStep (adopted in #948), and design-only AssetDetailHeader and SystemKeyboard. The PriceChart proposal was superseded by the selected #938 `AssetChart`, adopted in #939. The TransactionAmount header was adopted in #942 and superseded by the Activity ledger sheet in #967 (follow-up 2a). `MoneyPrimaryAmount` error copy and icon differed from code's `Only … available` with no icon. Check current story/shipped-component parity before adopting any older proposal.
+- A row with no trailing slot (no chevron, no action) puts its amount 28px further right than rows with a chevron, as code does when `onActivate` is absent. The trailing chevron, Retry glyph and mark are vertically centred. Mixed lists should give every row the same trailing configuration.

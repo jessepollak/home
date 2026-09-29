@@ -39,6 +39,7 @@ export function MoneyConfirmSummary({ amount, lead, rows, details, action, desti
                 <>
                   <span data-slot="confirm-amount-number" className="block min-w-0 wrap-anywhere">
                     {prefix}{Array.from(numeric).map((character, index) => (
+                      // oxlint-disable-next-line react/no-array-index-key -- Character position is the identity of each amount segment.
                       <span key={index}>{character}{/[.,'\u00a0\u2019\u202f]/u.test(character) ? <wbr /> : null}</span>
                     ))}
                   </span>
@@ -73,11 +74,11 @@ function ConfirmRows({ rows, id }: { rows: readonly MoneyConfirmRow[]; id?: stri
     {rows.map((row) => <div
       className={row.fullValue
         ? "grid items-start gap-1 px-3 py-3 text-sm sm:grid-cols-[minmax(7rem,0.65fr)_minmax(0,1.35fr)] sm:gap-3"
-        : "flex items-start justify-between gap-4 px-3 py-3 text-sm"}
+        : "flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-3 py-3 text-sm"}
       key={row.label}
     >
-      <dt className="text-muted-foreground">{row.label}</dt>
-      <dd className={row.fullValue ? "min-w-0 sm:text-end" : "min-w-0 text-end font-medium tabular-nums"}>
+      <dt className="min-w-0 wrap-break-word text-muted-foreground">{row.label}</dt>
+      <dd className={row.fullValue ? "min-w-0 wrap-break-word sm:text-end" : "ms-auto min-w-0 wrap-break-word text-end font-medium tabular-nums"}>
         {row.value}
       </dd>
     </div>)}

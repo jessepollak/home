@@ -29,6 +29,7 @@ import { IdentityVerification } from "@/client/identity/identity-verification";
 import type { AppearancePreference } from "@/shared/appearance/preference";
 import {
   presentationRegions,
+  type CountryCode,
   type RegionId,
   type ResolutionSource,
 } from "@/config/regions";
@@ -98,6 +99,7 @@ function InviteLinkControl({ url }: { url: string }) {
 export function AccountSettings({
   regionId,
   onRegionChange,
+  offeredCountries,
   resolutionSource,
   preferenceMessage,
   isPreferenceReady,
@@ -112,6 +114,7 @@ export function AccountSettings({
 }: {
   regionId: RegionId;
   onRegionChange: (regionId: RegionId) => void;
+  offeredCountries?: readonly CountryCode[];
   resolutionSource: ResolutionSource;
   preferenceMessage: string;
   isPreferenceReady: boolean;
@@ -163,6 +166,7 @@ export function AccountSettings({
                 <CountrySelect
                   value={regionId}
                   onValueChange={onRegionChange}
+                  offered={offeredCountries}
                   describedBy="country-help preference-status"
                   variant="settings"
                 />
@@ -314,6 +318,19 @@ export function AccountSettings({
               ·{" "}
               <a className="font-medium text-primary" href="https://morpho.org/terms-of-use/" target="_blank" rel="noreferrer">
                 Morpho terms
+              </a>
+            </p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Stock prices are{" "}
+              <a className="font-medium text-primary" href="https://docs.chain.link/data-feeds/tokenized-equity-feeds/coinbase" target="_blank" rel="noreferrer">
+                Chainlink reference prices
+              </a>.{" "}
+              <a className="font-medium text-primary" href="https://www.base.org/stocks" target="_blank" rel="noreferrer">
+                Tokenized stock roster
+              </a>{" "}
+              ·{" "}
+              <a className="font-medium text-primary" href="https://www.coinbase.com/cbbtc" target="_blank" rel="noreferrer">
+                Coinbase wrapped assets
               </a>
             </p>
           </CardContent>

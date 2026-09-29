@@ -7,6 +7,7 @@ import type {
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { ActivityLedger, isActivityLedgerNextActionAllowed, uniqueActivityLedgerItems } = await import("./activity-ledger");
 const { ActivityLedgerDetailSheet } = await import("./activity-ledger-sheet");
+const { presentActivityLedgerItems } = await import("./activity-ledger-items");
 afterEach(cleanup);
 
 const item: ActivityLedgerItem = {
@@ -73,6 +74,27 @@ describe("activity ledger", () => {
     expect(dialog.getByText("Paid")).toBeTruthy();
     expect(dialog.getByText("$30")).toBeTruthy();
     expect(dialog.getByText("$20")).toBeTruthy();
+  });
+  test("card amounts in rows and detail sheets match the money direction", () => {
+    const base = { kind: "transaction" as const, amountMinor: "1200", currency: "USD",
+      merchantName: "Synthetic Cafe", merchantCategory: null, declineReasonCode: null,
+      createdAt: item.timestamp, updatedAt: item.timestamp };
+    const cards = (["completed", "refunded", "declined"] as const).map((status) => ({
+      kind: "card" as const, id: status, timestamp: item.timestamp,
+      purchase: { ...base, id: status, status },
+    }));
+    const entries = presentActivityLedgerItems(cards, { regionId: "US", timeZone: "UTC" });
+    const view = render(<ActivityLedger items={entries} onOpen={ignoreOpen} />);
+    for (const [index, amount] of ["−$12.00", "+$12.00", "$12.00"].entries()) {
+      const row = view.getByRole("button", { description: "View Synthetic Cafe card purchase details",
+        name: new RegExp(["Completed", "Refunded", "Declined"][index]!) });
+      expect(within(row).getByRole("img", { name: amount })).toBeTruthy();
+      view.rerender(<ActivityLedgerDetailSheet item={entries[index]!} open onDismiss={ignoreOpen} onAction={ignoreOpen} />);
+      const dialog = within(view.getByRole("dialog"));
+      expect(dialog.getAllByText(amount).some((element) => element.getAttribute("aria-hidden") !== "true")).toBe(true);
+      if (index === 2) expect(dialog.getByText("Your balance didn't change.")).toBeTruthy();
+      view.rerender(<ActivityLedger items={entries} onOpen={ignoreOpen} />);
+    }
   });
 
   test("deduplicates source pairs with the same time and lifecycle winners as ledger items", () => {

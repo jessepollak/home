@@ -3,6 +3,7 @@ import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 import { BALANCES_PRICE_MAX_AGE_MS } from "@/shared/balances/types";
 import {
   CODEX_SHARED_READER_MAX,
+  CodexRawQuoteError,
   codexSharedReaderCountForTests,
   createCodexRawQuotesReader,
   getCodexRawQuotes,
@@ -34,6 +35,41 @@ describe("Codex raw quotes", () => {
       }
       expect(codexSharedReaderCountForTests()).toBe(CODEX_SHARED_READER_MAX); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
     } finally {
+      if (previousKey === undefined) delete process.env.CODEX_API_KEY;
+      else process.env.CODEX_API_KEY = previousKey;
+      resetCodexSharedReadersForTests();
+    }
+  });
+
+  test("shared reader hits refresh recency and an API key change clears readers", async () => {
+    const previousKey = process.env.CODEX_API_KEY;
+    const previousFetch = globalThis.fetch;
+    process.env.CODEX_API_KEY = "fixture-key";
+    let calls = 0;
+    globalThis.fetch = Object.assign(async () => {
+      calls++;
+      return Response.json({ data: { getTokenPrices: [] } });
+    }, { preconnect: previousFetch.preconnect });
+    resetCodexSharedReadersForTests();
+    const read = (index: number) => {
+      const address = `0x${index.toString(16).padStart(40, "0")}` as const;
+      return getCodexRawQuotes([{ assetKey: `eip155:8453/erc20:${address}`, address, networkId: 8453 }]);
+    };
+    try {
+      for (let index = 1; index <= CODEX_SHARED_READER_MAX; index++) await read(index);
+      await read(1);
+      expect(calls).toBe(256);
+      await read(CODEX_SHARED_READER_MAX + 1);
+      await read(1);
+      expect(calls).toBe(257);
+      await read(2);
+      expect(calls).toBe(258);
+      process.env.CODEX_API_KEY = "another-fixture-key";
+      await read(1);
+      expect(calls).toBe(259);
+      expect(codexSharedReaderCountForTests()).toBe(1);
+    } finally {
+      globalThis.fetch = previousFetch;
       if (previousKey === undefined) delete process.env.CODEX_API_KEY;
       else process.env.CODEX_API_KEY = previousKey;
       resetCodexSharedReadersForTests();
@@ -99,5 +135,44 @@ describe("Codex raw quotes", () => {
     })();
     expect(duplicate[0]?.status).toBe("invalid");
     expect(duplicate[0]?.unitPrice).toBeNull();
+  });
+
+  test("times out an unresponsive quote request with the quote error class", async () => {
+    let aborted = false;
+    const reader = createCodexRawQuotesReader({
+      apiKey: "fixture-key",
+      inputs: [input],
+      now: () => new Date(NOW),
+      timeoutMs: 10,
+      fetchImpl: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      }),
+    });
+    const error = await reader().then(() => null, (reason: unknown) => reason);
+    expect(aborted).toBe(true);
+    expect(error).toBeInstanceOf(CodexRawQuoteError);
+    expect((error as Error).message).toBe("Codex quotes timed out.");
+  });
+
+  test.each([
+    ["HTTP error", () => new Response("unavailable", { status: 503 }), "Codex quotes returned HTTP 503."],
+    ["GraphQL error", () => Response.json({ errors: [{ message: "unavailable" }], data: null }), "Codex quotes returned an error."],
+    ["missing data", () => Response.json({ data: null }), "Codex quotes returned an invalid price list."],
+    ["invalid price list", () => Response.json({ data: { getTokenPrices: {} } }), "Codex quotes returned an invalid price list."],
+    ["oversized declared length", () => new Response("{}", { headers: { "content-length": "4000001" } }), "Codex quotes request failed."],
+    ["oversized body", () => Response.json({ data: { getTokenPrices: [] }, pad: "x".repeat(4_000_000) }), "Codex quotes request failed."],
+  ] as const)("preserves %s wording and class", async (_case, response, message) => {
+    const reader = createCodexRawQuotesReader({
+      apiKey: "fixture-key",
+      inputs: [input],
+      now: () => new Date(NOW),
+      fetchImpl: async () => response(),
+    });
+    const error = await reader().then(() => null, (reason: unknown) => reason);
+    expect(error).toBeInstanceOf(CodexRawQuoteError);
+    expect((error as Error).message).toBe(message);
   });
 });

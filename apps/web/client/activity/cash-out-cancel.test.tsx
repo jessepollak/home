@@ -9,6 +9,7 @@ import type { PreparedMoneyAction, OperationResult } from "@/shared/money-action
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import { NETWORK_FEE_UNFUNDED_CODE, NETWORK_FEE_UNFUNDED_MESSAGE } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import type { ReactNode } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 beforeEach(() => { (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true; });
@@ -22,6 +23,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function ActivityProviders({ wallet, routing, children }: { wallet: AccountWalletClient; routing: Parameters<typeof HomeShellRoutingProvider>[0]["value"]; children: ReactNode }) {
+  return <AccountWalletContext.Provider value={wallet}><HomeShellRoutingProvider value={routing}>{children}</HomeShellRoutingProvider></AccountWalletContext.Provider>;
+}
+
 function setup(prepare: AccountWalletClient["prepareMoneyAction"], execute: AccountWalletClient["executeMoneyAction"] = async () => ({ id: cashoutFixtureWithdraw.id, status: "submitted" }), actions: unknown[] = [cashoutFixtureAction]) {
   const calls: Array<{ kind: string; params: unknown }> = [];
   const dispatches: PreparedMoneyAction[] = [];
@@ -32,10 +37,10 @@ function setup(prepare: AccountWalletClient["prepareMoneyAction"], execute: Acco
     openPanel: () => {}, canOpenAssetDetail: () => false, openAssetDetail: () => false,
     setFlow: (flow: string, options: unknown) => { routes.push({ flow, options }); return true; }, clearFlow: () => {},
   };
-  const panel = (owner = session) => <AccountWalletContext.Provider value={wallet}><HomeShellRoutingProvider value={routing}>
+  const panel = (owner = session) => <ActivityProviders wallet={wallet} routing={routing}>
     <ConnectedActivityPanel density="page" activitySession={owner} fetchActivity={async () => { throw new Error("Unavailable"); }}
       fetchOperations={async () => ({ actions })} regionId="US" />
-  </HomeShellRoutingProvider></AccountWalletContext.Provider>;
+  </ActivityProviders>;
   const view = render(panel());
   return { view, calls, routes, dispatches, panel };
 }

@@ -13,7 +13,6 @@ const meta = {
     viewport: { defaultViewport: "mobile" },
     a11y: { test: "error" },
     docs: { description: { component: "Unreviewed #638 proposal. Countries, language, and account status are illustrative fixed fixtures; no preference is saved." } },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=311-12034" },
   },
 } satisfies Meta<typeof RegionalPreferencesProposal>;
 export default meta;

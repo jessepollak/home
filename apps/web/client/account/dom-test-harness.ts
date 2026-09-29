@@ -1,7 +1,8 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { afterEach } from "bun:test";
+import { beforeEach } from "bun:test";
 import { notifyManager } from "@tanstack/react-query";
 import { getHomeQueryClient } from "@/client/query/query-client";
+import { registerDomTestCleanup } from "@/tests/helpers/dom-test-cleanup";
 
 if (typeof window === "undefined") {
   const serverFetchDescriptors = Object.fromEntries(
@@ -19,6 +20,7 @@ if (typeof window === "undefined") {
       disableJavaScriptFileLoading: true,
     },
   });
+  (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
 
   for (const [name, descriptor] of Object.entries(serverFetchDescriptors)) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
@@ -33,11 +35,18 @@ if (typeof window === "undefined") {
 
 notifyManager.setScheduler((callback) => queueMicrotask(callback));
 
+beforeEach(() => {
+  (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+});
+
 const testingLibrary = await import("@testing-library/react");
 const cleanupDomTests = testingLibrary.cleanup;
 export const within = testingLibrary.within;
 
-afterEach(() => {
+registerDomTestCleanup(() => {
   cleanupDomTests();
+  document.body.innerHTML = "";
+  window.localStorage.clear();
+  window.sessionStorage.clear();
   getHomeQueryClient().clear();
 });

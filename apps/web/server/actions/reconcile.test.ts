@@ -233,6 +233,29 @@ describe("Base Account handle reconciliation", () => {
     expect(calls).toHaveLength(2);
   });
 
+  test("a caller timeout abort returns unavailable without opening the circuit", async () => {
+    const controller = new AbortController();
+    let fetchCalls = 0;
+    const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      fetchCalls += 1;
+      const signal = init?.signal;
+      if (!signal) throw new Error("missing signal");
+      if (fetchCalls === 1) {
+        return await new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          controller.abort(new DOMException("caller budget", "TimeoutError"));
+          if (signal.aborted) reject(signal.reason);
+        });
+      }
+      return rpcResult(HANDLE, { status: 100 });
+    };
+    const resolver = createActionHandleResolver({ fetchImpl });
+
+    expect(await resolver(action(), controller.signal)).toEqual({ status: "unavailable" });
+    expect(await resolver(action())).toEqual({ status: "pending" });
+    expect(fetchCalls).toBe(2);
+  });
+
   test("a bad RPC override degrades to unavailable instead of failing at route load", async () => {
     const resolver = createActionHandleResolver({ walletRpcUrl: "not a URL" });
     await expect(resolver(action())).resolves.toEqual({ status: "unavailable" });
@@ -252,5 +275,29 @@ describe("Base Account handle reconciliation", () => {
 
     expect(await resolver(action({ provider: "cdp-embedded" }))).toEqual({ status: "unavailable" });
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("provider-dispatching handle resolver", () => {
+  test("CDP uses the canonical log lookup without wallet status", async () => {
+    let lookups = 0;
+    const resolver = createActionHandleResolver({
+      fetchImpl: async () => { throw new Error("wallet status must not be read"); },
+      logLookup: async () => { lookups++; return { status: "complete", transactionHash: HASH.toLowerCase() as `0x${string}`, code: "USEROP_LOG_V07" }; },
+    });
+    expect(await resolver(action({ provider: "cdp-embedded", provider_handle: HASH }))).toEqual({
+      status: "complete", transactionHash: HASH.toLowerCase() as `0x${string}`, code: "USEROP_LOG_V07",
+    });
+    expect(lookups).toBe(1);
+  });
+
+  test("Base hash falls back to logs only when wallet status is unavailable", async () => {
+    const resolver = createActionHandleResolver({
+      fetchImpl: async () => Response.json({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "unknown handle" } }),
+      logLookup: async () => ({ status: "complete", transactionHash: HASH.toLowerCase() as `0x${string}`, code: "USEROP_LOG_V08" }),
+    });
+    expect(await resolver(action({ provider_handle: HASH }))).toEqual({
+      status: "complete", transactionHash: HASH.toLowerCase() as `0x${string}`, code: "BASE_USEROP_LOG_V08",
+    });
   });
 });

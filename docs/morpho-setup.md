@@ -95,7 +95,7 @@ There is no database persistence and no endpoint accepting an arbitrary user or 
 
 ## UI integration
 
-The dashboard shell renders `AuthenticatedCashExperience` through its `cashContent` callback at `/cash` (overview) and `/cash/savings` (detail):
+The dashboard shell renders `AuthenticatedCashExperience` through its `cashContent` callback at `/cash` (overview) and `/cash/savings` (detail); the shell owns the single pending-cash-out estimate (`usePendingCashoutEscrow`) and passes it down, because two mounts against the same actions query would race over which read confirms it:
 
 ```tsx
 <DashboardShell
@@ -106,6 +106,7 @@ The dashboard shell renders `AuthenticatedCashExperience` through its `cashConte
       view={view}
       onOpenSavings={onOpenSavings}
       regionReady={regionReady}
+      pendingCashout={pendingCashout}
     />
   )}
 />
@@ -139,7 +140,7 @@ Immediately before the run, verify in the deployed application and trusted relea
 ### Deposit: review once, dispatch once
 
 1. Select the authorized vault and enter an amount no greater than the authorized maximum. Record the exact decimal amount and integer USDC base units.
-2. On the server-authored confirmation, compare the operation (`deposit`), verified owner, exact vault, Base chain identity, exact canonical-USDC amount, current fee, source block number/hash, onchain limit, share preview, exchange constraint, discovery-rate status/timestamps, and expiry with the authorization and current screen. Independently confirm the available USDC and onchain limit cover the amount. Stop on any mismatch, expiry, warning-only or missing review authority, stale owner identity, or unexpected calls.
+2. On the server-authored confirmation response, compare the operation (`deposit`), verified owner, exact vault, Base chain identity, exact canonical-USDC amount, current fee, source block number/hash, onchain limit, discovery-rate status/timestamps, and expiry with the authorization. Independently confirm the available USDC and onchain limit cover the amount. Stop on any mismatch, expiry, warning-only or missing review authority, stale owner identity, or unexpected calls.
 3. Authorize exactly one deposit dispatch. Record its prepared-action ID and resulting transaction/user-operation identifier without initiating another action.
 4. If signing, submission, or finality is rejected, failed, timed out, or ambiguous, stop. Do not click Deposit again, create a replacement preparation, or make an ambiguous retry. Reconcile the same action identifier and onchain account/vault state through the established status path; escalate to the recovery owner if its outcome cannot be proved. Never treat a missing UI receipt as proof that nothing executed.
 5. Continue only after Base finality is established for the successful receipt and its exact owner, vault, USDC amount, and calls match the prepared review. Capture the block and transaction identifier in privacy-safe form.
@@ -158,7 +159,7 @@ Use bounded manual refreshes; do not poll indefinitely. If any surface stays sta
 ### Cleanup withdrawal: only the test position
 
 1. Reverify the exact deployed SHA/deployment, authenticated owner identity, Base chain, configured vault, canonical USDC route, current selected-vault position, and authorization before preparing withdrawal. Stop if any identity changed. Confirm that the selected vault still contains only the position created by this run.
-2. Prepare withdrawal of the entire current test position, bounded to that vault position; never include pre-existing or unrelated shares. On confirmation, compare operation (`withdraw`), verified owner, exact vault, Base chain, exact USDC amount, current fee, source block number/hash, `maxWithdraw`, share preview, exact-assets exchange constraint, discovery status, and expiry. The requested amount must not exceed the authoritative current test position or `maxWithdraw`.
+2. Prepare withdrawal of the entire current test position, bounded to that vault position; never include pre-existing or unrelated shares. On confirmation, compare operation (`withdraw`), verified owner, exact vault, Base chain, exact USDC amount, current fee, source block number/hash, `maxWithdraw`, exact-assets exchange constraint, discovery status, and expiry. The requested amount must not exceed the authoritative current test position or `maxWithdraw`.
 3. Authorize exactly one withdrawal dispatch. Apply the same no-replacement and no-ambiguous-retry rule as the deposit. On rejection, failure, timeout, ambiguity, expiry, insufficient liquidity, identity change, or review mismatch, stop and reconcile the same action; do not improvise another amount or dispatch.
 4. Require a finalized successful receipt whose calls and owner match the withdrawal review. Then verify direct onchain reads and Savings detail show the selected-vault test position returned to zero, canonical USDC returned to the same verified smart account as usable (not merely pending or indexed), Home converged, and Activity contains exactly one matching withdrawal. Account for only explicit network costs and documented vault rounding; any unexplained residual share or USDC difference is a failed cleanup requiring escalation.
 

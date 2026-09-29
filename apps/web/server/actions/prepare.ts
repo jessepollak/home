@@ -1,7 +1,7 @@
 import "server-only";
 
 import { emitServerEvent } from "@/server/observability/log";
-import type { PrepareActionResponse } from "@/shared/actions/contracts/prepare";
+import { cashoutPrepareErrorResponse, type PrepareActionResponse } from "@/shared/actions/contracts/prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { actionKindForBorrowOperation, parseBorrowActionIntent } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
@@ -86,10 +86,8 @@ export function createPrepareActionHandler(dependencies: {
         return fail("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
       }
       if (error instanceof CashoutPreparationError) {
-        const status = error.code === "duplicate-unknown" || error.code === "order-in-flight" ? 409
-          : error.code === "invalid-input" ? 400
-          : error.code === "not-withdrawable" ? 422 : 502;
-        return fail(`CASHOUT_${error.code.toUpperCase().replaceAll("-", "_")}`, error.message, status);
+        const failure = cashoutPrepareErrorResponse(error.code);
+        return fail(failure.code, error.message, failure.status);
       }
       return fail("ACTION_PREPARE_UNAVAILABLE", "The action could not be prepared safely.", 502);
     }
@@ -141,7 +139,9 @@ async function prepare(
     assertStockTradePrepareAllowed({ params, request });
     const { draft, pending, callGasLimit } = await (dependencies.prepareTrade ?? prepareTradeAction)({ session, request, params, signal });
     const withFee = await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request, callGasLimit });
-    return issueMoneyAction(session, withFee, { pending: { ...pending, swapCallIndex: withFee.calls.length - 1 } });
+    const sellTransfer = withFee.metadata?.product === "trade" && withFee.metadata.direction === "sell" &&
+      withFee.metadata.operatorFee?.collectedBy === "in-batch-transfer";
+    return issueMoneyAction(session, withFee, { pending: { ...pending, swapCallIndex: withFee.calls.length - (sellTransfer ? 2 : 1) } });
   }
   throw new TypeError("Unsupported action kind.");
 }

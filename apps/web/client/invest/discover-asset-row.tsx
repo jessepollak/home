@@ -62,7 +62,7 @@ export function DiscoverAssetRow({
             </ItemDescription>
           </span>
         </ItemContent>
-        <ItemContent className="min-w-0 shrink-0 items-end text-right">
+        <ItemContent position="value" className="min-w-0 shrink-0 items-end text-right">
           {isMarketLoading ? (
             <>
               <Skeleton className="h-5 w-16" data-shimmer="price" />
@@ -84,6 +84,8 @@ export function DiscoverAssetRow({
                 >
                   {change}
                 </span>
+              ) : price.context ? (
+                <span className="text-sm text-muted-foreground">{price.context}</span>
               ) : null}
             </>
           )}

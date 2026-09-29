@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { activityAssets, type ActivityPage } from "@/shared/activity/types";
-import { ACTIVITY_CONTRACT_VERSION } from "@/shared/activity/contract";
+import { ACTIVITY_CONTRACT_VERSION, parseActivityPage } from "@/shared/activity/contract";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
 import { ChainDataError } from "@/server/chain-data/errors";
@@ -66,6 +66,109 @@ function expectPrivate(response: Response) {
 }
 
 describe("activity route handler", () => {
+  test("cards fail while onchain succeeds without losing the onchain page", async () => {
+    let calls = 0;
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(), readActivity: async () => page(),
+      readCards: async () => { calls += 1; throw new Error("provider unavailable"); }, now: () => new Date(TO) });
+    const first = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(first.status).toBe(200);
+    const body = await first.json();
+    expect(body.cards).toEqual({ status: "unavailable", rows: [] });
+    expect(body.onchainStatus).toBeUndefined();
+    const parsed = parseActivityPage(body, { user: { subject: "subject-a" }, smartAccount: { address: VERIFIED, chainId: 8453 }, accountProvider: "cdp-embedded" }, TO);
+    expect(parsed.source).toEqual(page().source);
+    expect(parsed.cards).toEqual({ status: "unavailable", rows: [] });
+    expect(body.source).toEqual(page().source);
+    const next = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
+    expect((await next.json()).cards).toBeUndefined();
+    expect(calls).toBe(1);
+  });
+  test("onchain failure returns card rows in a scoped, explicitly partial first page", async () => {
+    const purchase = { id: "ipi_synthetic", kind: "transaction" as const, amountMinor: "1234", currency: "USD", merchantName: "Synthetic Cafe",
+      merchantCategory: null, status: "completed" as const, declineReasonCode: null, createdAt: TO, updatedAt: TO };
+    let receivedWindow: unknown;
+    const events: string[] = [];
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: async () => { throw new ChainDataError("upstream-error", "fixture"); },
+      readCards: async (_session, window) => { receivedWindow = window; return { status: "ready", rows: [purchase] }; },
+      observe: (event) => { events.push(event.outcome); }, now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(200);
+    expectPrivate(response);
+    expect(receivedWindow).toEqual(page().window);
+    const body = await response.json();
+    expect(body).toEqual({ version: ACTIVITY_CONTRACT_VERSION, walletAddress: VERIFIED, chainId: 8453,
+      window: page().window, currency: "USD", transfers: [], cards: { status: "ready", rows: [purchase] },
+      nextCursor: null, source: null, onchainStatus: "unavailable" });
+    const parsed = parseActivityPage(body, { user: { subject: "subject-a" }, smartAccount: { address: VERIFIED, chainId: 8453 }, accountProvider: "cdp-embedded" }, TO);
+    expect(parsed.onchainStatus).toBe("unavailable");
+    expect(parsed.cards).toEqual({ status: "ready", rows: [purchase] });
+    expect(events).toEqual(["started", "failed"]);
+    const older = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
+    expect(older.status).toBe(502);
+  });
+  test("source resolution failure still returns first-page card rows as partial activity", async () => {
+    const purchase = { id: "ipi_source", kind: "transaction" as const, amountMinor: "500", currency: "USD", merchantName: "Synthetic Shop",
+      merchantCategory: null, status: "completed" as const, declineReasonCode: null, createdAt: TO, updatedAt: TO };
+    let reads = 0;
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      source: () => { throw new Error("source unavailable"); },
+      readActivity: async () => { throw new Error("must not read onchain"); },
+      readCards: async (_session, window) => { reads++; expect(window).toEqual(page().window); return { status: "ready", rows: [purchase] }; },
+      now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(200);
+    expectPrivate(response);
+    expect(await response.json()).toMatchObject({ cards: { status: "ready", rows: [purchase] }, onchainStatus: "unavailable", source: null });
+    const older = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
+    expect(older.status).toBe(502);
+    expect(reads).toBe(1);
+  });
+
+  test("preserves the onchain error when cards are also unavailable", async () => {
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: async () => { throw new ChainDataError("upstream-error", "fixture"); },
+      readCards: async () => ({ status: "unavailable", rows: [] }), now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: { code: "ACTIVITY_UPSTREAM",
+      message: "Recent Base activity could not be loaded from the data provider." } });
+  });
+  test("onchain failure with no card rows returns its original error code and status", async () => {
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: async () => { throw new ChainDataError("rate-limited", "fixture"); },
+      readCards: async () => ({ status: "ready", rows: [] }), now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(429);
+    expectPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "ACTIVITY_RATE_LIMITED",
+      message: "Activity is rate limited. Try again shortly." } });
+  });
+  test("source failure with no card rows returns its original error code and status", async () => {
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      source: () => { throw new ChainDataError("not-configured", "fixture"); },
+      readActivity: async () => { throw new Error("must not read onchain"); },
+      readCards: async () => ({ status: "ready", rows: [] }), now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(503);
+    expectPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "ACTIVITY_NOT_CONFIGURED",
+      message: "Activity history is not configured. Check ACTIVITY_HISTORY_SOURCE and its required server credentials." } });
+  });
+  test("starts card reads while the onchain read is pending", async () => {
+    let finishOnchain!: (result: ActivityPage) => void;
+    let signalCardsStarted!: () => void;
+    const cardsStarted = new Promise<void>((resolve) => { signalCardsStarted = resolve; });
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: () => new Promise<ActivityPage>((resolve) => { finishOnchain = resolve; }),
+      readCards: async () => { signalCardsStarted(); return { status: "ready", rows: [] }; }, now: () => new Date(TO) });
+    const pending = handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    await cardsStarted;
+    finishOnchain(page());
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect((await response.json()).cards.status).toBe("ready");
+  });
   test("derives wallet scope only from the verified session and forwards the stable window", async () => {
     let received: unknown;
     let storeCalls = 0;
@@ -198,7 +301,7 @@ describe("activity route handler", () => {
       source: () => "cdp-address-history",
       readActivity: async () => ({
         ...page(),
-        source: { ...page().source, provider: "cdp-address-history" },
+        source: { ...page().source!, provider: "cdp-address-history" },
       }),
       observe: (event) => events.push({
         outcome: event.outcome,

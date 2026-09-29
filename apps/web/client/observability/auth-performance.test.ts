@@ -240,7 +240,7 @@ describe("Home auth restore performance recorder", () => {
     }
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.input).toBe("/api/client-performance");
+    expect(calls[0]?.input).toBe("/api/client-performance?kind=home-auth-phase");
     expect(calls[0]?.init?.credentials).toBe("same-origin");
     expect(calls[0]?.init?.method).toBe("POST");
     expect(calls[0]?.init?.keepalive).toBe(true);

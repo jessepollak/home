@@ -180,19 +180,6 @@
           "change": "new"
         }
       ]
-    },
-    {
-      "id": "desktop",
-      "title": "Desktop",
-      "frames": [
-        {
-          "id": "desktop1440",
-          "story": "journeys-mobile-navigation--desktop-1440",
-          "label": "Unchanged top strip",
-          "viewport": "desktop",
-          "change": "changed"
-        }
-      ]
     }
   ]
 }

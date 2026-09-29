@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
+import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseTradeMetadata, parseTradeSigning, tradeRateLabel } from "./review";
 import type { Address } from "./server-types";
@@ -47,6 +48,24 @@ describe("trade review parsers", () => {
   });
   test.each([undefined, "0", "invalid", "1790338501"])('rejects missing, invalid, or later execution deadline %s', (executionDeadline) => {
     expect(parseTradeMetadata({ ...metadata, executionDeadline })).toBeNull();
+  });
+  test.each(["buy", "sell"] as const)("accepts a %s fee only when its base, USDC token, and customer minimum match", (direction) => {
+    const grossBuy = "1000000";
+    const netBuy = "990000";
+    const fee = { amountBaseUnits: direction === "buy" ? "10000" : "9", bps: 100,
+      token: OPERATOR_FEE_TOKEN, recipient: OWNER, collectedBy: "in-batch-transfer" as const };
+    const candidate = direction === "buy"
+      ? { ...metadata, fromAmountBaseUnits: netBuy, operatorFee: fee }
+      : { ...metadata, direction, fromAsset: metadata.toAsset, toAsset: metadata.fromAsset, operatorFee: fee };
+    const reviewed = parseTradeMetadata(candidate);
+    expect(reviewed?.operatorFee).toEqual(fee);
+    expect(reviewed?.operatorFee && direction === "buy" ? (BigInt(reviewed.fromAmountBaseUnits) + BigInt(reviewed.operatorFee.amountBaseUnits)).toString() : grossBuy).toBe(grossBuy);
+    for (const bad of [
+      { ...fee, amountBaseUnits: direction === "buy" ? "9900" : "10" },
+      { ...fee, bps: 301 },
+      { ...fee, token: { ...OPERATOR_FEE_TOKEN, symbol: "ETH" } },
+    ]) expect(parseTradeMetadata({ ...candidate, operatorFee: bad })).toBeNull();
+    if (direction === "sell") expect(parseTradeMetadata({ ...candidate, minimumToAmountBaseUnits: "9" })).toBeNull();
   });
   test("reload keeps signing and list keeps only valid trade metadata", () => {
     const pending = parsePendingActionResponse({ id, kind: "trade", summary, signing, calls: [{ to: OWNER, data: "0x1234", value: "0" }], expiresAt: summary.expiresAt }, id, session);

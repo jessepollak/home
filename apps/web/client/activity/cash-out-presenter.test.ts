@@ -171,13 +171,14 @@ describe("cash-out presentation", () => {
     expect(linkedCashoutWithdraw(operation, [attempt("w1", "failed", "2026-09-15T12:01:00Z"), attempt("w2", "failed", "2026-09-15T12:02:00Z")])?.action.id).toBe("w2");
   });
   test("details show a delivery estimate only while a buyer can still pay", () => {
-    expect(ledger(operation).facts).toContainEqual({ label: "Estimated delivery", value: "About 60 min" });
-    expect(ledger(withState("delivered")).facts.some((row) => row.label === "Estimated delivery")).toBe(false);
-    expect(ledger(withState("matched")).facts).toContainEqual({ label: "Estimated delivery", value: "About 60 min" });
+    expect(ledger(operation).facts).toContainEqual({ label: "Arrives", value: "Usually within 1 hour" });
+    expect(ledger(withState("delivered")).facts.some((row) => row.label === "Arrives")).toBe(false);
+    expect(ledger(withState("matched")).facts).toContainEqual({ label: "Arrives", value: "Usually within 1 hour" });
+    expect(ledger(withState("awaiting-buyer", { etaSeconds: null })).facts).toContainEqual({ label: "Arrives", value: "Arrival time varies" });
     const returning = ledger(withState("awaiting-buyer", { withdrawing: true }), withdraw("pending"));
     expect([returning.status, returning.steps, returning.nextAction]).toEqual(["waiting-chain", [{ status: "current", title: "Returning" }], undefined]);
-    expect(returning.facts.some((row) => row.label === "Estimated delivery")).toBe(false);
-    expect(ledger(withState("unknown")).facts.some((row) => row.label === "Estimated delivery")).toBe(false);
+    expect(returning.facts.some((row) => row.label === "Arrives")).toBe(false);
+    expect(ledger(withState("unknown")).facts.some((row) => row.label === "Arrives")).toBe(false);
   });
   test("the ledger maps each cash-out stage to its lifecycle and shows the payout app as the title", () => {
     const cases = [

@@ -29,6 +29,7 @@ import {
   nextActivityWindowEnd,
 } from "@/client/query/after-action";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { ResourceFailure } from "@/client/account/resource-failure";
 import type { RegionId } from "@/config/regions";
 import { presentationMoneyMetadata } from "@/shared/formatting";
 
@@ -38,6 +39,7 @@ export const activityContinuationBurstPages = 3;
 export const activityContinuationYieldMs = 250;
 export const activityValuationRetryDelaysMs = [15_000, 60_000, 180_000];
 const activityContinuationRetryDelaysMs = [1_000, 3_000] as const;
+export const activityFirstPageRetryDelaysMs = [500, 1_500] as const;
 
 export type UseActivityResult = ActivityState & {
   retry: () => void;
@@ -108,6 +110,30 @@ type ScopedFlag = {
   value: boolean;
 };
 
+function isTransientActivityFailure(error: unknown): boolean {
+  if (!(error instanceof ResourceFailure)) return false;
+  const code = "code" in error ? error.code : undefined;
+  if (code === "ACTIVITY_UNAUTHORIZED" || code === "ACTIVITY_INVALID_RESPONSE" ||
+    code === "ACTIVITY_NOT_CONFIGURED") return false;
+  return error.kind === "network" || (error.kind === "http" && (error.status === 429 ||
+    (typeof error.status === "number" && error.status >= 500 && error.status <= 599)));
+}
+
+function waitForActivityRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function activityQueryOptions(input: {
   session: VerifiedAccountSession | null;
   ownerKey: string;
@@ -134,16 +160,39 @@ function activityQueryOptions(input: {
         ...(pageParam ? { cursor: pageParam } : {}),
         currency: requestedCurrency,
       }).toString();
-      const page = parseActivityPage(
-        await fetchActivity(queryString, signal),
-        session,
-        requestedWindow,
-        requestedCurrency,
-      );
-      retainKnownValuations(page, [
+      const knownPages = [
         ...(queryClient.getQueryData<InfiniteData<ActivityPage>>(queryKey)?.pages ?? []),
         ...(previousPages ?? []),
-      ]);
+      ];
+      const hasHealthyHistory = knownPages.some((known) => known.onchainStatus !== "unavailable");
+      const readPage = async () => {
+        if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+        const result = parseActivityPage(
+          await fetchActivity(queryString, signal), session, requestedWindow, requestedCurrency,
+        );
+        if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+        return result;
+      };
+      let page: ActivityPage;
+      if (pageParam) {
+        page = await readPage();
+      } else {
+        for (let attempt = 0; ; attempt += 1) {
+          const result = await readPage().then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
+          if (!result.ok) {
+            if (signal.aborted || !isTransientActivityFailure(result.error) || attempt === activityFirstPageRetryDelaysMs.length) throw result.error;
+          } else {
+            page = result.value;
+            if (page.onchainStatus !== "unavailable") break;
+            if (attempt === activityFirstPageRetryDelaysMs.length) {
+              if (hasHealthyHistory) throw new Error("Activity onchain history is unavailable.");
+              break;
+            }
+          }
+          await waitForActivityRetry(activityFirstPageRetryDelaysMs[attempt] ?? 0, signal);
+        }
+      }
+      retainKnownValuations(page, knownPages);
       if (pageParam && page.nextCursor === pageParam) {
         throw new Error("Activity cursor did not advance.");
       }

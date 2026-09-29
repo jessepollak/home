@@ -410,6 +410,19 @@ export const DetailTrade: Story = {
     await expect(dialog.queryByRole("term", { name: "Value" })).toBeNull();
   },
 };
+export const DetailTradeWithServiceFee: Story = {
+  ...detail({ ...borrowed, id: "trade-service-fee", title: "Sold Bitcoin", status: "confirmed",
+    amount: "−0.001 cbBTC", detailAmountParts: { amount: "−0.001", symbol: "cbBTC" },
+    detail: { family: "home-action", operation: "Sell Bitcoin", network: "Base", facts: [
+      { label: "You receive", value: "Estimated 99.50 USDC" }, { label: "Service fee", value: "$0.50 (0.5%)" },
+    ] } }),
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog"));
+    await expect(dialog.getByText("Estimated 99.50 USDC")).toBeVisible();
+    await expect(dialog.getByText("Service fee")).toBeVisible();
+    await expect(dialog.getByText("$0.50 (0.5%)")).toBeVisible();
+  },
+};
 export const DetailFundingNeedsYou = detail(funding);
 export const DetailHomeActionConfirming: Story = {
   ...detail({
@@ -517,12 +530,14 @@ export const DetailLongExactAmount: Story = {
     const unit = dialog.querySelector<HTMLElement>('[data-slot="activity-amount-unit"]');
     if (!number || !scroll || !unit) throw new Error("Missing split amount headline");
     await expect(unit).toHaveTextContent("LONGSYMBOLTOKEN");
+    await waitFor(async () => {
+      await expect(scroll).toHaveAttribute("tabindex", "0");
+      await expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth);
+    });
     await expect(number.getClientRects().length).toBe(1);
     const bounds = dialog.getBoundingClientRect();
     await expect(scroll.getBoundingClientRect().left).toBeGreaterThanOrEqual(bounds.left);
     await expect(scroll.getBoundingClientRect().right).toBeLessThanOrEqual(bounds.right);
-    await expect(scroll).toHaveAttribute("tabindex", "0");
-    await expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth);
   },
 };
 export const Desktop: Story = {

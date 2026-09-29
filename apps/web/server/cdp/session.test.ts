@@ -1,3 +1,4 @@
+import { readJson } from "@/tests/helpers/read-json";
 import { createHash } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
@@ -16,7 +17,7 @@ import {
 } from "./session";
 
 const requestUrl = "http://127.0.0.1:3103/api/session";
-const smartAccountAddress = "0xAbCdEf0123456789aBCdef0123456789abCDef01";
+const smartAccountAddress = "0xabcdef0123456789abcdef0123456789abcdef01";
 const baseAddress = "0x1111111111111111111111111111111111111111" as const;
 const SECRET = "test-home-session-secret-value-at-least-32-bytes";
 
@@ -52,10 +53,11 @@ async function expectPrivateJson(
     "private, no-store, max-age=0",
   );
   expect(response.headers.get("pragma")).toBe("no-cache");
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   expect(response.headers.get("vary")).toBe(
     `Cookie, Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
   );
-  expect(await response.json()).toEqual(body);
+  expect(await readJson(response)).toEqual(body);
 }
 
 const unauthenticatedBody = {
@@ -493,7 +495,7 @@ describe("verified session capture", () => {
     const response = await handler(new Request(`${requestUrl}?customerId=${suppliedId}`, { headers: request.headers }));
     expect(captured).toEqual([{ user: { subject: "cdp-user-123" },
       smartAccount: { address: smartAccountAddress.toLowerCase() as `0x${string}`, chainId: 8453 }, accountProvider: "cdp-embedded" }]);
-    expect(JSON.stringify(await response.json())).not.toContain(suppliedId);
+    expect(JSON.stringify(await readJson(response))).not.toContain(suppliedId);
     expect(response.headers.get("set-cookie")).not.toContain(suppliedId);
   });
 
@@ -503,7 +505,7 @@ describe("verified session capture", () => {
     });
     const response = await handler(makeRequest("Bearer verified.token.value"));
     expect(response.status).toBe(200);
-    expect((await response.json()).accountProvider).toBe("cdp-embedded");
+    expect(await readJson(response)).toMatchObject({ accountProvider: "cdp-embedded" });
   });
 
   test("waits for asynchronous capture on bearer and native sessions", async () => {
@@ -536,7 +538,7 @@ describe("verified session capture", () => {
     });
     const response = await handler(makeRequest("Bearer verified.token.value"));
     expect(response.status).toBe(200);
-    expect((await response.json()).accountProvider).toBe("cdp-embedded");
+    expect(await readJson(response)).toMatchObject({ accountProvider: "cdp-embedded" });
     expect(response.headers.getSetCookie()).toContain("home_invite=; Path=/; Max-Age=0");
   });
 });

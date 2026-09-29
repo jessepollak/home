@@ -21,6 +21,9 @@ describe("deployment access policy", () => {
       "/.well-known/apple-developer-merchantid-domain-association",
       "/api/webhooks/cdp",
       "/api/funding/webhooks/ripio",
+      "/api/cards/webhooks/bridge",
+      "/api/cards/webhooks/stripe",
+      "/api/cards/webhooks/immersve/payment-updated",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/paymaster",
       "/api/identity/webhooks/sumsub",
       "/api/identity/reconcile",
@@ -38,6 +41,12 @@ describe("deployment access policy", () => {
       "/api/funding/webhooks/ripio/extra",
       "/api/funding/webhooks/ripio%2Fextra",
       "/api/funding/webhooks",
+      "/api/cards/webhooks",
+      "/api/cards/webhooks/bridge/extra",
+      "/api/cards/webhooks/stripe%2Fextra",
+      "/api/cards/webhooks/immersve",
+      "/api/cards/webhooks/immersve/payment-updated/extra",
+      "/api/cards/webhooks/other",
       "/api/actions/not-a-uuid/paymaster",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/confirm",
@@ -61,6 +70,7 @@ describe("deployment access policy", () => {
       expect(response?.status).toBe(307);
       expect(response?.headers.get("location")).toBe("https://home.test/access?next=%2Fborrow%3Fasset%3Dusdc");
       expect(response?.headers.get("cache-control")).toContain("private");
+      expect(response?.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response?.headers.get("vary")).toContain("Cookie");
     }
   });
@@ -69,6 +79,7 @@ describe("deployment access policy", () => {
     for (const [path, method] of [["/api/session", "GET"], ["/borrow", "POST"]] as const) {
       const response = enforceAccess(request(path, { method }), enabled, now)!;
       expect(response.status).toBe(401);
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_REQUIRED" } });
     }
   });
@@ -80,6 +91,7 @@ describe("deployment access policy", () => {
     expect(enforceAccess(request("/api/identity/reconcile", { method: "POST" }), enabled, now)).toBeNull();
     const response = enforceAccess(request("/api/session"), { kind: "misconfigured" }, now)!;
     expect(response.status).toBe(503);
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_UNAVAILABLE" } });
   });
 
@@ -89,6 +101,7 @@ describe("deployment access policy", () => {
     expect(response?.status).toBe(200);
     expect(response?.headers.get("x-middleware-next")).toBe("1");
     expect(response?.headers.get("cache-control")).toContain("private");
+    expect(response?.headers.get("referrer-policy")).toBeNull();
     expect(response?.headers.get("vary")).toContain("Cookie");
   });
 

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createBoundedCache } from "@/server/cache/bounded";
+
 import { investAssets, initialsFromSymbol, trendingTokenId, type InvestAsset } from "@/config/invest-assets";
 import { baseRpc } from "@/server/chain/rpc";
 import { readsToken0 } from "@/server/chain/pair";
@@ -9,6 +11,8 @@ import { ASSET_RESOLUTION_VERSION, type AssetResolutionResponse } from "@/shared
 import { CODEX_REQUEST_TIMEOUT_MS } from "./codex/config";
 import { executeCodexGraphql, readAddress, readInteger, readRecord, type FetchLike } from "./codex/execute";
 import { normalizeTrendingMemes } from "./codex/trending";
+
+const ASSET_RESOLUTION_CACHE_TTL_MS = 45_000;
 
 export const CODEX_ASSET_QUERY = `query ResolveBaseTokenByAddress($tokens: [String!], $limit: Int) {
   filterTokens(tokens: $tokens, limit: $limit) {
@@ -30,7 +34,7 @@ export type AssetResolverOptions = {
   maxInFlight?: number;
 };
 
-function assetReadsToken0(address: `0x${string}`): Promise<boolean | null> {
+export function assetReadsToken0(address: `0x${string}`): Promise<boolean | null> {
   return readsToken0(address, (method, params) => baseRpc(method, params, { timeoutMs: 3_000 }));
 }
 
@@ -52,8 +56,13 @@ function dynamicAsset(address: `0x${string}`, symbol: string, decimals: number):
 }
 
 export function createAssetResolver({ apiKey, fetchImpl = fetch, onchain = readOnchainIdentity, isPair = assetReadsToken0, now = () => new Date(), timeoutMs = CODEX_REQUEST_TIMEOUT_MS, cacheMaxEntries = 256, maxInFlight = 8 }: AssetResolverOptions) {
-  const cache = new Map<string, { storedAt: number; value: AssetResolutionResponse }>();
-  const inFlight = new Map<string, Promise<AssetResolutionResponse>>();
+  const cache = createBoundedCache<AssetResolutionResponse>({
+    ttlMs: ASSET_RESOLUTION_CACHE_TTL_MS,
+    maxEntries: cacheMaxEntries,
+    maxInFlight,
+    now: () => now().getTime(),
+    retain: (value) => value.provider === "ok" && value.asset !== null,
+  });
   return async function resolveAsset(identity: string): Promise<AssetResolutionResponse> {
     const addressInput = /^0x[0-9a-f]{40}$/i.test(identity) ? identity.toLowerCase() : null;
     const configured = investAssets.find((asset) => asset.id === identity || asset.contractAddress.toLowerCase() === addressInput);
@@ -64,13 +73,6 @@ export function createAssetResolver({ apiKey, fetchImpl = fetch, onchain = readO
     if (!parsed) return response("skipped");
     if (!apiKey?.trim()) return response("unavailable");
     const address = parsed.contractAddress;
-    const timestamp = now().getTime();
-    for (const [key, value] of cache) if (timestamp - value.storedAt > 45_000) cache.delete(key);
-    const hit = cache.get(assetId);
-    if (hit) { cache.delete(assetId); cache.set(assetId, hit); return hit.value; }
-    const pending = inFlight.get(assetId);
-    if (pending) return pending;
-    if (inFlight.size >= maxInFlight) return response("unavailable");
     const readIndexed = async (): Promise<{ asset: InvestAsset; snapshot: AssetResolutionResponse["snapshot"] } | null> => {
       const payload = await executeCodexGraphql({ apiKey: apiKey.trim(), fetchImpl, timeoutMs, query: CODEX_ASSET_QUERY, variables: { tokens: [`${address}:8453`], limit: 1 } });
       const connection = readRecord(readRecord(payload)?.filterTokens);
@@ -86,7 +88,7 @@ export function createAssetResolver({ apiKey, fetchImpl = fetch, onchain = readO
       if (!asset) return null;
       return { asset: { ...asset, descriptor: "Base token" }, snapshot: normalized.snapshots.find((snapshot) => snapshot.assetId === assetId) ?? null };
     };
-    const request = (async () => {
+    const result = await cache.fetch(assetId, async () => {
       try {
         const indexed = await readIndexed();
         const pair = await isPair(address);
@@ -97,16 +99,8 @@ export function createAssetResolver({ apiKey, fetchImpl = fetch, onchain = readO
         if (!identity) return response("ok");
         return response("ok", dynamicAsset(address, identity.symbol, identity.decimals), "onchain");
       } catch { return response("error"); }
-    })();
-    inFlight.set(assetId, request);
-    try {
-      const value = await request;
-      if (value.provider === "ok" && value.asset) {
-        cache.set(assetId, { storedAt: now().getTime(), value });
-        while (cache.size > cacheMaxEntries) cache.delete(cache.keys().next().value!);
-      }
-      return value;
-    } finally { inFlight.delete(assetId); }
+    });
+    return result.status === "saturated" ? response("unavailable") : result.value;
   };
 }
 

@@ -32,7 +32,7 @@ Do not commit media or upload only one representative from a larger retained set
 
 Capture the live implementation in a real browser — preview, production, or localhost on the PR head. Design comps, empty scaffolds, and unlabeled `/dev` harness shots are not proof. If you push new UI changes after capturing, replace the screenshot; do not keep stale ones.
 
-Use the [review-board workflow](design-system.md#review-boards) for design proposals and selection. Add **Before / Proposed / Implemented** media references inside this same Preview section when useful; record approval links and observed facts in Evidence. A review board manifest is for arranging stories, not a second approval or screenshot-evidence system.
+Use the [review-board workflow](design-system/component-workshop.md#review-boards) for design proposals and selection. Add **Before / Proposed / Implemented** media references inside this same Preview section when useful; record approval links and observed facts in Evidence. A review board manifest is for arranging stories, not a second approval or screenshot-evidence system.
 
 - **Before:** the current Home behavior when it helps, with state/data and CSS-pixel viewport.
 - **Proposed:** show the selected Storybook capture with state/viewport label here. In Evidence, record the Storybook commit, commit-specific deployment URL, direct board and story URLs, observable criteria, and whether Jesse has reviewed it. “Commit-specific” means later pushes cannot silently change the reviewed artifact. An approval reference includes Jesse's selection recorded on the issue or PR with the board URL tied to that revision; factory review or an unreviewed proposal is never approval.
@@ -47,7 +47,7 @@ Run the workshop loop for a journey-level proposal, and record its terminal resu
 
 The loop produces the review evidence above; it does not replace the `agent-browser` Home verification an implemented change still needs.
 
-Include the relevant failure/recovery path. For motion, include the short clip required above; when reduced motion applies, record the stable story target plus real browser media emulation, exact browser/device/viewport coverage, and the observed reduced behavior. A story name or viewport setting does not prove reduced-motion behavior. If the proposal also includes a Figma motion frame, follow [Figma workflow](design-explorations/figma-workflow.md#motion-frames).
+Include the relevant failure/recovery path. For motion, include the short clip required above; when reduced motion applies, record the stable story target plus real browser media emulation, exact browser/device/viewport coverage, and the observed reduced behavior. A story name or viewport setting does not prove reduced-motion behavior.
 
 Keep an accepted Proposed reference immutable as design history. If its component, fixture, or behavior changes before review, replace its commit, deployment links, and capture and return it to unreviewed when the observable proposal changed materially. After any implementation UI change, refresh Implemented media and agent-browser evidence against the current PR head; refresh Before when the compared baseline changed.
 

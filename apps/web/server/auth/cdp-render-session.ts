@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomBytes } from "node:crypto";
-import { getAddress } from "viem";
+import { parseAddress } from "@/shared/chain/hex";
 import { BASE_CHAIN_ID, OWNER_SESSION_RETENTION_MS, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { cookie, equalText, readSignedValue, signedValue } from "@/server/auth/signed-cookie";
 
@@ -10,7 +10,6 @@ export const HOME_CDP_LIVE_COOKIE = "home-cdp-live";
 const CDP_RENDER_SESSION_TTL_MS = OWNER_SESSION_RETENTION_MS;
 const CDP_RENDER_SESSION_MAX_AGE = CDP_RENDER_SESSION_TTL_MS / 1000;
 const subjectPattern = /^[a-zA-Z0-9-]{1,100}$/;
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const noncePattern = /^[0-9a-f]{48}$/;
 
 export type RenderCookieStore = {
@@ -77,7 +76,7 @@ export function readCdpRenderSession(
 
   try {
     const payload = JSON.parse(raw) as CdpRenderPayload;
-    const address = normalizeAddress(payload?.session?.smartAccount?.address);
+    const address = parseAddress(payload?.session?.smartAccount?.address);
     if (
       payload.version !== 1 ||
       payload.provider !== "cdp-embedded" ||
@@ -106,13 +105,4 @@ function secretBuffer(secret: string | undefined): Buffer | null {
   const value = secret?.trim();
   if (!value || Buffer.byteLength(value, "utf8") < 32) return null;
   return Buffer.from(value, "utf8");
-}
-
-function normalizeAddress(value: unknown): `0x${string}` | null {
-  if (typeof value !== "string" || !addressPattern.test(value)) return null;
-  try {
-    return getAddress(value).toLowerCase() as `0x${string}`;
-  } catch {
-    return null;
-  }
 }

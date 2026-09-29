@@ -10,7 +10,7 @@ import {
 import type { UseMarketPricesOptions } from "./use-market-prices";
 
 const { cleanup, render, waitFor } = await import("@testing-library/react");
-const { useMarketPrices } = await import("./use-market-prices");
+const { ageMarketPricesResponse, useMarketPrices } = await import("./use-market-prices");
 
 function responseWithSnapshot(
   asOf: string,
@@ -78,6 +78,7 @@ function HookProbe({
           ? props.stockMarket.snapshots[0]?.changeLabel ?? "none"
           : "n/a"}
       </output>
+      <output data-testid="crypto-status">{props.cryptoMarket?.status}</output>
       <output data-testid="crypto-change">
         {props.cryptoMarket?.status === "ready"
           ? props.cryptoMarket.snapshots[0]?.changeLabel ?? "none"
@@ -93,6 +94,19 @@ afterEach(() => {
 });
 
 describe("useMarketPrices", () => {
+  test("keeps a recently checked weekend close but expires an unchecked classification", () => {
+    const asOf = "2026-09-25T20:00:00.000Z";
+    const mondayMorning = Date.parse("2026-09-28T12:00:00.000Z");
+    const base = responseWithSnapshot(asOf);
+    const stock = base.markets.stock;
+    if (stock?.status !== "ready") throw new Error("expected a ready stock market");
+    const checked = (checkedAt: string) => ({ ...base, markets: { stock: { status: "ready" as const, snapshots: stock.snapshots.map((snapshot) => ({ ...snapshot, session: "closed" as const, checkedAt })) } } });
+    const recent = checked("2026-09-28T11:58:00.000Z");
+    expect(ageMarketPricesResponse(recent, mondayMorning)).toBe(recent);
+    expect(ageMarketPricesResponse(checked("2026-09-28T11:50:00.000Z"), mondayMorning).markets.stock).toEqual({ status: "error", message: "Price snapshot is stale." });
+    expect(ageMarketPricesResponse(base, mondayMorning).markets.stock).toEqual({ status: "error", message: "Price snapshot is stale." });
+  });
+
   test("ages a ready source snapshot out while mounted instead of presenting it as perpetually live", async () => {
     const freshnessMs = 20;
     const sourceTime = Date.parse("2026-01-01T00:00:00.000Z");
@@ -106,7 +120,6 @@ describe("useMarketPrices", () => {
         return clock;
       },
       freshnessMs,
-      refreshCooldownMs: 60_000,
     };
     render(<HookProbe options={options} />);
 
@@ -125,6 +138,24 @@ describe("useMarketPrices", () => {
         "Price snapshot is stale.",
       ),
     );
+  });
+
+  test("rechecks an unavailable stock market while mounted and recovers when the reference returns", async () => {
+    let requests = 0;
+    const ready = responseWithSnapshot(new Date().toISOString());
+    const options: UseMarketPricesOptions = {
+      fetchImpl: (async () => {
+        requests += 1;
+        return Response.json(requests === 1
+          ? { ...ready, markets: { ...ready.markets, stock: { status: "error", message: "Current market prices are unavailable." } } }
+          : ready);
+      }),
+      sessionRecheckMs: 20,
+    };
+    render(<HookProbe options={options} />);
+    await waitFor(() => expect(page().getByTestId("stock-status").textContent).toBe("error"));
+    await waitFor(() => expect(page().getByTestId("stock-detail").textContent).toBe("$123.4567890123456789"));
+    expect(requests).toBeGreaterThanOrEqual(2);
   });
 
   test("keeps a thinner-market Codex indication older than five minutes", async () => {
@@ -163,6 +194,30 @@ describe("useMarketPrices", () => {
         "Price snapshot is stale.",
       ),
     );
+  });
+
+  test("preserves ready stock data from a valid partial 502 response", async () => {
+    const ready = responseWithSnapshot(new Date().toISOString());
+    const partial = { ...ready, markets: { ...ready.markets, crypto: { status: "error", message: "Provider unavailable" } } };
+    render(<HookProbe options={{ fetchImpl: async () => Response.json(partial, { status: 502 }) }} />);
+    await waitFor(() => expect(page().getByTestId("stock-status").textContent).toBe("ready"));
+    expect(page().getByTestId("stock-detail").textContent).toBe("$123.4567890123456789");
+    expect(page().getByTestId("crypto-status").textContent).toBe("error");
+  });
+
+  test("surfaces failed or malformed reads as an error, never an empty price", async () => {
+    for (const response of [
+      Response.json({ markets: "invalid" }, { status: 500 }),
+      Response.json({ markets: "invalid" }, { status: 502 }),
+      new Response("Provider down", { status: 502 }),
+      new Response("{", { status: 200 }),
+    ]) {
+      const { unmount } = render(<HookProbe options={{ fetchImpl: async () => response }} />);
+      await waitFor(() => expect(page().getByTestId("stock-status").textContent).toBe("error"));
+      expect(page().getByTestId("stock-detail").textContent).toBe("Current market prices are unavailable.");
+      unmount();
+      getHomeQueryClient().clear();
+    }
   });
 
   test("rejects malformed public payloads into a generic error state", async () => {

@@ -420,10 +420,18 @@ export type ResolutionSource =
   | "detected"
   | "fallback";
 
+export type RegionOffer = {
+  offered: readonly CountryCode[];
+  defaultRegion: RegionId;
+};
+
+export const ALL_REGIONS_OFFER: RegionOffer = { offered: countryRegionIds, defaultRegion: "US" };
+
 export type ResolvePresentationInput = {
   explicitCountry?: string | null;
   persistedCountry?: string | null;
   detectedCountry?: string | null;
+  offer?: RegionOffer;
 };
 
 export type ResolvedPresentation = {
@@ -449,25 +457,37 @@ export function normalizeCountryCode(
   return normalized && normalized !== "GLOBAL" ? normalized : null;
 }
 
+export function presentedRegionId(country: CountryCode, offer: RegionOffer = ALL_REGIONS_OFFER): RegionId {
+  return offer.offered.includes(country) ? country : "GLOBAL";
+}
+
+function defaultRegion(offer: RegionOffer): RegionId {
+  const fallback = offer.defaultRegion;
+  return fallback === "GLOBAL" || offer.offered.includes(fallback) ? fallback : "GLOBAL";
+}
+
 export function resolvePresentation({
   explicitCountry,
   persistedCountry,
   detectedCountry,
+  offer = ALL_REGIONS_OFFER,
 }: ResolvePresentationInput): ResolvedPresentation {
   const explicit = normalizeCountryCode(explicitCountry);
-  if (explicit) {
+  if (explicit && offer.offered.includes(explicit)) {
     return { region: presentationRegions[explicit], source: "explicit" };
   }
 
   const persisted = normalizeCountryCode(persistedCountry);
   if (persisted) {
-    return { region: presentationRegions[persisted], source: "persisted" };
+    return offer.offered.includes(persisted)
+      ? { region: presentationRegions[persisted], source: "persisted" }
+      : { region: presentationRegions.GLOBAL, source: "fallback" };
   }
 
   const detected = normalizeCountryCode(detectedCountry);
-  if (detected) {
+  if (detected && offer.offered.includes(detected)) {
     return { region: presentationRegions[detected], source: "detected" };
   }
 
-  return { region: presentationRegions.US, source: "fallback" };
+  return { region: presentationRegions[defaultRegion(offer)], source: "fallback" };
 }

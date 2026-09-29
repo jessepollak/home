@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { readQuoteDraft } from "@/shared/funding/contracts/quotes";
 import type {
   FundingProvider,
   FundingProviderManifest,
   OfframpCatalog,
   Instruction,
+  Quote,
   QuoteIntent,
 } from "@/shared/funding/provider-contract";
 import { MemoryFundingOrderStore } from "./store";
@@ -18,6 +20,7 @@ import {
 } from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
 import { FundingQuoteRejectedError } from "./quote-rejection";
+import { authenticateFundingQuote } from "./quote-token";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { fundingProviders } from "@/server/funding/providers";
 import { euroAreaPeerCountries } from "@/server/funding/providers/peer/manifest";
@@ -383,7 +386,7 @@ describe("FundingCore", () => {
     } satisfies FundingProviderManifest;
     const core = new FundingCore({
       providers: [{ manifest: quoteManifest, onramp: {
-        async createQuote(input) { calls += 1; return { fiatAmount: input.fiatAmount, tokenAmountAtomic: "2020000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" }; },
+        async createQuote(input) { calls += 1; return { providerQuoteId: "provider-quote", fiatAmount: input.fiatAmount, tokenAmountAtomic: "2020000", fees: [{ label: "Network", amount: "0.01", currency: "USD" }], feesKnown: true, expiresAt: "2099-01-01T00:00:00.000Z" }; },
         async createOrder() { return { outcome: "ambiguous" }; },
         async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
       } }],
@@ -400,8 +403,77 @@ describe("FundingCore", () => {
     }
     expect(calls).toBe(0);
     expect(fetches).toBe(0);
-    expect((await request("2.07")).quote.fiatAmount).toBe("2.07");
+    const response = JSON.parse(JSON.stringify(await request("2.07")));
+    const draft = readQuoteDraft(response);
+    expect(draft).not.toBeNull();
+    expect(response.version).toBe(1);
+    expect(draft?.version).toBe(1);
+    expect(draft?.quote).toMatchObject({
+      fiatAmount: "2.07", providerQuoteId: "provider-quote", feesKnown: true,
+      fees: [{ label: "Network", amount: "0.01", currency: "USD" }],
+    });
     expect(calls).toBe(1);
+  });
+
+  test("rejects a provider quote outside the contract before signing and strips undeclared fields", async () => {
+    const base = {
+      providerQuoteId: "provider-quote",
+      fiatAmount: "2.07",
+      tokenAmountAtomic: "2020000",
+      fees: [{ label: "Network", amount: "0.01", currency: "USD" }],
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    const returned: { value: unknown } = { value: base };
+    let calls = 0;
+    const quoteManifest: FundingProviderManifest = {
+      id: "coinbase-fixture", displayName: "Coinbase", docsUrl: "https://example.com",
+      onramp: { apiOrigins: ["https://example.com"], reference: "provider", quotes: true },
+      bindings: [{ region: "US", assetId: "base:usdc", currency: "USD", directions: { onramp: {
+        paymentMethods: [{ id: "apple-pay", label: "Apple Pay" }], env: ["FIXTURE_KEY"],
+      } } }],
+    };
+    const core = new FundingCore({
+      providers: [{ manifest: quoteManifest, onramp: {
+        async createQuote() { calls += 1; return returned.value as Quote; },
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      } }],
+      store: new MemoryFundingOrderStore(),
+      env: { FIXTURE_KEY: "set", ["FUNDING_" + "QUOTE_SECRET"]: "q".repeat(32) },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+    });
+    const request = () => core.createQuote(session,
+      { providerId: "coinbase-fixture", region: "US", paymentMethod: "apple-pay", fiatAmount: "2.07" }, "https://home.example");
+
+    for (const [_label, value] of [
+      ["fee missing currency", { ...base, fees: [{ label: "Network", amount: "0.01" }] }],
+      ["non-string fee currency", { ...base, fees: [{ label: "Network", amount: "0.01", currency: 1 }] }],
+      ["non-string providerQuoteId", { ...base, providerQuoteId: 5 }],
+      ["non-boolean feesKnown", { ...base, feesKnown: "true" }],
+      ["null quote", null],
+      ["unparseable expiry", { ...base, expiresAt: "not-a-date" }],
+      ["expired quote", { ...base, expiresAt: "2000-01-01T00:00:00.000Z" }],
+      ["mismatched fiat amount", { ...base, fiatAmount: "3.00" }],
+      ["non-atomic token amount", { ...base, tokenAmountAtomic: "2.020000" }],
+    ] as const) {
+      returned.value = value;
+      const rejected = request();
+      await expect(rejected).rejects.toMatchObject({ code: "INVALID_PROVIDER_QUOTE", status: 502 });
+      await expect(rejected).rejects.not.toHaveProperty("quoteToken");
+    }
+
+    returned.value = { ...base, undeclared: "ignored" };
+    const draft = await request();
+    expect(draft).toEqual({
+      version: 1,
+      quote: base,
+      quoteToken: expect.any(String),
+      sandbox: false,
+    });
+    expect(draft.quote).not.toHaveProperty("undeclared");
+    const authenticated = authenticateFundingQuote(draft.quoteToken, "q".repeat(32));
+    expect(authenticated?.claims.quote).toEqual(draft.quote);
+    expect(calls).toBe(10);
   });
 
   test("maps typed provider quote rejections to public copy without provider text", async () => {

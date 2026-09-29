@@ -16,9 +16,11 @@ import {
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
+import { RECENT_ACTIONS_LIMIT } from "@/shared/actions/contracts/list";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
+import { parseOperatorFeeRecord } from "@/shared/fees/contract";
 
 export type ActionSummary = {
   title: string;
@@ -91,6 +93,7 @@ export type CashoutOrderRow = {
   eta_seconds: number | null;
   created_at: string | Date;
   updated_at: string | Date;
+  provider_updated_at?: string | Date | null;
   refreshed_at: string | Date | null;
   settled_at: string | Date | null;
 };
@@ -144,16 +147,28 @@ function cashoutInsert(row: ActionRow): unknown[] | null {
     typeof value === "object" && value !== null && "assetId" in value && "direction" in value && "amountBaseUnits" in value &&
     value.assetId === "usdc" && value.direction === "spend" && typeof value.amountBaseUnits === "string");
   if (!amount || !/^[1-9]\d*$/.test(amount.amountBaseUnits)) return null;
-  const region = metadata.region ?? regionForCashout(metadata);
+  const region = cashoutMetadataRegion(metadata);
   if (!region) return null;
   return [row.id, row.owner_key, metadata.providerId, metadata.environment, region, metadata.platform,
     metadata.platformLabel, amount.amountBaseUnits, metadata.etaSeconds ?? null];
+}
+
+function operatorFeeInsert(row: ActionRow): unknown[] | null {
+  const metadata = row.summary.metadata;
+  if (row.kind !== "trade" || metadata?.product !== "trade" || metadata.operatorFee === undefined) return null;
+  const fee = parseOperatorFeeRecord(metadata.operatorFee);
+  if (!fee || fee.recipient.toLowerCase() === (row.account_address?.toLowerCase() ?? "")) throw new Error("Invalid operator fee record");
+  return [row.id, row.kind, fee.amountBaseUnits, fee.token.assetId, fee.token.address, fee.token.decimals, fee.bps, fee.recipient, fee.collectedBy];
 }
 
 function regionForCashout(metadata: CashoutMoneyActionMetadata): string | null {
   const provider = getFundingProvider(metadata.providerId);
   return provider?.manifest.bindings.find((binding) => binding.currency === metadata.currency &&
     binding.directions.offramp?.paymentMethods.some((method) => method.id === metadata.platform))?.region ?? null;
+}
+
+export function cashoutMetadataRegion(metadata: CashoutMoneyActionMetadata): string | null {
+  return metadata.region ?? regionForCashout(metadata);
 }
 
 let runtimeStore: ActionsStore | null = null;
@@ -215,6 +230,12 @@ export class ActionsStore {
          WHERE id = $1 AND owner_key = $2
          RETURNING *`,
         [id, actionOwnerKey(owner), callDataHash, row.kind === "trade" && confirmed ? JSON.stringify({ calls: confirmed }) : null],
+      );
+      const fee = operatorFeeInsert(row);
+      if (fee) await tx.query(
+        `INSERT INTO operator_fee_records (action_id, action_kind, amount_base_units, token_asset_id, token_address, token_decimals, bps, recipient, collected_by)
+         VALUES ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9) ON CONFLICT (action_id) DO NOTHING`,
+        fee,
       );
       const values = cashoutInsert(row);
       if (values) await tx.query(
@@ -332,13 +353,13 @@ export class ActionsStore {
         await tx.query(
           `UPDATE cashout_orders SET deposit_id = NULL, deposit_proven = false, state = 'submitted',
              filled_atomic = '0', returned_atomic = '0', remaining_atomic = amount_atomic,
-             withdrawable = false, settled_at = NULL, updated_at = now()
+             withdrawable = false, settled_at = NULL, provider_updated_at = NULL, updated_at = now()
            WHERE action_id = $1 AND owner_key = $2 AND provider_id = $3 AND lower(deposit_id) = lower($4) AND deposit_proven = false`,
           [linked.action_id, key, record.provider_id, depositId],
         );
       }
       const result = await tx.query<CashoutOrderRow>(
-        `UPDATE cashout_orders SET deposit_id = $3, deposit_proven = $4, updated_at = now()
+        `UPDATE cashout_orders SET deposit_id = $3, deposit_proven = $4, provider_updated_at = NULL, updated_at = now()
          WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL AND deposit_id IS NULL RETURNING *`,
         [key, actionId, depositId, proven],
       );
@@ -353,13 +374,23 @@ export class ActionsStore {
     remainingAtomic: string;
     withdrawable: boolean;
     settled: boolean;
-  }): Promise<CashoutOrderRow | null> {
+  }, observedAt: string | null, expectedProviderUpdatedAt: string | null = null, expectedDepositId: string | null = null, expectedUpdatedAt: string | null = null): Promise<CashoutOrderRow | null> {
     const result = await this.sql.query<CashoutOrderRow>(
       `UPDATE cashout_orders SET state = $3, filled_atomic = $4, returned_atomic = $5,
-         remaining_atomic = $6, withdrawable = $7, settled_at = CASE WHEN $8 THEN now() ELSE NULL END, updated_at = now()
-       WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL RETURNING *`,
+         remaining_atomic = $6, withdrawable = $7, settled_at = CASE WHEN $8 THEN now() ELSE NULL END,
+         provider_updated_at = COALESCE($9::timestamptz, provider_updated_at), updated_at = now()
+       WHERE owner_key = $1 AND action_id = $2 AND settled_at IS NULL
+         AND deposit_id IS NOT DISTINCT FROM $11::text
+         AND (CASE WHEN $9::timestamptz IS NULL
+           THEN provider_updated_at IS NOT DISTINCT FROM $10::timestamptz
+             AND date_trunc('milliseconds', updated_at) IS NOT DISTINCT FROM date_trunc('milliseconds', $12::timestamptz)
+           ELSE (provider_updated_at IS NULL OR provider_updated_at < $9::timestamptz
+             OR (provider_updated_at = $9::timestamptz AND filled_atomic::numeric <= $4::numeric
+               AND returned_atomic::numeric <= $5::numeric AND remaining_atomic::numeric >= $6::numeric))
+             AND ($11::text IS NOT NULL OR $12::timestamptz IS NULL OR date_trunc('milliseconds', updated_at) IS NOT DISTINCT FROM date_trunc('milliseconds', $12::timestamptz))
+         END) RETURNING *`,
       [actionOwnerKey(owner), actionId, update.state, update.filledAtomic, update.returnedAtomic,
-        update.remainingAtomic, update.withdrawable, update.settled],
+        update.remainingAtomic, update.withdrawable, update.settled, observedAt, expectedProviderUpdatedAt, expectedDepositId, expectedUpdatedAt],
     );
     return result.rows[0] ?? null;
   }
@@ -461,6 +492,43 @@ export class ActionsStore {
     )) };
   }
 
+  async listOpenByAccounts(addresses: readonly string[], since: Date, limit: number, perAccountLimit = limit): Promise<ActionRow[]> {
+    if (!addresses.length) return [];
+    return this.openForFollowUp(since, limit, `AND account_address = ANY($3::text[])`,
+      [addresses.map((address) => address.toLowerCase())], perAccountLimit);
+  }
+
+  async listOpenForFollowUp(since: Date, limit: number): Promise<ActionRow[]> {
+    return this.openForFollowUp(since, limit, "", []);
+  }
+
+  private async openForFollowUp(since: Date, limit: number, accountCondition: string, args: unknown[], perAccountLimit?: number): Promise<ActionRow[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new Error("The follow-up limit must be between 1 and 200.");
+    if (perAccountLimit !== undefined && (!Number.isSafeInteger(perAccountLimit) || perAccountLimit < 1 || perAccountLimit > 200)) {
+      throw new Error("The per-account follow-up limit must be between 1 and 200.");
+    }
+    const result = await this.sql.query<RawActionRow>(
+      perAccountLimit === undefined
+        ? `SELECT * FROM actions WHERE confirmed_at >= $1 AND outcome IS NULL
+         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL) ${accountCondition}
+       ORDER BY confirmed_at DESC, id DESC LIMIT $2`
+        : `WITH ranked AS (
+         SELECT id, row_number() OVER (PARTITION BY account_address ORDER BY confirmed_at DESC, id DESC) AS follow_up_rank
+         FROM actions WHERE confirmed_at >= $1 AND outcome IS NULL
+           AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL) ${accountCondition}
+       )
+       SELECT actions.* FROM actions JOIN ranked ON actions.id = ranked.id
+       WHERE ranked.follow_up_rank <= $4
+       ORDER BY ranked.follow_up_rank ASC, actions.confirmed_at DESC, actions.id DESC
+       LIMIT $2`,
+      perAccountLimit === undefined ? [since, limit, ...args] : [since, limit, ...args, perAccountLimit], { timeoutMs: 5_000 },
+    );
+    return result.rows.flatMap((row) => {
+      const normalized = normalizeActionRowOrNull(row);
+      return normalized ? [normalized] : [];
+    });
+  }
+
   async listDispatchedSends(owner: MoneyActionOwner, limit: number): Promise<ActionRow[]> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw new Error("The dispatched send limit must be between 1 and 100.");
@@ -510,7 +578,7 @@ export class ActionsStore {
            AND EXISTS (SELECT 1 FROM cashout_orders
              WHERE owner_key = $1 AND settled_at IS NULL AND deposit_id IS NOT NULL
                AND LOWER(deposit_id) = LOWER(actions.summary->'metadata'->>'depositId')))) DESC NULLS LAST,
-           confirmed_at DESC LIMIT 100
+           confirmed_at DESC LIMIT ${RECENT_ACTIONS_LIMIT}
        ) ranked ORDER BY confirmed_at DESC`,
       [key],
       { timeoutMs: 5_000 },
@@ -533,6 +601,20 @@ export function actionOwnerKey(owner: MoneyActionOwner): string {
     8453,
     owner.accountProvider,
   ]);
+}
+
+export function ownerFromActionKey(key: string): MoneyActionOwner | null {
+  try {
+    const parsed: unknown = JSON.parse(key);
+    if (!Array.isArray(parsed) || parsed.length !== 4) return null;
+    const [subject, address, chainId, accountProvider] = parsed;
+    if (typeof subject !== "string" || !subject.trim() || typeof address !== "string" ||
+      !/^0x[0-9a-f]{40}$/.test(address) || chainId !== 8453 ||
+      (accountProvider !== "base-account" && accountProvider !== "cdp-embedded")) return null;
+    return { subject, address: address as `0x${string}`, chainId, accountProvider };
+  } catch {
+    return null;
+  }
 }
 
 export function getActionsStore(): ActionsStore {

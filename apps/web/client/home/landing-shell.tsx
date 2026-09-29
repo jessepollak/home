@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import type { CountryCode } from "@/config/regions";
+import type { CountryCode, RegionOffer } from "@/config/regions";
 import {
   commitClientUrl,
   homeHrefWithOverlays,
@@ -23,16 +23,18 @@ export function LandingShell({
   landingVisual,
   initialSearch,
   initialAccountOpen = false,
+  regionOffer,
 }: {
   detectedCountry?: CountryCode | null;
   landingVisual?: ReactNode;
   initialSearch?: string;
   initialAccountOpen?: boolean;
+  regionOffer?: RegionOffer;
 }) {
   const router = useRouter();
   const account = useAccountWallet();
   const landingRedirectedRef = useRef(false);
-  useHomeRegion({ detectedCountry });
+  useHomeRegion({ detectedCountry, offer: regionOffer });
   const [initialUrlIntent] = useState(() => readHomeInboundPanelState(
     typeof window === "undefined"
       ? parseShellLocation("/")
@@ -99,7 +101,7 @@ export function LandingShell({
   }
 
   function signOut() {
-    void account.signOut().catch(() => {});
+    void account.signOut().catch(() => {}); // oxlint-disable-line home/no-silent-catch -- account sign-out owns its error state shown on the landing screen
   }
 
   return (
@@ -127,7 +129,7 @@ export function LandingShell({
         showCreateAccount={account.signInAvailability === "ready"}
         onDashboard={() => router.replace("/home")}
         onSignIn={openAccount}
-        onRetrySignOut={() => void account.signOut().catch(() => {})}
+        onRetrySignOut={() => void account.signOut().catch(() => {})} // oxlint-disable-line home/no-silent-catch -- account sign-out owns the retry error shown on this landing screen
       />
       <AccountSignInSheet
         open={isAccountOpen}

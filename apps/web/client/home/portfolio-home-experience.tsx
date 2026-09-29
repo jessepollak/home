@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBalances } from "@/client/balances";
+import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { presentBalances } from "@/shared/balances/present";
 import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey } from "@/shared/balances/types";
-import type { CountryCode } from "@/config/regions";
+import { ALL_REGIONS_OFFER, presentedRegionId, type CountryCode, type RegionOffer } from "@/config/regions";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceReadResponse, parseCountryPreferenceResponse, type CountryPreferenceRequest, type CountryPreferenceSeed } from "@/shared/account/contracts/country-preference";
 import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-invest-experience";
 import { InvestmentsExperience } from "@/client/investments/investments-experience";
@@ -15,6 +16,7 @@ import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { ShellLocation } from "@/config/shell-location";
+import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 import { useShowSmallBalances } from "./use-show-small-balances";
@@ -27,11 +29,15 @@ export function PortfolioHomeExperience({
   initialLocation,
   initialSearch,
   accountPreference,
+  regionOffer = ALL_REGIONS_OFFER,
+  investVisibility,
 }: {
   detectedCountry: CountryCode | null;
+  regionOffer?: RegionOffer;
   initialLocation: ShellLocation;
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
+  investVisibility?: InvestSettings;
 }) {
   const account = useAccountWallet();
   const discover = useInvestDiscover();
@@ -86,7 +92,7 @@ export function PortfolioHomeExperience({
           if (!response) throw new Error("Invalid country preference response");
           if (active) setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: response.regionId, status: "settled" });
         })
-        .catch(() => {
+        .catch(() => { // oxlint-disable-line home/no-silent-catch -- invalidated reads are ignored; active failures mark provisional-failed, retry within the bounded schedule, or settle with no region once retries are exhausted
           if (!active) return;
           if (provisionalRead) {
             setPreferenceState({ owner: readOwner, identity: livePreferenceIdentity, regionId: null, status: "provisional-failed" });
@@ -122,6 +128,7 @@ export function PortfolioHomeExperience({
     accountReady: accountReady && preferenceReadSettled,
     accountSettling: isSessionSettling(account),
     writeAccountPreference,
+    offer: regionOffer,
   });
   const initialInvestView = useMemo(
     () => investViewFromLocation(initialLocation),
@@ -139,10 +146,10 @@ export function PortfolioHomeExperience({
   const deviceCountryReady = accountPreference === null && region.isPreferenceReady &&
     region.resolutionSource === "persisted";
   const regionMatchesPreference = fetchedPreference?.status !== "settled" || fetchedPreference.regionId === null ||
-    region.regionId === fetchedPreference.regionId || region.resolutionSource === "explicit";
+    region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer) || region.resolutionSource === "explicit";
   const regionReady = region.isPreferenceReady && regionMatchesPreference && !accountPreferencePending;
   const provisionalPreferenceReady = provisionalPreference && fetchedPreference?.status === "settled" &&
-    region.isPreferenceReady && (fetchedPreference.regionId === null || region.regionId === fetchedPreference.regionId);
+    region.isPreferenceReady && (fetchedPreference.regionId === null || region.regionId === presentedRegionId(fetchedPreference.regionId, regionOffer));
   const provisionalRegionReady = hasSeed ||
     (deviceCountryReady && fetchedPreference?.status !== "settled") || provisionalPreferenceReady;
   const suppressBalances = (account.verification === "server" && !regionReady) ||
@@ -152,18 +159,20 @@ export function PortfolioHomeExperience({
       (provisionalBalances && provisionalRegionReady),
     provisional: provisionalBalances,
     held: suppressBalances,
-    paintCachedWhileHeld: (hasSeed && seedPreference === region.regionId) ||
+    paintCachedWhileHeld: (hasSeed && seedPreference !== null && presentedRegionId(seedPreference, regionOffer) === region.regionId) ||
       (fetchedPreference?.status === "settled" && fetchedPreference.regionId !== null &&
-        fetchedPreference.regionId === region.regionId) || region.resolutionSource === "explicit",
+        presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit",
   });
+  const pendingCashout = usePendingCashoutEscrow(accountReady ? account.session : null, balances.snapshot,
+    (signal) => account.fetchAccountResource("/api/actions", { signal }));
   const interruptionStatus = useInterruption(
     balances.observation,
     account.status === "verified" && account.verification === "server" && !suppressBalances,
     balances.retry,
   );
   const presentAssetBalances = useCallback(
-    (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances }),
-    [balances],
+    (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances, pendingCashout }),
+    [balances, pendingCashout],
   );
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
@@ -188,9 +197,12 @@ export function PortfolioHomeExperience({
         <PricedInvestExperienceWithDiscover
           discover={discover}
           initialView={initialInvestView}
+          investVisibility={investVisibility}
         />
       }
-      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} />}
+      // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
+      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />}
+      // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       investmentsContent={(props) => <InvestmentsExperience {...props} balances={balances} discover={discover} />}
       applyInboundUrlIntent
       initialSearch={initialSearch}

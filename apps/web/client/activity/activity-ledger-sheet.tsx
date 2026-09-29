@@ -242,6 +242,7 @@ export function ActivityLedgerDetailSheet({
               item.family === "cash-out-order") && item.steps?.length ? (
               <StatusSteps>
                 {item.steps.map((step, index) => (
+                  // oxlint-disable-next-line react/no-array-index-key -- Immutable status steps have no unique identifier in the view contract.
                   <StatusStep key={`${index}:${step.title}`} {...step} />
                 ))}
               </StatusSteps>

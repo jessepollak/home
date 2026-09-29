@@ -1,13 +1,15 @@
 import "server-only";
 
 import { URL } from "node:url";
-import { parseClientPerformanceReport } from "@/shared/observability/client-performance.contract";
+import { CLIENT_PERFORMANCE_KINDS, clientPerformanceBucket, parseClientPerformanceReport,
+  type ClientPerformanceKind } from "@/shared/observability/client-performance.contract";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 
 export const CLIENT_PERFORMANCE_MAX_BODY_BYTES = 2_048;
 export const CLIENT_PERFORMANCE_WINDOW_MS = 60_000;
 export const CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW = 60;
+export const CLIENT_PERFORMANCE_MAX_INTERACTION_REPORTS_PER_WINDOW = 20;
 
 const responseHeaders = {
   "cache-control": "no-store, max-age=0",
@@ -15,24 +17,31 @@ const responseHeaders = {
   "x-content-type-options": "nosniff",
 };
 
-type Permit = () => boolean;
+type Permit = (bucket: "interaction" | "reporting") => boolean;
 
 class FixedWindowLimiter {
   private windowStartedAt = 0;
   private count = 0;
+  constructor(private readonly max: number) {}
 
   take(now = Date.now()): boolean {
     if (now - this.windowStartedAt >= CLIENT_PERFORMANCE_WINDOW_MS || now < this.windowStartedAt) {
       this.windowStartedAt = now;
       this.count = 0;
     }
-    if (this.count >= CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW) return false;
+    if (this.count >= this.max) return false;
     this.count += 1;
     return true;
   }
 }
 
-const limiter = new FixedWindowLimiter();
+export function createClientPerformancePermits(now: () => number = Date.now): Permit {
+  const reporting = new FixedWindowLimiter(CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW);
+  const interaction = new FixedWindowLimiter(CLIENT_PERFORMANCE_MAX_INTERACTION_REPORTS_PER_WINDOW);
+  return (bucket) => (bucket === "interaction" ? interaction : reporting).take(now());
+}
+
+const defaultTakePermit = createClientPerformancePermits();
 
 export function createClientPerformanceHandler(dependencies?: {
   log?: (event: ObservabilityEvent) => unknown;
@@ -40,7 +49,7 @@ export function createClientPerformanceHandler(dependencies?: {
   deployment?: string;
 }) {
   const log = dependencies?.log ?? writeObservabilityEvent;
-  const takePermit = dependencies?.takePermit ?? (() => limiter.take());
+  const takePermit = dependencies?.takePermit ?? defaultTakePermit;
 
   return async function POST(request: Request): Promise<Response> {
     if (!hasSameOrigin(request)) {
@@ -61,7 +70,13 @@ export function createClientPerformanceHandler(dependencies?: {
       cancelBody(request);
       return emptyResponse(413);
     }
-    if (!takePermit()) {
+    const kinds = new URL(request.url).searchParams.getAll("kind");
+    if (kinds.length !== 1 || !CLIENT_PERFORMANCE_KINDS.some((kind) => kind === kinds[0])) {
+      cancelBody(request);
+      return emptyResponse(400);
+    }
+    const kind = kinds[0] as ClientPerformanceKind;
+    if (!takePermit(clientPerformanceBucket(kind))) {
       cancelBody(request);
       return emptyResponse(429, { "retry-after": "60" });
     }
@@ -77,7 +92,7 @@ export function createClientPerformanceHandler(dependencies?: {
       return emptyResponse(400);
     }
     const report = parseClientPerformanceReport(value);
-    if (!report) return emptyResponse(400);
+    if (!report || report.kind !== kind) return emptyResponse(400);
 
     try {
       const deploymentId = dependencies?.deployment ?? process.env.VERCEL_DEPLOYMENT_ID;

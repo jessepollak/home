@@ -115,9 +115,11 @@ function CopyableValueControl({
           <code
             className="block w-full select-all wrap-anywhere text-balance font-mono text-sm focus-visible:outline-3 focus-visible:outline-ring"
             aria-label={`Full ${valueKind} ${value}`}
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focusable full value supports keyboard selection.
             tabIndex={0}
           >
             {addressGroups(value).map((group, index) => (
+              // oxlint-disable-next-line react/no-array-index-key -- Group position is the identity of each displayed address segment.
               <Fragment key={index}>
                 {index > 0 ? <wbr /> : null}
                 <span className="me-1.5 last:me-0">{group}</span>
@@ -192,6 +194,7 @@ function CopyableValueControl({
           <code
             className="mt-1.5 block w-full select-text wrap-anywhere rounded-md border bg-muted px-3 py-2.5 font-mono text-xs text-foreground focus-visible:outline-3 focus-visible:outline-ring"
             aria-label={selectableLabel}
+            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focusable full value supports keyboard selection.
             tabIndex={0}
           >
             {value}

@@ -4,9 +4,11 @@ import {
   buildBalancesSnapshotFixture,
   catalogHolding,
   decimal,
+  FIXTURE_PRICE_AS_OF,
   priced,
   pricedCash,
   ready,
+  type HoldingOverride,
 } from "../../../shared/balances/fixtures";
 import type { BalancesSnapshot, Holding } from "../../../shared/balances/types";
 
@@ -53,12 +55,25 @@ export function dustCatalogHolding(region: RegionId): Holding {
   );
 }
 
-export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
+function stockRegistry(currency: FiatCurrencyCode | null): Record<string, HoldingOverride> {
+  const lastClose: Holding["value"] = currency
+    ? { status: "priced", currency, amount: decimal("9012", 2), asOf: FIXTURE_PRICE_AS_OF, reference: { kind: "tokenized-equity", session: "closed" } }
+    : { status: "unpriced", reason: "no-quote-currency" };
+  return {
+    nvdac: { balance: ready("50000000"), value: lastClose },
+    metac: { balance: ready("20000000"), value: { status: "unpriced", reason: "price-paused" } },
+    aaplc: { balance: ready("30000000"), value: { status: "unpriced", reason: "price-stale" } },
+    tslac: { balance: ready("10000000"), value: { status: "unpriced", reason: "price-unavailable" } },
+  };
+}
+
+export function balancesSnapshot(region: RegionId = "US", options: { stocks?: boolean } = {}): BalancesSnapshot {
   const currency = quoteCurrency(region);
   const snapshot = buildBalancesSnapshotFixture({
     region,
     owner: SMOKE_OWNER,
     registry: {
+      ...(options.stocks ? stockRegistry(currency) : {}),
       usdc: {
         balance: ready("12340000"),
         value: quotedValue(region, "1234"),
@@ -76,7 +91,7 @@ export function balancesSnapshot(region: RegionId = "US"): BalancesSnapshot {
     },
     catalog: [recognizedCatalogHolding(region), dustCatalogHolding(region)],
     total: currency
-      ? { status: "complete", value: decimal("9054", 2), currency }
+      ? { status: options.stocks ? "partial" : "complete", value: decimal(options.stocks ? "18066" : "9054", 2), currency }
       : { status: "no-quote-currency", value: null, currency: null },
   });
   return {

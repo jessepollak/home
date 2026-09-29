@@ -1,5 +1,7 @@
 import { balancesSnapshot } from "../fixtures/balances";
 import { cryptoAssets, memeAssets } from "../../../config/invest-assets";
+import { MARKET_PRICES_VERSION, type MarketPricesResponse } from "../../../shared/invest/contracts/market-prices";
+import { MARKET_PRICE_HISTORY_VERSION, type MarketPriceHistoryResponse } from "../../../shared/invest/contracts/market-price-history";
 import { VERIFIED_MORPHO_MARKETS } from "../../../shared/morpho-markets/config";
 import { buyRouteForToken } from "../../../shared/trading/assets";
 import { preparedSendFixtureAction } from "../fixtures/api";
@@ -86,8 +88,48 @@ export function tradePrepareFixture(direction: TradeDirection, asset: "bitcoin" 
   };
 }
 
+const chainlink = { sourceLabel: "Chainlink", sourceUrl: "https://docs.chain.link/data-feeds/tokenized-equity-feeds/coinbase" };
+const cryptoPrices: Record<string, string> = {
+  cbbtc: "$60,000.00", cbxrp: "$2.41", cbdoge: "$0.21", cbltc: "$88.10",
+  cbada: "$0.72", cbhype: "$38.20", cbzec: "$54.30", cbmega: "$0.62",
+};
+
+export function marketPricesFixture(now = new Date()): MarketPricesResponse {
+  const checkedAt = now.toISOString();
+  const asOf = new Date(now.getTime() - 30_000).toISOString();
+  const lastClose = new Date(now.getTime() - 14 * 3600_000).toISOString();
+  return {
+    version: MARKET_PRICES_VERSION, provider: "codex", fetchedAt: checkedAt,
+    markets: {
+      stock: { status: "ready", snapshots: [
+        { assetId: "nvdac", displayPrice: "$180.24", asOf: lastClose, ...chainlink, session: "closed", checkedAt },
+        { assetId: "msftc", displayPrice: "$512.40", asOf, ...chainlink, session: "open", checkedAt },
+        { assetId: "metac", displayPrice: "—", asOf: lastClose, ...chainlink, session: "paused", checkedAt },
+        { assetId: "aaplc", displayPrice: "—", asOf: lastClose, ...chainlink, session: "stale", checkedAt },
+      ] },
+      crypto: { status: "ready", snapshots: cryptoAssets.map((asset) => ({
+        assetId: asset.id, displayPrice: cryptoPrices[asset.id] ?? "$1.00", asOf, sourceLabel: "Codex", changeLabel: "+1.2%",
+      })) },
+      meme: { status: "ready", snapshots: memeAssets.map((asset) => ({
+        assetId: asset.id, displayPrice: "$0.0042", asOf, sourceLabel: "Codex", changeLabel: "-0.8%",
+      })) },
+    },
+  };
+}
+
+export function priceHistoryFixture(assetId: string, now = new Date()): MarketPriceHistoryResponse {
+  const points = Array.from({ length: 24 }, (_, index) => ({
+    time: new Date(now.getTime() - (23 - index) * 7 * 3600_000).toISOString(),
+    value: (176 + Math.sin(index / 3) * 4 + index * 0.2).toFixed(2),
+  }));
+  return {
+    version: MARKET_PRICE_HISTORY_VERSION, provider: "codex", assetId: assetId as MarketPriceHistoryResponse["assetId"],
+    range: "1W", currency: "USD", fetchedAt: now.toISOString(), status: "ready", points,
+  };
+}
+
 export function fixtureRoutes() {
-  const balances = balancesSnapshot("US");
+  const balances = balancesSnapshot("US", { stocks: true });
   const borrowOverview = borrowOverviewBody();
   const prepared = preparedSendFixtureAction(recentRecipient);
   const assetIds = new Set([
@@ -104,9 +146,18 @@ export function fixtureRoutes() {
     } }],
     ["**/api/balances**", {
       ...balances,
-      holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),
+      holdings: balances.holdings.map((holding) => ({
+        ...holding,
+        imageUrl: undefined,
+        ...(holding.id === "usdc" ? { unitValue: { currency: "USD", amount: { atoms: "1", scale: 0 } } } : {}),
+      })),
     }],
-    ["**/api/actions", { actions: [...actionsBody.actions, cashoutFixtureAction] }],
+    ["**/api/market-prices", marketPricesFixture()],
+    ...["nvdac", "metac"].map((assetId) => [`**/api/market-prices/history?assetId=${assetId}&range=1W`, priceHistoryFixture(assetId)] as const),
+    ["**/api/actions", { actions: [...actionsBody.actions, {
+      ...cashoutFixtureAction,
+      cashout: { ...cashoutFixtureProgress, depositBlockNumber: balances.block.number },
+    }] }],
     ["**/api/actions/prepare", prepared],
     ["**/api/trades/stock-eligibility", { version: 1, buy: "restricted", sell: "eligible" }],
     ["**/api/trades?**", { version: 2, status: "unavailable", reason: "asset-unsupported" }],
@@ -137,7 +188,7 @@ export function fixtureRoutes() {
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
       : []),
-    ["**/api/client-performance", { ok: true }],
+    ["**/api/client-performance**", { ok: true }],
     ["**/api/funding/providers**", fundingProvidersBody],
     ["**/api/transfers/recipient-name**", { version: 1, name: "example.base.eth", address: recentRecipient }],
     ["**/api/transfers/recent-recipients**", {

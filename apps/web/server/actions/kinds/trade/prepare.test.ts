@@ -1,7 +1,10 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { validPrepared } from "@/shared/actions/contracts/prepare";
 import { afterEach, describe, expect, test } from "bun:test";
-import { encodeAbiParameters, encodeFunctionData, erc20Abi, hashTypedData, parseAbiParameters } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, hashTypedData, parseAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { BaseRpcError } from "@/server/chain/rpc";
 import { resolveTradeAsset } from "@/shared/trading/assets";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
@@ -14,7 +17,13 @@ import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/sto
 import { issueMoneyAction } from "@/server/money-actions/issue";
 import { createPrepareActionHandler } from "@/server/actions/prepare";
 import { swapTokens, type SwapReviewRequest } from "./quote";
+import { createTradeFeeStrategy, type TradeFeeStrategy } from "@/server/fees/strategy";
+import { feePolicyForTaker } from "@/server/fees/policy";
+import type { OperatorFeePolicy } from "@/shared/fees/contract";
+import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 
+const inBatchTransferStrategy = createTradeFeeStrategy("in-batch-transfer");
+const providerNativeStrategy = createTradeFeeStrategy("provider-native");
 const TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
 const OWNER = "0x1111111111111111111111111111111111111111" as Address;
 const ROUTER = "0x3333333333333333333333333333333333333333" as Address;
@@ -113,6 +122,10 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
   onIdentityRead?: () => void;
   onQuote?: () => void;
   v3Ppm?: bigint;
+  quoteFails?: boolean;
+  feePolicy?: OperatorFeePolicy;
+  feeStrategy?: TradeFeeStrategy;
+  onQuoteRequest?: (request: { fromAmount: bigint; operatorFee?: { bps: number; recipient: Address } }) => void;
 } = {}) {
   const request = new Request("https://home.test/api/actions/prepare");
   const assetId = options.assetId ?? "cbbtc";
@@ -120,23 +133,30 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
   if (!resolved || resolved.status !== "tradeable") throw new Error("Invalid test asset");
   const token = resolved.address;
   const fromAmount = options.amountBaseUnits === "all" ? options.latestBalance ?? BigInt(2_000_000) : BigInt(options.amountBaseUnits ?? "1000000");
-  const params = { version: 2, assetId, direction, amountBaseUnits: options.amountBaseUnits ?? "1000000" };
+  const params = { version: 3, assetId, direction, amountBaseUnits: options.amountBaseUnits ?? "1000000" };
+  const policy = options.feePolicy ?? { bps: 0, recipient: null };
+  const effectivePolicy = feePolicyForTaker(policy, OWNER);
+  const expectedFromAmount = fromAmount === BigInt(0) ? fromAmount : (options.feeStrategy ?? inBatchTransferStrategy).quote(direction, fromAmount, effectivePolicy).fromAmount;
   let key = "";
   const result = await prepareTradeAction({ session: sessions(provider), request, params }, {
     now: () => NOW,
     resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: options.signerAddress ?? OWNER, ownerIndex: 0, deployed: true }),
     buyBlocked: () => options.buyBlocked ?? false,
+    resolveFeePolicy: async () => policy,
+    feeStrategy: options.feeStrategy,
     createSwapsClient: () => ({ getPrice: async (priceRequest) => {
       if (!options.referenceLiquid) return { liquidityAvailable: false };
       const quote = await quoteFor(input(priceRequest.fromToken === BASE_USDC_ADDRESS.toLowerCase() ? "buy" : "sell", token, priceRequest.fromAmount));
       return { ...quote, gas: null, gasPrice: BigInt(1) };
     }, createQuote: async (swapRequest) => {
       options.onQuote?.();
-      expect(swapRequest).toMatchObject({ ...swapTokens(direction, token), taker: OWNER, fromAmount, slippageBps: 100 });
+      expect(swapRequest).toMatchObject({ ...swapTokens(direction, token), taker: OWNER, fromAmount: expectedFromAmount, slippageBps: 100 });
       expect(swapRequest.signerAddress).toBeUndefined();
+      options.onQuoteRequest?.(swapRequest);
       key = swapRequest.requestKey ?? "";
+      if (options.quoteFails) throw new CdpSwapsUnavailableError();
       if (options.illiquid) return { liquidityAvailable: false };
-      const quote = await quoteFor(input(direction, token, fromAmount), options.nonce, options.makerDeadline, options.invalidMakerSig, options.v3Ppm);
+      const quote = await quoteFor(input(direction, token, expectedFromAmount), options.nonce, options.makerDeadline, options.invalidMakerSig, options.v3Ppm);
       if (allowance || options.quoteAllowanceIssue === false) quote.issues.allowance = null;
       if (options.quoteBalanceIssue) quote.issues.balance = { token: quote.fromToken, currentBalance: BigInt(0), requiredBalance: quote.fromAmount };
       if (deadline) (quote.permit2!.eip712 as { message: { deadline: string } }).message.deadline = String(deadline);
@@ -328,8 +348,8 @@ describe("trade preparation", () => {
     const request = new Request("https://home.test/api/actions/prepare");
     const session = sessions();
     const deps = { resolveSigner: async () => ({ smartAccount: POOL, signerAddress: OWNER, ownerIndex: 0 as const, deployed: true }) };
-    await expect(prepareTradeAction({ session, request, params: { version: 2, assetId: "cbbtc", direction: "buy", amountBaseUnits: "100" } }, deps)).rejects.toMatchObject({ reason: "signer-unsupported" });
-    await expect(prepareTradeAction({ session, request, params: { version: 2, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1.5" } }, deps)).rejects.toMatchObject({ reason: "invalid-request" });
+    await expect(prepareTradeAction({ session, request, params: { version: 3, assetId: "cbbtc", direction: "buy", amountBaseUnits: "100" } }, deps)).rejects.toMatchObject({ reason: "signer-unsupported" });
+    await expect(prepareTradeAction({ session, request, params: { version: 3, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1.5" } }, deps)).rejects.toMatchObject({ reason: "invalid-request" });
   });
   test.each([
     ["invalid-request", "TRADE_INVALID", 400], ["signer-unsupported", "TRADE_SIGNER_UNSUPPORTED", 422],
@@ -396,10 +416,11 @@ describe("trade preparation", () => {
     });
     const response = await handler(new Request("https://home.test/api/actions/prepare", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind: "trade", params: { version: 2, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1000000" } }),
+      body: JSON.stringify({ kind: "trade", params: { version: 3, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1000000" } }),
     }));
     expect(response.status).toBe(201);
-    const result = await response.json();
+    const result = await readJson(response);
+    if (!validPrepared(result, sessions())) throw new Error("Invalid prepared trade");
     expect(trade.key).not.toBe(result.id);
     expect(inserts[0]?.pending.swapCallIndex).toBe(fee ? 2 : 1);
     expect(inserts[0]?.pending.calls[inserts[0]!.pending.swapCallIndex!]?.to).toBe(ROUTER);
@@ -439,6 +460,194 @@ describe("trade preparation", () => {
     lone.calls.splice(1, 1);
     await expect(issueMoneyAction(sessions(), lone, { pending: { ...preparedTrade.pending, swapCallIndex: 1 } })).rejects.toMatchObject({ reason: "invalid-draft" });
   });
+  test.each([inBatchTransferStrategy, providerNativeStrategy])("binds buy fee and exact net Permit2 scope to the same quote with %p", async (strategy) => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const feePolicy = { bps: 100, recipient };
+    let requestedFee: unknown;
+    const trade = await prepared("buy", "cdp-embedded", false, undefined, {
+      feePolicy, feeStrategy: strategy,
+      onQuoteRequest: (request) => { requestedFee = request.operatorFee; expect(request.fromAmount).toBe(BigInt(990_000)); },
+    });
+    const { draft } = trade;
+    if (draft.metadata?.product !== "trade") throw new Error("missing trade metadata");
+    expect(draft.metadata.fromAmountBaseUnits).toBe("990000");
+    expect(draft.metadata.operatorFee).toMatchObject({ amountBaseUnits: "10000", bps: 100, recipient,
+      collectedBy: strategy === inBatchTransferStrategy ? "in-batch-transfer" : "provider-native" });
+    expect(tradeCustomerAmounts(draft.metadata)).toMatchObject({ spendBaseUnits: "1000000", minimumReceiveBaseUnits: "990" });
+    expect(draft.amounts[0]?.amountBaseUnits).toBe("1000000");
+    const feeCall = strategy === inBatchTransferStrategy ? 1 : 0;
+    expect(draft.calls).toHaveLength(2 + feeCall);
+    if (feeCall) {
+      expect(draft.calls[0]).toMatchObject({ to: BASE_USDC_ADDRESS.toLowerCase(), value: "0" });
+      expect(decodeFunctionData({ abi: erc20Abi, data: draft.calls[0]!.data })).toMatchObject({ functionName: "transfer", args: [recipient, BigInt(10_000)] });
+    }
+    expect(draft.calls[feeCall]?.data).toBe(`0x095ea7b3${addr(PERMIT2_ADDRESS)}${word(990_000)}`);
+    expect(draft.calls.at(-1)?.to).toBe(ROUTER);
+    expect(requestedFee).toEqual(strategy === providerNativeStrategy ? feePolicy : undefined);
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    expect((await issueMoneyAction(sessions(), draft, { pending: { ...trade.pending, swapCallIndex: draft.calls.length - 1 } })).calls).toEqual(draft.calls);
+    await expect(prepared("buy", "cdp-embedded", false, undefined, { feePolicy, feeStrategy: strategy, balanceResult: `0x${word(999_999)}` }))
+      .rejects.toMatchObject({ reason: "insufficient-balance" });
+  });
+  test.each([inBatchTransferStrategy, providerNativeStrategy])("binds sell fee to the guaranteed minimum with %p", async (strategy) => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const trade = await prepared("sell", "cdp-embedded", false, undefined, { feeStrategy: strategy, feePolicy: { bps: 100, recipient },
+      onQuoteRequest: (request) => {
+        expect(request.fromAmount).toBe(BigInt(1_000_000));
+        expect(request.operatorFee).toEqual(strategy === providerNativeStrategy ? { bps: 100, recipient } : undefined);
+      },
+    });
+    const { draft } = trade;
+    if (draft.metadata?.product !== "trade") throw new Error("missing trade metadata");
+    expect(draft.metadata.operatorFee).toMatchObject({ amountBaseUnits: "9", recipient });
+    expect(tradeCustomerAmounts(draft.metadata)).toMatchObject({ expectedReceiveBaseUnits: "991", minimumReceiveBaseUnits: "981" });
+    expect(draft.amounts[1]?.amountBaseUnits).toBe("991");
+    const feeCall = strategy === inBatchTransferStrategy ? 1 : 0;
+    expect(draft.calls).toHaveLength(2 + feeCall);
+    expect(draft.calls[1]?.to).toBe(ROUTER);
+    if (feeCall) {
+      expect(draft.calls[2]?.to).toBe(BASE_USDC_ADDRESS.toLowerCase() as Address);
+      expect(decodeFunctionData({ abi: erc20Abi, data: draft.calls[2]!.data })).toMatchObject({ functionName: "transfer", args: [recipient, BigInt(9)] });
+    }
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    expect((await issueMoneyAction(sessions(), draft, { pending: { ...trade.pending, swapCallIndex: 1 } })).calls).toEqual(draft.calls);
+  });
+  test.each([inBatchTransferStrategy, providerNativeStrategy])("omits rounded-zero and disabled fee legs with %p", async (strategy) => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    for (const [direction, amountBaseUnits, feePolicy] of [
+      ["buy", "33", { bps: 300, recipient }], ["sell", "1000000", { bps: 1, recipient }],
+      ["buy", "1000000", { bps: 0, recipient }], ["sell", "1000000", { bps: 0, recipient: null }],
+    ] as const) {
+      const { draft } = await prepared(direction, "cdp-embedded", false, undefined, { amountBaseUnits, feePolicy, feeStrategy: strategy });
+      expect(draft.metadata?.product === "trade" ? draft.metadata.operatorFee : null).toBeUndefined();
+      expect(draft.calls).toHaveLength(2);
+      expect(draft.calls.at(-1)?.to).toBe(ROUTER);
+    }
+  });
+  test.each([inBatchTransferStrategy, providerNativeStrategy])("omits a fee whose recipient equals the taker with %p", async (strategy) => {
+    for (const direction of ["buy", "sell"] as const) {
+      const trade = await prepared(direction, "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient: OWNER }, feeStrategy: strategy });
+      const { draft } = trade;
+      if (draft.metadata?.product !== "trade") throw new Error("missing trade metadata");
+      expect(draft.metadata.operatorFee).toBeUndefined();
+      expect(draft.metadata.fromAmountBaseUnits).toBe("1000000");
+      expect(draft.calls).toHaveLength(2);
+      expect(draft.amounts[0]?.amountBaseUnits).toBe("1000000");
+      expect(draft.calls.at(-1)?.to).toBe(ROUTER);
+    }
+  });
+  test("refuses to issue a trade whose fee recipient is the taker", async () => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const trade = await prepared("buy", "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient } });
+    const draft = structuredClone(trade.draft);
+    if (draft.metadata?.product !== "trade" || !draft.metadata.operatorFee) throw new Error("missing operator fee");
+    draft.metadata.operatorFee = { ...draft.metadata.operatorFee, recipient: OWNER };
+    const feeCall = draft.calls[0];
+    if (feeCall?.to !== BASE_USDC_ADDRESS.toLowerCase()) throw new Error("missing fee call");
+    feeCall.data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [OWNER, BigInt(draft.metadata.operatorFee.amountBaseUnits)] });
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    await expect(issueMoneyAction(sessions(), draft, { pending: { ...trade.pending, swapCallIndex: draft.calls.length - 1 } }))
+      .rejects.toMatchObject({ reason: "invalid-draft" });
+  });
+  test("new settings affect only new quotes and a failed quote cannot issue a fee leg", async () => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const first = await prepared("buy", "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient } });
+    const firstCalls = structuredClone(first.draft.calls);
+    const second = await prepared("buy", "cdp-embedded", false, undefined, { feePolicy: { bps: 200, recipient } });
+    expect(first.draft.metadata?.product === "trade" && first.draft.metadata.operatorFee?.amountBaseUnits).toBe("10000");
+    expect(first.draft.calls).toEqual(firstCalls);
+    expect(second.draft.metadata?.product === "trade" && second.draft.metadata.operatorFee?.amountBaseUnits).toBe("20000");
+    expect(first.draft.calls[0]?.data).not.toBe(second.draft.calls[0]?.data);
+    let inserted = 0;
+    setActionsStoreForTests({ insert: async () => { inserted++; } } as unknown as ActionsStore);
+    const handler = createPrepareActionHandler({ authorize: async () => Response.json(sessions()),
+      prepareTrade: async () => prepared("buy", "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient }, quoteFails: true }),
+      applyFee: async () => { throw new Error("No network fee quote after a failed trade quote"); },
+    });
+    const response = await handler(new Request("https://home.test/api/actions/prepare", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "trade", params: { version: 3, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1000000" } }) }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: "TRADE_UNAVAILABLE" } });
+    expect(inserted).toBe(0);
+  });
+  test.each(["buy", "sell"] as const)("keeps the %s fee beside an exact Permit2 reset-and-approve sequence", async (direction) => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const trade = await prepared(direction, "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient },
+      chainAllowance: direction === "buy" ? BigInt(989_999) : BigInt(999_999) });
+    const { draft } = trade;
+    expect(draft.calls.map((call) => call.data.slice(0, 10)))
+      .toEqual(direction === "buy" ? ["0xa9059cbb", "0x095ea7b3", "0x095ea7b3", "0x1fff991f"]
+        : ["0x095ea7b3", "0x095ea7b3", "0x1fff991f", "0xa9059cbb"]);
+    const approved = draft.calls.findLast((call) => call.approval);
+    expect(approved?.data).toBe(`0x095ea7b3${addr(PERMIT2_ADDRESS)}${word(direction === "buy" ? 990_000 : 1_000_000)}`);
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    expect((await issueMoneyAction(sessions(), draft, { pending: { ...trade.pending, swapCallIndex: direction === "buy" ? 3 : 2 } })).calls).toHaveLength(4);
+  });
+  test.each(["buy", "sell"] as const)("persists the %s fee call and swap index through the shared prepare route", async (direction) => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const trade = await prepared(direction, "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient } });
+    const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
+    setActionsStoreForTests({ insert: async (value: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(value); } } as ActionsStore);
+    const handler = createPrepareActionHandler({
+      authorize: async () => Response.json(sessions()),
+      prepareTrade: async () => trade,
+      applyFee: async (_session, draft) => ({ ...draft, calls: [makePaymasterApproval(BigInt(100_000)), ...draft.calls],
+        networkFee: { payment: "usdc", token: BASE_USDC_ADDRESS, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "100000", decimals: 6 } }),
+    });
+    const response = await handler(new Request("https://home.test/api/actions/prepare", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "trade", params: { version: 3, assetId: "cbbtc", direction, amountBaseUnits: "1000000" } }) }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(validPrepared(body, sessions())).toBe(true);
+    expect(inserts[0]?.pending.swapCallIndex).toBe(direction === "buy" ? 3 : 2);
+    expect(inserts[0]?.pending.calls[inserts[0]!.pending.swapCallIndex!]?.to).toBe(ROUTER);
+    expect(inserts[0]?.pending.calls).toEqual(body.calls);
+    expect(body.calls).toHaveLength(4);
+  });
+  test.each(["buy", "sell"] as const)("rejects missing, altered, reordered, and unrecorded %s fee calls before insertion", async (direction) => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const trade = await prepared(direction, "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient } });
+    let inserted = 0;
+    setActionsStoreForTests({ insert: async () => { inserted++; } } as unknown as ActionsStore);
+    const swapIndex = direction === "buy" ? 2 : 1;
+    const feeIndex = direction === "buy" ? 0 : 2;
+    const variants: MoneyActionDraft[] = [];
+    const missing = structuredClone(trade.draft);
+    missing.calls.splice(feeIndex, 1);
+    variants.push(missing);
+    const altered = structuredClone(trade.draft);
+    altered.calls[feeIndex]!.data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, BigInt(1)] });
+    variants.push(altered);
+    const wrongRecipient = structuredClone(trade.draft);
+    wrongRecipient.calls[feeIndex]!.data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [OWNER, BigInt(direction === "buy" ? 10_000 : 9)] });
+    variants.push(wrongRecipient);
+    const reordered = structuredClone(trade.draft);
+    reordered.calls.reverse();
+    variants.push(reordered);
+    const noRecord = structuredClone(trade.draft);
+    if (noRecord.metadata?.product !== "trade") throw new Error("missing metadata");
+    delete noRecord.metadata.operatorFee;
+    variants.push(noRecord);
+    const wrongAmount = structuredClone(trade.draft);
+    wrongAmount.amounts[0]!.amountBaseUnits = "1";
+    variants.push(wrongAmount);
+    if (direction === "buy") {
+      const grossApproval = structuredClone(trade.draft);
+      grossApproval.calls[1]!.data = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [PERMIT2_ADDRESS, BigInt(1_000_000)] });
+      variants.push(grossApproval);
+    }
+    for (const draft of variants) await expect(issueMoneyAction(sessions(), draft, { pending: { ...trade.pending, swapCallIndex: swapIndex } }))
+      .rejects.toMatchObject({ reason: "invalid-draft" });
+    expect(inserted).toBe(0);
+  });
+  test("keeps the eight-call cap when both fee legs and approvals are present", async () => {
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const trade = await prepared("buy", "cdp-embedded", false, undefined, { feePolicy: { bps: 100, recipient } });
+    const expanded = structuredClone(trade.draft);
+    while (expanded.calls.length <= 8) expanded.calls.unshift({ ...expanded.calls[0]! });
+    await expect(issueMoneyAction(sessions(), expanded, { pending: { ...trade.pending, swapCallIndex: expanded.calls.length - 1 } }))
+      .rejects.toMatchObject({ reason: "invalid-draft" });
+  });
   test("maps missing credentials to unavailable", () => {
     expect(tradePreparationResponse(new CdpSwapsUnavailableError())).toMatchObject({ code: "TRADE_UNAVAILABLE", status: 503 });
   });
@@ -455,6 +664,19 @@ describe("generic token trade preparation", () => {
       expect(draft.title).toBe(`${direction === "buy" ? "Buy" : "Sell"} ${assetName}`);
       expect(draft.calls[0]).toMatchObject({ approval: { spender: PERMIT2_ADDRESS } });
     }
+  });
+  test.each(["buy", "sell"] as const)("issues a fee-bearing exact-address %s trade with a token-bound net Permit2 cap", async (direction) => {
+    const address = "0x2222222222222222222222222222222222222222" as Address;
+    const recipient = "0x1234567890123456789012345678901234567890" as Address;
+    const trade = await prepared(direction, "cdp-embedded", false, undefined, {
+      assetId: `base:${address}`, feePolicy: { bps: 100, recipient }, pairCheck: "not-pair",
+    });
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    const swapCallIndex = direction === "buy" ? 2 : 1;
+    const action = await issueMoneyAction(sessions(), trade.draft, { pending: { ...trade.pending, swapCallIndex } });
+    expect(action.metadata?.product === "trade" && action.metadata.fromAsset.address)
+      .toBe(direction === "buy" ? BASE_USDC_ADDRESS.toLowerCase() as Address : address);
+    expect(action.metadata?.product === "trade" && action.metadata.operatorFee?.recipient).toBe(recipient);
   });
   test("pins a full sell to the exact chain balance; a rebasing drop refuses review", async () => {
     const { draft } = await prepared("sell", "cdp-embedded", false, undefined, { assetId: "degen", amountBaseUnits: "all" });

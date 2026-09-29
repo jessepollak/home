@@ -8,6 +8,7 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { cashoutFixtureAction, cashoutFixtureWithdraw } from "@/tests/browser/feature-map/cashout-fixture";
 import { activityOrdersFixture } from "@/tests/browser/feature-map/fixtures";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import type { ReactNode } from "react";
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 beforeEach(() => { (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true; });
@@ -15,6 +16,10 @@ afterEach(() => { cleanup(); getHomeQueryClient().clear(); delete (globalThis as
 const session = { user: { subject: cashoutFixtureAction.owner.subject }, smartAccount: {
   address: cashoutFixtureAction.owner.address as `0x${string}`, chainId: 8453 as const,
 }, accountProvider: "cdp-embedded" as const };
+
+function ActivityProviders({ wallet, routing, children }: { wallet: AccountWalletClient; routing: Parameters<typeof HomeShellRoutingProvider>[0]["value"]; children: ReactNode }) {
+  return <AccountWalletContext.Provider value={wallet}><HomeShellRoutingProvider value={routing}>{children}</HomeShellRoutingProvider></AccountWalletContext.Provider>;
+}
 
 function setup(options: { failOrders?: boolean; failResolve?: boolean; fallback?: boolean | "waiting"; completePayment?: boolean; density?: "page" | "feed" } = {}) {
   const requests: Array<{ path: string; method: string; body?: unknown }> = [];
@@ -55,11 +60,11 @@ function setup(options: { failOrders?: boolean; failResolve?: boolean; fallback?
       flows.push({ flow, options: flowOptions }); return true;
     }, clearFlow: () => {}, canOpenAssetDetail: () => false, openAssetDetail: () => false,
   };
-  const view = render(<AccountWalletContext.Provider value={wallet}><HomeShellRoutingProvider value={routing}>
+  const view = render(<ActivityProviders wallet={wallet} routing={routing}>
     <ConnectedActivityPanel density={options.density ?? "page"} activitySession={session}
       fetchActivity={async () => { throw new Error("Unavailable"); }}
       fetchOperations={async () => ({ actions: [cashoutFixtureAction] })} regionId="US" />
-  </HomeShellRoutingProvider></AccountWalletContext.Provider>);
+  </ActivityProviders>);
   return { view, requests, prepared, flows };
 }
 
@@ -107,12 +112,16 @@ for (const [completePayment, label] of [[false, "Continue with Coinbase"], [true
 }
 
 test("a failed clear shows the server message without starting another order", async () => {
+  const client = getHomeQueryClient();
+  const openOrderKey = ownerQueryKey(activityOwnerKey(session), "funding-open-order", "US");
+  client.setQueryData(openOrderKey, { order: { id: "fixture-funding-ambiguous" } });
   const { view, requests } = setup({ failResolve: true });
   await openOrder(view, "30");
   fireEvent.click(await view.findByRole("button", { name: "Clear order" }));
   await waitFor(() => expect(view.getByText("Clear failed. Try again.")).toBeTruthy());
   expect(requests.filter(({ method }) => method === "POST").map(({ path }) => path))
     .toEqual(["/api/funding/orders/fixture-funding-ambiguous/resolve"]);
+  expect(client.getQueryState(openOrderKey)?.isInvalidated).toBe(false);
 });
 
 test("returned funds review the withdrawal against the order deposit ID in the same sheet", async () => {

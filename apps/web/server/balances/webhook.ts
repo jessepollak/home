@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { emitServerEvent } from "@/server/observability/log";
+import { HISTORY_CHAIN_ID, type HistoryStore } from "./history/types";
 import type { BalanceSnapshotStore } from "./snapshot-store";
 import type { SecretKeyring } from "@/server/secrets/at-rest";
 import { openWebhookSecret } from "./webhook-secret";
@@ -11,13 +12,17 @@ const SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
 const SUBSCRIPTION_CACHE_MS = 60_000;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ADDRESS_FIELDS = new Set(["address", "matchedAddress", "from", "to", "transaction_from", "transaction_to"]);
+const MATCHED_ADDRESS_FIELDS = new Set(["address", "matchedAddress"]);
 const ACTIVITY_EVENTS = new Set(["wallet.activity.detected", "wallet.activity.multi", "wallet.activity"]);
 
 export function createCdpWebhookHandler(dependencies: {
   store: Pick<BalanceSnapshotStore, "markStaleMany">;
+  history: Pick<HistoryStore, "markDirty"> | null;
   subscriptions: Pick<WebhookSubscriptionStore, "list">;
   keyring: SecretKeyring | null;
   now?: () => Date;
+  schedule?: (task: () => Promise<void>) => void;
+  settleActions?: (addresses: readonly string[], signal: AbortSignal) => Promise<void>;
 }) {
   const now = dependencies.now ?? (() => new Date());
   let cached: { at: number; records: Array<{ subscriptionId: string; secret: string }> } | null = null;
@@ -81,6 +86,30 @@ export function createCdpWebhookHandler(dependencies: {
 
     const addresses = extractCdpActivityAddresses(payload);
     await dependencies.store.markStaleMany(8453, addresses, current);
+    const matched = extractCdpActivityAddresses(payload, MATCHED_ADDRESS_FIELDS);
+    const settleTargets = matched.length > 0 ? matched : addresses;
+    if (settleTargets.length && dependencies.schedule && dependencies.settleActions) {
+      const settleActions = dependencies.settleActions;
+      try {
+        dependencies.schedule(async () => {
+          const settledAt = Date.now();
+          try {
+            await settleActions(settleTargets.slice(0, 50), AbortSignal.timeout(25_000));
+          } catch {
+            observe("unavailable", "WEBHOOK_SETTLE_UNAVAILABLE", settledAt);
+          }
+        });
+      } catch {
+        observe("unavailable", "WEBHOOK_SETTLE_UNAVAILABLE", startedAt);
+      }
+    }
+    try {
+      await dependencies.history?.markDirty(HISTORY_CHAIN_ID, addresses, current);
+    } catch {
+      emitServerEvent("balances-webhook", {
+        route: "/api/webhooks/cdp", code: "WEBHOOK_HISTORY_DIRTY_FAILED", outcome: "failed", durationMs: Date.now() - startedAt,
+      });
+    }
     observe("accepted", "WEBHOOK_ACCEPTED", startedAt);
     return Response.json({ accepted: true }, { status: 200 });
   };
@@ -106,9 +135,9 @@ export function verifyCdpWebhookSignature(raw: Uint8Array, header: string | null
   });
 }
 
-export function extractCdpActivityAddresses(payload: Record<string, unknown>): `0x${string}`[] {
+export function extractCdpActivityAddresses(payload: Record<string, unknown>, fields: ReadonlySet<string> = ADDRESS_FIELDS): `0x${string}`[] {
   const addresses = new Set<`0x${string}`>();
-  visitDocumentedFields(payload, addresses);
+  visitDocumentedFields(payload, addresses, fields);
   return [...addresses];
 }
 
@@ -141,15 +170,15 @@ function readEventType(payload: Record<string, unknown>): string | null {
   return null;
 }
 
-function visitDocumentedFields(value: unknown, addresses: Set<`0x${string}`>): void {
+function visitDocumentedFields(value: unknown, addresses: Set<`0x${string}`>, fields: ReadonlySet<string>): void {
   if (Array.isArray(value)) {
-    for (const item of value) visitDocumentedFields(item, addresses);
+    for (const item of value) visitDocumentedFields(item, addresses, fields);
     return;
   }
   if (!isRecord(value)) return;
   for (const [key, child] of Object.entries(value)) {
-    if (ADDRESS_FIELDS.has(key)) collectAddressValue(child, addresses);
-    if (isRecord(child) || Array.isArray(child)) visitDocumentedFields(child, addresses);
+    if (fields.has(key)) collectAddressValue(child, addresses);
+    if (isRecord(child) || Array.isArray(child)) visitDocumentedFields(child, addresses, fields);
   }
 }
 
@@ -160,7 +189,7 @@ function collectAddressValue(value: unknown, addresses: Set<`0x${string}`>): voi
   }
 }
 
-function observe(outcome: "accepted" | "rejected" | "ignored", code: string, startedAt: number): void {
+function observe(outcome: "accepted" | "rejected" | "ignored" | "unavailable", code: string, startedAt: number): void {
   emitServerEvent("balances-webhook", { route: "/api/webhooks/cdp", code, outcome, durationMs: Date.now() - startedAt });
 }
 

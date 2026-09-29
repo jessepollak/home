@@ -29,7 +29,6 @@ const RUNTIME_ALLOWED = [
   "drawer-swipe-strength", // @base-ui/react drawer
   "nested-drawers", // @base-ui/react drawer
   "popup-width", // @base-ui/react popover popup
-  "shadow-lg", // Tailwind v4 default theme token
   "toast-frontmost-height", // @base-ui/react toast
   "toast-height", // @base-ui/react toast
   "toast-index", // @base-ui/react toast
@@ -94,7 +93,7 @@ test("quoted lookups, constants, comments, and test files are not providers", ()
 });
 
 test("evaluation reports missing, allowed, and stale-allowlist cases", () => {
-  const { defined, usedInCss } = collectCustomProperties([
+  const { defined, usedInCss, requiredInCss } = collectCustomProperties([
     { path: "app/a.css", content: ":root { --defined-token: red; --gone-token: blue; }\n.x { color: var(--defined-token); border: var(--gone-token); }\n" },
     { path: "app/b.css", content: ".y { color: var(--missing-token); }\n" },
     { path: "app/c.css", content: ".z { color: var(--runtime-token); }\n" },
@@ -103,6 +102,7 @@ test("evaluation reports missing, allowed, and stale-allowlist cases", () => {
   const result = evaluateCustomPropertyResolution({
     defined,
     usedInCss,
+    requiredInCss,
     runtimeAllowed: ["runtime-token", "gone-token", "unused-token"],
   });
   assert.deepEqual(result, {
@@ -114,13 +114,45 @@ test("evaluation reports missing, allowed, and stale-allowlist cases", () => {
   });
 });
 
+test("the parenthesized shorthand resolves, and a fallback makes it optional", () => {
+  const { defined, usedInCss, requiredInCss } = collectCustomProperties([
+    { path: "client/classes.tsx", content: 'const classes = "bg-(--missing-token) p-(--provided-token,1rem) text-(length:--missing-size)";\n' },
+    { path: "app/a.css", content: ".x { @apply ring-(--missing-apply); }\n" },
+  ]);
+  const result = evaluateCustomPropertyResolution({ defined, usedInCss, requiredInCss, runtimeAllowed: [] });
+  assert.deepEqual(result.unresolved.map(({ name }) => name), ["missing-apply", "missing-size", "missing-token"]);
+  assert.ok(usedInCss.has("provided-token"));
+  assert.ok(!requiredInCss.has("provided-token"));
+});
+
+test("a fallback makes a var() or shorthand use optional, and a bare @apply is still read", () => {
+  const { defined, usedInCss, requiredInCss } = collectCustomProperties([
+    { path: "client/classes.tsx", content: 'const classes = "bg-[var(--missing-bracket,red)] w-[var(--missing-required)]";\n' },
+    { path: "app/a.css", content: ".x { @apply bg-(--missing-apply) }\n" },
+  ]);
+  const unresolved = evaluateCustomPropertyResolution({ defined, usedInCss, requiredInCss, runtimeAllowed: [] }).unresolved.map(({ name }) => name);
+  assert.deepEqual(unresolved, ["missing-apply", "missing-required"]);
+  assert.ok(usedInCss.has("missing-bracket"));
+  assert.ok(!requiredInCss.has("missing-bracket"));
+});
+
+test("a brace inside an arbitrary value does not end an @apply body, and a string is not a directive", () => {
+  const { requiredInCss } = collectCustomProperties([
+    { path: "app/a.css", content: ".x { @apply content-['}'] bg-(--missing-brace) }\n.x { @apply content-[\\}] bg-(--missing-escaped) }\n" },
+    { path: "app/b.css", content: ".y { content: '@apply bg-(--missing-string)' }\n/* @apply bg-(--missing-comment) */\n" },
+  ]);
+  assert.deepEqual([...requiredInCss.keys()].sort(), ["missing-brace", "missing-escaped"]);
+  const escapedOpen = collectCustomProperties([{ path: "app/c.css", content: ".a { content: \\[; @apply bg-(--missing-escaped-open); }\n" }]);
+  assert.deepEqual([...escapedOpen.requiredInCss.keys()], ["missing-escaped-open"]);
+});
+
 test("app CSS var() uses resolve or are narrowly runtime-allowlisted", async () => {
   const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
   const files = await loadSourceFiles(`${repoRoot}/apps/web`, { extensions: [".css", ".ts", ".tsx"] });
 
   assert.ok(files.some((file) => file.path.endsWith(".css")), "CSS scan must find app stylesheets");
-  const { defined, usedInCss } = collectCustomProperties(files);
-  const result = evaluateCustomPropertyResolution({ defined, usedInCss, runtimeAllowed: RUNTIME_ALLOWED });
+  const { defined, usedInCss, requiredInCss } = collectCustomProperties(files);
+  const result = evaluateCustomPropertyResolution({ defined, usedInCss, requiredInCss, runtimeAllowed: RUNTIME_ALLOWED });
   assert.deepEqual(
     result,
     { unresolved: [], staleAllowlist: [], unusedAllowlist: [] },

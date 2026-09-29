@@ -13,6 +13,7 @@ import {
 const appleAssociationPath =
   "/.well-known/apple-developer-merchantid-domain-association";
 const fundingWebhookPattern = /^\/api\/funding\/webhooks\/[a-z0-9_-]+$/;
+const immersveWebhookPattern = /^\/api\/cards\/webhooks\/immersve\/[a-z0-9-]+$/;
 const actionPaymasterPattern =
   /^\/api\/actions\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/paymaster$/i;
 
@@ -22,6 +23,9 @@ function isPublicPath(pathname: string): boolean {
     pathname === "/api/identity/webhooks/sumsub" ||
     pathname === "/api/identity/reconcile" ||
     fundingWebhookPattern.test(pathname) ||
+    pathname === "/api/cards/webhooks/bridge" ||
+    pathname === "/api/cards/webhooks/stripe" ||
+    immersveWebhookPattern.test(pathname) ||
     actionPaymasterPattern.test(pathname) ||
     pathname === "/access" ||
     pathname === "/api/access" ||
@@ -39,11 +43,16 @@ function privateHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
+function withReferrerPolicy(response: NextResponse): NextResponse {
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
+}
+
 function errorResponse(code: AccessErrorCode, status: 401 | 503): NextResponse {
-  return privateHeaders(NextResponse.json(
+  return withReferrerPolicy(privateHeaders(NextResponse.json(
     { version: ACCESS_CONTRACT_VERSION, error: { code } },
     { status },
-  ));
+  )));
 }
 
 export function enforceAccess(
@@ -71,7 +80,7 @@ export function enforceAccess(
       destination.pathname = "/access";
       destination.search = "";
       destination.searchParams.set("next", current);
-      return privateHeaders(NextResponse.redirect(destination, 307));
+      return withReferrerPolicy(privateHeaders(NextResponse.redirect(destination, 307)));
     }
   }
   return errorResponse("ACCESS_REQUIRED", 401);

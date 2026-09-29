@@ -12,7 +12,7 @@ function ItemGroup({ className, ...props }: React.ComponentProps<"div">) {
       role="list"
       data-slot="item-group"
       className={cn(
-        "group/item-group flex w-full flex-col gap-4 has-data-[size=sm]:gap-2.5 has-data-[size=xs]:gap-2",
+        "group/item-group flex w-full flex-col gap-4 has-[>[data-size=sm]]:gap-2.5 has-[>[data-size=xs]]:gap-2",
         className
       )}
       {...props}
@@ -115,12 +115,13 @@ function ItemMedia({
   )
 }
 
-function ItemContent({ className, ...props }: React.ComponentProps<"div">) {
+function ItemContent({ className, position = "default", ...props }: React.ComponentProps<"div"> & { position?: "default" | "value" }) {
   return (
     <div
       data-slot="item-content"
       className={cn(
-        "flex flex-1 flex-col gap-1 group-data-[size=xs]/item:gap-0 [&+[data-slot=item-content]]:flex-none",
+        "flex flex-col gap-1 group-data-[size=xs]/item:gap-0 [&+[data-slot=item-content]]:flex-none",
+        position === "value" ? "flex-none" : "flex-1",
         className
       )}
       {...props}

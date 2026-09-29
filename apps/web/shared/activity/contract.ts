@@ -18,6 +18,7 @@ import {
   parseActivityTransferValuation,
 } from "@/shared/activity/valuation";
 import type { FiatCurrencyCode } from "@/config/regions";
+import { parseCardPurchases } from "@/shared/cards/transactions-contract";
 
 export const ACTIVITY_CONTRACT_VERSION = 1;
 export type ActivityResponse = ActivityPage & {
@@ -98,6 +99,11 @@ export function parseActivityPage(
   ) {
     throw new ActivityResponseError();
   }
+  if (value.onchainStatus === "unavailable"
+    ? value.source !== null || value.nextCursor !== null || value.transfers.length !== 0 || value.cards === undefined
+    : value.onchainStatus !== undefined || value.source === null) {
+    throw new ActivityResponseError();
+  }
 
   const transfers = value.transfers.map((transfer) =>
     parseTransfer(transfer, walletAddress, from, to, expectedCurrency),
@@ -110,8 +116,10 @@ export function parseActivityPage(
     window: { from, to },
     currency: expectedCurrency,
     transfers,
+    ...(value.cards === undefined ? {} : { cards: parseCardPurchases(value.cards) }),
     nextCursor: value.nextCursor,
-    source: parseSource(value.source),
+    source: value.onchainStatus === "unavailable" ? null : parseSource(value.source),
+    ...(value.onchainStatus === "unavailable" ? { onchainStatus: "unavailable" as const } : {}),
   };
 }
 

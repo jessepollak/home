@@ -33,8 +33,7 @@ function isIsolatedCall(node) {
   const catchMember = node.parent;
   const catchCall = catchMember?.parent;
   if (catchMember?.type === "MemberExpression" && catchMember.object === node
-    && !catchMember.computed && catchMember.property.type === "Identifier"
-    && catchMember.property.name === "catch" && catchCall?.type === "CallExpression"
+    && staticMemberName(catchMember) === "catch" && catchCall?.type === "CallExpression"
     && catchCall.callee === catchMember && catchCall.parent?.type === "UnaryExpression"
     && catchCall.parent.operator === "void") return true;
 
@@ -85,22 +84,41 @@ export const isolateInstrumentationCalls = {
 };
 
 function callName(node) {
-  if (node.callee.type === "Identifier") return node.callee.name;
-  if (node.callee.type === "MemberExpression" && !node.callee.computed
-    && node.callee.property.type === "Identifier") return node.callee.property.name;
-  return null;
+  const callee = unwrapTransparent(node.callee);
+  if (callee?.type === "Identifier") return callee.name;
+  return staticMemberName(callee);
 }
 
-const undefinedValueWrappers = new Set([
+const transparentWrappers = new Set([
+  "ChainExpression",
   "ParenthesizedExpression",
   "TSAsExpression",
   "TSNonNullExpression",
   "TSSatisfiesExpression",
+  "TSTypeAssertion",
+  "TSInstantiationExpression",
 ]);
+
+function unwrapTransparent(node) {
+  let current = node;
+  while (current && transparentWrappers.has(current.type)) current = current.expression;
+  return current;
+}
+
+function staticMemberName(member) {
+  if (member?.type !== "MemberExpression") return null;
+  const property = unwrapTransparent(member.property);
+  if (!member.computed) return property?.type === "Identifier" ? property.name : null;
+  if (property?.type === "TemplateLiteral" && property.expressions.length === 0) {
+    return property.quasis[0]?.value?.cooked ?? null;
+  }
+  const value = sourceValue(property);
+  return typeof value === "string" ? value : null;
+}
 
 function isUndefinedValue(node) {
   let current = node;
-  while (current && undefinedValueWrappers.has(current.type)) current = current.expression;
+  while (current && transparentWrappers.has(current.type)) current = current.expression;
   return (current?.type === "Identifier" && current.name === "undefined")
     || (current?.type === "UnaryExpression" && current.operator === "void");
 }
@@ -139,12 +157,11 @@ function walkAssignments(node, visit) {
   }
 }
 
-function retainsPreInitializedFallback(state) {
-  const tryStatement = state.catchClause.parent;
-  if (tryStatement?.type !== "TryStatement") return false;
+function retainsPreInitializedFallback(state, protectedRegion, statementSpan) {
+  if (!protectedRegion) return false;
   const undefinedAssignments = new Set();
   const candidates = [];
-  walkAssignments(tryStatement.block, (assignment) => {
+  walkAssignments(protectedRegion, (assignment) => {
     if (assignment.left.type !== "Identifier") return;
     const variable = findVariable(state, assignment.left);
     if (!variable) return;
@@ -161,9 +178,9 @@ function retainsPreInitializedFallback(state) {
     const declaration = declarator?.parent;
     if (declarator?.type !== "VariableDeclarator" || declaration?.type !== "VariableDeclaration"
       || !["let", "var"].includes(declaration.kind) || !declarator.init
-      || isUndefinedValue(declarator.init) || !(declarator.start < tryStatement.start)) return false;
+      || isUndefinedValue(declarator.init) || !(declarator.start < statementSpan.start)) return false;
     return variable.references.some((reference) =>
-      reference.identifier.start > tryStatement.end && reference.isRead());
+      reference.identifier.start > statementSpan.end && reference.isRead());
   });
 }
 
@@ -195,8 +212,9 @@ function expressionHasDisposition(state, node) {
   if (node.type === "CallExpression" || node.type === "NewExpression") {
     const name = callName(node);
     if (!node.optional && name && (state.reportingHelpers.has(name) || recoveryCall.test(name))) return true;
-    if (!node.optional && node.callee.type === "Identifier"
-      && localHelperDisposes(state, node.callee.name)) return true;
+    const callee = unwrapTransparent(node.callee);
+    if (!node.optional && callee.type === "Identifier"
+      && localHelperDisposes(state, callee.name)) return true;
     return !node.optional && node.arguments.some((argument) =>
       argument.type !== "SpreadElement"
         ? expressionHasDisposition(state, argument)
@@ -322,7 +340,48 @@ function blockOutcomes(state, block, inHelper) {
 }
 
 function catchHasDisposition(state, node) {
-  return blockOutcomes(state, node.body, false) === 0 || retainsPreInitializedFallback(state);
+  return blockOutcomes(state, node.body, false) === 0
+    || retainsPreInitializedFallback(state, node.parent?.type === "TryStatement" ? node.parent.block : null, node.parent);
+}
+
+const cleanupReceivers = new Set(["body", "iterator", "reader", "stream"]);
+const cleanupReceiverSuffix = /(?:Iterator|Reader|Stream)$/u;
+
+function cleanupReceiverName(node) {
+  const receiver = unwrapTransparent(node);
+  if (receiver?.type === "Identifier") return receiver.name;
+  return staticMemberName(receiver);
+}
+
+function isCleanupReceiver(node) {
+  const receiver = unwrapTransparent(node);
+  if (receiver?.type !== "CallExpression") return false;
+  const member = unwrapTransparent(receiver.callee);
+  const method = staticMemberName(member);
+  if (method !== "cancel" && method !== "return") return false;
+  const name = cleanupReceiverName(member.object);
+  return Boolean(name) && (cleanupReceivers.has(name) || cleanupReceiverSuffix.test(name));
+}
+
+function inlineSuccessBody(node) {
+  const call = unwrapTransparent(node);
+  if (call?.type !== "CallExpression") return null;
+  const member = unwrapTransparent(call.callee);
+  if (member?.type !== "MemberExpression" || staticMemberName(member) !== "then") return null;
+  const success = unwrapTransparent(call.arguments[0]);
+  return success?.type === "ArrowFunctionExpression" || success?.type === "FunctionExpression"
+    ? success.body : null;
+}
+
+function rejectionCallback(node) {
+  const member = unwrapTransparent(node.callee);
+  if (member?.type !== "MemberExpression" || isCleanupReceiver(member.object)) return null;
+  const method = staticMemberName(member);
+  const index = method === "catch" ? 0 : method === "then" ? 1 : -1;
+  if (index === -1) return null;
+  const callback = unwrapTransparent(node.arguments[index]);
+  if (callback?.type !== "ArrowFunctionExpression" && callback?.type !== "FunctionExpression") return null;
+  return { callback, protectedRegion: inlineSuccessBody(index === 0 ? member.object : node), statementSpan: node };
 }
 
 export const noSilentCatch = {
@@ -330,8 +389,8 @@ export const noSilentCatch = {
     type: "problem",
     schema: [{ type: "object", properties: { reportingHelpers: { type: "array", items: { type: "string" } } }, additionalProperties: false }],
     messages: {
-      empty: "Empty catch clauses are forbidden; return or throw a typed error result, or report the failure.",
-      silent: "Caught failures must be rethrown, returned as a typed error result, or passed to an approved reporting helper.",
+      empty: "Empty catch clauses and rejection handlers are forbidden; return or throw a typed error result, or report the failure.",
+      silent: "Caught failures and rejection handlers must be rethrown, returned as a typed error result, or passed to an approved reporting helper.",
     },
   },
   create(context) {
@@ -339,6 +398,7 @@ export const noSilentCatch = {
     const reportingHelpers = new Set(context.options[0]?.reportingHelpers ?? []);
     const localFunctions = new Map();
     const catchClauses = [];
+    const rejectionCallbacks = [];
     const addLocalFunction = (name, body) => {
       const bodies = localFunctions.get(name) ?? [];
       bodies.push(body);
@@ -357,6 +417,10 @@ export const noSilentCatch = {
       CatchClause(node) {
         catchClauses.push(node);
       },
+      CallExpression(node) {
+        const callback = rejectionCallback(node);
+        if (callback) rejectionCallbacks.push(callback);
+      },
       "Program:exit"() {
         for (const node of catchClauses) {
           const state = {
@@ -367,6 +431,19 @@ export const noSilentCatch = {
             stack: new Set(),
           };
           if (catchHasDisposition(state, node)) continue;
+          context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
+        }
+        for (const { callback: node, protectedRegion, statementSpan } of rejectionCallbacks) {
+          if (node.body.type !== "BlockStatement") continue;
+          const state = {
+            sourceCode: context.sourceCode,
+            catchClause: node,
+            reportingHelpers,
+            localFunctions,
+            stack: new Set(),
+          };
+          if (blockOutcomes(state, node.body, false) === 0
+            || retainsPreInitializedFallback(state, protectedRegion, statementSpan)) continue;
           context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
         }
       },

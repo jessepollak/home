@@ -112,27 +112,69 @@ describe("PrimaryNavigation", () => {
     expect(view.container.querySelector("nav > span:first-child")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  for (const [direction, investTransform] of [["ltr", "translateX(100%)"], ["rtl", "translateX(-100%)"]] as const) {
-    test(`positions the active pill in ${direction}`, () => {
+  test("reads the computed direction only when the pill moves off the first tab", () => {
+    const original = window.getComputedStyle;
+    let reads = 0;
+    window.getComputedStyle = ((element: Element, pseudo?: string | null) => {
+      reads += 1;
+      return original.call(window, element, pseudo);
+    }) as typeof window.getComputedStyle;
+    try {
+      const view = render(<PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />);
+      view.rerender(<PrimaryNavigation activeNavigation="cash" onNavigate={() => undefined} />);
+      view.rerender(<PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />);
+      expect(reads).toBe(0);
+      view.rerender(<PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />);
+      expect(reads).toBe(1);
+      view.rerender(<PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />);
+      view.rerender(<PrimaryNavigation activeNavigation="balances" onNavigate={() => undefined} />);
+      expect(reads).toBe(1);
+    } finally {
+      window.getComputedStyle = original;
+    }
+  });
+
+  test("follows a direction change on the same navigation", () => {
+    const view = render(
+      <div style={{ direction: "ltr" }}>
+        <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
+      </div>,
+    );
+    const pill = view.container.querySelector<HTMLElement>("[data-navigation-pill]");
+    view.rerender(
+      <div style={{ direction: "rtl" }}>
+        <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
+      </div>,
+    );
+    view.rerender(
+      <div style={{ direction: "rtl" }}>
+        <PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />
+      </div>,
+    );
+    expect(pill?.style.transform).toBe("translateX(-100%)");
+  });
+
+  for (const direction of ["ltr", "rtl"] as const) {
+    test(`selects the active destination in ${direction}`, () => {
       const view = render(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      const pill = view.container.querySelector<HTMLElement>("[data-navigation-pill]");
-      expect(pill?.style.transform).toBe("translateX(0%)");
+      expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />
         </div>,
       );
-      expect(pill?.style.transform).toBe(investTransform);
+      expect(view.getByRole("button", { name: "Invest" }).getAttribute("aria-current")).toBe("page");
+      expect(view.getByRole("button", { name: "Home" }).hasAttribute("aria-current")).toBe(false);
       view.rerender(
         <div style={{ direction }}>
           <PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />
         </div>,
       );
-      expect(pill?.style.transform).toBe("translateX(0%)");
+      expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     });
   }
 });

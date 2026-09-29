@@ -1,8 +1,17 @@
 import "server-only";
+import { readJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
 
 import { afterEach, describe, expect, jest, test } from "bun:test";
+import { parseRecentMoneyActions, RECENT_ACTIONS_LIMIT } from "@/shared/actions/contracts/list";
 import { createListActionsHandler } from "./handler";
 import { actionOwnerKey, type ActionRow, type CashoutOrderRow } from "./store";
+
+async function readActions(response: Response): Promise<Record<string, unknown>[]> {
+  const body = await readJson(response);
+  if (!isRecord(body) || !Array.isArray(body.actions) || !body.actions.every(isRecord)) throw new Error("Invalid action list");
+  return body.actions;
+}
 
 const owner = { subject: "owner", address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const, accountProvider: "cdp-embedded" as const };
 const timestamp = "2026-09-12T12:00:00.000Z";
@@ -43,7 +52,7 @@ describe("cash-out Activity projection", () => {
       },
       refreshCashouts: async ({ signal }) => {
         refreshSignals.push(signal);
-        return [record];
+        return [{ ...record, progressConfirmed: true }];
       },
     });
     const pending = handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
@@ -70,15 +79,16 @@ describe("cash-out Activity projection", () => {
       authorize: async () => Response.json({ user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider }),
       store: { list: async () => rows, recordHandle: async () => null, recordOutcome: async () => ({ row, written: false, conflict: false }) },
       readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }),
-      refreshCashouts: async () => [{ ...record, deposit_id: depositId }],
+      refreshCashouts: async () => [{ ...record, deposit_id: depositId, progressConfirmed: true }],
       now: () => new Date(now),
     });
     const request = () => new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } });
     const withdrawing = async (now: string, depositId?: string | null) => {
       const response = await handler(now, depositId)(request());
       expect(response.status).toBe(200);
-      const body = await response.json() as { actions: Array<{ cashout?: { withdrawing: boolean } }> };
-      return body.actions.find((action) => action.cashout)?.cashout?.withdrawing;
+      const actions = await readActions(response);
+      const cashout = actions.find((action) => action.cashout)?.cashout;
+      return isRecord(cashout) ? cashout.withdrawing : undefined;
     };
     expect(await withdrawing("2026-09-12T12:01:00.000Z")).toBe(true);
     rows = [row, { ...withdrawal, provider_handle: "wallet-handle", handle_recorded_at: timestamp }];
@@ -123,12 +133,12 @@ describe("cash-out Activity projection", () => {
         return { status: "confirmed", transactionHash: hash, blockNumber: "10", blockHash: hash,
           blockTimestamp: timestamp, finalized: false, userOperations: [{ userOpHash: hash, sender: owner.address, success: true }] };
       },
-      refreshCashouts: async () => [record],
+      refreshCashouts: async () => [{ ...record, progressConfirmed: true }],
     });
     const read = async () => {
       const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
       expect(response.status).toBe(200);
-      return (await response.json()).actions as Array<{ kind: string; status: string; cashout?: { state: string; withdrawing: boolean } }>;
+      return readActions(response);
     };
     const included = await read();
     first = false;
@@ -139,6 +149,52 @@ describe("cash-out Activity projection", () => {
     }
   });
 
+  test("binds cash-out progress to a matching successful deposit receipt block", async () => {
+    const request = new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } });
+    const progress = async (deposit: ActionRow) => {
+      const handler = createListActionsHandler({
+        authorize: async () => Response.json({ user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider }),
+        store: { list: async () => [deposit], recordHandle: async () => null, recordOutcome: async () => ({ row: deposit, written: false, conflict: false }) },
+        readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }),
+        refreshCashouts: async () => [{ ...record, progressConfirmed: true }],
+      });
+      const response = await handler(request);
+      expect(response.status).toBe(200);
+      return parseRecentMoneyActions(await response.json(), { user: { subject: owner.subject },
+        smartAccount: { address: owner.address, chainId: owner.chainId }, accountProvider: owner.accountProvider })[0]?.cashout;
+    };
+    const observed = { ...row, outcome: "succeeded" as const, observed_receipt_transaction_hash: hash.toUpperCase(), observed_receipt_block_number: "123",
+      observed_receipt_block_hash: hash, observed_receipt_outcome: "succeeded" as const };
+    expect((await progress(observed))?.depositBlockNumber).toBe("123");
+    for (const deposit of [{ ...observed, outcome: null },
+      { ...observed, outcome: "reverted" as const },
+      { ...observed, observed_receipt_transaction_hash: `0x${"cd".repeat(32)}` },
+      { ...observed, observed_receipt_block_number: null }, row]) {
+      expect((await progress(deposit))?.depositBlockNumber).toBeUndefined();
+    }
+  });
+
+
+  test("flags a capped action read only when the cap cut inside cash-out rows", async () => {
+    const filler: ActionRow = { ...row, id: "22222222-2222-4222-8222-222222222222", kind: "send" };
+    const read = async (rows: ActionRow[]) => {
+      const handler = createListActionsHandler({
+        authorize: async () => Response.json({ user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider }),
+        store: { list: async () => rows, recordHandle: async () => null, recordOutcome: async () => ({ row, written: false, conflict: false }) },
+        readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }),
+        refreshCashouts: async () => [{ ...record, progressConfirmed: true }],
+      });
+      const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
+      expect(response.status).toBe(200);
+      return await response.json() as { actions: unknown[]; truncated?: boolean };
+    };
+    const cappedInsideCashOuts = [...Array.from({ length: RECENT_ACTIONS_LIMIT - 1 }, () => filler), row];
+    expect(cappedInsideCashOuts).toHaveLength(RECENT_ACTIONS_LIMIT);
+    expect((await read(cappedInsideCashOuts)).truncated).toBe(true);
+    expect((await read([...cappedInsideCashOuts, filler])).truncated).toBeUndefined();
+    expect((await read([row, ...Array.from({ length: RECENT_ACTIONS_LIMIT - 1 }, () => filler)])).truncated).toBeUndefined();
+    expect((await read([row, ...Array.from({ length: RECENT_ACTIONS_LIMIT }, () => filler)])).truncated).toBeUndefined();
+  });
   test("refreshes after receipt reads and presents only the shared progress fields", async () => {
     const order: string[] = [];
     const handler = createListActionsHandler({
@@ -150,15 +206,27 @@ describe("cash-out Activity projection", () => {
         order.push("refresh");
         expect(rows[0]?.receipt).toBe("confirmed");
         expect(scopedOwner.subject).toBe("owner");
-        return [record];
+        return [{ ...record, progressConfirmed: true }];
       },
     });
     const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
     expect(response.status).toBe(200);
     expect(order).toEqual(["receipt", "refresh"]);
-    const body = await response.json() as { actions: Array<{ cashout: unknown }> };
-    expect(body.actions[0]?.cashout).toEqual({ version: 1, providerId: "peer", region: "US", depositId: "deposit_7", state: "awaiting-buyer",
+    const actions = await readActions(response);
+    expect(actions[0]?.cashout).toEqual({ version: 1, providerId: "peer", region: "US", depositId: "deposit_7", progressConfirmed: true, state: "awaiting-buyer",
       platform: "cashapp", platformLabel: "Cash App", amountAtomic: "2000000", filledAtomic: "500000", returnedAtomic: "0",
       remainingAtomic: "1500000", withdrawable: true, withdrawing: false, etaSeconds: 100, settledAt: null, updatedAt: timestamp });
+  });
+  test("projects unconfirmed stored cash-out progress as unconfirmed", async () => {
+    const handler = createListActionsHandler({
+      authorize: async () => Response.json({ user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: 8453 }, accountProvider: owner.accountProvider }),
+      store: { list: async () => [row], recordHandle: async () => null, recordOutcome: async () => ({ row, written: false, conflict: false }) },
+      readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }),
+      refreshCashouts: async () => [{ ...record, progressConfirmed: false }],
+    });
+    const response = await handler(new Request("https://home.test/api/actions", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
+    expect(response.status).toBe(200);
+    const session = { user: { subject: owner.subject }, smartAccount: { address: owner.address, chainId: owner.chainId }, accountProvider: owner.accountProvider };
+    expect(parseRecentMoneyActions(await response.json(), session)[0]?.cashout?.progressConfirmed).toBe(false);
   });
 });

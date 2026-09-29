@@ -1,3 +1,4 @@
+import { configuredMajorTokenSymbols } from "@/config/invest-asset-symbols";
 import {
   presentationRegions,
   type FiatCurrencyCode,
@@ -282,9 +283,9 @@ type FiatAmountOptions = {
 
 const majorSymbols = new Set([
   "ADA", "BTC", "CBADA", "CBBTC", "CBDOGE", "CBETH", "CBLTC", "CBSOL",
-  "CBXRP", "DOGE", "ETH", "LTC", "SOL", "WETH", "XRP", "AAPLC", "GOOGLC",
-  "METAC", "NVDAC",
+  "CBXRP", "DOGE", "ETH", "LTC", "SOL", "WETH", "XRP",
 ]);
+const configuredMajorSymbolsSet = new Set(configuredMajorTokenSymbols);
 const stableSymbols = new Set(["DAI", "EURC", "IDRX", "USDBC", "USDC", "USDT"]);
 
 export function presentationAssetClass(
@@ -296,7 +297,7 @@ export function presentationAssetClass(
   if (input.category === "stock" || input.category === "crypto") return "major";
   const symbol = input.symbol?.trim().toUpperCase() ?? "";
   if (stableSymbols.has(symbol)) return "stable";
-  if (majorSymbols.has(symbol)) return "major";
+  if (majorSymbols.has(symbol) || configuredMajorSymbolsSet.has(symbol)) return "major";
   return "meme";
 }
 

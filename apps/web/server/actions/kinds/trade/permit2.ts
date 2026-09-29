@@ -12,6 +12,7 @@ import type {
   Hex,
   Permit2TypedData,
 } from "@/shared/trading/server-types";
+import { parseAddress } from "@/shared/chain/hex";
 
 export type TradePreparationFailure =
   | "invalid-request"
@@ -47,7 +48,6 @@ export const PERMIT2_ADDRESS =
   "0x000000000022d473030f116ddee9f6b43ac78ba3" as const;
 const MAX_PERMIT_LIFETIME_SECONDS = BigInt(30 * 60);
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 
 const EIP712_DOMAIN_FIELDS = [
@@ -91,7 +91,7 @@ export function validatePermit2(input: {
   if (
     domain.name !== "Permit2" ||
     parseUint(domain.chainId) !== BigInt(BASE_CHAIN_ID) ||
-    normalizeAddress(domain.verifyingContract) !== PERMIT2_ADDRESS
+    !sameAddress(parseAddress(domain.verifyingContract) ?? reject(), PERMIT2_ADDRESS)
   ) reject();
 
   const types = input.eip712.types;
@@ -112,9 +112,9 @@ export function validatePermit2(input: {
   if (!isRecord(message.permitted) || Object.keys(message.permitted).sort().join(",") !== "amount,token") {
     reject();
   }
-  const token = normalizeAddress(message.permitted.token);
+  const token: Address = parseAddress(message.permitted.token) ?? reject();
   const amount = parseUint(message.permitted.amount);
-  const spender = normalizeAddress(message.spender);
+  const spender: Address = parseAddress(message.spender) ?? reject();
   const nonce = parseUint(message.nonce);
   const deadline = parseUint(message.deadline);
   const nowSeconds = BigInt(Math.floor(input.now.getTime() / 1000));
@@ -122,7 +122,7 @@ export function validatePermit2(input: {
     token !== input.token.toLowerCase() ||
     amount !== input.amount ||
     amount <= BigInt(0) ||
-    spender === ZERO_ADDRESS ||
+    sameAddress(spender, ZERO_ADDRESS) ||
     deadline <= nowSeconds ||
     deadline - nowSeconds > MAX_PERMIT_LIFETIME_SECONDS
   ) reject();
@@ -228,9 +228,8 @@ function parseUint(value: unknown): bigint {
   return parsed;
 }
 
-function normalizeAddress(value: unknown): Address {
-  if (typeof value !== "string" || !addressPattern.test(value)) reject();
-  return value.toLowerCase() as Address;
+function sameAddress(left: Address, right: Address): boolean {
+  return left === right;
 }
 
 function reject(): never {

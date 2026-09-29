@@ -4,6 +4,7 @@ import { investAssets } from "@/config/invest-assets";
 import { type MarketSnapshot } from "@/shared/invest/invest-market";
 import type {
   MarketDataState,
+  MarketSession,
   PresentationFxQuote,
 } from "@/shared/invest/invest-market";
 
@@ -30,6 +31,7 @@ const presentationFiatCodes = new Set<FiatCurrencyCode>(
   ),
 );
 const marketPriceAssetIds = new Set<string>(investAssets.map((asset) => asset.id));
+const stockAssetIds = new Set<string>(investAssets.flatMap((asset) => asset.category === "stock" ? [asset.id] : []));
 
 function isFiatCurrencyCode(value: string): value is FiatCurrencyCode {
   return presentationFiatCodes.has(value as FiatCurrencyCode);
@@ -154,7 +156,10 @@ function parseMarketState(value: unknown): MarketDataState | null {
       !(
         snapshot.sourceUrl === undefined ||
         typeof snapshot.sourceUrl === "string"
-      )
+      ) ||
+      !(snapshot.session === undefined
+        ? snapshot.checkedAt === undefined
+        : isMarketSession(snapshot.session) && stockAssetIds.has(snapshot.assetId) && isIsoDate(snapshot.checkedAt))
     ) {
       return null;
     }
@@ -169,8 +174,13 @@ function parseMarketState(value: unknown): MarketDataState | null {
       ...(typeof snapshot.changeLabel === "string"
         ? { changeLabel: snapshot.changeLabel }
         : {}),
+      ...(isMarketSession(snapshot.session) ? { session: snapshot.session, checkedAt: snapshot.checkedAt as string } : {}),
     });
   }
+
+function isMarketSession(value: unknown): value is MarketSession {
+  return value === "open" || value === "closed" || value === "paused" || value === "stale";
+}
 
   return { status: "ready", snapshots };
 }

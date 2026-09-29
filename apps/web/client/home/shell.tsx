@@ -34,6 +34,7 @@ import {
   isClientHistoryEntry,
   legacyShellRedirectHref,
   parseShellLocation,
+  readClientHistoryFlag,
   readClientScrollTop,
   readShellAccountParam,
   replaceClientScrollTop,
@@ -91,6 +92,7 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
+const EmailShareSheet = deferSheet(() => import("@/client/account/email-share-sheet").then((module) => module.EmailShareSheet));
 
 function CashPanelContent({ render, view, onOpenSavings }: {
   render: NonNullable<HomeExperienceProps["cashContent"]>;
@@ -196,6 +198,7 @@ function DashboardShellBody({
     isPreferenceReady,
     preferenceMessage,
     selectRegion,
+    offeredCountries,
   } = region;
   const [activeNavigation, setActiveNavigation] = useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
@@ -237,12 +240,12 @@ function DashboardShellBody({
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
   const [cashSavingsOpenedInApp, setCashSavingsOpenedInApp] = useState(() =>
     typeof window !== "undefined" && initialUrlIntent.location.cashView === "savings" &&
-    window.history.state?.__cashSavingsOpenedInApp === true,
+    readClientHistoryFlag("cashSavingsOpenedInApp"),
   );
   const cashSavingsFocusReturnRef = useRef(false);
   const [investmentsHoldingOpenedInApp, setInvestmentsHoldingOpenedInApp] = useState(() =>
     typeof window !== "undefined" && initialUrlIntent.location.holding != null &&
-    window.history.state?.__investmentsHoldingOpenedInApp === true,
+    readClientHistoryFlag("investmentsHoldingOpenedInApp"),
   );
   const holdingFocusReturnRef = useRef<{ key: AssetKey; scrollIntoView: boolean } | null>(null);
   const investChrome = useOptionalAppChrome();
@@ -386,7 +389,7 @@ function DashboardShellBody({
       window.location.origin,
     );
     if (!options.normalizeInbound && options.mode !== "push" && window.location.pathname === "/cash/savings" &&
-      window.history.state?.__cashSavingsFlowPushed === true &&
+      readClientHistoryFlag("cashSavingsFlowPushed") &&
       (urlIntent.flow === "save-deposit" || urlIntent.flow === "save-withdraw")) {
       backClientHistory();
       return;
@@ -428,11 +431,11 @@ function DashboardShellBody({
         intent.panel === cashPanelId && intent.location.cashView === null;
       setCashSavingsOpenedInApp(intent.panel === cashPanelId &&
         intent.location.cashView === "savings" &&
-        window.history.state?.__cashSavingsOpenedInApp === true);
+        readClientHistoryFlag("cashSavingsOpenedInApp"));
       holdingFocusReturnRef.current = urlIntent.location.holding && intent.panel === investmentsPanelId && !intent.location.holding
         ? { key: urlIntent.location.holding, scrollIntoView: false } : null;
       setInvestmentsHoldingOpenedInApp(intent.panel === investmentsPanelId &&
-        intent.location.holding != null && window.history.state?.__investmentsHoldingOpenedInApp === true);
+        intent.location.holding != null && readClientHistoryFlag("investmentsHoldingOpenedInApp"));
       applyUrlState(intent);
       setPopRevision((revision) => revision + 1);
       if (intent.panel === balancesPanelId &&
@@ -894,7 +897,7 @@ function DashboardShellBody({
       onNavigationSafe: () => {
         router.replace("/", { scroll: false });
       },
-    }).catch(() => {});
+    }).catch(() => {}); // oxlint-disable-line home/no-silent-catch -- account sign-out owns its signout-error state; navigation is only called when safe
   }
 
   const nestedChromeTitle = isAccountSettingsOpen
@@ -1072,6 +1075,7 @@ function DashboardShellBody({
               <AccountSettings
                 regionId={regionId}
                 onRegionChange={selectRegion}
+                offeredCountries={offeredCountries}
                 resolutionSource={resolutionSource}
                 preferenceMessage={preferenceMessage}
                 isPreferenceReady={isPreferenceReady}
@@ -1194,6 +1198,13 @@ function DashboardShellBody({
       ) : null}
       {isVerified ? (
         <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />
+      ) : null}
+      {account.emailRequest ? (
+        <EmailShareSheet
+          open={account.emailRequest.pending}
+          onShare={account.emailRequest.share}
+          onNotNow={account.emailRequest.dismiss}
+        />
       ) : null}
         <AccountSignInSheet
           open={isAccountOpen}

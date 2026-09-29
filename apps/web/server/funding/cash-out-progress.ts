@@ -13,6 +13,7 @@ import { actionOwnerKey, type ActionRow, type ActionsStore, type CashoutOrderRow
 import type { ActionReceiptState } from "@/server/actions/status";
 
 export type CashoutReceiptRow = { row: ActionRow; receipt: ActionReceiptState | null };
+export type RefreshedCashoutOrder = CashoutOrderRow & { progressConfirmed: boolean };
 
 type ProgressStore = Pick<ActionsStore, "ensureCashoutOrder" | "cashoutOrders" | "claimCashoutRefresh" | "linkCashoutDeposit" | "updateCashoutProgress"> &
   Partial<Pick<ActionsStore, "linkedCashoutDepositIds">>;
@@ -26,7 +27,7 @@ export async function refreshCashoutProgress(input: {
   providerForId?: (id: string) => FundingProvider | undefined;
   env?: Readonly<Record<string, string | undefined>>;
   now?: () => Date;
-}): Promise<CashoutOrderRow[]> {
+}): Promise<RefreshedCashoutOrder[]> {
   const { owner, rows, store, signal, now = () => new Date() } = input;
   const deposits = rows.filter(({ row }) => row.kind === "cash-out" && row.owner_key === actionOwnerKey(owner));
   if (deposits.length === 0) return [];
@@ -48,6 +49,16 @@ export async function refreshCashoutProgress(input: {
     return [];
   }
   const byAction = new Map(records.map((record) => [record.action_id, record]));
+  const confirmed = new Set<string>();
+  const updateProgress = async (actionId: string, update: Parameters<ProgressStore["updateCashoutProgress"]>[2], observedAt: string | null = null, expectedProviderUpdatedAt: string | null = null, expectedDepositId: string | null = null, expectedUpdatedAt: string | null = null) => {
+    const updated = await store.updateCashoutProgress(owner, actionId, update, observedAt, expectedProviderUpdatedAt, expectedDepositId, expectedUpdatedAt);
+    if (updated) {
+      confirmed.add(actionId);
+      return updated;
+    }
+    confirmed.delete(actionId);
+    return (await store.cashoutOrders(owner, [actionId]))[0] ?? null;
+  };
   const withdrawals = rows.filter(({ row }) => row.kind === "cash-out-withdraw" && row.outcome === "succeeded" && row.owner_key === actionOwnerKey(owner));
   const pendingWithdrawals = rows.filter(({ row }) => unresolvedCashoutWithdrawal(row, actionOwnerKey(owner), now()));
   const orderedDeposits = [...deposits].sort((left, right) => {
@@ -85,10 +96,10 @@ export async function refreshCashoutProgress(input: {
       if (metadata?.product !== "cashout" || metadata.operation !== "deposit") continue;
       let effectivePayeeHash = metadata.payeeHash;
       if (row.outcome === "not_submitted" && !record.deposit_proven) {
-        record = await store.updateCashoutProgress(owner, row.id, {
+        record = await updateProgress(row.id, {
           state: "failed", filledAtomic: record.filled_atomic, returnedAtomic: record.returned_atomic,
           remainingAtomic: record.remaining_atomic, withdrawable: false, settled: true,
-        }) ?? record;
+        }, null, providerWatermark(record), record.deposit_id, rowRevision(record)) ?? record;
         continue;
       }
       const provider = input.providerForId ? input.providerForId(record.provider_id) : getFundingProvider(record.provider_id);
@@ -131,11 +142,11 @@ export async function refreshCashoutProgress(input: {
           }
           if (returned !== null) {
             const settled = returned > BigInt(0) && BigInt(record.filled_atomic) + returned === BigInt(record.amount_atomic);
-            record = await store.updateCashoutProgress(owner, row.id, {
+            record = await updateProgress(row.id, {
               state: settled ? "returned" : record.state, filledAtomic: record.filled_atomic,
               returnedAtomic: returned > BigInt(0) ? returned.toString() : record.returned_atomic,
               remainingAtomic: settled ? "0" : record.remaining_atomic, withdrawable: false, settled,
-            }) ?? record;
+            }, null, providerWatermark(record), record.deposit_id, rowRevision(record)) ?? record;
           }
         }
       }
@@ -162,10 +173,10 @@ export async function refreshCashoutProgress(input: {
             if (signal.aborted) break;
             if (matchesAction(order, record, metadata, metadata.payeeHash)) {
               if (row.outcome !== "succeeded") {
-                record = await store.updateCashoutProgress(owner, row.id, {
+                record = await updateProgress(row.id, {
                   state: order.state, filledAtomic: order.filledAmountAtomic, returnedAtomic: order.returnedAmountAtomic,
                   remainingAtomic: order.remainingAmountAtomic, withdrawable: false, settled: false,
-                }) ?? record;
+                }, orderObservationTime(order), providerWatermark(record), record.deposit_id, rowRevision(record)) ?? record;
                 continue;
               }
               const linked = await store.linkCashoutDeposit(owner, row.id, depositId, true);
@@ -176,10 +187,10 @@ export async function refreshCashoutProgress(input: {
                 if (current) {
                   record = current;
                   if (!record.deposit_id && !record.settled_at) {
-                    record = await store.updateCashoutProgress(owner, row.id, {
+                    record = await updateProgress(row.id, {
                       state: "failed", filledAtomic: record.filled_atomic, returnedAtomic: record.returned_atomic,
                       remainingAtomic: record.remaining_atomic, withdrawable: false, settled: true,
-                    }) ?? record;
+                    }, null, providerWatermark(record), record.deposit_id, rowRevision(record)) ?? record;
                   }
                 }
               }
@@ -217,10 +228,10 @@ export async function refreshCashoutProgress(input: {
           const abandoned = row.transaction_hash === null && row.provider_handle === null && row.handle_recorded_at === null &&
             row.confirmed_at !== null && now().getTime() - new Date(row.confirmed_at).getTime() > UNKNOWN_WINDOW_MS;
           if (candidates.length === 0 && !undated && (row.outcome === "reverted" || abandoned)) {
-            record = await store.updateCashoutProgress(owner, row.id, {
+            record = await updateProgress(row.id, {
               state: "failed", filledAtomic: record.filled_atomic, returnedAtomic: record.returned_atomic,
               remainingAtomic: record.remaining_atomic, withdrawable: false, settled: true,
-            }) ?? record;
+            }, null, providerWatermark(record), record.deposit_id, rowRevision(record)) ?? record;
           }
         }
         if (record.deposit_id && (verifiedOrder || (providerReads < 2 && withinBudget()))) {
@@ -233,13 +244,13 @@ export async function refreshCashoutProgress(input: {
             order = await untilAborted(provider.offramp.readOrder({ owner: owner.address, depositId: record.deposit_id }, ctx), signal);
           }
           if (signal.aborted) break;
-          record = await store.updateCashoutProgress(owner, row.id, {
+          record = await updateProgress(row.id, {
             state: order.state, filledAtomic: order.filledAmountAtomic, returnedAtomic: order.returnedAmountAtomic,
             remainingAtomic: order.remainingAmountAtomic, withdrawable: order.nextActions.includes("withdraw"),
             settled: order.state === "delivered" || (order.state === "returned" && !pendingWithdrawals.some(({ row: withdraw }) =>
               withdraw.summary.metadata?.product === "cashout" && withdraw.summary.metadata.operation === "withdraw" &&
               withdraw.summary.metadata.depositId.toLowerCase() === currentDepositId.toLowerCase())),
-          }) ?? record;
+          }, orderObservationTime(order), providerWatermark(record), record.deposit_id, rowRevision(record)) ?? record;
         }
       }
     } catch {
@@ -248,7 +259,7 @@ export async function refreshCashoutProgress(input: {
       byAction.set(row.id, record);
     }
   }
-  return [...byAction.values()];
+  return [...byAction.values()].map((record) => ({ ...record, progressConfirmed: confirmed.has(record.action_id) }));
 }
 
 export function cashoutWithdrawalInFlight(rows: readonly CashoutReceiptRow[], owner: MoneyActionOwner, depositId: string, now: Date): boolean {
@@ -273,6 +284,22 @@ function receiptProof(row: ActionRow, receipt: ActionReceiptState | null): Actio
   return receipt;
 }
 
+function rowRevision(record: CashoutOrderRow): string {
+  const value = record.updated_at;
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function providerWatermark(record: CashoutOrderRow): string | null {
+  const value = record.provider_updated_at;
+  if (value === null || value === undefined) return null;
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function orderObservationTime(order: OfframpOrder): string | null {
+  const parsed = Date.parse(order.updatedAt);
+  return Number.isFinite(parsed) && parsed > 0 ? new Date(parsed).toISOString() : null;
+}
+
 function matchesAction(order: OfframpOrder, record: CashoutOrderRow, metadata: CashoutMoneyActionMetadata, payeeHash: `0x${string}` | undefined): boolean {
   return matchesOrder(order, record, metadata) && (!payeeHash || matchesPayee(order, payeeHash));
 }
@@ -288,7 +315,7 @@ function matchesPayee(order: OfframpOrder, payeeHash: `0x${string}`): boolean {
 
 async function untilAborted<T>(read: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
-    read.catch(() => {});
+    read.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- the already-aborted refresh throws the deadline reason; the detached read must not reject unhandled
     throw signal.reason ?? new Error("Cash-out refresh deadline passed.");
   }
   let onAbort = () => {};

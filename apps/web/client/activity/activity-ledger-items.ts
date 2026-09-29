@@ -24,6 +24,11 @@ import type {
 import type { ActivityTransfer } from "./types";
 import type { ActivityOrder, ActivityFundingOrder, ActivityCashoutOrder } from "@/shared/activity/contract-orders";
 import { cashoutMoney, cashoutOrderAction, presentCashout, type CashoutStage } from "./cash-out-presenter";
+import { cashoutQuoteFromLegacy, formatCashoutArrival } from "@/shared/funding/cash-out-quote";
+import { formatCashoutReceive } from "@/shared/funding/cash-out-quote-format";
+import type { CashoutMoneyActionMetadata } from "@/shared/money-actions/types";
+import { SERVICE_FEE_LABEL, serviceFeeValue } from "@/client/trading/service-fee";
+import type { CardPurchase } from "@/shared/cards/transactions-contract";
 
 const directAssets = getDirectPortfolioAssets();
 const portfolioAssetKeyById: ReadonlyMap<string, string> = new Map(
@@ -225,17 +230,18 @@ function actionItem(operation: RecentMoneyActionOperation, transfers: readonly A
       { label: "Payout app", value: metadata.platformLabel },
     );
     if (metadata.operation === "deposit") {
+      const quote = reviewedQuote(metadata);
       facts.push(
         { label: "Payout handle", value: metadata.canonicalHandle },
-        { label: "Approximate receive", value: `≈ ${metadata.approximateFiatAmount} ${metadata.currency}` },
+        { label: "You receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) },
+        { label: "Arrives", value: formatCashoutArrival(quote.arrival) },
       );
-      if (metadata.etaSeconds !== undefined) {
-        facts.push({ label: "Estimated delivery", value: metadata.etaSeconds === null
-          ? "Unavailable" : `${Math.ceil(metadata.etaSeconds / 60)} min (historical)` });
-      }
     }
   }
   facts.push(...secondaryAmountFacts(operation, options));
+  if (metadata?.product === "trade" && metadata.operatorFee) {
+    facts.push({ label: SERVICE_FEE_LABEL, value: serviceFeeValue(metadata.operatorFee, options.regionId) });
+  }
   const mark = primary && presentPortfolioAssetMark({
     assetKey: portfolioAssetKeyById.get(primary.assetId.toLowerCase()) ?? primary.assetId,
     name: primary.symbol,
@@ -291,6 +297,10 @@ function actionItem(operation: RecentMoneyActionOperation, transfers: readonly A
   };
 }
 
+function reviewedQuote(metadata: CashoutMoneyActionMetadata) {
+  return metadata.quote ?? cashoutQuoteFromLegacy(metadata);
+}
+
 const cashoutStatus: Record<CashoutStage, ActivityLedgerItem["status"]> = {
   waiting: "waiting-provider",
   paying: "waiting-provider",
@@ -318,12 +328,13 @@ function cashoutItem(
   if (view.metadata) {
     facts.push(
       { label: "Payout handle", value: view.metadata.canonicalHandle },
-      { label: "Approximate receive", value: `≈ ${view.metadata.approximateFiatAmount} ${view.metadata.currency}` },
+      { label: "You receive", value: formatCashoutReceive(reviewedQuote(view.metadata).receive, view.metadata.platformLabel) },
     );
   }
-  const eta = operation.cashout?.etaSeconds ?? view.metadata?.etaSeconds;
-  if ((view.stage === "waiting" || view.stage === "paying") && eta !== null && eta !== undefined) {
-    facts.push({ label: "Estimated delivery", value: `About ${Math.ceil(eta / 60)} min` });
+  if (view.stage === "waiting" || view.stage === "paying") {
+    const arrival = view.metadata ? reviewedQuote(view.metadata).arrival
+      : cashoutQuoteFromLegacy({ approximateFiatAmount: "0", currency: "USD", etaSeconds: operation.cashout?.etaSeconds }).arrival;
+    facts.push({ label: "Arrives", value: formatCashoutArrival(arrival) });
   }
   if (BigInt(view.paid) > BigInt(0) && BigInt(view.paid) < BigInt(view.total)) facts.push({ label: "Paid", value: money(view.paid) });
   if (BigInt(view.returned) > BigInt(0)) facts.push({ label: "Returned", value: money(view.returned) });
@@ -391,7 +402,7 @@ function fundingItem(order: ActivityFundingOrder, options: Options): ActivityLed
   };
 }
 
-function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActionOperation | undefined, options: Options): ActivityLedgerItem {
+function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActionOperation | undefined, reviewed: RecentMoneyActionOperation | undefined, options: Options): ActivityLedgerItem {
   const action = cashoutOrderAction(order, withdraw);
   const returning = withdraw !== undefined && withdraw.status !== "failed" &&
     ["waiting-provider", "waiting-chain", "reversed", "ambiguous"].includes(order.status);
@@ -403,6 +414,15 @@ function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActi
         : ["matched", "delivering"].includes(order.state) ? "Buyer paying you" : null
       : null;
   const facts: { label: string; value: string }[] = [];
+  const metadata = reviewed?.action.metadata;
+  if (reviewed?.action.kind === "cash-out" && metadata?.product === "cashout" && metadata.operation === "deposit") {
+    const quote = reviewedQuote(metadata);
+    facts.push({ label: "You receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) });
+    if (order.status === "waiting-provider" && !returning &&
+      ["submitted", "awaiting-buyer", "matched", "delivering"].includes(order.state)) {
+      facts.push({ label: "Arrives", value: formatCashoutArrival(quote.arrival) });
+    }
+  }
   if (BigInt(order.filledAtomic) > BigInt(0) && BigInt(order.filledAtomic) < BigInt(order.amountAtomic)) {
     facts.push({ label: "Paid", value: money(order.filledAtomic) });
   }
@@ -428,8 +448,8 @@ function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActi
   };
 }
 
-function orderItem(order: ActivityOrder, withdraw: RecentMoneyActionOperation | undefined, options: Options): ActivityLedgerItem {
-  return order.kind === "funding" ? fundingItem(order, options) : cashoutOrderItem(order, withdraw, options);
+function orderItem(order: ActivityOrder, withdraw: RecentMoneyActionOperation | undefined, reviewed: RecentMoneyActionOperation | undefined, options: Options): ActivityLedgerItem {
+  return order.kind === "funding" ? fundingItem(order, options) : cashoutOrderItem(order, withdraw, reviewed, options);
 }
 
 export function presentActivityLedgerEntries(
@@ -478,10 +498,32 @@ export function presentActivityLedgerEntries(
   });
 }
 
+function cardItem(purchase: CardPurchase, options: Options): ActivityLedgerItem {
+  const amount = formatFiatAmount(BigInt(purchase.amountMinor), 2, purchase.currency, { regionId: options.regionId });
+  const status = ({ pending: "waiting-provider", declined: "failed", completed: "confirmed",
+    reversed: "reversed", refunded: "refunded" } as const)[purchase.status];
+  const statusLabel = purchase.status === "declined" && purchase.declineReasonCode
+    ? `Declined · ${purchase.declineReasonCode.replaceAll("_", " ")}`
+    : purchase.status[0]!.toUpperCase() + purchase.status.slice(1);
+  const unchanged = purchase.status === "declined" || purchase.status === "reversed";
+  const prefix = purchase.status === "refunded" ? "+" : unchanged ? "" : "−";
+  return {
+    family: "card", id: purchase.id, status, statusLabel, timestamp: purchase.createdAt, updatedAt: purchase.updatedAt,
+    dateLabel: formatPresentationDate(purchase.createdAt, { style: "activity-short", ...options }),
+    fullDateLabel: formatPresentationDate(purchase.createdAt, { style: "activity-full", ...options }),
+    title: purchase.merchantName, amount: `${prefix}${amount}`, detailAmount: `${prefix}${amount}`,
+    direction: purchase.status === "refunded" ? "in" : unchanged ? "none" : "out",
+    ...(unchanged ? { ownerSentence: { title: purchase.status === "declined" ? "Declined" : "Reversed", description: "Your balance didn't change." } } : {}),
+    mark: { kind: "glyph", glyph: "card" }, activateLabel: `View ${purchase.merchantName} card purchase details`,
+    detail: { family: "card", merchant: purchase.merchantName, cardLabel: "Card" },
+  };
+}
+
 export function presentActivityLedgerItems(items: readonly ActivityFeedItem[], options: Options): ActivityLedgerItem[] {
   return items.map((item) => item.kind === "transfer"
     ? transferItem(item.transfer, options)
-    : item.kind === "order" ? orderItem(item.order, item.withdraw, options)
+    : item.kind === "card" ? cardItem(item.purchase, options)
+    : item.kind === "order" ? orderItem(item.order, item.withdraw, item.reviewed, options)
     : item.operation.action.kind === "cash-out" &&
       !(item.operation.action.metadata?.product === "cashout" && item.operation.action.metadata.operation === "withdraw")
       ? cashoutItem(item.operation, item.withdraw, options)

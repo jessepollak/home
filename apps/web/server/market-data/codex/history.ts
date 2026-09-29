@@ -1,12 +1,10 @@
 import "server-only";
 
-import {
-  CODEX_CACHE_TTL_MS,
-  CODEX_GRAPHQL_ENDPOINT,
-  CODEX_REQUEST_TIMEOUT_MS,
-} from "./config";
-import { CodexMarketDataError } from "./client";
-import { parseJsonWithNumberLexemes } from "./lossless-json";
+import { createBoundedCache } from "@/server/cache/bounded";
+
+import { CODEX_CACHE_TTL_MS, CODEX_REQUEST_TIMEOUT_MS } from "./config";
+import { CodexMarketDataError } from "./errors";
+import { executeCodexGraphql } from "./execute";
 import {
   isMarketPriceRange,
   MARKET_PRICE_HISTORY_VERSION,
@@ -62,11 +60,6 @@ type HistoryReaderOptions = {
   maxInFlight?: number;
 };
 
-type CacheEntry = {
-  storedAt: number;
-  response: MarketPriceHistoryResponse;
-};
-
 export const CODEX_HISTORY_CACHE_MAX_ENTRIES = 64;
 export const CODEX_HISTORY_MAX_IN_FLIGHT = 8;
 export const CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION = 0.5;
@@ -80,8 +73,12 @@ export function createCodexMarketHistoryReader({
   cacheMaxEntries = CODEX_HISTORY_CACHE_MAX_ENTRIES,
   maxInFlight = CODEX_HISTORY_MAX_IN_FLIGHT,
 }: HistoryReaderOptions) {
-  const cache = new Map<string, CacheEntry>();
-  const inFlight = new Map<string, Promise<MarketPriceHistoryResponse>>();
+  const cache = createBoundedCache<MarketPriceHistoryResponse>({
+    maxEntries: cacheMaxEntries,
+    ttlMs: cacheTtlMs,
+    maxInFlight,
+    now: () => now().getTime(),
+  });
 
   return async function readCodexMarketHistory(
     assetId: string,
@@ -115,20 +112,23 @@ export function createCodexMarketHistoryReader({
     }
 
     const cacheKey = `${identity.assetId}:${range}`;
-    const currentTime = now().getTime();
-    pruneExpiredCache(cache, currentTime, cacheTtlMs);
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      cache.delete(cacheKey);
-      cache.set(cacheKey, cached);
-      return cached.response;
-    }
-    const pending = inFlight.get(cacheKey);
-    if (pending) return pending;
-    const capacity = options.speculative
-      ? Math.floor(maxInFlight * CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION)
-      : maxInFlight;
-    if (inFlight.size >= capacity) {
+    const result = await cache.fetch(
+      cacheKey,
+      () => fetchHistory({
+        apiKey: apiKey.trim(),
+        identity,
+        range,
+        fetchImpl,
+        now,
+        timeoutMs,
+      }),
+      {
+        capacity: options.speculative
+          ? Math.floor(maxInFlight * CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION)
+          : maxInFlight,
+      },
+    );
+    if (result.status === "saturated") {
       return createHistoryResponse({
         assetId: identity.assetId,
         range,
@@ -136,56 +136,8 @@ export function createCodexMarketHistoryReader({
         unavailableReason: "overloaded",
       });
     }
-
-    const request = fetchHistory({
-      apiKey: apiKey.trim(),
-      identity,
-      range,
-      fetchImpl,
-      now,
-      timeoutMs,
-    });
-    inFlight.set(cacheKey, request);
-
-    try {
-      const response = await request;
-      setBoundedCacheEntry(
-        cache,
-        cacheKey,
-        { storedAt: now().getTime(), response },
-        cacheMaxEntries,
-      );
-      return response;
-    } finally {
-      inFlight.delete(cacheKey);
-    }
+    return result.value;
   };
-}
-
-function pruneExpiredCache(
-  cache: Map<string, CacheEntry>,
-  currentTime: number,
-  cacheTtlMs: number,
-) {
-  for (const [key, entry] of cache) {
-    if (currentTime - entry.storedAt > cacheTtlMs) cache.delete(key);
-  }
-}
-
-function setBoundedCacheEntry(
-  cache: Map<string, CacheEntry>,
-  key: string,
-  entry: CacheEntry,
-  cacheMaxEntries: number,
-) {
-  if (cacheMaxEntries <= 0) return;
-  cache.delete(key);
-  while (cache.size >= cacheMaxEntries) {
-    const oldestKey = cache.keys().next().value;
-    if (oldestKey === undefined) break;
-    cache.delete(oldestKey);
-  }
-  cache.set(key, entry);
 }
 
 export function createErrorMarketHistoryResponse(
@@ -272,49 +224,14 @@ async function executeCodexBars({
   fetchImpl: FetchLike;
   timeoutMs: number;
 }): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const headers = new Headers({
-      accept: "application/json",
-      "content-type": "application/json",
-    });
-    headers.set(["Author", "ization"].join(""), apiKey);
-    const response = await fetchImpl(CODEX_GRAPHQL_ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: CODEX_BARS_QUERY,
-        variables: { symbol, from, to, resolution },
-      }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new CodexMarketDataError(
-        `Codex market history returned HTTP ${response.status}.`,
-      );
-    }
-
-    const parsed = parseJsonWithNumberLexemes(await response.text());
-    const envelope = readRecord(parsed);
-    if (Array.isArray(envelope?.errors) && envelope.errors.length > 0) {
-      throw new CodexMarketDataError("Codex market history returned an error.");
-    }
-    if (envelope?.data === null || envelope?.data === undefined) {
-      throw new CodexMarketDataError("Codex market history returned no data.");
-    }
-    return envelope.data;
-  } catch (error) {
-    if (error instanceof CodexMarketDataError) throw error;
-    const message = controller.signal.aborted
-      ? "Codex market history timed out."
-      : "Codex market history request failed.";
-    throw new CodexMarketDataError(message, { cause: error });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return executeCodexGraphql({
+    apiKey,
+    query: CODEX_BARS_QUERY,
+    variables: { symbol, from, to, resolution },
+    fetchImpl,
+    timeoutMs,
+    subject: "Codex market history",
+  });
 }
 
 function normalizeBars(data: unknown): MarketPriceHistoryPoint[] {

@@ -56,6 +56,7 @@ type PostgresSqlExecutorOptions = Readonly<{
 function wrapQueryable(
   queryable: Queryable,
   beginTransaction: (fn: (tx: SqlExecutor) => Promise<unknown>) => Promise<unknown>,
+  raceDriverQuery: <T>(work: Promise<T>) => Promise<T>,
 ): SqlExecutor {
   return {
     async query<T = Record<string, unknown>>(
@@ -64,7 +65,7 @@ function wrapQueryable(
       options: SqlQueryOptions = {},
     ) {
       throwIfSqlAborted(options.signal);
-      const driverResult = await queryable.query(text, values);
+      const driverResult = await raceDriverQuery(queryable.query(text, values));
       throwIfSqlAborted(options.signal);
       const result = lastDriverResult(driverResult);
       const rows = result?.rows ?? [];
@@ -118,55 +119,76 @@ export function createPostgresSqlExecutor(
     signal?: AbortSignal,
   ): Promise<Result> => {
     throwIfSqlAborted(signal);
-    const client: PoolClientLike = await getPool().connect();
+    const client: PoolClientLike = await raceAbort(getPool().connect(), signal, { settleLate: (late) => late.release() });
+    let released = false;
+    let poisoned = false;
+    let started = false;
+    const releaseClient = (destroy?: boolean) => {
+      if (released) return;
+      released = true;
+      client.release(destroy ?? (poisoned ? true : undefined));
+    };
+    const runDriverQuery = <T>(work: Promise<T>): Promise<T> => raceAbort(work, signal, { onAbort: () => { poisoned = true; } });
     const tx = wrapQueryable(client, () => {
       throw new Error("nested transactions are not supported");
-    });
+    }, runDriverQuery);
     try {
       throwIfSqlAborted(signal);
-      await client.query("BEGIN");
+      await runDriverQuery(client.query("BEGIN"));
+      started = true;
       if (schema && schemaName) {
         const existing = lastDriverResult(
-          await client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName]),
+          await runDriverQuery(client.query("SELECT 1 FROM pg_namespace WHERE nspname = $1", [schemaName])),
         );
         if (existing?.rows?.length !== 1) throw new Error(`PostgreSQL schema ${schemaName} does not exist`);
-        await client.query(`SET LOCAL search_path TO ${schema}`);
+        await runDriverQuery(client.query(`SET LOCAL search_path TO ${schema}`));
       }
       const result = await fn(tx);
       throwIfSqlAborted(signal);
-      await client.query("COMMIT");
+      await runDriverQuery(client.query("COMMIT"));
       return result;
     } catch (error) {
-      try {
-        await client.query("ROLLBACK");
-      } catch { // oxlint-disable-line home/no-silent-catch -- a failed rollback cannot mask the transaction error that is rethrown
+      if (started && signal?.aborted) poisoned = true;
+      if (!poisoned && started) {
+        try {
+          await runDriverQuery(client.query("ROLLBACK"));
+        } catch { // oxlint-disable-line home/no-silent-catch -- a failed rollback cannot mask the transaction error that is rethrown
+        }
       }
       throw error;
     } finally {
-      client.release();
+      releaseClient();
     }
   };
 
   return {
-    query<T = Record<string, unknown>>(
+    async query<T = Record<string, unknown>>(
       text: string,
       values: unknown[] = [],
       options: SqlQueryOptions = {},
     ) {
-      return beginTransaction(
+      const timeoutMs = boundedSqlTimeoutMs(options.timeoutMs);
+      const deadline = timeoutMs === null ? null : new AbortController();
+      const timer = timeoutMs === null ? null : setTimeout(() => {
+        deadline?.abort(new DOMException(`PostgreSQL query exceeded its ${timeoutMs}ms deadline.`, "TimeoutError"));
+      }, timeoutMs);
+      const signal = deadline === null
+        ? options.signal
+        : options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal;
+      const operation = beginTransaction(
         async (tx) => {
-          const timeoutMs = boundedSqlTimeoutMs(options.timeoutMs);
           if (timeoutMs !== null) {
             await tx.query(
               "SELECT set_config('statement_timeout', $1, true)",
               [`${timeoutMs}ms`],
-              { signal: options.signal },
+              { signal },
             );
           }
-          return tx.query<T>(text, values, options);
+          return tx.query<T>(text, values, { signal });
         },
-        options.signal,
+        signal,
       );
+      return timer === null ? operation : operation.finally(() => clearTimeout(timer));
     },
     transaction: (fn) => beginTransaction(fn),
     async dispose() {
@@ -182,6 +204,39 @@ function lastDriverResult(
 ): DriverQueryResult | undefined {
   return Array.isArray(result) ? result.at(-1) : result;
 }
+
+function raceAbort<T>(work: Promise<T>, signal: AbortSignal | undefined, handlers: { onAbort?: () => void; settleLate?: (value: T) => void } = {}): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      handlers.onAbort?.();
+      reject(signal.reason ?? new Error("PostgreSQL query aborted"));
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        if (!settled) {
+          settled = true;
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+          return;
+        }
+        handlers.settleLate?.(value);
+      },
+      (error) => { // oxlint-disable-line home/no-silent-catch -- after abort rejects the outer promise, a late connection failure has no pending state to settle
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 
 function throwIfSqlAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {

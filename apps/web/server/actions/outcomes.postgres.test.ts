@@ -1,14 +1,27 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
+
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { createCdpWebhookHandler } from "@/server/balances/webhook";
+import { settleOpenActionsForAccounts } from "./follow-through";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
 import { createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { ActionsStore } from "./store";
 import type { MoneyActionOwner } from "@/shared/money-actions/types";
 import type { TransferReceiptStatus } from "./receipt";
-import type { HandleResolution } from "./reconcile";
+import { createActionHandleResolver, type HandleResolution } from "./reconcile";
+import { createUserOperationLogLookup } from "./user-operation-log";
+import { USER_OPERATION_ENTRY_POINTS, USER_OPERATION_EVENT_TOPIC } from "./receipt";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
+
+async function readActions(response: Response): Promise<Record<string, unknown>[]> {
+  const value = await readJson(response);
+  if (!isRecord(value) || !Array.isArray(value.actions) || !value.actions.every(isRecord)) throw new Error("Invalid action list");
+  return value.actions;
+}
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
 const describePostgres = connectionString ? describe : describe.skip;
@@ -67,6 +80,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
       await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
+      await transaction.unsafe(await readMigrationSql("021_cashout_provider_progress.sql"));
       await transaction.unsafe(await readMigrationSql("016_action_receipt_observations.sql"));
       for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
         await transaction.unsafe(await readMigrationSql(file));
@@ -81,6 +95,169 @@ describePostgres("write-once action outcomes with real handlers", () => {
     await sql?.dispose?.();
     await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
     await admin?.close();
+  });
+
+  for (const provider of ["cdp-embedded", "base-account"] as const) {
+    test(`${provider} follows a handle to a finalized receipt without another client call`, async () => {
+      const id = await prepared(provider);
+      const tasks: Array<() => Promise<unknown>> = [];
+      const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const call = JSON.parse(String(init?.body)) as { id: number; method: string; params: unknown[] };
+        const result = call.method === "wallet_getCallsStatus"
+          ? { id: userOpHash, version: "2.0.0", chainId: "0x2105", atomic: true, status: 200, receipts: [{ transactionHash: hash }] }
+          : call.method === "eth_chainId" ? "0x2105"
+          : call.method === "eth_blockNumber" ? "0x100"
+          : [{ address: USER_OPERATION_ENTRY_POINTS.V06, transactionHash: hash,
+            topics: [USER_OPERATION_EVENT_TOPIC, userOpHash, `0x${"0".repeat(24)}${address.slice(2)}`] }];
+        return Response.json({ jsonrpc: "2.0", id: call.id, result });
+      };
+      const resolver = createActionHandleResolver({ fetchImpl, now: () => Date.now(),
+        logLookup: createUserOperationLogLookup({ fetchImpl, now: () => Date.now() }) });
+      const handle = createHandleActionHandler({ authorize: provider === "base-account" ? baseAuthorize : authorize,
+        store, schedule: (task) => tasks.push(task), markHot: async () => {},
+        followDeps: { store, resolveHandle: resolver, readReceipt: async () => receipt(true) } });
+      expect((await handle(request(id, "/handle", provider, { providerHandle: userOpHash }), context(id))).status).toBe(200);
+      expect((await store.get(owner(provider), id))?.transaction_hash).toBeNull();
+      expect(tasks).toHaveLength(1);
+      await tasks[0]!();
+      expect(await store.get(owner(provider), id)).toMatchObject({ transaction_hash: hash,
+        observed_receipt_transaction_hash: hash, observed_receipt_outcome: "succeeded", outcome: "succeeded", outcome_source: "chain" });
+      expect((await handle(request(id, "/handle", provider, { providerHandle: userOpHash }), context(id))).status).toBe(200);
+      expect(tasks).toHaveLength(1);
+    });
+  }
+
+  test("a signed account webhook settles a confirmed handle-only action", async () => {
+    const id = await prepared();
+    await store.recordHandle(owner(), id, { providerHandle: userOpHash });
+    const tasks: Array<() => Promise<void>> = [];
+    const logLines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { logLines.push(line); });
+    const secret = "fixture-webhook-secret";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.detected", data: { matchedAddress: address } }));
+    const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
+    const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      history: null,
+      subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
+        eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
+      schedule: (task) => { tasks.push(task); },
+      settleActions: (addresses, signal) => settleOpenActionsForAccounts(addresses, {
+        signal, route: "/api/webhooks/cdp", deps: { store,
+          resolveHandle: async () => ({ status: "complete", transactionHash: hash }),
+          readReceipt: async () => receipt(true),
+        },
+      }),
+    });
+    expect((await webhook(raw, `t=${timestamp},v0=${signature}`)).status).toBe(200);
+    expect((await store.get(owner(), id))?.outcome).toBeNull();
+    expect(tasks).toHaveLength(1);
+    await tasks[0]!();
+    expect(await store.get(owner(), id)).toMatchObject({ transaction_hash: hash, outcome: "succeeded", outcome_source: "chain" });
+    expect(logLines.map((line) => { const parsed: unknown = JSON.parse(line); return parsed; })).toContainEqual(expect.objectContaining({ kind: "action-reconcile",
+      code: "WEBHOOK_ACTION_SETTLED", outcome: "ok" }));
+    expect(logLines.join(" ")).not.toContain(address);
+    expect(logLines.join(" ")).not.toContain(userOpHash);
+  });
+
+  test("a webhook delivery for one address never settles another account's open action", async () => {
+    const otherAddress = "0x2222222222222222222222222222222222222222" as const;
+    const otherOwner: MoneyActionOwner = { subject: "other-owner", address: otherAddress, chainId: 8453, accountProvider: "cdp-embedded" };
+    const otherId = randomUUID();
+    await store.insert({ id: otherId, owner: otherOwner, kind: "send",
+      summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      pending: { calls: [{ to: otherAddress, data: "0x", value: "0" }] }, createdAt: new Date().toISOString() });
+    await store.confirm(otherOwner, otherId);
+    await store.recordHandle(otherOwner, otherId, { providerHandle: userOpHash });
+
+    const tasks: Array<() => Promise<void>> = [];
+    const secret = "fixture-webhook-secret";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.detected", data: { matchedAddress: address, from: otherAddress } }));
+    const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
+    const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      history: null,
+      subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
+        eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
+      schedule: (task) => { tasks.push(task); },
+      settleActions: (addresses, signal) => settleOpenActionsForAccounts(addresses, {
+        signal, route: "/api/webhooks/cdp", deps: { store,
+          resolveHandle: async () => ({ status: "complete", transactionHash: hash }),
+          readReceipt: async () => receipt(true),
+        },
+      }),
+    });
+
+    expect((await webhook(raw, `t=${timestamp},v0=${signature}`)).status).toBe(200);
+    await tasks[0]!();
+    expect(await store.get(otherOwner, otherId)).toMatchObject({ transaction_hash: null, outcome: null });
+  });
+
+  test("a multi-wallet delivery checks each matched wallet past its own open-action limit", async () => {
+    const secondAddress = "0x2222222222222222222222222222222222222222" as const;
+    const secondOwner: MoneyActionOwner = { subject: "second-owner", address: secondAddress, chainId: 8453, accountProvider: "cdp-embedded" };
+    const triggered = randomUUID();
+    await store.insert({ id: triggered, owner: secondOwner, kind: "send",
+      summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      pending: { calls: [{ to: secondAddress, data: "0x", value: "0" }] }, createdAt: new Date().toISOString() });
+    await store.confirm(secondOwner, triggered);
+    await store.recordHandle(secondOwner, triggered, { providerHandle: userOpHash });
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '5 minutes' WHERE id = $1", [triggered]);
+    for (let index = 0; index < 24; index += 1) {
+      const id = await prepared();
+      await store.recordHandle(owner(), id, { providerHandle: userOpHash });
+    }
+
+    const tasks: Array<() => Promise<void>> = [];
+    const secret = "fixture-webhook-secret";
+    const timestamp = Math.floor(Date.now() / 1000);
+    const raw = new TextEncoder().encode(JSON.stringify({ eventType: "wallet.activity.multi",
+      data: { matchedAddress: address, address: secondAddress } }));
+    const signature = createHmac("sha256", secret).update(Buffer.concat([Buffer.from(`${timestamp}.`), Buffer.from(raw)])).digest("hex");
+    const multiReceipt: TransferReceiptStatus = { status: "confirmed", transactionHash: hash, blockNumber: "1",
+      blockHash: `0x${"ef".repeat(32)}`, blockTimestamp, finalized: true,
+      userOperations: [{ userOpHash, sender: address, success: true }, { userOpHash, sender: secondAddress, success: true }] };
+    const followed: string[] = [];
+    const webhook = createCdpWebhookHandler({ store: { markStaleMany: async () => {} }, keyring: null,
+      history: null,
+      subscriptions: { list: async () => [{ subscriptionId: "fixture", credential: { kind: "legacy-plaintext" as const, secret }, target: "https://home.test/api/webhooks/cdp",
+        eventType: "wallet_activity", createdAt: new Date().toISOString() }] },
+      schedule: (task) => { tasks.push(task); },
+      settleActions: (addresses, signal) => settleOpenActionsForAccounts(addresses, {
+        signal, route: "/api/webhooks/cdp", deps: { store,
+          resolveHandle: async (row) => { followed.push(row.id); return { status: "complete", transactionHash: hash }; },
+          readReceipt: async () => multiReceipt,
+        },
+      }),
+    });
+
+    expect((await webhook(raw, `t=${timestamp},v0=${signature}`)).status).toBe(200);
+    await tasks[0]!();
+
+    expect(followed).toContain(triggered);
+    expect(await store.get(secondOwner, triggered)).toMatchObject({ transaction_hash: hash, outcome: "succeeded" });
+  });
+
+  test("system follow-up queries select only recent identifiable open rows", async () => {
+    const recent = await prepared();
+    const settled = await prepared();
+    const old = await prepared();
+    const unidentified = await prepared();
+    const unconfirmed = randomUUID();
+    await store.insert({ id: unconfirmed, owner: owner(), kind: "send",
+      summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      pending: { calls: [{ to: address, data: "0x", value: "0" }] }, createdAt: new Date().toISOString() });
+    await sql.query("UPDATE actions SET provider_handle = $2 WHERE id = $1", [unconfirmed, userOpHash]);
+    await store.recordHandle(owner(), recent, { providerHandle: userOpHash });
+    await store.recordHandle(owner(), settled, { providerHandle: userOpHash });
+    await store.recordOutcome(owner(), settled, { outcome: "not_submitted", source: "wallet", settledAt: null });
+    await store.recordHandle(owner(), old, { providerHandle: userOpHash });
+    await sql.query("UPDATE actions SET confirmed_at = now() - interval '40 days' WHERE id = $1", [old]);
+    const since = new Date(Date.now() - 7 * 86_400_000);
+    expect((await store.listOpenByAccounts([address.toUpperCase()], since, 1)).map((row) => row.id)).toEqual([recent]);
+    expect((await store.listOpenForFollowUp(since, 10)).map((row) => row.id)).toEqual([recent]);
+    expect((await store.listOpenForFollowUp(since, 1)).map((row) => row.id)).toEqual([recent]);
+    expect(unidentified).toBeDefined();
   });
 
   test("duplicate handle, hash, decline and chain reports preserve every column", async () => {
@@ -117,11 +294,11 @@ describePostgres("write-once action outcomes with real handlers", () => {
     for (const chainReceipt of [receipt(true, "0x2222222222222222222222222222222222222222"), receipt(true, address, hash)]) {
       const { get } = handlers("cdp-embedded", { readReceipt: async () => chainReceipt });
       const response = await get(request(id, ""), context(id));
-      expect((await response.json()).status).toBe("unknown");
+      expect(await readJson(response)).toMatchObject({ status: "unknown" });
       expect((await store.get(owner(), id))?.outcome).toBeNull();
     }
     const { get } = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
-    expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect(await store.get(owner(), id)).toMatchObject({ outcome: "succeeded", outcome_source: "chain", settled_at: new Date(blockTimestamp) });
   });
 
@@ -131,11 +308,11 @@ describePostgres("write-once action outcomes with real handlers", () => {
       const { handle, get } = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
       const post = (body: object) => handle(request(id, "/handle", "cdp-embedded", body), context(id));
       expect((await post({ transactionHash: hash, ...(providerHandle ? { providerHandle } : {}) })).status).toBe(200);
-      expect((await (await get(request(id, ""), context(id))).json()).status).toBe("unknown");
+      expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "unknown" });
       expect(await store.get(owner(), id)).toMatchObject({ provider_handle: providerHandle ?? null, transaction_hash: hash, outcome: null });
       if (!providerHandle) {
         expect((await post({ providerHandle: `0x${"CD".repeat(32)}` })).status).toBe(200);
-        expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+        expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
         expect(await store.get(owner(), id)).toMatchObject({ outcome: "succeeded", outcome_source: "chain", settled_at: new Date(blockTimestamp) });
       }
     }
@@ -146,13 +323,13 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const { handle } = handlers("base-account");
     expect((await handle(request(id, "/handle", "base-account", { providerHandle: "base-handle" }), context(id))).status).toBe(200);
     const failed = handlers("base-account", { resolveHandle: async () => ({ status: "not_submitted" }) });
-    expect((await (await failed.get(request(id, "", "base-account"), context(id))).json()).status).toBe("failed");
+    expect(await readJson((await failed.get(request(id, "", "base-account"), context(id))))).toMatchObject({ status: "failed" });
     expect(await store.get(owner("base-account"), id)).toMatchObject({ outcome: "not_submitted", outcome_source: "wallet", transaction_hash: null });
 
     const reversedId = await prepared("base-account");
     expect((await handle(request(reversedId, "/handle", "base-account", { providerHandle: "base-handle" }), context(reversedId))).status).toBe(200);
     const reversed = handlers("base-account", { resolveHandle: async () => ({ status: "reverted", transactionHash: hash }), readReceipt: async () => receipt(false) });
-    expect((await (await reversed.get(request(reversedId, "", "base-account"), context(reversedId))).json()).status).toBe("failed");
+    expect(await readJson((await reversed.get(request(reversedId, "", "base-account"), context(reversedId))))).toMatchObject({ status: "failed" });
     expect(await store.get(owner("base-account"), reversedId)).toMatchObject({ transaction_hash: hash, outcome: "reverted", outcome_source: "chain", settled_at: new Date(blockTimestamp) });
   });
 
@@ -160,15 +337,15 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const id = await prepared();
     const { decline, handle, list } = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
     expect((await decline(request(id, "/decline", "cdp-embedded", { version: DECLINE_ACTION_CONTRACT_VERSION, attempt: 0 }), context(id))).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toEqual([]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [] });
     expect((await handle(request(id, "/handle", "cdp-embedded", { providerHandle: userOpHash, transactionHash: hash }), context(id))).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toMatchObject([{ id, status: "confirmed" }]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [{ id, status: "confirmed" }] });
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
     const laterId = await prepared();
     expect((await handle(request(laterId, "/handle", "cdp-embedded", { providerHandle: userOpHash }), context(laterId))).status).toBe(200);
     const blockedRetry = await handlers().retry(request(laterId, "/retry", "cdp-embedded", { version: 1, attempt: 1 }), context(laterId));
     expect(blockedRetry.status).toBe(409);
-    expect(await blockedRetry.json()).toMatchObject({ error: { code: "ACTION_ALREADY_DISPATCHED" } });
+    expect(await readJson(blockedRetry)).toMatchObject({ error: { code: "ACTION_ALREADY_DISPATCHED" } });
     expect((await decline(request(laterId, "/decline", "cdp-embedded", { version: DECLINE_ACTION_CONTRACT_VERSION, attempt: 0 }), context(laterId))).status).toBe(200);
     expect((await store.get(owner(), laterId))?.declined_reported_at).toBeNull();
   });
@@ -179,18 +356,18 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const report = (attempt: number) => decline(request(id, "/decline", "cdp-embedded", { version: 1, attempt }), context(id));
     const begin = () => retry(request(id, "/retry", "cdp-embedded", { version: 1, attempt: 1 }), context(id));
     expect((await report(0)).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toEqual([]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [] });
     expect((await begin()).status).toBe(200);
     const afterRetry = await store.get(owner(), id);
     expect(afterRetry).toMatchObject({ dispatch_attempt: 1, declined_reported_at: null, transaction_hash: null, provider_handle: null });
     expect((await begin()).status).toBe(200);
     expect(await store.get(owner(), id)).toEqual(afterRetry);
-    expect((await (await list(listRequest())).json()).actions).toMatchObject([{ id, status: "pending" }]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [{ id, status: "pending" }] });
     expect((await report(0)).status).toBe(200);
     expect(await store.get(owner(), id)).toEqual(afterRetry);
-    expect((await (await list(listRequest())).json()).actions).toHaveLength(1);
+    expect(await readActions(await list(listRequest()))).toHaveLength(1);
     expect((await report(1)).status).toBe(200);
-    expect((await (await list(listRequest())).json()).actions).toEqual([]);
+    expect(await readJson((await list(listRequest())))).toMatchObject({ actions: [] });
     expect((await retry(request(id, "/retry", "cdp-embedded", { version: 1, attempt: 3 }), context(id))).status).toBe(409);
   });
 
@@ -214,15 +391,15 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const id = await prepared();
     await store.recordHandle(owner(), id, { providerHandle: userOpHash, transactionHash: hash });
     const nonfinal = handlers("cdp-embedded", { readReceipt: async () => ({ ...receipt(true), finalized: false }) });
-    expect((await (await nonfinal.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await nonfinal.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect((await store.get(owner(), id))?.outcome).toBeNull();
     expect((await store.get(owner(), id))?.observed_receipt_outcome).toBe("succeeded");
     const unavailable = handlers("cdp-embedded", { readReceipt: async () => { throw new Error("RPC unavailable"); } });
-    expect((await (await unavailable.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await unavailable.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     const lagging = handlers("cdp-embedded", { readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "0" }) });
-    expect((await (await lagging.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await lagging.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     const final = handlers("cdp-embedded", { readReceipt: async () => receipt(true) });
-    expect((await (await final.get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await final.get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
   });
 
@@ -230,9 +407,9 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const id = await prepared();
     await store.recordHandle(owner(), id, { providerHandle: userOpHash, transactionHash: hash });
     const included = handlers("cdp-embedded", { readReceipt: async () => ({ ...receipt(false), finalized: false }) });
-    expect((await (await included.get(request(id, ""), context(id))).json()).status).toBe("failed");
+    expect(await readJson((await included.get(request(id, ""), context(id))))).toMatchObject({ status: "failed" });
     const dropped = handlers("cdp-embedded", { readReceipt: async () => ({ status: "pending", transactionHash: hash, finalizedBlockNumber: "1" }) });
-    expect((await (await dropped.get(request(id, ""), context(id))).json()).status).toBe("pending");
+    expect(await readJson((await dropped.get(request(id, ""), context(id))))).toMatchObject({ status: "pending" });
     expect(await store.get(owner(), id)).toMatchObject({ observed_receipt_outcome: null, observed_receipt_block_hash: null });
   });
 
@@ -251,7 +428,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
         },
       },
     });
-    expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect((await store.get(owner(), id))?.outcome).toBe("succeeded");
     expect(events).toContainEqual(expect.objectContaining({ kind: "action-outcome", code: "OUTCOME_CONFLICT", outcome: "conflict" }));
     setObservabilityLogWriterForTests();
@@ -264,7 +441,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
     const conflict = await store.recordOutcome(owner(), id, { outcome: "reverted", source: "chain", settledAt: new Date("2026-09-12T12:07:00.000Z") });
     expect(conflict).toMatchObject({ written: false, conflict: true });
     const { get } = handlers("cdp-embedded", { readReceipt: async () => { throw new Error("receipt should not be reread"); } });
-    expect((await (await get(request(id, ""), context(id))).json()).status).toBe("confirmed");
+    expect(await readJson((await get(request(id, ""), context(id))))).toMatchObject({ status: "confirmed" });
     expect(await store.get(owner(), id)).toEqual(original);
   });
 });

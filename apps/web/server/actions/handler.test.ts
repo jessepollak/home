@@ -1,9 +1,30 @@
+import { readJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
+import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
+import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
+
+function parseLog(line: string): unknown {
+  const parsed: unknown = JSON.parse(line);
+  return parsed;
+}
+
+async function readStatus(response: Response): Promise<unknown> {
+  const body = await readJson(response);
+  if (!isRecord(body)) throw new Error("Invalid action response");
+  return body.status;
+}
+
+async function readActions(response: Response): Promise<Record<string, unknown>[]> {
+  const body = await readJson(response);
+  if (!isRecord(body) || !Array.isArray(body.actions) || !body.actions.every(isRecord)) throw new Error("Invalid action list");
+  return body.actions;
+}
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
@@ -61,7 +82,7 @@ describe("action confirm operator capture", () => {
       });
       const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
       expect(response.status).toBe(200);
-      expect((await response.json()).calls).toEqual([CALL]);
+      expect(parseConfirmActionResponse(await readJson(response))?.calls).toEqual([CALL]);
       expect(captured).toEqual([confirmed]);
     });
   }
@@ -108,8 +129,8 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(request("/api/actions"));
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
-    expect(lines.map((line) => JSON.parse(line))).toMatchObject([{
+    expect(await readJson(response)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(lines.map(parseLog)).toMatchObject([{
       kind: "action-read", route: "/api/actions", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable", provider: "cdp-embedded",
     }]);
   });
@@ -123,8 +144,8 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(request(`/api/actions/${ID}`), context());
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
-    expect(lines.map((line) => JSON.parse(line))).toMatchObject([{
+    expect(await readJson(response)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+    expect(lines.map(parseLog)).toMatchObject([{
       kind: "action-read", route: "/api/actions/:redacted", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable", provider: "cdp-embedded",
     }]);
   });
@@ -136,7 +157,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(request(`/api/actions/${ID}`), context());
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await readJson(response)).toEqual({
       id: ID,
       kind: "send",
       summary: row.summary,
@@ -196,7 +217,7 @@ describe("actions HTTP handlers", () => {
       context(),
     );
     expect(confirmed.status).toBe(200);
-    expect(await confirmed.json()).toMatchObject({
+    expect(await readJson(confirmed)).toMatchObject({
       summary: { metadata: { product: "savings", operation: "withdraw" } },
     });
 
@@ -213,7 +234,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await get(request(`/api/actions/${ID}`), context());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
+    expect(await readJson(response)).toMatchObject({
       kind: "savings-withdraw",
       status: "confirmed",
       summary: { metadata: { product: "savings", operation: "withdraw" } },
@@ -232,7 +253,7 @@ describe("actions HTTP handlers", () => {
         now: () => new Date("2026-09-12T12:10:00.000Z"),
         readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: true, userOperations: [operation(true)] }),
       });
-      expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("confirmed");
+      expect(await readStatus(await handler(request(`/api/actions/${ID}`), context()))).toBe("confirmed");
     }
   });
 
@@ -262,7 +283,7 @@ describe("actions HTTP handlers", () => {
       });
       const response = await handler(request(`/api/actions/${ID}`), context());
       expect(response.status).toBe(200);
-      expect((await response.json()).status).toBe(expectedStatus);
+      expect(await readStatus(response)).toBe(expectedStatus);
       expect(stored.outcome).toBe(expectedOutcome);
       expect(writes).toBe(expectedOutcome ? 1 : 0);
     }
@@ -277,14 +298,14 @@ describe("actions HTTP handlers", () => {
     for (const body of ["{}", "not json"]) {
       const response = await handler(request(`/api/actions/${ID}/decline`, { method: "POST", body }), context());
       expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ error: { code: "INVALID_ACTION_DECLINE" } });
+      expect(await readJson(response)).toMatchObject({ error: { code: "INVALID_ACTION_DECLINE" } });
     }
     expect(writes).toBe(0);
     const response = await handler(request(`/api/actions/${ID}/decline`, {
       method: "POST", body: JSON.stringify({ version: DECLINE_ACTION_CONTRACT_VERSION, attempt: 0 }),
     }), context());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ version: DECLINE_ACTION_CONTRACT_VERSION, action: { id: ID } });
+    expect(await readJson(response)).toMatchObject({ version: DECLINE_ACTION_CONTRACT_VERSION, action: { id: ID } });
     expect(writes).toBe(1);
   });
 
@@ -303,7 +324,7 @@ describe("actions HTTP handlers", () => {
     expect(attempts).toEqual([]);
     const response = await retry(request(`/api/actions/${ID}/retry`, { method: "POST", body: '{"version":1,"attempt":1}' }), context());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ version: 1, action: { id: ID } });
+    expect(await readJson(response)).toMatchObject({ version: 1, action: { id: ID } });
     expect(attempts).toEqual([1]);
     const conflict = createRetryActionHandler({ authorize: authorize(), store: {
       get: async () => row,
@@ -311,7 +332,7 @@ describe("actions HTTP handlers", () => {
     } });
     const blocked = await conflict(request(`/api/actions/${ID}/retry`, { method: "POST", body: '{"version":1,"attempt":1}' }), context());
     expect(blocked.status).toBe(409);
-    expect(await blocked.json()).toMatchObject({ error: { code: "ACTION_ALREADY_DISPATCHED" } });
+    expect(await readJson(blocked)).toMatchObject({ error: { code: "ACTION_ALREADY_DISPATCHED" } });
   });
 
   test("a non-finalized attributable receipt reports its state without recording a final outcome", async () => {
@@ -321,7 +342,7 @@ describe("actions HTTP handlers", () => {
       get: async () => confirmed, recordHandle: async () => null,
       recordOutcome: async () => { writes += 1; throw new Error("unexpected write"); },
     }, readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: false, userOperations: [operation(false)] }) });
-    expect((await (await handler(request(`/api/actions/${ID}`), context())).json()).status).toBe("failed");
+    expect(await readStatus(await handler(request(`/api/actions/${ID}`), context()))).toBe("failed");
     expect(writes).toBe(0);
   });
 
@@ -366,8 +387,9 @@ describe("actions HTTP handlers", () => {
           ? await (handler as ReturnType<typeof createGetActionHandler>)(request(`/api/actions/${ID}`), context())
           : await (handler as ReturnType<typeof createListActionsHandler>)(request("/api/actions"));
         expect(response.status).toBe(200);
-        const body = await response.json();
-        return route === "get" ? body.status as string : body.actions[0]?.status as string;
+        const body = await readJson(response);
+        if (route === "get") return isRecord(body) ? body.status : undefined;
+        return isRecord(body) && Array.isArray(body.actions) && isRecord(body.actions[0]) ? body.actions[0].status : undefined;
       };
       for (const [state, expected] of [["included", "confirmed"], ["error", "confirmed"],
         ["lagging", "confirmed"], ["dropped", "pending"], ["error", "pending"]] as const) {
@@ -408,8 +430,8 @@ describe("actions HTTP handlers", () => {
         });
         const response = await handler(request(`/api/actions/${ID}`), context());
         expect(response.status).toBe(200);
-        expect(await response.json()).toMatchObject({ id: ID, status: "pending" });
-        expect(lines.map((line) => JSON.parse(line).code)).toEqual(clearResult === "throws" ? ["OBSERVATION_UNAVAILABLE"] : []);
+        expect(await readJson(response)).toMatchObject({ id: ID, status: "pending" });
+        expect(lines.map((line) => { const parsed = parseLog(line); return isRecord(parsed) ? parsed.code : undefined; })).toEqual(clearResult === "throws" ? ["OBSERVATION_UNAVAILABLE"] : []);
       });
     }
   }
@@ -447,7 +469,7 @@ describe("actions HTTP handlers", () => {
       handler(request(`/api/actions/${ID}`), context()), handler(request(`/api/actions/${ID}`), context()),
     ]);
     expect(responses.map((response) => response.status)).toEqual([200, 200]);
-    expect((await Promise.all(responses.map((response) => response.json()))).map((body) => body.status)).toEqual(["pending", "pending"]);
+    expect(await Promise.all(responses.map(readStatus))).toEqual(["pending", "pending"]);
     expect(loaded).toBe(2);
     expect(clears).toBe(2);
     expect(stored.observed_receipt_outcome).toBeNull();
@@ -464,7 +486,7 @@ describe("actions HTTP handlers", () => {
       return { status: "confirmed", transactionHash: HASH, blockNumber: "10", blockHash: HASH,
         blockTimestamp, finalized: false, userOperations: [operation(true)] };
     } });
-    const read = async () => (await (await handler(request(`/api/actions/${ID}`), context())).json()).status;
+    const read = async () => readStatus(await handler(request(`/api/actions/${ID}`), context()));
     expect(await read()).toBe("confirmed");
     unavailable = true;
     expect(await read()).toBe("pending");
@@ -492,7 +514,7 @@ describe("actions HTTP handlers", () => {
       return { status: "confirmed", transactionHash: HASH, blockNumber: "10", blockHash: mode === "reverted" ? HASH : `0x${"ef".repeat(32)}`,
         blockTimestamp, finalized: mode === "finalized", userOperations: [operation(mode !== "reverted")] };
     } });
-    const read = async () => (await (await handler(request(`/api/actions/${ID}`), context())).json()).status;
+    const read = async () => readStatus(await handler(request(`/api/actions/${ID}`), context()));
     for (const [state, expected] of [["reverted", "failed"], ["error", "failed"], ["succeeded", "confirmed"],
       ["error", "confirmed"], ["finalized", "confirmed"], ["error", "confirmed"]] as const) {
       mode = state;
@@ -547,9 +569,9 @@ describe("actions HTTP handlers", () => {
       });
       const response = await handler(baseRequest(`/api/actions/${ID}`), context());
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ id: ID, kind: "repay", transactionHash: HASH, status: expectedStatus });
+      expect(await readJson(response)).toMatchObject({ id: ID, kind: "repay", transactionHash: HASH, status: expectedStatus });
       expect(lines).toHaveLength(expectedCode ? 1 : 0);
-      expect(lines.map((line) => JSON.parse(line))).toMatchObject(expectedCode ? [{
+      expect(lines.map(parseLog)).toMatchObject(expectedCode ? [{
         kind: "action-outcome", route: "/api/actions/:redacted", code: expectedCode,
         outcome: "conflict", provider: "base-account",
       }] : []);
@@ -565,7 +587,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(request(`/api/actions/${ID}`), context());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ id: ID, kind: "send", status: "pending", summary: row.summary });
+    expect(await readJson(response)).toMatchObject({ id: ID, kind: "send", status: "pending", summary: row.summary });
   });
 
   test("GET exposes the recorded handle time as submission time and omits it before a handle exists", async () => {
@@ -576,8 +598,9 @@ describe("actions HTTP handlers", () => {
         store: { get: async () => stored, recordHandle: async () => null, recordOutcome: recorded },
         now: () => new Date("2026-09-12T12:10:00.000Z"),
       });
-      const body = await (await handler(request(`/api/actions/${ID}`), context())).json();
-      expect(body.confirmedAt).toBe("2026-09-12T12:05:00.000Z");
+      const body = await readJson((await handler(request(`/api/actions/${ID}`), context())));
+      expect(body).toMatchObject({ confirmedAt: "2026-09-12T12:05:00.000Z" });
+      if (!isRecord(body)) throw new Error("Invalid action response");
       expect(body.submittedAt).toBe(expected);
     }
   });
@@ -589,7 +612,26 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(request(`/api/actions/${ID}`), context());
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: { code: "ACTION_NOT_FOUND", message: "The action was not found." } });
+    expect(await readJson(response)).toEqual({ error: { code: "ACTION_NOT_FOUND", message: "The action was not found." } });
+  });
+
+  test("first confirmation subscribes its owner once without awaiting a rejected subscription", async () => {
+    const subscribed: string[] = [];
+    let draft: ActionRow = row;
+    const handler = createConfirmActionHandler({ authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => draft, confirm: async () => {
+        draft = { ...row, confirmed_at: "2026-09-12T12:05:00.000Z" };
+        return draft;
+      } },
+      recordConfirmed: async () => {},
+      ensureAddressSubscribed: async (address) => { subscribed.push(address); throw new Error("subscription rejected"); },
+    });
+    const post = () => handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect((await post()).status).toBe(200);
+    expect(subscribed).toEqual([ADDRESS]);
+    expect((await post()).status).toBe(404);
+    expect(subscribed).toEqual([ADDRESS]);
   });
 
   test("confirm returns only the reviewed calls after the store clears pending", async () => {
@@ -608,8 +650,106 @@ describe("actions HTTP handlers", () => {
     const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
     expect(response.status).toBe(200);
     expect(confirmedCalls).toEqual([CALL]);
-    expect((await response.json()).calls).toEqual([CALL]);
+    expect(parseConfirmActionResponse(await readJson(response))?.calls).toEqual([CALL]);
   });
+
+  function cashoutConfirmRow(kind: "cash-out" | "cash-out-withdraw"): ActionRow {
+    const common = { providerId: "peer", providerName: "Peer", environment: "production" as const, region: "US", platform: "cash-app", platformLabel: "Cash App", currency: "USD", minConversionRate: "1", intentAmountRange: { min: "1", max: "100000000" }, estimateAsOf: "2026-09-12T12:00:00.000Z", escrow: ADDRESS };
+    return {
+      ...row,
+      kind,
+      summary: {
+        ...row.summary,
+        metadata: kind === "cash-out"
+          ? { product: "cashout", operation: "deposit", canonicalHandle: "user@example.com", approximateFiatAmount: "10", ...common }
+          : { product: "cashout", operation: "withdraw", depositId: "deposit_1", approximateFiatAmount: "0", ...common },
+      },
+    };
+  }
+
+  test("confirm rechecks the persisted cash-out region and refuses a removed region", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => false,
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(502);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_UNAVAILABLE", message: "Cash out isn't available in your region." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm fails closed when the cash-out region settings are unavailable", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => { throw new Error("settings unavailable"); },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm allows an offered cash-out region", async () => {
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(parseConfirmActionResponse(body)).not.toBeNull();
+    expect(parseConfirmActionErrorResponse(body)).toBeNull();
+  });
+
+  test("confirm never rechecks the region for withdrawals or already-confirmed cash-outs", async () => {
+    let regionChecks = 0;
+    const regionOffered = async () => { regionChecks += 1; return true; };
+    const withdraw = cashoutConfirmRow("cash-out-withdraw");
+    const withdrawHandler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered,
+      store: { get: async () => withdraw, confirm: async (_owner, _id, calls) => ({ ...withdraw, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
+    });
+    expect((await withdrawHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+
+    const confirmed = { ...cashoutConfirmRow("cash-out"), confirmed_at: "2026-09-12T12:05:00.000Z" };
+    const confirmedHandler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered,
+      store: { get: async () => confirmed, confirm: async () => null },
+    });
+    expect((await confirmedHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
+    expect(regionChecks).toBe(0);
+  });
+
+  test("confirm fails closed for a cash-out without persisted region metadata", async () => {
+    let confirms = 0;
+    const draft: ActionRow = { ...row, kind: "cash-out" };
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))?.error.code).toBe("CASHOUT_SETTINGS_UNAVAILABLE");
+    expect(confirms).toBe(0);
+  });
+
 
   test("Base confirm returns a padded batch gas hint and estimator failure remains non-blocking", async () => {
     const estimatedCalls: unknown[] = [];
@@ -635,7 +775,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await success(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ calls: [CALL], batchGasLimit: "150000" });
+    expect(await readJson(response)).toMatchObject({ calls: [CALL], batchGasLimit: "150000" });
     expect(estimatedCalls).toEqual([{ calls: [CALL], account: ADDRESS }]);
     expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
       kind: "action-confirm",
@@ -651,7 +791,7 @@ describe("actions HTTP handlers", () => {
     });
     const fallback = await unavailable(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
     expect(fallback.status).toBe(200);
-    expect(await fallback.json()).not.toHaveProperty("batchGasLimit");
+    expect(await readJson(fallback)).not.toHaveProperty("batchGasLimit");
     expect(JSON.parse(writes[1] ?? "{}")).toMatchObject({
       code: "BASE_BATCH_GAS_HINT_UNAVAILABLE",
       outcome: "unavailable",
@@ -675,7 +815,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ calls, batchGasLimit: "150000" });
+    expect(await readJson(response)).toMatchObject({ calls, batchGasLimit: "150000" });
     expect(estimatedCalls).toEqual([calls]);
   });
 
@@ -702,8 +842,8 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.calls).toEqual(calls);
+    const body = await readJson(response);
+    expect(parseConfirmActionResponse(body)?.calls).toEqual(calls);
     expect(body).not.toHaveProperty("batchGasLimit");
     expect(estimates).toBe(0);
     expect(writes).toHaveLength(1);
@@ -768,6 +908,70 @@ describe("actions HTTP handlers", () => {
     });
     expect((await failed(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
     expect(failedSignals).toEqual([]);
+  });
+
+  test("a new handle schedules follow-through, a duplicate waits for the throttle, and an unresolved row retries after it", async () => {
+    const tasks: Array<() => Promise<unknown>> = [];
+    let clock = new Date("2026-09-12T12:05:00.000Z");
+    const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HANDLE };
+    const handler = createHandleActionHandler({
+      authorize: authorize(),
+      now: () => clock,
+      markHot: async () => {},
+      schedule: (task) => { tasks.push(task); },
+      store: { recordHandle: async () => confirmed },
+    });
+    const post = () => handler(request(`/api/actions/${ID}/handle`, { method: "POST", body: JSON.stringify({ providerHandle: HANDLE }) }), context());
+
+    expect((await post()).status).toBe(200);
+    expect(tasks).toHaveLength(1);
+    expect((await post()).status).toBe(200);
+    expect(tasks).toHaveLength(1);
+
+    clock = new Date("2026-09-12T12:05:16.000Z");
+    expect((await post()).status).toBe(200);
+    expect(tasks).toHaveLength(2);
+  });
+
+  test("a settled action never schedules follow-through, including a late duplicate post", async () => {
+    const tasks: Array<() => Promise<unknown>> = [];
+    const settled = { ...row, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HANDLE, outcome: "succeeded" as const, outcome_source: "chain" as const,
+      settled_at: "2026-09-12T12:05:00.000Z", outcome_recorded_at: "2026-09-12T12:05:00.000Z" };
+    const handler = createHandleActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      markHot: async () => {},
+      schedule: (task) => { tasks.push(task); },
+      store: { recordHandle: async () => settled },
+    });
+    expect((await handler(request(`/api/actions/${ID}/handle`, { method: "POST", body: JSON.stringify({ providerHandle: HANDLE }) }), context())).status).toBe(200);
+    expect(tasks).toHaveLength(0);
+  });
+
+  test("an unavailable scheduler is reported and a later duplicate post can try again", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    let clock = new Date("2026-09-12T12:05:00.000Z");
+    const confirmed = { ...row, pending: null, confirmed_at: "2026-09-12T12:05:00.000Z", provider_handle: HANDLE };
+    const attempts: string[] = [];
+    const handler = createHandleActionHandler({
+      authorize: authorize(),
+      now: () => clock,
+      markHot: async () => {},
+      schedule: () => { attempts.push("schedule"); throw new Error("scheduler unavailable"); },
+      store: { recordHandle: async () => confirmed },
+    });
+    const post = () => handler(request(`/api/actions/${ID}/handle`, { method: "POST", body: JSON.stringify({ providerHandle: HANDLE }) }), context());
+
+    expect((await post()).status).toBe(200);
+    expect(attempts).toHaveLength(1);
+    expect(lines.map(parseLog)).toContainEqual(expect.objectContaining({
+      kind: "action-reconcile", code: "FOLLOW_SCHEDULE_UNAVAILABLE", outcome: "unavailable",
+    }));
+
+    clock = new Date("2026-09-12T12:05:01.000Z");
+    expect((await post()).status).toBe(200);
+    expect(attempts).toHaveLength(2);
   });
 
   test("handle awaits the owner balance hot signal exactly once only after success", async () => {
@@ -923,7 +1127,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(baseRequest("/api/actions"));
     expect(response.status).toBe(200);
-    expect((await response.json()).actions[0]).toMatchObject({ id: ID, status: "pending" });
+    expect((await readActions(response))[0]).toMatchObject({ id: ID, status: "pending" });
   });
 
   test("list keeps a hashless ambiguous dispatch unknown after the grace window", async () => {
@@ -939,7 +1143,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(baseRequest("/api/actions"));
     expect(response.status).toBe(200);
-    expect((await response.json()).actions[0]).toMatchObject({ id: ID, status: "unknown" });
+    expect((await readActions(response))[0]).toMatchObject({ id: ID, status: "unknown" });
   });
 
   test("list does not reconcile a candidate inside the client grace period", async () => {
@@ -983,12 +1187,12 @@ describe("actions HTTP handlers", () => {
     });
 
     const response = await handler(baseRequest("/api/actions"));
-    const body = await response.json() as { actions: Array<{ status: string }> };
+    const body = await readActions(response);
 
     expect(response.status).toBe(200);
     expect(recordedInputs).toEqual([{ transactionHash: HASH }]);
     expect(receiptHash).toBe(HASH);
-    expect(body.actions[0]?.status).toBe("confirmed");
+    expect(body[0]?.status).toBe("confirmed");
     expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
       kind: "action-reconcile",
       route: "/api/actions",
@@ -999,6 +1203,24 @@ describe("actions HTTP handlers", () => {
     });
   });
 
+  test("list exposes a settled action's receipt block time", async () => {
+    const candidate = confirmedBaseRow({ outcome: "succeeded", settled_at: blockTimestamp });
+    const handler = createListActionsHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:10:00.000Z"),
+      store: { list: async () => [candidate], recordHandle: async () => null, recordOutcome: recorded },
+    });
+
+    const body = await (await handler(baseRequest("/api/actions"))).json() as { actions: Array<{ settledAt?: string }> };
+    expect(body.actions[0]?.settledAt).toBe(blockTimestamp);
+    const [parsed] = parseRecentMoneyActions(body, {
+      user: { subject: "owner-a" },
+      smartAccount: { address: ADDRESS, chainId: 8453 },
+      accountProvider: "base-account",
+    });
+    expect(parsed?.action.id).toBe(candidate.id);
+    expect(parsed?.settledAt).toBe(blockTimestamp);
+  });
   test("list leaves pending handle resolutions unrecorded", async () => {
     const candidate = confirmedBaseRow();
     let recordCalls = 0;
@@ -1031,7 +1253,7 @@ describe("actions HTTP handlers", () => {
     });
     const response = await handler(baseRequest("/api/actions"));
     expect(response.status).toBe(200);
-    expect((await response.json()).actions[0]).toMatchObject({ id: candidate.id, status: "pending" });
+    expect((await readActions(response))[0]).toMatchObject({ id: candidate.id, status: "pending" });
   });
 
   test("list records reverted wallet outcome when no hash is returned", async () => {
@@ -1050,12 +1272,12 @@ describe("actions HTTP handlers", () => {
     });
 
     const response = await handler(baseRequest("/api/actions"));
-    const body = await response.json() as { actions: Array<{ status: string; transactionHash?: string }> };
+    const body = await readActions(response);
 
     expect(response.status).toBe(200);
     expect(recordCalls).toBe(0);
-    expect(body.actions[0]).toMatchObject({ id: candidate.id, status: "failed" });
-    expect(body.actions[0]?.transactionHash).toBeUndefined();
+    expect(body[0]).toMatchObject({ id: candidate.id, status: "failed" });
+    expect(body[0]?.transactionHash).toBeUndefined();
   });
 
   test("list tolerates a recordHandle conflict and presents the stored row", async () => {
@@ -1069,11 +1291,11 @@ describe("actions HTTP handlers", () => {
     });
 
     const response = await handler(baseRequest("/api/actions"));
-    const body = await response.json() as { actions: Array<{ status: string; transactionHash?: string }> };
+    const body = await readActions(response);
 
     expect(response.status).toBe(200);
-    expect(body.actions[0]).toMatchObject({ status: "pending" });
-    expect(body.actions[0]?.transactionHash).toBeUndefined();
+    expect(body[0]).toMatchObject({ status: "pending" });
+    expect(body[0]?.transactionHash).toBeUndefined();
   });
 
   test("list tolerates a throwing recordHandle and presents the stored row", async () => {
@@ -1092,11 +1314,11 @@ describe("actions HTTP handlers", () => {
     });
 
     const response = await handler(baseRequest("/api/actions"));
-    const body = await response.json() as { actions: Array<{ status: string; transactionHash?: string }> };
+    const body = await readActions(response);
 
     expect(response.status).toBe(200);
-    expect(body.actions[0]).toMatchObject({ id: candidate.id, status: "pending" });
-    expect(body.actions[0]?.transactionHash).toBeUndefined();
+    expect(body[0]).toMatchObject({ id: candidate.id, status: "pending" });
+    expect(body[0]?.transactionHash).toBeUndefined();
     expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
       kind: "action-reconcile",
       outcome: "unavailable",
@@ -1136,7 +1358,7 @@ describe("actions HTTP handlers", () => {
     expect([...covered].sort()).toEqual(candidates.map(({ id }) => id).sort());
   });
 
-  test("list reconciles only eligible Base rows while reading existing receipts", async () => {
+  test("list reconciles eligible rows for both providers while reading existing receipts", async () => {
     const cdpRow = confirmedBaseRow({
       id: "22222222-2222-4222-8222-222222222222",
       provider: "cdp-embedded",
@@ -1173,7 +1395,7 @@ describe("actions HTTP handlers", () => {
     const response = await handler(baseRequest("/api/actions"));
 
     expect(response.status).toBe(200);
-    expect(resolvedIds).toEqual([candidate.id]);
+    expect(resolvedIds).toEqual([cdpRow.id, candidate.id]);
     expect(receiptHashes).toEqual([HASH]);
   });
 
@@ -1191,7 +1413,7 @@ describe("actions HTTP handlers", () => {
     const response = await handler(baseRequest("/api/actions"));
 
     expect(response.status).toBe(200);
-    expect((await response.json()).actions[0]).toMatchObject({ id: candidate.id, status: "pending" });
+    expect((await readActions(response))[0]).toMatchObject({ id: candidate.id, status: "pending" });
     expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
       kind: "action-reconcile",
       outcome: "unavailable",
@@ -1232,6 +1454,6 @@ describe("actions HTTP handlers", () => {
 
     expect(response.status).toBe(200);
     expect(resolverCalls).toBe(1);
-    expect(await response.json()).toMatchObject({ id: ID, transactionHash: HASH, status: "failed" });
+    expect(await readJson(response)).toMatchObject({ id: ID, transactionHash: HASH, status: "failed" });
   });
 });

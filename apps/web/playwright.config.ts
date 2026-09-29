@@ -3,6 +3,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defineConfig } from "@playwright/test";
+import { browserSmokeCiPolicy } from "./tests/browser/ci-policy";
 
 function cachedChromiumExecutable(): string | undefined {
   const explicit = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
@@ -88,13 +89,14 @@ process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
 process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
+  globalSetup: "./tests/browser/global-setup.ts",
   testDir: "./tests/browser",
   testMatch: "**/*.pw.ts",
   fullyParallel: false,
   workers: 1,
-  // Hosted runners are 3-5x slower and render fonts differently; a real failure
-  // still fails three times, and every failure keeps its trace + video.
-  retries: process.env.CI ? 2 : 0,
+  // Hosted runners are slower and render fonts differently. A real failure fails
+  // every attempt; a pass only on retry fails CI. Failed attempts keep trace + video.
+  ...browserSmokeCiPolicy(Boolean(process.env.CI)),
   webServer: {
     command: `bun run dev -- --port ${fixturePort}`,
     url: fixtureBaseUrl,

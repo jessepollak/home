@@ -14,6 +14,7 @@ import { loadSourceFiles } from "../source-files.mjs";
 // Platform/runtime-injected (never operator configuration).
 const PLATFORM_ALLOWLIST = [
   "CI",
+  "GITHUB_SHA", // GitHub Actions-injected commit SHA for the performance trend
   "LOCALAPPDATA", // Windows user-profile path used by playwright.config.ts
   "NEXT_DEPLOYMENT_ID",
   "NEXT_RUNTIME",
@@ -37,7 +38,6 @@ const TEST_ONLY_ALLOWLIST = [
   "BALANCES_PG_TEST_URL",
   "FUNDING_PG_TEST_URL",
   "OPERATOR_PG_TEST_URL",
-  "FIGMA_TEMPLATE_TYPECHECK", // apps/web/figma-templates.test.ts: emit renders for a one-off tsc check
   "HOME_PLAYWRIGHT_SMOKE",
   "HOME_STORY_TEST_EXPLORATIONS",
   "MORPHO_LIVE_SMOKE",
