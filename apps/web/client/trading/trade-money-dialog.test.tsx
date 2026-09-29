@@ -263,6 +263,42 @@ describe("any-token trade review", () => {
     expect(document.activeElement).toBe(trade.view.getByRole("textbox", { name: "Amount" }));
   });
 
+  test("waiting for a quote keeps the amount step with a busy Continue", async () => {
+    let resolveQuote: (value: PreparedMoneyAction) => void = () => undefined;
+    const trade = dialog("buy", { prepare: () => new Promise((resolve) => { resolveQuote = resolve; }) });
+    await submit(trade.view, "1");
+    const primary = await waitFor(() => trade.view.getByRole("button", { name: "Getting quote…" }));
+    expect(primary.getAttribute("aria-busy")).toBe("true");
+    expect(trade.view.getByRole("dialog", { name: "Buy DEGEN" })).toBeTruthy();
+    expect((trade.view.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
+    expect(trade.view.queryByRole("status")).toBeNull();
+    expect((trade.view.getByRole("button", { name: "Close trade dialog" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(primary);
+    expect(trade.requests).toHaveLength(1);
+    resolveQuote(action("buy", trade.requests[0]!.amountBaseUnits, token(18)));
+    await waitFor(() => expect(trade.view.getByRole("dialog", { name: "Confirm" })).toBeTruthy());
+    expect(trade.view.getByRole("button", { name: "Buy $1.00" }).getAttribute("aria-busy")).toBeNull();
+  });
+  test("waiting for the wallet keeps the review with a busy Buy and disabled Back", async () => {
+    let resolveExecute: (value: { id: string; status: "rejected" }) => void = () => undefined;
+    const trade = dialog("buy", { execute: () => new Promise((resolve) => { resolveExecute = resolve; }) });
+    await submit(trade.view, "1");
+    click(trade.view, await waitFor(() => trade.view.getByRole("button", { name: "Buy $1.00" }).textContent!));
+    const primary = await waitFor(() => {
+      const button = trade.view.getByRole("button", { name: "Buy $1.00" });
+      expect(button.getAttribute("aria-busy")).toBe("true");
+      return button;
+    });
+    expect(trade.view.getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    expect(trade.view.getByText("You get")).toBeTruthy();
+    expect(trade.view.queryByRole("status")).toBeNull();
+    expect(trade.view.getAllByRole("button", { name: "Back" }).every((button) => (button as HTMLButtonElement).disabled)).toBe(true);
+    fireEvent.click(primary);
+    expect(trade.executions()).toBe(1);
+    resolveExecute({ id: "fixture", status: "rejected" });
+    await waitFor(() => expect(trade.view.getByText(/wallet request was rejected/)).toBeTruthy());
+    expect(trade.view.getByRole("button", { name: "Buy $1.00" }).getAttribute("aria-busy")).toBeNull();
+  });
   test("wallet rejection keeps the same review, and Back retains the amount", async () => {
     const trade = dialog("buy");
     await submit(trade.view, "1");

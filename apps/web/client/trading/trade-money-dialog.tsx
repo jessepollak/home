@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
@@ -46,7 +45,7 @@ type Props = {
   onClosed?: () => void;
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
-type Step = "amount" | "confirm" | "pending" | "failed" | "dispatch-unknown";
+type Step = "amount" | "confirm" | "failed" | "dispatch-unknown";
 
 export function TradeMoneyDialog({ open, direction, session, token, assetName, availableBaseUnits, assetPrice, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onClose, onClosed, onConfirmed }: Props) {
   const ownerKey = session.smartAccount ? dataOwnerKey(session) : null;
@@ -61,6 +60,7 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<PreparedMoneyAction | null>(null);
   const [step, setStep] = useState<Step>("amount");
+  const [busy, setBusy] = useState<"quote" | "wallet" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
   const [serverExpiredId, setServerExpiredId] = useState<string | null>(null);
@@ -80,6 +80,7 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
   useEffect(() => () => { preparation.current += 1; }, []);
   function close() {
     preparation.current += 1;
+    setBusy(null);
     onClose();
   }
   function resetAfterClose() {
@@ -100,7 +101,7 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
 
   async function prepare(requote = false) {
     const amountToPrepare = requote ? amountBaseUnits : direction === "sell" && maxSelected && enteredBaseUnits === maxBaseUnits ? TRADE_SELL_ALL : enteredBaseUnits;
-    if (!amountToPrepare || !session.smartAccount) return;
+    if (!amountToPrepare || !session.smartAccount || busy !== null) return;
     const request: TradeActionParams = {
       version: TRADE_ACTION_CONTRACT_VERSION,
       assetId: token.assetId,
@@ -109,30 +110,29 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
     };
     const generation = ++preparation.current;
     setError(null);
-    setStep("pending");
+    setBusy("quote");
     if (!requote) setAmountBaseUnits(amountToPrepare);
     try {
       const action = await prepareMoneyAction("trade", request);
       if (generation !== preparation.current) return;
       if (!matchesPreparedTrade(action, session, request, token)) throw new Error("The quote did not match this account or trade. Get a new quote.");
-      setPrepared(action); setServerExpiredId(null); setAttempted(false); setNow(Date.now()); setStep("confirm");
+      setPrepared(action); setServerExpiredId(null); setAttempted(false); setNow(Date.now()); setBusy(null); setStep("confirm");
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded quotes are fenced; current failures are shown as typed recovery states
       if (generation !== preparation.current) return;
       setError(messageForTradeError(caught, direction));
-      setStep(requote ? "confirm" : "amount");
+      setBusy(null);
     }
   }
 
   async function confirm() {
-    if (!prepared || !metadata || step !== "confirm") return;
+    if (!prepared || !metadata || step !== "confirm" || busy !== null) return;
     if (actionExpired || recheckExpired()) { setServerExpiredId(prepared.id); return; }
     setError(null);
-    setStep("pending");
+    setBusy("wallet");
     try {
       const result = await executeMoneyAction(prepared);
       if (result.status === "rejected") {
         setError("The wallet request was rejected. Review the quote and try again.");
-        setStep("confirm");
         return;
       }
       setAttempted(true);
@@ -161,7 +161,8 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
         setAttempted(true);
         setError("We couldn't confirm this trade yet. Retry to record the same trade, or check Activity before trading again.");
       }
-      setStep("confirm");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -170,15 +171,15 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
     : { assetId: token.assetId, assetLabel: token.symbol, assetMark: presentPortfolioAssetMark({ assetKey: assetKeyForErc20(token.address), name: assetName, symbol: token.symbol, currency: null }) };
   const spentAmount = metadata ? tradeDisplayAmount(metadata.fromAmountBaseUnits, metadata.fromAsset) : "";
   return <MoneyMotionProvider>
-    <MoneyModal open={open} labelledBy="trade-action-title" pending={step === "pending"} onCancel={close} onClose={resetAfterClose}>
-      <MoneyModalStep step={step === "pending" || step === "failed" ? "confirm" : step} depth={step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1}>
+    <MoneyModal open={open} labelledBy="trade-action-title" pending={busy !== null} onCancel={close} onClose={resetAfterClose}>
+      <MoneyModalStep step={step === "failed" ? "confirm" : step} depth={step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1}>
       <MoneyModalHeader title={step === "amount" ? `${direction === "buy" ? "Buy" : "Sell"} ${assetName}` : step === "dispatch-unknown" ? "Check Activity" : "Confirm"} titleId="trade-action-title"
-        {...(step === "amount" ? { assetControl: <MoneyAssetPicker {...amountAssetProps} locked /> } : canGoBack ? { onBack: back } : {})} closeLabel="Close trade dialog" />
-      <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
+        {...(step === "amount" ? { assetControl: <MoneyAssetPicker {...amountAssetProps} locked /> } : canGoBack ? { onBack: back, backDisabled: busy !== null } : {})} closeLabel="Close trade dialog" />
+      <MoneyModalBody hasFooter className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={(value) => { setAmount(value); setMaxSelected(false); }}
-            onMaxSelect={() => setMaxSelected(true)}
-            overAvailable={exceedsAvailable} onSubmit={canContinue ? () => void prepare() : undefined}
+          <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={(value) => { if (busy !== null) return; setAmount(value); setMaxSelected(false); }}
+            onMaxSelect={() => { if (busy === null) setMaxSelected(true); }}
+            overAvailable={exceedsAvailable} onSubmit={canContinue && busy === null ? () => void prepare() : undefined}
             {...amountAssetProps} assetControl="header" assetLocked
             nativeSymbol={symbol} unit={direction === "buy" ? cashUnit : sellUnit}
             availableLabel={reservePending ? reserveFailed ? "Network fee unavailable" : "Checking network fee…" : maxBaseUnits !== null ? `${decimalFromBaseUnits(maxBaseUnits, decimals)} available` : "Balance unavailable"}
@@ -195,14 +196,13 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
             { label: "You get", value: `≈ ${tradeDisplayAmount(metadata.expectedToAmountBaseUnits, metadata.toAsset)}` },
           ]}
           details={tradeDetailRows(prepared, metadata, actionExpired ? 0 : secondsLeft)} /> : null}
-        {step === "pending" ? <Notice><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />{prepared ? "Waiting for your wallet…" : "Getting a quote…"}</span></Notice> : null}
         {step === "dispatch-unknown" ? <Notice tone="error" role="alert">This trade may have been submitted. Check Activity for its result.</Notice> : null}
         {expiredUnresolved ? <Notice tone="error" role="alert">This quote expired before the outcome was recorded. Check Activity before trading again.</Notice>
           : error ? <Notice tone="error" role="alert">{error}</Notice> : null}
       </MoneyModalBody>
-      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinue} onPrimary={() => void prepare()} /> : null}
-      {step === "confirm" && prepared ? <MoneyConfirmFooter action={prepared} actionExpired={actionExpired}
-        primaryLabel={expiredUnresolved ? "Close" : actionExpired ? "Get new quote" : attempted ? "Retry" : `${direction === "buy" ? "Buy" : "Sell"} ${spentAmount}`}
+      {step === "amount" ? <MoneyModalFooter primaryLabel={busy === "quote" ? "Getting quote…" : "Continue"} primaryDisabled={!canContinue} primaryLoading={busy === "quote"} onPrimary={() => void prepare()} /> : null}
+      {step === "confirm" && prepared ? <MoneyConfirmFooter action={prepared} actionExpired={actionExpired} submitting={busy !== null}
+        primaryLabel={busy === "quote" ? "Getting quote…" : expiredUnresolved ? "Close" : actionExpired ? "Get new quote" : attempted ? "Retry" : `${direction === "buy" ? "Buy" : "Sell"} ${spentAmount}`}
         primaryDisabled={!metadata} onPrimary={() => void (expiredUnresolved ? close() : actionExpired ? prepare(true) : confirm())}
         {...(canGoBack ? { secondaryLabel: "Back", onSecondary: back } : {})} /> : null}
       {step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={back} secondaryLabel="Close" onSecondary={close} /> : null}
