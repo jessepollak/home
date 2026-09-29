@@ -1,7 +1,7 @@
 import "server-only";
 
-import { emitServerEvent } from "@/server/observability/log";
-import type { ServerEventKind } from "@/server/observability/schema";
+import { emitUpstreamCall } from "@/server/observability/log";
+import type { UpstreamCallCode } from "@/server/observability/schema";
 
 type DeadlineClock = { now(): number; timeout(ms: number): AbortSignal };
 type FailureKind = "aborted" | "timeout" | "transport" | "http" | "oversized" | "invalid";
@@ -106,7 +106,7 @@ export type UpstreamRequestOptions<T = unknown> = {
   parse?: (value: unknown) => T;
   responseType?: "json" | "text";
   fetchImpl?: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
-  log?: { kind: ServerEventKind; route: string; provider?: string };
+  log?: { route: string; provider?: string };
 };
 
 async function raceSignal<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -157,7 +157,7 @@ async function boundedBytes(body: ReadableStream<Uint8Array> | null, maxBytes: n
   }
 }
 
-const failureCodes: Record<FailureKind, string> = {
+const failureCodes: Record<FailureKind, UpstreamCallCode> = {
   aborted: "UPSTREAM_ABORTED",
   timeout: "UPSTREAM_TIMEOUT",
   transport: "UPSTREAM_TRANSPORT",
@@ -184,16 +184,22 @@ export async function upstreamRequest(
   const { deadline, maxBytes, log } = options;
   const start = deadline.now();
   let dispatched = false;
+  let responseStatus: number | undefined;
+  const method = options.init?.method?.toUpperCase() ?? "GET";
   const fail = (kind: FailureKind, details: { status?: number; cause?: unknown } = {}): UpstreamResult<unknown> => {
     const durationMs = Math.max(0, deadline.now() - start);
     if (log) {
-      emitServerEvent(log.kind, {
+      const status = details.status ?? responseStatus;
+      emitUpstreamCall({
         route: log.route,
         provider: log.provider,
-        code: kind === "http" && details.status !== undefined
-          ? details.status < 400 ? "UPSTREAM_HTTP_3XX" : details.status < 500 ? "UPSTREAM_HTTP_4XX" : "UPSTREAM_HTTP_5XX"
+        code: kind === "http" && status !== undefined
+          ? status < 400 ? "UPSTREAM_HTTP_3XX" : status < 500 ? "UPSTREAM_HTTP_4XX" : "UPSTREAM_HTTP_5XX"
           : failureCodes[kind],
         outcome: kind === "aborted" && !dispatched ? "skipped" : kind === "invalid" ? "invalid" : "unavailable",
+        method,
+        statusCode: status,
+        errorType: kind === "http" && status !== undefined ? String(status) : kind === "invalid" ? "invalid_response" : kind,
         durationMs,
       });
     }
@@ -223,6 +229,7 @@ export async function upstreamRequest(
       () => undefined,
     );
     response = await raceSignal(pendingFetch, deadline.signal);
+    responseStatus = response.status;
   } catch (error) {
     const kind = deadline.interruptionKind();
     return fail(kind ?? "transport", { cause: error === interrupted ? undefined : error });
@@ -275,7 +282,14 @@ export async function upstreamRequest(
       }
       const afterParse = deadline.interruptionKind();
       if (afterParse) return fail(afterParse);
-      return { ok: true, status: response.status, headers: response.headers, value, durationMs: Math.max(0, deadline.now() - start) };
+      const durationMs = Math.max(0, deadline.now() - start);
+      if (log) {
+        emitUpstreamCall({
+          route: log.route, provider: log.provider, code: "UPSTREAM_OK", outcome: "ok",
+          method, statusCode: response.status, durationMs,
+        });
+      }
+      return { ok: true, status: response.status, headers: response.headers, value, durationMs };
     } catch (error) {
       const kind = deadline.interruptionKind();
       return fail(kind ?? "invalid", { cause: error });

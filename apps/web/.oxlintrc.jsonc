@@ -502,6 +502,7 @@
               "createClientPerformanceHandler",
               "emitServerEvent",
               "endHomeAuthRestoreStage",
+              "emitUpstreamCall",
               "finishHomeAuthRestore",
               "installClientErrorReporting",
               "markHomeAuthRestore",
