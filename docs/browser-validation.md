@@ -30,7 +30,7 @@ Use only `bun run ab --` from the repository root: it checks the local binary ag
 
 ### Fixture session on port 3199
 
-`HOME_FIXTURE_PORT` defaults to `3199` and is shared with Playwright. If a runner has its own assigned port, export it before starting the fixture server or Playwright; wait only for that assigned port to be free, not for `3199`. Otherwise wait for `3199` to be free. Do not kill the port occupant. Start this server in the cleanup shell, retain its exact PID, and use only the fixture environment (no `.env.local`, provider or production credentials):
+`HOME_FIXTURE_PORT` defaults to `3199` for the fixture server below. Export it to pin the fixture server and Playwright smoke to one assigned port. When it is unset, Playwright smoke binds a free ephemeral port, holds a reservation for it under the system temp directory keyed by port and owning process (another participating run skips a reserved port, and a reservation whose owner is gone is reclaimed), then exports the port to its workers and names it in the web-server log, so two worktrees can run the suite concurrently. The reservation coordinates only runs that use it: if a process outside the suite binds the chosen port before the dev server starts, the web server fails to start and the run needs a rerun. Wait only for the assigned port to be free, not for `3199`. Otherwise wait for `3199` to be free. Do not kill the port occupant. Start this server in the cleanup shell, retain its exact PID, and use only the fixture environment (no `.env.local`, provider or production credentials):
 
 ```sh
 export HOME_FIXTURE_PORT="${HOME_FIXTURE_PORT:-3199}"
