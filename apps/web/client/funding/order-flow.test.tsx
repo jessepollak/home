@@ -79,86 +79,48 @@ test("selecting a payment method does not request a quote until Review quote", a
   expect(page().queryByRole("radiogroup", { name: "Payment method" })).toBeNull();
 });
 
-test("confirming a funding order invalidates the owner's activity orders", async () => {
-  const client = getHomeQueryClient();
-  client.setQueryData(activityKey, { orders: [] });
-  renderFlow(async (path) => {
-    if (path === "/api/funding/quotes") return {
-      version: FUNDING_QUOTE_VERSION,
-      quoteToken: "signed-token",
-      quote: { fiatAmount: "100", tokenAmountAtomic: "100000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
-    };
-    if (path === "/api/funding/orders") return { order };
-    if (path === `/api/funding/orders/${order.id}`) return { order };
-    throw new Error(`Unexpected request: ${path}`);
-  });
-  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
-  fireEvent.click(page().getByRole("button", { name: "Review quote" }));
-  await page().findByRole("heading", { name: "Review quote" });
-  expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
-  fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
-  await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
-});
-
-test("a failed confirm does not invalidate activity orders", async () => {
-  const client = getHomeQueryClient();
-  client.setQueryData(activityKey, { orders: [] });
-  renderFlow(async (path) => {
-    if (path === "/api/funding/quotes") return {
-      version: FUNDING_QUOTE_VERSION,
-      quoteToken: "signed-token",
-      quote: { fiatAmount: "100", tokenAmountAtomic: "100000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
-    };
-    if (path === "/api/funding/orders") throw new Error("unavailable");
-    throw new Error(`Unexpected request: ${path}`);
-  });
-  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
-  fireEvent.click(page().getByRole("button", { name: "Review quote" }));
-  await page().findByRole("heading", { name: "Review quote" });
-  fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
-  await page().findByRole("alert");
-  expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
-});
-
-test("a changed funding order state invalidates activity orders", async () => {
-  const client = getHomeQueryClient();
-  client.setQueryData(activityKey, { orders: [] });
-  renderFlow(async (path) => {
-    if (path === `/api/funding/orders/${order.id}`) return { order: { ...order, state: "settling" } };
-    throw new Error(`Unexpected request: ${path}`);
-  }, order);
-  expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
-  await client.refetchQueries({ queryKey: ownerQueryKey(ownerKey, "funding-order", order.id) });
-  await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
-});
-
-test("resolving an ambiguous funding order invalidates activity orders", async () => {
+test.each([
+  ["confirming a funding order invalidates", "confirm", true],
+  ["a failed confirm does not invalidate", "confirm", false],
+  ["a changed funding order state invalidates", "poll", true],
+  ["resolving an ambiguous funding order invalidates", "resolve", true],
+  ["a failed resolve does not invalidate", "resolve", false],
+] as const)("%s activity orders", async (_name, trigger, succeeds) => {
   const client = getHomeQueryClient();
   const ambiguous = { ...order, state: "dispatch-ambiguous" };
   client.setQueryData(activityKey, { orders: [] });
   renderFlow(async (path) => {
-    if (path === `/api/funding/orders/${order.id}/resolve`) return { version: 1, order: { ...order, state: "cancelled" } };
-    if (path === `/api/funding/orders/${order.id}`) return { order: ambiguous };
+    if (path === "/api/funding/quotes" && trigger === "confirm") return {
+      version: FUNDING_QUOTE_VERSION,
+      quoteToken: "signed-token",
+      quote: { fiatAmount: "100", tokenAmountAtomic: "100000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+    };
+    if (path === "/api/funding/orders" && trigger === "confirm") {
+      if (!succeeds) throw new Error("unavailable");
+      return { order };
+    }
+    if (path === `/api/funding/orders/${order.id}/resolve` && trigger === "resolve") {
+      if (!succeeds) throw new Error("unavailable");
+      return { version: 1, order: { ...order, state: "cancelled" } };
+    }
+    if (path === `/api/funding/orders/${order.id}`) return { order: trigger === "poll" ? { ...order, state: "settling" } : trigger === "resolve" ? ambiguous : order };
     throw new Error(`Unexpected request: ${path}`);
-  }, ambiguous);
+  }, trigger === "confirm" ? undefined : trigger === "resolve" ? ambiguous : order);
+  if (trigger === "confirm") {
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
+    fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+    await page().findByRole("heading", { name: "Review quote" });
+  }
   expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
-  fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
-  await page().findByText("Order cleared");
-  await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
-});
-
-test("a failed resolve does not invalidate activity orders", async () => {
-  const client = getHomeQueryClient();
-  const ambiguous = { ...order, state: "dispatch-ambiguous" };
-  client.setQueryData(activityKey, { orders: [] });
-  renderFlow(async (path) => {
-    if (path === `/api/funding/orders/${order.id}/resolve`) throw new Error("unavailable");
-    if (path === `/api/funding/orders/${order.id}`) return { order: ambiguous };
-    throw new Error(`Unexpected request: ${path}`);
-  }, ambiguous);
-  fireEvent.click(page().getByRole("button", { name: "Clear old order" }));
-  await page().findByRole("alert");
-  expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
+  if (trigger === "poll") {
+    await client.refetchQueries({ queryKey: ownerQueryKey(ownerKey, "funding-order", order.id) });
+  } else {
+    fireEvent.click(page().getByRole("button", { name: trigger === "confirm" ? "Confirm deposit" : "Clear old order" }));
+  }
+  if (!succeeds) await page().findByRole("alert");
+  if (trigger === "resolve" && succeeds) await page().findByText("Order cleared");
+  if (succeeds) await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
+  else expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
 });
 
 test("a verification response without a hand-off still shows the returned blocked setup state", async () => {
