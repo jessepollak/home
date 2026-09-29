@@ -5,9 +5,11 @@ import { MARKET_PRICES_VERSION, type MarketPricesResponse } from "../../../share
 import { MARKET_PRICE_HISTORY_VERSION, type MarketPriceHistoryResponse } from "../../../shared/invest/contracts/market-price-history";
 import { VERIFIED_MORPHO_MARKETS } from "../../../shared/morpho-markets/config";
 import { buyRouteForToken } from "../../../shared/trading/assets";
+import { cashConversionCurrencies } from "../../../shared/trading/cash-conversion";
 import { preparedSendFixtureAction } from "../fixtures/api";
 import { COUNTRY_PREFERENCE_VERSION } from "../../../shared/account/contracts/country-preference";
 import { cashoutFixtureAction, cashoutFixtureProgress, cashoutFixtureWithdraw } from "./cashout-fixture";
+import { conversionFixtureAction } from "./conversion-fixture";
 import {
   actionsBody,
   basenameProfileBody,
@@ -134,6 +136,7 @@ export function fixtureRoutes() {
   const borrowOverview = borrowOverviewBody();
   const prepared = preparedSendFixtureAction(recentRecipient);
   const assetIds = new Set([
+    ...cashConversionCurrencies.filter((currency) => currency.code !== "USD").map((currency) => currency.tradeAssetId),
     ...[...cryptoAssets, ...memeAssets].map((asset) => asset.id),
     ...VERIFIED_MORPHO_MARKETS.map((market) => buyRouteForToken({ chainId: market.chainId, address: market.collateralToken.address })).filter((id): id is string => id !== null),
   ]);
@@ -154,11 +157,11 @@ export function fixtureRoutes() {
     ["**/api/actions", { actions: [...actionsBody.actions, {
       ...cashoutFixtureAction,
       cashout: { ...cashoutFixtureProgress, depositBlockNumber: balances.block.number },
-    }] }],
+    }, conversionFixtureAction] }],
     ["**/api/actions/prepare", prepared],
     ["**/api/trades/stock-eligibility", { version: 1, buy: "restricted", sell: "eligible" }],
-    ["**/api/trades?**", { version: 2, status: "unavailable", reason: "asset-unsupported" }],
     ...[...assetIds].map((assetId) => [`**/api/trades?assetId=${encodeURIComponent(assetId)}`, tradeAvailabilityBody(assetId)] as const),
+    ["**/api/trades?**", { version: 2, status: "unavailable", reason: "asset-unsupported" }],
     ["**/api/actions/network-fee", { version: 1, usdcReserveBaseUnits: "20000" }],
     [`**/api/actions/${prepared.id}`, {
       id: prepared.id, kind: prepared.kind,

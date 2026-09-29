@@ -5,9 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { OPERATOR_FEE_TOKEN, operatorFeeAmount } from "@/shared/fees/contract";
-import type { TradeActionParams, TradeDirection } from "@/shared/trading/contract";
+import type { TradeActionParams, TradeDirection, TradeToken } from "@/shared/trading/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { memeAssets } from "@/config/invest-assets";
+import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
@@ -22,21 +23,24 @@ const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const degen = memeAssets.find((asset) => asset.id === "degen")!;
 const token = { assetId: degen.id, address: degen.contractAddress.toLowerCase() as `0x${string}`, symbol: "DEGEN", decimals: 18 };
+const eur = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
+const usd = cashConversionCurrencies.find((currency) => currency.code === "USD")!;
+const eurToken = { assetId: eur.tradeAssetId, address: eur.address as `0x${string}`, symbol: eur.symbol, decimals: eur.decimals };
 const session: VerifiedAccountSession = {
   user: { subject: "synthetic-story-owner" }, smartAccount: { address: wallet, chainId: 8453 }, accountProvider: "cdp-embedded",
 };
 
-function syntheticAction(params: TradeActionParams, expired = false, tinyPrice = false): PreparedMoneyAction {
+function syntheticAction(params: TradeActionParams, expired = false, tinyPrice = false, tradedToken: TradeToken = token): PreparedMoneyAction {
   const buy = params.direction === "buy";
-  const traded = { id: token.assetId, symbol: token.symbol, decimals: token.decimals, address: token.address };
+  const traded = { id: tradedToken.assetId, symbol: tradedToken.symbol, decimals: tradedToken.decimals, address: tradedToken.address };
   const cash = { id: "usdc", symbol: "USDC", decimals: 6, address: usdc };
   const from = buy ? cash : traded;
   const to = buy ? traded : cash;
   const spend = params.amountBaseUnits === "all" ? "100000000000000000000" : params.amountBaseUnits;
-  const expected = buy ? tinyPrice ? "2000000000000000000000000" : "35000000000000000000" : "700000";
+  const expected = tradedToken === eurToken ? "900000" : buy ? tinyPrice ? "2000000000000000000000000" : "35000000000000000000" : "700000";
   const expiresAt = new Date(NOW + (expired ? -1000 : 110_000)).toISOString();
   return {
-    id: `synthetic-${params.direction}-${expiresAt}`, kind: "trade", title: `${buy ? "Buy" : "Sell"} DEGEN`,
+    id: `synthetic-${params.direction}-${expiresAt}`, kind: "trade", title: `${buy ? "Buy" : "Sell"} ${tradedToken === eurToken ? eur.name : "DEGEN"}`,
     owner: { subject: session.user.subject, address: wallet, chainId: 8453, accountProvider: session.accountProvider },
     createdAt: TIME, expiresAt, calls: [], warnings: [],
     networkFee: { payment: "usdc", token: usdc, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
@@ -47,8 +51,8 @@ function syntheticAction(params: TradeActionParams, expired = false, tinyPrice =
     signing: { signer: "cdp-embedded", evmAccount: wallet, typedData: {} } as unknown as PreparedMoneyAction["signing"],
     metadata: {
       product: "trade", provider: "cdp-swaps", direction: params.direction, network: { name: "Base", chainId: 8453 },
-      assetId: token.assetId, assetName: "DEGEN", fromAsset: from, toAsset: to, fromAmountBaseUnits: spend,
-      expectedToAmountBaseUnits: expected, minimumToAmountBaseUnits: buy ? tinyPrice ? "1980000000000000000000000" : "34650000000000000000" : "693000",
+      assetId: tradedToken.assetId, assetName: tradedToken === eurToken ? eur.name : "DEGEN", fromAsset: from, toAsset: to, fromAmountBaseUnits: spend,
+      expectedToAmountBaseUnits: expected, minimumToAmountBaseUnits: tradedToken === eurToken ? "891000" : buy ? tinyPrice ? "1980000000000000000000000" : "34650000000000000000" : "693000",
       slippageBps: 100, fees: [{ kind: "protocol", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000" }],
       approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: TIME,
       permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30), executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
@@ -81,9 +85,10 @@ type StoryProps = {
   networkFee?: "available" | "failed";
   tinyPrice?: boolean;
   serviceFee?: boolean;
+  conversion?: boolean;
   assetName?: string;
 };
-function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN" }: StoryProps) {
+function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN", conversion = false }: StoryProps) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   const [preparations, setPreparations] = useState(0);
   const fetchAccountResource = async (path: string) => path.startsWith("/api/trades?")
@@ -99,7 +104,7 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
         : { version: 1, usdcReserveBaseUnits: "20000" };
   const prepareMoneyAction = async (_kind: string, input: unknown) => {
     if (errorCode) throw { code: errorCode };
-    const quoted = syntheticAction(input as TradeActionParams, view === "expired" && preparations === 0, tinyPrice);
+    const quoted = syntheticAction(input as TradeActionParams, view === "expired" && preparations === 0, tinyPrice, conversion ? eurToken : token);
     const result = serviceFee ? withServiceFee(quoted) : quoted;
     setPreparations((count) => count + 1);
     return result;
@@ -111,7 +116,8 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
         status: "verified", verification: "server", session,
         fetchBalances: async () => balancesSnapshot("US"), fetchAccountResource,
       }}><TradeActions asset={degen} /></AccountWalletClientProvider> :
-        <TradeMoneyDialog open direction={direction} session={session} token={token} assetName={assetName}
+        <TradeMoneyDialog open direction={direction} session={session} token={conversion ? eurToken : token} assetName={conversion ? eur.name : assetName}
+          conversion={conversion ? { from: usd, to: eur } : undefined}
           availableBaseUnits={direction === "buy" ? "10000000" : "100000000000000000000"}
           assetPrice={direction === "sell" ? { currency: "USD", perUnit: { atoms: "5", scale: 3 } } : null}
           fetchAccountResource={fetchAccountResource}
@@ -305,5 +311,18 @@ export const NetworkFeeUnavailable: Story = {
     await expect(await screen.findByText("Couldn't check the network fee.", {}, { timeout: 3000 })).toBeVisible();
     await expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     await expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+  },
+};
+
+export const USDToEURConversionReview: Story = {
+  args: { view: "review", conversion: true },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), "1");
+    await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    await expect(await screen.findByText("Convert USD to EUR")).toBeVisible();
+    await expect(await screen.findByText("You receive")).toBeVisible();
+    await expect(await screen.findByText("Rate")).toBeVisible();
+    await expect(await screen.findByRole("button", { name: "Convert $1.00" })).toBeEnabled();
   },
 };

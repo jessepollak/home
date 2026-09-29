@@ -16,11 +16,14 @@ import { readSavingsPreparedReview } from "@/shared/savings/review";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
 import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
-import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { browserHomeQueryClient, getHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { moneySheetIntent } from "@/client/money-modal";
 import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry } from "@/client/savings/savings-actions";
+import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
+import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
+import { invalidateAfterAction } from "@/client/query/after-action";
+import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
@@ -33,6 +36,7 @@ import type { SavingsGrowthAuthority } from "@/client/savings/use-estimated-grow
 import { selectVaultPositions } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
+import type { CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   DerivedActionStatus,
@@ -54,6 +58,15 @@ import { savingsManagement, type SavingsManagement } from "./savings-management"
 
 const SAVINGS_JOURNEY_TITLE_ID = "savings-journey-title";
 const noDeadline = () => null;
+
+const CashCurrencySheet = deferSheet(() => import("./cash-currency-sheet").then((module) => module.CashCurrencySheet),
+  (props) => moneySheetLoading({
+    title: props.entry.kind === "convert" ? "Convert to" : cashConversionCurrencies.find((currency) => currency.code === props.entry.source)?.name ?? "Cash",
+    titleId: "cash-conversion-title",
+    closeLabel: props.entry.kind === "convert" ? "Close conversion" : "Close currency details",
+    onCancel: props.onCancel,
+    onClosed: () => props.onClosed(false),
+  }));
 type View = "cash" | "savings";
 type Mode = SavingsActionMode;
 type PendingFirstDeposit = { account: string; action: PreparedMoneyAction; submission: "submitted" | "ambiguous" };
@@ -370,6 +383,54 @@ export function CashExperience({
   const latestJourneyGeneration = useRef(0);
   const previousOwner = useRef(ownerIdentity);
   const opener = useRef<HTMLElement | null>(null);
+  const currencyOpener = useRef<HTMLElement | null>(null);
+  const [currencyEntry, setCurrencyEntry] = useState<{ kind: "convert" | "currency"; source: CashConversionCurrencyCode } | null>(null);
+  const [currencyOpen, setCurrencyOpen] = useState(false);
+  const [currencyUnresolved, setCurrencyUnresolved] = useState(false);
+  const [currencyReset, setCurrencyReset] = useState(0);
+  const [currencyOwner, setCurrencyOwner] = useState<string | null>(null);
+  const [currencySnapshot, setCurrencySnapshot] = useState<BalancesSnapshot | null>(null);
+  const currencyBalanceSnapshot = liveSnapshot ?? currencySnapshot;
+  const sessionOwner = session?.smartAccount ? dataOwnerKey(session) : null;
+  const currencyReady =
+    view === "cash" &&
+    currencyOwner !== null &&
+    sessionOwner === currencyOwner &&
+    Boolean(session?.smartAccount) &&
+    Boolean(currencyBalanceSnapshot) &&
+    Boolean(fetchAccountResource);
+  if (currencyOwner !== null && !currencyReady) {
+    setCurrencyOpen(false);
+    setCurrencyUnresolved(false);
+    setCurrencyEntry(null);
+    setCurrencySnapshot(null);
+    setCurrencyOwner(null);
+    setConfirmed(false);
+  }
+  useIdlePreload(CashCurrencySheet.preload, view === "cash" && Boolean(session?.smartAccount));
+  function openCurrency(kind: "convert" | "currency", source: CashConversionCurrencyCode, opener: HTMLElement) {
+    if (!session?.smartAccount || !liveSnapshot || balanceStatus !== "ready") return;
+    currencyOpener.current = opener;
+    const owner = dataOwnerKey(session);
+    if (!currencyUnresolved || currencyOwner !== owner || currencyEntry?.kind !== kind || currencyEntry.source !== source) {
+      setCurrencyReset((key) => key + 1);
+      setCurrencyEntry({ kind, source });
+      setCurrencyUnresolved(false);
+    }
+    setCurrencyOwner(owner);
+    setCurrencySnapshot(liveSnapshot);
+    void CashCurrencySheet.preload();
+    setCurrencyOpen(true);
+  }
+  function currencyClosed(unresolved: boolean) {
+    setCurrencyUnresolved(unresolved);
+    setConfirmed(false);
+    if (!unresolved) setCurrencyEntry(null);
+    const element = currencyOpener.current;
+    currencyOpener.current = null;
+    if (element?.isConnected && !element.matches(":disabled")) element.focus();
+    else document.querySelector<HTMLButtonElement>("[data-shell-back] button:not(:disabled)")?.focus();
+  }
   const autoClosed = useRef<{ mode: Mode; target: MorphoVaultCandidate } | null>(null);
   const [autoClosedSelection, setAutoClosedSelection] = useState<{ mode: Mode; target: MorphoVaultCandidate } | null>(null);
   const [routedJourney, setRoutedJourney] = useState<Mode | null>(null);
@@ -405,7 +466,7 @@ export function CashExperience({
   const savingsPortfolioEmpty = summary?.funded === false;
   const actions = useHomeQuery({
     queryKey: actionsQueryKey,
-    enabled: view === "savings" && accountIdentity !== null && fetchAccountResource !== undefined,
+    enabled: (view === "savings" || currencyOpen) && accountIdentity !== null && fetchAccountResource !== undefined,
     ...recentActionsQueryOptions,
     refetchOnWindowFocus: (query) => refetchFailedRecentActions(query) || (savingsPortfolioEmpty ? "always" : false),
     refetchOnReconnect: (query) => refetchFailedRecentActions(query) || (savingsPortfolioEmpty ? "always" : false),
@@ -466,6 +527,7 @@ export function CashExperience({
   const savingsEntryUnresolved = actionHistoryUnresolved || undisplayableInFlightDeposit || unparsedSavingsDeposit;
   const depositEntryBlocked = !fundedNow &&
     (localPendingUnresolved || serverInFlightDeposits.length > 0 || savingsEntryUnresolved || actionsStatus === "loading");
+  const currencyDepositBlocked = !fundedNow && (depositEntryBlocked || actions.data === undefined);
   const firstUseHistoryPending = hasHistorySource && firstUseHistoryFloor > 0 &&
     Math.max(actions.dataUpdatedAt, actions.errorUpdatedAt) < firstUseHistoryFloor;
   const firstUseHistoryBlocked = !fundedNow && !confirmed &&
@@ -499,8 +561,9 @@ export function CashExperience({
     chooseFlowCleared.current = true;
     routing.clearFlow({ mode: "replace" });
   }, [routing, chooseFlowSuperseded]);
-  const depositFlowSuperseded = mode === "deposit" && !confirmed && !fundedNow &&
+  const firstDepositSuperseded = !confirmed && !fundedNow &&
     (serverInFlightDeposits.length > 0 || savingsEntryUnresolved || localPendingUnresolved);
+  const depositFlowSuperseded = mode === "deposit" && firstDepositSuperseded;
   if (!routing && depositFlowSuperseded) setLocalMode(null);
 
   useEffect(() => {
@@ -525,6 +588,7 @@ export function CashExperience({
     setLocalMode(null);
     autoClosed.current = null;
     opener.current = null;
+    currencyOpener.current = null;
     if (routing) routing.clearFlow({ mode: "replace" });
   }, [ownerIdentity, routing]);
   useEffect(() => {
@@ -661,6 +725,28 @@ export function CashExperience({
       routing.clearFlow({ mode: "replace" });
     } else setLocalMode(null);
   }
+  function armFirstDepositHistory() {
+    setConfirmed(false);
+    setFirstUseHistoryFloor(Date.now());
+    if (fetchAccountResource) void actions.refetch();
+  }
+  async function executeSavingsAction(action: PreparedMoneyAction): Promise<OperationResult> {
+    const holdsConfirmation = action.kind === "savings-deposit" || action.kind === "savings-withdraw";
+    if (holdsConfirmation) setConfirmed(true);
+    const markPending = (submission: PendingFirstDeposit["submission"]) => {
+      if (action.kind === "savings-deposit" && accountIdentity) setPendingFirstDeposit({ account: accountIdentity, action, submission });
+    };
+    try {
+      const result = await executeMoneyAction(action);
+      if (result.status !== "rejected" && result.status !== "failed") markPending("submitted");
+      else if (holdsConfirmation) setConfirmed(false);
+      return result;
+    } catch (error) {
+      if (error instanceof TransferExecutionError && (error.reason === "submission-unknown" || error.reason === "dispatch-unknown")) markPending("ambiguous");
+      else if (holdsConfirmation) setConfirmed(false);
+      throw error;
+    }
+  }
   function startSaving() {
     setDepositFailed(false);
     autoClosed.current = null;
@@ -668,8 +754,7 @@ export function CashExperience({
     latestJourneyGeneration.current += 1;
     setJourneyGeneration(latestJourneyGeneration.current);
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setFirstUseHistoryFloor(Date.now());
-    if (fetchAccountResource) void actions.refetch();
+    armFirstDepositHistory();
     setEntry("amount");
     setTargetSelection(null);
     setConfirmed(false);
@@ -681,10 +766,7 @@ export function CashExperience({
     autoClosed.current = null;
     setAutoClosedSelection(null);
     leavingForAddMoney.current = false;
-    if (nextMode === "deposit" && !fundedNow) {
-      setFirstUseHistoryFloor(Date.now());
-      if (fetchAccountResource) void actions.refetch();
-    }
+    if (nextMode === "deposit" && !fundedNow) armFirstDepositHistory();
     if (managementAddress === null) {
       latestJourneyGeneration.current += 1;
       setJourneyGeneration(latestJourneyGeneration.current);
@@ -815,6 +897,11 @@ export function CashExperience({
           onOpenSavings={onOpenSavings}
           onAddMoney={onAddMoney}
           onAddMoneyIntent={onAddMoneyIntent}
+          actionsAvailable={Boolean(session?.smartAccount)}
+          onConvert={(element) => openCurrency("convert", "USD", element)}
+          onConvertIntent={() => void CashCurrencySheet.preload()}
+          onCurrencyIntent={() => void CashCurrencySheet.preload()}
+          onOpenCurrency={session?.smartAccount ? (code, element) => openCurrency("currency", code, element) : undefined}
           onRetryBalances={onRetryBalances}
         />
       ) : (
@@ -862,6 +949,12 @@ export function CashExperience({
         funded={fundedNow}
         onFailed={markDepositFailed}
       />
+      {currencyReady && currencyEntry && session?.smartAccount && currencyBalanceSnapshot && fetchAccountResource ? <CashCurrencySheet key={`${currencyReset}:${currencyOwner}`} open={currencyOpen} entry={currencyEntry}
+        session={session} snapshot={currencyBalanceSnapshot} best={best} balanceStale={balanceStale || !liveSnapshot} depositEntryBlocked={currencyDepositBlocked}
+        historyBlocked={firstUseHistoryBlocked || firstDepositSuperseded} onSaveEntry={armFirstDepositHistory}
+        fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeSavingsAction}
+        onCancel={() => setCurrencyOpen(false)} onClosed={currencyClosed} onAddMoney={onAddMoney}
+        onConfirmed={() => invalidateAfterAction(getHomeQueryClient(), dataOwnerKey(session))} /> : null}
       {session && (activeManagement !== null || target !== null || choosing) ? (
         <SavingsJourney
           titleId={SAVINGS_JOURNEY_TITLE_ID}
@@ -900,22 +993,7 @@ export function CashExperience({
           }
           fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
-          executeMoneyAction={async (action) => {
-            setConfirmed(true);
-            const markPending = (submission: PendingFirstDeposit["submission"]) => {
-              if (mode === "deposit" && accountIdentity) setPendingFirstDeposit({ account: accountIdentity, action, submission });
-            };
-            try {
-              const result = await executeMoneyAction(action);
-              if (result.status !== "rejected" && result.status !== "failed") markPending("submitted");
-              else setConfirmed(false);
-              return result;
-            } catch (error) {
-              if (error instanceof TransferExecutionError && (error.reason === "submission-unknown" || error.reason === "dispatch-unknown")) markPending("ambiguous");
-              else setConfirmed(false);
-              throw error;
-            }
-          }}
+          executeMoneyAction={executeSavingsAction}
           onSelectMode={open}
           onBackToManagement={backToManagement}
           onClose={close}

@@ -27,6 +27,8 @@ import {
   decimalFromBaseUnits,
   isPositiveDecimalAmount,
   useMoneyAmountUnit,
+  useMoneyModalExit,
+  useMoneyModalPending,
   MoneyResult,
   MoneyResultFooter,
   maxAmountAfterNetworkFee,
@@ -90,12 +92,27 @@ export type SavingsJourneyProps = {
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
 
+export type SavingsMoneyFlowProps = Pick<SavingsJourneyProps, "session" | "availableLabel" | "availableBaseUnits" | "availableStale" | "historyBlocked" | "fetchAccountResource" | "prepareMoneyAction" | "executeMoneyAction" | "onConfirmed"> & {
+  mode: SavingsActionMode;
+  candidate: MorphoVaultCandidate;
+  depth?: number;
+  onBack?: () => void;
+  onDone?: () => void;
+};
+
 type DialogStep = "amount" | "confirm" | "pending" | "error" | "result";
 type Submission = "submitted" | "ambiguous" | "failed";
 
 export function SavingsJourney(props: SavingsJourneyProps) {
   const candidate = props.candidate ?? props.picker?.options[0]?.candidate ?? null;
   return <OwnerBoundSavingsJourney key={savingsDialogOwnerIdentity(props.session)} {...props} candidate={candidate} pickerOpen={props.candidate === null} />;
+}
+
+/** @public Embeddable Save deposit and withdrawal steps for a MoneyModal host. */
+export function SavingsMoneyFlow({ depth = 0, onBack, onDone, ...props }: SavingsMoneyFlowProps) {
+  const exit = useMoneyModalExit();
+  return <OwnerBoundSavingsJourney key={savingsDialogOwnerIdentity(props.session)} {...props} open entry={onBack ? "management" : "amount"}
+    management={null} pickerOpen={false} onSelectMode={() => {}} onBackToManagement={onBack ?? (() => {})} onClose={onDone ?? exit} embeddedDepth={depth} />;
 }
 
 function OwnerBoundSavingsJourney({
@@ -121,7 +138,8 @@ function OwnerBoundSavingsJourney({
   onClose,
   onClosed,
   onConfirmed,
-}: SavingsJourneyProps & { candidate: MorphoVaultCandidate | null; pickerOpen: boolean }) {
+  embeddedDepth,
+}: SavingsJourneyProps & { candidate: MorphoVaultCandidate | null; pickerOpen: boolean; embeddedDepth?: number }) {
   const {
     motion = "system",
     assetId: selectedAssetId,
@@ -192,6 +210,8 @@ function OwnerBoundSavingsJourney({
   const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open && mode !== null);
   const inPicker = Boolean(picker && pickerOpen);
   const title = inPicker ? "Choose where to save" : step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
+  useMoneyModalPending(embeddedDepth !== undefined && step === "pending");
+  const baseDepth = embeddedDepth ?? 1;
 
   function changeAmount(value: string) {
     setAmount(value);
@@ -372,26 +392,13 @@ function OwnerBoundSavingsJourney({
     locked: !assetOptions || !onAssetChange,
   };
 
-  return (
-    <MoneyMotionProvider reducedMotion={motion === "reduced" ? true : undefined}>
-      <MoneyModal
-        open={open}
-        immediate={motion === "reduced"}
-        labelledBy={titleId}
-        pending={step === "pending"}
-        onCancel={onClose}
-        onClose={() => {
-          reset();
-          onClosed?.();
-        }}
-      >
-        {mode === null && management ? <MoneyModalStep step="management" depth={0} initialFocusRef={managementFocusRef}>
+  const content = mode === null && management ? <MoneyModalStep step="management" depth={0} initialFocusRef={managementFocusRef}>
           <SavingsManagementSheet management={management} titleId={titleId} detailsId={detailsId}
             detailsOpen={detailsOpen} onDetailsOpenChange={setDetailsOpen} initialFocusRef={managementFocusRef}
             restoreAction={focusAction}
             onDeposit={() => { if (management.depositCandidate) { setFocusAction("deposit"); onSelectMode("deposit", management.depositCandidate); } }}
             onWithdraw={() => { if (management.withdrawCandidate) { setFocusAction("withdraw"); onSelectMode("withdraw", management.withdrawCandidate); } }} />
-        </MoneyModalStep> : mode !== null && (candidate || inPicker) ? <MoneyModalStep step={inPicker ? "picker" : step === "pending" || step === "error" ? "confirm" : step} depth={inPicker ? 0 : step === "amount" ? 1 : step === "result" ? 3 : 2}>
+        </MoneyModalStep> : mode !== null && (candidate || inPicker) ? <MoneyModalStep step={inPicker ? "picker" : step === "pending" || step === "error" ? "confirm" : step} depth={inPicker ? 0 : baseDepth + (step === "amount" ? 0 : step === "result" ? 2 : 1)}>
         <MoneyModalHeader
           title={title}
           titleId={titleId}
@@ -521,7 +528,23 @@ function OwnerBoundSavingsJourney({
             onPrimary={goBack}
           />
         ) : null}
-        </MoneyModalStep> : null}
+        </MoneyModalStep> : null;
+
+  if (embeddedDepth !== undefined) return content;
+  return (
+    <MoneyMotionProvider reducedMotion={motion === "reduced" ? true : undefined}>
+      <MoneyModal
+        open={open}
+        immediate={motion === "reduced"}
+        labelledBy={titleId}
+        pending={step === "pending"}
+        onCancel={onClose}
+        onClose={() => {
+          reset();
+          onClosed?.();
+        }}
+      >
+        {content}
       </MoneyModal>
     </MoneyMotionProvider>
   );
