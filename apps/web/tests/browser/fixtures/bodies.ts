@@ -1,6 +1,7 @@
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../../config/portfolio-assets";
 import { investAssets } from "../../../config/invest-assets";
 import { buyRouteForToken } from "../../../shared/trading/assets";
+import { cashConversionCurrencies } from "../../../shared/trading/cash-conversion";
 import { VERIFIED_MORPHO_MARKETS } from "../../../shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "../../../shared/borrowing/contract";
 import {
@@ -38,7 +39,8 @@ export function cardsBody(state: CardState = "active", now = new Date(FIXED_NOW)
 export function tradeAvailabilityBody(assetId: string) {
   const market = VERIFIED_MORPHO_MARKETS.find((entry) => buyRouteForToken({ chainId: entry.chainId, address: entry.collateralToken.address }) === assetId);
   const configured = investAssets.find((asset) => asset.id === assetId && asset.category !== "stock");
-  const token = market ? market.collateralToken : configured ? {
+  const currency = cashConversionCurrencies.find((entry) => entry.code !== "USD" && entry.tradeAssetId === assetId);
+  const token = market ? market.collateralToken : currency ? { address: currency.address, symbol: currency.symbol, decimals: currency.decimals } : configured ? {
     address: configured.contractAddress, symbol: configured.representation.tokenSymbol, decimals: ("decimals" in configured.representation ? configured.representation.decimals : 18),
   } : null;
   return token ? { version: 2, status: "available", token: { assetId, address: token.address.toLowerCase(), symbol: token.symbol, decimals: token.decimals }, buy: "available", balanceBaseUnits: "100000" }

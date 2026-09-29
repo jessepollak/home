@@ -3,6 +3,7 @@ import {
   MONEY_CHANGE_COLOR_TOKENS,
   formatBasisPoints,
   formatChartPrice,
+  formatExactPresentationCashAmount,
   formatExactPresentationTokenAmount,
   formatFiatAmount,
   formatHealthFactor,
@@ -334,6 +335,23 @@ describe("presentation money formatting", () => {
     expect(() => formatBasisPoints("-1")).toThrow(TypeError);
     expect(() => formatHealthFactor("-1")).toThrow(TypeError);
     expect(() => formatOracleUsd("-1", { loanDecimals: 6, collateralDecimals: 8 })).toThrow(TypeError);
+  });
+
+  test("formats exact cash amounts in the currency's own decimals", () => {
+    const cases: Array<[string, number, string, string]> = [
+      ["0", 6, "USD", "$0.00"],
+      ["1", 6, "USD", "$0.000001"],
+      ["1000000", 6, "USD", "$1.00"],
+      ["1234567", 6, "USD", "$1.234567"],
+      ["1230000", 6, "USD", "$1.23"],
+      ["1980123", 6, "EUR", "€1.980123"],
+      ["1", 2, "EUR", "€0.01"],
+      ["-1", 6, "USD", "—"],
+      ["not-raw", 6, "USD", "—"],
+    ];
+    for (const [atoms, decimals, currency, expected] of cases) {
+      expect(formatExactPresentationCashAmount(atoms, decimals, currency)).toBe(expected);
+    }
   });
 
   test("keeps ordinary and tiny market prices exact within display bounds", () => {

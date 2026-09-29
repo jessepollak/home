@@ -7,6 +7,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { HomeMoneySummary } from "@/client/home/home-overview";
 import { ShellHeader } from "@/client/home/shell-chrome";
 import { CashExperience } from "./cash-experience";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { SavingsDialogFixtureProvider } from "@/client/savings/savings-dialog-fixture";
 import { formatExactSavingsApy, summarizeSavingsPortfolio } from "@/client/savings/portfolio-summary";
 import { MoneyMotionProvider } from "@/components/money-ticker";
@@ -222,9 +223,14 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
     if (pendingExecution) return new Promise<OperationResult>(() => {});
     return { id: action.id, status: "confirmed" };
   };
+  const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => path.includes("/api/trades?")
+    ? { version: 2, status: "unavailable", reason: "asset-unsupported" }
+    : path === "/api/actions"
+      ? { actions: [] }
+      : { version: 1, usdcReserveBaseUnits: "20000" };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
   const cashRate = homeParity ? "4.08% APY" : null;
-  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : undefined} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
+  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
   return (
     <PresentationRegionProvider regionId={regionId}>
       <SavingsDialogFixtureProvider value={{ motion: reducedMotion ? "reduced" : "system" }}>
@@ -262,13 +268,12 @@ async function assertButtonHeights(canvasElement: HTMLElement, cashOnly = false)
   }
 }
 
-const savingsRow = (canvasElement: HTMLElement) => within(canvasElement).getByRole("button", { name: /^US dollar/ });
+const savingsRow = (canvasElement: HTMLElement) => within(within(canvasElement).getByRole("region", { name: "Savings" })).getByRole("button", { name: /^US dollar/ });
 const detail = (canvasElement: HTMLElement) => within(canvasElement.querySelector("main")!);
 const vaultRow = (region: HTMLElement, name: string) => within(region).getByText(name).closest("li")!;
 async function openSavings(canvasElement: HTMLElement) {
-  const row = await within(canvasElement).findByRole("button", { name: /^US dollar/ });
   await waitFor(() => expect(within(canvasElement).getByRole("region", { name: "Savings" })).not.toHaveAttribute("aria-busy"));
-  await userEvent.click(row);
+  await userEvent.click(savingsRow(canvasElement));
   return detail(canvasElement);
 }
 const manageRow = (screen: ReturnType<typeof detail>, name: string) => within(screen.getByRole("region", { name: "Your savings" })).getByRole("button", { name: new RegExp(`^${name}`), description: `Manage ${name}` });
@@ -431,7 +436,7 @@ export const HoldingUnavailable: Story = { args: { snapshot: holdingUnavailableS
   const rupiah = currencies.getByText("Rupiah").closest("li")!;
   await expect(within(rupiah).getByText("Unavailable")).toBeVisible();
   await expect(rupiah).not.toHaveTextContent("$0.00");
-  await expect(await within(canvasElement).findByRole("button", { name: /^US dollar/ })).toBeVisible();
+  await expect(savingsRow(canvasElement)).toBeVisible();
 } };
 export const LocalHoldingUnavailable: Story = { args: { snapshot: localHoldingUnavailableSnapshot }, play: async ({ canvasElement }) => {
   const currencies = within(within(canvasElement).getByRole("region", { name: "Currencies" }));

@@ -12,7 +12,8 @@ is in **Unknowns** — never invent a selector when Reach is ambiguous, snapshot
 **Keeping this current:** run a `chore(dx)` pass whenever `apps/web/app/**/page.tsx`, `apps/web/client/*/*-experience.tsx`, or
 `apps/web/tests/browser/*.pw.ts` changes. State that bracket in the PR body; do not silently drift this map.
 The CI Playwright replay in `apps/web/tests/browser/feature-map-replay.pw.ts` reads the surface files
-through `apps/web/tests/browser/feature-map/map.ts` and executes every non-manual fixture Reach. Keep its explicit skip
+through `apps/web/tests/browser/feature-map/map.ts` and executes every non-manual fixture Reach, plus each additional `Reach (replay: <name>)` block
+(each needs a matching fixture setup in the replay). Keep its explicit skip
 reasons aligned with the map when changing a Reach or fixture. Reach guides the agent; it never
 authorizes a money click. Full-text snapshots reveal facts hidden by interactive-only snapshots; number-flow amounts appear as images (for example `image "$1.00"`), not text;
 scope huge trees (notably coverage's globe), and prefer current `@refs` when names churn. Do not use
@@ -58,10 +59,10 @@ do not silently ignore a new failure or treat this list as permission to broaden
 
 **Playwright Reach replay:** `apps/web/tests/browser/feature-map-replay.pw.ts` exercises the
 non-manual fixture Reaches for landing, sign-in, home-panel, balances, activity, save,
-invest, investments, send, account-settings, and coverage. Manual surfaces are explicitly skipped with reasons in the test. This only checks entry
+invest, investments, send, account-settings, and coverage, plus save's Convert replay up to review. Manual surfaces are explicitly skipped with reasons in the test. This mostly checks entry
 steps; it does not cover borrow markets, activity pagination, invest categories or memes,
 coverage filters, or dev-ui behavior.
-**Journey stories:** `apps/web/stories/journeys/savings-deposit.stories.tsx` and `cash-out-activity.stories.tsx` exist; other surfaces above lack one.
+**Journey stories:** `apps/web/stories/journeys/savings-deposit.stories.tsx`, `cash-out-activity.stories.tsx`, and `cash-convert.stories.tsx` exist; other surfaces above lack one.
 
 **Reach depends on a live provider and cannot run against the fixture server** (needs a documented fixture or an authorized live agent session):
 - Base-account/CDP sign-in (`client/account/base-account-connector.tsx`, `cdp-*`), real Coinbase onramp/offramp providers via `/api/funding/providers`, `/api/funding/quotes`, `/api/funding/provider-customers`, and `/api/funding/webhooks/[provider]` (smoke uses hand-written IDRX/PEER stubs instead of a documented shared fixture).

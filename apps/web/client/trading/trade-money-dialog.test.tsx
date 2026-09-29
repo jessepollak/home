@@ -10,9 +10,11 @@ import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee"
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
 import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata, TradeToken } from "@/shared/trading/contract";
+import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 
-const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
-const { TradeMoneyDialog } = await import("./trade-money-dialog");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { TradeMoneyDialog, TradeMoneyFlow } = await import("./trade-money-dialog");
+const { MoneyModal } = await import("@/client/money-modal");
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
@@ -524,4 +526,267 @@ describe("trade review service fee", () => {
     await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("The quote did not match this account or trade. Get a new quote."));
     expect(trade.view.queryByText("Service fee")).toBeNull();
   });
+});
+describe("cash conversion trade flow", () => {
+  const usd = cashConversionCurrencies.find((currency) => currency.code === "USD")!;
+  const eur = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
+  const localToken: TradeToken = { assetId: eur.tradeAssetId, address: eur.address as `0x${string}`, symbol: eur.symbol, decimals: eur.decimals };
+  const conversion = { from: usd, to: eur };
+  const common = {
+    direction: "buy" as const, session, token: localToken, assetName: eur.name, availableBaseUnits: "10000000",
+    conversion, fetchAccountResource: async () => ({ version: 1, usdcReserveBaseUnits: "20000" }),
+    executeMoneyAction: async () => ({ id: "fixture", status: "rejected" as const }),
+  };
+  test("amount and review use cash names and amounts while prepare retains the exact buy route", async () => {
+    const requests: TradeActionParams[] = [];
+    const view = render(<TradeMoneyDialog {...common} open onClose={() => undefined}
+      prepareMoneyAction={async (_kind, input) => {
+        const params = input as TradeActionParams;
+        requests.push(params);
+        return action("buy", params.amountBaseUnits, localToken);
+      }} />);
+    expect(view.getByRole("dialog", { name: "Convert to Euro" })).toBeTruthy();
+    expect(view.getByRole("group", { name: "USDC" })).toBeTruthy();
+    await submit(view, "1.25");
+    expect(requests).toEqual([{ version: 3, assetId: eur.tradeAssetId, direction: "buy", amountBaseUnits: "1250000" }]);
+    await view.findByText("Convert USD to EUR");
+    expect(view.getByText("You pay").parentElement?.textContent).toContain("$1.25");
+    expect(view.getByText("You receive").parentElement?.textContent).toContain("€1.00");
+    expect(view.getByText("Rate")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Convert $1.25" })).toBeTruthy();
+    click(view, "Details");
+    for (const label of ["Minimum received", "Max slippage", "Quote expires in", "Network", "From"]) expect(view.getByText(label)).toBeTruthy();
+    expect(view.getByText("EURC contract")).toBeTruthy();
+  });
+  test("a fee-bearing conversion pays the gross cash amount and itemizes the service fee", async () => {
+    const view = render(<TradeMoneyDialog {...common} open availableBaseUnits="20000000" onClose={() => undefined}
+      prepareMoneyAction={async (_kind, input) => feeAction("buy", (input as TradeActionParams).amountBaseUnits, localToken, "50000")} />);
+    await submit(view, "10");
+    await view.findByText("Convert USD to EUR");
+    expect(row(view, "You pay")).toBe("$10.00");
+    expect(row(view, "You receive")).toBe("≈ €1.00");
+    expect(row(view, "Service fee")).toBe("$0.05 (0.5%)");
+    expect(view.getByRole("button", { name: "Convert $10.00" })).toBeTruthy();
+  });
+  test("a fee-bearing sell conversion takes the service fee from the received cash and its minimum", async () => {
+    const view = render(<TradeMoneyDialog {...common} open direction="sell" token={localToken} conversion={{ from: eur, to: usd }} onClose={() => undefined}
+      prepareMoneyAction={async (_kind, input) => feeAction("sell", (input as TradeActionParams).amountBaseUnits, localToken, "350000")} />);
+    await submit(view, "0.5");
+    await view.findByText("Convert EUR to USD");
+    expect(row(view, "You pay")).toBe("€0.50");
+    expect(row(view, "You receive")).toBe("≈ $70.35");
+    expect(row(view, "Service fee")).toBe("$0.35 (0.5%)");
+    expect(view.getByRole("button", { name: "Convert €0.50" })).toBeTruthy();
+    click(view, "Details");
+    expect(row(view, "Minimum received")).toBe("$69.65");
+  });
+  test("review and the marked confirm control keep the exact six-decimal cash amounts", async () => {
+    const view = render(<TradeMoneyDialog {...common} open onClose={() => undefined}
+      prepareMoneyAction={async (_kind, input) => {
+        const prepared = action("buy", (input as TradeActionParams).amountBaseUnits, localToken);
+        const metadata = prepared.metadata as TradeMoneyActionMetadata;
+        metadata.fromAmountBaseUnits = "1234567";
+        metadata.expectedToAmountBaseUnits = "1980123";
+        metadata.minimumToAmountBaseUnits = "1960322";
+        prepared.amounts = [
+          { assetId: metadata.fromAsset.id, symbol: metadata.fromAsset.symbol, decimals: metadata.fromAsset.decimals, amountBaseUnits: "1234567", direction: "spend" },
+          { assetId: metadata.toAsset.id, symbol: metadata.toAsset.symbol, decimals: metadata.toAsset.decimals, amountBaseUnits: "1980123", direction: "receive", estimated: true },
+        ];
+        return prepared;
+      }} />);
+    await submit(view, "1.234567");
+    await view.findByText("Convert USD to EUR");
+    expect(view.getByText("You pay").parentElement?.textContent).toContain("$1.234567");
+    expect(view.getByText("You receive").parentElement?.textContent).toContain("€1.980123");
+    expect(view.getByRole("button", { name: "Convert $1.234567" })).toBeTruthy();
+    click(view, "Details");
+    expect(view.getByText("Minimum received").parentElement?.textContent).toContain("€1.960322");
+  });
+  test("IDR to USD keeps the exact two-decimal sell amount and existing trade asset id", async () => {
+    const idr = cashConversionCurrencies.find((currency) => currency.code === "IDR")!;
+    const idrToken: TradeToken = { assetId: idr.tradeAssetId, address: idr.address as `0x${string}`, symbol: idr.symbol, decimals: idr.decimals };
+    const requests: TradeActionParams[] = [];
+    const view = render(<TradeMoneyDialog {...common} open direction="sell" token={idrToken} assetName={idr.name}
+      conversion={{ from: idr, to: usd }} availableBaseUnits="100000"
+      onClose={() => undefined} prepareMoneyAction={async (_kind, input) => {
+        const request = input as TradeActionParams;
+        requests.push(request);
+        return action("sell", request.amountBaseUnits, idrToken);
+      }} />);
+    expect(view.getByRole("dialog", { name: "Convert to US dollar" })).toBeTruthy();
+    await submit(view, "12.34");
+    expect(requests).toEqual([{ version: 3, assetId: idr.tradeAssetId, direction: "sell", amountBaseUnits: "1234" }]);
+    expect(await view.findByText("Convert IDR to USD")).toBeTruthy();
+  });
+  test("embedded amount step uses Back at depth one and X exits its host", async () => {
+    let backs = 0;
+    let exits = 0;
+    function Host() {
+      const [open, setOpen] = useState(true);
+      return <MoneyModal open={open} labelledBy="trade-action-title" onCancel={() => { exits++; setOpen(false); }} onClose={() => undefined}>
+        <TradeMoneyFlow {...common} depth={1} onBack={() => { backs++; }} onDone={() => undefined} prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)} />
+      </MoneyModal>;
+    }
+    const view = render(<Host />);
+    expect(view.getByRole("dialog", { name: "Convert to Euro" })).toBeTruthy();
+    expect(view.getAllByRole("button", { name: "Back" })).toHaveLength(1);
+    expect(view.queryByRole("group", { name: "USDC" })).toBeNull();
+    click(view, "Back");
+    expect(backs).toBe(1);
+    click(view, "Close conversion");
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    expect(exits).toBe(1);
+  });
+  test("conversion refuses a quote for a different cash contract", async () => {
+    const view = render(<TradeMoneyDialog {...common} open onClose={() => undefined}
+      prepareMoneyAction={async (_kind, input) => {
+        const prepared = action("buy", (input as TradeActionParams).amountBaseUnits, localToken);
+        const metadata = prepared.metadata as TradeMoneyActionMetadata;
+        metadata.toAsset = { ...metadata.toAsset, address: "0x2222222222222222222222222222222222222222" };
+        return prepared;
+      }} />);
+    await submit(view, "1");
+    await waitFor(() => expect(view.getByRole("alert").textContent).toContain("conversion quote did not match"));
+    expect(view.queryByRole("button", { name: "Convert $1.00" })).toBeNull();
+  });
+  test("onchain failure keeps conversion-specific recovery", async () => {
+    const view = render(<TradeMoneyDialog {...common} open onClose={() => undefined}
+      prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+      executeMoneyAction={async () => ({ id: "fixture", status: "failed" })} />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: "Convert $1.00" });
+    click(view, "Convert $1.00");
+    await waitFor(() => expect(view.getByRole("alert").textContent).toBe("This conversion did not succeed onchain. Check Activity before converting again."));
+  });
+  test("dispatch-unknown closes the wrapper and a new opening starts at amount", async () => {
+    const attempts: [boolean, boolean | undefined][] = [];
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <><button onClick={() => setOpen(true)}>Reopen</button><TradeMoneyDialog {...common} open={open} onAttemptedChange={(value, unknown) => attempts.push([value, unknown])}
+        onClose={() => setOpen(false)} prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+        executeMoneyAction={async () => { throw new TransferExecutionError("dispatch-unknown"); }} /></>;
+    }
+    const view = render(<Journey />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: "Convert $1.00" });
+    click(view, "Convert $1.00");
+    await waitFor(() => expect(view.getByRole("alert").textContent).toContain("may have been submitted"));
+    expect(attempts.at(-1)).toEqual([true, true]);
+    click(view, "Close");
+    await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+    click(view, "Reopen");
+    expect(await view.findByRole("dialog", { name: "Convert to Euro" })).toBeTruthy();
+    expect((view.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+  }, 20_000);
+  test("unresolved execution reports attempted to the host without losing the prepared retry", async () => {
+    const attempts: boolean[] = [];
+    const view = render(<TradeMoneyDialog {...common} open onClose={() => undefined} onAttemptedChange={(value) => attempts.push(value)}
+      prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+      executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown"); }} />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: "Convert $1.00" });
+    click(view, "Convert $1.00");
+    await view.findByRole("button", { name: "Retry" });
+    expect(attempts.at(-1)).toBe(true);
+    expect(view.getByRole("alert").textContent).toContain("same conversion");
+  });
+  test.each(["TRADE_NOT_ROUTED", "TRADE_ROUTE_UNAVAILABLE", "TRADE_INSUFFICIENT_BALANCE"] as const)("%s uses conversion-specific recovery", async (code) => {
+    const view = render(<TradeMoneyDialog {...common} open onClose={() => undefined}
+      prepareMoneyAction={async () => { throw { code }; }} />);
+    await submit(view, "1");
+    await waitFor(() => expect(view.getByRole("alert").textContent).toBe(code === "TRADE_INSUFFICIENT_BALANCE"
+      ? "Your US dollar balance changed. Review the amount again."
+      : "Can't convert to Euro right now. Try a different amount or try again later."));
+  });
+  test("a successful conversion completes through its host while the pending close is still locked", async () => {
+    let dones = 0;
+    let resolveExecute: ((value: { id: string; status: "submitted" }) => void) | null = null;
+    function Host() {
+      const [open, setOpen] = useState(true);
+      return <MoneyModal open={open} labelledBy="trade-action-title" onCancel={() => setOpen(false)} onClose={() => undefined}>
+        <TradeMoneyFlow {...common} depth={1} onDone={() => { dones++; setOpen(false); }}
+          prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+          executeMoneyAction={async () => await new Promise((resolve) => { resolveExecute = resolve; })} />
+      </MoneyModal>;
+    }
+    const view = render(<Host />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: /Convert \$1\.00/ });
+    click(view, "Convert $1.00");
+    await view.findByText("Waiting for your wallet…");
+    expect((view.getByRole("button", { name: "Close conversion" }) as HTMLButtonElement).disabled).toBe(true);
+    resolveExecute!({ id: "fixture", status: "submitted" });
+    await waitFor(() => expect(Boolean(view.queryByRole("dialog"))).toBe(false), { timeout: 2_000 });
+    expect(dones).toBe(1);
+  }, 20_000);
+  test("a successful standalone trade closes its sheet", async () => {
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <TradeMoneyDialog {...common} open={open} onClose={() => setOpen(false)}
+        prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+        executeMoneyAction={async (prepared) => ({ id: prepared.id, status: "submitted" })} />;
+    }
+    const view = render(<Journey />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: /Convert \$1\.00/ });
+    click(view, "Convert $1.00");
+    await waitFor(() => expect(Boolean(view.queryByRole("dialog"))).toBe(false), { timeout: 2_000 });
+  }, 20_000);
+  test("a stalled post-submission refresh cannot hold the sheet on the pending step", async () => {
+    let closes = 0;
+    const view = render(<TradeMoneyDialog {...common} open onClose={() => { closes++; }} onConfirmed={() => new Promise<void>(() => undefined)}
+      prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+      executeMoneyAction={async (prepared) => ({ id: prepared.id, status: "submitted" })} />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: /Convert \$1\.00/ });
+    click(view, "Convert $1.00");
+    await waitFor(() => expect(closes).toBe(1), { timeout: 2_000 });
+  }, 20_000);
+  test("a confirmation superseded by unmount cannot complete or report to its host", async () => {
+    let completes = 0;
+    const attempts: boolean[] = [];
+    let rejectExecute: ((reason: unknown) => void) | null = null;
+    function Mount({ live }: { live: boolean }) {
+      const [open, setOpen] = useState(true);
+      return <MoneyModal open={open} labelledBy="trade-action-title" onCancel={() => setOpen(false)} onClose={() => undefined}>
+        {live ? <TradeMoneyFlow {...common} depth={1} onDone={() => { completes++; setOpen(false); }} onAttemptedChange={(value) => attempts.push(value)}
+          prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+          executeMoneyAction={async () => await new Promise((_resolve, reject) => { rejectExecute = reject; })} /> : <span>Idle</span>}
+      </MoneyModal>;
+    }
+    const view = render(<Mount live />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: /Convert \$1\.00/ });
+    click(view, "Convert $1.00");
+    await view.findByText("Waiting for your wallet…");
+    view.rerender(<Mount live={false} />);
+    rejectExecute!(new TransferExecutionError("submission-unknown"));
+    await act(async () => undefined);
+    expect(completes).toBe(0);
+    expect(attempts).not.toContain(true);
+  }, 20_000);
+  test("a confirmation that lands after unmount refreshes its host without completing it", async () => {
+    let completes = 0;
+    let refreshes = 0;
+    let resolveExecute: ((value: { id: string; status: "submitted" }) => void) | null = null;
+    function Mount({ live }: { live: boolean }) {
+      const [open, setOpen] = useState(true);
+      return <MoneyModal open={open} labelledBy="trade-action-title" onCancel={() => setOpen(false)} onClose={() => undefined}>
+        {live ? <TradeMoneyFlow {...common} depth={1} onDone={() => { completes++; setOpen(false); }}
+          onConfirmed={() => { refreshes++; }}
+          prepareMoneyAction={async (_kind, input) => action("buy", (input as TradeActionParams).amountBaseUnits, localToken)}
+          executeMoneyAction={async () => await new Promise((resolve) => { resolveExecute = resolve; })} /> : <span>Idle</span>}
+      </MoneyModal>;
+    }
+    const view = render(<Mount live />);
+    await submit(view, "1");
+    await view.findByRole("button", { name: /Convert \$1\.00/ });
+    click(view, "Convert $1.00");
+    await view.findByText("Waiting for your wallet…");
+    view.rerender(<Mount live={false} />);
+    resolveExecute!({ id: "fixture", status: "submitted" });
+    await act(async () => undefined);
+    expect(completes).toBe(0);
+    expect(refreshes).toBe(1);
+  }, 20_000);
 });

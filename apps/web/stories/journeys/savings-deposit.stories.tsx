@@ -231,7 +231,7 @@ export const Deposit: Story = {
     const document = canvasElement.ownerDocument;
     const screen = within(document.body);
 
-    await userEvent.click(await screen.findByRole("button", { name: /^US dollar/ }));
+    await userEvent.click(await within(await screen.findByRole("region", { name: "Savings" })).findByRole("button", { name: /^US dollar/ }));
     await expect(await screen.findByRole("heading", { name: "Earn on your savings" })).toBeVisible();
     await userEvent.click(await screen.findByRole("button", { name: "Start saving" }));
     const options = await screen.findByRole("dialog", { name: "Choose where to save" });

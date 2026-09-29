@@ -142,7 +142,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
                 : panel === "investments" ? <AccountWalletClientProvider client={createInvestmentsStoryWalletClient(snapshot)}><InvestmentsExperience holding={null} onOpenHolding={noop} onCloseHolding={noop}
                     balances={{ status: "ready", snapshot, retry: async () => undefined }} discover={{ memeAssets: [], memeMarket: { status: "unavailable" }, assetMarkResolution: {} }} /></AccountWalletClientProvider>
                   : <CashExperience view={cashView} onOpenSavings={() => setCashView("savings")} session={session} snapshot={snapshot} balanceStatus="ready"
-                    onAddMoney={noop} fetchVaults={fetchVaults} now={now} prepareMoneyAction={unsupportedAction} executeMoneyAction={unsupportedAction} />}
+                    onAddMoney={noop} fetchVaults={fetchVaults} now={now} fetchAccountResource={async (path) => path.includes("/api/trades?") ? { version: 2, status: "unavailable", reason: "asset-unsupported" } : { version: 1, usdcReserveBaseUnits: "20000" }} prepareMoneyAction={unsupportedAction} executeMoneyAction={unsupportedAction} />}
         </div>
       </main>
       <PrimaryNavigation activeNavigation={panel} onNavigate={navigate} cardsEnabled={cards} labels={longLabels ? { home: "Portfolio home overview", invest: "Investments & markets" } : undefined} />
@@ -308,7 +308,7 @@ async function verifyRapidTabs(canvasElement: HTMLElement) {
 }
 async function openMoneySheet(canvasElement: HTMLElement) {
   const cash = within(canvasElement).getByRole("main");
-  await userEvent.click(await within(cash).findByRole("button", { name: /^US dollar/ }));
+  await userEvent.click(await within(await within(cash).findByRole("region", { name: "Savings" })).findByRole("button", { name: /^US dollar/ }));
   const savingsRegion = within(cash).getByRole("region", { name: "Your savings" });
   await waitFor(() => expect(savingsRegion).not.toHaveAttribute("aria-busy"));
   await waitFor(() => expect(within(savingsRegion).queryAllByText("Loading rate")).toHaveLength(0));
