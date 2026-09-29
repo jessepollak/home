@@ -21,9 +21,9 @@ describe("card POST route contracts and owner fence", () => {
     expect(parseCardWriteResponse(await (await handlers.issue(request())).json())?.card.status).toBe("active");
     expect(parseCardWriteResponse(await (await handlers.freeze(request(), "ic_123", true)).json())?.card.status).toBe("frozen");
     expect(seen).toEqual(["owner-id:http://localhost/card?return=verification", "owner-id", "owner-id"]);
-    const forwarded = request({ "x-forwarded-host": "home.example", "x-forwarded-proto": "https" });
+    const forwarded = request({ "x-forwarded-host": "attacker.example", "x-forwarded-proto": "https" });
     expect((await handlers.enrollment(forwarded)).status).toBe(200);
-    expect(seen.at(-1)).toBe("owner-id:https://home.example/card?return=verification");
+    expect(seen.at(-1)).toBe("owner-id:http://localhost/card?return=verification");
   });
   test("no provider calls without auth, owner, same-origin JSON, or valid card ID", async () => {
     let writes = 0;
