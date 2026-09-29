@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { hashTypedData } from "viem";
+import { encodeFunctionData, erc20Abi, hashTypedData } from "viem";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
@@ -19,7 +19,9 @@ import { getActionsStore } from "@/server/actions/store";
 import { isSavingsMetadata } from "@/shared/savings/review";
 import { parseTradeMetadata, parseTradeSigning } from "@/shared/trading/review";
 import { cashoutArrivalSeconds, parseCashoutQuote } from "@/shared/funding/cash-out-quote";
-import { validatePermit2 } from "@/server/actions/kinds/trade/permit2";
+import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
+import { PERMIT2_ADDRESS, validatePermit2 } from "@/server/actions/kinds/trade/permit2";
+import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import type { PendingAction } from "@/server/actions/store";
 import { moneyActionOwner } from "./session";
 
@@ -149,7 +151,8 @@ function normalizeDraft(draft: MoneyActionDraft, owner: `0x${string}`): MoneyAct
     : normalizeMetadata(draft.metadata, draft.kind);
   const signing = draft.signing === undefined ? undefined : metadata?.product === "trade" ? parseTradeSigning(draft.signing, metadata, owner) : null;
   if ((draft.kind === "trade") !== Boolean(signing) || (draft.signing !== undefined && !signing)) throw new MoneyActionIssueError("invalid-draft");
-  assertExactApprovalCaps(calls, amounts, networkFee ?? undefined);
+  assertExactApprovalCaps(calls, amounts, networkFee ?? undefined, metadata?.product === "trade" ? metadata : undefined);
+  if (metadata?.product === "trade") assertTradeDraft(calls, amounts, metadata, networkFee?.payment === "usdc", owner);
   return {
     kind: draft.kind,
     title: draft.title.trim(),
@@ -299,7 +302,8 @@ function normalizePending(pending: MoneyActionIssueOptions["pending"], draft: Mo
     pending.signingTypedData.domain.verifyingContract !== owner ||
     typeof pending.signerAddress !== "string" || !addressPattern.test(pending.signerAddress) ||
     pending.signerOwnerIndex !== 0 || typeof pending.signerDeployed !== "boolean" ||
-    pending.swapCallIndex !== draft.calls.length - 1 || draft.calls[pending.swapCallIndex]?.approval ||
+    pending.swapCallIndex !== draft.calls.length - (metadata.operatorFee?.collectedBy === "in-batch-transfer" && metadata.direction === "sell" ? 2 : 1) ||
+    draft.calls[pending.swapCallIndex]?.approval ||
     (signing.signer === "cdp-embedded" && (signing.evmAccount !== pending.signerAddress.toLowerCase() ||
       JSON.stringify(signing.typedData) !== JSON.stringify(pending.signingTypedData))) ||
     (signing.signer === "base-account" && JSON.stringify(signing.typedData) !== JSON.stringify(pending.permit2Typed))) {
@@ -400,10 +404,51 @@ function normalizeAmount(amount: MoneyActionAmount): MoneyActionAmount {
   };
 }
 
+function assertTradeDraft(calls: MoneyActionCall[], amounts: MoneyActionAmount[], metadata: TradeMoneyActionMetadata, hasPaymaster: boolean, owner: `0x${string}`): void {
+  const customer = tradeCustomerAmounts(metadata);
+  if (amounts.length !== 2 ||
+    amounts[0]?.direction !== "spend" || amounts[0].assetId !== metadata.fromAsset.id ||
+    amounts[0].symbol !== metadata.fromAsset.symbol || amounts[0].decimals !== metadata.fromAsset.decimals ||
+    amounts[0].amountBaseUnits !== customer.spendBaseUnits || amounts[0].estimated === true ||
+    amounts[1]?.direction !== "receive" || amounts[1].assetId !== metadata.toAsset.id ||
+    amounts[1].symbol !== metadata.toAsset.symbol || amounts[1].decimals !== metadata.toAsset.decimals ||
+    amounts[1].amountBaseUnits !== customer.expectedReceiveBaseUnits || amounts[1].estimated !== true) {
+    throw new MoneyActionIssueError("invalid-draft");
+  }
+  const fee = metadata.operatorFee;
+  if (fee && fee.recipient.toLowerCase() === owner.toLowerCase()) throw new MoneyActionIssueError("invalid-draft");
+  const inBatch = fee?.collectedBy === "in-batch-transfer";
+  const transfer = fee && inBatch ? {
+    to: BASE_USDC_ADDRESS.toLowerCase(),
+    data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [fee.recipient, BigInt(fee.amountBaseUnits)] }).toLowerCase(),
+    value: "0",
+  } : null;
+  const actionCalls = calls.slice(hasPaymaster ? 1 : 0);
+  if (transfer && metadata.direction === "buy") {
+    const first = actionCalls.shift();
+    if (!first || first.to !== transfer.to || first.data !== transfer.data || first.value !== "0" || first.approval) throw new MoneyActionIssueError("invalid-draft");
+  }
+  if (transfer && metadata.direction === "sell") {
+    const last = actionCalls.pop();
+    if (!last || last.to !== transfer.to || last.data !== transfer.data || last.value !== "0" || last.approval) throw new MoneyActionIssueError("invalid-draft");
+  }
+  const swap = actionCalls.pop();
+  if (!swap || swap.value !== "0" || swap.approval || actionCalls.length > 2 ||
+    actionCalls.some((call) => call.to !== metadata.fromAsset.address || call.value !== "0" ||
+      call.approval?.assetId !== metadata.fromAsset.id || call.approval.spender !== PERMIT2_ADDRESS ||
+      decodeMoneyActionApproval(call)?.spender !== PERMIT2_ADDRESS)) throw new MoneyActionIssueError("invalid-draft");
+  const approvals = actionCalls.map((call) => decodeMoneyActionApproval(call)?.amountBaseUnits);
+  const exact = metadata.fromAmountBaseUnits;
+  if (metadata.approval === "permit2-exact"
+    ? !(approvals.length === 1 && approvals[0] === exact || approvals.length === 2 && approvals[0] === "0" && approvals[1] === exact)
+    : approvals.length !== 0) throw new MoneyActionIssueError("invalid-draft");
+}
+
 function assertExactApprovalCaps(
   calls: MoneyActionCall[],
   amounts: MoneyActionAmount[],
   networkFee?: MoneyActionNetworkFee,
+  trade?: TradeMoneyActionMetadata,
 ): void {
   for (const [index, call] of calls.entries()) {
     if (!call.data.startsWith("0x095ea7b3")) {
@@ -427,14 +472,17 @@ function assertExactApprovalCaps(
       continue;
     }
     if (index === 0 && networkFee?.payment === "usdc") continue;
-    const eligibleSpends = amounts.filter((amount) =>
-      amount.direction === "spend" && amount.assetId === approval.assetId
-    );
+    const eligibleSpends = trade && approval.spender === PERMIT2_ADDRESS && approval.token === trade.fromAsset.address
+      ? [{ assetId: trade.fromAsset.id, symbol: trade.fromAsset.symbol, decimals: trade.fromAsset.decimals,
+          direction: "spend" as const, amountBaseUnits: trade.fromAmountBaseUnits }]
+      : amounts.filter((amount) => amount.direction === "spend" && amount.assetId === approval.assetId);
     const cappedSpends = eligibleSpends.filter((amount) => amount.maximum === true);
     const spend = (cappedSpends.length > 0 ? cappedSpends : eligibleSpends).find((amount) =>
       amount.amountBaseUnits === approval.amountBaseUnits
     );
-    if (!spend || !approvalTokenMatchesCanonicalAsset(approval.token, spend.assetId)) {
+    const tradeToken = trade && approval.spender === PERMIT2_ADDRESS &&
+      approval.token === trade.fromAsset.address && approval.assetId === trade.fromAsset.id;
+    if (!spend || !(tradeToken || approvalTokenMatchesCanonicalAsset(approval.token, spend.assetId))) {
       throw new MoneyActionIssueError("invalid-draft");
     }
   }

@@ -28,7 +28,7 @@ test("exact Base address has an identity and can review partial and full DEGEN s
   await expect(page.getByText("Minimum received")).toHaveCount(0);
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByText("Minimum received")).toBeVisible();
-  expect(requests.at(-1)).toEqual({ version: 2, assetId: degenAssetId, direction: "sell", amountBaseUnits: "500000000000000000" });
+  expect(requests.at(-1)).toEqual({ version: 3, assetId: degenAssetId, direction: "sell", amountBaseUnits: "500000000000000000" });
   await page.getByRole("button", { name: "Close trade dialog" }).click();
   await expect(page.locator("[data-money-sheet]")).toHaveCount(0);
   await page.getByRole("button", { name: "Sell", exact: true }).click();
@@ -39,7 +39,7 @@ test("exact Base address has an identity and can review partial and full DEGEN s
   await expect(page.getByText("Minimum received")).toHaveCount(0);
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByText("Minimum received")).toBeVisible();
-  expect(requests.at(-1)).toEqual({ version: 2, assetId: degenAssetId, direction: "sell", amountBaseUnits: "all" });
+  expect(requests.at(-1)).toEqual({ version: 3, assetId: degenAssetId, direction: "sell", amountBaseUnits: "all" });
 });
 
 test("Buy and Sell focus Amount during the tap at 390px", async ({ page }) => {

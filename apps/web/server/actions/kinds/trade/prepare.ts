@@ -4,6 +4,10 @@ import { randomUUID } from "node:crypto";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { resolveTradeAsset } from "@/shared/trading/assets";
+import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
+import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
+import { feePolicyForTaker, resolveOperatorFeePolicy } from "@/server/fees/policy";
+import { createTradeFeeStrategy, type TradeFeeStrategy } from "@/server/fees/strategy";
 import { readErc20ExecutionIdentity, TokenUnreadable } from "@/server/chain/erc20-execution-identity";
 import { readsToken0 } from "@/server/chain/pair";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -27,6 +31,8 @@ type TradePreparationDependencies = {
   now?: () => Date;
   requestKey?: () => string;
   buyBlocked?: typeof tradeBuyBlocked;
+  resolveFeePolicy?: typeof resolveOperatorFeePolicy;
+  feeStrategy?: TradeFeeStrategy;
 };
 
 export async function prepareTradeAction(
@@ -63,14 +69,18 @@ export async function prepareTradeAction(
     symbol: resolved.configured?.representation.tokenSymbol ?? identity.symbol ?? `0x${resolved.address.slice(2, 6)}`,
   };
   const usdcAsset: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
-  const fromAmount = parsed.amountBaseUnits === "all" ? identity.balance! : BigInt(parsed.amountBaseUnits);
-  if (fromAmount === BigInt(0)) throw new TradePreparationError("insufficient-balance");
+  const grossAmount = parsed.amountBaseUnits === "all" ? identity.balance! : BigInt(parsed.amountBaseUnits);
+  if (grossAmount === BigInt(0)) throw new TradePreparationError("insufficient-balance");
+  const policy = feePolicyForTaker(await (deps.resolveFeePolicy ?? resolveOperatorFeePolicy)("trade"), taker);
+  const feeStrategy = deps.feeStrategy ?? createTradeFeeStrategy("in-batch-transfer");
+  const feeQuote = feeStrategy.quote(parsed.direction, grossAmount, policy);
+  const fromAmount = feeQuote.fromAmount;
   const reviewRequest = { direction: parsed.direction, token: resolved.address, fromAmount, taker,
     signerAddress: signer.signerAddress, slippageBps: TRADE_SLIPPAGE_BPS };
   const tokens = swapTokens(parsed.direction, resolved.address);
   const client = (deps.createSwapsClient ?? createCdpSwapsClient)();
   const key = (deps.requestKey ?? randomUUID)();
-  const quote = await client.createQuote({ ...tokens, fromAmount, taker, slippageBps: TRADE_SLIPPAGE_BPS, requestKey: key });
+  const quote = await client.createQuote({ ...tokens, ...feeQuote, taker, slippageBps: TRADE_SLIPPAGE_BPS, requestKey: key });
   if (!quote.liquidityAvailable) {
     const referenceBuy = { ...swapTokens("buy", resolved.address), fromAmount: BigInt(25_000_000), taker, slippageBps: TRADE_SLIPPAGE_BPS };
     let below = false;
@@ -121,8 +131,9 @@ export async function prepareTradeAction(
   } catch (error) {
     throw new TradePreparationError("provider-unavailable", error);
   }
-  if (balance < reviewed.fromAmount) throw new TradePreparationError("insufficient-balance");
+  if (balance < (parsed.direction === "buy" ? grossAmount : reviewed.fromAmount)) throw new TradePreparationError("insufficient-balance");
   const needsApproval = allowance < reviewed.fromAmount;
+  const collection = feeStrategy.collect(parsed.direction, grossAmount, reviewed.minToAmount, policy);
   const fromAsset: TradeAssetRef = parsed.direction === "buy" ? usdcAsset : tokenAsset;
   const toAsset: TradeAssetRef = parsed.direction === "buy" ? tokenAsset : usdcAsset;
   const fees: TradeFeeFact[] = [];
@@ -149,7 +160,18 @@ export async function prepareTradeAction(
     : { signer: "cdp-embedded", evmAccount: signer.signerAddress, typedData: signingTypedData };
   const expiresAt = Math.min(Number(reviewed.executionDeadline) * 1000 - 30_000, now.getTime() + 120_000);
   if (expiresAt <= now.getTime()) throw new TradePreparationError("stale-quote");
+  const metadata: TradeMoneyActionMetadata = {
+    product: "trade", provider: "cdp-swaps", direction: parsed.direction, assetId: resolved.assetId, assetName: resolved.configured?.displayName ?? tokenAsset.symbol, network: { name: "Base", chainId: 8453 },
+    fromAsset, toAsset, fromAmountBaseUnits: reviewed.fromAmount.toString(), expectedToAmountBaseUnits: reviewed.toAmount.toString(),
+    minimumToAmountBaseUnits: reviewed.minToAmount.toString(), slippageBps: TRADE_SLIPPAGE_BPS, fees,
+    ...(collection.record ? { operatorFee: collection.record } : {}),
+    approval: needsApproval ? "permit2-exact" : "existing-permit2-allowance",
+    quoteBlockNumber: reviewed.blockNumber.toString(), quotedAt: now.toISOString(), permitDeadline: reviewed.permit.deadline.toString(),
+    executionDeadline: reviewed.executionDeadline.toString(),
+  };
+  const customerAmounts = tradeCustomerAmounts(metadata);
   const calls: MoneyActionDraft["calls"] = [];
+  if (parsed.direction === "buy" && collection.call) calls.push(collection.call);
   if (needsApproval && allowance > BigInt(0)) calls.push({
     to: fromAsset.address,
     data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [PERMIT2_ADDRESS, BigInt(0)] }),
@@ -161,22 +183,16 @@ export async function prepareTradeAction(
     value: "0", approval: { assetId: fromAsset.id, spender: PERMIT2_ADDRESS },
   });
   calls.push({ to: reviewed.swapCall.to, data: reviewed.swapCall.data, value: "0" });
+  if (parsed.direction === "sell" && collection.call) calls.push(collection.call);
   return {
     callGasLimit: reviewed.swapCall.gas,
     draft: {
       kind: "trade", title: parsed.direction === "buy" ? `Buy ${resolved.configured?.displayName ?? tokenAsset.symbol}` : `Sell ${resolved.configured?.displayName ?? tokenAsset.symbol}`, calls,
       amounts: [
-        { assetId: fromAsset.id, symbol: fromAsset.symbol, decimals: fromAsset.decimals, amountBaseUnits: reviewed.fromAmount.toString(), direction: "spend" },
-        { assetId: toAsset.id, symbol: toAsset.symbol, decimals: toAsset.decimals, amountBaseUnits: reviewed.toAmount.toString(), direction: "receive", estimated: true },
+        { assetId: fromAsset.id, symbol: fromAsset.symbol, decimals: fromAsset.decimals, amountBaseUnits: customerAmounts.spendBaseUnits, direction: "spend" },
+        { assetId: toAsset.id, symbol: toAsset.symbol, decimals: toAsset.decimals, amountBaseUnits: customerAmounts.expectedReceiveBaseUnits, direction: "receive", estimated: true },
       ], warnings: [], expiresAt: new Date(expiresAt).toISOString(), signing,
-      metadata: {
-        product: "trade", provider: "cdp-swaps", direction: parsed.direction, assetId: resolved.assetId, assetName: resolved.configured?.displayName ?? tokenAsset.symbol, network: { name: "Base", chainId: 8453 },
-        fromAsset, toAsset, fromAmountBaseUnits: reviewed.fromAmount.toString(), expectedToAmountBaseUnits: reviewed.toAmount.toString(),
-        minimumToAmountBaseUnits: reviewed.minToAmount.toString(), slippageBps: TRADE_SLIPPAGE_BPS, fees,
-        approval: needsApproval ? "permit2-exact" : "existing-permit2-allowance",
-        quoteBlockNumber: reviewed.blockNumber.toString(), quotedAt: now.toISOString(), permitDeadline: reviewed.permit.deadline.toString(),
-        executionDeadline: reviewed.executionDeadline.toString(),
-      },
+      metadata,
     },
     pending: {
       permitHash: reviewed.permit.hash, permit2Typed: reviewed.permit.typedData,

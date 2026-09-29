@@ -88,7 +88,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       ["Customers", "Customer search isn't available yet.", "/admin/customers"],
       ["Support", "Support inbox isn't available yet.", "/admin/support"],
       ["Growth", "Invite data isn't available.", "/admin/growth"],
-      ["Money", "Revenue isn't available yet.", "/admin/money"],
+      ["Money", "Fee revenue is unavailable. Try again later.", "/admin/money"],
       ["Settings", "Region settings need a database. Home is offering its built-in regions.", "/admin/settings"],
       ["Audit log", "Admin activity isn't recorded yet.", "/admin/audit"],
     ] as const;
@@ -106,7 +106,10 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       await expect(page).toHaveURL(new RegExp(`${href}$`));
       await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
       await expect(page.getByText(empty)).toBeVisible();
-      if (heading === "Settings") await expect(page.getByText("Invest settings need a database. Home is showing its full catalog.")).toBeVisible();
+      if (heading === "Settings") {
+        await expect(page.getByText("Invest settings need a database. Home is showing its full catalog.")).toBeVisible();
+        await expect(page.getByText("Fee settings couldn’t load")).toBeVisible();
+      }
       if (viewport.width === 390) {
         const trigger = page.getByRole("button", { name: "Open sections menu" });
         await trigger.click();

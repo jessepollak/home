@@ -1,3 +1,4 @@
+import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings } from "@/shared/fees/contract";
 import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
 import { INVEST_SETTINGS_DEFAULTS, parseInvestSettings, parseInvestSettingsWrite } from "./invest";
@@ -40,6 +41,7 @@ export const OPERATOR_SETTINGS_DOMAINS = {
   [BRAND_SETTINGS_DOMAIN]: { schemaVersion: OPERATOR_BRANDING_SCHEMA_VERSION, defaults: BRAND_DEFAULTS, parse: parseBrandSettings },
   regions: { schemaVersion: 1, defaults: REGION_SETTINGS_DEFAULTS, parse: parseRegionSettings, parseWrite: parseRegionSettingsWrite },
   invest: { schemaVersion: 1, defaults: INVEST_SETTINGS_DEFAULTS, parse: parseInvestSettings, parseWrite: parseInvestSettingsWrite },
+  fees: { schemaVersion: 1, defaults: OPERATOR_FEE_SETTINGS_DEFAULTS, parse: parseOperatorFeeSettings },
 } satisfies DomainRegistry;
 
 export type SettingsEntry<T = unknown> = {
@@ -48,7 +50,7 @@ export type SettingsEntry<T = unknown> = {
 };
 export type SettingsResponse = SettingsEntry & { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION };
 export type AllSettingsResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; domains: SettingsEntry[] };
-export type PutSettingsRequest = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; expectedRevision: number; value: unknown };
+export type PutSettingsRequest = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; expectedRevision: number; value: unknown; operator: `0x${string}` };
 export type AuditEntry = {
   id: string; occurredAt: string; actor: `0x${string}`;
 } & (
@@ -56,13 +58,14 @@ export type AuditEntry = {
   | { action: "customer.read"; target: { kind: "customer"; id: string }; purpose: string }
 );
 export type AuditListResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; entries: AuditEntry[]; nextCursor: string | null };
-export type OperatorSettingsErrorCode = "UNAUTHENTICATED" | "OPERATOR_FORBIDDEN" | "NOT_FOUND" | "INVALID_REQUEST" | "SETTINGS_CONFLICT" | "CROSS_ORIGIN" | "SETTINGS_UNAVAILABLE";
+export type OperatorSettingsErrorCode = "UNAUTHENTICATED" | "OPERATOR_FORBIDDEN" | "NOT_FOUND" | "INVALID_REQUEST" | "SETTINGS_CONFLICT" | "OPERATOR_CHANGED" | "CROSS_ORIGIN" | "SETTINGS_UNAVAILABLE";
 export type OperatorSettingsErrorResponse = { error: { code: OperatorSettingsErrorCode }; current?: SettingsResponse };
 
 export function parsePutSettingsRequest(value: unknown): PutSettingsRequest | null {
-  if (!isObject(value) || !exactKeys(value, ["version", "expectedRevision", "value"])) return null;
+  if (!isObject(value) || !exactKeys(value, ["version", "expectedRevision", "value", "operator"])) return null;
   if (value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 0) return null;
-  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value };
+  if (typeof value.operator !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value.operator)) return null;
+  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value, operator: value.operator.toLowerCase() as `0x${string}` };
 }
 
 /** @public parses settings list responses for future administrator clients */
@@ -91,7 +94,7 @@ export function parseAuditListResponse(value: unknown): AuditListResponse | null
 export function parseOperatorSettingsErrorResponse(value: unknown): OperatorSettingsErrorResponse | null {
   if (!isObject(value) || !isObject(value.error)) return null;
   const code = value.error.code;
-  if (code !== "UNAUTHENTICATED" && code !== "OPERATOR_FORBIDDEN" && code !== "NOT_FOUND" && code !== "INVALID_REQUEST" && code !== "SETTINGS_CONFLICT" && code !== "CROSS_ORIGIN" && code !== "SETTINGS_UNAVAILABLE") return null;
+  if (code !== "UNAUTHENTICATED" && code !== "OPERATOR_FORBIDDEN" && code !== "NOT_FOUND" && code !== "INVALID_REQUEST" && code !== "SETTINGS_CONFLICT" && code !== "OPERATOR_CHANGED" && code !== "CROSS_ORIGIN" && code !== "SETTINGS_UNAVAILABLE") return null;
   return { error: { code }, ...(value.current ? { current: parseSettingsResponse(value.current) ?? undefined } : {}) };
 }
 

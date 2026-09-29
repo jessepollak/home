@@ -30,8 +30,20 @@ export type ConfirmActionResponse = {
 
 export function supportsBaseBatchGasHint(calls: readonly { data: string }[]): boolean {
   if (calls.length < 1) return false;
+  const approval = (data: string) => /^0x095ea7b3[0-9a-f]{128}$/i.test(data);
+  const transfer = (data: string) => /^0xa9059cbb0{24}[0-9a-f]{40}[0-9a-f]{64}$/i.test(data);
+  const independent = (data: string) => approval(data) || transfer(data);
+  const first = calls[0];
+  if (!first) return false;
+  let earlierIndependent = independent(first.data);
   for (let index = 1; index < calls.length - 1; index += 1) {
-    if (!/^0x095ea7b3[0-9a-f]{128}$/i.test(calls[index].data)) return false;
+    const call = calls[index];
+    if (!call) return false;
+    const data = call.data;
+    if (transfer(data)) {
+      if (!earlierIndependent) return false;
+    } else if (!approval(data)) return false;
+    earlierIndependent = earlierIndependent && independent(data);
   }
   return true;
 }

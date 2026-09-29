@@ -62,3 +62,12 @@ The root [`.env.example`](../.env.example) is the complete list of names and the
 | `HOME_WEBHOOK_ORIGIN` (optional origin override) | Vercel environment | [Vercel deploy](vercel-deploy.md#cdp-balance-activity-webhook) |
 | `BASE_RPC_URL`, `ETHEREUM_RPC_URL` | Vercel environment; local `.env.local` | [Vercel deploy](vercel-deploy.md#environment) |
 | `HOME_VERIFY_PRODUCTION_URL` (local-only live verification) | Private local runner environment | [Browser validation](browser-validation.md#live-session) |
+
+## Admin settings
+
+Administrators change these in the operator console after [administrator access](vercel-deploy.md#administrator-access) is set. Each save is revision-checked, recorded in the audit log, and carries the address of the operator who opened the page; a save is refused with `409 OPERATOR_CHANGED` when the signed-in operator no longer matches it, and the page re-syncs and asks for a reload. Fee changes apply to new quotes only. A new or changed revenue destination is saved only after the administrator confirms its full checksummed address.
+
+| Value | Where you set it | Docs |
+| --- | --- | --- |
+| Swap fee, 0–300 basis points (default 0, off) | `/admin/settings` → Fees | [Administrator access](vercel-deploy.md#administrator-access) |
+| Revenue destination: a Base address that only receives fees, such as a multisig or another account held outside Home (required when the fee is above 0) | `/admin/settings` → Fees | [Administrator access](vercel-deploy.md#administrator-access) |

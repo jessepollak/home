@@ -99,6 +99,15 @@ describe("CDP Swaps client", () => {
     expect(keys[0]).not.toBe(keys[1]);
     expect(keys.every((key) => !!key && key.length === 36)).toBe(true);
   });
+  test("refuses unsupported provider-native fees before making a provider request", async () => {
+    let requested = false;
+    const client = createCdpSwapsClient({ env, generateJwtImpl: jwt,
+      fetchImpl: (async () => { requested = true; throw new Error("should not be called"); }) as unknown as typeof fetch,
+    });
+    await expect(client.createQuote({ ...request, operatorFee: { bps: 100, recipient: TAKER } }))
+      .rejects.toBeInstanceOf(CdpSwapsUnavailableError);
+    expect(requested).toBe(false);
+  });
   test("rejects missing credentials", () => {
     expect(() => createCdpSwapsClient({ env: { CDP_API_KEY_ID: " ", CDP_API_KEY_SECRET: " " } })).toThrow("CDP Swaps unavailable.");
   });

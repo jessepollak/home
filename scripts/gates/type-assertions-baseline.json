@@ -843,6 +843,9 @@
     "apps/web/shared/chain/hex.ts": {
       "assertion": 2
     },
+    "apps/web/shared/fees/contract.ts": {
+      "assertion": 2
+    },
     "apps/web/shared/formatting/money.ts": {
       "assertion": 5,
       "nonNull": 4
@@ -903,7 +906,7 @@
       "nonNull": 3
     },
     "apps/web/shared/operator-settings/contract.ts": {
-      "assertion": 5
+      "assertion": 6
     },
     "apps/web/shared/operator-settings/envelope.ts": {
       "assertion": 4

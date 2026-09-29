@@ -165,6 +165,10 @@ export function createConfirmActionHandler(dependencies: {
     if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
+    const tradeMetadata = draft.summary.metadata;
+    if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade" && tradeMetadata.operatorFee?.recipient.toLowerCase() === owner.address.toLowerCase()) {
+      return fail("ACTION_EXPIRED", "This trade's fee destination is your own account. Prepare the trade again.", 410);
+    }
 
     if (!draft.confirmed_at && draft.kind === "cash-out") {
       const metadata = draft.summary.metadata;

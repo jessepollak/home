@@ -21,6 +21,7 @@ const DEPLOYMENT_VERIFICATION_GAS = BigInt(300_000);
 const FACTORY_ABI = [{ type: "function", name: "createAccount", stateMutability: "nonpayable", inputs: [{ name: "owners", type: "bytes[]" }, { name: "nonce", type: "uint256" }], outputs: [{ type: "address" }] }] as const;
 const PRE_VERIFICATION_GAS = BigInt(120_000);
 const APPROVAL_GAS_ALLOWANCE = BigInt(60_000);
+const TRANSFER_GAS_ALLOWANCE = BigInt(70_000);
 const MIN_PRIORITY_FEE = BigInt(1_000_000);
 const MAX_USDC_FEE = BigInt(5_000_000);
 const DUMMY_SIGNATURE = encodeAbiParameters([{ type: "tuple", components: [{ name: "ownerIndex", type: "uint8" }, { name: "signatureData", type: "bytes" }] }], [{ ownerIndex: 0, signatureData: `0x${"ff".repeat(32)}${"aa".repeat(32)}1c` }]);
@@ -76,7 +77,9 @@ export function createNetworkFeeService(deps: Dependencies = {}) {
   const ethCost = async (account: `0x${string}`, calls: MoneyActionCall[], signal?: AbortSignal, callGasLimit?: bigint) => {
     let raw: bigint;
     if (callGasLimit !== undefined) {
-      raw = callGasLimit + BigInt(calls.filter(call => call.approval).length) * APPROVAL_GAS_ALLOWANCE;
+      const transfers = calls.filter(call => call.to.toLowerCase() === BASE_USDC_ADDRESS.toLowerCase() &&
+        /^0xa9059cbb0{24}[0-9a-f]{40}[0-9a-f]{64}$/i.test(call.data) && call.value === "0" && !call.approval).length;
+      raw = callGasLimit + BigInt(calls.filter(call => call.approval).length) * APPROVAL_GAS_ALLOWANCE + BigInt(transfers) * TRANSFER_GAS_ALLOWANCE;
     } else {
       try { raw = await estimator.estimateBatch(calls, account, signal); }
       catch (error) {

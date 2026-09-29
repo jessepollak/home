@@ -1,5 +1,6 @@
 import { hashTypedData } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
+import { operatorFeeAmount, parseOperatorFeeRecord } from "@/shared/fees/contract";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatPresentationPrice } from "@/shared/formatting";
 import { formatDecimalAmount } from "@/shared/formatting/money";
@@ -63,6 +64,16 @@ export function parseTradeMetadata(value: unknown): TradeMoneyActionMetadata | n
     (value.assetName !== undefined && (typeof value.assetName !== "string" || !value.assetName.trim() || value.assetName.length > 100)) ||
     (value.assetId === undefined && (traded.id !== "cbbtc" || traded.address !== "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" || traded.decimals !== 8 || traded.symbol !== "cbBTC")) ||
     (value.assetId !== undefined && value.assetName === undefined)) return null;
+  const operatorFee = value.operatorFee === undefined ? null : parseOperatorFeeRecord(value.operatorFee);
+  if (value.operatorFee !== undefined && !operatorFee) return null;
+  if (operatorFee) {
+    const from = BigInt(value.fromAmountBaseUnits);
+    const minimum = BigInt(value.minimumToAmountBaseUnits);
+    const amount = BigInt(operatorFee.amountBaseUnits);
+    if (value.direction === "sell" && amount >= minimum) return null;
+    if (value.direction === "buy" && from + amount > (BigInt(1) << BigInt(256)) - BigInt(1)) return null;
+    if (amount !== operatorFeeAmount(value.direction === "buy" ? from + amount : minimum, operatorFee.bps)) return null;
+  }
   const fees: TradeMoneyActionMetadata["fees"] = [];
   for (const fee of value.fees) {
     if (!record(fee) || (fee.kind !== "protocol" && fee.kind !== "gas") || fees.some((existing) => existing.kind === fee.kind) ||
@@ -77,7 +88,7 @@ export function parseTradeMetadata(value: unknown): TradeMoneyActionMetadata | n
     fromAsset: value.direction === "buy" ? usdc : traded, toAsset: value.direction === "buy" ? traded : usdc,
     fromAmountBaseUnits: value.fromAmountBaseUnits, expectedToAmountBaseUnits: value.expectedToAmountBaseUnits,
     minimumToAmountBaseUnits: value.minimumToAmountBaseUnits, slippageBps: TRADE_SLIPPAGE_BPS,
-    fees, approval: value.approval, quoteBlockNumber: value.quoteBlockNumber,
+    fees, ...(operatorFee ? { operatorFee } : {}), approval: value.approval, quoteBlockNumber: value.quoteBlockNumber,
     quotedAt: value.quotedAt, permitDeadline: value.permitDeadline, executionDeadline: value.executionDeadline,
   };
 }

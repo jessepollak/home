@@ -19,6 +19,7 @@ import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-p
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
+import { parseOperatorFeeRecord } from "@/shared/fees/contract";
 
 export type ActionSummary = {
   title: string;
@@ -150,6 +151,14 @@ function cashoutInsert(row: ActionRow): unknown[] | null {
     metadata.platformLabel, amount.amountBaseUnits, metadata.etaSeconds ?? null];
 }
 
+function operatorFeeInsert(row: ActionRow): unknown[] | null {
+  const metadata = row.summary.metadata;
+  if (row.kind !== "trade" || metadata?.product !== "trade" || metadata.operatorFee === undefined) return null;
+  const fee = parseOperatorFeeRecord(metadata.operatorFee);
+  if (!fee || fee.recipient.toLowerCase() === (row.account_address?.toLowerCase() ?? "")) throw new Error("Invalid operator fee record");
+  return [row.id, row.kind, fee.amountBaseUnits, fee.token.assetId, fee.token.address, fee.token.decimals, fee.bps, fee.recipient, fee.collectedBy];
+}
+
 function regionForCashout(metadata: CashoutMoneyActionMetadata): string | null {
   const provider = getFundingProvider(metadata.providerId);
   return provider?.manifest.bindings.find((binding) => binding.currency === metadata.currency &&
@@ -219,6 +228,12 @@ export class ActionsStore {
          WHERE id = $1 AND owner_key = $2
          RETURNING *`,
         [id, actionOwnerKey(owner), callDataHash, row.kind === "trade" && confirmed ? JSON.stringify({ calls: confirmed }) : null],
+      );
+      const fee = operatorFeeInsert(row);
+      if (fee) await tx.query(
+        `INSERT INTO operator_fee_records (action_id, action_kind, amount_base_units, token_asset_id, token_address, token_decimals, bps, recipient, collected_by)
+         VALUES ($1, $2, $3::numeric, $4, $5, $6, $7, $8, $9) ON CONFLICT (action_id) DO NOTHING`,
+        fee,
       );
       const values = cashoutInsert(row);
       if (values) await tx.query(

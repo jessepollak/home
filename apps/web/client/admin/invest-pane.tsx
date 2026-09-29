@@ -30,12 +30,20 @@ function sameSettings(a: InvestSettings, b: InvestSettings): boolean {
   return a.hiddenCategories.join("|") === b.hiddenCategories.join("|") && a.hiddenAssets.join("|") === b.hiddenAssets.join("|");
 }
 
-export function InvestPane({ initialEntry }: { initialEntry: InvestEntry }) {
+export function InvestPane({ initialEntry, operator }: { initialEntry: InvestEntry; operator: `0x${string}` }) {
   const [baseline, setBaseline] = useState(initialEntry);
   const [draft, setDraft] = useState<InvestSettings>(initialEntry.value);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [activeOperator, setActiveOperator] = useState(operator);
+  if (activeOperator !== operator) {
+    setActiveOperator(operator);
+    setBaseline(initialEntry);
+    setDraft(initialEntry.value);
+    setMessage("");
+    setError("");
+  }
   const dirty = !sameSettings(baseline.value, draft);
 
   function updateDraft(value: InvestSettings) {
@@ -67,7 +75,7 @@ export function InvestPane({ initialEntry }: { initialEntry: InvestEntry }) {
       const response = await fetch("/api/admin/settings/invest", {
         method: "PUT",
         headers,
-        body: JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: baseline.revision, value: draft }),
+        body: JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: baseline.revision, value: draft, operator }),
       });
       const body: unknown = await response.json().catch(() => null);
       if (response.ok) {
@@ -85,6 +93,8 @@ export function InvestPane({ initialEntry }: { initialEntry: InvestEntry }) {
           setBaseline(current);
           setDraft(current.value);
           setError("Someone else changed these settings. Review the latest values and save again.");
+        } else if (response.status === 409 && parsed?.error.code === "OPERATOR_CHANGED") {
+          setError("A different operator is signed in. Reload this page before saving.");
         } else {
           setError("Couldn't save. Try again.");
         }
