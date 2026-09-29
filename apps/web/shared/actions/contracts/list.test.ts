@@ -42,6 +42,24 @@ describe("recent Home action activity", () => {
     expect(parseRecentMoneyActions({ actions: [row("0x3333333333333333333333333333333333333333")] }, session)).toEqual([]);
   });
 
+  test("drops rows whose amount members are not atomic amounts", () => {
+    const amount = row().summary.amounts[0];
+    const badDecimals = { ...row(), summary: { ...row().summary, amounts: [{ ...amount, decimals: -1 }] } };
+    const badUnits = { ...row(), summary: { ...row().summary, amounts: [{ ...amount, amountBaseUnits: "01" }] } };
+    const overLimit = { ...row(), summary: { ...row().summary, amounts: [{ ...amount, amountBaseUnits: "1".repeat(79) }] } };
+    const badMember = { ...row(), summary: { ...row().summary, amounts: [null] } };
+    const badWarning = { ...row(), summary: { ...row().summary, warnings: [null] } };
+    expect(parseRecentMoneyActions({ actions: [badDecimals, badUnits, overLimit, badMember, row()] }, session)).toHaveLength(1);
+    expect(parseRecentMoneyActions({ actions: [badWarning] }, session)).toEqual([]);
+  });
+
+  test("keeps a non-cash-out row whose token decimals exceed the cash-out escrow bound", () => {
+    const tradeRow = { ...row(), kind: "trade", summary: { ...row().summary, amounts: [{ ...row().summary.amounts[0], decimals: 36 }] } };
+    expect(parseRecentMoneyActions({ actions: [tradeRow] }, session)).toHaveLength(1);
+    const cashoutRow = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ ...row().summary.amounts[0], decimals: 21 }] } };
+    expect(parseRecentMoneyActions({ actions: [cashoutRow] }, session)).toEqual([]);
+  });
+
   test("preserves typed cash-out identity without parsing titles or calldata", () => {
     const cashout = {
       ...row(),
