@@ -1,18 +1,51 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeader } from "@/components/section-header";
 import type { RegionId } from "@/config/regions";
-import type {
-  BalanceRowModel,
-  BalancesPresentation,
-  MoneyGroupPresentation,
+import {
+  presentBalances,
+  type BalanceRowModel,
+  type BalancesPresentation,
+  type HomeBalancesPresentation,
+  type MoneyGroupPresentation,
 } from "@/shared/balances/present";
+import type { BalancesState } from "@/shared/balances/types";
+import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import { BalancesList, BalancesListFallback } from "./balances-list";
 
 const BALANCES_BATCH_SIZE = 10;
+
+const loadingBalances: BalancesPresentation = {
+  status: "loading", displayTotal: null, breakdown: [], summary: null,
+  groups: [], rows: [], hiddenRows: [], hiddenCount: 0,
+};
+
+export function useBalancesPresentation({ state, active, showSmallBalances, pendingCashout, fallback }: {
+  state?: BalancesState;
+  active: boolean;
+  showSmallBalances: boolean;
+  pendingCashout?: PendingCashoutEstimate;
+  fallback?: HomeBalancesPresentation | BalancesPresentation;
+}): BalancesPresentation {
+  const status = state?.status;
+  const snapshot = state?.snapshot;
+  const revalidating = state?.status === "ready" ? state.revalidating : undefined;
+  const presentation = useMemo(() => {
+    if (!active) return loadingBalances;
+    if (!status) return fallback && "groups" in fallback ? fallback : loadingBalances;
+    if (status === "ready" && snapshot) {
+      return presentBalances({ status, snapshot, error: null }, { showSmallBalances, pendingCashout });
+    }
+    return presentBalances(status === "error"
+      ? { status, snapshot: null, error: "balances-unavailable" }
+      : { status: status === "unavailable" ? "unavailable" : "loading", snapshot: null, error: null });
+  }, [active, status, snapshot, showSmallBalances, pendingCashout, fallback]);
+  return useMemo(() => active && status === "ready" && revalidating
+    ? { ...presentation, revalidating } : presentation, [active, status, revalidating, presentation]);
+}
 
 type BalancesRevealWindow = {
   key: string;
@@ -38,7 +71,7 @@ export function homeBalancesRestoreScope(input: {
   return `${ownerKey}\u0000${provider}\u0000${subject}\u0000${smartAccount.toLowerCase()}\u0000${region}`;
 }
 
-export function balancesAnchorTopologyKey(presentation: BalancesPresentation): string {
+export function balancesAnchorTopologyKey(presentation: Pick<BalancesPresentation, "groups" | "rows">): string {
   return JSON.stringify({
     groups: presentation.groups.map((group) => group.id),
     rows: presentation.rows.map(({ key, group }) => ({ key, group })),
@@ -267,4 +300,3 @@ function SmallBalancesControl({
     </div>
   );
 }
-

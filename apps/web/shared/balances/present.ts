@@ -9,11 +9,10 @@ import {
 } from "@/shared/formatting";
 import { exactDecimalToFraction } from "@/shared/balances/math";
 import { pricePendingCashout, type PendingCashoutEstimate } from "./pending-cashout";
-import { selectOwnedInvestments } from "./owned-investments";
 import {
   selectBalanceTotals,
   selectBorrowPositions,
-  selectCollateralHoldings,
+  selectInvestmentHoldings,
   selectMoneyGroups,
   type CashSelection,
 } from "./select";
@@ -70,19 +69,22 @@ export type HomeMoneySummary = {
     | { kind: "unavailable" };
 };
 
-export type BalancesPresentation = {
+export type HomeBalancesPresentation = {
   status: "loading" | "ready" | "unavailable";
   displayTotal: string | null;
   totalStatus?: "complete" | "partial" | "unavailable";
   statusLabel?: string;
   needsCountry?: true;
-  groups: MoneyGroupPresentation[];
   breakdown: MoneyBreakdownItem[];
   summary: HomeMoneySummary | null;
+  revalidating?: true;
+};
+
+export type BalancesPresentation = HomeBalancesPresentation & {
+  groups: MoneyGroupPresentation[];
   rows: BalanceRowModel[];
   hiddenRows: BalanceRowModel[];
   hiddenCount: number;
-  revalidating?: true;
 };
 
 export type PresentBalancesOptions = {
@@ -96,42 +98,8 @@ export function presentBalances(
     showSmallBalances: false,
   },
 ): BalancesPresentation {
-  if (state.status === "loading") {
-    return {
-      status: "loading",
-      displayTotal: null,
-      groups: [],
-      breakdown: [],
-      summary: null,
-      rows: [],
-      hiddenRows: [],
-      hiddenCount: 0,
-    };
-  }
-  if (state.status !== "ready") {
-    return {
-      status: "unavailable",
-      displayTotal: null,
-      totalStatus: "unavailable",
-      statusLabel: "Balance unavailable",
-      groups: [],
-      breakdown: [],
-      summary: null,
-      rows: [],
-      hiddenRows: [],
-      hiddenCount: 0,
-    };
-  }
-
-  const net = selectBalanceTotals(state.snapshot).net;
-  const pending = pendingCashout?.state === "escrow" && BigInt(pendingCashout.baseUnits) > BigInt(0)
-    ? pricePendingCashout(state.snapshot, pendingCashout) : null;
-  const pendingUnpriced = pending === "unpriced" || pendingCashout?.state === "escrow" && pendingCashout.partial ||
-    pendingCashout?.state === "indeterminate" || pendingCashout?.state === "unreadable" || pendingCashout?.state === "loading";
-  const pendingValue = pending && pending !== "unpriced" && BigInt(pending.atoms) > BigInt(0) ? pending : null;
-  const noCurrency = net.status === "no-quote-currency";
-  const unavailable = net.status === "unavailable";
-  const combined = net.value && pendingValue ? signedNetWithPending(net.value, net.negative, pendingValue) : null;
+  const home = presentHomeBalances(state, { pendingCashout });
+  if (state.status !== "ready") return { ...home, groups: [], rows: [], hiddenRows: [], hiddenCount: 0 };
   const partitions = presentMoneyGroupPartitions(state.snapshot);
   const investmentRows = showSmallBalances
     ? [...partitions.investmentRows, ...partitions.hiddenRows]
@@ -144,7 +112,42 @@ export function presentBalances(
     investmentRows,
     partitions.unpricedRows,
   );
-  const summary = presentHomeSummary(state.snapshot, partitions);
+  return { ...home, groups, rows: groups.flatMap((group) => group.rows), hiddenRows: partitions.hiddenRows, hiddenCount: partitions.hiddenRows.length };
+}
+
+export function presentHomeBalances(
+  state: BalancesState,
+  { pendingCashout }: Pick<PresentBalancesOptions, "pendingCashout"> = {},
+): HomeBalancesPresentation {
+  if (state.status === "loading") {
+    return {
+      status: "loading",
+      displayTotal: null,
+      breakdown: [],
+      summary: null,
+    };
+  }
+  if (state.status !== "ready") {
+    return {
+      status: "unavailable",
+      displayTotal: null,
+      totalStatus: "unavailable",
+      statusLabel: "Balance unavailable",
+      breakdown: [],
+      summary: null,
+    };
+  }
+
+  const net = selectBalanceTotals(state.snapshot).net;
+  const pending = pendingCashout?.state === "escrow" && BigInt(pendingCashout.baseUnits) > BigInt(0)
+    ? pricePendingCashout(state.snapshot, pendingCashout) : null;
+  const pendingUnpriced = pending === "unpriced" || pendingCashout?.state === "escrow" && pendingCashout.partial ||
+    pendingCashout?.state === "indeterminate" || pendingCashout?.state === "unreadable" || pendingCashout?.state === "loading";
+  const pendingValue = pending && pending !== "unpriced" && BigInt(pending.atoms) > BigInt(0) ? pending : null;
+  const noCurrency = net.status === "no-quote-currency";
+  const unavailable = net.status === "unavailable";
+  const combined = net.value && pendingValue ? signedNetWithPending(net.value, net.negative, pendingValue) : null;
+  const summary = presentHomeSummary(state.snapshot);
   const breakdown = presentBreakdown(state.snapshot, pendingValue);
 
   return {
@@ -165,12 +168,8 @@ export function presentBalances(
           ? "Some balances are unavailable"
           : undefined,
     ...(noCurrency ? { needsCountry: true as const } : {}),
-    groups,
     breakdown,
     summary,
-    rows: groups.flatMap((group) => group.rows),
-    hiddenRows: partitions.hiddenRows,
-    hiddenCount: partitions.hiddenRows.length,
     ...(state.revalidating ? { revalidating: true as const } : {}),
   };
 }
@@ -213,14 +212,12 @@ function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
   unpricedRows: BalanceRowModel[];
   hiddenRows: BalanceRowModel[];
   investmentHoldings: Holding[];
-  visibleInvestmentHoldings: Holding[];
 } {
   const selected = selectMoneyGroups(snapshot);
-  const cashRows = selected.cash.map((entry) => presentCash(entry, snapshot));
+  const cashRows = selected.cash.map((entry) => presentCashSelection(entry, snapshot));
   const investmentRows: BalanceRowModel[] = [];
   const unpricedRows: BalanceRowModel[] = [];
   const hiddenRows: BalanceRowModel[] = [];
-  const visibleInvestmentHoldings: Holding[] = [];
 
   for (const holding of selected.investments) {
     const row = presentAsset(holding, snapshot);
@@ -230,7 +227,6 @@ function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
       unpricedRows.push(row);
     } else {
       investmentRows.push(row);
-      if (holding.balance.status === "ready") visibleInvestmentHoldings.push(holding);
     }
   }
   hiddenRows.sort(compareRows);
@@ -243,7 +239,6 @@ function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
     unpricedRows,
     hiddenRows,
     investmentHoldings: selected.investments,
-    visibleInvestmentHoldings,
   };
 }
 
@@ -277,20 +272,28 @@ function buildMoneyGroups(
 
 function presentHomeSummary(
   snapshot: BalancesSnapshot,
-  partitions: { visibleInvestmentHoldings: readonly Holding[] },
 ): HomeMoneySummary {
   const totals = selectBalanceTotals(snapshot);
-  const collateral = selectCollateralHoldings(snapshot);
-  const investmentHoldings = [...partitions.visibleInvestmentHoldings, ...collateral];
-  const assetKeys = new Set(investmentHoldings.map((holding) => holding.key));
+  const assetKeys = new Set<string>();
+  const owned = new Map<string, boolean>();
+  for (const holding of selectInvestmentHoldings(snapshot)) {
+    const ready = holding.balance.status === "ready";
+    owned.set(holding.key, ready);
+    if (!ready || holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount) ||
+      holding.value.status !== "priced" && holding.source === "wallet") continue;
+    assetKeys.add(holding.key);
+  }
+  for (const { collateral } of snapshot.borrow.positions) {
+    if (collateral.balance.baseUnits === "0") continue;
+    assetKeys.add(collateral.key);
+    owned.set(collateral.key, true);
+  }
   return {
     cash: summaryAmount(totals.cash, snapshot.region),
     investments: {
       ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
-      ownedCount: selectOwnedInvestments(snapshot).filter((row) =>
-        [row.wallet, ...row.collateral].some((holding) => holding?.balance.status === "ready"),
-      ).length,
+      ownedCount: [...owned.values()].filter(Boolean).length,
     },
     borrow: presentBorrowSummary(snapshot, totals.borrow),
   };
@@ -402,7 +405,7 @@ export function presentHoldingMark(holding: Holding): BalanceRowModel["mark"] {
       : { kind: "symbol", symbol: holding.symbol };
 }
 
-function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceRowModel {
+export function presentCashSelection(entry: CashSelection, snapshot: BalancesSnapshot): BalanceRowModel {
   if (entry.kind === "unsupported") {
     return {
       key: entry.key,
@@ -559,4 +562,8 @@ function compareRows(left: BalanceRowModel, right: BalanceRowModel): number {
 
 export function presentInvestmentTotal(snapshot: BalancesSnapshot): HomeSummaryAmount {
   return summaryAmount(selectBalanceTotals(snapshot).investments, snapshot.region);
+}
+
+export function presentCashTotal(snapshot: BalancesSnapshot): HomeSummaryAmount {
+  return summaryAmount(selectBalanceTotals(snapshot).cash, snapshot.region);
 }

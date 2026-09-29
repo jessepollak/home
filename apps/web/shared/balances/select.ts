@@ -123,21 +123,24 @@ export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
 
 export function selectMoneyGroups(snapshot: BalancesSnapshot): MoneyGroups {
   const cash = selectCash(snapshot);
+  return { cash, investments: investmentHoldings(snapshot, cash).sort(compareHoldings) };
+}
+
+export function selectInvestmentHoldings(snapshot: BalancesSnapshot): Holding[] {
+  return investmentHoldings(snapshot, selectCash(snapshot));
+}
+
+function investmentHoldings(snapshot: BalancesSnapshot, cash: CashSelection[]): Holding[] {
   const selectedCashIds = new Set(
     cash.flatMap((entry) => entry.kind === "holding" ? [entry.holding.id] : []),
   );
-  const investments = snapshot.holdings.filter((holding) =>
+  return snapshot.holdings.filter((holding) =>
     holding.kind !== "vault-share" &&
     holding.cashCurrency === null &&
     !selectedCashIds.has(holding.id) &&
     (holding.balance.status !== "ready" || holding.balance.baseUnits !== "0") &&
     (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim())
   );
-
-  return {
-    cash,
-    investments: investments.sort(compareHoldings),
-  };
 }
 
 /** @public exercised by shared/balances/select.test.ts */

@@ -19,6 +19,22 @@ The new overview no longer invokes the two full presenters. The old total is the
 
 ## Applying the principle elsewhere
 
-Interaction work should scale with visible content and changed data, not lifetime wallet size. Home still constructs a full balances presentation for its summary. Cash still invokes the full presenter for the cash headline and builds every money group before selecting cash rows. Reused collators help those paths now, but dedicated summary/cash selectors remain separate work. Single-asset lookup still sorts the full owned list. Activity needs both bounded DOM and bounded history-processing/persistence work; row virtualization alone does not provide the latter.
+Interaction work should scale with visible content and changed data, not lifetime wallet size. Home now uses `presentHomeBalances`: totals, pending cash-out, breakdown and unsorted investment counts, with no portfolio row formatting. Counts still require linear classification of holdings; this is not a constant-time summary. Cash uses `presentCashTotal` and formats only `selectCash` entries through `presentCashSelection`, retaining the selected holding reference instead of searching the portfolio again for each cash row.
+
+The shell keeps summary and list presentations separate. `useBalancesPresentation`, owned by `client/home/balances-panel.tsx`, builds the full list only while Balances is active and Account settings is closed. Hidden updates produce no full rows; returning derives the current snapshot. The reveal window retains its extent and the existing owner/region-scoped scroll restoration remains authoritative. Revalidation flags alone do not rebuild rows or their topology key. Home summary memoization follows snapshot/status/pending-cash-out changes, with the revalidation flag applied separately. Local snapshot replacement or clearing replaces or clears each presentation; no global owner-data cache is added.
+
+`home/no-full-portfolio-presentation` enforces the production import boundary described in [gates](gates.md#portfolio-presentation-boundary). Focused tests also prevent Home from preparing investment labels/marks, Cash from formatting unrelated investments, and hidden or unchanged-refresh Balances panels from rebuilding rows. Lint does not establish a frame-rate budget.
+
+Single-asset lookup still sorts the full owned list. Activity needs both bounded DOM and bounded history-processing/persistence work; row virtualization alone does not provide the latter. Hidden Cash/Savings background work beyond full-portfolio presentation is unchanged.
+
+### Home and Cash CPU comparison
+
+A second comparison uses the same fixture, runtime and five-sample method above, with the initial Investments/cache change as its baseline. Home compares `presentBalances` against `presentHomeBalances`; Cash compares `presentBalances(...).summary.cash` plus `presentMoneyGroups(...).find(cash)` against `presentCashTotal` plus `selectCash(...).map(presentCashSelection)`. These isolate the replaced shared presentation work, excluding the remaining Cash component/savings computations and React/browser work.
+
+| Synthetic assets | Home before | Home after | Cash before | Cash after |
+| --- | ---: | ---: | ---: | ---: |
+| 100 | 3.92 ms | 0.39 ms | 5.95 ms | 0.16 ms |
+| 1,000 | 30.91 ms | 0.87 ms | 31.58 ms | 0.13 ms |
+| 10,000 | 135.72 ms | 7.96 ms | 274.45 ms | 0.21 ms |
 
 Use large-wallet fixtures (100, 1,000 and 10,000 assets plus long Activity history) across cold entry, warm navigation, row reveal, background refresh and owner switching. Guard against redundant computation with work-count tests, then measure actual tap/paint, long tasks and frame behavior in a production build on the supported device floor. Do not hide holdings, weaken exact arithmetic or relax owner isolation to hit a timing budget.

@@ -24,6 +24,7 @@ import {
   pricedCash,
   ready,
   unavailableBalance,
+  walletHolding,
 } from "@/shared/balances/fixtures";
 import {
   presentBalances,
@@ -1018,8 +1019,11 @@ describe("Home shell routing and intents", () => {
     ).toBe("649");
   });
 
-  test("does not re-present unchanged balances during navigation or account interactions", async () => {
-    let presentationCalls = 0;
+  test("does not construct the full balances list during Home navigation or account interactions", async () => {
+    let holdingsReads = 0;
+    const snapshot = buildBalancesSnapshotFixture();
+    const holdings = snapshot.holdings;
+    Object.defineProperty(snapshot, "holdings", { get() { holdingsReads += 1; return holdings; } });
     const presentation: NonNullable<ComponentProps<typeof DashboardShell>["assetBalances"]> = {
       status: "ready",
       displayTotal: "$12.34",
@@ -1034,15 +1038,12 @@ describe("Home shell routing and intents", () => {
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
-        presentAssetBalances={() => {
-          presentationCalls += 1;
-          return presentation;
-        }}
+        assetBalances={presentation}
+        balancesState={{ status: "ready", snapshot, error: null }}
       />,
     );
     await waitForVerifiedShell();
-    await waitFor(() => expect(presentationCalls).toBeGreaterThan(0));
-    presentationCalls = 0;
+    expect(holdingsReads).toBe(0);
 
     const navigation = within(tabsNavigation());
     fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
@@ -1052,7 +1053,7 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
 
-    expect(presentationCalls).toBe(0);
+    expect(holdingsReads).toBe(0);
   });
 
   test("keeps the total-balance hero quiet for a stale cached balance during background revalidation", async () => {
@@ -1173,15 +1174,11 @@ describe("Home shell routing and intents", () => {
     await page().findAllByText("Ethereum");
     expect(main.scrollTop).toBe(275);
 
-    const dust = { ...cashRow, key: "dust", name: "Dust dollar", primary: "$0.01" };
+    const dustSnapshot = buildBalancesSnapshotFixture({ catalog: [walletHolding({
+      address: "0x1111111111111111111111111111111111111111", name: "Dust dollar", symbol: "DUST", decimals: 18,
+    }, "1000000000000000000", priced("USD", "1", 3))] });
     view.rerender(<HomeHarness accountSdk={accountSdk} initialPanel="balances"
-      presentAssetBalances={(show) => ({
-        ...presentation,
-        groups: [{ ...presentation.groups[0]!, rows: show ? [cashRow, dust] : [cashRow] }],
-        rows: show ? [cashRow, dust] : [cashRow],
-        hiddenRows: show ? [] : [dust],
-        hiddenCount: 1,
-      })}
+      balancesState={{ status: "ready", snapshot: dustSnapshot, error: null }}
     />);
     fireEvent.click(page().getByRole("button", { name: "Show" }));
     await page().findAllByText("Dust dollar");
