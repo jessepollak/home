@@ -21,7 +21,8 @@ const acceptedGaps = {
     "shared/account/contracts/base-verify.ts", "shared/account/contracts/session.ts",
     "shared/actions/contracts/confirm.ts", "shared/actions/contracts/get.ts",
     "shared/actions/contracts/handle.ts", "shared/actions/contracts/list.ts",
-    "shared/actions/contracts/prepare.ts", "shared/balances/contract.ts", "shared/cards/transactions-contract.ts", "shared/funding/contracts/order.ts",
+    "shared/actions/contracts/prepare.ts", "shared/balances/contract.ts", "shared/cards/transactions-contract.ts", "shared/fees/contract.ts",
+    "shared/funding/contracts/order.ts",
     "shared/funding/provider-contract.ts",
   ]),
   parserlessContracts: new Set([
