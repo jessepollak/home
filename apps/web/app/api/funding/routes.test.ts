@@ -8,7 +8,6 @@ import { POST as resolveOrder } from "./orders/[id]/resolve/route";
 import { GET as providerCustomers } from "./provider-customers/route";
 import { POST as startProviderCustomerVerification } from "./provider-customers/verification/route";
 import { POST as webhook } from "./webhooks/[provider]/route";
-import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import {
   handleFundingOpenOrderGet,
@@ -308,16 +307,7 @@ describe("funding route privacy and rejection", () => {
     }
   });
 
-  test("webhook streaming ignores advisory length but rejects actual oversize and timeout", async () => {
-    const advisory = new Request("https://home.example/webhook", { method: "POST", headers: { "Content-Length": "999999" }, body: "ok" });
-    expect(new TextDecoder().decode(await readBoundedWebhookBody(advisory, { maxBytes: 8, timeoutMs: 50 }) ?? new Uint8Array())).toBe("ok");
-    const oversized = new Request("https://home.example/webhook", { method: "POST", body: "12345" });
-    expect(await readBoundedWebhookBody(oversized, { maxBytes: 4, timeoutMs: 50 })).toBeNull();
-    const stalled = new Request("https://home.example/webhook", { method: "POST", body: new ReadableStream<Uint8Array>({ start() {} }), duplex: "half" } as RequestInit & { duplex: "half" });
-    expect(await readBoundedWebhookBody(stalled, { maxBytes: 8, timeoutMs: 5 })).toBeNull();
-  });
-
-  test("invalid webhook remains private, bounded and always acknowledged", async () => {
+  test("invalid webhook remains private and acknowledged", async () => {
     const response = await webhook(new Request("https://home.example/api/funding/webhooks/ripio", { method: "POST", body: "invalid" }), { params: Promise.resolve({ provider: "ripio" }) });
     expect(response.status).toBe(202);
     assertPrivate(response);

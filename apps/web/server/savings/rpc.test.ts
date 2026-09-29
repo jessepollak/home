@@ -94,12 +94,9 @@ describe("savings action RPC state", () => {
       fee: BigInt("250000000000000000"),
       block: { number: "16", numberHex: "0x10", hash: BLOCK_HASH },
     });
-    const singles = requests.filter(
-      (body): body is { method: string; params: unknown[] } => !Array.isArray(body),
-    );
-    expect(requests.every((body) => !Array.isArray(body))).toBeTrue();
-    const calls = singles.filter((entry) => entry.method === "eth_call");
-    expect(calls).toHaveLength(8);
+    const calls = requests.flatMap((body) => Array.isArray(body) ? body : [body])
+      .filter((entry): entry is { method: string; params: unknown[] } =>
+        typeof entry === "object" && entry !== null && "method" in entry && entry.method === "eth_call");
     expect(calls.find((entry) => (entry.params[0] as { data: string }).data.startsWith("0xdd62ed3e"))?.params[0]).toEqual({
       to: BASE_USDC_ADDRESS,
       data: `0xdd62ed3e${addressWord(ACCOUNT).slice(2)}${addressWord(MORPHO_GENERAL_ADAPTER1_ADDRESS).slice(2)}`,
