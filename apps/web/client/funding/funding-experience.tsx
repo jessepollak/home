@@ -127,34 +127,25 @@ function FundingExperienceBoundary({
   const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
   const [promptOrder, setPromptOrder] = useState<FundingOrderSummary | null>(null);
   const [initialCustomer, setInitialCustomer] = useState<FundingProviderCustomerSummary | null>(null);
-  const stepRef = useRef<AddMoneyStep>(startStep);
-  const navigationEpochRef = useRef(0);
-  const returnResumeRef = useRef(returnResumeEligible);
-  const wasOpenRef = useRef(open);
+  const [previousOpen, setPreviousOpen] = useState(open);
+  const [previousResumeEligible, setPreviousResumeEligible] = useState(returnResumeEligible);
+  const [resumeConsumed, setResumeConsumed] = useState(!open);
   const onStepChangeRef = useRef(onStepChange);
 
   useEffect(() => {
     onStepChangeRef.current = onStepChange;
   }, [onStepChange]);
 
-  useEffect(() => {
-    returnResumeRef.current = returnResumeEligible;
-  }, [returnResumeEligible]);
-
-  const spendReturnResume = useCallback(() => {
-    if (!returnResumeRef.current) return;
-    returnResumeRef.current = false;
+  function spendReturnResume() {
+    if (!returnResumeEligible || resumeConsumed) return;
+    setResumeConsumed(true);
     onReturnResumeSpent();
-  }, [onReturnResumeSpent]);
+  }
 
-  const navigateTo = useCallback((next: AddMoneyStep, explicit = true) => {
-    if (explicit) {
-      navigationEpochRef.current += 1;
-      spendReturnResume();
-    }
-    stepRef.current = next;
+  function navigateTo(next: AddMoneyStep) {
+    spendReturnResume();
     setStep(next);
-  }, [spendReturnResume]);
+  }
 
   const queryEnabled = Boolean(
     open && regionReady && !signedOut && regionId !== "GLOBAL" && queryOwnerKey,
@@ -198,56 +189,49 @@ function FundingExperienceBoundary({
     onStepChangeRef.current?.(step);
   }, [step]);
 
-  useEffect(() => {
-    const wasOpen = wasOpenRef.current;
-    wasOpenRef.current = open;
-    if (!open) spendReturnResume();
-    if (!open && wasOpen) setPromptOrder(null);
-    if (open && !wasOpen && stepRef.current !== startStep) {
-      queueMicrotask(() => navigateTo(startStep, false));
+  if (previousResumeEligible !== returnResumeEligible) {
+    setPreviousResumeEligible(returnResumeEligible);
+    setResumeConsumed(false);
+  }
+  if (previousOpen !== open) {
+    setPreviousOpen(open);
+    if (open && step !== startStep) setStep(startStep);
+    if (!open) {
+      setPromptOrder(null);
+      setResumeConsumed(true);
     }
-  }, [open, startStep, navigateTo, spendReturnResume]);
+  }
+
+  const eligibleToResume = open && regionReady && returnResumeEligible &&
+    !resumeConsumed && previousResumeEligible === returnResumeEligible && step === "method";
+  const openOrder = readFundingOrder(ordersQuery.data);
+  const resumedBinding = eligibleToResume && openOrder
+    ? providerBindings.find((candidate) => orderMatchesBinding(openOrder, candidate))
+    : null;
+  const customers = eligibleToResume && returnedFromVerification && ordersQuery.isSuccess && !openOrder
+    ? readFundingProviderCustomers(customersQuery.data)
+    : [];
+  const customer = customers.find((candidate) => candidate.state !== "verified") ?? customers[0];
+  const customerBinding = customer
+    ? providerBindings.find((candidate) => candidate.providerId === customer.providerId && candidate.customerSetup)
+    : null;
+  if (resumedBinding && openOrder) {
+    setResumeConsumed(true);
+    setSelectedBinding(resumedBinding);
+    setInitialOrder(openOrder);
+    setStep("order");
+  } else if (customerBinding && customer) {
+    setResumeConsumed(true);
+    setSelectedBinding(customerBinding);
+    setInitialCustomer(customer);
+    setStep("order");
+  }
 
   useEffect(() => {
-    const orderValue = ordersQuery.data;
-    if (!open || !regionReady || !returnResumeRef.current || !orderValue) return;
-    const navigationEpoch = navigationEpochRef.current;
-    const resumed = readFundingOrder(orderValue);
-    if (!resumed || stepRef.current !== "method") return;
-    const binding = providerBindings.find(
-      (candidate) => orderMatchesBinding(resumed, candidate),
-    );
-    if (!binding) return;
-    queueMicrotask(() => {
-      if (
-        navigationEpochRef.current !== navigationEpoch ||
-        !returnResumeRef.current ||
-        stepRef.current !== "method"
-      ) return;
-      spendReturnResume();
-      setSelectedBinding(binding);
-      setInitialOrder(resumed);
-      navigateTo("order", false);
-    });
-  }, [open, ordersQuery.data, providerBindings, regionReady, returnResumeEligible, navigateTo, spendReturnResume]);
-
-  useEffect(() => {
-    if (!open || !regionReady || !returnResumeRef.current || !returnedFromVerification || !ordersQuery.isSuccess || readFundingOrder(ordersQuery.data) || stepRef.current !== "method") return;
-    const customers = readFundingProviderCustomers(customersQuery.data);
-    const customer = customers.find((candidate) => candidate.state !== "verified") ?? customers[0];
-    if (!customer) return;
-    const binding = providerBindings.find((candidate) => candidate.providerId === customer.providerId && candidate.customerSetup);
-    if (!binding) return;
-    const navigationEpoch = navigationEpochRef.current;
-    queueMicrotask(() => {
-      if (navigationEpochRef.current !== navigationEpoch || !returnResumeRef.current || stepRef.current !== "method") return;
-      spendReturnResume();
-      setSelectedBinding(binding); setInitialCustomer(customer); navigateTo("order", false);
-    });
-  }, [customersQuery.data, open, ordersQuery.data, ordersQuery.isSuccess, providerBindings, regionReady, returnedFromVerification, returnResumeEligible, navigateTo, spendReturnResume]);
+    if ((!open || resumeConsumed) && returnResumeEligible) onReturnResumeSpent();
+  }, [open, resumeConsumed, returnResumeEligible, onReturnResumeSpent]);
 
   const customerSetupReady = customersQuery.isSuccess || !customerSetupRequired;
-  const openOrder = readFundingOrder(ordersQuery.data);
   const fundingReadError = providersStatus === "failed"
     ? {
         message: "Funding methods are unavailable. Try again.",

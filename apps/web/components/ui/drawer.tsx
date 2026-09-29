@@ -135,24 +135,26 @@ function DrawerContent({
     if (!element || !keyboardAware || !window.visualViewport) return
 
     const viewport = window.visualViewport
-    const updateInset = () => {
+    const updateInset = (focusTarget: EventTarget | null) => {
       if (closingRef.current || element.querySelector("[data-slot=drawer-popup][data-closed]")) return
-      const frame = opensSoftKeyboard(document.activeElement) ? visualViewportKeyboardFrame(window.innerHeight, viewport) : { top: 0, inset: 0 }
+      const frame = opensSoftKeyboard(focusTarget) ? visualViewportKeyboardFrame(window.innerHeight, viewport) : { top: 0, inset: 0 }
       element.style.setProperty("--sheet-keyboard-inset", `${frame.inset}px`)
       element.style.setProperty("--sheet-keyboard-top", `${frame.top}px`)
     }
-    updateInset()
+    const updateFromViewport = () => updateInset(document.activeElement)
+    const updateOnFocus = (event: FocusEvent) => updateInset(event.target)
     const updateAfterBlur = (event: FocusEvent) => {
-      if (event.relatedTarget === null) queueMicrotask(updateInset)
+      if (event.relatedTarget !== null || document.hasFocus()) updateInset(event.relatedTarget)
     }
-    viewport.addEventListener("resize", updateInset)
-    viewport.addEventListener("scroll", updateInset)
-    document.addEventListener("focusin", updateInset)
+    updateFromViewport()
+    viewport.addEventListener("resize", updateFromViewport)
+    viewport.addEventListener("scroll", updateFromViewport)
+    document.addEventListener("focusin", updateOnFocus)
     document.addEventListener("focusout", updateAfterBlur)
     return () => {
-      viewport.removeEventListener("resize", updateInset)
-      viewport.removeEventListener("scroll", updateInset)
-      document.removeEventListener("focusin", updateInset)
+      viewport.removeEventListener("resize", updateFromViewport)
+      viewport.removeEventListener("scroll", updateFromViewport)
+      document.removeEventListener("focusin", updateOnFocus)
       document.removeEventListener("focusout", updateAfterBlur)
       element.style.removeProperty("--sheet-keyboard-inset")
       element.style.removeProperty("--sheet-keyboard-top")

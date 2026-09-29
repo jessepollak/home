@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { useState } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
@@ -101,16 +101,30 @@ describe("software keyboard and the persistent money sheet", () => {
     expect(viewport.style.getPropertyValue("--sheet-keyboard-top")).toBe("0px");
   });
 
-  test("a blur with no next focus releases the inset before the next frame and keeps the sheet open", async () => {
+  test("a blur with no next focus releases the inset synchronously and keeps the sheet open", async () => {
     render(<Journey />);
     await act(async () => fireEvent.click(page().getByRole("button", { name: "Open send" })));
     const amount = page().getByRole("textbox", { name: "Amount" });
-    await act(async () => {
-      amount.blur();
-      await Promise.resolve();
-    });
+    act(() => amount.blur());
     expect(keyboardInset()).toBe("0px");
     expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+  });
+
+  test("window blur retains the inset until focus returns to the input", async () => {
+    render(<Journey />);
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Open send" })));
+    const amount = page().getByRole("textbox", { name: "Amount" });
+    const focus = spyOn(document, "hasFocus").mockReturnValue(false);
+    try {
+      fireEvent.focusOut(amount, { relatedTarget: null });
+      expect(keyboardInset()).toBe(`${KEYBOARD_HEIGHT}px`);
+      Object.assign(window.visualViewport!, { height: window.innerHeight - KEYBOARD_HEIGHT + 50 });
+      focus.mockReturnValue(true);
+      fireEvent.focusIn(amount);
+      expect(keyboardInset()).toBe(`${KEYBOARD_HEIGHT - 50}px`);
+    } finally {
+      focus.mockRestore();
+    }
   });
 
   for (const field of ["Amount", "To"] as const) {
