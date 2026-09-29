@@ -18,6 +18,20 @@ The ingestion route retains the client-error endpoint's security posture but has
 
 ## Navigation and scroll
 
+### Delayed taps and owner-cache work
+
+Navigation reports optionally include `dispatchDelayMs` (trusted click timestamp to the shell's capture listener), `inputToPaintMs` (that timestamp through the existing after-paint callback), and `cachePersistMs` (overlapping owner-cache snapshot/serialization/storage time). Durations are rounded to 10 ms and capped at 30 seconds; the original `durationMs` retains its navigation-start semantics and 10-second cap. Input fields are paired and absent for history, synthetic clicks, invalid clocks, and navigation outside the click's task. Epoch-based event timestamps are normalized to the performance clock. This is click dispatch attribution, not a replacement for Event Timing/INP: it cannot recover touch or keyboard work that occurred before the browser created the click.
+
+Click attribution covers the authenticated main element; navigation controls outside that boundary do not receive these input timing fields.
+
+Only sampled, visible page loads retain cache timing, in a ring of at most 32 spans; no query keys, owners, assets, payloads or storage contents enter telemetry. The overlap is a lower bound if more than 32 writes occur before delivery. Hidden/owner-boundary sample resets discard spans and input. Existing sampling, report caps and ingestion limits are unchanged; the change adds no report kind or requests. `contentState` optionally records `loading`, `ready`, or `unavailable` when the Investments overview commits before the report: a quick shell paint with loading content does not establish readiness. `ready` means renderable cached content, not complete prices or transaction authorization. Subsequent data readiness is not timed by this report.
+
+Server-generated `dpl_` deployment identifiers survive the privacy normalizer; client-provided deployment identifiers remain rejected. Other identifiers still pass the existing scrubber.
+
+Interpretation: high dispatch delay with overlapping cache time implicates synchronous persistence; high navigation duration with little cache time directs tracing toward selectors, React, style and layout; loading content with a fast paint directs investigation toward data/session readiness. These distinguish hypotheses, not prove causation or 60 fps.
+
+### Existing navigation and scroll contract
+
 Two identity-free interaction kinds record dashboard performance without changing the UI. Both use contract version 1 and only the canonical L1 route labels `/home`, `/balances`, `/activity`, `/cash`, `/borrow`, `/investments`, and `/invest` (never `/`). Both include `cache` (`retained` if the visible destination panel was already mounted this page load, otherwise `first-visit`; the initial panel is first-visit) and `device` (`mobile-low`, `mobile-high`, `mobile-unknown`, `desktop-low`, `desktop-high`, or `desktop-unknown`). A coarse pointer selects mobile; otherwise desktop. Low means hardware concurrency ≤4 or device memory ≤4; high means at least one known value and neither low; unknown means neither is known. The optional closed `engine` dimension (`chromium`, `webkit`, `gecko`, or `other`) is derived from the user agent; all iOS/iPadOS browsers report `webkit`. Older builds omit `engine`. iPadOS may identify as desktop in its user agent and may have a non-coarse pointer, so an iPad's `device` may be desktop while its `engine` is still webkit.
 
 - `home-navigation`: `route` is the destination, `from` is a different L1 source route, and `trigger` is `in-app` or `history`. `durationMs` measures navigation start through the destination's after-paint callback, rounded to 10 ms and capped at 10,000 ms. Navigation samples are cancelled if the page becomes hidden before paint; starts while hidden are ignored.

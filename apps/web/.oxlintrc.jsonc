@@ -251,7 +251,8 @@
         "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "rules": {
-        "home/no-exploration-imports": "error"
+        "home/no-exploration-imports": "error",
+        "home/no-full-portfolio-presentation": "error"
       }
     },
     {

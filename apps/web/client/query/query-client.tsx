@@ -13,9 +13,11 @@ import {
   type DehydratedState,
   type Query,
   type QueryKey,
+  type QueryCacheNotifyEvent,
 } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { recordHomeStartupCache } from "@/client/observability/perf-marks";
+import { recordHomeCachePersistence } from "@/client/observability/interaction-performance";
 import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
 import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
 import type { OwnerQueryScope, PublicQueryScope, QueryScope } from "./query-scopes";
@@ -87,23 +89,32 @@ export function createOwnerQueryPersister(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   ownerKey: string,
   throttleTime = ownerQueryPersistThrottleMs,
+  onWrite?: (startedAt: number, durationMs: number) => void,
 ) {
   const key = ownerQueryStorageKey(ownerKey);
   if (!key) return null;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let pending: PersistedOwnerClient | null = null;
+  let pending: PersistedOwnerClient | (() => PersistedOwnerClient) | null = null;
   const writePending = () => {
+    if (timer !== null) clearTimeout(timer);
     timer = null;
     if (!pending) return;
     const value = pending;
     pending = null;
+    const startedAt = performance.now();
     try {
-      storage.setItem(key, JSON.stringify(value));
+      storage.setItem(key, JSON.stringify(typeof value === "function" ? value() : value));
     } catch { // oxlint-disable-line home/no-silent-catch -- persisted owner queries are a best-effort cache; quota or privacy failures cannot block the app
+    } finally {
+      try {
+        onWrite?.(startedAt, performance.now() - startedAt);
+      } catch {
+        return undefined;
+      }
     }
   };
   return {
-    persistClient(value: PersistedOwnerClient) {
+    persistClient(value: PersistedOwnerClient | (() => PersistedOwnerClient)) {
       pending = value;
       if (timer === null) timer = setTimeout(writePending, throttleTime);
     },
@@ -131,6 +142,79 @@ export function createOwnerQueryPersister(
   };
 }
 
+const ownerPersistenceSubscriptions = new WeakMap<QueryClient, Set<{
+  ownerKey: string;
+  pause: () => void;
+  resume: () => void;
+}>>();
+
+function affectsPersistedOwner(event: QueryCacheNotifyEvent, ownerKey: string): boolean {
+  if (event.type !== "added" && event.type !== "removed" && event.type !== "updated") return false;
+  const { query } = event;
+  const meta = query.meta;
+  if (meta?.persistence !== "owner" || meta.ownerKey !== ownerKey || query.queryKey[0] !== ownerKey) return false;
+  if (event.type === "removed") return true;
+  if (event.type === "added") return query.state.status === "success";
+  switch (event.action.type) {
+    case "success":
+    case "error":
+    case "invalidate":
+      return true;
+    case "setState":
+      return Object.keys(event.action.state).some((key) => key !== "fetchStatus" && key !== "fetchMeta");
+    default:
+      return false;
+  }
+}
+
+export function subscribeOwnerQueryPersistence(
+  queryClient: QueryClient,
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  ownerKey: string,
+  onWrite?: (startedAt: number, durationMs: number) => void,
+) {
+  const persister = createOwnerQueryPersister(storage, ownerKey, ownerQueryPersistThrottleMs, onWrite);
+  if (!persister) return () => {};
+  let paused = false;
+  const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+    if (paused) return;
+    if (event.type !== "removed" && queryClient.getQueryCache().get(event.query.queryHash) !== event.query) return;
+    if (!affectsPersistedOwner(event, ownerKey)) return;
+    persister.persistClient(() => ({
+      timestamp: Date.now(),
+      buster: "home-query-v3",
+      clientState: dehydrateOwnerQueries(queryClient, ownerKey),
+    }));
+  });
+  const subscriptions = ownerPersistenceSubscriptions.get(queryClient) ?? new Set();
+  ownerPersistenceSubscriptions.set(queryClient, subscriptions);
+  const subscription = {
+    ownerKey,
+    pause: () => {
+      paused = true;
+      persister.cancel();
+    },
+    resume: () => { paused = false; },
+  };
+  subscriptions.add(subscription);
+  return () => {
+    unsubscribe();
+    persister.cancel();
+    subscriptions.delete(subscription);
+  };
+}
+
+function pauseOwnerPersistence(queryClient: QueryClient, clear: () => void, preserveOwnerKey?: string) {
+  const subscriptions = [...ownerPersistenceSubscriptions.get(queryClient) ?? []]
+    .filter((subscription) => subscription.ownerKey !== preserveOwnerKey);
+  for (const subscription of subscriptions) subscription.pause();
+  try {
+    clear();
+  } finally {
+    for (const subscription of subscriptions) subscription.resume();
+  }
+}
+
 export function clearPersistedOwnerQueries(
   storage: Pick<Storage, "length" | "key" | "removeItem">,
   preserveOwnerKey?: string,
@@ -149,19 +233,21 @@ export function clearOwnerQueryBoundary(
   storage?: Storage,
   preserveOwnerKey?: string,
 ): void {
-  if (preserveOwnerKey) {
-    queryClient.removeQueries({
-      predicate: (query) => query.queryKey[0] !== preserveOwnerKey,
-    });
-    queryClient.getMutationCache().clear();
-  } else {
-    queryClient.clear();
-  }
-  if (storage) clearPersistedOwnerQueries(storage, preserveOwnerKey);
+  pauseOwnerPersistence(queryClient, () => {
+    if (preserveOwnerKey) {
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== preserveOwnerKey,
+      });
+      queryClient.getMutationCache().clear();
+    } else {
+      queryClient.clear();
+    }
+    if (storage) clearPersistedOwnerQueries(storage, preserveOwnerKey);
+  }, preserveOwnerKey);
 }
 
 export function clearOwnerQueryMemory(queryClient: QueryClient): void {
-  queryClient.clear();
+  pauseOwnerPersistence(queryClient, () => queryClient.clear());
 }
 
 export function restoreOwnerQueries(
@@ -205,18 +291,7 @@ export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null })
   }, [ownerKey, queryClient]);
   useEffect(() => {
     if (!ownerKey || typeof window === "undefined") return;
-    const persister = createOwnerQueryPersister(window.localStorage, ownerKey);
-    if (!persister) return;
-    const persist = () => persister.persistClient({
-      timestamp: Date.now(),
-      buster: "home-query-v3",
-      clientState: dehydrateOwnerQueries(queryClient, ownerKey),
-    });
-    const unsubscribe = queryClient.getQueryCache().subscribe(persist);
-    return () => {
-      unsubscribe();
-      persister.cancel();
-    };
+    return subscribeOwnerQueryPersistence(queryClient, window.localStorage, ownerKey, recordHomeCachePersistence);
   }, [ownerKey, queryClient]);
   return null;
 }

@@ -49,11 +49,12 @@ describe("balances restoration helpers", () => {
     } satisfies BalancesPresentation;
     const topology = balancesAnchorTopologyKey(presentation);
 
-    expect(balancesAnchorTopologyKey({
+    const repriced = {
       ...presentation,
       displayTotal: "$2",
       rows: [{ ...presentation.rows[0]!, name: "Dollar", primary: "$2" }],
-    })).toBe(topology);
+    };
+    expect(balancesAnchorTopologyKey(repriced)).toBe(topology);
     expect(balancesAnchorTopologyKey({
       ...presentation,
       groups: [{ ...presentation.groups[0]!, id: "investments" }],
