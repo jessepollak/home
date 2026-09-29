@@ -561,7 +561,7 @@ export function MoneyAssetPicker({
       </ComboboxInput>
       <ComboboxContent anchor={anchorRef} className="w-[min(18rem,calc(100vw-2rem))] min-w-[min(18rem,calc(100vw-2rem))]">
         <ComboboxEmpty>No assets found.</ComboboxEmpty>
-        <ComboboxList>
+        <ComboboxList<MoneyAssetOption>>
           {(option) => (
             <ComboboxItem key={option.id} value={option}>
               {option.mark ? (
