@@ -50,6 +50,7 @@ const exemptions = {
   "cards/webhooks/immersve/[topic]/route.ts": "webhook",
   "cards/webhooks/stripe/route.ts": "webhook",
   "funding/webhooks/[provider]/route.ts": "webhook",
+  "identity/webhooks/sumsub/route.ts": "webhook",
   "webhooks/cdp/route.ts": "webhook",
 };
 
@@ -78,6 +79,7 @@ const clientReasonRoutes = [
   "cards/[id]/unfreeze/route.ts",
   "cards/enrollment/route.ts",
   "cards/route.ts",
+  "identity/reconcile/route.ts",
 ];
 
 test("accepts only frozen baseline identities", () => {

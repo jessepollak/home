@@ -103,6 +103,9 @@ export const SERVER_EVENT_KINDS = [
   "borrow-overview",
   "funding-order",
   "funding-webhook",
+  "identity-webhook",
+  "identity-reconcile",
+  "identity-approval",
   "cards-webhook",
   "balances-webhook",
   "balances-webhook-subscription",
@@ -258,6 +261,7 @@ export type ObservabilityEvent =
       region?: string;
       sandbox?: boolean;
       ownerHash?: string;
+      rowId?: string;
       durationMs: number;
     };
 
@@ -415,6 +419,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         region?: string;
         sandbox?: boolean;
         ownerHash?: string;
+        rowId?: string;
         durationMs: number;
       }
   );
@@ -661,6 +666,7 @@ export function normalizeObservabilityEvent(
       /^[a-f0-9]{32}$/.test(event.ownerHash)
       ? event.ownerHash
       : undefined;
+    const rowId = event.rowId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(event.rowId) ? event.rowId : undefined;
     return {
       ...base,
       level: outcome === "unmatched" || outcome === "ok" || outcome === "accepted" || outcome === "ignored" || outcome === "skipped" ||
@@ -674,6 +680,7 @@ export function normalizeObservabilityEvent(
       ...(region ? { region } : {}),
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
+      ...(rowId ? { rowId } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
     };
   }

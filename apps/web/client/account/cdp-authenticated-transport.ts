@@ -29,7 +29,7 @@ import { ResourceFailure, type ResourceFailureKind } from "./resource-failure";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
-const walletFreeAccountResourcePrefixes = ["/api/account/country-preference"] as const;
+const walletFreeAccountResourcePrefixes = ["/api/account/country-preference", "/api/identity"] as const;
 
 const accountResourcePrefixes = [
   ...walletFreeAccountResourcePrefixes,
@@ -70,6 +70,11 @@ export function normalizeAccountResourcePath(path: string): string {
     throw new TransferExecutionError("invalid-request");
   }
   return `${url.pathname}${url.search}`;
+}
+
+export function accountResourceRequiresSmartAccount(safePath: string): boolean {
+  const { pathname } = new URL(safePath, "https://home.invalid");
+  return !walletFreeAccountResourcePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
 function actionErrorDetails(pathname: string, payload: unknown): { code: string; serverMessage: string } | null {
@@ -225,11 +230,8 @@ export function useAuthenticatedTransport({
     async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
       const safePath = normalizeAccountResourcePath(path);
       const pathname = new URL(safePath, "https://home.invalid").pathname;
-      const walletFree = walletFreeAccountResourcePrefixes.some(
-        (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-      );
       if (!session || status !== "verified" || verification !== "server" || !ownerKey ||
-          (!walletFree && !session.smartAccount)) {
+          (accountResourceRequiresSmartAccount(safePath) && !session.smartAccount)) {
         throw new TransferExecutionError("stale-session");
       }
       const identity = ownerFence.capture();

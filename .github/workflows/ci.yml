@@ -546,7 +546,7 @@ jobs:
       - name: Apply the Home database schema
         run: bun run --cwd apps/web db:migrate
 
-      - name: Test actions, funding, balances, and operator stores against disposable PostgreSQL
+      - name: Test actions, funding, balances, identity, and operator stores against disposable PostgreSQL
         run: |
           tests=()
           while IFS= read -r -d '' file; do tests+=("$file"); done < <(git ls-files -z -- 'apps/web/**/*postgres*.test.ts')

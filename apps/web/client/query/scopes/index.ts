@@ -11,6 +11,7 @@ import { fundingOrder } from "./funding-order";
 import { fundingOrderIsolated } from "./funding-order-isolated";
 import { fundingProviderCustomers } from "./funding-provider-customers";
 import { fundingProviders } from "./funding-providers";
+import { identityVerification } from "./identity-verification";
 import { investAsset } from "./invest-asset";
 import { investDiscover } from "./invest-discover";
 import { investSearch } from "./invest-search";
@@ -37,6 +38,7 @@ export const queryScopes = {
   "funding-order-isolated": fundingOrderIsolated,
   "funding-provider-customers": fundingProviderCustomers,
   "funding-providers": fundingProviders,
+  "identity-verification": identityVerification,
   "invest-asset": investAsset,
   "invest-discover": investDiscover,
   "invest-search": investSearch,

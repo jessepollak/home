@@ -25,7 +25,7 @@ The full check suite also covers:
 - Chromium product smoke
 - story tests (`bun run --cwd apps/web test:stories`)
 - `bun run gates` (the repository gate unit tests above, including commit provenance; also run inside `bun check`)
-- disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
+- disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences and identity verification), run against CI's PostgreSQL 14 service
 - unit-test runtime budgets (per-test and summed per-file JUnit timings, with a checked-in outlier allowlist)
 - performance budgets (production fixture, structural gates, and report-only timings)
 - the API route contract inventory (`bun test` running `apps/web/app/api/route-contracts.contract.test.ts`), which requires every API route to declare a shared versioned parser contract or a reasoned machine/webhook/redirect/status exemption, checks handler and client linkage, and fails on new or stale baselined gaps

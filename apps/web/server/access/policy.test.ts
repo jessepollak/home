@@ -25,6 +25,8 @@ describe("deployment access policy", () => {
       "/api/cards/webhooks/stripe",
       "/api/cards/webhooks/immersve/payment-updated",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/paymaster",
+      "/api/identity/webhooks/sumsub",
+      "/api/identity/reconcile",
       "/access",
       "/api/access",
       "/api/access/logout",
@@ -50,6 +52,9 @@ describe("deployment access policy", () => {
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/confirm",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/paymaster/extra",
       "/api/actions/network-fee",
+      "/api/identity/webhooks/sumsub/extra",
+      "/api/identity/webhooks/other",
+      "/api/identity/verification",
       "/api/session",
       "/_next/image",
     ];
@@ -82,6 +87,8 @@ describe("deployment access policy", () => {
   test("fails protected paths closed on misconfiguration but leaves machine and access pages reachable", async () => {
     expect(enforceAccess(request("/access"), { kind: "misconfigured" }, now)).toBeNull();
     expect(enforceAccess(request("/api/webhooks/cdp"), { kind: "misconfigured" }, now)).toBeNull();
+    expect(enforceAccess(request("/api/identity/webhooks/sumsub", { method: "POST" }), enabled, now)).toBeNull();
+    expect(enforceAccess(request("/api/identity/reconcile", { method: "POST" }), enabled, now)).toBeNull();
     const response = enforceAccess(request("/api/session"), { kind: "misconfigured" }, now)!;
     expect(response.status).toBe(503);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");

@@ -46,6 +46,7 @@ export function emitServerEvent(
     region?: string;
     sandbox?: boolean;
     owner?: { subject: string; accountProvider: string };
+    rowId?: string;
     durationMs?: number;
   },
 ): ObservabilityLogLine | undefined {
@@ -65,6 +66,7 @@ export function emitServerEvent(
       ...(fields.region ? { region: fields.region } : {}),
       ...(typeof fields.sandbox === "boolean" ? { sandbox: fields.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
+      ...(fields.rowId ? { rowId: fields.rowId } : {}),
       durationMs: fields.durationMs ?? 0,
     });
   } catch {

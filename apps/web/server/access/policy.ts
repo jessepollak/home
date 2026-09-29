@@ -20,6 +20,8 @@ const actionPaymasterPattern =
 function isPublicPath(pathname: string): boolean {
   return pathname === appleAssociationPath ||
     pathname === "/api/webhooks/cdp" ||
+    pathname === "/api/identity/webhooks/sumsub" ||
+    pathname === "/api/identity/reconcile" ||
     fundingWebhookPattern.test(pathname) ||
     pathname === "/api/cards/webhooks/bridge" ||
     pathname === "/api/cards/webhooks/stripe" ||

@@ -1,5 +1,6 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { beforeEach } from "bun:test";
+import { notifyManager } from "@tanstack/react-query";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { registerDomTestCleanup } from "@/tests/helpers/dom-test-cleanup";
 
@@ -31,6 +32,8 @@ if (typeof window === "undefined") {
       statusText: `Unit tests cannot reach the network: ${String(input)}`,
     })) as unknown as typeof fetch;
 }
+
+notifyManager.setScheduler((callback) => queueMicrotask(callback));
 
 beforeEach(() => {
   (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;

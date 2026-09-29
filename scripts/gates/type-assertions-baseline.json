@@ -645,6 +645,21 @@
       "assertion": 1,
       "nonNull": 1
     },
+    "apps/web/server/identity/service.ts": {
+      "assertion": 3,
+      "nonNull": 12
+    },
+    "apps/web/server/identity/store.ts": {
+      "assertion": 6,
+      "nonNull": 7
+    },
+    "apps/web/server/identity/sumsub.ts": {
+      "assertion": 1
+    },
+    "apps/web/server/identity/webhook.ts": {
+      "assertion": 1,
+      "nonNull": 2
+    },
     "apps/web/server/market-data/asset-icons/onchain.ts": {
       "assertion": 4,
       "nonNull": 1
@@ -857,6 +872,9 @@
     },
     "apps/web/shared/funding/contracts/providers.ts": {
       "assertion": 1
+    },
+    "apps/web/shared/identity/contract.ts": {
+      "assertion": 2
     },
     "apps/web/shared/invest/contracts/asset-resolution.ts": {
       "assertion": 2
