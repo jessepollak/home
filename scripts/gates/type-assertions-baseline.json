@@ -307,7 +307,7 @@
       "assertion": 1
     },
     "apps/web/config/shell-location.ts": {
-      "assertion": 7
+      "assertion": 4
     },
     "apps/web/instrumentation-client.ts": {
       "suppression": 1

@@ -34,6 +34,7 @@ import {
   isClientHistoryEntry,
   legacyShellRedirectHref,
   parseShellLocation,
+  readClientHistoryFlag,
   readClientScrollTop,
   readShellAccountParam,
   replaceClientScrollTop,
@@ -239,12 +240,12 @@ function DashboardShellBody({
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
   const [cashSavingsOpenedInApp, setCashSavingsOpenedInApp] = useState(() =>
     typeof window !== "undefined" && initialUrlIntent.location.cashView === "savings" &&
-    window.history.state?.__cashSavingsOpenedInApp === true,
+    readClientHistoryFlag("cashSavingsOpenedInApp"),
   );
   const cashSavingsFocusReturnRef = useRef(false);
   const [investmentsHoldingOpenedInApp, setInvestmentsHoldingOpenedInApp] = useState(() =>
     typeof window !== "undefined" && initialUrlIntent.location.holding != null &&
-    window.history.state?.__investmentsHoldingOpenedInApp === true,
+    readClientHistoryFlag("investmentsHoldingOpenedInApp"),
   );
   const holdingFocusReturnRef = useRef<{ key: AssetKey; scrollIntoView: boolean } | null>(null);
   const investChrome = useOptionalAppChrome();
@@ -388,7 +389,7 @@ function DashboardShellBody({
       window.location.origin,
     );
     if (!options.normalizeInbound && options.mode !== "push" && window.location.pathname === "/cash/savings" &&
-      window.history.state?.__cashSavingsFlowPushed === true &&
+      readClientHistoryFlag("cashSavingsFlowPushed") &&
       (urlIntent.flow === "save-deposit" || urlIntent.flow === "save-withdraw")) {
       backClientHistory();
       return;
@@ -430,11 +431,11 @@ function DashboardShellBody({
         intent.panel === cashPanelId && intent.location.cashView === null;
       setCashSavingsOpenedInApp(intent.panel === cashPanelId &&
         intent.location.cashView === "savings" &&
-        window.history.state?.__cashSavingsOpenedInApp === true);
+        readClientHistoryFlag("cashSavingsOpenedInApp"));
       holdingFocusReturnRef.current = urlIntent.location.holding && intent.panel === investmentsPanelId && !intent.location.holding
         ? { key: urlIntent.location.holding, scrollIntoView: false } : null;
       setInvestmentsHoldingOpenedInApp(intent.panel === investmentsPanelId &&
-        intent.location.holding != null && window.history.state?.__investmentsHoldingOpenedInApp === true);
+        intent.location.holding != null && readClientHistoryFlag("investmentsHoldingOpenedInApp"));
       applyUrlState(intent);
       setPopRevision((revision) => revision + 1);
       if (intent.panel === balancesPanelId &&
