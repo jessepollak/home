@@ -22,6 +22,7 @@ const MoneyModalPendingContext = createContext({ pending: false, register: (_id:
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
 const MoneyModalExitContext = createContext<() => void>(() => {});
 let handoffReturnFocus: HTMLElement | null = null;
+let handoffHeight = 0;
 const MoneyModalHandoffContext = createContext(false);
 /** @public shared money-flow step contract (#1058) */
 export const MONEY_MODAL_STEP_DURATION_MS = 180;
@@ -64,6 +65,14 @@ function cancelAnimation(animation: Animation | undefined) {
   animation.cancel();
 }
 
+function keyboardOpen(popup: HTMLElement) {
+  return (Number.parseFloat(getComputedStyle(popup).getPropertyValue("--sheet-keyboard-inset")) || 0) > 0;
+}
+
+function acceptsHandoffHeight(popup: HTMLElement) {
+  return popup.hasAttribute("data-open") && !popup.hasAttribute("data-ending-style") && !keyboardOpen(popup);
+}
+
 function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number) {
   cancelAnimation(track.animation);
   track.animation = undefined;
@@ -82,7 +91,7 @@ function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number) {
   };
 }
 
-function MoneyModalStepHost({ children }: { children: ReactNode }) {
+function MoneyModalStepHost({ carriedHeight, children }: { carriedHeight: () => number; children: ReactNode }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const previous = useRef<StepReport | null>(null);
   const height = useRef<HeightTrack>({ last: 0, maxHeight: "" });
@@ -135,6 +144,8 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
       observer?.disconnect();
       host.removeEventListener("focusin", onFocusIn);
       stopAnimations();
+      handoffHeight = popup && acceptsHandoffHeight(popup) ? track.last : 0;
+      previous.current = null;
     };
   }, [stopAnimations]);
 
@@ -146,8 +157,10 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     const prior = previous.current;
     previous.current = next;
     if (!prior) {
-      if (popup) track.last = popup.offsetHeight;
+      const from = carriedHeight();
       stepFocusTarget(next, true).focus({ preventScroll: true });
+      if (popup && from > 0 && acceptsHandoffHeight(popup)) easePopupHeight(popup, track, from);
+      else if (popup) track.last = popup.offsetHeight;
       return;
     }
     if (prior.step === next.step) {
@@ -176,7 +189,7 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
     };
     stepAnimation.onfinish = finishStep;
     stepAnimation.oncancel = finishStep;
-  }, [recoverFocus, stopAnimations]);
+  }, [carriedHeight, recoverFocus, stopAnimations]);
 
   return <MoneyModalStepContext value={report}><div ref={hostRef} data-slot="money-modal-steps" className="flex min-h-0 flex-1 flex-col">{children}</div></MoneyModalStepContext>;
 }
@@ -215,14 +228,21 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
   const openRef = useRef(open);
   const handoff = useContext(MoneyModalHandoffContext);
   const handoffOnMountRef = useRef(handoff);
+  const carriedHeightRef = useRef(0);
+  const carriedHeight = useCallback(() => carriedHeightRef.current, []);
 
   useLayoutEffect(() => {
     openRef.current = open;
+    if (!open) carriedHeightRef.current = 0;
   }, [open]);
 
   useLayoutEffect(() => {
-    if (handoffOnMountRef.current) lastOutsideFocusRef.current ??= handoffReturnFocus;
+    if (handoffOnMountRef.current) {
+      lastOutsideFocusRef.current ??= handoffReturnFocus;
+      if (handoffHeight > 0) carriedHeightRef.current = handoffHeight;
+    }
     handoffReturnFocus = null;
+    handoffHeight = 0;
     return () => {
       if (openRef.current) handoffReturnFocus = lastOutsideFocusRef.current;
     };
@@ -274,7 +294,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
         className="max-h-[min(88svh,calc(100dvh_-_var(--sheet-keyboard-top,0px)_-_var(--sheet-keyboard-inset,0px)_-_2rem))] sm:mx-auto sm:max-w-md"
       >
         <DrawerSwipeHandle data-money-sheet-grabber="" className={variant === "money" ? "lg:hidden" : undefined} />
-        <MoneyModalStepHost>{children}</MoneyModalStepHost>
+        <MoneyModalStepHost carriedHeight={carriedHeight}>{children}</MoneyModalStepHost>
       </DrawerContent>
     </Drawer>
     </MoneyModalExitContext>

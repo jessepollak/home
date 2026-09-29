@@ -6,7 +6,7 @@ import { useState, type ComponentType } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { deferSheet } = await import("./deferred-sheet");
-const { MoneyModal, MoneyModalHeader, moneySheetLoading } = await import("./money-modal");
+const { MoneyModal, MoneyModalHeader, MoneyModalStep, moneySheetLoading } = await import("./money-modal");
 
 let restoreAnimations = () => {};
 
@@ -49,6 +49,52 @@ function FocusSheet({ open, onCancel, onClosed }: LoadingProps) {
   return <MoneyModal open={open} labelledBy="loaded-focus-title" onCancel={onCancel} onClose={onClosed}>
     <MoneyModalHeader title="Loaded money sheet" titleId="loaded-focus-title" closeLabel="Close loaded sheet" />
   </MoneyModal>;
+}
+
+function DetailSheet({ open, onCancel, onClosed }: LoadingProps) {
+  return <MoneyModal open={open} labelledBy="loaded-detail-title" onCancel={onCancel} onClose={onClosed}>
+    <MoneyModalStep step="detail">
+      <MoneyModalHeader title="Loaded money sheet" titleId="loaded-detail-title" closeLabel="Close loaded sheet" />
+    </MoneyModalStep>
+  </MoneyModal>;
+}
+
+type PopupHeightAnimation = { frames: Keyframe[]; options: KeyframeAnimationOptions };
+
+function recordPopupHeights(reduced: boolean) {
+  const records: PopupHeightAnimation[] = [];
+  const restore = [
+    [HTMLElement.prototype, "offsetHeight"],
+    [HTMLElement.prototype, "animate"],
+    [window, "matchMedia"],
+  ] as const;
+  const descriptors = restore.map(([target, name]) => [target, name, Object.getOwnPropertyDescriptor(target, name)] as const);
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)" && reduced, media: query, addEventListener() {}, removeEventListener() {} }),
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.getAttribute("data-slot") !== "drawer-popup") return 0;
+      return this.querySelector("[data-money-step=detail]") ? 673 : 253;
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "animate", {
+    configurable: true,
+    value(this: HTMLElement, frames: Keyframe[], options: KeyframeAnimationOptions) {
+      if (this.getAttribute("data-slot") === "drawer-popup") records.push({ frames, options });
+      return { cancel() {}, finished: Promise.resolve() } as unknown as Animation;
+    },
+  });
+  restoreAnimations = () => {
+    restoreAnimations = () => {};
+    for (const [target, name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(target, name, descriptor);
+      else Reflect.deleteProperty(target, name);
+    }
+  };
+  return records;
 }
 
 function FocusJourney({ Sheet }: { Sheet: ReturnType<typeof delayedSheet> }) {
@@ -383,6 +429,58 @@ describe("deferSheet", () => {
     await waitFor(() => expect(closed).toBe(1));
     expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
     expect(page().queryByRole("dialog")).toBeNull();
+  });
+
+  test("the loaded sheet eases its height from the loading shell's height on handoff", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    expect(heights).toEqual([]);
+
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
+  });
+
+  test("the handoff resizes instantly under reduced motion", async () => {
+    const heights = recordPopupHeights(true);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toEqual([]);
+  });
+
+  test("reopening a handed-off sheet does not replay the shell height", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>Reopen</button>
+        <Sheet open={open} onCancel={() => setOpen(false)} onClosed={() => {}} />
+      </>;
+    }
+    render(<Journey />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toHaveLength(1);
+
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Close loaded sheet" })));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Reopen" })));
+    expect(await page().findByRole("dialog", { name: "Loaded money sheet" })).toBeTruthy();
+    expect(heights).toHaveLength(1);
   });
 
   test("automatic failures show a Retry card, then a successful retry replaces the shell", async () => {
