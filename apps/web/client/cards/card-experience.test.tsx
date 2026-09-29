@@ -302,6 +302,6 @@ describe("stripePublishableKey", () => {
   test("accepts only Stripe publishable keys", () => {
     expect(stripePublishableKey("pk_test_abc123")).toBe("pk_test_abc123");
     expect(stripePublishableKey(" pk_live_abc123 ")).toBe("pk_live_abc123");
-    for (const value of [undefined, "", "sk_test_abc123", "rk_live_abc", "pk_test_"]) expect(stripePublishableKey(value)).toBeNull();
+    for (const value of ["", "   ", "sk_test_abc123", "rk_live_abc", "pk_test_"]) expect(stripePublishableKey(value)).toBeNull();
   });
 });
