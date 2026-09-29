@@ -30,6 +30,7 @@ import { useSavingsVaults } from "@/client/savings/use-savings-vaults";
 import type { SavingsGrowthAuthority } from "@/client/savings/use-estimated-growth";
 import { selectVaultPositions } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
+import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type {
   DerivedActionStatus,
@@ -266,6 +267,7 @@ export type CashExperienceProps = {
   snapshot: BalancesSnapshot | null;
   balanceStatus: "ready" | "loading" | "failed";
   balanceStale?: boolean;
+  pendingCashout?: PendingCashoutEstimate;
   onRetryBalances?: () => void;
   onAddMoney: (options?: { replaceFlow?: boolean }) => void;
   onAddMoneyIntent?: () => void;
@@ -286,6 +288,7 @@ export function CashExperience({
   snapshot,
   balanceStatus,
   balanceStale = false,
+  pendingCashout = null,
   onRetryBalances,
   onAddMoney,
   onAddMoneyIntent,
@@ -809,6 +812,7 @@ export function CashExperience({
       {view === "cash" ? (
         <CashOverview
           snapshot={liveSnapshot}
+          pendingCashout={pendingCashout}
           balanceStatus={balanceStatus}
           metadata={metadata}
           vaultStatus={vaultStatus}
@@ -934,8 +938,9 @@ export function AuthenticatedCashExperience(props: {
   view: "cash" | "savings";
   onOpenSavings: () => void;
   regionReady?: boolean;
+  pendingCashout: PendingCashoutEstimate;
 }): JSX.Element {
-  const { view, onOpenSavings, regionReady = true } = props;
+  const { view, onOpenSavings, regionReady = true, pendingCashout } = props;
   const account = useAccountWallet();
   const region = usePresentationRegionId();
   const routing = useOptionalHomeShellRouting();
@@ -959,6 +964,7 @@ export function AuthenticatedCashExperience(props: {
       onOpenSavings={onOpenSavings}
       session={session}
       snapshot={snapshot}
+      pendingCashout={pendingCashout}
       balanceStatus={
         snapshot
           ? "ready"

@@ -69,6 +69,7 @@
   --balance-savings: oklch(0.62 0.2 255);
   --balance-investments: oklch(0.62 0.18 305);
   --balance-bar-cash: #0aa852; --balance-bar-investments: #a064db;
+  --balance-bar-pending-cash-out: repeating-linear-gradient(-45deg, var(--balance-bar-cash) 0 1.5px, color-mix(in oklch, var(--balance-bar-cash) 30%, transparent) 1.5px 3px);
   --status-positive: #137333; --status-caution: #9a6700; --status-negative: #b42318;
   --globe-sphere-shade: #d6e0ed; --globe-sphere-light: #fbfdff; --globe-land: #8295ad;
   --payout-cashapp: #00d64f; --payout-cashapp-foreground: #000000;

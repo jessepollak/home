@@ -7,7 +7,7 @@ import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actio
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
-import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
+import { RECENT_ACTIONS_LIMIT, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
@@ -27,7 +27,7 @@ import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
-import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow } from "@/server/funding/cash-out-progress";
+import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
 import {
   applyCoinbaseBatchGasHeadroom,
   encodeCoinbaseExecuteBatch,
@@ -446,22 +446,28 @@ export function createListActionsHandler(dependencies: {
         return {
           ...await presentAction(row, owner, receipt, now),
           ...(record ? { cashout: presentCashoutProgress(record,
-            record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now)) } : {}),
+            record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now), row) } : {}),
         };
       }));
-      return privateJson({ actions } satisfies ListActionsResponse, 200);
+      const truncated = observed.length === RECENT_ACTIONS_LIMIT &&
+        (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
+      return privateJson({ actions, ...(truncated ? { truncated: true } : {}) } satisfies ListActionsResponse, 200);
     } finally {
       refreshDeadline.dispose();
     }
   };
 }
 
-export function presentCashoutProgress(record: CashoutOrderRow, withdrawing: boolean): CashoutProgress {
+export function presentCashoutProgress(record: RefreshedCashoutOrder | CashoutOrderRow, withdrawing: boolean, row?: ActionRow): CashoutProgress {
   return {
     version: 1,
     providerId: record.provider_id,
     region: record.region,
     depositId: record.deposit_id,
+    ...(row?.outcome === "succeeded" && row.observed_receipt_outcome === "succeeded" && row.observed_receipt_block_number != null &&
+      row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase()
+      ? { depositBlockNumber: row.observed_receipt_block_number } : {}),
+    progressConfirmed: "progressConfirmed" in record && record.progressConfirmed === true,
     state: record.state,
     platform: record.platform,
     platformLabel: record.platform_label,

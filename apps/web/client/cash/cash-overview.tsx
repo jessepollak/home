@@ -30,12 +30,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { FeatureIntro } from "@/components/ui/feature-intro";
 import { Alert, AlertDescription, AlertIcon } from "@/components/ui/alert";
-import { presentBalances, presentMoneyGroups } from "@/shared/balances/present";
+import { presentBalances, presentMoneyGroups, presentPendingCashout } from "@/shared/balances/present";
 import {
   selectBalanceTotals,
   selectVaultPositions,
 } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
+import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import {
   formatPresentationFiat,
   formatPresentationPercentage,
@@ -53,6 +54,7 @@ import type { SavingsPortfolioSummary } from "@/client/savings/portfolio-summary
 
 export type CashOverviewProps = {
   snapshot: BalancesSnapshot | null;
+  pendingCashout?: PendingCashoutEstimate;
   balanceStatus?: "ready" | "loading" | "failed";
   metadata: MorphoVaultsResult | null;
   vaultStatus?: "ready" | "loading" | "failed";
@@ -384,6 +386,7 @@ function SavingsVaultRow({
 
 export function CashOverview({
   snapshot,
+  pendingCashout = null,
   balanceStatus = "ready",
   metadata,
   vaultStatus = "ready",
@@ -399,6 +402,7 @@ export function CashOverview({
   const loading = balanceStatus === "loading";
   const failed = balanceStatus === "failed";
   const activeSnapshot = failed ? null : snapshot;
+  const pendingValue = activeSnapshot ? presentPendingCashout(activeSnapshot, pendingCashout) : null;
   const summary = useMemo(() => activeSnapshot
     ? presentBalances({
         status: "ready",
@@ -498,6 +502,13 @@ export function CashOverview({
                     unavailableValue()
                   )}
                 </div>
+                {pendingValue ? (
+                  <p className="flex items-baseline gap-1 text-sm text-muted-foreground tabular-nums" data-pending-cash-out>
+                    <span>Pending cash-out</span>
+                    <span aria-hidden="true">·</span>
+                    {pendingValue.value ? <MoneyTicker value={pendingValue.value} align="start" reserveDigits={false} /> : unavailableValue()}
+                  </p>
+                ) : null}
                 {!failed &&
                 (empty
                   ? vaultStatus !== "loading" && bestRate !== null

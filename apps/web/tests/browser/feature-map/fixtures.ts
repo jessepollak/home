@@ -142,11 +142,18 @@ export function fixtureRoutes() {
     ["**/api/invites/link", { version: 1, code: "abcdefghjk" }],
     ["**/api/balances**", {
       ...balances,
-      holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),
+      holdings: balances.holdings.map((holding) => ({
+        ...holding,
+        imageUrl: undefined,
+        ...(holding.id === "usdc" ? { unitValue: { currency: "USD", amount: { atoms: "1", scale: 0 } } } : {}),
+      })),
     }],
     ["**/api/market-prices", marketPricesFixture()],
     ...["nvdac", "metac"].map((assetId) => [`**/api/market-prices/history?assetId=${assetId}&range=1W`, priceHistoryFixture(assetId)] as const),
-    ["**/api/actions", { actions: [...actionsBody.actions, cashoutFixtureAction] }],
+    ["**/api/actions", { actions: [...actionsBody.actions, {
+      ...cashoutFixtureAction,
+      cashout: { ...cashoutFixtureProgress, depositBlockNumber: balances.block.number },
+    }] }],
     ["**/api/actions/prepare", prepared],
     ["**/api/trades/stock-eligibility", { version: 1, buy: "restricted", sell: "eligible" }],
     ["**/api/trades?**", { version: 2, status: "unavailable", reason: "asset-unsupported" }],

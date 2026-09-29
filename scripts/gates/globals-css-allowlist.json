@@ -74,6 +74,7 @@
       "--background",
       "--balance-bar-cash",
       "--balance-bar-investments",
+      "--balance-bar-pending-cash-out",
       "--balance-cash",
       "--balance-investments",
       "--balance-savings",

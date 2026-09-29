@@ -80,6 +80,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
       await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
+      await transaction.unsafe(await readMigrationSql("021_cashout_provider_progress.sql"));
       await transaction.unsafe(await readMigrationSql("016_action_receipt_observations.sql"));
       for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
         await transaction.unsafe(await readMigrationSql(file));

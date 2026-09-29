@@ -131,6 +131,33 @@ function pendingActionRow(action: PreparedMoneyAction, status: "pending" | "unkn
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); focusManager.setFocused(undefined); onlineManager.setOnline(true); preparedInputs.length = 0; routeCalls.length = 0; });
 
 describe("Cash L2", () => {
+  test("shows priced pending escrow below the wallet-only Cash balance", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: cash });
+    snapshot.holdings.find(({ id }) => id === "usdc")!.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
+    const view = render(<CashExperience view="cash" session={session} snapshot={snapshot} pendingCashout={{ state: "escrow", baseUnits: "20000000", partial: false }}
+      balanceStatus="ready" now={now} onOpenSavings={noop} onAddMoney={noop} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />);
+    const hero = page().getByLabelText("Cash balance");
+    expect(hero.querySelector("[data-pending-cash-out]")?.textContent).toContain("Pending cash-out");
+    expect(hero.querySelector("[data-pending-cash-out] [role=img]")?.getAttribute("aria-label")).toBe("$20.00");
+    expect(hero.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("$234.00");
+    view.rerender(<CashExperience view="cash" session={session} snapshot={snapshot} pendingCashout={{ state: "escrow", baseUnits: "20000000", partial: true }}
+      balanceStatus="ready" now={now} onOpenSavings={noop} onAddMoney={noop} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />);
+    expect(hero.querySelector("[data-pending-cash-out] [role=img]")?.getAttribute("aria-label")).toBe("$20.00");
+    expect(hero.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("$234.00");
+    view.rerender(<CashExperience view="cash" session={session} snapshot={snapshot} pendingCashout={null}
+      balanceStatus="ready" now={now} onOpenSavings={noop} onAddMoney={noop} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />);
+    expect(page().getByLabelText("Cash balance").querySelector("[data-pending-cash-out]")).toBeNull();
+    view.rerender(<CashExperience view="cash" session={session} snapshot={snapshot} pendingCashout={{ state: "unreadable" }}
+      balanceStatus="ready" now={now} onOpenSavings={noop} onAddMoney={noop} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />);
+    expect(page().getByLabelText("Cash balance").querySelector("[data-pending-cash-out]")).toBeNull();
+    expect(page().getByLabelText("Cash balance").querySelector("[role=img]")?.getAttribute("aria-label")).toBe("$234.00");
+    view.rerender(<CashExperience view="cash" session={session} snapshot={snapshot} pendingCashout={{ state: "indeterminate" }}
+      balanceStatus="ready" now={now} onOpenSavings={noop} onAddMoney={noop} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />);
+    expect(page().getByLabelText("Cash balance").querySelector("[data-pending-cash-out]")?.textContent).toContain("Pending cash-out");
+    expect(page().getByLabelText("Cash balance").querySelector("[data-pending-cash-out]")?.textContent).toContain("—");
+    expect(page().getByLabelText("Cash balance").querySelector("[role=img]")?.getAttribute("aria-label")).toBe("$234.00");
+  });
+
   test("routes an inbound deposit to the highest-rate vault and normalizes Back history", async () => {
     cached();
     render(<Route initialFlow="save-deposit" snapshot={held} />);
@@ -1167,7 +1194,7 @@ describe("Cash L2", () => {
     expect(page().queryByLabelText("Savings balance")).toBeNull();
   });
   test("a verified session without a wallet shows unavailable balances without an ineffective retry", async () => {
-    const view = render(<AccountWalletContext.Provider value={walletWithoutAccount}><main><AuthenticatedCashExperience view="cash" onOpenSavings={noop} /></main></AccountWalletContext.Provider>);
+    const view = render(<AccountWalletContext.Provider value={walletWithoutAccount}><main><AuthenticatedCashExperience view="cash" onOpenSavings={noop} pendingCashout={null} /></main></AccountWalletContext.Provider>);
     expect(await view.findByLabelText("Balance unavailable")).toBeTruthy();
     expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(view.queryByRole("button", { name: "Add money" })).toBeNull();
