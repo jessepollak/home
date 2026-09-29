@@ -3,7 +3,6 @@
 import { BorrowOverview } from "./borrow-overview";
 import type { HomeMoneySummary } from "@/shared/balances/present";
 import { leadingBorrowOffer } from "@/shared/borrowing/offer";
-import type { BorrowOverviewPosition } from "@/shared/borrowing/contract";
 import { CircleAlertIcon } from "lucide-react";
 import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -502,20 +501,6 @@ function formatBufferPercent(bps: bigint): string {
   const whole = tenths / BigInt(10);
   const fraction = tenths % BigInt(10);
   return fraction === BigInt(0) ? `${whole}%` : `${whole}.${fraction}%`;
-}
-
-function bufferCopy(healthFactorWad: string | null, marketId: BorrowMarketId): string {
-  const healthFactor = healthFactorWad === null ? null : BigInt(healthFactorWad);
-  const bps = liquidationBufferBps(healthFactor);
-  if (bps === null || healthFactor === null) return "No debt";
-  return healthFactor <= WAD ? "Immediate liquidation risk" : `${collateralDisplayName(marketId)} can fall ${formatBufferPercent(bps)}`;
-}
-
-/** @public exercised by client/borrowing/borrowing-experience.test.tsx */
-export function borrowTeaserPositionDescription(position: BorrowOverviewPosition, regionId: RegionId): string {
-  return BigInt(position.debtAssetsRaw) === BigInt(0)
-    ? `No debt · ${formatToken(position.collateralRaw, position.market.collateralToken, regionId)} locked`
-    : `${formatCash(position.debtAssetsRaw, position.market.loanToken, regionId)} borrowed · ${bufferCopy(position.healthFactorWad, position.market.id)}`;
 }
 
 export function recommendedRepayMaximumBaseUnits(debtBaseUnits: string, walletBaseUnits: string, ratePerSecondWad: string): string {

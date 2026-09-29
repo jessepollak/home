@@ -3,7 +3,7 @@ import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { describe, expect, test } from "bun:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
-import { keccak256 } from "viem";
+import { encodeFunctionData, erc20Abi, keccak256 } from "viem";
 import { makePaymasterApproval } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { stockAssets } from "@/config/invest-assets";
@@ -74,6 +74,26 @@ describe("trade confirmation", () => {
     expect((await signedOut(new Request("https://home.test/api/actions/trade-pending"))).status).toBe(401);
   });
 
+  test("rejects a legacy trade whose fee recipient is the owner before confirming", async () => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = {
+      product: "trade", direction: "buy", fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: ROUTER },
+      fromAmountBaseUnits: "1000000", expectedToAmountBaseUnits: "1000", minimumToAmountBaseUnits: "990",
+      operatorFee: { amountBaseUnits: "10000", bps: 100, recipient: OWNER, collectedBy: "in-batch-transfer",
+        token: { address: BASE_USDC_ADDRESS, decimals: 6, assetId: "usdc", symbol: "USDC" } },
+    } as unknown as TradeMoneyActionMetadata;
+    let confirms = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect((await result.json()).error.code).toBe("ACTION_EXPIRED");
+    expect(confirms).toBe(0);
+  });
+
   test.each(["US", null] as const)("blocks a stock buy for %s through the real confirm handler", async (country) => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
     row.summary.metadata = { product: "trade", fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: stockAssets[0].contractAddress } } as unknown as TradeMoneyActionMetadata;
@@ -126,6 +146,50 @@ describe("trade confirmation", () => {
     expect(body.calls[2].data).toStartWith("0x1234");
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
     expect(committed).toBe(keccak256(encodeCoinbaseExecuteBatch(body.calls)));
+  });
+  test.each(["base-account", "cdp-embedded"] as const)("finalizes the %s buy swap without changing the preceding operator transfer", async (provider) => {
+    const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
+    const recipient = "0x1234567890123456789012345678901234567890" as const;
+    const transfer = { to: BASE_USDC_ADDRESS, value: "0", data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, BigInt(10_000)] }) };
+    row.pending = { ...row.pending!, calls: [feeCall, transfer, approval, swap], swapCallIndex: 3 };
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"), verifySmartAccountSignature: async () => true,
+      estimateBaseBatch: async () => BigInt(150_000), markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => row, confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending!, calls: calls! } }) },
+    });
+    const response = await handler(request(signature, provider), context);
+    expect(response.status).toBe(200);
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
+    expect(body.calls).toHaveLength(4);
+    expect(body.calls[1]).toEqual(transfer);
+    expect(body.calls[3].data).toStartWith(swap.data);
+    expect(body.calls[3].data.length).toBeGreaterThan(swap.data.length);
+    if (provider === "base-account") expect(body.batchGasLimit).toBeDefined();
+  });
+  test.each(["base-account", "cdp-embedded"] as const)("finalizes only the middle swap and leaves the %s sell fee transfer unchanged", async (provider) => {
+    const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
+    const recipient = "0x1234567890123456789012345678901234567890" as const;
+    const transfer = { to: BASE_USDC_ADDRESS, value: "0", data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [recipient, BigInt(9)] }) };
+    row.pending = { ...row.pending!, calls: [...row.pending!.calls, transfer], swapCallIndex: 2 };
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"), verifySmartAccountSignature: async () => true,
+      estimateBaseBatch: async () => BigInt(150_000), markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => row, confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending!, calls: calls! } }) },
+    });
+    const response = await handler(request(signature, provider), context);
+    expect(response.status).toBe(200);
+    const body = parseConfirmActionResponse(await readJson(response));
+    if (!body) throw new Error("Invalid trade confirmation");
+    expect(body.calls).toHaveLength(4);
+    expect(body.calls[2].data).toStartWith(swap.data);
+    expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
+    expect(body.calls[3]).toEqual(transfer);
+    if (provider === "base-account") expect(body.batchGasLimit).toBeUndefined();
   });
   test("confirms a second trade while an earlier dispatched trade has no outcome", async () => {
     const previous = retryRow(String(Date.parse("2026-09-25T12:03:00.000Z") / 1000));

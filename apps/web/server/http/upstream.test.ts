@@ -48,13 +48,33 @@ describe("upstream request", () => {
         if (typeof value !== "object" || value === null || !("count" in value) || value.count !== 3) throw new Error("bad count");
         return { count: value.count };
       },
-      log: { kind: "funding-order", route: "/api/funding/orders" },
     });
     expect(result).toMatchObject({ ok: true, status: 200, value: { count: 3 }, durationMs: 7 });
     expect(result.ok && result.value.count).toBe(3);
     expect(result.ok && result.headers.get("content-type")).toBe("application/json");
     expect(init).toMatchObject({ redirect: "manual", cache: "no-store", signal: expect.any(AbortSignal) });
     expect(lines).toEqual([]);
+  });
+
+  test("logs a successful POST once without request URL, query, or body", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    const clock = manualClock();
+    const result = await upstreamRequest(url, {
+      ...requestOptions(clock, async () => { clock.advance(7); return new Response('{"ok":true}'); }),
+      init: { method: "post", body: "private-body" },
+      log: { route: "/api/funding/orders" },
+    });
+    expect(result).toMatchObject({ ok: true, status: 200, durationMs: 7 });
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "upstream-call", code: "UPSTREAM_OK", outcome: "ok", level: "info",
+      "http.request.method": "POST", "http.response.status_code": 200, durationMs: 7,
+    });
+    expect(Object.hasOwn(JSON.parse(lines[0]!), "error.type")).toBe(false);
+    expect(lines[0]).not.toContain(url);
+    expect(lines[0]).not.toContain("private-query");
+    expect(lines[0]).not.toContain("private-body");
   });
 
   test.each([
@@ -147,6 +167,27 @@ describe("upstream request", () => {
       return new Promise<Response>(() => undefined);
     }));
     expect(result).toMatchObject({ ok: false, kind: "timeout", dispatched: true, durationMs: 100 });
+  });
+
+  test("logs one error-level timeout without inventing a response status", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    const clock = manualClock();
+    const result = await upstreamRequest(url, {
+      ...requestOptions(clock, async () => {
+        queueMicrotask(() => { clock.advance(100); clock.expire(); });
+        return new Promise<Response>(() => undefined);
+      }),
+      log: { route: "/api/funding/orders", provider: "coinbase" },
+    });
+    expect(result).toMatchObject({ ok: false, kind: "timeout", dispatched: true, durationMs: 100 });
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "upstream-call", code: "UPSTREAM_TIMEOUT", outcome: "unavailable", level: "error",
+      provider: "coinbase", "http.request.method": "GET", "error.type": "timeout", durationMs: 100,
+    });
+    expect(Object.hasOwn(JSON.parse(lines[0]!), "http.response.status_code")).toBe(false);
+    expect(lines[0]).not.toContain("private");
   });
 
   test("deadline expiry interrupts a stalled body reader and cancels it", async () => {
@@ -336,11 +377,14 @@ describe("upstream request", () => {
     const clock = manualClock();
     const result = await upstreamRequest(url, {
       ...requestOptions(clock, async () => new Response("private-body", { status })),
-      log: { kind: "funding-order", route: "/api/funding/orders", provider: "coinbase" },
+      log: { route: "/api/funding/orders", provider: "coinbase" },
     });
     expect(result).toMatchObject({ ok: false, kind: "http", status });
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({ kind: "funding-order", code, level, outcome: "unavailable", provider: "coinbase" });
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "upstream-call", code, level, outcome: "unavailable", provider: "coinbase",
+      "http.request.method": "GET", "http.response.status_code": status, "error.type": String(status),
+    });
     expect(lines[0]).not.toContain("private-query");
     expect(lines[0]).not.toContain("private-body");
   });
@@ -357,10 +401,14 @@ describe("upstream request", () => {
         queueMicrotask(() => parent.abort());
         return new Promise<Response>(() => undefined);
       },
-      log: { kind: "funding-order", route: "/api/funding/orders" },
+      log: { route: "/api/funding/orders" },
     });
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({ code: "UPSTREAM_ABORTED", outcome: "unavailable", level: "error" });
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "upstream-call", code: "UPSTREAM_ABORTED", outcome: "unavailable", level: "error",
+      "http.request.method": "GET", "error.type": "aborted",
+    });
+    expect(Object.hasOwn(JSON.parse(lines[0]!), "http.response.status_code")).toBe(false);
   });
 
   test("parent abort before dispatch logs one info-level event without URL or body", async () => {
@@ -372,10 +420,48 @@ describe("upstream request", () => {
     await upstreamRequest(url, {
       deadline: createUpstreamDeadline({ timeoutMs: 100, clock, signal: controller.signal }),
       maxBytes: 32,
-      log: { kind: "funding-order", route: "/api/funding/orders" },
+      log: { route: "/api/funding/orders" },
     });
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]!)).toMatchObject({ code: "UPSTREAM_ABORTED", outcome: "skipped", level: "info" });
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "upstream-call", code: "UPSTREAM_ABORTED", outcome: "skipped", level: "info",
+      "http.request.method": "GET", "error.type": "aborted",
+    });
+    expect(Object.hasOwn(JSON.parse(lines[0]!), "http.response.status_code")).toBe(false);
     expect(lines[0]).not.toContain("private");
+  });
+
+  test.each([
+    ["invalid JSON", () => new Response("{"), "UPSTREAM_INVALID_RESPONSE", "invalid_response", "invalid"],
+    ["oversized length", () => new Response("{}", { headers: { "content-length": "33" } }), "UPSTREAM_OVERSIZED", "oversized", "unavailable"],
+  ] as const)("logs response status for %s", async (_label, response, code, errorType, outcome) => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    const clock = manualClock();
+    await upstreamRequest(url, { ...requestOptions(clock, async () => response()), log: { route: "/api/funding/orders" } });
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "upstream-call", code, outcome, level: "error",
+      "http.response.status_code": 200, "error.type": errorType,
+    });
+  });
+
+  test("logs response status when aborted after receiving the response", async () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    const clock = manualClock();
+    const parent = new AbortController();
+    const result = await upstreamRequest(url, {
+      ...requestOptions(clock, async () => new Response("{}")),
+      deadline: createUpstreamDeadline({ timeoutMs: 100, signal: parent.signal, clock }),
+      parse: (value) => { parent.abort(); return value; },
+      log: { route: "/api/funding/orders" },
+    });
+    expect(result).toMatchObject({ ok: false, kind: "aborted", dispatched: true });
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      kind: "upstream-call", code: "UPSTREAM_ABORTED", outcome: "unavailable", level: "error",
+      "http.response.status_code": 200, "error.type": "aborted",
+    });
   });
 });

@@ -20,20 +20,22 @@ describe("owned investments", () => {
     expect(actual.numerator * expected.denominator).toBe(expected.numerator * actual.denominator);
   });
 
-  it("keeps unpriced wallet assets without implying zero and excludes unread balances", () => {
+  it("keeps unpriced and unreadable wallet assets without implying zero", () => {
     const unpriced = token(21);
     const missing = { ...token(22), balance: unavailableBalance, value: { status: "unavailable" } } as Holding;
     const snapshot = buildBalancesSnapshotFixture({ catalog: [{ ...unpriced, value: { status: "unpriced", reason: "price-unavailable" } }, missing] });
     const rows = selectOwnedInvestments(snapshot);
     expect(rows.find((row) => row.key === unpriced.key)).toMatchObject({ amount: null, holding: { source: "wallet" } });
-    expect(rows.some((row) => row.key === missing.key)).toBe(false);
+    expect(rows.find((row) => row.key === missing.key)).toMatchObject({ amount: null, wallet: { balance: { status: "unavailable" } } });
+    expect(selectOwnedInvestment(snapshot, missing.key)).toMatchObject({ amount: null, holding: { key: missing.key } });
   });
 
   it("attaches an unread available balance only to confirmed collateral", () => {
     const snapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: unavailableBalance, value: { status: "unavailable" } }, eth: { balance: unavailableBalance, value: { status: "unavailable" } } }, borrow: { coverage: "complete", positions: [borrowed] } });
     const rows = selectOwnedInvestments(snapshot);
-    expect(rows.map((row) => row.key)).toEqual([borrowed.collateral.key]);
-    expect(rows[0]).toMatchObject({ amount: null, wallet: { balance: { status: "unavailable" } }, collateral: [{ key: borrowed.collateral.key }] });
+    expect(rows.map((row) => row.key)).toEqual(expect.arrayContaining([borrowed.collateral.key]));
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.key === borrowed.collateral.key)).toMatchObject({ amount: null, wallet: { balance: { status: "unavailable" } }, collateral: [{ key: borrowed.collateral.key }] });
   });
 
   it("sorts equal values by name then key regardless of input order", () => {
@@ -48,6 +50,13 @@ describe("owned investments", () => {
   it("returns all 65 owned holdings without truncation", () => {
     const snapshot = buildBalancesSnapshotFixture({ catalog: Array.from({ length: 65 }, (_, index) => token(index + 100)) });
     expect(selectOwnedInvestments(snapshot)).toHaveLength(65);
+  });
+
+  it("orders unpriced accented and case-equivalent names by English base collation then key", () => {
+    const holdings = [token(43, "Zulu"), token(42, "éclair"), token(41, "ECLAIR"), token(40, "Alpha")]
+      .map((holding): Holding => ({ ...holding, value: { status: "unpriced", reason: "price-unavailable" } }));
+    expect(selectOwnedInvestments(buildBalancesSnapshotFixture({ catalog: holdings })).map((row) => row.holding.id))
+      .toEqual([holdings[3]!.id, holdings[2]!.id, holdings[1]!.id, holdings[0]!.id]);
   });
 
   it("retains a sold holding as a known-zero detail target without including it in the overview", () => {

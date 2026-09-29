@@ -1,6 +1,6 @@
 import "server-only";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { encodeFunctionData, type Hex } from "viem";
 import { BASE_BUILDER_CODE, currencyInfo, getPaymentMethodsCatalog, getSpreadOracleConfig, resolvePaymentMethodHashFromCatalog } from "@zkp2p/sdk";
 import { BASE_USDC_ADDRESS, CASH_ATTRIBUTION_CODE, buildIntentAmountRange } from "@zkp2p/cash";
@@ -17,6 +17,8 @@ import { prepareCashoutAction, prepareCashoutWithdrawAction, recentHashlessCasho
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const PAYEE_HASH = `0x${"ab".repeat(32)}` as Hex;
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(NOW));
 const session: VerifiedAccountSession = { user: { subject: "subject" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" };
 const originalEstimate = peerProvider.offramp!.estimate;
 const validQuote: CashoutQuote = {
@@ -46,7 +48,7 @@ function installClients(withOrder = false, payeeHashes: readonly string[] = [PAY
   const orders = payeeHashes.map((payeeHash, index) => ({
     depositId: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_${7 + index}`,
     state: "awaiting-buyer", fills: [], totalAmount: amount, filledAmount: BigInt(0), pendingAmount: BigInt(0), returnedAmount: BigInt(0),
-    nextActions: ["withdraw"], updatedAt: Math.floor(Date.now() / 1000), isInFlight: true,
+    nextActions: ["withdraw"], updatedAt: NOW.getTime() / 1000, isInFlight: true,
     payouts: [{ platform: "cashapp", platformHash: "0x", currency: "USD", currencyHash: "0x", payeeHash, active: true, pricing: { marketRate: true } }],
   }));
   const order = orders[0]!;
@@ -56,7 +58,7 @@ function installClients(withOrder = false, payeeHashes: readonly string[] = [PAY
     orders: async () => withOrder ? orders : [],
     order: async () => order,
     prepareWithdraw: async () => ({ txs: [{ to: PEER_PRODUCTION_CONTRACTS.escrow, data: `${withdrawData}${suffix().slice(2)}`, value: BigInt(0) }], steps: [] }),
-    estimate: async () => ({ amount: preparedAmount, currency: "USD", receiveAmount: 2, asOf: Math.floor(Date.now() / 1000) }),
+    estimate: async () => ({ amount: preparedAmount, currency: "USD", receiveAmount: 2, asOf: NOW.getTime() / 1000 }),
   };
   const sdk = {
     chainId: 8453, runtimeEnv: "production", escrowV2Address: PEER_PRODUCTION_CONTRACTS.escrow, intentGuardianAddress: PEER_PRODUCTION_CONTRACTS.intentGuardian,
@@ -72,13 +74,13 @@ function row(overrides: Partial<ActionRow> = {}): ActionRow {
   return {
     id: "11111111-1111-4111-8111-111111111111", owner_key: "owner", provider: "cdp-embedded", kind: "cash-out",
     summary: { title: "Cash out", amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "2000000", direction: "spend" }], warnings: [],
-      expiresAt: new Date(Date.now() + 60_000).toISOString(), metadata: {
+      expiresAt: new Date(NOW.getTime() + 60_000).toISOString(), metadata: {
         product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer", environment: "production", region: "US",
         platform: "cashapp", platformLabel: "Cash App", currency: "USD", canonicalHandle: "Alice", payeeHash: PAYEE_HASH,
         approximateFiatAmount: "2", minConversionRate: "1", intentAmountRange: { min: "2000000", max: "2000000" },
-        estimateAsOf: new Date().toISOString(), escrow: PEER_PRODUCTION_CONTRACTS.escrow,
+        estimateAsOf: NOW.toISOString(), escrow: PEER_PRODUCTION_CONTRACTS.escrow,
       } }, pending: null,
-    created_at: new Date().toISOString(), confirmed_at: new Date().toISOString(), provider_handle: null, transaction_hash: null, handle_recorded_at: null,
+    created_at: NOW.toISOString(), confirmed_at: NOW.toISOString(), provider_handle: null, transaction_hash: null, handle_recorded_at: null,
     account_address: "0x1111111111111111111111111111111111111111", declined_reported_at: null, dispatch_attempt: 0, outcome: null,
     outcome_source: null, settled_at: null, outcome_recorded_at: null,
     ...overrides,
@@ -90,7 +92,7 @@ function order(overrides: Partial<CashoutOrderRow> = {}): CashoutOrderRow {
     action_id: row().id, owner_key: "owner", provider_id: "peer", environment: "production", region: "US", deposit_id: null, deposit_proven: false,
     state: "awaiting-buyer", platform: "cashapp", platform_label: "Cash App", amount_atomic: "2000000", filled_atomic: "0",
     returned_atomic: "0", remaining_atomic: "2000000", withdrawable: true, eta_seconds: null,
-    created_at: new Date().toISOString(), updated_at: new Date().toISOString(), refreshed_at: null, settled_at: null,
+    created_at: NOW.toISOString(), updated_at: NOW.toISOString(), refreshed_at: null, settled_at: null,
     ...overrides,
   };
 }
@@ -98,6 +100,7 @@ afterEach(() => {
   setPeerClientFactoryForTests(null);
   setActionsStoreForTests(null);
   peerProvider.offramp!.estimate = originalEstimate;
+  setSystemTime();
 });
 
 describe("Peer cash-out action preparation", () => {
@@ -122,7 +125,7 @@ describe("Peer cash-out action preparation", () => {
         arrival: { source: "unknown" },
       },
     });
-    expect(Date.parse(draft.expiresAt) - Date.now()).toBeLessThanOrEqual(10 * 60 * 1000);
+    expect(Date.parse(draft.expiresAt) - NOW.getTime()).toBeLessThanOrEqual(10 * 60 * 1000);
   });
 
   test.each([
@@ -243,7 +246,7 @@ describe("Peer cash-out action preparation", () => {
   });
 
   test("enforces the 15-minute confirmed hashless ambiguity window", async () => {
-    const now = new Date();
+    const now = new Date(NOW);
     expect(recentHashlessCashouts([row({ confirmed_at: new Date(now.getTime() - 14 * 60_000).toISOString() })], now)).toHaveLength(1);
     expect(recentHashlessCashouts([row({ confirmed_at: new Date(now.getTime() - 15 * 60_000).toISOString() })], now)).toHaveLength(0);
     expect(recentHashlessCashouts([row({ confirmed_at: new Date(now.getTime() - 14 * 60_000).toISOString(), outcome: "not_submitted", outcome_source: "wallet" })], now)).toHaveLength(0);
@@ -303,7 +306,7 @@ describe("Peer cash-out action preparation", () => {
 
   test("lets a recovered hashless cash-out that already settled stop blocking the next one", async () => {
     installClients();
-    const settled = order({ deposit_id: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7`, state: "delivered", settled_at: new Date().toISOString() });
+    const settled = order({ deposit_id: `${PEER_PRODUCTION_CONTRACTS.escrow.toLowerCase()}_7`, state: "delivered", settled_at: NOW.toISOString() });
     const draft = await prepareCashoutAction(session, input(), undefined, {
       env: { PEER_OFFRAMP_ENABLED: "1" }, store: { ...clearStore, list: async () => [row()], cashoutOrders: async () => [settled] },
       readAllowance: async () => BigInt(0),

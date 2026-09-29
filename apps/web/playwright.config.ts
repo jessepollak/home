@@ -2,7 +2,9 @@ import { createHmac, randomBytes } from "node:crypto";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveFixturePort } from "./scripts/fixture-port";
 import { defineConfig } from "@playwright/test";
+import { browserSmokeCiPolicy } from "./tests/browser/ci-policy";
 
 function cachedChromiumExecutable(): string | undefined {
   const explicit = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
@@ -54,10 +56,8 @@ function findExecutable(
 }
 
 const executablePath = cachedChromiumExecutable();
-const fixturePort = process.env.HOME_FIXTURE_PORT || "3199";
-if (!/^[1-9]\d{0,4}$/.test(fixturePort) || Number(fixturePort) > 65535) {
-  throw new Error("HOME_FIXTURE_PORT must be a valid TCP port.");
-}
+const fixturePort = resolveFixturePort(process.env.HOME_FIXTURE_PORT);
+process.env.HOME_FIXTURE_PORT = fixturePort;
 const fixtureBaseUrl = `http://localhost:${fixturePort}`;
 
 const playwrightCredentialKey = ["HOME", "PLAYWRIGHT", "ACCESS", "CREDENTIAL"].join("_");
@@ -93,9 +93,9 @@ export default defineConfig({
   testMatch: "**/*.pw.ts",
   fullyParallel: false,
   workers: 1,
-  // Hosted runners are 3-5x slower and render fonts differently; a real failure
-  // still fails three times, and every failure keeps its trace + video.
-  retries: process.env.CI ? 2 : 0,
+  // Hosted runners are slower and render fonts differently. A real failure fails
+  // every attempt; a pass only on retry fails CI. Failed attempts keep trace + video.
+  ...browserSmokeCiPolicy(Boolean(process.env.CI)),
   webServer: {
     command: `bun run dev -- --port ${fixturePort}`,
     url: fixtureBaseUrl,

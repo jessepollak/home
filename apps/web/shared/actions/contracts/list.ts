@@ -22,12 +22,15 @@ export type ActionListItem = {
   createdAt: string;
   confirmedAt: string;
   submittedAt?: string;
+  settledAt?: string;
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;
   cashout?: CashoutProgress;
 };
-export type ListActionsResponse = { actions: ActionListItem[] };
+export const RECENT_ACTIONS_LIMIT = 100 as const;
+
+export type ListActionsResponse = { actions: ActionListItem[]; truncated?: boolean };
 
 export type RecentMoneyActionOperation = {
   action: {
@@ -48,6 +51,7 @@ export type RecentMoneyActionOperation = {
   createdAt: string;
   updatedAt: string;
   submittedAt?: string;
+  settledAt?: string;
 };
 
 class RecentActionsContractError extends Error {
@@ -60,6 +64,57 @@ class RecentActionsContractError extends Error {
 export function isRecentActionsResponse(value: unknown): value is { actions: unknown[] } {
   return isRecord(value) && Array.isArray(value.actions);
 }
+export function readRecentActionsTruncated(value: unknown): boolean {
+  return isRecord(value) && value.truncated === true;
+}
+
+export function readRecentActionsIncomplete(value: unknown, session: VerifiedAccountSession): boolean {
+  if (!session.smartAccount || !isRecord(value) || !Array.isArray(value.actions)) return false;
+  return value.actions.some((item) => {
+    if (!isRecord(item) || !isRecord(item.owner)) return false;
+    if (item.kind !== "cash-out" && item.kind !== "cash-out-withdraw" && !("cashout" in item)) return false;
+    return sameOwner(item.owner, session) && !isCompleteRecentActionItem(item);
+  });
+}
+
+type CompleteRecentActionItem = Record<string, unknown> & {
+  id: string;
+  kind: ActionKind;
+  status: DerivedActionStatus;
+  createdAt: string;
+  confirmedAt: string;
+  summary: Record<string, unknown> & { title: string; amounts: unknown[]; warnings: unknown[]; expiresAt: string };
+};
+
+function isCompleteRecentActionItem(item: unknown): item is CompleteRecentActionItem {
+  if (!isRecord(item) || !isRecord(item.summary)) return false;
+  const summary = item.summary;
+  if (typeof item.id !== "string" || !isActionKind(item.kind) || !isDerivedStatus(item.status) ||
+    typeof item.createdAt !== "string" || typeof item.confirmedAt !== "string" || typeof summary.title !== "string" ||
+    !Array.isArray(summary.amounts) || !Array.isArray(summary.warnings) || typeof summary.expiresAt !== "string") return false;
+  if ("cashout" in item && item.kind !== "cash-out") return false;
+  const isDeposit = item.kind === "cash-out";
+  const isWithdraw = item.kind === "cash-out-withdraw";
+  if (!isDeposit && !isWithdraw) return true;
+  const metadata = summary.metadata;
+  if (metadata === undefined) return isDeposit && summary.amounts.every(isMoneyActionAmount);
+  if (!isMoneyMetadata(metadata) || metadata.product !== "cashout" || metadata.operation !== (isWithdraw ? "withdraw" : "deposit")) return false;
+  return summary.amounts.every(isMoneyActionAmount);
+}
+
+function isMoneyActionAmount(value: unknown): boolean {
+  return isRecord(value) && typeof value.assetId === "string" && typeof value.symbol === "string" &&
+    typeof value.decimals === "number" && Number.isSafeInteger(value.decimals) && value.decimals >= 0 && value.decimals <= 20 &&
+    typeof value.amountBaseUnits === "string" && /^\d+$/.test(value.amountBaseUnits) &&
+    (value.direction === "spend" || value.direction === "receive");
+}
+
+function sameOwner(owner: Record<string, unknown>, session: VerifiedAccountSession): boolean {
+  const account = session.smartAccount;
+  return account !== null && owner.subject === session.user.subject && owner.accountProvider === session.accountProvider &&
+    typeof owner.address === "string" && owner.address.toLowerCase() === account.address.toLowerCase();
+}
+
 
 export function assertRecentActionsResponse(value: unknown): asserts value is { actions: unknown[] } {
   if (!isRecentActionsResponse(value)) throw new RecentActionsContractError();
@@ -70,12 +125,9 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
   assertRecentActionsResponse(value);
   const parsed: RecentMoneyActionOperation[] = [];
   for (const item of value.actions) {
-    if (!isRecord(item) || !isRecord(item.owner) || !isRecord(item.summary)) continue;
-    if (item.owner.subject !== session.user.subject || item.owner.accountProvider !== session.accountProvider ||
-      typeof item.owner.address !== "string" || item.owner.address.toLowerCase() !== session.smartAccount.address.toLowerCase()) continue;
-    if (typeof item.id !== "string" || !isActionKind(item.kind) || !isDerivedStatus(item.status) ||
-      typeof item.createdAt !== "string" || typeof item.confirmedAt !== "string" || typeof item.summary.title !== "string" ||
-      !Array.isArray(item.summary.amounts) || !Array.isArray(item.summary.warnings) || typeof item.summary.expiresAt !== "string") continue;
+    if (!isRecord(item) || !isRecord(item.owner)) continue;
+    if (!sameOwner(item.owner, session)) continue;
+    if (!isCompleteRecentActionItem(item)) continue;
     const cashout = item.kind === "cash-out" ? readCashoutProgress(item.cashout) : null;
     parsed.push({
       action: {
@@ -95,6 +147,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
       createdAt: item.createdAt,
       updatedAt: item.confirmedAt,
       ...(typeof item.submittedAt === "string" && Number.isFinite(Date.parse(item.submittedAt)) ? { submittedAt: item.submittedAt } : {}),
+      ...(typeof item.settledAt === "string" && Number.isFinite(Date.parse(item.settledAt)) ? { settledAt: item.settledAt } : {}),
       ...(cashout ? { cashout } : {}),
       ...(typeof item.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.transactionHash) ? { transactionHash: item.transactionHash.toLowerCase() as `0x${string}` } : {}),
       ...(typeof item.providerHandle === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.providerHandle) ? { userOperationHash: item.providerHandle.toLowerCase() as `0x${string}` } : {}),
@@ -110,7 +163,7 @@ function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.providerId === "string" && typeof value.providerName === "string" &&
       (value.environment === "production" || value.environment === "sandbox") &&
       typeof value.platform === "string" && typeof value.platformLabel === "string" && typeof value.currency === "string" &&
-      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && (value.payeeHash === undefined || typeof value.payeeHash === "string") && value.depositId === undefined : value.canonicalHandle === undefined && value.payeeHash === undefined && typeof value.depositId === "string") &&
+      (value.operation === "deposit" ? typeof value.canonicalHandle === "string" && (value.payeeHash === undefined || typeof value.payeeHash === "string") && value.depositId === undefined : value.canonicalHandle === undefined && value.payeeHash === undefined && typeof value.depositId === "string" && value.depositId.trim().length > 0) &&
       typeof value.approximateFiatAmount === "string" &&
       typeof value.minConversionRate === "string" && isRecord(value.intentAmountRange) &&
       typeof value.intentAmountRange.min === "string" && typeof value.intentAmountRange.max === "string" &&

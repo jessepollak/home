@@ -1,4 +1,5 @@
 import { balancesSnapshot } from "../fixtures/balances";
+import { FIXED_NOW } from "../fixtures/fixed-time";
 import { cryptoAssets, memeAssets } from "../../../config/invest-assets";
 import { MARKET_PRICES_VERSION, type MarketPricesResponse } from "../../../shared/invest/contracts/market-prices";
 import { MARKET_PRICE_HISTORY_VERSION, type MarketPriceHistoryResponse } from "../../../shared/invest/contracts/market-price-history";
@@ -28,21 +29,21 @@ export const syntheticDegen = "0x3333333333333333333333333333333333333333" as co
 export const degenAssetId = `base:${syntheticDegen}` as const;
 
 export function activityOrdersFixture(): ActivityOrdersResponse {
-  const createdAt = new Date(Date.now() - 600_000).toISOString();
-  const updatedAt = new Date().toISOString();
+  const createdAt = new Date(FIXED_NOW - 600_000).toISOString();
+  const updatedAt = new Date(FIXED_NOW).toISOString();
   const funding = {
     kind: "funding" as const, region: "US", providerId: "coinbase", providerName: "Coinbase",
     paymentMethodLabel: "Debit card", instruction: "embed" as const, resumable: false,
     fiatAmount: "25.00", fiatCurrency: "USD", asset: { id: "usdc", symbol: "USDC", decimals: 6 },
-    tokenAmountAtomic: "25000000", sandbox: false, expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    tokenAmountAtomic: "25000000", sandbox: false, expiresAt: new Date(FIXED_NOW + 3600_000).toISOString(),
     clearableAt: null, transactionHash: null, logIndex: null, createdAt, updatedAt,
   };
   return { version: 1, owner: { subject: sessionBody.user.subject, accountProvider: "cdp-embedded" }, orders: [
     { ...funding, id: "fixture-funding-pending", status: "waiting-customer", stage: "awaiting-payment", resumable: true },
     { ...funding, id: "fixture-funding-processing", status: "waiting-provider", stage: "provider-processing", instruction: null,
-      fiatAmount: "40.00", tokenAmountAtomic: "40000000", updatedAt: new Date(Date.now() - 120_000).toISOString() },
+      fiatAmount: "40.00", tokenAmountAtomic: "40000000", updatedAt: new Date(FIXED_NOW - 120_000).toISOString() },
     { ...funding, id: "fixture-funding-received", status: "confirmed", stage: "received", instruction: null,
-      updatedAt: new Date(Date.now() - 300_000).toISOString() },
+      updatedAt: new Date(FIXED_NOW - 300_000).toISOString() },
     { ...funding, id: "fixture-funding-ambiguous", status: "ambiguous", stage: "unconfirmed", instruction: null,
       fiatAmount: "30.00", tokenAmountAtomic: "30000000", clearableAt: createdAt },
     { kind: "cash-out", id: cashoutFixtureAction.id, orderId: cashoutFixtureProgress.depositId,
@@ -63,11 +64,11 @@ export function tradePrepareFixture(direction: TradeDirection, asset: "bitcoin" 
   const to = buy ? token : cash;
   const spend = buy ? "1000000" : asset === "degen" ? fullSell ? "123000000000000000000" : "500000000000000000" : "50000";
   const receive = buy ? asset === "degen" ? "120000000000000000000" : "1400" : "35000000";
-  const expiresAt = new Date(Date.now() + 110_000).toISOString();
+  const expiresAt = new Date(FIXED_NOW + 110_000).toISOString();
   const owner = { subject: sessionBody.user.subject, address: sessionBody.smartAccount.address, chainId: 8453, accountProvider: "cdp-embedded" };
   return {
     id: `synthetic-trade-${direction}-${asset}`, owner, kind: "trade", title: `${buy ? "Buy" : "Sell"} ${selected.name}`,
-    createdAt: new Date().toISOString(), expiresAt,
+    createdAt: new Date(FIXED_NOW).toISOString(), expiresAt,
     calls: [{ to: syntheticUsdc, data: `0x095ea7b3${BASE_USDC_PAYMASTER_ADDRESS.slice(2).toLowerCase().padStart(64, "0")}${BigInt(20_000).toString(16).padStart(64, "0")}`, value: "0" }],
     amounts: [
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" },
@@ -82,7 +83,7 @@ export function tradePrepareFixture(direction: TradeDirection, asset: "bitcoin" 
       fromAsset: from, toAsset: to, fromAmountBaseUnits: spend, expectedToAmountBaseUnits: receive,
       minimumToAmountBaseUnits: (BigInt(receive) * BigInt(99) / BigInt(100)).toString(), slippageBps: 100,
       fees: [], approval: "permit2-exact", quoteBlockNumber: "12345678",
-      quotedAt: new Date().toISOString(), permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
+      quotedAt: new Date(FIXED_NOW).toISOString(), permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
       executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
     },
   };
@@ -94,7 +95,7 @@ const cryptoPrices: Record<string, string> = {
   cbada: "$0.72", cbhype: "$38.20", cbzec: "$54.30", cbmega: "$0.62",
 };
 
-export function marketPricesFixture(now = new Date()): MarketPricesResponse {
+export function marketPricesFixture(now = new Date(FIXED_NOW)): MarketPricesResponse {
   const checkedAt = now.toISOString();
   const asOf = new Date(now.getTime() - 30_000).toISOString();
   const lastClose = new Date(now.getTime() - 14 * 3600_000).toISOString();
@@ -117,7 +118,7 @@ export function marketPricesFixture(now = new Date()): MarketPricesResponse {
   };
 }
 
-export function priceHistoryFixture(assetId: string, now = new Date()): MarketPriceHistoryResponse {
+export function priceHistoryFixture(assetId: string, now = new Date(FIXED_NOW)): MarketPriceHistoryResponse {
   const points = Array.from({ length: 24 }, (_, index) => ({
     time: new Date(now.getTime() - (23 - index) * 7 * 3600_000).toISOString(),
     value: (176 + Math.sin(index / 3) * 4 + index * 0.2).toFixed(2),
@@ -142,11 +143,18 @@ export function fixtureRoutes() {
     ["**/api/invites/link", { version: 1, code: "abcdefghjk" }],
     ["**/api/balances**", {
       ...balances,
-      holdings: balances.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),
+      holdings: balances.holdings.map((holding) => ({
+        ...holding,
+        imageUrl: undefined,
+        ...(holding.id === "usdc" ? { unitValue: { currency: "USD", amount: { atoms: "1", scale: 0 } } } : {}),
+      })),
     }],
     ["**/api/market-prices", marketPricesFixture()],
     ...["nvdac", "metac"].map((assetId) => [`**/api/market-prices/history?assetId=${assetId}&range=1W`, priceHistoryFixture(assetId)] as const),
-    ["**/api/actions", { actions: [...actionsBody.actions, cashoutFixtureAction] }],
+    ["**/api/actions", { actions: [...actionsBody.actions, {
+      ...cashoutFixtureAction,
+      cashout: { ...cashoutFixtureProgress, depositBlockNumber: balances.block.number },
+    }] }],
     ["**/api/actions/prepare", prepared],
     ["**/api/trades/stock-eligibility", { version: 1, buy: "restricted", sell: "eligible" }],
     ["**/api/trades?**", { version: 2, status: "unavailable", reason: "asset-unsupported" }],
@@ -172,7 +180,7 @@ export function fixtureRoutes() {
     }],
     ["**/api/activity/orders", { version: 1, owner: { subject: sessionBody.user.subject, accountProvider: sessionBody.accountProvider }, orders: [] }],
     ["**/api/activity**", {}],
-    ["**/api/savings/vaults", savingsVaultsBody(new Date().toISOString(), new Date().toISOString())],
+    ["**/api/savings/vaults", savingsVaultsBody(new Date(FIXED_NOW).toISOString(), new Date(FIXED_NOW).toISOString())],
     ["**/api/borrow", borrowOverview],
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]

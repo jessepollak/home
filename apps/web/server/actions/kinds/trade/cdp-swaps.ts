@@ -36,6 +36,7 @@ export type SwapsRequest = {
   signerAddress?: Address;
   slippageBps: number;
   requestKey?: string;
+  operatorFee?: { bps: number; recipient: Address };
 };
 type Fee = { token: Address; amount: bigint };
 type Common = {
@@ -83,6 +84,7 @@ export function createCdpSwapsClient({
     const toToken = address(request.toToken);
     const taker = address(request.taker);
     const signerAddress = request.signerAddress === undefined ? undefined : address(request.signerAddress);
+    if (request.operatorFee !== undefined) unavailable();
     if (request.fromAmount <= BigInt(0) || request.fromAmount > UINT256_MAX || !Number.isInteger(request.slippageBps) || request.slippageBps < 1 || request.slippageBps > 300) unavailable();
     const payload = {
       network: "base",

@@ -87,6 +87,9 @@ const vaultsFixture: MorphoVaultsResult = {
   stale: false,
 };
 
+const startingSnapshot = buildBalancesSnapshotFixture({ registry: {
+  usdc: { balance: ready("250000000"), value: priced("USD", "25000"), cashValue: pricedCash("USD", "25000") },
+} });
 const fundedSnapshot = buildBalancesSnapshotFixture({ registry: {
   usdc: { balance: ready("250000000"), value: priced("USD", "25000"), cashValue: pricedCash("USD", "25000") },
   "morpho-steakhouse-usdc": { balance: ready("987654321000000000000"), underlyingBalance: ready("987654321"), value: priced("USD", "98765") },
@@ -186,16 +189,19 @@ const executeMoneyAction = async (
 
 function SavingsJourneySurface() {
   const [view, setView] = useState<"cash" | "savings">("cash");
+  const [snapshot, setSnapshot] = useState(startingSnapshot);
   return (
     <PresentationRegionProvider regionId="US">
       <main className={`${shellContentFrameClassName} py-4`}>
         <CashExperience view={view} onOpenSavings={() => setView("savings")}
-          session={session} snapshot={fundedSnapshot} balanceStatus="ready"
+          session={session} snapshot={snapshot} balanceStatus="ready"
           onRetryBalances={() => undefined} onAddMoney={() => undefined} now={fixedNow}
           prepareMoneyAction={prepareMoneyAction}
           fetchAccountResource={async () => ({ actions: [{ id: "storybook-journey-savings-deposit", status: "confirmed", owner: preparedAction(spark, "25000000").owner }] })}
           executeMoneyAction={executeMoneyAction}
+          onAddMoneyIntent={() => undefined}
         />
+        <button type="button" onClick={() => setSnapshot(fundedSnapshot)}>Confirm snapshot</button>
       </main>
     </PresentationRegionProvider>
   );
@@ -226,10 +232,25 @@ export const Deposit: Story = {
     const screen = within(document.body);
 
     await userEvent.click(await screen.findByRole("button", { name: /^US dollar/ }));
-    await expect(screen.getByLabelText("Savings balance")).toBeVisible();
-    await userEvent.click(await screen.findByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" }));
-    await screen.findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
-    const depositDialog = screen.getByRole("dialog", { name: "Deposit" });
+    await expect(await screen.findByRole("heading", { name: "Earn on your savings" })).toBeVisible();
+    await userEvent.click(await screen.findByRole("button", { name: "Start saving" }));
+    const options = await screen.findByRole("dialog", { name: "Choose where to save" });
+    await expect(within(options).getByText("4.10% APY")).toBeVisible();
+    await expect(journey.prepared).toHaveLength(0);
+    await expect(journey.dispatched).toHaveLength(0);
+    await userEvent.click(within(options).getByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" }));
+    let depositDialog = await screen.findByRole("dialog", { name: "Deposit" });
+    await screen.findByRole("textbox", { name: "Amount" });
+    depositDialog = screen.getByRole("dialog", { name: "Deposit" });
+    await expect(within(depositDialog).getByText("Spark USDC Vault · 4.10% APY")).toBeVisible();
+    await userEvent.click(within(depositDialog).getByRole("button", { name: "Back" }));
+    await expect(await screen.findByRole("dialog", { name: "Choose where to save" })).toBeVisible();
+    await userEvent.click(within(screen.getByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" }));
+    await screen.findByRole("textbox", { name: "Amount" });
+    depositDialog = screen.getByRole("dialog", { name: "Deposit" });
+    await expect(depositDialog).toBeVisible();
+    await expect(journey.prepared).toHaveLength(0);
+    await expect(journey.dispatched).toHaveLength(0);
     await userEvent.type(await within(depositDialog).findByRole("textbox", { name: "Amount" }), "25");
     await fireEvent.click(await within(depositDialog).findByRole("button", { name: "Continue" }));
 
@@ -265,6 +286,13 @@ export const Deposit: Story = {
       vaultAddress: SELECTED_VAULT,
     });
     await expect(journey.dispatched[0]?.amounts[0]?.amountBaseUnits).toBe("25000000");
-    await expect(screen.getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" })).toBeVisible();
+    await expect(await within(screen.getByLabelText("Savings balance")).findByRole("img", { name: "$25.00" })).toBeVisible();
+    const pendingSavings = within(screen.getByRole("region", { name: "Your savings" }));
+    await expect(pendingSavings.getByText("Pending")).toBeVisible();
+    await expect(pendingSavings.getByRole("img", { name: "$25.00" })).toBeVisible();
+    await expect(screen.queryByRole("button", { name: "Start saving" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Confirm snapshot" }));
+    await expect(await screen.findByRole("region", { name: "Your savings" })).toBeVisible();
+    await expect(within(screen.getByRole("region", { name: "Your savings" })).queryByText("Pending")).toBeNull();
   },
 };

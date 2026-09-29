@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { getHomeQueryClient, ownerQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
-import { afterEach, describe, expect, jest, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
 import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
@@ -14,6 +14,8 @@ import { BASE_CBBTC, BASE_USDC } from "@/shared/assets/base";
 import { parseActivityPage } from "@/shared/activity/contract";
 import type { InvestmentsContentProps } from "./home-types";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
+import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
+import { readClientHistoryFlag } from "@/config/shell-location";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -22,6 +24,7 @@ import {
   pricedCash,
   ready,
   unavailableBalance,
+  walletHolding,
 } from "@/shared/balances/fixtures";
 import {
   presentBalances,
@@ -119,6 +122,7 @@ const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
 const { parseShellLocation } = await import("@/config/shell-location");
 const { DashboardShell } = await import("./shell");
+const { CashExperience } = await import("@/client/cash/cash-experience");
 const { useOptionalHomeShellRouting } = await import("./panel-routing");
 const { PortfolioHomeExperience } = await import("./portfolio-home-experience");
 const { LandingShell } = await import("./landing-shell");
@@ -355,7 +359,7 @@ function controlAnimationFrames() {
   return { pending: () => queued.size, flush: () => {
     const callbacks = [...queued.values()];
     queued.clear();
-    callbacks.forEach((callback) => callback(performance.now()));
+    callbacks.forEach((callback) => callback(0));
   } };
 }
 
@@ -369,6 +373,8 @@ function resetHistory() {
 }
 
 const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 function mockActivityLayout() {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
@@ -377,6 +383,7 @@ function mockActivityLayout() {
 }
 
 afterEach(() => {
+  setSystemTime();
   jest.useRealTimers();
   globalThis.fetch = nativeFetch;
   restoreAnimationFrames?.();
@@ -394,6 +401,16 @@ function CashFundingTrigger() {
   return <button onClick={() => routing?.setFlow("add-money", { mode: "push" })}>Add money in Cash</button>;
 }
 
+function EmptySavingsFunding({ view, onOpenSavings }: { view: "cash" | "savings"; onOpenSavings: () => void }) {
+  const routing = useOptionalHomeShellRouting();
+  return <CashExperience view={view} onOpenSavings={onOpenSavings} session={session()}
+    snapshot={buildBalancesSnapshotFixture()} balanceStatus="ready"
+    fetchVaults={async () => savingsVaultsBody(new Date().toISOString(), new Date().toISOString())}
+    onAddMoney={(options) => { routing?.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push" }); }}
+    prepareMoneyAction={async () => { throw new Error("Not part of this test"); }}
+    executeMoneyAction={async () => { throw new Error("Not part of this test"); }} />;
+}
+
 describe("pushed funding history", () => {
   test("Home to Cash to Add money closes without a duplicate Cash history entry", async () => {
     syncLocation("/home");
@@ -405,10 +422,10 @@ describe("pushed funding history", () => {
     expect(window.location.pathname).toBe("/cash");
     fireEvent.click(page().getByRole("button", { name: "Add money in Cash" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=add-money");
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=receive"));
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     fireEvent.click(within(await page().findByRole("dialog", { name: "Receive" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
     expect(historyEntries).toEqual(["/home", "/cash", "/cash?flow=receive"]);
@@ -425,7 +442,7 @@ describe("pushed funding history", () => {
       if (path === "/api/activity/orders") return Response.json(emptyOrders());
       if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
       if (path.startsWith("/api/activity?")) {
-        const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+        const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date(NOW).toISOString();
         return Response.json({ version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
           window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD", transfers: [], nextCursor: null,
           source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
@@ -440,11 +457,41 @@ describe("pushed funding history", () => {
     expect(emptyPrompt).not.toBe(prompt);
     emptyPrompt.focus();
     fireEvent.click(emptyPrompt);
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
     fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/home"));
     expect(historyEntries).toEqual(["/home", "/home?flow=add-money"]);
+  });
+
+  test("replacing a pushed savings picker with Add money closes back to savings without reopening", async () => {
+    syncLocation("/cash/savings");
+    historyEntries = ["/cash/savings"];
+    globalThis.fetch = Object.assign(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/savings/vaults"
+        ? Response.json(savingsVaultsBody(new Date().toISOString(), new Date().toISOString()))
+        : nativeFetch(input, init), { preconnect: nativeFetch.preconnect });
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+      initialPanel="cash" initialLocation={parseShellLocation("/cash/savings")}
+      cashContent={({ view, onOpenSavings }) => <EmptySavingsFunding view={view} onOpenSavings={onOpenSavings} />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(await page().findByRole("button", { name: "Start saving" }));
+    const picker = await page().findByRole("dialog", { name: "Choose where to save" });
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=save-deposit");
+    expect(readClientHistoryFlag("cashSavingsFlowPushed")).toBe(true);
+    fireEvent.click(within(picker).getByRole("button", { name: "Add money" }));
+    expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=add-money");
+    expect(historyEntries).toEqual(["/cash/savings", "/cash/savings?flow=add-money"]);
+    expect(readClientHistoryFlag("fundingFlowPushed")).not.toBe(true);
+    expect(readClientHistoryFlag("cashSavingsFlowPushed")).toBe(true);
+    const funding = await page().findByRole("dialog", { name: "Add money" });
+    expectSheetOpen(funding);
+    expect(document.activeElement).not.toBe(page().getByRole("button", { name: "Start saving", hidden: true }));
+    fireEvent.click(within(funding).getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings"));
+    expect(historyEntries).toEqual(["/cash/savings", "/cash/savings"]);
+    expect(page().queryByRole("dialog", { name: "Choose where to save" })?.hasAttribute("data-open")).not.toBe(true);
+    expect(pushCalls).toEqual(["/cash/savings?flow=save-deposit"]);
   });
 
   test("closing a direct funding deep link replaces its entry", async () => {
@@ -972,8 +1019,11 @@ describe("Home shell routing and intents", () => {
     ).toBe("649");
   });
 
-  test("does not re-present unchanged balances during navigation or account interactions", async () => {
-    let presentationCalls = 0;
+  test("does not construct the full balances list during Home navigation or account interactions", async () => {
+    let holdingsReads = 0;
+    const snapshot = buildBalancesSnapshotFixture();
+    const holdings = snapshot.holdings;
+    Object.defineProperty(snapshot, "holdings", { get() { holdingsReads += 1; return holdings; } });
     const presentation: NonNullable<ComponentProps<typeof DashboardShell>["assetBalances"]> = {
       status: "ready",
       displayTotal: "$12.34",
@@ -988,15 +1038,12 @@ describe("Home shell routing and intents", () => {
     render(
       <HomeHarness
         accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
-        presentAssetBalances={() => {
-          presentationCalls += 1;
-          return presentation;
-        }}
+        assetBalances={presentation}
+        balancesState={{ status: "ready", snapshot, error: null }}
       />,
     );
     await waitForVerifiedShell();
-    await waitFor(() => expect(presentationCalls).toBeGreaterThan(0));
-    presentationCalls = 0;
+    expect(holdingsReads).toBe(0);
 
     const navigation = within(tabsNavigation());
     fireEvent.click(navigation.getByRole("button", { name: "Invest" }));
@@ -1006,7 +1053,7 @@ describe("Home shell routing and intents", () => {
     fireEvent.click(page().getByRole("button", { name: "Account" }));
     expect(await page().findByRole("combobox", { name: "Country" })).toBeTruthy();
 
-    expect(presentationCalls).toBe(0);
+    expect(holdingsReads).toBe(0);
   });
 
   test("keeps the total-balance hero quiet for a stale cached balance during background revalidation", async () => {
@@ -1127,15 +1174,11 @@ describe("Home shell routing and intents", () => {
     await page().findAllByText("Ethereum");
     expect(main.scrollTop).toBe(275);
 
-    const dust = { ...cashRow, key: "dust", name: "Dust dollar", primary: "$0.01" };
+    const dustSnapshot = buildBalancesSnapshotFixture({ catalog: [walletHolding({
+      address: "0x1111111111111111111111111111111111111111", name: "Dust dollar", symbol: "DUST", decimals: 18,
+    }, "1000000000000000000", priced("USD", "1", 3))] });
     view.rerender(<HomeHarness accountSdk={accountSdk} initialPanel="balances"
-      presentAssetBalances={(show) => ({
-        ...presentation,
-        groups: [{ ...presentation.groups[0]!, rows: show ? [cashRow, dust] : [cashRow] }],
-        rows: show ? [cashRow, dust] : [cashRow],
-        hiddenRows: show ? [] : [dust],
-        hiddenCount: 1,
-      })}
+      balancesState={{ status: "ready", snapshot: dustSnapshot, error: null }}
     />);
     fireEvent.click(page().getByRole("button", { name: "Show" }));
     await page().findAllByText("Dust dollar");
@@ -1190,7 +1233,7 @@ describe("Home shell routing and intents", () => {
         if (path === "/api/session") return Response.json(session());
         if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
         if (path.startsWith("/api/activity?")) {
-          const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+          const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date(NOW).toISOString();
           const response = { version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
             window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD",
             transfers: [makeTransfer(btc, "cbBTC", 1, to), makeTransfer(usdc, "USDC", 2, to),
@@ -1217,7 +1260,7 @@ describe("Home shell routing and intents", () => {
       await page().findByRole("dialog", { name: "Received" });
       fireEvent.click(await page().findByRole("button", { name: "Bitcoin Asset" }));
       expect(window.location.pathname).toBe(`/investments/${btc}`);
-      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(readClientHistoryFlag("investmentsHoldingOpenedInApp")).toBe(true);
       expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(erc20AssetKey(BASE_CBBTC.address));
       expect(await page().findByRole("heading", { level: 1, name: "Bitcoin" })).toBeTruthy();
       await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
@@ -1297,7 +1340,7 @@ describe("Home shell routing and intents", () => {
       fireEvent.scroll(main);
       fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
       expect(window.location.pathname).toBe(INVESTMENT_PATH);
-      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(readClientHistoryFlag("investmentsHoldingOpenedInApp")).toBe(true);
       expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
       expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
       expect(main.scrollTop).toBe(0);
@@ -1773,7 +1816,7 @@ function refreshFixture() {
     if (String(input) === "/api/savings/vaults") {
       return fail ? Response.json({}, { status: 503 }) : Response.json({
         version: "v1", chainId: 8453, asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
-        candidates: [], source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: new Date().toISOString() }, stale: false,
+        candidates: [], source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: new Date(NOW).toISOString() }, stale: false,
       });
     }
     return nativeFetch(input, init);
@@ -1788,7 +1831,7 @@ function refreshFixture() {
     if (url.startsWith("/api/session")) return Response.json(session());
     if (url.startsWith("/api/activity?")) {
       calls.activity += 1;
-      if (fail) throw new Error("Activity read unavailable");
+      if (fail) return Response.json({ invalid: true });
       const query = new URLSearchParams(url.split("?")[1]);
       const to = query.get("to")!;
       return Response.json({
@@ -1806,7 +1849,7 @@ function refreshFixture() {
     if (url.startsWith("/api/balances?")) return fail ? Response.json({}, { status: 503 }) : Response.json(snapshot);
     if (url === "/api/borrow") return fail ? Response.json({}, { status: 503 }) : Response.json({
       version: "2", chainId: 8453, owner: { address: ADDRESS, accountProvider: "cdp-embedded" },
-      discovery: { status: "complete", sourceBlock: null, candidateCount: 0, verifiedCount: 0, reason: null, fetchedAt: new Date().toISOString() },
+      discovery: { status: "complete", sourceBlock: null, candidateCount: 0, verifiedCount: 0, reason: null, fetchedAt: new Date(NOW).toISOString() },
       opportunities: [], positions: [],
     });
     throw new Error(`Unexpected read: ${url}`);
@@ -1953,7 +1996,7 @@ describe("walletless country preference read", () => {
       registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "7890"), cashValue: pricedCash("USD", "100") } },
     });
     getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session()), "balances", "DE"), cached, {
-      updatedAt: Date.now() - 60_000,
+      updatedAt: NOW - 60_000,
     });
     const requests: string[] = [];
     const sessionFetch: SessionFetch = async (input) => {

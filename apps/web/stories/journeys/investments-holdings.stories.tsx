@@ -8,6 +8,7 @@ import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { InvestmentsExperience } from "@/client/investments/investments-experience";
 import { investmentStoryHandlers } from "@/client/investments/investments-overview.stories";
+import { pinClock } from "@/tests/helpers/pin-clock";
 import { createInvestmentsStoryWalletClient, sharedPortfolioSnapshot } from "@/client/investments/investments-fixtures.stories.fixture";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { shellContentFrameClassName } from "@/components/shell-layout";
@@ -42,7 +43,7 @@ function InvestmentsJourney() {
     </main>
   </div></MoneyMotionProvider></PresentationRegionProvider></AccountWalletClientProvider>;
 }
-const meta = { id: "journeys-investments-holdings", title: "Journeys/Investments Holdings", component: InvestmentsJourney, parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers: investmentStoryHandlers } }, beforeEach() { getHomeQueryClient().clear(); } } satisfies Meta<typeof InvestmentsJourney>;
+const meta = { id: "journeys-investments-holdings", title: "Journeys/Investments Holdings", component: InvestmentsJourney, parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers: investmentStoryHandlers } }, beforeEach() { getHomeQueryClient().clear(); return pinClock("2026-09-13T12:00:00.000Z"); } } satisfies Meta<typeof InvestmentsJourney>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 async function walk({ canvasElement }: { canvasElement: HTMLElement }) {

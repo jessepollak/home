@@ -128,7 +128,7 @@ PR hygiene, enforced by the dead-code gate:
 - A replacement change deletes the replaced component, hook, or module in the same PR rather than shipping an unused alias, re-export, or shim.
 - `bun run --cwd apps/web knip` passes (it runs in `bun check` and as the CI **Dead code (knip)** step).
 - A new deliberately public export carries a one-line `/** @public <reason> */` JSDoc; that tag is the only sanctioned way to keep an export the gate would otherwise flag.
-- Design-lane non-production code stays inside a `*.stories.*` file or under `**/explorations/**` ([design explorations](design-explorations/README.md)). Files deferred to #686 (home/activity surfaces) and #687 (funding/transfers surfaces) are listed in `apps/web/knip.json` `ignore` with those issue references.
+- Design-lane non-production code stays inside a `*.stories.*` file or under `**/explorations/**` ([design explorations](design-explorations/README.md)). Production modules never import or re-export it, and no new Knip exemption may hide a module only stories or explorations use ([gates](gates.md)). Files deferred to #686 (home/activity surfaces) and #687 (funding/transfers surfaces) are listed in `apps/web/knip.json` `ignore` with those issue references.
 
 ## Money and authentication invariants
 

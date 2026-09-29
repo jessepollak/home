@@ -1,8 +1,10 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { ReviewBuild } from "@/stories/review/explorations/board/review-build";
 import { deferred } from "@/tests/helpers/async";
+const NOW = Date.parse("2026-09-25T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 
 const { act, cleanup, render } = await import("@testing-library/react");
 const { BuildChip } = await import("@/stories/review/explorations/board/build-chip");
@@ -16,7 +18,7 @@ const build: ReviewBuild = {
   changedFiles: null,
 };
 
-afterEach(() => { cleanup(); sessionStorage.clear(); });
+afterEach(() => { cleanup(); sessionStorage.clear(); setSystemTime(); });
 
 describe("BuildChip commit link", () => {
   test("keeps its own href, target, rel and full-revision title after the forwarded chip props", () => {
@@ -47,7 +49,7 @@ describe("BuildChip commit link", () => {
 describe("BuildChip pull request link", () => {
   test("renders a cached status and titles both chips", async () => {
     sessionStorage.setItem("review-pr:jessepollak/home#1283", JSON.stringify({
-      at: Date.now(),
+      at: NOW,
       status: {
         number: 1283, url: "https://github.com/jessepollak/home/pull/1283", title: "Save deposits",
         state: "open", headSha: "9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b", current: true, checks: "passing",

@@ -7,7 +7,6 @@ import {
 import { multicallAbi } from "@/server/balances/abi";
 import {
   ACTIVITY_TOKEN_RPC_BATCH_MAX,
-  ACTIVITY_TOKEN_RPC_TIMEOUT_MS,
   createActivityTokenRpcResolver,
   decodeActivityTokenMetadataMulticall,
 } from "./token-metadata-rpc";
@@ -78,10 +77,6 @@ function metadataResponse(): Hex {
 }
 
 describe("Activity token metadata RPC fallback", () => {
-  test("uses the bounded Activity RPC timeout contract", () => {
-    expect(ACTIVITY_TOKEN_RPC_TIMEOUT_MS).toBe(3_000);
-  });
-
   test("decodes ABI string and bytes32 symbols and classifies decimals reverts", () => {
     const result = decodeActivityTokenMetadataMulticall(
       aggregate([

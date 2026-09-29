@@ -16,6 +16,6 @@ export function parseBrandSettingsResponse(value: unknown): BrandSettingsRespons
 }
 
 /** @public request builder consumed by the administrator UI follow-up */
-export function brandSettingsPutRequest(expectedRevision: number, value: BrandSettings): PutSettingsRequest {
-  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision, value };
+export function brandSettingsPutRequest(expectedRevision: number, value: BrandSettings, operator: `0x${string}`): PutSettingsRequest {
+  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision, value, operator };
 }

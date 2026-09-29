@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { parseRecentMoneyActions } from "./list";
+import { parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
 
 const session: VerifiedAccountSession = {
   user: { subject: "subject-a" },
@@ -145,5 +145,71 @@ describe("recent Home action activity", () => {
     expect(submitted?.submittedAt).toBe("2026-09-12T05:06:00.000Z");
     expect(parseRecentMoneyActions({ actions: [{ ...row(undefined, "pending"), submittedAt: "not-a-date" }] }, session)[0]?.submittedAt).toBeUndefined();
     expect(parseRecentMoneyActions({ actions: [row(undefined, "pending")] }, session)[0]?.submittedAt).toBeUndefined();
+    const [settled] = parseRecentMoneyActions({ actions: [{ ...row(), settledAt: "2026-09-12T05:06:30.000Z" }] }, session);
+    expect(settled?.settledAt).toBe("2026-09-12T05:06:30.000Z");
+    expect(parseRecentMoneyActions({ actions: [{ ...row(), settledAt: "not-a-date" }] }, session)[0]?.settledAt).toBeUndefined();
+  });
+
+  test("reports a rejected same-owner cash-out row as incomplete", () => {
+    const malformedDeposit = { ...row(), kind: "cash-out", summary: { ...row().summary, warnings: undefined } };
+    expect(readRecentActionsIncomplete({ actions: [malformedDeposit] }, session)).toBe(true);
+    const malformedWithdraw = { ...row(), kind: "cash-out-withdraw", summary: { ...row().summary, amounts: null } };
+    expect(readRecentActionsIncomplete({ actions: [malformedWithdraw] }, session)).toBe(true);
+    const nullAmount = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [null] } };
+    expect(readRecentActionsIncomplete({ actions: [nullAmount] }, session)).toBe(true);
+    expect(parseRecentMoneyActions({ actions: [nullAmount] }, session)).toEqual([]);
+    const partialAmount = { ...row(), kind: "cash-out-withdraw", summary: { ...row().summary, amounts: [{ assetId: "usdc" }] } };
+    expect(readRecentActionsIncomplete({ actions: [partialAmount] }, session)).toBe(true);
+    const corruptKind = { ...malformedDeposit, kind: undefined, cashout: { version: 1 } };
+    expect(readRecentActionsIncomplete({ actions: [corruptKind] }, session)).toBe(true);
+    const validAmount = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [validAmount] }, session)).toBe(false);
+    expect(parseRecentMoneyActions({ actions: [validAmount] }, session)).toHaveLength(1);
+    const hugeDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 400, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [hugeDecimals] }, session)).toBe(true);
+    const eighteenDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 18, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [eighteenDecimals] }, session)).toBe(false);
+    const twentyDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 20, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [twentyDecimals] }, session)).toBe(false);
+    const twentyOneDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 21, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [twentyOneDecimals] }, session)).toBe(true);
+    const withdrawMetadata = { product: "cashout", operation: "withdraw", providerId: "peer", providerName: "Peer", environment: "sandbox", platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "1", minConversionRate: "1", intentAmountRange: { min: "1", max: "2" }, estimateAsOf: "2026-09-14T12:00:00.000Z", escrow: "0x777777779d229cdF3110e9de47943791c26300Ef", depositId: "escrow-1" };
+    const withdrawMissingMetadata = { ...row(), kind: "cash-out-withdraw", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1", direction: "receive" }] } };
+    expect(readRecentActionsIncomplete({ actions: [withdrawMissingMetadata] }, session)).toBe(true);
+    const validWithdraw = { ...withdrawMissingMetadata, summary: { ...withdrawMissingMetadata.summary, metadata: withdrawMetadata } };
+    expect(readRecentActionsIncomplete({ actions: [validWithdraw] }, session)).toBe(false);
+    const depositWithWithdrawMetadata = { ...validAmount, summary: { ...validAmount.summary, metadata: withdrawMetadata } };
+    const emptyDepositLink = { ...validWithdraw, summary: { ...validWithdraw.summary, metadata: { ...withdrawMetadata, depositId: "" } } };
+    expect(readRecentActionsIncomplete({ actions: [emptyDepositLink] }, session)).toBe(true);
+    const blankDepositLink = { ...validWithdraw, summary: { ...validWithdraw.summary, metadata: { ...withdrawMetadata, depositId: "   " } } };
+    expect(readRecentActionsIncomplete({ actions: [blankDepositLink] }, session)).toBe(true);
+    expect(parseRecentMoneyActions({ actions: [emptyDepositLink] }, session)).toEqual([]);
+    expect(readRecentActionsIncomplete({ actions: [depositWithWithdrawMetadata] }, session)).toBe(true);
+    const unknownKindWithCorruptProgress = { ...row(), kind: "legacy", cashout: "broken" };
+    expect(readRecentActionsIncomplete({ actions: [unknownKindWithCorruptProgress] }, session)).toBe(true);
+    const unknownKindWithNullProgress = { ...row(), kind: "legacy", cashout: null };
+    expect(readRecentActionsIncomplete({ actions: [unknownKindWithNullProgress] }, session)).toBe(true);
+    const brokenBaseUnits = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "broken", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [brokenBaseUnits] }, session)).toBe(true);
+    expect(parseRecentMoneyActions({ actions: [brokenBaseUnits] }, session)).toEqual([]);
+    const progressOnSend = { ...row(), cashout: { version: 1 } };
+    expect(readRecentActionsIncomplete({ actions: [progressOnSend] }, session)).toBe(true);
+    expect(parseRecentMoneyActions({ actions: [progressOnSend] }, session)).toEqual([]);
+    const foreign = { ...malformedDeposit, owner: { ...malformedDeposit.owner, subject: "other" } };
+    expect(readRecentActionsIncomplete({ actions: [foreign] }, session)).toBe(false);
+    expect(readRecentActionsIncomplete({ actions: [{ ...malformedDeposit, owner: { ...malformedDeposit.owner, address: "0x3333333333333333333333333333333333333333" } }] }, session)).toBe(false);
+    expect(readRecentActionsIncomplete({ actions: [{ ...malformedDeposit, owner: { ...malformedDeposit.owner, accountProvider: "base-account" } }] }, session)).toBe(false);
+    const malformedOtherKind = { ...row(), summary: { ...row().summary, warnings: undefined } };
+    expect(readRecentActionsIncomplete({ actions: [malformedOtherKind] }, session)).toBe(false);
+    expect(readRecentActionsIncomplete({ actions: [row()] }, session)).toBe(false);
+    expect(readRecentActionsIncomplete({ actions: [null] }, session)).toBe(false);
+    expect(readRecentActionsIncomplete({ actions: {} }, session)).toBe(false);
+    expect(readRecentActionsIncomplete(null, { ...session, smartAccount: null })).toBe(false);
+  });
+
+  test("reads only an explicit truncation flag", () => {
+    expect(readRecentActionsTruncated({ actions: [], truncated: true })).toBe(true);
+    for (const value of [{ actions: [] }, { actions: [], truncated: false }, { actions: [], truncated: "true" }, null, "truncated"])
+      expect(readRecentActionsTruncated(value)).toBe(false);
   });
 });

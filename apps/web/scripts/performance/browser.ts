@@ -23,7 +23,8 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
     const session: Session = { page, context, cdp, cpu: { requested: cpuRate, applied: 1 } };
     await setCpuRate(session, cpuRate);
     await seedSignedInSession(page);
-    await installApiFixtures(page);
+    // The harness measures the real page clock; navigation and modal gates install their own Playwright clock.
+    await installApiFixtures(page, { clock: "system" });
     await page.addInitScript((gate) => {
       const w = window as typeof window & { __perfHistory?: number; __perfLeakCycle?: () => void; __perfLeaks?: Element[] };
       w.__perfHistory = 0;

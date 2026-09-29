@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
+import { privateVerificationPath } from "./verification-paths";
 
 export const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly";
 export const defaultOtpSender = "no-reply@info.coinbase.com";
@@ -38,7 +39,7 @@ type GmailOptions = {
 };
 
 export function gmailCredentialsPath(env: Record<string, string | undefined> = process.env): string {
-  return resolve(env.HOME_VERIFY_GMAIL_CREDENTIALS ?? resolve(homedir(), ".home-verify", "gmail.json"));
+  return privateVerificationPath(env.HOME_VERIFY_GMAIL_CREDENTIALS ?? resolve(homedir(), ".home-verify", "gmail.json"));
 }
 
 export async function readGmailCredentials(path: string, requireRefreshToken = true): Promise<GmailCredentials> {

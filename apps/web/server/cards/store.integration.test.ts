@@ -29,7 +29,7 @@ run("card event PostgreSQL store", () => {
   });
   test("migrates legacy rows, scopes dedupe by provider and mode, and prunes old rows", async () => {
     const store = createCardEventStore(sql);
-    const event = { provider: "immersve" as const, mode: "sandbox" as const, eventId: "same", kind: "payment-updated", occurredAt: new Date().toISOString(), externalIds: { cardholder: null, card: null, transaction: null, customer: null } };
+    const event = { provider: "immersve" as const, mode: "sandbox" as const, eventId: "same", kind: "payment-updated", occurredAt: "2026-09-12T12:00:00.000Z", externalIds: { cardholder: null, card: null, transaction: null, customer: null } };
     expect(await store.insert(event)).toBe(true);
     expect(await store.insert(event)).toBe(false);
     expect(await store.insert({ ...event, mode: "production" })).toBe(true);

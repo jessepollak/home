@@ -2,13 +2,9 @@ import "server-only";
 
 import { createBoundedCache } from "@/server/cache/bounded";
 
-import {
-  CODEX_CACHE_TTL_MS,
-  CODEX_GRAPHQL_ENDPOINT,
-  CODEX_REQUEST_TIMEOUT_MS,
-} from "./config";
-import { CodexMarketDataError } from "./client";
-import { parseJsonWithNumberLexemes } from "./lossless-json";
+import { CODEX_CACHE_TTL_MS, CODEX_REQUEST_TIMEOUT_MS } from "./config";
+import { CodexMarketDataError } from "./errors";
+import { executeCodexGraphql } from "./execute";
 import {
   isMarketPriceRange,
   MARKET_PRICE_HISTORY_VERSION,
@@ -228,49 +224,14 @@ async function executeCodexBars({
   fetchImpl: FetchLike;
   timeoutMs: number;
 }): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const headers = new Headers({
-      accept: "application/json",
-      "content-type": "application/json",
-    });
-    headers.set(["Author", "ization"].join(""), apiKey);
-    const response = await fetchImpl(CODEX_GRAPHQL_ENDPOINT, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query: CODEX_BARS_QUERY,
-        variables: { symbol, from, to, resolution },
-      }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new CodexMarketDataError(
-        `Codex market history returned HTTP ${response.status}.`,
-      );
-    }
-
-    const parsed = parseJsonWithNumberLexemes(await response.text());
-    const envelope = readRecord(parsed);
-    if (Array.isArray(envelope?.errors) && envelope.errors.length > 0) {
-      throw new CodexMarketDataError("Codex market history returned an error.");
-    }
-    if (envelope?.data === null || envelope?.data === undefined) {
-      throw new CodexMarketDataError("Codex market history returned no data.");
-    }
-    return envelope.data;
-  } catch (error) {
-    if (error instanceof CodexMarketDataError) throw error;
-    const message = controller.signal.aborted
-      ? "Codex market history timed out."
-      : "Codex market history request failed.";
-    throw new CodexMarketDataError(message, { cause: error });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return executeCodexGraphql({
+    apiKey,
+    query: CODEX_BARS_QUERY,
+    variables: { symbol, from, to, resolution },
+    fetchImpl,
+    timeoutMs,
+    subject: "Codex market history",
+  });
 }
 
 function normalizeBars(data: unknown): MarketPriceHistoryPoint[] {

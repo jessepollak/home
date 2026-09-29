@@ -125,7 +125,7 @@ export function createActivityHandler(dependencies: {
       });
       if (cardsPromise) {
         const cards = await cardsPromise;
-        if (cards.status === "ready" || cards.rows.length > 0) {
+        if (cards.rows.length > 0) {
           return privateJson({
             version: ACTIVITY_CONTRACT_VERSION, walletAddress: session.smartAccount.address.toLowerCase() as `0x${string}`,
             chainId: 8453, window: cardWindow, currency: activityRequest.currency, transfers: [], cards,
@@ -204,7 +204,7 @@ export function createActivityHandler(dependencies: {
       });
       if (!request.signal.aborted && !(error instanceof ChainDataError && error.code === "invalid-input") && cardsPromise) {
         const cards = await cardsPromise;
-        if (cards.status === "ready" || cards.rows.length > 0) {
+        if (cards.rows.length > 0) {
           return privateJson({
             version: ACTIVITY_CONTRACT_VERSION, walletAddress: session.smartAccount.address.toLowerCase() as `0x${string}`,
             chainId: 8453, window: cardWindow, currency: activityRequest.currency, transfers: [], cards,

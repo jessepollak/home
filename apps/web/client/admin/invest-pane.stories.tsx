@@ -5,6 +5,7 @@ import { INVEST_SETTINGS_DEFAULTS } from "@/shared/operator-settings/invest";
 import { InvestPane } from "./invest-pane";
 
 const defaults = { value: INVEST_SETTINGS_DEFAULTS, revision: 0, source: "default" as const, updatedAt: null, updatedBy: null };
+const operator = "0x1111111111111111111111111111111111111111" as const;
 const saved = {
   value: { hiddenCategories: ["stock" as const], hiddenAssets: ["cbbtc"] },
   revision: 2,
@@ -17,7 +18,7 @@ const meta = {
   id: "operator-invest-pane",
   title: "Operator/Invest",
   component: InvestPane,
-  args: { initialEntry: defaults },
+  args: { initialEntry: defaults, operator },
   parameters: { layout: "padded", a11y: { test: "error" } },
   decorators: [(Story: () => React.ReactNode) => <main className="mx-auto max-w-3xl"><Story /></main>],
 } satisfies Meta<typeof InvestPane>;

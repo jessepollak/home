@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AccountWalletContext, type AccountSessionStatus, type AccountWalletClient, type AccountWalletSdkBoundary, type BaseAccountLoginPhase } from "./cdp-client";
 import { connectBaseAccount, restoreBaseAccount, BaseAccountConnectorError, type BaseAccountConnector, type BaseAccountRestorer, type ConnectedBaseAccount } from "./base-account-connector";
 import { SessionValidationError, validateAccountSession, type SessionFetch, type VerifiedAccountSession } from "./session-client";
@@ -33,6 +33,10 @@ function renderSeedSdkOwnerKey(seed: AccountRenderSeed): string {
     ? nativeOwnerKey(seed.session)
     : seed.session.user.subject;
 }
+const subscribeToClientMount = () => () => {};
+const readClientMount = () => true;
+const readServerMount = () => false;
+
 
 export type {
   OwnerGenerationFence,
@@ -117,6 +121,7 @@ export function AccountWalletSessionOwner({
   const providerRef = useRef<AccountProviderRequest>("restore");
   const cleanupRef = useRef<Promise<void> | null>(null);
   const validationRef = useRef<AbortController | null>(null);
+  const committedInitializationErrorRef = useRef<typeof initializationError>(undefined);
   const stageTimedOutRef = useRef(false);
   const previousOwner = useRef(seededSdkOwnerKey ?? ownerKey);
   const initialProvisionalSession = initialRenderSeed?.session ?? (
@@ -136,8 +141,73 @@ export function AccountWalletSessionOwner({
   const previousProvisionalOwnerKey = useRef(
     initialProvisionalSession ? dataOwnerKey(initialProvisionalSession) : null,
   );
+  const [previousAvailability, setPreviousAvailability] = useState<{
+    isInitialized: boolean;
+    initializationError: typeof initializationError;
+    isSignedIn: boolean;
+    ownerKey: typeof ownerKey;
+    authentication: typeof authentication;
+    baseAccountEnabled: boolean;
+    sessionFetch: typeof sessionFetch;
+    validationRequest: number;
+  }>({
+    isInitialized: false,
+    initializationError: undefined,
+    isSignedIn: true,
+    ownerKey: null,
+    authentication,
+    baseAccountEnabled,
+    sessionFetch,
+    validationRequest,
+  });
+  const clientMounted = useSyncExternalStore(
+    subscribeToClientMount,
+    readClientMount,
+    readServerMount,
+  );
+  if (clientMounted && previousAvailability.isInitialized && !isInitialized) {
+    setPreviousAvailability({ ...previousAvailability, isInitialized });
+  }
+  if (clientMounted && isInitialized && (
+    !previousAvailability.isInitialized ||
+    previousAvailability.initializationError !== initializationError ||
+    previousAvailability.isSignedIn !== isSignedIn ||
+    previousAvailability.ownerKey !== ownerKey ||
+    previousAvailability.authentication !== authentication ||
+    previousAvailability.baseAccountEnabled !== baseAccountEnabled ||
+    previousAvailability.sessionFetch !== sessionFetch ||
+    previousAvailability.validationRequest !== validationRequest
+  )) {
+    setPreviousAvailability({
+      isInitialized, initializationError, isSignedIn, ownerKey, authentication,
+      baseAccountEnabled, sessionFetch, validationRequest,
+    });
+    if (initializationError || !isSignedIn || !ownerKey) {
+      setSession(null);
+      setVerification(null);
+      if (initializationError) {
+        setStatus("unavailable");
+        setMessage("Account verification is unavailable.");
+      } else if (status !== "signing-out") {
+        setStatus("signed-out");
+      }
+    } else {
+      const nextProvisional = provisionalSession?.smartAccount ? provisionalSession : null;
+      setStatus("validating");
+      setMessage(null);
+      setSession(nextProvisional);
+      setVerification(nextProvisional ? "provisional" : null);
+    }
+  }
 
   useLayoutEffect(() => {
+    if (isInitialized) {
+      if (initializationError && committedInitializationErrorRef.current !== initializationError) {
+        validationRef.current?.abort();
+        fence.advance();
+      }
+      committedInitializationErrorRef.current = initializationError;
+    }
     if (seedActiveRef.current && !seedBoundaryInitializedRef.current) {
       seedBoundaryInitializedRef.current = true;
       clearQueryBoundary(seededDataOwnerKey);
@@ -162,23 +232,28 @@ export function AccountWalletSessionOwner({
     }
     if (ownerChanged || provisionalChanged) {
       validationRef.current?.abort();
-      setSession(nextProvisional);
-      setVerification(nextProvisional ? "provisional" : null);
-      setStatus(ownerKey ? "validating" : "signed-out");
+      setSession(initializationError ? null : nextProvisional);
+      setVerification(!initializationError && nextProvisional ? "provisional" : null);
+      setStatus((current) => current === "signing-out"
+        ? current
+        : initializationError ? "unavailable" : ownerKey ? "validating" : "signed-out");
     }
     previousOwner.current = ownerKey;
     previousProvisionalOwnerKey.current = provisionalOwnerKey;
-  }, [clearQueryBoundary, fence, isInitialized, isSignedIn, ownerKey, provisionalSession, seededDataOwnerKey]);
+  }, [clearQueryBoundary, fence, initializationError, isInitialized, isSignedIn, ownerKey, provisionalSession, seededDataOwnerKey]);
 
-  const clearPrivate = useCallback((preserveCdpRenderHint = false) => {
+  const clearPrivateExternal = useCallback((preserveCdpRenderHint = false) => {
     seedActiveRef.current = false;
     emailFollowUpRef.current = null;
     if (!preserveCdpRenderHint) clearCdpRenderHint();
     validationRef.current?.abort();
-    setSession(null);
-    setVerification(null);
     clearQueryBoundary();
   }, [clearQueryBoundary]);
+  const clearPrivate = useCallback((preserveCdpRenderHint = false) => {
+    clearPrivateExternal(preserveCdpRenderHint);
+    setSession(null);
+    setVerification(null);
+  }, [clearPrivateExternal]);
 
   const disconnectBase = useCallback(async () => {
     const connection = baseConnectionRef.current;
@@ -222,13 +297,6 @@ export function AccountWalletSessionOwner({
     return cleanup;
   }, [clearPrivate, disconnectBase, fence, sdkSignOut]);
 
-  const markUnavailable = useCallback((text: string) => {
-    stageTimedOutRef.current = false;
-    fence.advance();
-    clearPrivate(true);
-    setStatus("unavailable");
-    setMessage(text);
-  }, [clearPrivate, fence]);
 
   const onBaseInvalidated = useCallback(() => {
     void signOutLostIdentity("base-account");
@@ -245,10 +313,6 @@ export function AccountWalletSessionOwner({
       ? "base-account"
       : "cdp-embedded";
     if (providerRef.current !== "restore") validationProvider = providerRef.current;
-    const nextProvisional = provisionalSession?.smartAccount ? provisionalSession : null;
-    setStatus("validating");
-    setSession(nextProvisional);
-    setVerification(nextProvisional ? "provisional" : null);
     try {
       const token = await runAccountRestoreStage("token", controller.signal, () => getAccessToken(), restoreStageTimeoutMs);
       fence.assertCurrent(generation);
@@ -315,31 +379,23 @@ export function AccountWalletSessionOwner({
         ? "Checking your account took too long."
         : error instanceof Error ? error.message : "Account verification is unavailable.");
     }
-  }, [authentication, baseAccountEnabled, baseAccountRestorer, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, provisionalSession, restoreStageTimeoutMs, sessionFetch, signOutLostIdentity]);
+  }, [authentication, baseAccountEnabled, baseAccountRestorer, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, restoreStageTimeoutMs, sessionFetch, signOutLostIdentity]);
 
   const validateRef = useRef(validate);
   useLayoutEffect(() => { validateRef.current = validate; }, [validate]);
 
   useEffect(() => {
-    let cancelled = false;
-    void Promise.resolve().then(() => {
-      if (cancelled || !isInitialized) return;
-      if (initializationError) {
-        markUnavailable("Account verification is unavailable.");
-        return;
-      }
-      if (!isSignedIn || !ownerKey) {
-        clearPrivate();
-        setStatus(cleanupRef.current ? "signing-out" : "signed-out");
-        return;
-      }
+    if (!isInitialized) return;
+    if (initializationError) {
+      stageTimedOutRef.current = false;
+      clearPrivateExternal(true);
+    } else if (!isSignedIn || !ownerKey) {
+      clearPrivateExternal();
+    } else {
       void validateRef.current();
-    });
-    return () => {
-      cancelled = true;
-      validationRef.current?.abort();
-    };
-  }, [authentication, baseAccountEnabled, clearPrivate, initializationError, isInitialized, isSignedIn, markUnavailable, ownerKey, sessionFetch, validationRequest]);
+    }
+    return () => { validationRef.current?.abort(); };
+  }, [authentication, baseAccountEnabled, clearPrivateExternal, fence, initializationError, isInitialized, isSignedIn, ownerKey, sessionFetch, validationRequest]);
 
   useEffect(() => {
     if (status === "signed-out" || status === "verified" || status === "unavailable") {
@@ -552,8 +608,16 @@ export function AccountWalletSessionOwner({
 
   const retrySessionValidation = useCallback(async () => {
     if (retryInitialization) await retryInitialization();
-    if (!retryInitialization || stageTimedOutRef.current) await validate();
-  }, [retryInitialization, validate]);
+    if (!retryInitialization || stageTimedOutRef.current) {
+      if (isInitialized && isSignedIn && ownerKey) {
+        const nextProvisional = provisionalSession?.smartAccount ? provisionalSession : null;
+        setStatus("validating");
+        setSession(nextProvisional);
+        setVerification(nextProvisional ? "provisional" : null);
+      }
+      await validate();
+    }
+  }, [isInitialized, isSignedIn, ownerKey, provisionalSession, retryInitialization, validate]);
 
   const signTypedData = useCallback(async (
     typedData: unknown,

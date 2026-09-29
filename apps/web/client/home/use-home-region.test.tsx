@@ -174,7 +174,7 @@ describe("useHomeRegion", () => {
       view.rerender(<Region detectedCountry="BR" accountIdentity="account-a" accountOwner="owner-a" signedIn accountReady writeAccountPreference={writer} />);
       await waitFor(() => expect(calls).toEqual([["GB", false]]));
       expect(frames.size).toBeGreaterThan(0);
-      act(() => { for (const callback of frames.values()) callback(performance.now()); frames.clear(); });
+      act(() => { for (const callback of frames.values()) callback(0); frames.clear(); });
       expect(view.getByRole("status").textContent).toBe("GB:explicit");
     } finally {
       window.requestAnimationFrame = request;

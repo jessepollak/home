@@ -1,12 +1,14 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { pinClock } from "@/tests/helpers/pin-clock";
 import { useState } from "react";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
 import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata, TradeToken } from "@/shared/trading/contract";
 
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
@@ -14,6 +16,9 @@ const { TradeMoneyDialog } = await import("./trade-money-dialog");
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+let restoreClock: () => void;
+beforeEach(() => { restoreClock = pinClock("2026-09-28T12:00:00.000Z"); });
 const session: VerifiedAccountSession = {
   user: { subject: "synthetic-trade-owner" }, smartAccount: { address: wallet, chainId: 8453 }, accountProvider: "cdp-embedded",
 };
@@ -30,11 +35,11 @@ function action(direction: TradeDirection, amount: string, traded: TradeToken, e
   const from = buy ? cash : tradedAsset;
   const to = buy ? tradedAsset : cash;
   const receive = buy ? (BigInt(10) ** BigInt(traded.decimals)).toString() : "69000000";
-  const expiresAt = new Date(Date.now() + (expired ? -1000 : 110_000)).toISOString();
+  const expiresAt = new Date(NOW + (expired ? -1000 : 110_000)).toISOString();
   return {
     id: `fixture-${direction}-${expiresAt}`, kind: "trade", title: `${buy ? "Buy" : "Sell"} DEGEN`,
     owner: { subject: session.user.subject, address: wallet, chainId: 8453, accountProvider: session.accountProvider },
-    createdAt: new Date().toISOString(), expiresAt, calls: [], warnings: ["Do not use this warning for review facts"],
+    createdAt: new Date(NOW).toISOString(), expiresAt, calls: [], warnings: ["Do not use this warning for review facts"],
     networkFee: { payment: "usdc", token: usdc, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
     amounts: [
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" },
@@ -46,7 +51,7 @@ function action(direction: TradeDirection, amount: string, traded: TradeToken, e
       assetId: traded.assetId, assetName: "DEGEN", fromAsset: from, toAsset: to,
       fromAmountBaseUnits: spend, expectedToAmountBaseUnits: receive,
       minimumToAmountBaseUnits: (BigInt(receive) * BigInt(99) / BigInt(100)).toString(),
-      slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date().toISOString(),
+      slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date(NOW).toISOString(),
       permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
       executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
     },
@@ -95,7 +100,7 @@ async function submit(view: ReturnType<typeof render>, value?: string) {
   click(view, "Continue");
 }
 
-afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
+afterEach(() => { cleanup(); getHomeQueryClient().clear(); restoreClock(); });
 
 describe("any-token trade review", () => {
   test.each([
@@ -128,7 +133,7 @@ describe("any-token trade review", () => {
     await waitFor(() => expect((trade.view.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));
     click(trade.view, "Max");
     await submit(trade.view);
-    await waitFor(() => expect(trade.requests).toEqual([{ version: 2, assetId: token(18).assetId, direction: "buy", amountBaseUnits: "9980000" }]));
+    await waitFor(() => expect(trade.requests).toEqual([{ version: 3, assetId: token(18).assetId, direction: "buy", amountBaseUnits: "9980000" }]));
   });
   test.each([6, 8, 18])("%i-decimal partial sell converts exactly", async (decimals) => {
     const trade = dialog("sell", { decimals, balance: (BigInt(10) ** BigInt(decimals)).toString() });
@@ -278,7 +283,7 @@ describe("any-token trade review", () => {
   test("wallet rejection followed by expiry gets a fresh quote without executing again", async () => {
     const trade = dialog("sell", { prepare: async (params, traded, count) => {
       const prepared = action("sell", params.amountBaseUnits, traded);
-      if (count === 1) prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+      if (count === 1) prepared.expiresAt = new Date(NOW + 1200).toISOString();
       return prepared;
     } });
     await submit(trade.view, "0.5");
@@ -297,7 +302,7 @@ describe("any-token trade review", () => {
     const trade = dialog("buy", {
       prepare: async (params, traded) => {
         const prepared = action("buy", params.amountBaseUnits, traded);
-        prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+        prepared.expiresAt = new Date(NOW + 1200).toISOString();
         return prepared;
       },
       execute: async () => { throw new TransferExecutionError("not-submitted"); },
@@ -397,7 +402,7 @@ describe("any-token trade review", () => {
     const trade = dialog("buy", {
       prepare: async (params, traded) => {
         const prepared = action("buy", params.amountBaseUnits, traded);
-        prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+        prepared.expiresAt = new Date(NOW + 1200).toISOString();
         return prepared;
       },
       execute: async () => { throw new Error("synthetic dispatch outcome unknown"); },
@@ -456,5 +461,67 @@ describe("any-token trade review", () => {
     await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe(message));
     expect(trade.view.queryByText("untrusted provider text")).toBeNull();
     expect(trade.view.queryByRole("button", { name: /Buy \$/ })).toBeNull();
+  });
+});
+
+const feeRecipient = "0x3333333333333333333333333333333333333333" as const;
+function feeAction(direction: TradeDirection, amount: string, traded: TradeToken, feeBaseUnits: string, customerAmounts = true): PreparedMoneyAction {
+  const prepared = action(direction, amount, traded);
+  const metadata = prepared.metadata as TradeMoneyActionMetadata;
+  metadata.operatorFee = { amountBaseUnits: feeBaseUnits, token: OPERATOR_FEE_TOKEN, bps: 50, recipient: feeRecipient, collectedBy: "in-batch-transfer" };
+  const fee = BigInt(feeBaseUnits);
+  if (direction === "buy") {
+    metadata.fromAmountBaseUnits = (BigInt(amount) - fee).toString();
+    if (!customerAmounts) prepared.amounts[0] = { ...prepared.amounts[0]!, amountBaseUnits: metadata.fromAmountBaseUnits };
+  } else {
+    metadata.expectedToAmountBaseUnits = "70700000";
+    metadata.minimumToAmountBaseUnits = "70000000";
+    prepared.amounts[1] = { ...prepared.amounts[1]!, amountBaseUnits: customerAmounts ? (BigInt(70_700_000) - fee).toString() : "70700000" };
+  }
+  return prepared;
+}
+function row(view: ReturnType<typeof render>, label: string) {
+  return view.getByText(label).nextElementSibling?.textContent;
+}
+
+describe("trade review service fee", () => {
+  test("buy shows the service fee up front and charges it within the entered Cash amount", async () => {
+    const trade = dialog("buy", { balance: "20000000", prepare: async (params, traded) => feeAction("buy", params.amountBaseUnits, traded, "50000") });
+    await submit(trade.view, "10");
+    await trade.view.findByRole("button", { name: "Details" });
+    expect(row(trade.view, "Service fee")).toBe("$0.05 (0.5%)");
+    expect(row(trade.view, "You get")).toBe("≈ 1 DEGEN");
+    expect(trade.view.getByRole("button", { name: "Buy $10.00" })).toBeTruthy();
+    click(trade.view, "Details");
+    expect(row(trade.view, "Minimum received")).toBe("0.99 DEGEN");
+  });
+  test("sell takes the service fee from the USDC received and the guaranteed minimum", async () => {
+    const trade = dialog("sell", { prepare: async (params, traded) => feeAction("sell", params.amountBaseUnits, traded, "350000") });
+    await submit(trade.view, "0.5");
+    await trade.view.findByRole("button", { name: "Details" });
+    expect(row(trade.view, "You get")).toBe("≈ $70.35");
+    expect(row(trade.view, "Service fee")).toBe("$0.35 (0.5%)");
+    expect(trade.view.getByRole("button", { name: "Sell 0.5 DEGEN" })).toBeTruthy();
+    click(trade.view, "Details");
+    expect(row(trade.view, "Minimum received")).toBe("$69.65");
+  });
+  test.each(["buy", "sell"] as const)("%s without an operator fee has no service fee row", async (direction) => {
+    const trade = dialog(direction);
+    await submit(trade.view, direction === "buy" ? "1" : "0.5");
+    await trade.view.findByRole("button", { name: "Details" });
+    click(trade.view, "Details");
+    expect(trade.view.queryByText("Service fee")).toBeNull();
+  });
+  test.each([
+    ["buy spend omits the fee", "buy", "50000", false],
+    ["sell receive ignores the fee", "sell", "350000", false],
+    ["buy fee exceeds its rate", "buy", "50001", true],
+    ["sell fee exceeds its rate", "sell", "350001", true],
+  ] as const)("a quote whose %s is rejected", async (_case, direction, fee, customerAmounts) => {
+    const trade = dialog(direction, { balance: direction === "buy" ? "20000000" : undefined,
+      prepare: async (params, traded) => feeAction(direction, params.amountBaseUnits, traded, fee, customerAmounts) });
+    await submit(trade.view, direction === "buy" ? "10" : "0.5");
+    await waitFor(() => expect(trade.view.getByRole("alert").textContent).toBe("The quote did not match this account or trade. Get a new quote."));
+    expect(trade.view.queryByText("Service fee")).toBeNull();
   });
 });

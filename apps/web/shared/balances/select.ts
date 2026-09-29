@@ -14,6 +14,8 @@ import type {
 
 export type SendableBalance = TransferAsset & { balanceBaseUnits: string; imageUrl?: string };
 
+const holdingNameCollator = new Intl.Collator("en", { sensitivity: "base" });
+
 export type CashSelection =
   | { kind: "holding"; holding: Holding }
   | {
@@ -110,8 +112,8 @@ export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
   for (const holding of cashHoldings) {
     if (
       used.has(holding.id) ||
-      holding.balance.status !== "ready" ||
-      holding.balance.baseUnits === "0"
+      (holding.balance.status === "ready" && holding.balance.baseUnits === "0") ||
+      (holding.balance.status === "unavailable" && !holding.name.trim() && !holding.symbol.trim())
     ) continue;
     selected.push({ kind: "holding", holding });
     used.add(holding.id);
@@ -121,27 +123,24 @@ export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
 
 export function selectMoneyGroups(snapshot: BalancesSnapshot): MoneyGroups {
   const cash = selectCash(snapshot);
+  return { cash, investments: investmentHoldings(snapshot, cash).sort(compareHoldings) };
+}
+
+export function selectInvestmentHoldings(snapshot: BalancesSnapshot): Holding[] {
+  return investmentHoldings(snapshot, selectCash(snapshot));
+}
+
+function investmentHoldings(snapshot: BalancesSnapshot, cash: CashSelection[]): Holding[] {
   const selectedCashIds = new Set(
     cash.flatMap((entry) => entry.kind === "holding" ? [entry.holding.id] : []),
   );
-  const investments = snapshot.holdings.filter((holding) =>
+  return snapshot.holdings.filter((holding) =>
     holding.kind !== "vault-share" &&
     holding.cashCurrency === null &&
     !selectedCashIds.has(holding.id) &&
-    holding.balance.status === "ready" &&
-    holding.balance.baseUnits !== "0"
+    (holding.balance.status !== "ready" || holding.balance.baseUnits !== "0") &&
+    (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim())
   );
-
-  return {
-    cash,
-    investments: investments.sort(compareHoldings),
-  };
-}
-
-/** @public exercised by shared/balances/select.test.ts */
-export function selectAssetCount(snapshot: BalancesSnapshot): number {
-  const groups = selectMoneyGroups(snapshot);
-  return groups.cash.length + groups.investments.length;
 }
 
 export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {
@@ -181,5 +180,5 @@ function compareExactDecimals(left: ExactDecimal, right: ExactDecimal): number {
 }
 
 function compareHoldingNames(left: Holding, right: Holding): number {
-  return left.name.localeCompare(right.name, "en", { sensitivity: "base" });
+  return holdingNameCollator.compare(left.name, right.name);
 }

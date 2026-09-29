@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { VERIFIED_MORPHO_MARKETS, getVerifiedMorphoMarket } from "./config";
+import { VERIFIED_MORPHO_MARKETS } from "./config";
 import { computeMorphoMarketId } from "./market-id";
 
 const loan = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
@@ -16,8 +16,8 @@ describe("verified Morpho market registry", () => {
   test("matches the five independently verified market identities and recomputed IDs", () => {
     expect(VERIFIED_MORPHO_MARKETS).toHaveLength(markets.length);
     for (const expected of markets) {
-      const market = getVerifiedMorphoMarket(expected.id.toUpperCase());
-      expect(market).not.toBeNull();
+      const market = VERIFIED_MORPHO_MARKETS.find((entry) => entry.marketId === expected.id);
+      expect(market).toBeDefined();
       expect(market).toMatchObject({
         marketId: expected.id, chainId: 8453, morpho: "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb",
         loanToken: { address: loan, symbol: "USDC", decimals: 6 },
@@ -34,6 +34,5 @@ describe("verified Morpho market registry", () => {
     expect(new Set(VERIFIED_MORPHO_MARKETS.map((market) => market.marketId)).size).toBe(5);
     expect(new Set(VERIFIED_MORPHO_MARKETS.map((market) => market.rank)).size).toBe(5);
     expect(new Set(VERIFIED_MORPHO_MARKETS.map((market) => market.collateralToken.address.toLowerCase())).size).toBe(5);
-    expect(getVerifiedMorphoMarket(`0x${"00".repeat(32)}`)).toBeNull();
   });
 });

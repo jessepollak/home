@@ -4,6 +4,7 @@ import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
+import { OPERATOR_FEE_TOKEN, operatorFeeAmount } from "@/shared/fees/contract";
 import type { TradeActionParams, TradeDirection } from "@/shared/trading/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { memeAssets } from "@/config/invest-assets";
@@ -12,6 +13,10 @@ import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { TradeActions } from "./trade-actions";
 import { TradeMoneyDialog } from "./trade-money-dialog";
+import { pinClock } from "@/tests/helpers/pin-clock";
+
+const TIME = "2026-09-28T12:00:00.000Z";
+const NOW = Date.parse(TIME);
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
@@ -29,11 +34,11 @@ function syntheticAction(params: TradeActionParams, expired = false, tinyPrice =
   const to = buy ? traded : cash;
   const spend = params.amountBaseUnits === "all" ? "100000000000000000000" : params.amountBaseUnits;
   const expected = buy ? tinyPrice ? "2000000000000000000000000" : "35000000000000000000" : "700000";
-  const expiresAt = new Date(Date.now() + (expired ? -1000 : 110_000)).toISOString();
+  const expiresAt = new Date(NOW + (expired ? -1000 : 110_000)).toISOString();
   return {
     id: `synthetic-${params.direction}-${expiresAt}`, kind: "trade", title: `${buy ? "Buy" : "Sell"} DEGEN`,
     owner: { subject: session.user.subject, address: wallet, chainId: 8453, accountProvider: session.accountProvider },
-    createdAt: new Date().toISOString(), expiresAt, calls: [], warnings: [],
+    createdAt: TIME, expiresAt, calls: [], warnings: [],
     networkFee: { payment: "usdc", token: usdc, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
     amounts: [
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" },
@@ -45,8 +50,25 @@ function syntheticAction(params: TradeActionParams, expired = false, tinyPrice =
       assetId: token.assetId, assetName: "DEGEN", fromAsset: from, toAsset: to, fromAmountBaseUnits: spend,
       expectedToAmountBaseUnits: expected, minimumToAmountBaseUnits: buy ? tinyPrice ? "1980000000000000000000000" : "34650000000000000000" : "693000",
       slippageBps: 100, fees: [{ kind: "protocol", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000" }],
-      approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date().toISOString(),
+      approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: TIME,
       permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30), executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
+    },
+  };
+}
+
+function withServiceFee(action: PreparedMoneyAction): PreparedMoneyAction {
+  if (action.metadata?.product !== "trade") return action;
+  const buy = action.metadata.direction === "buy";
+  const gross = BigInt(buy ? action.metadata.fromAmountBaseUnits : "50000000");
+  const fee = operatorFeeAmount(gross, 50);
+  const expected = buy ? BigInt(action.metadata.expectedToAmountBaseUnits) : BigInt(50_500_000);
+  return {
+    ...action,
+    amounts: action.amounts.map((amount) => buy || amount.direction === "spend" ? amount : { ...amount, amountBaseUnits: (expected - fee).toString() }),
+    metadata: {
+      ...action.metadata,
+      ...(buy ? { fromAmountBaseUnits: (gross - fee).toString() } : { expectedToAmountBaseUnits: expected.toString(), minimumToAmountBaseUnits: gross.toString() }),
+      operatorFee: { amountBaseUnits: fee.toString(), token: OPERATOR_FEE_TOKEN, bps: 50, recipient: "0x3333333333333333333333333333333333333333", collectedBy: "in-batch-transfer" },
     },
   };
 }
@@ -58,9 +80,10 @@ type StoryProps = {
   errorCode?: string;
   networkFee?: "available" | "failed";
   tinyPrice?: boolean;
+  serviceFee?: boolean;
   assetName?: string;
 };
-function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, assetName = "DEGEN" }: StoryProps) {
+function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN" }: StoryProps) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   const [preparations, setPreparations] = useState(0);
   const fetchAccountResource = async (path: string) => path.startsWith("/api/trades?")
@@ -76,7 +99,8 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
         : { version: 1, usdcReserveBaseUnits: "20000" };
   const prepareMoneyAction = async (_kind: string, input: unknown) => {
     if (errorCode) throw { code: errorCode };
-    const result = syntheticAction(input as TradeActionParams, view === "expired" && preparations === 0, tinyPrice);
+    const quoted = syntheticAction(input as TradeActionParams, view === "expired" && preparations === 0, tinyPrice);
+    const result = serviceFee ? withServiceFee(quoted) : quoted;
     setPreparations((count) => count + 1);
     return result;
   };
@@ -98,10 +122,10 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
   </PresentationRegionProvider></QueryClientProvider>;
 }
 
-async function enterReview(canvasElement: HTMLElement, direction: TradeDirection, useMax = false) {
+async function enterReview(canvasElement: HTMLElement, direction: TradeDirection, useMax = false, amount = direction === "buy" ? "1" : "0.5") {
   const screen = within(canvasElement.ownerDocument.body);
   if (useMax) await userEvent.click(await screen.findByRole("button", { name: "Max" }));
-  else await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), direction === "buy" ? "1" : "0.5");
+  else await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), amount);
   await userEvent.click(await screen.findByRole("button", { name: "Continue" }));
   await expect(await screen.findByText("You get")).toBeVisible();
   return screen;
@@ -117,6 +141,7 @@ const meta = {
   title: "Invest/DEGEN trade review",
   component: TradeStory,
   args: { direction: "buy", view: "amount", availability: "available" },
+  beforeEach: () => pinClock(TIME),
   parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" } },
 } satisfies Meta<typeof TradeStory>;
 export default meta;
@@ -183,6 +208,14 @@ export const ReviewDetailsOpen: Story = {
     await expect(await screen.findByText("Max slippage")).toBeVisible();
   },
 };
+export const BuyReviewWithServiceFee: Story = {
+  args: { view: "review", serviceFee: true },
+  play: async ({ canvasElement }) => {
+    const screen = await enterReview(canvasElement, "buy", false, "4");
+    await expect((await screen.findByText("Service fee")).nextElementSibling).toHaveTextContent("$0.02 (0.5%)");
+    await expect(await screen.findByRole("button", { name: "Buy $4.00" })).toBeEnabled();
+  },
+};
 export const SellAmount: Story = {
   args: { direction: "sell" },
   play: async ({ canvasElement }) => {
@@ -218,6 +251,16 @@ export const SellAllReview: Story = {
   play: async ({ canvasElement }) => {
     const screen = await enterReview(canvasElement, "sell", true);
     await expect(await screen.findByRole("button", { name: "Sell 100 DEGEN" })).toBeEnabled();
+  },
+};
+export const SellReviewWithServiceFee: Story = {
+  args: { view: "review", direction: "sell", serviceFee: true },
+  play: async ({ canvasElement }) => {
+    const screen = await enterReview(canvasElement, "sell", true);
+    await expect((await screen.findByText("You get")).nextElementSibling).toHaveTextContent("≈ $50.25");
+    await expect((await screen.findByText("Service fee")).nextElementSibling).toHaveTextContent("$0.25 (0.5%)");
+    await userEvent.click(await screen.findByRole("button", { name: "Details" }));
+    await expect((await screen.findByText("Minimum received")).nextElementSibling).toHaveTextContent("$49.75");
   },
 };
 export const ExpiredQuote: Story = {

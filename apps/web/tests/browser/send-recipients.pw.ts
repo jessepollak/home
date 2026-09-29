@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test";
 import { balancesSnapshot } from "./fixtures/balances";
 import { typeAmount } from "./fixtures/type-amount";
+import { FIXED_NOW, installFixedPageDate } from "./fixtures/fixed-time";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
 const PINNED_RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9";
@@ -8,8 +9,8 @@ const PINNED_RECIPIENT_TRIGGER = "Show full address 0x2211…d77DA9";
 const RECENT_RECIPIENT = "0x3333333333333333333333333333333333333333";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
-const CREATED_AT = new Date().toISOString();
-const EXPIRES_AT = new Date(Date.now() + 10 * 60_000).toISOString();
+const CREATED_AT = new Date(FIXED_NOW).toISOString();
+const EXPIRES_AT = new Date(FIXED_NOW + 10 * 60_000).toISOString();
 
 const sendAction = {
   id: ACTION_ID,
@@ -57,6 +58,7 @@ async function installRecipientFixtures(
   page: Page,
   options: { resolves?: Record<string, string>; recents?: Array<{ address: string; name: string | null }> } = {},
 ) {
+  await installFixedPageDate(page);
   const resolves = options.resolves ?? { "example.base.eth": PINNED_RECIPIENT };
   const recents = options.recents ?? [];
   await page.route("**/api/**", async (route) => {

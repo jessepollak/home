@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createRipioClient, RIPIO_PRODUCTION_ASSETS, RipioProviderError, ripioCredentialState, sameRipioDecimal } from "./client";
+import { createRipioClient, RipioProviderError, sameRipioDecimal } from "./client";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const CUSTOMER = "22222222-2222-4222-8222-222222222222";
@@ -26,7 +26,7 @@ function token() {
 }
 
 function arCatalog() {
-  return Response.json([{ network_name: "BASE", assets: [{ name: "wARS", contract_address: RIPIO_PRODUCTION_ASSETS.AR.tokenAddress }] }]);
+  return Response.json([{ network_name: "BASE", assets: [{ name: "wARS", contract_address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" }] }]);
 }
 
 const expectedBinding = { customerId: CUSTOMER, quoteId: QUOTE, externalRef: EXTERNAL, destination: DESTINATION, fromCurrency: "ARS", toCurrency: "wARS", chain: "BASE", paymentMethodType: "bank_transfer", finalToAmount: "2100" } as const;
@@ -72,8 +72,6 @@ describe("Ripio production REST client", () => {
       "https://skala.ripio.com/api/v1/depositNetworks/?include_currency=true",
     ]);
     expect(String(requests[0]?.init?.headers)).not.toContain("secret-ar-long-enough");
-    expect(ripioCredentialState("AR", env)).toBe("configured");
-    expect(ripioCredentialState("CO", env)).toBe("missing");
   });
 
   test("rejects cross-country/token/rail quote combinations before provider I/O", async () => {
@@ -157,7 +155,7 @@ describe("Ripio production REST client", () => {
       fetchImplementation: async () => {
         calls += 1;
         if (calls === 1) return token();
-        if (calls === 2 || calls === 3) return Response.json([{ network_name: "BASE", assets: [{ name: "wBRL", contract_address: RIPIO_PRODUCTION_ASSETS.BR.tokenAddress }] }]);
+        if (calls === 2 || calls === 3) return Response.json([{ network_name: "BASE", assets: [{ name: "wBRL", contract_address: "0xD76f5Faf6888e24D9F04Bf92a0c8B921FE4390e0" }] }]);
         return Response.json({ quoteId: QUOTE, fromCurrency: "BRL", toCurrency: "wBRL", fromAmount: "100.00", finalFromAmount: "100.00", toAmount: "100", finalToAmount: "100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
       },
     });

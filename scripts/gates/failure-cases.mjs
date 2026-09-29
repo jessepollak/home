@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export function failureCasesReport(body) {
+export function visibleMarkdownLines(body) {
   let fence = null;
   let inComment = false;
   const lines = body.replace(/\r\n?/g, "\n").split("\n").map((line) => {
@@ -44,6 +44,11 @@ export function failureCasesReport(body) {
     }
     return result + line.slice(from);
   });
+  return lines;
+}
+
+export function failureCasesReport(body) {
+  const lines = visibleMarkdownLines(body);
   const findings = [];
   const entries = [];
   let hasTestPlan = false;

@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient } from "@/client/query/query-client";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
   MARKET_PRICE_DISPLAY_FRESHNESS_MS,
   type MarketPricesResponse,
@@ -12,6 +12,10 @@ import type { UseMarketPricesOptions } from "./use-market-prices";
 const { cleanup, render, waitFor } = await import("@testing-library/react");
 const { ageMarketPricesResponse, useMarketPrices } = await import("./use-market-prices");
 
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+const TIME = new Date(NOW).toISOString();
+beforeEach(() => setSystemTime(new Date(NOW)));
+
 function responseWithSnapshot(
   asOf: string,
   extras: { changeLabel?: string } = {},
@@ -19,7 +23,7 @@ function responseWithSnapshot(
   return {
     version: 1,
     provider: "codex",
-    fetchedAt: new Date().toISOString(),
+    fetchedAt: TIME,
     markets: {
       stock: {
         status: "ready",
@@ -89,6 +93,7 @@ function HookProbe({
 }
 
 afterEach(() => {
+  setSystemTime();
   cleanup();
   getHomeQueryClient().clear();
 });
@@ -120,7 +125,6 @@ describe("useMarketPrices", () => {
         return clock;
       },
       freshnessMs,
-      refreshCooldownMs: 60_000,
     };
     render(<HookProbe options={options} />);
 
@@ -143,7 +147,7 @@ describe("useMarketPrices", () => {
 
   test("rechecks an unavailable stock market while mounted and recovers when the reference returns", async () => {
     let requests = 0;
-    const ready = responseWithSnapshot(new Date().toISOString());
+    const ready = responseWithSnapshot(TIME);
     const options: UseMarketPricesOptions = {
       fetchImpl: (async () => {
         requests += 1;
@@ -151,7 +155,6 @@ describe("useMarketPrices", () => {
           ? { ...ready, markets: { ...ready.markets, stock: { status: "error", message: "Current market prices are unavailable." } } }
           : ready);
       }),
-      refreshCooldownMs: 0,
       sessionRecheckMs: 20,
     };
     render(<HookProbe options={options} />);
@@ -161,7 +164,7 @@ describe("useMarketPrices", () => {
   });
 
   test("keeps a thinner-market Codex indication older than five minutes", async () => {
-    const asOf = new Date(Date.now() - 17 * 60_000).toISOString();
+    const asOf = new Date(NOW - 17 * 60_000).toISOString();
     render(
       <HookProbe
         options={{
@@ -180,7 +183,7 @@ describe("useMarketPrices", () => {
 
   test("uses the source timestamp, not fetchedAt, for immediate staleness", async () => {
     const staleAsOf = new Date(
-      Date.now() - MARKET_PRICE_DISPLAY_FRESHNESS_MS - 1,
+      NOW - MARKET_PRICE_DISPLAY_FRESHNESS_MS - 1,
     ).toISOString();
     render(
       <HookProbe
@@ -199,7 +202,7 @@ describe("useMarketPrices", () => {
   });
 
   test("preserves ready stock data from a valid partial 502 response", async () => {
-    const ready = responseWithSnapshot(new Date().toISOString());
+    const ready = responseWithSnapshot(TIME);
     const partial = { ...ready, markets: { ...ready.markets, crypto: { status: "error", message: "Provider unavailable" } } };
     render(<HookProbe options={{ fetchImpl: async () => Response.json(partial, { status: 502 }) }} />);
     await waitFor(() => expect(page().getByTestId("stock-status").textContent).toBe("ready"));

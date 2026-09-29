@@ -12,7 +12,7 @@ const account = "0x1111111111111111111111111111111111111111";
 const ep = "0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789";
 const epV07 = "0x0000000071727De22E5E9d8BAf0edAc6f37da032";
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const timestamp = Date.now();
+const timestamp = Date.parse("2026-09-28T12:00:00.000Z");
 const summary = { title: "Send", amounts: [], warnings: [], expiresAt: new Date(timestamp + 600000).toISOString(), networkFee: { payment: "usdc", token: usdc, paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", decimals: 6, maxFeeBaseUnits: "100000" } } satisfies ActionRow["summary"];
 const calls = [
   makePaymasterApproval(BigInt(100000)),

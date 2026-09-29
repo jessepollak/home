@@ -11,7 +11,7 @@ test("filters transfer rows by source columns instead of aggregate output aliase
       expect(sql).toContain("lower(from_address) AS sender_key");
       expect(sql).toContain("lower(to_address) AS recipient_key");
       expect(sql).toContain("GROUP BY block_number, log_index, lower(token_address), lower(from_address), lower(to_address), toString(value)");
-      return { result: [], metadata: { cached: false, executionTimestamp: new Date().toISOString(), executionTimeMs: 0, rowCount: 0 } };
+      return { result: [], metadata: { cached: false, executionTimestamp: "2025-01-01T00:00:00.000Z", executionTimeMs: 0, rowCount: 0 } };
     },
   } });
   expect(await source.listChanges({ address, fromBlockExclusive: BigInt(100), toBlockInclusive: BigInt(200),

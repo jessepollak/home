@@ -20,7 +20,7 @@ describe("brand settings validation", () => {
     [{ ...valid, displayName: "a\u202eb" }, false], [{ ...valid, description: "a\u2066b" }, false],
     [{ ...valid, displayName: "a\u200fb" }, false], [{ ...valid, displayName: "a\u200eb" }, false], [{ ...valid, description: "a\u061cb" }, false],
     [{ ...valid, extra: 1 }, false], [{ displayName: "home", description: "A home for money", primaryColor: "#0052ff" }, false],
-    [null, false], [[], false], ["home", false], [new Date(), false],
+    [null, false], [[], false], ["home", false], [new Date("2026-09-28T12:00:00.000Z"), false],
     [{ ...valid, primaryColor: "#0052FF" }, false], [{ ...valid, primaryColor: "#05f" }, false],
     [{ ...valid, backgroundColor: "#ffffff00" }, false], [{ ...valid, backgroundColor: "white" }, false],
     [{ ...valid, backgroundColor: "rgb(255,255,255)" }, false],
@@ -53,5 +53,5 @@ test("brand response parser validates domain, envelope and stored value; PUT hel
   expect(parseBrandSettingsResponse({ ...entry, version: 2 })).toBeNull();
   expect(parseBrandSettingsResponse({ ...entry, settings: { ...entry.settings, value: { ...valid, extra: true } } })).toBeNull();
   expect(parseBrandSettingsResponse({ ...entry, settings: { ...entry.settings, revision: -1 } })).toBeNull();
-  expect(brandSettingsPutRequest(2, valid)).toEqual({ version: 1, expectedRevision: 2, value: valid });
+  expect(brandSettingsPutRequest(2, valid, "0x1111111111111111111111111111111111111111")).toEqual({ version: 1, expectedRevision: 2, value: valid, operator: "0x1111111111111111111111111111111111111111" });
 });

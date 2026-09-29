@@ -188,6 +188,21 @@ describe("balances pricing", () => {
     await expect(pending).resolves.toEqual([0, 10, 20, 30, 40, 50]);
   });
 
+  test("keeps the cash unit price even with zero wallet USDC", async () => {
+    const price = createTestPricer({ readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates() });
+    const result = await price({ ...read, holdings: [{ ...usdc, balance: { status: "ready", baseUnits: "0" } }] }, "US");
+    expect(result.holdings[0]?.value).toMatchObject({ status: "priced", amount: { atoms: "0" } });
+    expect(result.holdings[0]?.unitValue).toEqual({ currency: "USD", amount: { atoms: "1", scale: 0 } });
+  });
+  test("requests regional FX for a zero-balance cash holding", async () => {
+    const price = createTestPricer({ readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates() });
+    const result = await price({ ...read, holdings: [{ ...usdc, balance: { status: "ready", baseUnits: "0" } }] }, "DE");
+    expect(result.holdings[0]?.unitValue).toEqual({ currency: "EUR", amount: { atoms: "9", scale: 1 } });
+  });
+
+
   test("keeps the exact ERC-20 unit price independently of the holding's rounded value", async () => {
     const token = holding("0x4444444444444444444444444444444444444444", "volatile", "registry", { baseUnits: "1" });
     const price = createTestPricer({
@@ -600,6 +615,26 @@ describe("balances pricing", () => {
         reason: "price-stale",
       });
     }
+  });
+
+  test("omits the cash unit price for a zero balance when the stored price is stale", async () => {
+    const now = new Date("2026-09-13T12:00:00.000Z");
+    const store = new MemoryPriceObservationStore();
+    await store.putMany([{
+      assetKey: usdc.key,
+      unitPrice: { atoms: "1", scale: 0 },
+      asOf: new Date(now.getTime() - 30 * 60 * 60 * 1_000).toISOString(),
+      fetchedAt: "2026-09-13T11:59:00.000Z",
+    }]);
+    const price = createTestPricer({
+      priceStore: store,
+      now: () => now,
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "unavailable")),
+      readExchangeRates: async () => rates(),
+    });
+    const result = await price({ ...read, holdings: [{ ...usdc, balance: { status: "ready", baseUnits: "0" } }] }, "US");
+    expect(result.holdings[0]?.value).toMatchObject({ status: "priced", amount: { atoms: "0" } });
+    expect(result.holdings[0]?.unitValue).toBeUndefined();
   });
 
   test("serves an expiring stored observation and refreshes it in the background", async () => {

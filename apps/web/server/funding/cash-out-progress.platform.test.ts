@@ -42,7 +42,7 @@ function fixture(platform: string, linked = true) {
   const store = {
     ensureCashoutOrder: async () => record,
     cashoutOrders: async () => [record],
-    claimCashoutRefresh: async () => { record = { ...record, refreshed_at: new Date().toISOString() }; },
+    claimCashoutRefresh: async () => { record = { ...record, refreshed_at: timestamp }; },
     linkCashoutDeposit: async (_owner, _id, _deposit, proven = false) => { links += 1; record = { ...record, deposit_id: depositId, deposit_proven: proven }; return record; },
     updateCashoutProgress: async (_owner: unknown, _id: string, update: { state: CashoutOrderRow["state"]; settled: boolean }) => {
       record = { ...record, state: update.state, settled_at: update.settled ? timestamp : null };

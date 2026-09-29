@@ -130,6 +130,24 @@ export function parseJunit(xml) {
   return {
     tests: [...tests.values()].sort((a, b) => order(a.file, b.file) || order(a.test, b.test)),
     files: [...files].map(([file, time]) => ({ file, seconds: time })).sort((a, b) => order(a.file, b.file)),
+    testcaseCount,
+  };
+}
+
+export function mergeJunitReports(reports) {
+  const tests = new Map();
+  const files = new Map();
+  for (const report of reports) {
+    for (const entry of report.tests) {
+      const id = JSON.stringify([entry.file, entry.test]);
+      tests.set(id, { ...entry, seconds: Math.max(entry.seconds, tests.get(id)?.seconds ?? 0) });
+    }
+    for (const entry of report.files) files.set(entry.file, (files.get(entry.file) ?? 0) + entry.seconds);
+  }
+  return {
+    tests: [...tests.values()].sort((a, b) => order(a.file, b.file) || order(a.test, b.test)),
+    files: [...files].map(([file, time]) => ({ file, seconds: time })).sort((a, b) => order(a.file, b.file)),
+    testcaseCount: reports.reduce((sum, report) => sum + report.testcaseCount, 0),
   };
 }
 
@@ -243,18 +261,22 @@ export function readBaseAllowlist(baseRef = "main", allowlistPath = ALLOWLIST_PA
 }
 
 export function run(argv = process.argv.slice(2), env = process.env) {
-  const options = { "--junit": "apps/web/unit-test-results/junit.xml", "--allowlist": ALLOWLIST_PATH, "--summary-json": null };
+  const options = { "--allowlist": ALLOWLIST_PATH, "--summary-json": null };
+  const junitPaths = [];
   const findings = [];
   const notes = [];
   for (let index = 0; index < argv.length; index += 2) {
-    if (!Object.hasOwn(options, argv[index]) || !argv[index + 1] || argv[index + 1].startsWith("--")) {
-      console.error("Usage: node scripts/gates/test-runtime.mjs [--junit <path>] [--allowlist <path>] [--summary-json <path>]");
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (!value || value.startsWith("--") || (flag !== "--junit" && !Object.hasOwn(options, flag))) {
+      console.error("Usage: node scripts/gates/test-runtime.mjs [--junit <path> ...] [--allowlist <path>] [--summary-json <path>]");
       return 1;
     }
-    options[argv[index]] = argv[index + 1];
+    if (flag === "--junit") junitPaths.push(value);
+    else options[flag] = value;
   }
   let timings;
-  try { timings = parseJunit(readFileSync(options["--junit"], "utf8")); }
+  try { timings = mergeJunitReports((junitPaths.length ? junitPaths : ["apps/web/unit-test-results/junit.xml"]).map((path) => parseJunit(readFileSync(path, "utf8")))); }
   catch (error) { findings.push(`JUnit unavailable or invalid: ${error.message}`); }
   let current;
   try { current = JSON.parse(readFileSync(options["--allowlist"], "utf8")); }

@@ -43,7 +43,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
 
   test("defaults, writes, restart reads, revisions, no-ops, and audited before/after", async () => {
     expect(await store.read("support")).toEqual({ domain: "support", settings: { value: { email: null, url: null }, revision: 0, source: "default", updatedAt: null, updatedBy: null } });
-    expect((await store.readAll()).map((entry) => [entry.domain, entry.settings.source])).toEqual([["support", "default"], ["brand", "default"], ["regions", "default"], ["invest", "default"]]);
+    expect((await store.readAll()).map((entry) => [entry.domain, entry.settings.source])).toEqual([["support", "default"], ["brand", "default"], ["regions", "default"], ["invest", "default"], ["fees", "default"]]);
     await expect(store.write({ domain: "support", expectedRevision: 0, value: { email: "bad", url: null }, actor })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
     expect((await audit.list()).entries).toHaveLength(0);
     const first = await store.write({ domain: "support", expectedRevision: 0, value, actor });
@@ -109,7 +109,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
       authorize: async () => session(address), config: () => ({ kind: "configured", addresses: new Set([actor]) }),
       store: () => store,
     }).PUT;
-    const makeRequest = () => new Request("https://home.test/api/admin/settings/support", { method: "PUT", headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 2, value: { email: null, url: null } }) });
+    const makeRequest = () => new Request("https://home.test/api/admin/settings/support", { method: "PUT", headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 2, value: { email: null, url: null }, operator: actor }) });
     const context = { params: Promise.resolve({ domain: "support" }) };
     const count = (await audit.list()).entries.length;
     expect((await handler(other)(makeRequest(), context)).status).toBe(403);

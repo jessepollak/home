@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { activityAssets, type ActivityPage } from "@/shared/activity/types";
-import { ACTIVITY_CONTRACT_VERSION } from "@/shared/activity/contract";
+import { ACTIVITY_CONTRACT_VERSION, parseActivityPage } from "@/shared/activity/contract";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
 import { ChainDataError } from "@/server/chain-data/errors";
@@ -75,6 +75,9 @@ describe("activity route handler", () => {
     const body = await first.json();
     expect(body.cards).toEqual({ status: "unavailable", rows: [] });
     expect(body.onchainStatus).toBeUndefined();
+    const parsed = parseActivityPage(body, { user: { subject: "subject-a" }, smartAccount: { address: VERIFIED, chainId: 8453 }, accountProvider: "cdp-embedded" }, TO);
+    expect(parsed.source).toEqual(page().source);
+    expect(parsed.cards).toEqual({ status: "unavailable", rows: [] });
     expect(body.source).toEqual(page().source);
     const next = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
     expect((await next.json()).cards).toBeUndefined();
@@ -93,9 +96,13 @@ describe("activity route handler", () => {
     expect(response.status).toBe(200);
     expectPrivate(response);
     expect(receivedWindow).toEqual(page().window);
-    expect(await response.json()).toEqual({ version: ACTIVITY_CONTRACT_VERSION, walletAddress: VERIFIED, chainId: 8453,
+    const body = await response.json();
+    expect(body).toEqual({ version: ACTIVITY_CONTRACT_VERSION, walletAddress: VERIFIED, chainId: 8453,
       window: page().window, currency: "USD", transfers: [], cards: { status: "ready", rows: [purchase] },
       nextCursor: null, source: null, onchainStatus: "unavailable" });
+    const parsed = parseActivityPage(body, { user: { subject: "subject-a" }, smartAccount: { address: VERIFIED, chainId: 8453 }, accountProvider: "cdp-embedded" }, TO);
+    expect(parsed.onchainStatus).toBe("unavailable");
+    expect(parsed.cards).toEqual({ status: "ready", rows: [purchase] });
     expect(events).toEqual(["started", "failed"]);
     const older = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
     expect(older.status).toBe(502);
@@ -126,6 +133,27 @@ describe("activity route handler", () => {
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: { code: "ACTIVITY_UPSTREAM",
       message: "Recent Base activity could not be loaded from the data provider." } });
+  });
+  test("onchain failure with no card rows returns its original error code and status", async () => {
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      readActivity: async () => { throw new ChainDataError("rate-limited", "fixture"); },
+      readCards: async () => ({ status: "ready", rows: [] }), now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(429);
+    expectPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "ACTIVITY_RATE_LIMITED",
+      message: "Activity is rate limited. Try again shortly." } });
+  });
+  test("source failure with no card rows returns its original error code and status", async () => {
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      source: () => { throw new ChainDataError("not-configured", "fixture"); },
+      readActivity: async () => { throw new Error("must not read onchain"); },
+      readCards: async () => ({ status: "ready", rows: [] }), now: () => new Date(TO) });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(503);
+    expectPrivate(response);
+    expect(await response.json()).toEqual({ error: { code: "ACTIVITY_NOT_CONFIGURED",
+      message: "Activity history is not configured. Check ACTIVITY_HISTORY_SOURCE and its required server credentials." } });
   });
   test("starts card reads while the onchain read is pending", async () => {
     let finishOnchain!: (result: ActivityPage) => void;

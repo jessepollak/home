@@ -1,0 +1,74 @@
+diff --git a/drawer/popup/DrawerPopup.js b/drawer/popup/DrawerPopup.js
+index 7e0247ed635a933b5e795ddbd7045452a46dfa1c..28ca5799158da0cf0b65571dd5371fcd05966159 100644
+--- a/drawer/popup/DrawerPopup.js
++++ b/drawer/popup/DrawerPopup.js
+@@ -217,8 +217,8 @@ const DrawerPopup = exports.DrawerPopup = /*#__PURE__*/React.forwardRef(function
+       return undefined;
+     }
+     removeCSSVariableInheritance();
+-    measureHeight();
+     if (typeof ResizeObserver !== 'function') {
++      measureHeight();
+       return undefined;
+     }
+     const resizeObserver = new ResizeObserver(measureHeight);
+diff --git a/drawer/popup/DrawerPopup.mjs b/drawer/popup/DrawerPopup.mjs
+index 388efbb32bd6257a1767b3588e05a3a1acd45fa4..0b8cbdda755af64cc27881c3624e19cda5fb800a 100644
+--- a/drawer/popup/DrawerPopup.mjs
++++ b/drawer/popup/DrawerPopup.mjs
+@@ -212,8 +212,8 @@ export const DrawerPopup = /*#__PURE__*/React.forwardRef(function DrawerPopup(co
+       return undefined;
+     }
+     removeCSSVariableInheritance();
+-    measureHeight();
+     if (typeof ResizeObserver !== 'function') {
++      measureHeight();
+       return undefined;
+     }
+     const resizeObserver = new ResizeObserver(measureHeight);
+diff --git a/drawer/root/useDrawerSnapPoints.js b/drawer/root/useDrawerSnapPoints.js
+index 983dee44f7acca8c014dbb52ada24d16d8934e33..91886f3aee068d5d30e362af1d0f0a006dbc3a78 100644
+--- a/drawer/root/useDrawerSnapPoints.js
++++ b/drawer/root/useDrawerSnapPoints.js
+@@ -87,6 +87,9 @@ function useDrawerSnapPoints() {
+     }
+   });
+   (0, _useIsoLayoutEffect.useIsoLayoutEffect)(() => {
++    if (!snapPoints || snapPoints.length === 0) {
++      return undefined;
++    }
+     measureViewportHeight();
+     if (!viewportElement || typeof ResizeObserver !== 'function') {
+       return undefined;
+@@ -96,7 +99,7 @@ function useDrawerSnapPoints() {
+     return () => {
+       resizeObserver.disconnect();
+     };
+-  }, [measureViewportHeight, viewportElement]);
++  }, [measureViewportHeight, snapPoints, viewportElement]);
+   const resolvedSnapPoints = React.useMemo(() => {
+     if (!snapPoints || snapPoints.length === 0 || viewportHeight <= 0 || popupHeight <= 0) {
+       return [];
+diff --git a/drawer/root/useDrawerSnapPoints.mjs b/drawer/root/useDrawerSnapPoints.mjs
+index 1a0f9d7b9a2ddd68f3b4a19038af9720cf2c3544..26aabf558a38ceadee7244dc2fed620c5e1ea235 100644
+--- a/drawer/root/useDrawerSnapPoints.mjs
++++ b/drawer/root/useDrawerSnapPoints.mjs
+@@ -79,6 +79,9 @@ export function useDrawerSnapPoints() {
+     }
+   });
+   useIsoLayoutEffect(() => {
++    if (!snapPoints || snapPoints.length === 0) {
++      return undefined;
++    }
+     measureViewportHeight();
+     if (!viewportElement || typeof ResizeObserver !== 'function') {
+       return undefined;
+@@ -88,7 +91,7 @@ export function useDrawerSnapPoints() {
+     return () => {
+       resizeObserver.disconnect();
+     };
+-  }, [measureViewportHeight, viewportElement]);
++  }, [measureViewportHeight, snapPoints, viewportElement]);
+   const resolvedSnapPoints = React.useMemo(() => {
+     if (!snapPoints || snapPoints.length === 0 || viewportHeight <= 0 || popupHeight <= 0) {
+       return [];

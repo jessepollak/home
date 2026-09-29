@@ -5,7 +5,6 @@ import {
   type InfiniteData,
   type QueryFunctionContext,
   type QueryKey,
-  type UseInfiniteQueryOptions,
   type UseQueryOptions,
   type UndefinedInitialDataOptions,
   type UndefinedInitialDataInfiniteOptions,
@@ -43,34 +42,11 @@ export function publicQuery<T, TData = T>({ scope, key = [], queryFn, ...rest }:
   return queryOptions({ ...rest, queryKey: publicQueryKey(scope, ...key), queryFn, staleTime: queryScopes[scope].staleTime });
 }
 
-type OwnerInfiniteOptions<T, TPageParam, TData> = Omit<UndefinedInitialDataInfiniteOptions<T, Error, TData, QueryKey, TPageParam>, "queryKey" | "queryFn" | "staleTime" | "meta" | "enabled"> & {
-  owner: string | null;
-  scope: OwnerQueryScope;
-  key?: readonly unknown[];
-  queryFn: (context: QueryFunctionContext<QueryKey, TPageParam>, owner: string) => Promise<T>;
-  enabled?: UseInfiniteQueryOptions<T, Error, TData, QueryKey, TPageParam>["enabled"];
-};
-
 type PublicInfiniteOptions<T, TPageParam, TData> = Omit<UndefinedInitialDataInfiniteOptions<T, Error, TData, QueryKey, TPageParam>, "queryKey" | "queryFn" | "staleTime" | "meta"> & {
   scope: PublicQueryScope;
   key?: readonly unknown[];
   queryFn: (context: QueryFunctionContext<QueryKey, TPageParam>) => Promise<T>;
 };
-
-/** @public adopted by the activity and invest query migrations */
-export function ownerInfiniteQuery<T, TPageParam, TData = InfiniteData<T, TPageParam>>({
-  owner, scope, key = [], queryFn, enabled, ...rest
-}: OwnerInfiniteOptions<T, TPageParam, TData>) {
-  const policy = queryScopes[scope];
-  return infiniteQueryOptions({
-    ...rest,
-    queryKey: owner ? ownerQueryKey(owner, scope, ...key) : disabledQueryKey(scope, ...key),
-    queryFn: owner ? (context: QueryFunctionContext<QueryKey, TPageParam>) => queryFn(context, owner) : skipToken,
-    enabled: (query) => owner !== null && (typeof enabled === "function" ? enabled(query) : enabled !== false),
-    staleTime: policy.staleTime,
-    meta: owner ? ownerQueryMeta(owner, policy.persistence) : undefined,
-  });
-}
 
 /** @public adopted by the activity and invest query migrations */
 export function publicInfiniteQuery<T, TPageParam, TData = InfiniteData<T, TPageParam>>({

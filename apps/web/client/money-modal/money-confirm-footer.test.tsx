@@ -1,13 +1,17 @@
 import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { pinClock } from "@/tests/helpers/pin-clock";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { MoneyConfirmFooter, MoneyModalFooter } = await import("./money-modal");
 
-afterEach(cleanup);
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+let restoreClock: () => void;
+beforeEach(() => { restoreClock = pinClock("2026-09-28T12:00:00.000Z"); });
+afterEach(() => { cleanup(); restoreClock(); });
 
 const action: PreparedMoneyAction = {
   id: "prepared-1",
@@ -39,7 +43,7 @@ test("expired and invalid prepared actions never mark a confirm control", () => 
 });
 
 test("removes the id when a prepared action expires while its review remains open", async () => {
-  const view = render(<MoneyConfirmFooter action={{ ...action, expiresAt: new Date(Date.now() + 100).toISOString() }} primaryLabel="Send" />);
+  const view = render(<MoneyConfirmFooter action={{ ...action, expiresAt: new Date(NOW + 100).toISOString() }} primaryLabel="Send" />);
   const confirm = page().getByRole("button", { name: "Send" });
   expect(confirm.getAttribute("data-money-action-id")).toBe("prepared-1");
   await waitFor(() => expect(confirm.hasAttribute("data-money-action-id")).toBe(false));
@@ -83,7 +87,7 @@ test("submitting keeps the focused primary and its label while blocking both foo
 });
 
 test("submitting retains the id only until the prepared action expires", async () => {
-  const expiringAction = { ...action, expiresAt: new Date(Date.now() + 100).toISOString() };
+  const expiringAction = { ...action, expiresAt: new Date(NOW + 100).toISOString() };
   const view = render(<MoneyConfirmFooter action={expiringAction} primaryLabel="Send" submitting />);
   const confirm = page().getByRole("button", { name: "Send" });
   expect(confirm.getAttribute("data-money-action-id")).toBe("prepared-1");

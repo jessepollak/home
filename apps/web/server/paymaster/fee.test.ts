@@ -14,7 +14,7 @@ const account = "0x1111111111111111111111111111111111111111" as const;
 const calls = [{ to: "0x2222222222222222222222222222222222222222" as const, data: "0x1234" as const, value: "0" }];
 const tokenPayment = { paymasterAndData: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c1234", tokenPayment: { address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", decimals: 6, maxFee: "0x186a0", name: "USDC" } };
 const session = { user: { subject: "fee-test" }, smartAccount: { address: account, chainId: 8453 }, accountProvider: "cdp-embedded" } as VerifiedAccountSession;
-const draft: MoneyActionDraft = { kind: "send", title: "Send USDC", calls, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }], warnings: ["Your wallet will show the Base network fee before you sign."], expiresAt: new Date(Date.now() + 600000).toISOString() };
+const draft: MoneyActionDraft = { kind: "send", title: "Send USDC", calls, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }], warnings: ["Your wallet will show the Base network fee before you sign."], expiresAt: "2026-09-28T12:10:00.000Z" };
 
 function service(options: { usdc?: bigint; eth?: bigint; quote?: unknown; throwQuote?: boolean; failUsdc?: boolean; failEth?: boolean; failCode?: boolean; enabled?: boolean; undeployed?: boolean; resolveSigner?: TradeSignerResolver } = {}) {
   const requested: string[] = [];

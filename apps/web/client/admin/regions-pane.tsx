@@ -10,6 +10,7 @@ import { NativeSelect } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseOperatorSettingsErrorResponse, parseSettingsResponse, type SettingsEntry } from "@/shared/operator-settings/contract";
 import { parseRegionSettings, type RegionSettings } from "@/shared/operator-settings/regions";
+import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
 
 type RegionEntry = SettingsEntry<RegionSettings>["settings"];
 
@@ -40,19 +41,29 @@ function readEntry(value: unknown): RegionEntry | null {
 }
 
 function errorMessage(status: number, code?: string) {
+  if (code === "OPERATOR_CHANGED") return "A different operator is signed in. Reload this page before saving.";
   if (status === 400 || code === "INVALID_REQUEST") return "These settings couldn't be saved. Check the selected regions and try again.";
   if (status === 401 || status === 403 || code === "CROSS_ORIGIN" || code === "OPERATOR_FORBIDDEN") return "Access to settings has changed. Sign in as an operator and try again.";
   if (status === 503 || code === "SETTINGS_UNAVAILABLE") return "Settings are unavailable. Try again shortly.";
   return "Couldn't confirm the save. Refresh this page before trying again.";
 }
 
-export function RegionsPane({ initialEntry }: { initialEntry: RegionEntry }) {
+export function RegionsPane({ initialEntry, operator }: { initialEntry: RegionEntry; operator: `0x${string}` }) {
   const [baseline, setBaseline] = useState(initialEntry);
   const [draft, setDraft] = useState<RegionSettings>(initialEntry.value);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [activeOperator, setActiveOperator] = useState(operator);
+  if (activeOperator !== operator) {
+    setActiveOperator(operator);
+    setBaseline(initialEntry);
+    setDraft(initialEntry.value);
+    setReviewOpen(false);
+    setMessage("");
+    setError("");
+  }
   const changes = regionChanges(baseline.value, draft);
   const dirty = changes.turnedOn.length > 0 || changes.turnedOff.length > 0 || changes.defaultChanged;
 
@@ -75,13 +86,14 @@ export function RegionsPane({ initialEntry }: { initialEntry: RegionEntry }) {
     setPending(true);
     setError("");
     setMessage("");
+    const headers = { "Content-Type": "application/json", ...deploymentHeaders() };
     try {
       const response = await fetch("/api/admin/settings/regions", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: baseline.revision, value: draft }),
+        headers,
+        body: JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: baseline.revision, value: draft, operator }),
       });
-      const body: unknown = await response.json();
+      const body: unknown = await response.json().catch(() => null);
       if (response.ok) {
         const updated = readEntry(body);
         if (!updated) throw new Error("Invalid settings response");
@@ -91,6 +103,7 @@ export function RegionsPane({ initialEntry }: { initialEntry: RegionEntry }) {
         setMessage("Region settings saved.");
       } else {
         const parsed = parseOperatorSettingsErrorResponse(body);
+        throwIfDeploymentExpired(response, headers, parsed?.error.code ?? null);
         if (response.status === 409 && parsed?.error.code === "SETTINGS_CONFLICT") {
           const current = readEntry(parsed.current);
           if (!current) throw new Error("Invalid conflict response");
@@ -101,8 +114,8 @@ export function RegionsPane({ initialEntry }: { initialEntry: RegionEntry }) {
           setError(errorMessage(response.status, parsed?.error.code));
         }
       }
-    } catch {
-      setError("Couldn't confirm the save. Refresh this page before trying again.");
+    } catch (error) {
+      setError(error instanceof DeploymentExpiredError ? error.message : "Couldn't confirm the save. Refresh this page before trying again.");
     } finally {
       setPending(false);
     }

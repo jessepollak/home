@@ -26,6 +26,8 @@
     "server/balances/webhook-subscription-store.contract.ts!",
     // Config entry points: evaluated directly by tooling, never imported.
     "vitest.config.ts!",
+    // Playwright config helper; playwright.config.ts is outside the production graph.
+    "scripts/fixture-port.ts!",
     // Owned Progress wrapper awaiting a product consumer with a real step count (#951); drop this entry once a screen imports it.
     "components/ui/progress.tsx!",
     // Owned Dialog, Kbd, and ButtonGroup wrappers are consumed by the review-board exploration only; drop these entries once a screen imports them.
@@ -44,11 +46,15 @@
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
     "scripts/review-links.ts!",
+    "scripts/unit-tests.ts!",
     "scripts/activity-scroll-profile.ts!",
     "scripts/modal-open-profile.ts!",
     "scripts/navigation-profile.ts!",
     "scripts/performance/budget.ts!",
     "scripts/performance/seeds-check.ts!",
+    "scripts/device-profile/cli.ts!",
+    "scripts/device-profile/proxy.ts!",
+    "scripts/device-profile/harness.ts!",
     "scripts/performance/cpu-check.ts!",
     "scripts/invest-catalog/refresh.ts!",
     "scripts/immersve-probe.ts!",
@@ -62,6 +68,7 @@
     "**/*.stories.fixture.ts",
     // Test-only harnesses are excluded rather than treated as production roots.
     "tests/**",
+    "scripts/unit-tests-fixture.ts",
     "server/funding/core/testing/**",
     "client/account/dom-test-harness.ts",
     "shared/balances/fixtures.ts",
