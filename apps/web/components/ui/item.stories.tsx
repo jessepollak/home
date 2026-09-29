@@ -6,7 +6,7 @@ const meta = {
   id: "ui-item",
   title: "UI/Item",
   component: Item,
-  parameters: { layout: "centered", design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=161-1818" } },
+  parameters: { layout: "centered" },
 } satisfies Meta<typeof Item>;
 
 export default meta;

@@ -145,5 +145,8 @@ describe("recent Home action activity", () => {
     expect(submitted?.submittedAt).toBe("2026-09-12T05:06:00.000Z");
     expect(parseRecentMoneyActions({ actions: [{ ...row(undefined, "pending"), submittedAt: "not-a-date" }] }, session)[0]?.submittedAt).toBeUndefined();
     expect(parseRecentMoneyActions({ actions: [row(undefined, "pending")] }, session)[0]?.submittedAt).toBeUndefined();
+    const [settled] = parseRecentMoneyActions({ actions: [{ ...row(), settledAt: "2026-09-12T05:06:30.000Z" }] }, session);
+    expect(settled?.settledAt).toBe("2026-09-12T05:06:30.000Z");
+    expect(parseRecentMoneyActions({ actions: [{ ...row(), settledAt: "not-a-date" }] }, session)[0]?.settledAt).toBeUndefined();
   });
 });

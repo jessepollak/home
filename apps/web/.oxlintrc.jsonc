@@ -253,8 +253,7 @@
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/tests/**",
-        "**/explorations/code-connect/**/*.figma.ts"
+        "**/tests/**"
       ],
       "rules": {
         "home/no-comments": "error"
@@ -410,6 +409,8 @@
       "files": [
         "oxlint/tests/**",
         "tests/helpers/migrations.ts",
+        "tests/helpers/route-contract-inventory.ts",
+        "tests/route-contract-inventory.test.ts",
         "tests/well-known/apple-pay-domain-association.test.ts",
         // #800 replays checked-in Reach data; this parser is not a source-assertion test.
         "tests/browser/feature-map/map.ts"
@@ -518,10 +519,6 @@
           }
         ]
       }
-    },
-    {
-      "files": ["**/explorations/code-connect/**/*.figma.ts"],
-      "rules": {"import/no-anonymous-default-export": "off"}
     }
   ]
 }

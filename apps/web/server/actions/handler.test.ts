@@ -7,6 +7,7 @@ import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decl
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
+import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 
 function parseLog(line: string): unknown {
   const parsed: unknown = JSON.parse(line);
@@ -1202,6 +1203,24 @@ describe("actions HTTP handlers", () => {
     });
   });
 
+  test("list exposes a settled action's receipt block time", async () => {
+    const candidate = confirmedBaseRow({ outcome: "succeeded", settled_at: blockTimestamp });
+    const handler = createListActionsHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:10:00.000Z"),
+      store: { list: async () => [candidate], recordHandle: async () => null, recordOutcome: recorded },
+    });
+
+    const body = await (await handler(baseRequest("/api/actions"))).json() as { actions: Array<{ settledAt?: string }> };
+    expect(body.actions[0]?.settledAt).toBe(blockTimestamp);
+    const [parsed] = parseRecentMoneyActions(body, {
+      user: { subject: "owner-a" },
+      smartAccount: { address: ADDRESS, chainId: 8453 },
+      accountProvider: "base-account",
+    });
+    expect(parsed?.action.id).toBe(candidate.id);
+    expect(parsed?.settledAt).toBe(blockTimestamp);
+  });
   test("list leaves pending handle resolutions unrecorded", async () => {
     const candidate = confirmedBaseRow();
     let recordCalls = 0;

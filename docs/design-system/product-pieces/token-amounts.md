@@ -5,8 +5,10 @@
 | Asset class | At or above threshold | Below threshold |
 | --- | --- | --- |
 | Stable (including USDC) | 2 fixed fraction digits | 2 fixed fraction digits |
-| Major (including ETH and cbBTC) | At least 0.01: 4 fixed fraction digits | Below 0.01: up to 6 fraction digits, trailing zeros trimmed |
+| Major (including ETH, cbBTC, configured stocks and crypto assets) | At least 0.01: 4 fixed fraction digits | Below 0.01: up to 6 fraction digits, trailing zeros trimmed |
 | Meme / other | At least 1: 2 fixed fraction digits | Below 1: up to 6 fraction digits, trailing zeros trimmed |
+
+Balance rows classify configured assets by contract address using the category in `apps/web/config/invest-assets.ts`: stock and crypto use Major. Symbol-only callers also treat every configured stock and crypto token symbol as Major.
 
 Fraction digits never exceed the token's decimals. Extra digits are truncated, never rounded up, so a displayed quantity never exceeds the held amount. A nonzero amount too small to show uses a `<` threshold at the class's visible precision (for example, `<0.000001 DEGEN` or `<0.01 USDC`), so a nonzero quantity never displays as zero. True zero displays `0`, padded only where the class has fixed digits (`0.00 USDC`, `0 ETH`, `0 ZORA`). Sign and grouping follow the presentation region; negative amounts use `−`, positive amounts have no automatic `+` (a directional surface may add one). Never use scientific notation or ellipsis for the numeric value.
 
@@ -19,6 +21,7 @@ Synthetic examples from the formatter (default region unless specified):
 | `420000000000000000` | 18 | DEGEN | `0.42 DEGEN` |
 | `1234567` | 0 | TOKEN1 | `1,234,567 TOKEN1` |
 | `1500000000000000000` | 18 | ETH | `1.5000 ETH` |
+| `123450000` | 8 | MSFTc | `1.2345 MSFTc` |
 | `25000000` | 6 | USDC | `25.00 USDC` |
 | `0` | 6 | USDC | `0.00 USDC` |
 | `1234567890123456789012` | 18 | ZORA (DE, de-DE) | `1.234,56 ZORA` |

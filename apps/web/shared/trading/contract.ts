@@ -1,6 +1,7 @@
+import type { OperatorFeeRecord } from "@/shared/fees/contract";
 import type { Address, CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
 
-export const TRADE_ACTION_CONTRACT_VERSION = 2 as const;
+export const TRADE_ACTION_CONTRACT_VERSION = 3 as const;
 export const TRADE_AVAILABILITY_CONTRACT_VERSION = 2 as const;
 export const TRADE_SLIPPAGE_BPS = 100 as const;
 export const TRADE_SELL_ALL = "all" as const;
@@ -43,6 +44,7 @@ export type TradeMoneyActionMetadata = {
   minimumToAmountBaseUnits: string;
   slippageBps: number;
   fees: TradeFeeFact[];
+  operatorFee?: OperatorFeeRecord;
   approval: "permit2-exact" | "existing-permit2-allowance";
   quoteBlockNumber: string;
   quotedAt: string;

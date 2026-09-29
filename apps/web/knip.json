@@ -49,10 +49,11 @@
     "scripts/navigation-profile.ts!",
     "scripts/performance/budget.ts!",
     "scripts/performance/seeds-check.ts!",
+    "scripts/device-profile/cli.ts!",
+    "scripts/device-profile/proxy.ts!",
+    "scripts/device-profile/harness.ts!",
     "scripts/performance/cpu-check.ts!",
     "scripts/invest-catalog/refresh.ts!",
-    // Figma variables sync, run by package scripts and the main-only CI job.
-    "scripts/figma-variables.mjs!",
     "scripts/immersve-probe.ts!",
     "scripts/bridge-allowance-fork.ts!"
   ],

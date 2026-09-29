@@ -15,11 +15,13 @@ const Row = ({ row, onOpen, liProps }: RowProps) => {
 };
 const onOpen = () => {};
 const originalHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+const originalWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!;
 const originalRect = HTMLElement.prototype.getBoundingClientRect;
 const originalResizeObserver = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
 afterEach(() => {
   cleanup();
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalHeight);
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalWidth);
   HTMLElement.prototype.getBoundingClientRect = originalRect;
   if (originalResizeObserver) Object.defineProperty(globalThis, "ResizeObserver", originalResizeObserver);
   else Reflect.deleteProperty(globalThis, "ResizeObserver");
@@ -55,9 +57,9 @@ function mockListResize() {
       disconnect() { this.record.observed.clear(); }
     },
   });
-  return (list: HTMLUListElement) => act(() => {
-    for (const observer of observers.filter(({ observed }) => observed.has(list))) {
-      observer.callback([], {} as ResizeObserver);
+  return (node: Element, entry?: ResizeObserverEntry) => act(() => {
+    for (const observer of observers.filter(({ observed }) => observed.has(node))) {
+      observer.callback(entry ? [entry] : [], {} as ResizeObserver);
     }
   });
 }
@@ -221,6 +223,154 @@ test("pauses rows while hidden and restores measured positions on resume", async
   view.rerender(show(true));
   expect(Number.parseFloat(ul.style.height)).toBeGreaterThan(80 * 64);
   expect(firstVisible()).toEqual(visible);
+});
+
+test("resumes measured rows without synchronous geometry reads and updates after resize observations", () => {
+  mockHeights(() => 60);
+  const offset = { current: 40 };
+  mockListOffset(offset);
+  const rect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.tagName === "LI") return { height: 60.25 } as DOMRect;
+    return rect.call(this);
+  };
+  const resize = mockListResize();
+  const rows = Array.from({ length: 14 }, (_, index) => item(`row-${index}`));
+  const items = rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }));
+  const show = (active: boolean) => <ShellPanelActiveContext value={active}><main data-app-main-authenticated=""><section>
+    <VirtualActivityList {...props} id="recent-list" items={items} exhausted={false} />
+  </section></main></ShellPanelActiveContext>;
+  const view = render(show(true));
+  const ul = view.container.querySelector("ul")!;
+  const main = view.container.querySelector("main")!;
+  const row = (index: number) => ul.querySelector<HTMLElement>(`li[data-index="${index}"]`)!;
+  expect(row(1).style.transform).toBe("translateY(60.25px)");
+  view.rerender(show(false));
+  const reads = { rowRect: 0, rowHeight: 0, hostWidth: 0, hostHeight: 0, listRect: 0, hostRect: 0 };
+  const measuredRect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.tagName === "LI") reads.rowRect++;
+    if (this.tagName === "UL") reads.listRect++;
+    if (this.tagName === "MAIN") reads.hostRect++;
+    return measuredRect.call(this);
+  };
+  const measuredHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() {
+      if (this.tagName === "LI") reads.rowHeight++;
+      if (this.tagName === "MAIN") reads.hostHeight++;
+      return measuredHeight.get!.call(this);
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get() {
+      if (this.tagName === "MAIN") reads.hostWidth++;
+      return originalWidth.get!.call(this);
+    },
+  });
+  view.rerender(show(true));
+  expect(reads).toEqual({ rowRect: 0, rowHeight: 0, hostWidth: 0, hostHeight: 0, listRect: 0, hostRect: 0 });
+  expect(row(1).style.transform).toBe("translateY(60.25px)");
+  resize(row(0), { target: row(0), borderBoxSize: [{ blockSize: 75.5, inlineSize: 400 }] } as unknown as ResizeObserverEntry);
+  expect(row(1).style.transform).toBe("translateY(75.5px)");
+  main.scrollTop = 200;
+  offset.current = 56;
+  resize(ul);
+  expect(main.scrollTop).toBe(200);
+  resize(main, { target: main, borderBoxSize: [{ blockSize: 200, inlineSize: 400 }] } as unknown as ResizeObserverEntry);
+  expect(reads.hostWidth).toBe(0);
+  expect(reads.hostHeight).toBe(0);
+  offset.current = 72;
+  resize(ul);
+  expect(main.scrollTop).toBe(216);
+});
+
+test("resumes rows measured at the estimate without synchronous row geometry reads", () => {
+  mockHeights();
+  mockListOffset({ current: 40 });
+  const rect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.tagName === "LI") return { height: 64 } as DOMRect;
+    return rect.call(this);
+  };
+  mockListResize();
+  const rows = Array.from({ length: 14 }, (_, index) => item(`row-${index}`));
+  const items = rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }));
+  const show = (active: boolean) => <ShellPanelActiveContext value={active}><main data-app-main-authenticated=""><section>
+    <VirtualActivityList {...props} id="recent-list" items={items} exhausted={false} />
+  </section></main></ShellPanelActiveContext>;
+  const view = render(show(true));
+  const ul = view.container.querySelector("ul")!;
+  const row = (index: number) => ul.querySelector<HTMLElement>(`li[data-index="${index}"]`)!;
+  const position = row(1).style.transform;
+  const lastPosition = row(13).style.transform;
+  const height = ul.style.height;
+  expect(position).toBe("translateY(64px)");
+  expect(lastPosition).toBe("translateY(832px)");
+  expect(height).toBe("896px");
+  view.rerender(show(false));
+  const reads = { rowRect: 0, rowHeight: 0 };
+  const measuredRect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.tagName === "LI") reads.rowRect++;
+    return measuredRect.call(this);
+  };
+  const measuredHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() {
+      if (this.tagName === "LI") reads.rowHeight++;
+      return measuredHeight.get!.call(this);
+    },
+  });
+  view.rerender(show(true));
+  expect(reads).toEqual({ rowRect: 0, rowHeight: 0 });
+  expect(row(1).style.transform).toBe(position);
+  expect(row(13).style.transform).toBe(lastPosition);
+  expect(ul.style.height).toBe(height);
+});
+test("reads a newly mounted row once on resume while reused rows stay unread", () => {
+  mockHeights();
+  mockListOffset({ current: 40 });
+  let rowHeight = 64;
+  const rect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.tagName === "LI") return { height: rowHeight } as DOMRect;
+    return rect.call(this);
+  };
+  mockListResize();
+  const rows = Array.from({ length: 14 }, (_, index) => item(`row-${index}`));
+  const items = (entries: ActivityLedgerItem[]) => entries.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }));
+  const show = (active: boolean, entries: ActivityLedgerItem[]) => <ShellPanelActiveContext value={active}><main data-app-main-authenticated=""><section>
+    <VirtualActivityList {...props} id="recent-list" items={items(entries)} exhausted={false} />
+  </section></main></ShellPanelActiveContext>;
+  const view = render(show(true, rows));
+  const ul = view.container.querySelector("ul")!;
+  const row = (index: number) => ul.querySelector<HTMLElement>(`li[data-index="${index}"]`)!;
+  expect(row(13).style.transform).toBe("translateY(832px)");
+  view.rerender(show(false, rows));
+  const reads = { rowRect: 0, rowHeight: 0 };
+  const measuredRect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.tagName === "LI") reads.rowRect++;
+    return measuredRect.call(this);
+  };
+  const measuredHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get() {
+      if (this.tagName === "LI") reads.rowHeight++;
+      return measuredHeight.get!.call(this);
+    },
+  });
+  rowHeight = 66.5;
+  view.rerender(show(true, [...rows, item("row-new")]));
+  expect(reads.rowRect + reads.rowHeight).toBe(1);
+  expect(row(13).style.transform).toBe("translateY(832px)");
+  expect(row(14).style.transform).toBe("translateY(896px)");
+  expect(ul.style.height).toBe("962.5px");
 });
 
 test("keeps fractional row heights on initial measurement before a resize observation", () => {

@@ -5,6 +5,7 @@ import { REGION_SETTINGS_DEFAULTS } from "@/shared/operator-settings/regions";
 import { RegionsPane } from "./regions-pane";
 
 const defaults = { value: REGION_SETTINGS_DEFAULTS, revision: 0, source: "default" as const, updatedAt: null, updatedBy: null };
+const operator = "0x1111111111111111111111111111111111111111" as const;
 const saved = {
   value: { offered: REGION_SETTINGS_DEFAULTS.offered.filter((id) => id !== "US"), defaultRegion: "GLOBAL" as const },
   revision: 2,
@@ -17,7 +18,7 @@ const meta = {
   id: "operator-regions-pane",
   title: "Operator/Regions",
   component: RegionsPane,
-  args: { initialEntry: defaults },
+  args: { initialEntry: defaults, operator },
   parameters: { layout: "padded", a11y: { test: "error" } },
   decorators: [(Story: () => React.ReactNode) => <main className="mx-auto max-w-3xl"><Story /></main>],
 } satisfies Meta<typeof RegionsPane>;

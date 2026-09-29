@@ -7,7 +7,7 @@ const meta = {
   title: "UI/ResultHeader",
   component: ResultHeader,
   args: { outcome: "success", title: "$25.00 sent" },
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=166-1884" } },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof ResultHeader>;
 
 export default meta;

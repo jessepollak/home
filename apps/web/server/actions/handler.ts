@@ -165,6 +165,10 @@ export function createConfirmActionHandler(dependencies: {
     if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
+    const tradeMetadata = draft.summary.metadata;
+    if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade" && tradeMetadata.operatorFee?.recipient.toLowerCase() === owner.address.toLowerCase()) {
+      return fail("ACTION_EXPIRED", "This trade's fee destination is your own account. Prepare the trade again.", 410);
+    }
 
     if (!draft.confirmed_at && draft.kind === "cash-out") {
       const metadata = draft.summary.metadata;
@@ -480,6 +484,7 @@ export async function presentAction(
   now = new Date(),
 ) {
   const confirmedAt = iso(row.confirmed_at) ?? iso(row.created_at)!;
+  const settledAt = iso(row.settled_at);
   return {
     id: row.id,
     provider: row.provider,
@@ -496,6 +501,7 @@ export async function presentAction(
     createdAt: iso(row.created_at)!,
     confirmedAt,
     ...(iso(row.handle_recorded_at) ? { submittedAt: iso(row.handle_recorded_at)! } : {}),
+    ...(settledAt ? { settledAt } : {}),
     ...(row.provider_handle ? { providerHandle: row.provider_handle } : {}),
     ...(row.transaction_hash ? { transactionHash: row.transaction_hash.toLowerCase() } : {}),
     owner: {

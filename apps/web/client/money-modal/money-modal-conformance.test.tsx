@@ -10,6 +10,7 @@ const { MoneyModal, MoneyModalStep } = await import("./money-modal");
 const animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
 const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
 const heightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+const resizeObserverDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
 
 type RecordedAnimation = {
   target: HTMLElement;
@@ -37,6 +38,14 @@ function animationHarness(reduced: boolean) {
       if (step === "review") return 180;
       if (step === "result") return count === 0 ? 140 : 240;
       return count === 0 ? 200 : 300;
+    },
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) { queueMicrotask(() => this.callback([{ target } as ResizeObserverEntry], this as unknown as ResizeObserver)); }
+      disconnect() {}
     },
   });
   Object.defineProperty(HTMLElement.prototype, "animate", {
@@ -71,6 +80,7 @@ afterEach(async () => {
     ["animate", animateDescriptor, HTMLElement.prototype],
     ["matchMedia", matchMediaDescriptor, window],
     ["offsetHeight", heightDescriptor, HTMLElement.prototype],
+    ["ResizeObserver", resizeObserverDescriptor, globalThis],
   ] as const) {
     if (descriptor) Object.defineProperty(target, name, descriptor);
     else Reflect.deleteProperty(target, name);
@@ -86,6 +96,7 @@ test("rapid transitions cancel prior step and height animations, keep one sheet,
   const animations = animationHarness(false);
   render(<Journey />);
   const host = document.querySelector<HTMLElement>("[data-slot=money-modal-steps]")!;
+  await act(async () => {});
   for (let index = 0; index < 3; index++) {
     await act(async () => fireEvent.click(page().getByRole("button", { name: "Continue" })));
     expect(page().getAllByRole("dialog")).toHaveLength(1);

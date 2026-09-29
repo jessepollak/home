@@ -27,6 +27,7 @@ import { cashoutMoney, cashoutOrderAction, presentCashout, type CashoutStage } f
 import { cashoutQuoteFromLegacy, formatCashoutArrival } from "@/shared/funding/cash-out-quote";
 import { formatCashoutReceive } from "@/shared/funding/cash-out-quote-format";
 import type { CashoutMoneyActionMetadata } from "@/shared/money-actions/types";
+import { SERVICE_FEE_LABEL, serviceFeeValue } from "@/client/trading/service-fee";
 import type { CardPurchase } from "@/shared/cards/transactions-contract";
 
 const directAssets = getDirectPortfolioAssets();
@@ -238,6 +239,9 @@ function actionItem(operation: RecentMoneyActionOperation, transfers: readonly A
     }
   }
   facts.push(...secondaryAmountFacts(operation, options));
+  if (metadata?.product === "trade" && metadata.operatorFee) {
+    facts.push({ label: SERVICE_FEE_LABEL, value: serviceFeeValue(metadata.operatorFee, options.regionId) });
+  }
   const mark = primary && presentPortfolioAssetMark({
     assetKey: portfolioAssetKeyById.get(primary.assetId.toLowerCase()) ?? primary.assetId,
     name: primary.symbol,

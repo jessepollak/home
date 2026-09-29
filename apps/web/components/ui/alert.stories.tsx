@@ -9,7 +9,7 @@ const meta = {
   title: "UI/Alert",
   component: Alert,
   args: { children: "Saved balance is stale." },
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=158-1862" } },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof Alert>;
 
 export default meta;

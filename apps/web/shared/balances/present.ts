@@ -1,3 +1,4 @@
+import { findInvestAssetByAddress } from "@/config/invest-assets";
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import { weightedAprWad } from "@/shared/borrowing/math";
 import {
@@ -199,13 +200,13 @@ function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
 
   for (const holding of selected.investments) {
     const row = presentAsset(holding, snapshot);
-    if (holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount)) {
+    if (holding.balance.status === "ready" && holding.value.status === "priced" && !isAtLeastOneCent(holding.value.amount)) {
       hiddenRows.push(row);
-    } else if (holding.value.status !== "priced" && holding.source === "wallet") {
+    } else if (holding.balance.status === "ready" && holding.value.status !== "priced" && holding.source === "wallet") {
       unpricedRows.push(row);
     } else {
       investmentRows.push(row);
-      visibleInvestmentHoldings.push(holding);
+      if (holding.balance.status === "ready") visibleInvestmentHoldings.push(holding);
     }
   }
   hiddenRows.sort(compareRows);
@@ -263,7 +264,9 @@ function presentHomeSummary(
     investments: {
       ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
-      ownedCount: selectOwnedInvestments(snapshot).length,
+      ownedCount: selectOwnedInvestments(snapshot).filter((row) =>
+        [row.wallet, ...row.collateral].some((holding) => holding?.balance.status === "ready"),
+      ).length,
     },
     borrow: presentBorrowSummary(snapshot, totals.borrow),
   };
@@ -421,6 +424,17 @@ function presentCash(entry: CashSelection, snapshot: BalancesSnapshot): BalanceR
 }
 
 function presentAsset(holding: Holding, snapshot: BalancesSnapshot): BalanceRowModel {
+  if (holding.balance.status === "unavailable") {
+    return {
+      key: holding.key,
+      group: "asset",
+      name: holding.name.trim() || holding.symbol.trim(),
+      mark: assetMark(holding),
+      primary: "Unavailable",
+      secondary: null,
+      tone: "error",
+    };
+  }
   const quantity = tokenQuantity(holding, snapshot);
   const mark = assetMark(holding);
   if (holding.value.status === "priced") {
@@ -498,7 +512,11 @@ function tokenQuantity(
     symbol,
     {
       cashCurrency: holding.cashCurrency,
-      category: holding.kind === "native" ? "crypto" : undefined,
+      category: holding.kind === "native"
+        ? "crypto"
+        : holding.contractAddress
+          ? findInvestAssetByAddress(holding.contractAddress)?.category
+          : undefined,
       regionId: snapshot.region,
     },
   );

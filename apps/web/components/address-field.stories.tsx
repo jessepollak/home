@@ -19,7 +19,6 @@ const meta = {
   parameters: {
     layout: "centered",
     a11y: { test: "error" },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=460-4469" },
   },
 } satisfies Meta<typeof AddressField>;
 

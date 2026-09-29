@@ -3,6 +3,7 @@ import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 import { BALANCES_PRICE_MAX_AGE_MS } from "@/shared/balances/types";
 import {
   CODEX_SHARED_READER_MAX,
+  CodexRawQuoteError,
   codexSharedReaderCountForTests,
   createCodexRawQuotesReader,
   getCodexRawQuotes,
@@ -134,5 +135,44 @@ describe("Codex raw quotes", () => {
     })();
     expect(duplicate[0]?.status).toBe("invalid");
     expect(duplicate[0]?.unitPrice).toBeNull();
+  });
+
+  test("times out an unresponsive quote request with the quote error class", async () => {
+    let aborted = false;
+    const reader = createCodexRawQuotesReader({
+      apiKey: "fixture-key",
+      inputs: [input],
+      now: () => new Date(NOW),
+      timeoutMs: 10,
+      fetchImpl: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      }),
+    });
+    const error = await reader().then(() => null, (reason: unknown) => reason);
+    expect(aborted).toBe(true);
+    expect(error).toBeInstanceOf(CodexRawQuoteError);
+    expect((error as Error).message).toBe("Codex quotes timed out.");
+  });
+
+  test.each([
+    ["HTTP error", () => new Response("unavailable", { status: 503 }), "Codex quotes returned HTTP 503."],
+    ["GraphQL error", () => Response.json({ errors: [{ message: "unavailable" }], data: null }), "Codex quotes returned an error."],
+    ["missing data", () => Response.json({ data: null }), "Codex quotes returned an invalid price list."],
+    ["invalid price list", () => Response.json({ data: { getTokenPrices: {} } }), "Codex quotes returned an invalid price list."],
+    ["oversized declared length", () => new Response("{}", { headers: { "content-length": "4000001" } }), "Codex quotes request failed."],
+    ["oversized body", () => Response.json({ data: { getTokenPrices: [] }, pad: "x".repeat(4_000_000) }), "Codex quotes request failed."],
+  ] as const)("preserves %s wording and class", async (_case, response, message) => {
+    const reader = createCodexRawQuotesReader({
+      apiKey: "fixture-key",
+      inputs: [input],
+      now: () => new Date(NOW),
+      fetchImpl: async () => response(),
+    });
+    const error = await reader().then(() => null, (reason: unknown) => reason);
+    expect(error).toBeInstanceOf(CodexRawQuoteError);
+    expect((error as Error).message).toBe(message);
   });
 });

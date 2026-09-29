@@ -12,7 +12,7 @@ const meta = {
   id: "ui-select",
   title: "UI/Select",
   component: Select,
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=160-1718" } },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof Select>;
 
 export default meta;

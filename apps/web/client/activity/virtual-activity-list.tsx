@@ -1,6 +1,6 @@
 "use client";
 
-import { defaultRangeExtractor, elementScroll, measureElement as measureVirtualElement, observeElementOffset, observeElementRect, observeWindowOffset, observeWindowRect, windowScroll, type Virtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, elementScroll, measureElement as measureVirtualElement, observeElementOffset, observeWindowOffset, observeWindowRect, windowScroll, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { forwardRef, memo, useCallback, useContext, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type HTMLAttributes } from "react";
 import { ShellPanelActiveContext } from "@/client/home/panel-shared";
@@ -69,6 +69,9 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   const [margin, setMargin] = useState(0);
   const marginRef = useRef(0);
   const marginReady = useRef(false);
+  const measuredMargin = useRef<{ list: HTMLUListElement; host: HTMLElement | Window } | null>(null);
+  const measured = useRef(new Map<VirtualItem["key"], number>());
+  const observedRect = useRef<{ host: HTMLElement; rect: { width: number; height: number } } | null>(null);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const attached = useRef(false);
   const pendingFocus = useRef<string | null>(null);
@@ -95,18 +98,51 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
     initialRect: { width: typeof window === "undefined" ? 1024 : window.innerWidth, height: typeof window === "undefined" ? 800 : window.innerHeight },
     initialOffset: () => typeof window === "undefined" ? 0 : host instanceof HTMLElement ? host.scrollTop : host === window ? window.scrollY : 0,
     rangeExtractor,
-    observeElementRect: (instance, callback) => host === window ? observeWindowRect(asWindowVirtualizer(instance), callback) : observeElementRect(instance, callback),
+    observeElementRect: (instance, callback) => {
+      if (host === window) return observeWindowRect(asWindowVirtualizer(instance), callback);
+      const element = instance.scrollElement;
+      const targetWindow = instance.targetWindow;
+      if (!element || !targetWindow) return;
+      const handler = (rect: { width: number; height: number }) => {
+        const rounded = { width: Math.round(rect.width), height: Math.round(rect.height) };
+        observedRect.current = { host: element, rect: rounded };
+        callback(rounded);
+      };
+      handler(observedRect.current?.host === element ? observedRect.current.rect : { width: element.offsetWidth, height: element.offsetHeight });
+      if (!targetWindow.ResizeObserver) return () => {};
+      const observer = new targetWindow.ResizeObserver((entries) => {
+        const run = () => {
+          const box = entries[0]?.borderBoxSize?.[0];
+          handler(box ? { width: box.inlineSize, height: box.blockSize } : { width: element.offsetWidth, height: element.offsetHeight });
+        };
+        if (instance.options.useAnimationFrameWithResizeObserver) requestAnimationFrame(run);
+        else run();
+      });
+      observer.observe(element, { box: "border-box" });
+      return () => observer.unobserve(element);
+    },
     observeElementOffset: (instance, callback) => host === window ? observeWindowOffset(asWindowVirtualizer(instance), callback) : observeElementOffset(instance, callback),
     measureElement: (node, entry, instance) => {
       if (!active || !node.isConnected) {
         const index = instance.indexFromElement(node);
         return instance.itemSizeCache.get(instance.options.getItemKey(index)) ?? instance.options.estimateSize(index);
       }
+      const key = instance.options.getItemKey(instance.indexFromElement(node));
       const box = entry?.borderBoxSize?.[0];
-      if (box) return instance.options.horizontal ? box.inlineSize : box.blockSize;
+      if (box) {
+        const size = instance.options.horizontal ? box.inlineSize : box.blockSize;
+        measured.current.set(key, size);
+        return size;
+      }
+      if (!entry) {
+        const cached = instance.itemSizeCache.get(key) ?? measured.current.get(key);
+        if (cached !== undefined) return cached;
+      }
       const rect = node.getBoundingClientRect();
       const size = instance.options.horizontal ? rect.width : rect.height;
-      return size || measureVirtualElement(node, entry, instance);
+      const measuredSize = size || measureVirtualElement(node, entry, instance);
+      measured.current.set(key, measuredSize);
+      return measuredSize;
     },
     scrollToFn: (offset, options, instance) => {
       if (!active || !attached.current) return;
@@ -155,7 +191,8 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
       marginReady.current = true;
       setMargin(next);
     };
-    update();
+    if (measuredMargin.current?.list !== list || measuredMargin.current.host !== host) update();
+    measuredMargin.current = { list, host };
     const observer = new ResizeObserver(update);
     for (let node: Element | null = list; node; node = node.parentElement) {
       observer.observe(node);

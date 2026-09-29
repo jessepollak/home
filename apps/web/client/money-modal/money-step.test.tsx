@@ -7,12 +7,18 @@ import { createRef, useState } from "react";
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { MoneyModal, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, useMoneyModalPending } = await import("./money-modal");
 const animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
+const resizeObserverDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
+const offsetHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
 
 beforeEach(() => Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: undefined }));
 afterEach(async () => {
   cleanup();
   if (animateDescriptor) Object.defineProperty(HTMLElement.prototype, "animate", animateDescriptor);
   else Reflect.deleteProperty(HTMLElement.prototype, "animate");
+  if (resizeObserverDescriptor) Object.defineProperty(globalThis, "ResizeObserver", resizeObserverDescriptor);
+  else Reflect.deleteProperty(globalThis, "ResizeObserver");
+  if (offsetHeightDescriptor) Object.defineProperty(HTMLElement.prototype, "offsetHeight", offsetHeightDescriptor);
+  else Reflect.deleteProperty(HTMLElement.prototype, "offsetHeight");
   await waitFor(() => expect(document.querySelector("[data-base-ui-portal]")).toBeNull());
 });
 
@@ -60,6 +66,46 @@ describe("persistent money steps", () => {
       await Promise.resolve();
     });
     expect(document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.getAttribute("data-slot") ?? document.activeElement?.tagName).toBe("Amount");
+  });
+
+  test("unknown initial step height skips only height animation", () => {
+    Object.defineProperty(globalThis, "ResizeObserver", {
+      configurable: true,
+      value: class { observe() {} disconnect() {} },
+    });
+    const animated: HTMLElement[] = [];
+    let hostReads = 0;
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        if ((this as HTMLElement).matches("[data-slot=money-modal-steps]")) {
+          hostReads += 1;
+          return 420;
+        }
+        return 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value(this: HTMLElement) {
+        animated.push(this);
+        return { finished: Promise.resolve(), cancel() {}, onfinish: null, oncancel: null };
+      },
+    });
+    function Journey() {
+      const [step, setStep] = useState(0);
+      return <MoneyModal open labelledBy="step-title" immediate onCancel={() => {}} onClose={() => {}}>
+        <MoneyModalStep step={String(step)} depth={step}>
+          <h2 id="step-title">Step</h2>
+          <button type="button" onClick={() => setStep(step + 1)}>Next</button>
+        </MoneyModalStep>
+      </MoneyModal>;
+    }
+    render(<Journey />);
+    expect(hostReads).toBe(0);
+    fireEvent.click(page().getByRole("button", { name: "Next" }));
+    expect(animated.map((element) => element.getAttribute("data-money-step"))).toEqual(["1"]);
+    expect(hostReads).toBe(1);
   });
 
   test("deliberate blur stays blurred through a same-key report", () => {

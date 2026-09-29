@@ -53,5 +53,5 @@ test("brand response parser validates domain, envelope and stored value; PUT hel
   expect(parseBrandSettingsResponse({ ...entry, version: 2 })).toBeNull();
   expect(parseBrandSettingsResponse({ ...entry, settings: { ...entry.settings, value: { ...valid, extra: true } } })).toBeNull();
   expect(parseBrandSettingsResponse({ ...entry, settings: { ...entry.settings, revision: -1 } })).toBeNull();
-  expect(brandSettingsPutRequest(2, valid)).toEqual({ version: 1, expectedRevision: 2, value: valid });
+  expect(brandSettingsPutRequest(2, valid, "0x1111111111111111111111111111111111111111")).toEqual({ version: 1, expectedRevision: 2, value: valid, operator: "0x1111111111111111111111111111111111111111" });
 });

@@ -105,6 +105,16 @@ describe("prepare action handler", () => {
     },
   );
 
+  test("does not issue a trade when the fee policy cannot be read", async () => {
+    let inserts = 0;
+    setActionsStoreForTests({ insert: async () => { inserts++; } } as unknown as ActionsStore);
+    const handler = createPrepareActionHandler({ authorize: async () => authorized(),
+      prepareTrade: async () => { throw new TradePreparationError("provider-unavailable"); } });
+    const response = await handler(request("trade"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: "TRADE_UNAVAILABLE" } });
+    expect(inserts).toBe(0);
+  });
   test("returns a trade quote failure from the prepare handler", async () => {
     let quotes = 0;
     const handler = createPrepareActionHandler({

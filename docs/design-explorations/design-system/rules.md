@@ -1,27 +1,27 @@
 # Rules this library follows
 
-- **Names match code.** A Figma component uses the code export name (`Button`, `ToggleGroup`, `MoneyNumpad`). Variant properties use the cva prop names, and their values are a subset of the cva values.
+- **Names match code.** Storybook stories use the code export names (`Button`, `ToggleGroup`); variant properties use the component prop names.
   - Button draws `variant=default|secondary|outline|ghost|destructive|link` and `size=xs|sm|default|lg|touch|icon-sm|icon|icon-lg`.
   - Omitted cva values have existing homes: `navigation` is TabItem/TabBar, `product-tile` is the Home product tile, `card-action` is the SectionHeader action, and `inline` / `icon-xs` are P2.
-  - Figma-only parts are labelled as such: `MoneyConfirmRow` is a sub-part of one code component, and `Skeleton shape` is Figma-only. `InputOTPSlot` keeps the shadcn sub-part name.
-  - Figma's `MoneyNumpad` and `MoneyNumpadKey` were deprecated in revision 2 and deleted in #882. [#941](https://github.com/jessepollak/home/issues/941) removed the code numpad; amount entry uses the native keyboard in code and on the boards.
+  - Design-only parts are labelled as such: `MoneyConfirmRow` is a sub-part of one code component, and `InputOTPSlot` keeps the shadcn sub-part name.
+  - [#941](https://github.com/jessepollak/home/issues/941) removed the code numpad; amount entry uses the native keyboard in code and review stories.
   - Slots keep their `data-slot` names (`AlertTitle`, `ItemMedia`, `DrawerFooter`) as internal layers.
-- **`state` is a Figma-only axis.** Its values are `default`, `hover`, `pressed`, `focus`, `disabled`, `loading` and `error`. `focus` is `border-ring` plus a 3px ring at 50%. `disabled` is 50% opacity. `error` is `aria-invalid`: a destructive border and a destructive/20 ring. In Code Connect, `disabled` and `error` become props; `hover`, `pressed` and `focus` are visual only.
-  - `loading` has code parity (#948): `Button loading` keeps the label and focus, sets `aria-busy` (60% opacity) and draws the leading spinner, and ignores presses. Code Connect maps `state=loading` to `loading`.
-- **`size=touch` has code parity via #944.** `Button size="touch"` has a 44px minimum and wraps long labels; the Figma `size=touch` maps 1:1. The five former 36px CTAs—"Retry loading memes", "Retry sign out", "Try again", "Continue" and copy address—now use it too. Fine-pointer density buttons (`md:pointer-fine:h-8`) and amount-entry chips remain separate.
+- **States are testable.** `default`, `hover`, `pressed`, `focus`, `disabled`, `loading` and `error` are reviewed in component stories. `focus` has a 3px ring at 50%. `disabled` is 50% opacity. `error` uses `aria-invalid`: a destructive border and a destructive/20 ring.
+  - `loading` has code parity (#948): `Button loading` keeps the label and focus, sets `aria-busy` (60% opacity) and draws the leading spinner, and ignores presses.
+- **`size=touch` has code parity via #944.** `Button size="touch"` has a 44px minimum and wraps long labels. The five former 36px CTAs—"Retry loading memes", "Retry sign out", "Try again", "Continue" and copy address—now use it too. Fine-pointer density buttons (`md:pointer-fine:h-8`) and amount-entry chips remain separate.
   - `size="lg"` also appears where the button is not a standalone CTA: the Savings vault choice renders an `Item` row through `Button`, and `PrimaryNavigation` sets `min-h-11`. Those keep their own row and tab sizing.
-- **Design-only components say so.** Their description reads `DESIGN-ONLY`, they get no Code Connect mapping, and they are listed under [Follow-up code issues](follow-up-code-issues.md).
+- **Design-only components say so.** They are tracked under [Follow-up code issues](follow-up-code-issues.md) rather than assumed to be production components.
 - **Colour carries meaning.**
   - `market-gain` is for money in and positive change text only.
   - `market-loss` is for price-decline text only.
-  - The price line and its dot use `market-gain` / `market-loss`; the Figma-only `chart-gain` / `chart-loss` proposals have no code token.
+  - The price line and its dot use `market-gain` / `market-loss`; historical `chart-gain` / `chart-loss` proposals have no code token.
   - `muted-foreground` is for rates, context and overdue or inactive amounts.
   - `destructive` is for errors, never for ordinary outgoing money. It is softened to `#c8372d` (revision 2, proposed).
   - `warning` is for limits that still allow the action (proposed); its code token coloured the pending transaction-status dot from #942 until #967 replaced that dot with the Activity ledger's status Badge.
   - `primary` is for actions and focus only.
 - **Status colour stays on the header.** In Alert, Toast and StatusStep only the title and icon take the status colour. Body copy and actions stay `foreground`, and a failed step keeps its title `foreground` with only the icon in `destructive`.
 - **Rates.** Savings detail shows `N% APY`. Borrow Cash shows `N% APR`, as decided in [#789](https://github.com/jessepollak/home/issues/789).
-- **References.** Mobbin references follow [Mobbin references](../mobbin.md) (PR #798). Cite by link, borrow patterns and never copy screens. Reference images live only on the private References page (`333:13093`).
+- **References.** Mobbin references follow [Mobbin references](../mobbin.md) (PR #798). Cite by link, borrow patterns and never copy screens.
 - **Borders: the group or nothing.** Adjacent items never carry separate borders. An outline `ToggleGroup` draws one border around the whole group, with borderless items inside. Rows inside a bordered Card have no dividers of their own when the Card already groups them. The one exception is `InputOTP`, whose slots are separate boxes with an 8px gap because each box is one digit.
 - **Retry is a control, not text.** A failed read row displays a `FinanceRow` `readRetry` ghost icon Button as a sibling of its activation Button, centred over a reserved 16px trailing slot. The primary `rotate-cw` glyph preserves the amount's alignment with chevron rows; the 44px target has an accessible label. Read-error cards use an in-flow 44px outline "Try again" Button with `RotateCw`. Money-action recovery is separate.
 - **Icons centre on their text.** A 16px glyph sits in a 16×20 slot that matches the 14/20 title line, with a 1px optical nudge down, in Alert, Toast and StatusStep. Actions such as `AlertAction` centre vertically in their unit and are outline buttons (revision 3): `color/background` fill, 1px `color/border`, `radius/lg`, 44px tall on touch.

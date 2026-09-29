@@ -80,7 +80,6 @@ const meta = {
     layout: "fullscreen",
     viewport: { defaultViewport: "mobile" },
     a11y: { test: "error" },
-    design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=385-4124" },
   },
 } satisfies Meta<typeof IntroStory>;
 export default meta;

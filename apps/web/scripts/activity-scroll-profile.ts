@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { seedSignedInSession, installApiFixtures, json } from "../tests/browser/fixtures/api";
-import { sessionBody } from "../tests/browser/fixtures/bodies";
+import { syntheticActivity, activityPage } from "./device-profile/synthetic-activity";
 
 const options = new Map<string, string>();
 const args = process.argv.slice(2);
@@ -33,44 +33,7 @@ if (!rows || !repeat || ![1, 4, 6].includes(throttle) || !["/home", "/activity"]
   new URL(baseUrl).protocol !== "http:") throw new Error("Invalid profiling options");
 const origin = new URL(baseUrl).origin;
 if (!["localhost", "127.0.0.1"].includes(new URL(origin).hostname)) throw new Error("Use a loopback fixture server only");
-const transferCount = rows - Math.floor(rows / 10);
-const actionCount = rows - transferCount;
-const pageSize = 25;
-const wallet = sessionBody.smartAccount.address.toLowerCase();
-const recipient = "0x2222222222222222222222222222222222222222";
-const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-const ethLike = "0x3333333333333333333333333333333333333333";
-const anchor = Date.now() - 120_000;
-const timestamp = (index: number) => new Date(anchor - index * 30_000).toISOString();
-const transfers = Array.from({ length: transferCount }, (_, index) => {
-  const isUsdc = index % 5 !== 0;
-  const address = isUsdc ? token : ethLike;
-  const incoming = index % 2 === 0;
-  return {
-    id: `8453:${address}:profile-${index}`, logId: `profile-${index}`, chainId: 8453,
-    assetId: isUsdc ? "usdc" : null, tokenAddress: address,
-    tokenSymbol: isUsdc ? "USDC" : "WETHX", tokenDecimals: isUsdc ? 6 : 18,
-    tokenImageUrl: isUsdc && index % 13 === 0 ? "https://profile.local/token.svg" : null,
-    walletAddress: wallet, fromAddress: incoming ? recipient : wallet,
-    toAddress: incoming ? wallet : recipient, direction: incoming ? "incoming" : "outgoing",
-    amountBaseUnits: index % 7 === 0 ? (isUsdc ? "1234567891234" : "1234567891234000000000000") : String((index + 1) * 1_000_000),
-    blockNumber: String(1_000_000 - index), blockHash: `0x${"ef".repeat(32)}`,
-    transactionHash: `0x${(index + 1).toString(16).padStart(64, "0")}`,
-    logIndex: "0", blockTimestamp: timestamp(index + 1),
-    valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
-  };
-});
-const actions = Array.from({ length: actionCount }, (_, index) => {
-  const date = timestamp(Math.floor(index * transferCount / Math.max(actionCount, 1)) + 1);
-  const kind = index % 4 === 1 ? "cash-out" : "send";
-  return {
-    id: `11111111-1111-4111-8111-${(index + 1).toString(16).padStart(12, "0")}`,
-    provider: "cdp-embedded", kind,
-    summary: { title: kind === "send" ? "Send USDC" : "Cash out", amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1234567891234", direction: "spend" }], warnings: [], expiresAt: timestamp(0) },
-    status: index % 7 === 0 ? "pending" : "confirmed", createdAt: date, confirmedAt: date,
-    owner: { subject: sessionBody.user.subject, address: wallet, chainId: 8453, accountProvider: sessionBody.accountProvider },
-  };
-});
+const { transferCount, actionCount, pageSize, wallet, timestamp, transfers, actions } = syntheticActivity(rows, Date.now() - 120_000);
 const selector = routePath === "/home" ? "section[data-activity-feed]" : 'section[aria-label="Activity"]:not([id="navigation-panel"])';
 const rowSelector = `${selector} ul > li`;
 const metricNames = ["ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "TaskDuration", "LayoutCount"];
@@ -180,18 +143,11 @@ async function runOnce(index: number, video: boolean) {
       if (url.pathname !== "/api/activity") return request.fallback();
       const cursor = url.searchParams.get("cursor") ?? "initial";
       fetches[cursor] = (fetches[cursor] ?? 0) + 1;
-      const startIndex = cursor === "initial" ? 0 : Number(cursor.replace("page-", "")) * pageSize;
-      if (!Number.isSafeInteger(startIndex) || startIndex < 0 || startIndex >= Math.max(transferCount, 1)) throw new Error(`Unexpected cursor ${cursor}`);
       const to = url.searchParams.get("to")!;
       if (networkDelay) await delay(networkDelay);
-      for (const transfer of transfers.slice(startIndex, startIndex + pageSize)) servedTransfers.add(transfer.id);
-      return json(request, {
-        version: 1, walletAddress: wallet, chainId: 8453, currency: url.searchParams.get("currency") ?? "USD",
-        window: { from: new Date(Date.parse(to) - 31 * 86400_000).toISOString(), to },
-        transfers: transfers.slice(startIndex, startIndex + pageSize),
-        nextCursor: startIndex + pageSize < transferCount ? `page-${Math.floor(startIndex / pageSize) + 1}` : null,
-        source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to },
-      });
+      const body = activityPage({ transferCount, actionCount, pageSize, wallet, timestamp, transfers, actions }, cursor, to, url.searchParams.get("currency") ?? "USD");
+      for (const transfer of body.transfers) servedTransfers.add(transfer.id);
+      return json(request, body);
     });
     await page.route("https://profile.local/token.svg", async (request) => {
       if (imageDelay) await delay(imageDelay);

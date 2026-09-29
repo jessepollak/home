@@ -104,10 +104,12 @@ async function checkFit(canvasElement: HTMLElement, value: string) {
 
 async function checkFallback(canvasElement: HTMLElement, value: string) {
   const headline = await checkFit(canvasElement, value);
-  const number = headline.querySelector('[data-slot="confirm-amount-number"]');
-  const unit = headline.querySelector('[data-slot="confirm-amount-unit"]');
-  if (!(number instanceof HTMLElement) || !(unit instanceof HTMLElement)) throw new Error("Missing fallback lines");
-  await expect(unit.getBoundingClientRect().top).toBeGreaterThanOrEqual(number.getBoundingClientRect().bottom - 1);
+  await waitFor(async () => {
+    const number = headline.querySelector('[data-slot="confirm-amount-number"]');
+    const unit = headline.querySelector('[data-slot="confirm-amount-unit"]');
+    if (!(number instanceof HTMLElement) || !(unit instanceof HTMLElement)) throw new Error("Missing fallback lines");
+    await expect(unit.getBoundingClientRect().top).toBeGreaterThanOrEqual(number.getBoundingClientRect().bottom - 1);
+  });
 }
 
 function EnlargedText({ children }: { children: ReactNode }) {
@@ -133,7 +135,7 @@ export const LargeWholeMobile: Story = {
   render: (args) => frame(320, args),
   play: async ({ canvasElement }) => {
     const headline = await checkFit(canvasElement, "$12,345,678,901");
-    await expect(renderedWidth(headline)).toBeLessThan(heroWidth(headline) - 1);
+    await waitFor(async () => { await expect(renderedWidth(headline)).toBeLessThan(heroWidth(headline) - 1); });
   },
 };
 
@@ -246,20 +248,17 @@ export const SavingsDepositReview: Story = {
       moneyConfirmFromRow(action.owner),
       { label: "Vault", value: "Gauntlet USDC Prime" },
       { label: "Network", value: "Base (8453)" },
-      { label: "Discovery APY", value: "4.6% · fresh" },
-      { label: "Current vault fee", value: "10% (current)" },
+      { label: "Rate", value: "4.6% APY" },
+      { label: "Vault fee", value: "10%" },
       { label: "Amount", value: "$25.00" },
-      { label: "Share preview", value: "24 vault shares" },
-      { label: "Minimum shares", value: "23.976 vault shares" },
     ],
     action: { ...action, id: "storybook-savings-review", kind: "savings-deposit", title: "Deposit USDC" },
   },
   play: async ({ canvasElement }) => {
     await checkRows(canvasElement, [
       ["From", "0x1111…111111"], ["Vault", "Gauntlet USDC Prime"],
-      ["Network", "Base (8453)"], ["Discovery APY", "4.6% · fresh"],
-      ["Current vault fee", "10% (current)"], ["Amount", "$25.00"],
-      ["Share preview", "24 vault shares"], ["Minimum shares", "23.976 vault shares"],
+      ["Network", "Base (8453)"], ["Rate", "4.6% APY"],
+      ["Vault fee", "10%"], ["Amount", "$25.00"],
       ["Network fee", "Up to 0.02 USDC · ≈ $0.02"],
     ]);
   },

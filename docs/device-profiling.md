@@ -1,0 +1,96 @@
+# Device performance profiling
+
+Status: tooling and simulator/emulator procedure in place; physical-device baseline pending when phones arrive at the studio ([#1125](https://github.com/jessepollak/home/issues/1125)). Simulator/emulator numbers are provisional, never physical-device evidence. Record baselines on #1125, not here.
+
+## Device matrix
+
+| Target | Engine/browser | How it connects | Status |
+|---|---|---|---|
+| iOS Simulator iPhone 17 Pro, iOS 26.2 (Safari tab; installed PWA) | Safari 26.2 / WebKit | Xcode simulator, `ios-sim` or Safari Web Inspector | Available (Xcode) |
+| Android emulator AVD `home-pixel` (Pixel 8 profile, 1080×2400 @420 dpi → 412×811 CSS px, DPR 2.625), Android 15 / API 35 Google Play image | Bundled Chrome 124.0.6367.219 | `adb` reverse + Chrome remote debugging | Available |
+| Recent physical iPhone | Safari / WebKit | USB trust + Safari Web Inspector; studio LAN fixture proxy | Pending |
+| Older physical iPhone | Safari / WebKit | USB trust + Safari Web Inspector; studio LAN fixture proxy | Pending if available |
+| Physical Android phone | Chrome / Blink | USB debugging + `adb` reverse | Pending |
+
+Read the device table's exact model and OS from a local run without `--public`; on Android it also reports the Chrome version, while the iPhone Safari version must be confirmed on the device. That raw inventory is for your own screen and is never attached. `bun run --cwd apps/web profile:device inventory --public` is the shareable form: it omits UDIDs, Android serials, names and models, and reports only a closed set of facts — for a physical phone the platform, device family and OS version; for a simulator the OS, OS version, device family and state, each confirmed against Apple's own runtime and device-type catalogues; for Android the device family, OS release and Chrome version, each accepted only in a version shape. The platform, OS version and Chrome version are the device's own strings, copied only when they match that allowlist or shape; everything else is derived here. Anything it cannot place that way is reported as `unknown`. A probe that fails (missing tool, denied device access, unparseable output, a device that is not ready, a repeated identifier) is named in `unavailable` and on stderr and the command exits non-zero, so an empty list only means "no device connected" when that probe is not listed; the Android Chrome version is the one best-effort read, reported as `unavailable` without failing the probe. Inventory reports simulator OS family and physical phone platform/family/OS, but **not** Safari versions.
+
+## One-time studio setup
+
+Install Xcode and an iOS 26 simulator runtime. For Android, install the SDK tools, accept licenses, create the AVD from the Pixel 8 profile, and boot it:
+
+```sh
+brew install --cask android-commandlinetools android-platform-tools
+export ANDROID_HOME="$HOME/Library/Android/sdk" PATH="$HOME/Library/Android/sdk/emulator:$HOME/Library/Android/sdk/platform-tools:$PATH"
+yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
+sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "emulator" "system-images;android-35;google_apis_playstore;arm64-v8a"
+avdmanager create avd --name home-pixel --package "system-images;android-35;google_apis_playstore;arm64-v8a" --device pixel_8
+emulator -avd home-pixel -no-window -no-audio -no-snapshot-save -gpu host -no-boot-anim
+```
+
+The CLI configures an **Android emulator** before a measured run: it writes `/data/local/tmp/chrome-command-line`, gives Chrome a persistent debug-app designation and a best-effort notification-permission grant, then force-stops and starts Chrome so those settings take effect; when the run ends it restores the snapshot, removes the file when there was none, and sets the debug-app designation back to the one it found (or clears it); the notification grant is left in place. The Chrome process this run started keeps those flags in memory until it is restarted, which the next run does after rewriting its configuration. A failed grant is reported and does not stop the run. On a **physical phone** it leaves that device-wide Chrome configuration alone and only force-stops Chrome, starts it, and forwards its debugging socket, so Chrome must have been launched at least once there; do not complete Chrome first-run manually on an emulator. Chrome can still show a one-time promo sheet over the page on a fresh AVD or phone: before the first measured run, open the proxy's `/__device-profile/` landing page (it starts no workload), check the screen (`adb exec-out screencap -p > shot.png`), and dismiss the sheet so it cannot overlay measured runs. On a physical iPhone, turn on Settings → Apps → Safari → Advanced → Web Inspector, trust the Mac over USB, and enable Mac Safari → Settings → Advanced → Show features for web developers. On a physical Android phone, enable Developer options → USB debugging, approve the host, and check `adb devices -l`.
+
+Interrupting a run (Ctrl-C) can skip that restoration, so after an interrupted run check the emulator's Chrome configuration and remove any leftover `adb forward` or `adb reverse` mapping before the next run. An interrupted run also leaves its device lock file behind; the next run for that device reports the path to delete once no run is active.
+
+## Fixture server
+
+Build and start the isolated production fixture exactly as in [Activity scroll profile](activity-performance.md) (`next build` and `next start` under the fixture-only environment, **not** `bun run build` or a dev server). Keep its PID. In another shell start the device proxy:
+
+```sh
+bun run --cwd apps/web profile:device serve
+```
+
+`serve` defaults to `--port 4199`, `--host 127.0.0.1`, `--upstream http://127.0.0.1:3199` (or `HOME_FIXTURE_PORT` if set), `--rows 300`, and `--out-dir` at the system temporary directory's `home-device-profile` folder. Override those five flags as needed: port 1–65535, rows 1–2000; upstream must be loopback HTTP. Output must be outside the worktree. The proxy answers fixture API requests, including 25-transfer pages of synthetic Activity at the row count selected by a run's cookie, synthetic price history, and other shared fixture routes. It injects signed-in smoke state and the profiling harness into every HTML document (including PWA navigations); Activity token image URLs are omitted over HTTP. Do not use credentials or production data with this fixture.
+
+Open `http://localhost:4199/__device-profile/` for tappable workload links, or `/__device-profile/run?workload=home-fling&rows=300&label=<label>&repeat=1`. The run endpoint accepts a workload id, `rows` (default proxy rows, 1–2000), `label` (default `device`, at most 100 characters), `repeat` (default 1, 1–20), and `duration` (default 10 seconds, 1–120, for `record`). It sets the row cookie and navigates to the workload's page. Results are posted as individual JSON files in the output directory; `/__device-profile/status?since=<epoch-ms>` lists results, and a result appears there only after it has been written in full. The status endpoint reports the output directory only to a loopback client, so a LAN client sees result filenames but never the runner's path. The row count travels in one browser-wide cookie, so run one fixture workload at a time against a proxy. Manual `/run` repeats execute on one loaded page; the automated CLI instead opens a fresh page for each repeat. Keep the proxy loopback-only except for a physical iPhone on the studio LAN: use `serve --host 0.0.0.0` only during that session, never expose it to the internet, and stop it afterward. Stop only PIDs you started, following [browser-validation cleanup](browser-validation.md#fixture-session-on-port-3199).
+
+## Standard workloads and metrics
+
+| Workload id | Measured action |
+|---|---|
+| `home-fling`, `activity-fling` | On `/home` or `/activity`, fill all 20, 100 or 300 synthetic rows before measurement, then JS-drive the authenticated main scroller down and up at 4,000 px/s; check visible blank gaps. |
+| `nav-round-trips` | Warm up one Home → Cash → Home → Invest → Back round trip, then measure 10 such round trips. |
+| `add-money-open` | On `/home`, open Add money and close with Escape three times. |
+| `activity-detail-open` | On `/activity`, fill the feed, scroll to the logical middle row, and open/close its detail three times. |
+| `chart-scrub` | On `/invest/cbbtc`, dispatch touch-pointer moves across the price chart for 1.5 seconds and measure readout feedback. |
+| `replace-state-probe` | On `/home`, fill, measure an app-only scroll and then a scroll with an extra `replaceState` listener, followed by 200 direct calls; report calls, peak calls/10 s, and errors for each phase. Frame result is the second scroll. |
+| `record` | On `/home`, wait for the three-second badge countdown, then passively record a human action for `duration` seconds (default 10); use a real finger fling on a phone. |
+
+`--workload all` on the fixture runs both fling routes at 20/100/300 rows plus the five non-`record` workloads at 300 rows; production runs each fling once. A single fixture workload uses `--rows` (default 300); CLI `--repeat` defaults to 1 and allows 1–20. Every command rejects flags it does not support. Frame period is the median of a one-second idle rAF calibration. Missed-deadline share counts intervals over 1.5× that period; long frames are intervals over 50 ms; results also give p50/p95/p99/max, blank-gap diagnostics, and interaction-to-feedback samples (dispatch → expected DOM state → two animation frames); only control interactions produce a feedback sample, so fling runs and the measured `replace-state-probe` frame report `—` for it. Summaries add a `Partial` column and a trailing `Status` column with each saved result's completed versus requested repeats (`ok 3/3`, `incomplete 2/3`, or `failed 0/3: <error>`). The `Partial` column names an Activity source that reported unavailable during the run; it is collected by the four workloads that fill the Activity feed (`home-fling`, `activity-fling`, `activity-detail-open`, `replace-state-probe`), which sample the sources before the fill and after the measurement, and it stays `—` for the workloads that do not fill a feed. A saved result that failed before completing any repeat still gets its own row, and files that are not valid results are named on stderr with a non-zero exit, so a summary never silently drops a workload. The CLI's `--repeat` saves one single-repeat result per run (`ok 1/1` each), while a hand-opened `/__device-profile/run?repeat=3` saves one result covering all three; a CLI run that times out without saving a result appears only in the CLI's failure list and non-zero exit. Long tasks and long animation frames (LoAF) appear only where supported; Safari 26 has neither, though it exposes `event` entries. Android `--trace` extracts renderer-main-thread Script, Style, Layout and Paint **self time** within the harness's measured marks, not whole-page totals. JS-driven scrolling is not a touch fling: use `record` with a finger for physical touch-scroll evidence. A simulator shares the Mac CPU/GPU and is near-ideal; emulator Chrome is old and virtualized. Compare only the same device, build and flags, with repeated runs.
+
+## Run and inspect
+
+For iOS Simulator Safari, with the fixture and proxy running, run:
+
+```sh
+bun run --cwd apps/web profile:device ios-sim --device "iPhone 17 Pro" --workload all --repeat 3 --label <label>
+```
+
+`ios-sim` boots/shuts down the simulator only if it was initially stopped, and reuses a proxy listening on port 4199 if present; `--port` changes the port. Its result lookup reads the output directory the active proxy reports, so a reused `serve --out-dir <dir>` writes and reads the same directory. `--label` names the run: it is flattened to `[a-zA-Z0-9_-]`, truncated to 60 characters, and prefixed with the run's index, a base-36 timestamp and a random nonce before the label, so result and trace artifact names stay flat inside their directory and distinct per run even when a long label is truncated; result names also carry the proxy's timestamp. For simulator **or physical iPhone** style/layout/script breakdown, use Mac Safari Develop → device → page → Timelines. Enable JavaScript & Events, Layout & Rendering, Rendering Frames and CPU; start recording, open the workload's `/__device-profile/run?...` URL (or perform it by hand), stop, and export the `.json` recording. Read frames over budget in Rendering Frames and the Layout & Rendering / JavaScript totals. This Web Inspector recording is the iOS breakdown source, not Chrome trace totals.
+
+`--device` accepts an exact simulator name, a `name@runtime` qualifier (the runtime's iOS version such as `26.2`, or its full identifier), or a device UDID. A name that exists in more than one installed runtime is ambiguous: the command fails with the qualifying choices instead of recording a result against a different iOS version than the one the baseline names.
+
+For an installed PWA, first open the proxy's `/__device-profile/` in Safari, use Share → Add to Home Screen with **Open as Web App** on, then launch from the Home Screen icon and tap workload links **inside the PWA**. The PWA has separate storage; simulator open-URL automation opens Safari, not the installed PWA. Check the result's `standalone` / `navigatorStandalone` fields before labelling it a PWA run.
+
+For Android emulator or phone, use the serial from `adb devices -l` locally; do not publish it. Trace output must be outside the repository:
+
+```sh
+bun run --cwd apps/web profile:device android --serial <serial> --workload all --repeat 3 --label <label> --trace <dir-outside-repo>
+```
+
+The CLI starts/reuses the loopback proxy, adds `adb reverse` for port 4199, starts Chrome with first-run suppressed on an emulator, connects over forwarded Chrome debugging, activates the new tab, and removes its own forward/reverse mappings afterward. It fails that workload, with the reason, when Chrome refuses to activate the tab or reports the page not visible, and the harness fails the run if the measured page was hidden at any point or records no animation frame, because a background page has throttled frames and timers and its numbers would be invalid. `--trace` writes large Chrome trace JSON and traced result JSON separately; without a trace, fixture result JSON is in the proxy output directory. For a physical iPhone, start the proxy with `--host 0.0.0.0` and open `http://<Mac LAN address>:4199/__device-profile/` on the phone; do not record the LAN address in public evidence.
+
+For a production comparison, sign in **on the device browser** to the approved production host using only the synthetic bot account under [live-session rules](browser-validation.md#live-session); never use a personal account or real customer data. No automated sign-in exists for a device: `live-login` provisions a browser state on the runner, so an operator signs the bot account in by hand on the phone and the bot mailbox supplies the code. Android supports an HTTPS `--url` run with the harness injected before document load over Chrome remote debugging:
+
+```sh
+bun run --cwd apps/web profile:device android --serial <serial> --url https://<approved-host> --workload <id>
+```
+
+Each workload's page is resolved against the supplied HTTPS origin, regardless of its path. `--rows` and `--port` are rejected with `--url`: the feed-filling workloads (flings, `activity-detail-open`, `replace-state-probe`) report the activity rows actually loaded (`rowsLoaded`), counted only inside the Activity surface so lists elsewhere on the page cannot inflate them; Pending rows are included in that number while detail targeting stays on the middle loaded Recent row. Other production workloads show `—` for rows. A feed with only Pending entries has no detail target and fails with an explicit error, as does a middle row that is a grouped run. When a source reports unavailable during one of those feed-filling workloads, the summary marks the run `Partial`, and it is excluded from a published baseline. The result is read from the `HOME_DEVICE_PROFILE_RESULT` console line (and summarized by the CLI); without `--trace`, this path does not write a per-run JSON file. The browser-built standalone harness is injected by this Android path, not exposed as a Safari production command. On iOS production, perform the workload by hand and use a Safari Web Inspector timeline recording; do not claim an automated harness result.
+
+## Physical sessions and evidence
+
+Simulators and the emulator are available on the studio runner without a request. Before requesting a physical run, use `bun run --cwd apps/web profile:device inventory --public` and check that neither `ios-phones` nor `android` appears in `unavailable`. If the needed phone is absent, record `Not verified: <device> — not connected`, ask on [#1125](https://github.com/jessepollak/home/issues/1125) for a named device class to be connected by USB and trusted with Web Inspector or USB debugging enabled, and continue with explicitly labelled simulator/emulator evidence. Do not guess phone results.
+
+Fixture runs use fixed addresses and generated rows. Attach the summary from `bun run --cwd apps/web profile:device summarize <dir> --markdown` and fixture per-run result JSON. Both the summary's device column and every saved result carry the captured user-agent, which can name the hardware model on some devices; check both before attaching and redact the model when one appears. When tracing, the active proxy output directory holds both original and `-traced.json` results; summarize only the traced JSON file paths or a curated directory to avoid duplicate rows. Keep full Chrome trace files on the runner (the matrix can produce hundreds of MB); attach only a named fixture excerpt when needed. Production-account traces and Web Inspector recordings may contain URLs, balances and account data: **never attach them**; post numbers only. Do not publish UDIDs, serials, LAN addresses or credentials in PRs.
+
+Known finding: on iOS 26.2 Simulator Safari, WebKit throws `SecurityError: Attempt to use history.replaceState() more than 100 times per 10 seconds`; the app's own calls during one 300-row Home fling on current main reached about 500 in 10 seconds ([#1126](https://github.com/jessepollak/home/issues/1126)). Confirm on physical iPhones before generalizing. Chrome 124 on the emulator threw no error at about 1,000 calls/10 s. Baselines belong on [#1125](https://github.com/jessepollak/home/issues/1125), not in this procedure.

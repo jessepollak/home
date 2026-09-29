@@ -7,7 +7,7 @@ const meta = {
   title: "UI/StatusStep",
   component: StatusStep,
   args: { status: "complete", title: "Submitted", time: "10:35 AM" },
-  parameters: { layout: "centered", a11y: { test: "error" }, design: { type: "figma", url: "https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=166-1861" } },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof StatusStep>;
 export default meta;
 type Story = StoryObj<typeof meta>;

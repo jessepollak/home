@@ -13,6 +13,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 ## Core contracts
 
 - [Actions](actions.md) — prepare → confirm → dispatch → handle, records, status, retries, and owner fencing.
+- [Operator fees](operator-fees.md) — fee records and expected-fee reporting.
 - [Activity valuation](activity-valuation.md) — transfer-time fiat value, peg and historical-close methods, currency, and unpriced states.
 - [Balances](balances.md) — enumeration, pinned reads, resolution, pricing, snapshots, and cache behavior.
 - [Borrow](borrow.md) and [Morpho markets](morpho-markets.md) — isolated-market product and protocol boundaries.
@@ -26,8 +27,9 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Unreplied P1 review findings](qa/review-triage-1166.md) — #1166 dispositions for 48 priority-one findings on merged PRs, with current-code references and follow-ups.
 - [PRD template](prd-template.md) and [repository gates](gates.md) — shaping and repository checks.
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
+- [Device performance profiling](device-profiling.md) — production-fixture device matrix, workloads, measurements, and physical-phone evidence procedure.
 - [Activity ledger design](activity-ledger-design.md) — approved taxonomy, production component contract, and source gaps.
-- [UI direction](ui-direction.md), [design system](design-system.md), and [Figma workflow](design-explorations/figma-workflow.md) — product presentation rules, the canonical design source, owned components, tokens, and lint contracts; [Figma library](design-explorations/design-system.md) — gap matrix, finance pattern inventory, Code Connect plan, and publish checklist; [Mobbin references](design-explorations/mobbin.md) — real-world design references, access, and terms; [design explorations](design-explorations/README.md) — where design-lane non-production code lives.
+- [UI direction](ui-direction.md), [design system](design-system.md), and [Storybook review boards](design-system/component-workshop.md#review-boards) — product presentation rules, owned components, tokens, and review workflow; [design-system explorations](design-explorations/design-system.md) — historical gap matrix, finance pattern inventory, and follow-ups; [Mobbin references](design-explorations/mobbin.md) — real-world design references, access, and terms; [design explorations](design-explorations/README.md) — where design-lane non-production code lives.
 - [Observability](observability.md) and [performance observability](performance-observability.md) — privacy-safe events, performance marks, and verification; [modal open profile](modal-open-performance.md) for tap-to-sheet timing and [navigation performance](navigation-performance.md) for warm desktop WebKit navigation.
 - [Vercel deploy](vercel-deploy.md) — Bun monorepo deployment and database migration setup.
 

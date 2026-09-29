@@ -29,7 +29,10 @@ import {
   TRADE_ACTION_CONTRACT_VERSION, TRADE_SELL_ALL, TRADE_SLIPPAGE_BPS,
   isTradeErrorCode, type TradeActionParams, type TradeDirection, type TradeMoneyActionMetadata, type TradeToken,
 } from "@/shared/trading/contract";
+import { tradeCustomerAmounts, type TradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 import { tradeRateLabel } from "@/shared/trading/review";
+import { operatorFeeAmount, parseOperatorFeeRecord } from "@/shared/fees/contract";
+import { SERVICE_FEE_LABEL, serviceFeeValue } from "./service-fee";
 
 type Props = {
   open: boolean;
@@ -67,6 +70,7 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
   const [now, setNow] = useState(() => Date.now());
   const preparation = useRef(0);
   const metadata = prepared?.metadata?.product === "trade" ? prepared.metadata : null;
+  const customer = metadata ? tradeCustomerAmounts(metadata) : null;
   const { expired, recheckExpired } = useReactiveExpiry(prepared?.expiresAt ?? null);
   const actionExpired = expired || (prepared !== null && serverExpiredId === prepared.id);
   const expiredUnresolved = step === "confirm" && actionExpired && attempted;
@@ -168,7 +172,7 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
   const amountAssetProps = direction === "buy"
     ? { assetId: "usdc", assetLabel: "USDC", assetCurrency: canonicalUsdcAsset.cashCurrency }
     : { assetId: token.assetId, assetLabel: token.symbol, assetMark: presentPortfolioAssetMark({ assetKey: assetKeyForErc20(token.address), name: assetName, symbol: token.symbol, currency: null }) };
-  const spentAmount = metadata ? tradeDisplayAmount(metadata.fromAmountBaseUnits, metadata.fromAsset) : "";
+  const spentAmount = metadata && customer ? tradeDisplayAmount(customer.spendBaseUnits, metadata.fromAsset) : "";
   return <MoneyMotionProvider>
     <MoneyModal open={open} labelledBy="trade-action-title" pending={step === "pending"} onCancel={close} onClose={resetAfterClose}>
       <MoneyModalStep step={step === "pending" || step === "failed" ? "confirm" : step} depth={step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1}>
@@ -189,12 +193,13 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
             {maxBaseUnits === null ? <Notice>Balance unavailable. Try again shortly.</Notice> : null}
           </MoneyAmountDisplay>
         </> : null}
-        {prepared && metadata && step !== "amount" && step !== "dispatch-unknown" ? <MoneyConfirmSummary key={prepared.id} action={prepared}
+        {prepared && metadata && customer && step !== "amount" && step !== "dispatch-unknown" ? <MoneyConfirmSummary key={prepared.id} action={prepared}
           amount={spentAmount} lead={`${direction === "buy" ? "Buy" : "Sell"} ${assetName}`}
           rows={[
-            { label: "You get", value: `≈ ${tradeDisplayAmount(metadata.expectedToAmountBaseUnits, metadata.toAsset)}` },
+            { label: "You get", value: `≈ ${tradeDisplayAmount(customer.expectedReceiveBaseUnits, metadata.toAsset)}` },
+            ...metadata.operatorFee ? [{ label: SERVICE_FEE_LABEL, value: serviceFeeValue(metadata.operatorFee) }] : [],
           ]}
-          details={tradeDetailRows(prepared, metadata, actionExpired ? 0 : secondsLeft)} /> : null}
+          details={tradeDetailRows(prepared, metadata, customer, actionExpired ? 0 : secondsLeft)} /> : null}
         {step === "pending" ? <Notice><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />{prepared ? "Waiting for your wallet…" : "Getting a quote…"}</span></Notice> : null}
         {step === "dispatch-unknown" ? <Notice tone="error" role="alert">This trade may have been submitted. Check Activity for its result.</Notice> : null}
         {expiredUnresolved ? <Notice tone="error" role="alert">This quote expired before the outcome was recorded. Check Activity before trading again.</Notice>
@@ -222,7 +227,7 @@ function matchesPreparedTrade(action: PreparedMoneyAction, session: VerifiedAcco
   const metadata = action.metadata;
   const traded = metadata?.product === "trade" ? request.direction === "buy" ? metadata.toAsset : metadata.fromAsset : null;
   const cash = metadata?.product === "trade" ? request.direction === "buy" ? metadata.fromAsset : metadata.toAsset : null;
-  const spend = metadata?.product === "trade" ? metadata.fromAmountBaseUnits : null;
+  const customer = metadata?.product === "trade" ? customerAmountsIfValid(metadata) : null;
   return action.kind === "trade" && !!session.smartAccount &&
     action.owner.subject === session.user.subject && action.owner.accountProvider === session.accountProvider &&
     action.owner.chainId === 8453 && action.owner.address.toLowerCase() === session.smartAccount.address.toLowerCase() &&
@@ -230,14 +235,25 @@ function matchesPreparedTrade(action: PreparedMoneyAction, session: VerifiedAcco
     traded?.id === token.assetId && traded.address.toLowerCase() === token.address.toLowerCase() &&
     traded.symbol === token.symbol && traded.decimals === token.decimals &&
     cash?.id === "usdc" && cash.symbol === "USDC" && cash.decimals === 6 && cash.address.toLowerCase() === BASE_USDC.address.toLowerCase() &&
-    !!spend && /^\d+$/.test(spend) && BigInt(spend) > BigInt(0) &&
-    (request.amountBaseUnits === TRADE_SELL_ALL || spend === request.amountBaseUnits) &&
+    !!customer && (request.amountBaseUnits === TRADE_SELL_ALL || customer.spendBaseUnits === request.amountBaseUnits) &&
     metadata.slippageBps === TRADE_SLIPPAGE_BPS && metadata.network.name === "Base" && metadata.network.chainId === 8453 &&
-    /^\d+$/.test(metadata.expectedToAmountBaseUnits) && BigInt(metadata.expectedToAmountBaseUnits) > BigInt(0) &&
-    /^\d+$/.test(metadata.minimumToAmountBaseUnits) && BigInt(metadata.minimumToAmountBaseUnits) > BigInt(0) &&
-    action.amounts.some((amount) => amount.direction === "spend" && amount.amountBaseUnits === spend && amount.assetId === metadata.fromAsset.id) &&
-    action.amounts.some((amount) => amount.direction === "receive" && amount.assetId === metadata.toAsset.id && amount.amountBaseUnits === metadata.expectedToAmountBaseUnits && amount.estimated) &&
+    action.amounts.some((amount) => amount.direction === "spend" && amount.amountBaseUnits === customer.spendBaseUnits && amount.assetId === metadata.fromAsset.id) &&
+    action.amounts.some((amount) => amount.direction === "receive" && amount.assetId === metadata.toAsset.id && amount.amountBaseUnits === customer.expectedReceiveBaseUnits && amount.estimated) &&
     Number.isFinite(Date.parse(action.expiresAt)) && !!action.signing;
+}
+function customerAmountsIfValid(metadata: TradeMoneyActionMetadata): TradeCustomerAmounts | null {
+  const swap = [metadata.fromAmountBaseUnits, metadata.expectedToAmountBaseUnits, metadata.minimumToAmountBaseUnits];
+  if (!swap.every((amount) => /^\d+$/.test(amount) && BigInt(amount) > BigInt(0))) return null;
+  if (metadata.operatorFee !== undefined) {
+    const fee = parseOperatorFeeRecord(metadata.operatorFee);
+    const cash = metadata.direction === "buy" ? metadata.fromAsset : metadata.toAsset;
+    if (!fee || cash.address.toLowerCase() !== fee.token.address) return null;
+    const feeBasis = metadata.direction === "buy"
+      ? BigInt(metadata.fromAmountBaseUnits) + BigInt(fee.amountBaseUnits) : BigInt(metadata.minimumToAmountBaseUnits);
+    if (BigInt(fee.amountBaseUnits) > operatorFeeAmount(feeBasis, fee.bps)) return null;
+  }
+  const customer = tradeCustomerAmounts(metadata);
+  return BigInt(customer.expectedReceiveBaseUnits) > BigInt(0) && BigInt(customer.minimumReceiveBaseUnits) > BigInt(0) ? customer : null;
 }
 function tradeDisplayAmount(amount: string, asset: TradeMoneyActionMetadata["fromAsset"]): string {
   return asset.id === "usdc" ? formatUsdStablecoinAmount(amount) : formatExactPresentationTokenAmount(amount, asset.decimals, asset.symbol);
@@ -246,9 +262,9 @@ function tradeContractRow(metadata: TradeMoneyActionMetadata): MoneyConfirmRow {
   const traded = metadata.direction === "buy" ? metadata.toAsset : metadata.fromAsset;
   return { label: `${traded.symbol} contract`, value: <CopyableValue value={traded.address} presentation="reveal" valueKind="contract" className="-my-3 justify-end" /> };
 }
-function tradeDetailRows(action: PreparedMoneyAction, metadata: TradeMoneyActionMetadata, secondsLeft: number): MoneyConfirmRow[] {
+function tradeDetailRows(action: PreparedMoneyAction, metadata: TradeMoneyActionMetadata, customer: TradeCustomerAmounts, secondsLeft: number): MoneyConfirmRow[] {
   return [
-    { label: "Minimum received", value: tradeDisplayAmount(metadata.minimumToAmountBaseUnits, metadata.toAsset) },
+    { label: "Minimum received", value: tradeDisplayAmount(customer.minimumReceiveBaseUnits, metadata.toAsset) },
     { label: "Rate", value: tradeRateLabel(metadata) },
     { label: "Max slippage", value: `${metadata.slippageBps / 100}%` },
     ...metadata.fees.filter((fee) => fee.kind !== "gas").map((fee) => ({ label: "Protocol fee", value: formatExactPresentationTokenAmount(fee.amountBaseUnits, fee.decimals, fee.symbol) })),

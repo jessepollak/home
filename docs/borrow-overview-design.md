@@ -2,7 +2,7 @@
 
 The exploration in [#940](https://github.com/jessepollak/home/issues/940) was approved as Direction A and adopted by [#1004](https://github.com/jessepollak/home/issues/1004). The production surface, model and stories are `apps/web/client/borrowing/borrow-overview.{tsx,stories.tsx}` and `borrow-overview-model.ts`; `borrowing-experience.tsx` supplies the existing overview query. The fixture-backed journeys are `apps/web/stories/journeys/borrow-overview.stories.tsx` and `borrow-multi-market.stories.tsx`. Direction B's numeric buffer rows and inline sheet actions were not adopted.
 
-The source Figma frames remain on the [Borrow page](https://www.figma.com/design/ixgttt6IurKynsvMJpLYDC/Home?node-id=333-13087): Direction A overview `438:22433`, Bitcoin sheet `438:22521`, urgent sheet `438:22612`, zero-debt sheet `438:22676`, held-asset sheet `438:22719`, and desktop `438:23044`. State references: empty `438:23734`, partial `438:24073`, unavailable `438:24134`, loading `438:24259`, reducing-only `438:24336`, large amount `438:24592`; motion `441:5563`. The design-only CurrencyMarkSlot Dogecoin, XRP and Cardano variants are not a production dependency; production renders token images.
+Review the Borrow overview, sheet and edge states in the corresponding Storybook stories and [review boards](design-system/component-workshop.md#review-boards). The historical design-only CurrencyMarkSlot Dogecoin, XRP and Cardano variants are not a production dependency; production renders token images.
 
 ## Hierarchy
 
