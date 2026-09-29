@@ -243,6 +243,46 @@ describe("Borrow action result", () => {
     expect(dialog.getByRole("heading", { name: "Confirm" })).toBeTruthy();
   });
 
+  test("preparing locks the amount and Max, and an edit drops the old review", async () => {
+    const finishers: Array<(value: PreparedMoneyAction) => void> = [];
+    const intents: unknown[] = [];
+    const body = mount({ prepare: async (_kind, params) => { intents.push(params); return new Promise((resolve) => { finishers.push(resolve); }); } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    const input = dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(input.disabled).toBe(true);
+    expect(dialog.getByRole("button", { name: "Max" }).closest("fieldset")?.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "2" } });
+    await act(async () => finishers[0]!(action));
+    expect(dialog.queryByRole("button", { name: "Confirm action" })).toBeNull();
+    expect(dialog.queryByText("1 USDC")).toBeNull();
+    expect(dialog.queryByRole("alert")).toBeNull();
+    expect(input.disabled).toBe(false);
+    expect(dialog.getByRole("button", { name: "Max" }).closest("fieldset")?.disabled).toBe(false);
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(intents).toHaveLength(2);
+    expect(intents[1]).toMatchObject({ amountBaseUnits: "2000000" });
+    await act(async () => finishers[1]!({ ...action, amounts: [{ ...action.amounts[0]!, amountBaseUnits: "2000000" }] }));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(dialog.getAllByText("2 USDC").length).toBeGreaterThan(0);
+  });
+
+  test("an owner change during prepare drops the old review", async () => {
+    let finish!: (value: PreparedMoneyAction) => void;
+    const other: VerifiedAccountSession = { ...session, user: { ...session.user, subject: "other-subject" }, smartAccount: { ...session.smartAccount!, address: "0x2222222222222222222222222222222222222222" } };
+    const flow = (owner: VerifiedAccountSession) => <BorrowMoneyDialog session={owner} snapshot={snapshot} operation="borrow" regionId="US" fetchAccountResource={async () => ({ version: 1, usdcReserveBaseUnits: null })} prepareMoneyAction={async () => new Promise((resolve) => { finish = resolve; })} executeMoneyAction={async () => ({ id: action.id, status: "submitted" })} onClose={() => {}} />;
+    const { rerender } = render(flow(session));
+    const dialog = within(await within(document.body).findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    rerender(flow(other));
+    await act(async () => finish(action));
+    expect(dialog.queryByRole("button", { name: "Confirm action" })).toBeNull();
+    expect(dialog.queryByRole("alert")).toBeNull();
+    expect(dialog.getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
+  });
+
   test("a failed prepare returns the error on the amount step", async () => {
     const body = mount({ prepare: async () => { throw new Error("boom"); } });
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));

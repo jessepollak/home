@@ -131,9 +131,14 @@ export function BorrowMoneyFlow({
     : null;
   const primaryUnit = useMoneyAmountUnit(verifiedCashCurrency(primaryAsset.address), collateralPrice, regionId);
   const primaryAssetMark = presentBorrowAssetMark(primaryAsset, assetMarkResolution);
+  const prepareGeneration = useRef(0);
+  const amountFields = useRef<HTMLFieldSetElement>(null);
+  const restoreFocus = useRef<HTMLElement | null>(null);
   function changeAmount(value: string) {
+    prepareGeneration.current += 1;
     setAmount(value);
   }
+  useEffect(() => () => { prepareGeneration.current += 1; }, [dataOwnerKey, snapshot.market.id, operation]);
   const [amount, setAmount] = useState(initialAmount);
   const maximumFilled = useRef(initialAmount !== "");
   useEffect(() => {
@@ -152,6 +157,13 @@ export function BorrowMoneyFlow({
   const [error, setError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
   useMoneyModalPending(step === "pending" || preparing);
+  useEffect(() => {
+    if (preparing || step !== "amount") return;
+    const target = restoreFocus.current;
+    restoreFocus.current = null;
+    const active = document.activeElement;
+    if (target?.isConnected && (!active || active === document.body)) target.focus({ preventScroll: true });
+  }, [preparing, step]);
   const title = step === "amount" || step === "result" ? borrowOperationLabels[operation] : "Confirm";
   const requiresPrimaryAmount = !closesWithoutDebt;
   const openingCollateralBaseUnits = operation === "supply-and-borrow" && isPositiveDecimalAmount(amount)
@@ -173,6 +185,7 @@ export function BorrowMoneyFlow({
   }, [clockNow, preparedAction, preparedExpiresAt]);
 
   function goBack() {
+    prepareGeneration.current += 1;
     setPreparedAction(null);
     setSubmission(null);
     setSubmittedAt(undefined);
@@ -185,6 +198,9 @@ export function BorrowMoneyFlow({
   async function prepare() {
     if (inFlight.current) return;
     inFlight.current = true;
+    const generation = ++prepareGeneration.current;
+    const active = document.activeElement;
+    restoreFocus.current = active instanceof HTMLElement && amountFields.current?.contains(active) ? active : null;
     setPreparing(true);
     try {
       const amountBaseUnits = requiresPrimaryAmount ? parseClientTokenAmount(amount, primaryAsset.decimals) : undefined;
@@ -202,10 +218,14 @@ export function BorrowMoneyFlow({
         maximumRepayBaseUnits: maximumRepayBaseUnits ?? undefined,
       });
       setError(null);
-      const action = await prepareMoneyAction(intent.kind, intent.params);
+      const outcome = await prepareMoneyAction(intent.kind, intent.params).then((prepared) => ({ prepared }), (failure: unknown) => ({ failure }));
+      if (generation !== prepareGeneration.current) return;
+      if ("failure" in outcome) throw outcome.failure;
+      const action = outcome.prepared;
       if (!preparedActionMatches(action, session, snapshot.market.id, intent.kind, intent.operation)) {
         throw new BorrowActionClientError("The prepared action did not match this verified account and Borrow market.");
       }
+      restoreFocus.current = null;
       setPreparedAction(action);
       setClockNow(() => Date.now());
       setServerExpiredActionId(null);
@@ -301,11 +321,12 @@ export function BorrowMoneyFlow({
             {closesWithoutDebt ? (
               <MoneyConfirmSummary amount={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} lead="Withdraw all collateral" rows={[{ label: "Debt", value: "No debt" }]} />
             ) : (
-              <>
+              <fieldset ref={amountFields} disabled={preparing} className="contents">
                 <MoneyAmountDisplay
                   amount={amount}
                   maxDecimals={primaryAsset.decimals}
                   onAmountChange={changeAmount}
+                  disabled={preparing}
                   overAvailable={overAvailable}
                   amountError={insufficientCollateral ? `That amount needs more ${snapshot.market.collateralToken.symbol} than is available in this wallet.` : undefined}
                   onSubmit={continueDisabled || preparing ? undefined : () => void prepare()}
@@ -329,7 +350,7 @@ export function BorrowMoneyFlow({
                   </BorrowNotice>
                 ) : null}
                 </MoneyAmountDisplay>
-              </>
+              </fieldset>
             )}
           </>
         ) : null}
