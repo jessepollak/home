@@ -31,7 +31,6 @@ const acceptedGaps = {
   ]),
   handlerUnlinked: new Set([
     "auth/base/verify/route.ts -> shared/account/contracts/base-verify.ts",
-    "balances/route.ts -> shared/balances/contract.ts",
     "session/route.ts -> shared/account/contracts/session.ts",
   ]),
   clientUnlinked: {
