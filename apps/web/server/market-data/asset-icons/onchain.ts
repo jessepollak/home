@@ -3,6 +3,7 @@ import "server-only";
 import { decodeFunctionResult, encodeFunctionData } from "viem";
 import { cryptoAssets, memeAssets, stockAssets } from "@/config/invest-assets";
 import { baseRpcBatch, resolveBaseRpcUrl } from "@/server/chain/rpc";
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 import { sanitizeImageUrl } from "./image-url";
 
 export const CONTRACT_URI_ABI = [
@@ -46,10 +47,9 @@ export async function readOnchainIconImages({
     abi: CONTRACT_URI_ABI,
     functionName: "contractURI",
   });
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const deadline = createUpstreamDeadline({ timeoutMs });
     const requests = configuredIconAssets.map(
       (asset, index): OnchainIconRpcRequest => ({
         id: index + 1,
@@ -61,7 +61,7 @@ export async function readOnchainIconImages({
       requests,
       fetchImpl,
       rpcUrl,
-      signal: controller.signal,
+      signal: deadline.signal,
     });
 
     const resolvedImages = await Promise.all(
@@ -83,8 +83,6 @@ export async function readOnchainIconImages({
     return images;
   } catch {
     return new Map();
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -172,22 +170,22 @@ export async function readMetadataImage(
   const url = metadataRequestUrl(uri);
   if (!url) return readInlineMetadataImage(uri);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), ONCHAIN_METADATA_TIMEOUT_MS);
   try {
-    const response = await fetchImpl(url, {
-      headers: { accept: "application/json, text/plain;q=0.8" },
-      cache: "force-cache",
-      signal: controller.signal,
+    const result = await upstreamRequest(url, {
+      deadline: createUpstreamDeadline({ timeoutMs: ONCHAIN_METADATA_TIMEOUT_MS }),
+      maxBytes: ONCHAIN_METADATA_MAX_BYTES,
+      init: {
+        headers: { accept: "application/json, text/plain;q=0.8" },
+        cache: "force-cache",
+        redirect: "follow",
+      },
+      responseType: "text",
+      parse: (value) => JSON.parse(String(value)) as unknown,
+      fetchImpl,
     });
-    if (!response.ok) return null;
-    const text = await response.text();
-    if (text.length > ONCHAIN_METADATA_MAX_BYTES) return null;
-    return imageFromMetadataJson(JSON.parse(text) as unknown);
+    return result.ok ? imageFromMetadataJson(result.value) : null;
   } catch {
     return null;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

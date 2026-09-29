@@ -18,6 +18,9 @@ export async function executeCodexGraphql({
   timeoutMs = CODEX_REQUEST_TIMEOUT_MS,
   signal,
   allowPartialData = false,
+  subject = "Codex market data",
+  createError = (message, options) => new CodexMarketDataError(message, options),
+  noDataMessage = `${subject} returned no data.`,
 }: {
   apiKey: string;
   query: string;
@@ -26,6 +29,9 @@ export async function executeCodexGraphql({
   timeoutMs?: number;
   signal?: AbortSignal;
   allowPartialData?: boolean;
+  subject?: string;
+  createError?: (message: string, options?: ErrorOptions) => Error;
+  noDataMessage?: string;
 }): Promise<unknown> {
   const headers = new Headers({
     accept: "application/json",
@@ -48,15 +54,13 @@ export async function executeCodexGraphql({
 
   if (!result.ok) {
     if (result.kind === "http") {
-      throw new CodexMarketDataError(
-        `Codex market data returned HTTP ${result.status}.`,
-      );
+      throw createError(`${subject} returned HTTP ${result.status}.`);
     }
     const cause = "cause" in result ? result.cause : undefined;
-    throw new CodexMarketDataError(
+    throw createError(
       result.kind === "aborted" || result.kind === "timeout"
-        ? "Codex market data timed out."
-        : "Codex market data request failed.",
+        ? `${subject} timed out.`
+        : `${subject} request failed.`,
       cause === undefined ? undefined : { cause },
     );
   }
@@ -67,10 +71,10 @@ export async function executeCodexGraphql({
     envelope.errors.length > 0 &&
     !(allowPartialData && readRecord(envelope.data))
   ) {
-    throw new CodexMarketDataError("Codex market data returned an error.");
+    throw createError(`${subject} returned an error.`);
   }
   if (envelope?.data === null || envelope?.data === undefined) {
-    throw new CodexMarketDataError("Codex market data returned no data.");
+    throw createError(noDataMessage);
   }
   return envelope.data;
 }
