@@ -396,6 +396,7 @@ describe("ConnectedActivityPanel", () => {
       }} />);
     await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
     const { activityOwnerKey } = await import("./use-activity");
+    await waitFor(() => expect(getHomeQueryClient().isFetching()).toBe(0));
     restoreClock();
     jest.useFakeTimers({ now: NOW });
     try {
