@@ -524,6 +524,83 @@ function resolveVariable(sourceCode, identifier) {
   return null;
 }
 
+function scalarLiteralValue(node) {
+  if (!node) return undefined;
+  if (["Literal", "NumericLiteral", "StringLiteral", "BooleanLiteral", "BigIntLiteral"].includes(node.type)) {
+    return node.regex || node.value === null ? undefined : node.value;
+  }
+  if (node.type === "TemplateLiteral" && node.expressions.length === 0) return sourceValue(node);
+  if (node.type === "UnaryExpression" && ["-", "+"].includes(node.operator)) {
+    const argument = node.argument;
+    if (["Literal", "NumericLiteral"].includes(argument.type) && typeof argument.value === "number") {
+      return node.operator === "-" ? -argument.value : argument.value;
+    }
+    if (["Literal", "BigIntLiteral"].includes(argument.type)
+      && (typeof argument.value === "bigint" || argument.bigint !== undefined || argument.type === "BigIntLiteral")) {
+      const literal = typeof argument.value === "bigint" ? argument.value : argument.bigint ?? argument.value;
+      if (typeof literal === "bigint") return node.operator === "-" ? -literal : literal;
+      if (typeof literal !== "string") return undefined;
+      const value = BigInt(literal.replace(/n$/u, ""));
+      return node.operator === "-" ? -value : value;
+    }
+    return undefined;
+  }
+  if (node.type !== "BinaryExpression" || !["+", "-", "*", "/", "%", "**"].includes(node.operator)) return undefined;
+  const left = scalarLiteralValue(node.left);
+  const right = scalarLiteralValue(node.right);
+  if (typeof left !== "number" || typeof right !== "number") return undefined;
+  const value = {
+    "+": () => left + right,
+    "-": () => left - right,
+    "*": () => left * right,
+    "/": () => left / right,
+    "%": () => left % right,
+    "**": () => left ** right,
+  }[node.operator]();
+  return Number.isFinite(value) ? value : undefined;
+}
+
+export const noConstantPin = {
+  meta: {
+    type: "problem", schema: [], messages: {
+      pinned: "tests must not pin an imported constant to a literal; assert the behavior the value controls instead",
+    },
+  },
+  create(context) {
+    const filename = String(context.filename ?? "").replaceAll("\\", "/");
+    if (/\.stories\.[^/]+$/u.test(filename)) return {};
+    if (!testFileSuffix.test(filename) && !/(?:^|\/)(?:tests|testing)\//u.test(filename)
+      && !/(?:^|\/)[^/]*test-harness\.(?:ts|tsx)$/u.test(filename)
+      && !/(?:^|\/)[^/]*smoke-fixture[^/]*\.(?:ts|tsx)$/u.test(filename)) return {};
+    return {
+      CallExpression(node) {
+        let callee = node.callee;
+        const members = [];
+        while (callee?.type === "MemberExpression" && !callee.computed
+          && callee.property.type === "Identifier") {
+          members.push(callee.property.name);
+          callee = callee.object;
+        }
+        if (members.length !== 1 || !["toBe", "toEqual", "toStrictEqual"].includes(members[0])
+          || callee?.type !== "CallExpression" || callee.callee.type !== "Identifier"
+          || callee.callee.name !== "expect") return;
+        const actual = unwrapBindingExpression(callee.arguments[0]);
+        if (actual?.type !== "Identifier"
+          || !/^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/u.test(actual.name)
+          || !resolveVariable(context.sourceCode, actual)?.defs.some((definition) => definition.type === "ImportBinding")) return;
+        const expected = node.arguments[0];
+        const value = scalarLiteralValue(expected);
+        if (value === undefined
+          || /(?:^|_)(?:CHAIN_ID|NETWORK_ID|ADDRESS|ADDRESSES|ENDPOINT|ENDPOINTS|URL|URLS|URI|PATH|PATHS|HOST|ORIGIN|VERSION)$/u.test(actual.name)
+          || typeof value === "string" && (/^0x[\da-f]{40}$/iu.test(value)
+            || /^(?:https?|wss?):\/\//u.test(value) || value.startsWith("/"))
+          || value === 8453 || value === 84532) return;
+        context.report({ node: expected, messageId: "pinned" });
+      },
+    };
+  },
+};
+
 function importedName(specifier) {
   if (specifier.type !== "ImportSpecifier") return null;
   return specifier.imported.type === "Identifier"

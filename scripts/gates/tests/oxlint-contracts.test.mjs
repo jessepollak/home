@@ -135,6 +135,8 @@ const fixtures = {
   "client/policy.ts": 'export const policy = "frame-ancestors none"; export const readHeader = () => "frame-ancestors none";',
   "client/policy.test.ts": 'import { expect, test } from "bun:test"; import { policy } from "./policy"; test("x", () => { expect(readHeader()).toBe(policy); });',
   "client/policy-clean.test.ts": 'import { expect, test } from "bun:test"; import { policy, readHeader } from "./policy"; test("x", () => { expect(readHeader()).toBe("frame-ancestors none"); expect(policy).toBe("frame-ancestors none"); });',
+  "client/constant-pin.test.ts": 'import { expect, test } from "bun:test"; import { TUNING_LIMIT } from "./limits"; test("x", () => { expect(TUNING_LIMIT).toBe(10); });',
+  "client/constant-pin-clean.test.ts": 'import { expect, test } from "bun:test"; import { BASE_CHAIN_ID, readLimit } from "./limits"; test("x", () => { expect(BASE_CHAIN_ID).toBe(8453); expect(readLimit()).toBe(10); });',
 
   "client/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
   "components/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
@@ -278,6 +280,7 @@ const contracts = [
   ["product comments are rejected in all five layers while documented exceptions and tests stay clean", () => { for (const file of ["app/comment.mjs", "client/comment.ts", "components/comment.jsx", "server/comment.ts", "shared/comment.tsx"]) assertHits(file, "home(no-comments)"); assertClean("shared/comment-clean.ts"); assertClean("client/comment-clean.test.ts"); assertClean("client/comment-clean.stories.tsx"); }],
   ["silent catches fail while typed recovery values pass in every covered layer", () => { assertHits("app/silent-catch.ts", "home(no-silent-catch)"); assertHits("client/silent-catch.ts", "home(no-silent-catch)"); assertHits("server/silent-catch.ts", "home(no-silent-catch)"); assertClean("app/handled-catch.ts"); assertClean("client/handled-catch.ts"); }],
   ["self-referential expectations fail while independent assertions pass", () => { assertHits("client/policy.test.ts", "home(no-self-referential-expectation)"); assertClean("client/policy-clean.test.ts"); }],
+  ["imported constant pins are rejected while identity and behavioral assertions pass", () => { assertHits("client/constant-pin.test.ts", "home(no-constant-pin)"); assertClean("client/constant-pin-clean.test.ts"); }],
   ["exploration stories require a default-meta tag only in exploration paths", () => { assertHits("stories/explorations/untagged.stories.tsx", "home(exploration-story-tag)"); assertHits("client/explorations/untagged.stories.tsx", "home(exploration-story-tag)"); assertClean("components/explorations/tagged.stories.tsx"); assertClean("stories/journeys/ordinary.stories.tsx"); }],
 
   ["instrumentation helpers are isolated unless their boundary is intrinsically safe", () => { assertHits("server/instrumentation-unsafe.ts", "home(isolate-instrumentation-calls)"); assertClean("server/instrumentation-safe.ts"); }],

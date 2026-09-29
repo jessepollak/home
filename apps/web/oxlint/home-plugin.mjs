@@ -16,6 +16,7 @@ import { noRawButtons, noRawFields } from "./rules/raw-elements.mjs";
 import { noRestyle } from "./rules/no-restyle.mjs";
 import {
   noComputedStyleInComponentTests,
+  noConstantPin,
   exactMockModules,
   noPresentationClassReads,
   noRequestOnlyPlaywright,
@@ -69,6 +70,7 @@ const homePlugin = {
     "no-presentation-class-reads": noPresentationClassReads,
     "no-computed-style-in-component-tests": noComputedStyleInComponentTests,
     "no-self-referential-expectation": noSelfReferentialExpectation,
+    "no-constant-pin": noConstantPin,
     "exact-mock-modules": exactMockModules,
     "no-chained-type-assertions": noChainedTypeAssertions,
     "no-reflect-indirection": noReflectIndirection,

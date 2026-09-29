@@ -430,6 +430,7 @@
         "home/no-presentation-class-reads": "error",
         "home/no-computed-style-in-component-tests": "error",
         "home/no-self-referential-expectation": "error",
+        "home/no-constant-pin": "error",
         "home/exact-mock-modules": "error"
       }
     },
