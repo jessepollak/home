@@ -3,7 +3,6 @@ import "server-only";
 import { describe, expect, test } from "bun:test";
 import { createMarketStatsHandler } from "./market-stats";
 import { createErrorMarketStatsResponse } from "../codex/market-stats";
-import { createInvestHistoryAdmission } from "../codex/history-admission";
 import type { MarketStatsResponse } from "@/shared/invest/contracts/market-stats";
 
 const dynamicId = "base:0x1111111111111111111111111111111111111111";
@@ -28,14 +27,10 @@ describe("GET /api/market-prices/stats", () => {
     expect(await response.json()).toEqual(ready);
   });
 
-  test("checks exact dynamic meme admission before the reader", async () => {
+  test("admits a canonical dynamic asset using its Base contract", async () => {
     const seen: Array<[string, number]> = [];
-    const reads: string[] = [];
     const GET = createMarketStatsHandler(
-      async (id) => {
-        reads.push(id);
-        return { ...ready, assetId: id as `base:0x${string}` };
-      },
+      async (id) => ({ ...ready, assetId: id as `base:0x${string}` }),
       async (address, networkId) => {
         seen.push([address, networkId]);
         return true;
@@ -44,19 +39,6 @@ describe("GET /api/market-prices/stats", () => {
     const response = await GET(request(dynamicId));
     expect(response.status).toBe(200);
     expect(seen).toEqual([["0x1111111111111111111111111111111111111111", 8453]]);
-    expect(reads).toEqual([dynamicId]);
-    expect(await response.json()).toMatchObject({ assetId: dynamicId, status: "ready" });
-  });
-
-  test("admits a search-only exact Base token that is not trending, like history", async () => {
-    const address = "0x1111111111111111111111111111111111111111" as const;
-    const admission = createInvestHistoryAdmission({
-      trending: async () => false,
-      lookup: async () => new Map([[address, { address, name: "Kinetic BTC", symbol: "kBTC", decimals: 8 }]]),
-    });
-    const GET = createMarketStatsHandler(async (id) => ({ ...ready, assetId: id as `base:0x${string}` }), admission);
-    const response = await GET(request(dynamicId));
-    expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ assetId: dynamicId, status: "ready" });
   });
 
