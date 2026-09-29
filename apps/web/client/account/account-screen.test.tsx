@@ -221,6 +221,26 @@ describe("production account sign-in sheet", () => {
     await waitFor(() => expect(code.getAttribute("aria-invalid")).toBe("true"));
   });
 
+  test("moves between email and code entry inside the same open sheet", async () => {
+    render(<SheetHarness requestEmailCode={async () => ({ flowId: "fixture-flow" })} />);
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    const sheet = await page().findByRole("dialog", { name: "Sign in to Home" });
+    fireEvent.input(page().getByRole("textbox", { name: "Email address" }), {
+      target: { value: "fixture@example.test" },
+    });
+    fireEvent.click(page().getByRole("button", { name: "Continue with email" }));
+
+    const code = await page().findByRole("textbox", { name: "Verification code" });
+    expect(page().getByRole("dialog", { name: "Check your email" })).toBe(sheet);
+    expect(document.activeElement).toBe(code);
+
+    fireEvent.click(page().getByRole("button", { name: "Change email" }));
+    const email = await page().findByRole("textbox", { name: "Email address" });
+    expect(page().getByRole("dialog", { name: "Sign in to Home" })).toBe(sheet);
+    expect(document.activeElement).toBe(email);
+    expect((email as HTMLInputElement).value).toBe("fixture@example.test");
+  });
+
   test("existing verified session does not auto-close a new email attempt", async () => {
     render(
       <SheetHarness
