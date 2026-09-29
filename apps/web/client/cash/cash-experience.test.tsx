@@ -308,7 +308,7 @@ describe("Cash L2", () => {
     expect(page().queryByRole("dialog", { name: "Deposit" })).toBeNull();
   });
   test("a cached metadata refetch failure clears a routed deposit before opening its amount step", async () => {
-    getHomeQueryClient().setQueryData(publicQueryKey("savings-vaults"), metadata, { updatedAt: Date.now() - 61_000 });
+    getHomeQueryClient().setQueryData(publicQueryKey("savings-vaults"), metadata, { updatedAt: NOW - 61_000 });
     const fetchVaults = async () => { throw new Error("Rates unavailable"); };
     const view = render(<Route initialFlow="save-deposit" snapshot={held} view="cash" fetchVaults={fetchVaults} />);
     await waitFor(() => expect(getHomeQueryClient().getQueryState(publicQueryKey("savings-vaults"))?.status).toBe("error"));
@@ -672,7 +672,7 @@ describe("Cash L2", () => {
   });
   test("a routed first deposit needs a newer history read before it can confirm", async () => {
     const actionsKey = ownerQueryKey(dataOwnerKey(session), "actions");
-    getHomeQueryClient().setQueryData(actionsKey, { actions: [] }, { updatedAt: Date.now() - 61_000 });
+    getHomeQueryClient().setQueryData(actionsKey, { actions: [] }, { updatedAt: NOW - 61_000 });
     cached();
     onlineManager.setOnline(false);
     render(<Route initialFlow="save-deposit" snapshot={empty} fetchAccountResource={async (path) => {
