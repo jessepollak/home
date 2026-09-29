@@ -5,7 +5,7 @@ license: MIT
 metadata:
   source: https://github.com/emilkowalski/skills/tree/85e8e2363b713506e1d5b6e07a0eb2da66be1bc3/skills/mobile-native
   adapted-for: jessepollak/home
-  adaptation: Home mobile-web scope, existing Playwright, and operator device checks
+  adaptation: Home mobile-web scope, existing Playwright, and device checks
 ---
 
 # Mobile-native Home UI
@@ -19,7 +19,7 @@ Apply the smallest platform-correct change to the named mobile-web surface. Home
 - Never disable zoom. Preserve selectable content, browser navigation, focus, and native scrolling unless the named control must own a gesture.
 - Keep reduced-motion behavior and Home timing within the `docs/ui-direction.md` limits.
 - Follow `docs/browser-validation.md`: the repository-pinned `agent-browser` is required for interactive iteration and proof before and after editing. Playwright remains the sole authoritative committed automated browser layer; use its existing configuration only when the permanent-test ladder calls for a browser assertion.
-- A real-device check is an operator action. State exactly what iOS or Android behavior remains unverified; do not claim an `agent-browser` viewport or emulation proves it.
+- A real-device check is an operator action unless the runner exposes an Android device under [the real Android device contract](../../../docs/browser-validation.md#real-android-device); then run the Android Chrome check yourself and report iOS/Safari as unverified. Never claim an emulated viewport proves real-device behavior.
 
 ## Review sequence
 
@@ -44,4 +44,4 @@ Use `agent-browser` to prove no horizontal overflow, visible and reachable prima
 
 ## Report
 
-For each supported finding give `severity — file:line — observed risk — smallest remedy — automated proof — operator device check`. Distinguish code-confirmed defects from hypotheses. If implementing, report the exact declarations or component behavior changed. If no concrete finding survives code and issue verification, say so.
+For each supported finding give `severity — file:line — observed risk — smallest remedy — automated proof — device check (agent-run Android Chrome or operator action)`. Distinguish code-confirmed defects from hypotheses and state which iOS or Android behavior remains unverified. If implementing, report the exact declarations or component behavior changed. If no concrete finding survives code and issue verification, say so.
