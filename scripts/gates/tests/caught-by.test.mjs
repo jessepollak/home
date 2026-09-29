@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   caughtByDetectors,
   caughtByViolations,
+  commitsForTrailerGate,
   squashedCommits,
   detectCommitRange,
   readCommitsForRange,
@@ -147,8 +148,19 @@ test("does not apply the trailer contract to non-fix or unscoped subjects", () =
   ]), []);
 });
 
+test("a pushed pull request squash is left to the PR body gate, while direct pushes and PR ranges stay checked", () => {
+  const squash = commit("fix(performance): bound portfolio work (#1564)");
+  const direct = commit("fix(home): repair state");
+  assert.deepEqual(commitsForTrailerGate([squash, direct], "HEAD^!"), [direct]);
+  assert.deepEqual(caughtByViolations(commitsForTrailerGate([squash], "HEAD^!")), []);
+  assert.equal(caughtByViolations(commitsForTrailerGate([direct], "HEAD^!")).length, 1);
+  assert.deepEqual(commitsForTrailerGate([squash, direct], "abc..HEAD"), [squash, direct]);
+  assert.equal(caughtByViolations(commitsForTrailerGate([squash], "abc..HEAD")).length, 1);
+  assert.equal(commitsForTrailerGate([commit("fix(home): mention (#12) mid-subject")], "HEAD^!").length, 1);
+});
+
 test("the active commit range satisfies the Caught-by contract", () => {
   const range = detectCommitRange();
-  const violations = caughtByViolations(readCommitsForRange(range));
+  const violations = caughtByViolations(commitsForTrailerGate(readCommitsForRange(range), range));
   assert.deepEqual(violations, [], violations.join("\n"));
 });
