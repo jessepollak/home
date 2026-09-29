@@ -50,5 +50,5 @@ Failure-cases: <tested>/<dependency calls>
 
 </details>
 
-<!-- Last line: Closes #<issue> for implementation, Refs #<issue> for proposals. Exactly once. -->
+<!-- Last line for feat/fix/test/ops/dx/docs/chore (scoped or not): Closes #<issue> (or Fixes/Resolves), or replace the placeholder with No issue: <reason>. For design/product proposals use Refs #<issue>. Write this outside comments and fenced code. -->
 Closes #
