@@ -1,5 +1,6 @@
 import "server-only";
 
+import { attachDatabasePool } from "@vercel/functions";
 import { Pool, type PoolClient } from "pg";
 
 export type SqlQueryResult<T = Record<string, unknown>> = {
@@ -51,6 +52,7 @@ type PostgresPoolConfig = {
 type PostgresSqlExecutorOptions = Readonly<{
   schema?: string;
   poolFactory?: (config: PostgresPoolConfig) => PoolLike;
+  attachPool?: (pool: PoolLike) => void;
 }>;
 
 function wrapQueryable(
@@ -106,7 +108,12 @@ export function createPostgresSqlExecutor(
         idleTimeoutMillis: 30_000,
         connectionTimeoutMillis: 10_000,
       };
-      pool = options.poolFactory?.(poolConfig) ?? new Pool(poolConfig);
+      pool = options.poolFactory?.(poolConfig);
+      if (!pool) {
+        const created = new Pool(poolConfig);
+        (options.attachPool ?? attachDatabasePool)(created);
+        pool = created;
+      }
       pool.on("error", (error) => {
         console.warn("postgres idle client error", (error as { code?: string }).code ?? "unknown");
       });
