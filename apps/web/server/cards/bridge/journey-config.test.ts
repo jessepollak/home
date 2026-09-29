@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { readCardJourneyConfig } from "./journey-config";
+import { cardJourneyEnabled, readCardJourneyConfig } from "./journey-config";
 
 const env = { BRIDGE_CARDS_ENABLED: "1", BRIDGE_MODE: "sandbox", BRIDGE_API_KEY: "bridge-test",
   BRIDGE_STRIPE_SECRET_KEY: "sk_test_fake", BRIDGE_STRIPE_API_VERSION: "2026-08-26.dahlia",
   BRIDGE_STRIPE_CARD_FUNDING: "financial_account", BRIDGE_STRIPE_FINANCIAL_ACCOUNT: "fa_test" };
 
 describe("card journey config guard", () => {
+  test("the Card surface is enabled only by the exact journey flag", () => {
+    expect(cardJourneyEnabled(env)).toBe(true);
+    for (const value of [undefined, "", "0", "true", " 1"]) expect(cardJourneyEnabled({ ...env, BRIDGE_CARDS_ENABLED: value })).toBe(false);
+  });
   test("disabled separately from webhook configuration", () => {
     expect(readCardJourneyConfig({ ...env, BRIDGE_CARDS_ENABLED: "0" })).toBeNull();
     expect(readCardJourneyConfig(env)?.funding).toEqual({ kind: "financial_account", financialAccount: "fa_test" });

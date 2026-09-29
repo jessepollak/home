@@ -31,7 +31,6 @@ const acceptedGaps = {
   ]),
   handlerUnlinked: new Set([
     "auth/base/verify/route.ts -> shared/account/contracts/base-verify.ts",
-    "balances/route.ts -> shared/balances/contract.ts",
     "session/route.ts -> shared/account/contracts/session.ts",
   ]),
   clientUnlinked: {
@@ -73,11 +72,6 @@ const clientReasonRoutes = [
   "admin/audit/route.ts",
   "admin/session/route.ts",
   "admin/settings/route.ts",
-  "cards/[id]/ephemeral-key/route.ts",
-  "cards/[id]/freeze/route.ts",
-  "cards/[id]/unfreeze/route.ts",
-  "cards/enrollment/route.ts",
-  "cards/route.ts",
 ];
 
 test("accepts only frozen baseline identities", () => {

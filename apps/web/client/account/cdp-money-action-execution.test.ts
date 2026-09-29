@@ -430,28 +430,28 @@ describe("thin action dispatch", () => {
     expect(fake.pending()).toBe(0);
   });
 
-  test("stops a failed operation without a hash and does not post a transaction handle", async () => {
-    const fake = fakeClock();
-    const posts: string[] = [];
-    const failures: string[] = [];
-    const run = pollTransactionResolution({
-      generation: 2,
-      fence: { assertCurrent: () => {} },
-      check: async () => ({ status: "failed", reason: "Bundler rejected the operation." }),
-      recordTransactionHash: async (hash) => { posts.push(hash); },
-      onFailedWithoutHash: (reason) => { failures.push(reason); },
-      clock: fake.clock,
-    });
-
-    await fake.advance(1_500);
-    await run.result;
-
-    expect(posts).toEqual([]);
-    expect(failures).toEqual(["Bundler rejected the operation."]);
-    expect(fake.pending()).toBe(0);
-  });
-
-  test("does not record a provider hash for a failed operation and announces the failure instead", async () => {
+  test.each([
+    {
+      name: "without a hash reports the bundler failure and never posts a handle",
+      resolution: { status: "failed" as const, reason: "Bundler rejected the operation." },
+      reason: "Bundler rejected the operation.",
+      checkCount: false,
+    },
+    {
+      name: "with a provider hash reports its reason and never posts a handle",
+      resolution: normalizeResolutionState({
+        status: "failed", transactionHash, failureReason: "User operation reverted inside the bundle.",
+      }),
+      reason: "User operation reverted inside the bundle.",
+      checkCount: true,
+    },
+    {
+      name: "with a provider hash and no reason reports the default and never posts a handle",
+      resolution: normalizeResolutionState({ status: "failed", transactionHash }),
+      reason: "The wallet operation failed.",
+      checkCount: false,
+    },
+  ])("failed operation $name", async ({ resolution, reason, checkCount }) => {
     const fake = fakeClock();
     const posts: string[] = [];
     const failures: string[] = [];
@@ -459,16 +459,9 @@ describe("thin action dispatch", () => {
     const run = pollTransactionResolution({
       generation: 2,
       fence: { assertCurrent: () => {} },
-      check: async () => {
-        checks += 1;
-        return normalizeResolutionState({
-          status: "failed",
-          transactionHash,
-          failureReason: "User operation reverted inside the bundle.",
-        });
-      },
+      check: async () => { checks += 1; return resolution; },
       recordTransactionHash: async (hash) => { posts.push(hash); },
-      onFailedWithoutHash: (reason) => { failures.push(reason); },
+      onFailedWithoutHash: (failure) => { failures.push(failure); },
       clock: fake.clock,
     });
 
@@ -476,29 +469,8 @@ describe("thin action dispatch", () => {
     await run.result;
 
     expect(posts).toEqual([]);
-    expect(failures).toEqual(["User operation reverted inside the bundle."]);
-    expect(checks).toBe(1);
-    expect(fake.pending()).toBe(0);
-  });
-
-  test("announces a failed operation carrying a hash with the default reason when the provider gives none", async () => {
-    const fake = fakeClock();
-    const posts: string[] = [];
-    const failures: string[] = [];
-    const run = pollTransactionResolution({
-      generation: 2,
-      fence: { assertCurrent: () => {} },
-      check: async () => normalizeResolutionState({ status: "failed", transactionHash }),
-      recordTransactionHash: async (hash) => { posts.push(hash); },
-      onFailedWithoutHash: (reason) => { failures.push(reason); },
-      clock: fake.clock,
-    });
-
-    await fake.advance(1_500);
-    await run.result;
-
-    expect(posts).toEqual([]);
-    expect(failures).toEqual(["The wallet operation failed."]);
+    expect(failures).toEqual([reason]);
+    if (checkCount) expect(checks).toBe(1);
     expect(fake.pending()).toBe(0);
   });
 
@@ -581,6 +553,58 @@ describe("thin action dispatch", () => {
 
     expect(checks).toBe(0);
     expect(fake.pending()).toBe(0);
+  });
+
+  test("a malformed 2xx confirm response fails unavailable before wallet dispatch", async () => {
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject" },
+      smartAccount: { address: plan.calls[0].to, chainId: 8453 },
+      accountProvider: "cdp-embedded",
+    };
+    const ownerFence: OwnerGenerationFence = {
+      advance: () => 4,
+      capture: () => 4,
+      isCurrent: (generation) => generation === 4,
+      assertCurrent: (generation) => { expect(generation).toBe(4); },
+      updateAuthorizationBoundary: () => {},
+      updateOwnerKey: () => false,
+    };
+    const posts: string[] = [];
+    const transport = {
+      fetchAccountResource: async (path: string, options?: { method?: string }) => {
+        if (path === `/api/actions/${id}`) return {
+          id, kind: "send", summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+          calls: plan.calls, expiresAt: "2099-01-01T00:00:00.000Z",
+        };
+        if (path === `/api/actions/${id}/confirm`) {
+          expect(options?.method).toBe("POST");
+          posts.push(path);
+          return { calls: [{ ...plan.calls[0], to: "0xnothex" }] };
+        }
+        throw new Error(`Unexpected account resource ${path}`);
+      },
+    } as unknown as AuthenticatedTransport;
+    let dispatches = 0;
+    let execution!: ReturnType<typeof useMoneyActionExecution>;
+    function Probe() {
+      execution = useMoneyActionExecution({
+        session, status: "verified", verification: "server", ownerKey: "owner", ownerFence,
+        sdkSendUserOperation: async () => { dispatches += 1; throw new Error("Must not dispatch"); },
+        sdkGetUserOperation: undefined,
+        baseConnection: { current: null } as MutableRefObject<ConnectedBaseAccount | null>,
+        transport, signTypedData: async () => "0x12",
+      });
+      return null;
+    }
+    const view = render(createElement(Probe));
+    try {
+      const action = await execution.resumeMoneyAction(id);
+      await expect(execution.executeMoneyAction(action)).rejects.toMatchObject({ reason: "unavailable" });
+      expect(posts).toEqual([`/api/actions/${id}/confirm`]);
+      expect(dispatches).toBe(0);
+    } finally {
+      view.unmount();
+    }
   });
 
   test("addresses the CDP smart account by its checksummed form when sending and polling", async () => {

@@ -36,6 +36,20 @@ describe("PrimaryNavigation", () => {
     expect(navigations).toEqual(["invest", "invest"]);
   });
 
+  test("Card appears between Home and Invest only when cards are enabled", () => {
+    const navigations: string[] = [];
+    const view = render(<PrimaryNavigation activeNavigation="home" onNavigate={(id) => navigations.push(id)} />);
+    const names = () => within(view.getByRole("navigation", { name: "Main navigation" })).getAllByRole("button").map((button) => button.textContent);
+    expect(names()).toEqual(["Home", "Invest"]);
+    view.rerender(<PrimaryNavigation activeNavigation="card" cardsEnabled onNavigate={(id) => navigations.push(id)} />);
+    expect(names()).toEqual(["Home", "Card", "Invest"]);
+    expect(view.getByRole("button", { name: "Card" }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(view.getByRole("button", { name: "Invest" }));
+    view.rerender(<PrimaryNavigation layout="rail" activeNavigation="card" cardsEnabled account={account} onNavigate={(id) => navigations.push(id)} />);
+    fireEvent.click(view.getByRole("button", { name: "Card" }));
+    expect(navigations).toEqual(["invest", "card"]);
+  });
+
   test("rail gives Account sole current state, ignores repeat presses and disables it while checking", () => {
     const openers: HTMLButtonElement[] = [];
     const view = render(<PrimaryNavigation layout="rail" activeNavigation="invest" isAccountSettingsOpen account={account} onNavigate={() => {}} onOpenAccount={(opener) => openers.push(opener)} />);

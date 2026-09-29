@@ -497,14 +497,15 @@ export function formatFiatAmount(
   return applySign(label, result.negative, options.sign);
 }
 
-export function formatUsdStablecoinAmount(
+export function formatExactPresentationCashAmount(
   balanceBaseUnits: AtomicAmount,
-  decimals = 6,
+  decimals: number,
+  currency: string,
   regionId: RegionId = "GLOBAL",
 ): string {
   try {
     const atoms = parseUnsignedAtomicAmount(balanceBaseUnits);
-    return formatFiatAmount(atoms, decimals, "USD", {
+    return formatFiatAmount(atoms, decimals, currency, {
       fractionDigits: decimals,
       minimumFractionDigits: Math.min(2, decimals),
       regionId,
@@ -512,6 +513,14 @@ export function formatUsdStablecoinAmount(
   } catch {
     return "—";
   }
+}
+
+export function formatUsdStablecoinAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals = 6,
+  regionId: RegionId = "GLOBAL",
+): string {
+  return formatExactPresentationCashAmount(balanceBaseUnits, decimals, "USD", regionId);
 }
 
 export function formatPresentationPercentage(

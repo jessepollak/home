@@ -216,19 +216,20 @@ test("a non-hash action handle invalidates activity orders alongside actions", a
 });
 
 describe("savings action convergence", () => {
-  test("deposit converges lower Base USDC and higher vault shares after refresh failure and indexer lag", async () => {
-    await proveSavingsConvergence({
-      kind: "savings-deposit",
+  test.each([
+    {
+      name: "deposit lowers Base USDC and raises vault shares after refresh failure and indexer lag",
+      kind: "savings-deposit" as const,
       initial: balances("5000000", "0"),
       final: balances("4000000", "1000000000000000000"),
-    });
-  });
-
-  test("withdraw converges lower vault shares and higher Base USDC without redispatch", async () => {
-    await proveSavingsConvergence({
-      kind: "savings-withdraw",
+    },
+    {
+      name: "withdraw lowers vault shares and raises Base USDC without redispatch",
+      kind: "savings-withdraw" as const,
       initial: balances("4000000", "2000000000000000000"),
       final: balances("5000000", "1000000000000000000"),
-    });
+    },
+  ])("$name", async ({ kind, initial, final }) => {
+    await proveSavingsConvergence({ kind, initial, final });
   });
 });

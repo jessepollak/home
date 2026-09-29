@@ -1,7 +1,12 @@
 export const navigationItems = [
   { id: "home", label: "Home" },
+  { id: "card", label: "Card" },
   { id: "invest", label: "Invest" },
 ] as const;
+
+export function visibleNavigationItems({ cardsEnabled }: { cardsEnabled: boolean }) {
+  return navigationItems.filter((item) => item.id !== "card" || cardsEnabled);
+}
 
 export const cashPanelId = "cash" as const;
 export const borrowPanelId = "borrow" as const;

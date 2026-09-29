@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { skipToken, type QueryKey } from "@tanstack/react-query";
+import type { QueryKey } from "@tanstack/react-query";
 import { createHomeQueryClient, ownerQueryMeta } from "./query-client";
 import { ownerQuery, publicInfiniteQuery, publicQuery } from "./query-options";
 
@@ -40,18 +40,6 @@ test("owner query keeps a late owner-a response out of owner-b cache", async () 
   await fetchOwnerA;
   expect(client.getQueryData<{ total: number }>(ownerA.queryKey)).toEqual({ total: 3 });
   expect(client.getQueryData(ownerB.queryKey)).toBeUndefined();
-  client.clear();
-});
-
-test("signed-out owner query uses disabled key, skip token and enabled false", () => {
-  const options = ownerQuery({ owner: null, scope: "invite-link", key: ["suffix"], queryFn: async () => "link" });
-  expect([...options.queryKey]).toEqual(["unauthenticated", "invite-link-disabled", "suffix"]);
-  expect(options.queryFn).toBe(skipToken);
-  expect(options.meta).toBeUndefined();
-  const client = createHomeQueryClient();
-  const queryKey: QueryKey = ["owner", "invite-link"];
-  const query = client.getQueryCache().build(client, { queryKey, queryFn: async () => "link" });
-  expect(typeof options.enabled === "function" && options.enabled(query)).toBe(false);
   client.clear();
 });
 

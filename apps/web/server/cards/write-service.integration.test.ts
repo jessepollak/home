@@ -67,8 +67,12 @@ const stripe = (async (input: RequestInfo | URL, init?: RequestInit) => {
     await admin?.close();
   });
   test("reserves a single account then reuses Bridge identity and a fresh KYC link", async () => {
-    expect(await service.enroll(owner)).toContain("bridge.withpersona.com");
-    expect(await service.enroll(owner)).toContain("bridge.withpersona.com");
+    const redirectUri = "https://home.example/card?return=verification";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const link = new URL(await service.enroll(owner, redirectUri));
+      expect(link.origin).toBe("https://bridge.withpersona.com");
+      expect(link.searchParams.get("redirect_uri")).toBe(redirectUri);
+    }
     const account = await sql.query<{ bridge_customer_id: string }>("SELECT bridge_customer_id FROM card_accounts WHERE customer_id=$1 AND mode='sandbox'", [owner]);
     expect(account.rows).toEqual([{ bridge_customer_id: fixtureCustomer.id }]);
   });

@@ -9,10 +9,12 @@ import { HomeShellRoutingProvider, type HomeInboundPanelState } from "@/client/h
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
+import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { TransferExecutionError } from "@/shared/transfers/types";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { AuthenticatedCashExperience, CashExperience, savingsEntryRefreshInterval } = await import("./cash-experience");
@@ -55,9 +57,15 @@ const executeMoneyAction = async (): Promise<never> => { throw new Error("Not pa
 const walletWithoutAccount = { status: "verified", verification: "server", session: { ...session, smartAccount: null },
   fetchBalances: async () => { throw new Error("Not part of this test"); }, fetchAccountResource: async () => metadata,
   prepareMoneyAction, executeMoneyAction } as unknown as AccountWalletClient;
+const fetchAccountResource = async (path: string) => {
+  const assetId = new URL(path, "https://example.test").searchParams.get("assetId");
+  const currency = cashConversionCurrencies.find((item) => item.tradeAssetId === assetId);
+  return currency ? { version: 2, status: "available", token: { assetId, address: currency.address, symbol: currency.symbol, decimals: currency.decimals }, buy: "available", balanceBaseUnits: "100000" }
+    : { version: 2, status: "unavailable", reason: "asset-unsupported" };
+};
 
-function Surface({ view = "savings", snapshot = held, status = "ready", stale = false, owner = session, onAddMoney = noop, onOpenSavings = noop, onRetryBalances = noop, nowFn = now, onPrepare = prepareMoneyAction, onExecute = executeMoneyAction, fetchVaults, fetchAccountResource }: { view?: "cash" | "savings"; snapshot?: BalancesSnapshot | null; status?: "ready" | "loading" | "failed"; stale?: boolean; owner?: VerifiedAccountSession | null; onAddMoney?: CashExperienceProps["onAddMoney"]; onOpenSavings?: () => void; onRetryBalances?: () => void; nowFn?: () => number; onPrepare?: CashExperienceProps["prepareMoneyAction"]; onExecute?: CashExperienceProps["executeMoneyAction"]; fetchVaults?: CashExperienceProps["fetchVaults"]; fetchAccountResource?: CashExperienceProps["fetchAccountResource"] }) {
-  return <main><CashExperience view={view} snapshot={snapshot} balanceStatus={status} balanceStale={stale} session={owner} now={nowFn} fetchVaults={fetchVaults} fetchAccountResource={fetchAccountResource} onOpenSavings={onOpenSavings} onAddMoney={onAddMoney} onRetryBalances={onRetryBalances} prepareMoneyAction={onPrepare} executeMoneyAction={onExecute} /></main>;
+function Surface({ view = "savings", snapshot = held, status = "ready", stale = false, owner = session, session: currentSession, onAddMoney = noop, onOpenSavings = noop, onRetryBalances = noop, nowFn = now, onPrepare = prepareMoneyAction, onExecute = executeMoneyAction, fetchVaults, fetchAccountResource }: { view?: "cash" | "savings"; snapshot?: BalancesSnapshot | null; status?: "ready" | "loading" | "failed"; stale?: boolean; owner?: VerifiedAccountSession | null; session?: CashExperienceProps["session"]; onAddMoney?: CashExperienceProps["onAddMoney"]; onOpenSavings?: () => void; onRetryBalances?: () => void; nowFn?: () => number; onPrepare?: CashExperienceProps["prepareMoneyAction"]; onExecute?: CashExperienceProps["executeMoneyAction"]; fetchVaults?: CashExperienceProps["fetchVaults"]; fetchAccountResource?: CashExperienceProps["fetchAccountResource"] }) {
+  return <main><CashExperience view={view} snapshot={snapshot} balanceStatus={status} balanceStale={stale} session={currentSession ?? owner} now={nowFn} fetchVaults={fetchVaults} fetchAccountResource={fetchAccountResource} onOpenSavings={onOpenSavings} onAddMoney={onAddMoney} onRetryBalances={onRetryBalances} prepareMoneyAction={onPrepare} executeMoneyAction={onExecute} /></main>;
 }
 function OwnerSwitchSurface({ snapshot }: { snapshot: BalancesSnapshot }) {
   const [active, setActive] = useState(session);
@@ -120,6 +128,34 @@ function preparedDeposit(): PreparedMoneyAction {
   };
 }
 
+function preparedTrade(): PreparedMoneyAction {
+  const euro = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
+  const dollar = cashConversionCurrencies.find((currency) => currency.code === "USD")!;
+  const from = { id: "usdc", address: dollar.address, symbol: dollar.symbol, decimals: dollar.decimals };
+  const to = { id: euro.tradeAssetId, address: euro.address, symbol: euro.symbol, decimals: euro.decimals };
+  return {
+    id: "cash-trade-1", kind: "trade", title: "Convert", owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
+    createdAt: "2026-09-10T12:00:00.000Z", expiresAt: "2099-09-10T12:00:00.000Z", calls: [], warnings: [],
+    amounts: [
+      { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: "1000000", direction: "spend" },
+      { assetId: to.id, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: "2000000", direction: "receive", estimated: true },
+    ],
+    signing: { signer: "cdp-embedded", evmAccount: session.smartAccount!.address, typedData: {
+      domain: { name: "Coinbase Smart Wallet", version: "1", chainId: 8453, verifyingContract: session.smartAccount!.address },
+      types: {
+        EIP712Domain: [
+          { name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" },
+        ],
+        CoinbaseSmartWalletMessage: [{ name: "hash", type: "bytes32" }],
+      },
+      primaryType: "CoinbaseSmartWalletMessage", message: { hash: `0x${"ab".repeat(32)}` },
+    } },
+    metadata: { product: "trade", provider: "cdp-swaps", direction: "buy", network: { name: "Base", chainId: 8453 }, assetId: to.id, assetName: euro.name, fromAsset: from, toAsset: to,
+      fromAmountBaseUnits: "1000000", expectedToAmountBaseUnits: "2000000", minimumToAmountBaseUnits: "1980000", slippageBps: 100, fees: [], approval: "permit2-exact",
+      quoteBlockNumber: "123", quotedAt: "2026-09-10T12:00:00.000Z", permitDeadline: "4102444800", executionDeadline: "4102444800" },
+  };
+}
+
 function pendingActionRow(action: PreparedMoneyAction, status: "pending" | "unknown" | "failed" | "confirmed" = "pending", settledAt?: string) {
   return { id: action.id, kind: action.kind, status, owner: action.owner,
     createdAt: action.createdAt, confirmedAt: action.createdAt, ...(settledAt ? { settledAt } : {}), summary: {
@@ -158,6 +194,182 @@ describe("Cash L2", () => {
     expect(page().getByLabelText("Cash balance").querySelector("[role=img]")?.getAttribute("aria-label")).toBe("$234.00");
   });
 
+  test("an owner change closes the currency sheet and returning to the same owner does not reopen it", async () => {
+    cached();
+    const view = render(<Surface view="cash" snapshot={held} fetchAccountResource={fetchAccountResource} />);
+    fireEvent.click(await page().findByRole("button", { name: "Convert" }));
+    expect(await page().findByRole("dialog", { name: "Convert to" })).toBeTruthy();
+    const other: VerifiedAccountSession = { ...session, user: { subject: "cash-test-other" } };
+    view.rerender(<Surface view="cash" snapshot={held} session={other} fetchAccountResource={fetchAccountResource} />);
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    view.rerender(<Surface view="cash" snapshot={held} fetchAccountResource={fetchAccountResource} />);
+    expect(page().queryByRole("dialog")).toBeNull();
+  });
+  test("the Cash Save entry hides while a deposit is unresolved", async () => {
+    cached();
+    const unfunded = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("250000000"), value: priced("USD", "25000"), cashValue: pricedCash("USD", "25000") },
+    } });
+    render(<Surface view="cash" snapshot={unfunded} fetchAccountResource={async (path) => path.includes("/api/actions")
+      ? { actions: [pendingActionRow(preparedDeposit(), "pending")] }
+      : { version: 1, usdcReserveBaseUnits: "20000" }} />);
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    expect(await page().findByRole("dialog", { name: "US dollar" })).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Save" })).toBeNull();
+    expect(page().getByRole("button", { name: "Convert" })).toBeTruthy();
+  });
+  test("the Cash Save entry appears once the deposit history is clear", async () => {
+    cached();
+    const unfunded = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("250000000"), value: priced("USD", "25000"), cashValue: pricedCash("USD", "25000") },
+    } });
+    render(<Surface view="cash" snapshot={unfunded} fetchAccountResource={async () => ({ actions: [] })} />);
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    expect(await page().findByRole("dialog", { name: "US dollar" })).toBeTruthy();
+    await waitFor(() => expect(page().getByRole("button", { name: "Save" })).toBeTruthy());
+  });
+  test("the Cash currency Save arms the fresh deposit history floor and files the submitted deposit", async () => {
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    cached();
+    const releases: Array<() => void> = [];
+    const preparations: unknown[] = [];
+    const executed: string[] = [];
+    let historyReads = 0;
+    render(<Surface view="cash" snapshot={empty}
+      onPrepare={async (_endpoint, input) => { preparations.push(input); return preparedDeposit(); }}
+      onExecute={async (action) => { executed.push(action.id); return { id: action.id, status: "submitted" }; }}
+      fetchAccountResource={async (path) => {
+        if (path !== "/api/actions") return { version: 1, usdcReserveBaseUnits: "20000" };
+        historyReads += 1;
+        await new Promise<void>((resolve) => { releases.push(resolve); });
+        return { actions: [] };
+      }} />);
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    const detail = await page().findByRole("dialog", { name: "US dollar" });
+    await waitFor(() => expect(historyReads).toBeGreaterThan(0));
+    fireEvent.click(within(detail).getByRole("button", { name: "Save" }));
+    const deposit = await page().findByRole("dialog", { name: "Deposit" });
+    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    const stale = within(deposit).getByRole("button", { name: "Continue" }) as HTMLButtonElement;
+    expect(stale.disabled).toBe(true);
+    fireEvent.click(stale);
+    expect(preparations).toEqual([]);
+    act(() => { releases.splice(0).forEach((release) => release()); });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect(preparations).toEqual([{ kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "1000000" }]);
+    expect(executed).toEqual(["cash-deposit-1"]);
+    fireEvent.click(await page().findByRole("button", { name: "Done" }));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    const reopened = await page().findByRole("dialog", { name: "US dollar" });
+    expect(within(reopened).queryByRole("button", { name: "Save" })).toBeNull();
+    expect(preparations).toEqual([{ kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "1000000" }]);
+    expect(executed).toEqual(["cash-deposit-1"]);
+  });
+  test("an embedded Save whose dispatch outcome is unknown files the ambiguous deposit and keeps the entry blocked", async () => {
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    cached();
+    const releases: Array<() => void> = [];
+    const preparations: unknown[] = [];
+    let executions = 0;
+    render(<Surface view="cash" snapshot={empty}
+      onPrepare={async (_endpoint, input) => { preparations.push(input); return preparedDeposit(); }}
+      onExecute={async () => { executions += 1; throw new TransferExecutionError("submission-unknown"); }}
+      fetchAccountResource={async (path) => {
+        if (path !== "/api/actions") return { version: 1, usdcReserveBaseUnits: "20000" };
+        await new Promise<void>((resolve) => { releases.push(resolve); });
+        return { actions: [] };
+      }} />);
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    fireEvent.click(within(await page().findByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Save" }));
+    const deposit = await page().findByRole("dialog", { name: "Deposit" });
+    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    act(() => { releases.splice(0).forEach((release) => release()); });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect(executions).toBe(1);
+    fireEvent.click(await page().findByRole("button", { name: "Done" }));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    const reopened = await page().findByRole("dialog", { name: "US dollar" });
+    expect(within(reopened).queryByRole("button", { name: "Save" })).toBeNull();
+    expect(preparations).toEqual([{ kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "1000000" }]);
+  });
+  test("a first deposit that appears after the embedded Save opens blocks the deposit step", async () => {
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    cached();
+    const preparations: unknown[] = [];
+    let otherTabDeposit = false;
+    const resource: CashExperienceProps["fetchAccountResource"] = async (path) => {
+      if (path !== "/api/actions") return { version: 1, usdcReserveBaseUnits: "20000" };
+      return { actions: otherTabDeposit ? [pendingActionRow({ ...preparedDeposit(), id: "other-tab-deposit" }, "pending")] : [] };
+    };
+    render(<Surface view="cash" snapshot={empty}
+      onPrepare={async (_endpoint, input) => { preparations.push(input); return preparedDeposit(); }}
+      onExecute={async (action) => ({ id: action.id, status: "submitted" })}
+      fetchAccountResource={resource} />);
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    fireEvent.click(within(await page().findByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Save" }));
+    const deposit = await page().findByRole("dialog", { name: "Deposit" });
+    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    act(() => { otherTabDeposit = true; });
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(dataOwnerKey(session), "actions") }); });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(preparations).toEqual([]);
+    fireEvent.click(page().getByRole("button", { name: "Close deposit dialog" }));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    const reopened = await page().findByRole("dialog", { name: "US dollar" });
+    expect(within(reopened).queryByRole("button", { name: "Save" })).toBeNull();
+    expect(preparations).toEqual([]);
+  });
+  test("a Convert execution does not exempt the next Save entry from its history gate", async () => {
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    cached();
+    let holdHistory = false;
+    let reads = 0;
+    const resource: CashExperienceProps["fetchAccountResource"] = async (path) => {
+      if (path === "/api/actions") {
+        reads += 1;
+        if (holdHistory) await new Promise<void>(() => undefined);
+        return { actions: [] };
+      }
+      if (path.includes("/api/trades?")) {
+        const assetId = new URL(path, "https://example.test").searchParams.get("assetId");
+        const currency = cashConversionCurrencies.find((item) => item.tradeAssetId === assetId);
+        return currency
+          ? { version: 2, status: "available", token: { assetId, address: currency.address, symbol: currency.symbol, decimals: currency.decimals }, buy: "available", balanceBaseUnits: "100000" }
+          : { version: 2, status: "unavailable", reason: "asset-unsupported" };
+      }
+      return { version: 1, usdcReserveBaseUnits: "20000" };
+    };
+    render(<Surface view="cash" snapshot={empty}
+      onPrepare={async (kind) => kind === "trade" ? preparedTrade() : preparedDeposit()}
+      onExecute={async (action) => ({ id: action.id, status: "submitted" })}
+      fetchAccountResource={resource} />);
+    fireEvent.click(await page().findByRole("button", { name: "Convert" }));
+    await waitFor(() => expect(reads).toBeGreaterThan(0));
+    fireEvent.click(await page().findByRole("button", { name: /^Euro/ }));
+    fireEvent.change(await page().findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Convert \$1\.00/ }));
+    fireEvent.click(await page().findByRole("button", { name: /^(Done|Close conversion)$/ }));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    holdHistory = true;
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    fireEvent.click(await page().findByRole("button", { name: "Save" }));
+    const deposit = await page().findByRole("dialog", { name: "Deposit" });
+    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(page().queryByRole("button", { name: /Deposit \$/ })).toBeNull();
+  });
   test("routes an inbound deposit to the highest-rate vault and normalizes Back history", async () => {
     cached();
     render(<Route initialFlow="save-deposit" snapshot={held} />);
@@ -337,9 +549,10 @@ describe("Cash L2", () => {
       return <><button onClick={() => setView("cash")}>Back</button><Surface view={view} onOpenSavings={() => setView("savings")} /></>;
     }
     render(<Journey />);
-    fireEvent.click(await page().findByRole("button", { name: /^US dollar/ }));
+    const savings = within(await page().findByRole("region", { name: "Savings" })).getByRole("button", { name: /^US dollar/ });
+    fireEvent.click(savings);
     fireEvent.click(page().getByRole("button", { name: "Back" }));
-    await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: /^US dollar/ })));
+    await waitFor(() => expect(document.activeElement).toBe(within(page().getByRole("region", { name: "Savings" })).getByRole("button", { name: /^US dollar/ })));
   });
   test("unreadable balances never render as zero", async () => {
     cached();

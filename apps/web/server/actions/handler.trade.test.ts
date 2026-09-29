@@ -141,8 +141,16 @@ describe("trade confirmation", () => {
     const body = parseConfirmActionResponse(await readJson(response));
     if (!body) throw new Error("Invalid trade confirmation");
     expect(body.calls).toHaveLength(3);
-    expect(body.calls[0]).toEqual(feeCall);
-    expect(body.calls[1]).toEqual(approval);
+    expect(body.calls[0]).toEqual({
+      ...feeCall,
+      to: feeCall.to.toLowerCase() as `0x${string}`,
+      approval: { ...feeCall.approval!, spender: feeCall.approval!.spender.toLowerCase() as `0x${string}` },
+    });
+    expect(body.calls[1]).toEqual({
+      ...approval,
+      to: approval.to.toLowerCase() as `0x${string}`,
+      approval: { ...approval.approval, spender: approval.approval.spender.toLowerCase() as `0x${string}` },
+    });
     expect(body.calls[2].data).toStartWith("0x1234");
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
     expect(committed).toBe(keccak256(encodeCoinbaseExecuteBatch(body.calls)));
@@ -164,7 +172,7 @@ describe("trade confirmation", () => {
     const body = parseConfirmActionResponse(await readJson(response));
     if (!body) throw new Error("Invalid trade confirmation");
     expect(body.calls).toHaveLength(4);
-    expect(body.calls[1]).toEqual(transfer);
+    expect(body.calls[1]).toEqual({ ...transfer, to: transfer.to.toLowerCase() as `0x${string}` });
     expect(body.calls[3].data).toStartWith(swap.data);
     expect(body.calls[3].data.length).toBeGreaterThan(swap.data.length);
     if (provider === "base-account") expect(body.batchGasLimit).toBeDefined();
@@ -188,7 +196,7 @@ describe("trade confirmation", () => {
     expect(body.calls).toHaveLength(4);
     expect(body.calls[2].data).toStartWith(swap.data);
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
-    expect(body.calls[3]).toEqual(transfer);
+    expect(body.calls[3]).toEqual({ ...transfer, to: transfer.to.toLowerCase() as `0x${string}` });
     if (provider === "base-account") expect(body.batchGasLimit).toBeUndefined();
   });
   test("confirms a second trade while an earlier dispatched trade has no outcome", async () => {
@@ -290,7 +298,11 @@ describe("confirmed trade replay", () => {
     expect(response.status).toBe(200);
     const body = parseConfirmActionResponse(await readJson(response));
     if (!body) throw new Error("Invalid trade confirmation");
-    expect(body.calls).toEqual(finalized);
+    expect(body.calls).toEqual(finalized.map((call) => ({
+      ...call,
+      to: call.to.toLowerCase() as `0x${string}`,
+      ...(call.approval ? { approval: { ...call.approval, spender: call.approval.spender.toLowerCase() as `0x${string}` } } : {}),
+    })));
     expect(Boolean(body.batchGasLimit)).toBe(provider === "base-account");
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: provider === "base-account" ? 1 : 0 });
   });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { CircleAlertIcon, Eye, Percent, PiggyBank, Plus, RotateCw } from "lucide-react";
+import { ArrowLeftRight, CircleAlertIcon, Eye, Percent, PiggyBank, Plus, RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import {
@@ -38,6 +38,7 @@ import {
 } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
+import { cashConversionCurrencies, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import {
   formatPresentationFiat,
   formatPresentationPercentage,
@@ -66,6 +67,11 @@ export type CashOverviewProps = {
   onOpenSavings: () => void;
   onAddMoney: () => void;
   onAddMoneyIntent?: () => void;
+  actionsAvailable?: boolean;
+  onConvert?: (opener: HTMLElement) => void;
+  onConvertIntent?: () => void;
+  onOpenCurrency?: (code: CashConversionCurrencyCode, opener: HTMLElement) => void;
+  onCurrencyIntent?: () => void;
   onRetryBalances?: () => void;
 };
 
@@ -148,9 +154,11 @@ type CashHoldingRow = {
   isFiat: boolean;
   usdValue: string | null;
   usdUnavailable: boolean;
+  holding: boolean;
 };
 
-function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
+/** @public Shared Cash row presentation for the currency detail */
+export function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
   return selectCash(snapshot).map((entry) => {
       const row = presentCashSelection(entry, snapshot);
       const currency = row.mark.kind === "flag" ? row.mark.currency : "USD";
@@ -165,6 +173,7 @@ function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
           isFiat: true,
           usdValue: null,
           usdUnavailable: false,
+          holding: false,
         };
       const cashValue =
         holding.balance.status === "ready" &&
@@ -181,6 +190,7 @@ function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
       return {
         key: row.key,
         name: row.name,
+        holding: true,
         symbol: holding.symbol,
         currency,
         value: cashValue
@@ -397,6 +407,11 @@ export function CashOverview({
   onOpenSavings,
   onAddMoney,
   onAddMoneyIntent,
+  actionsAvailable = true,
+  onConvert,
+  onConvertIntent,
+  onOpenCurrency,
+  onCurrencyIntent,
   onRetryBalances,
 }: CashOverviewProps) {
   const loading = balanceStatus === "loading";
@@ -407,6 +422,7 @@ export function CashOverview({
     ? presentCashTotal(activeSnapshot)
     : null, [activeSnapshot]);
   const rows = useMemo(() => activeSnapshot ? cashHoldings(activeSnapshot) : [], [activeSnapshot]);
+  const conversionsByCode = useMemo(() => new Map<string, CashConversionCurrency>(cashConversionCurrencies.map((currency) => [currency.code, currency])), []);
   const { holdings, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
@@ -559,15 +575,17 @@ export function CashOverview({
           Try again
         </Button>
       ) : null) : (
-        <Button
-          size="lg"
-          className="h-11 w-full"
-          {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})}
-          onClick={onAddMoney}
-        >
-          <Plus aria-hidden="true" />
-          Add money
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button size="lg" className="h-11 w-full" {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})} onClick={onAddMoney}>
+            <Plus aria-hidden="true" />
+            Add money
+          </Button>
+          {onConvert ? <Button size="lg" variant="outline" className="h-11 w-full" disabled={loading || !actionsAvailable}
+            {...(onConvertIntent ? moneySheetIntent(onConvertIntent) : {})} onClick={(event) => onConvert(event.currentTarget)}>
+            <ArrowLeftRight aria-hidden="true" />
+            Convert
+          </Button> : null}
+        </div>
       )}
       {!failed && (!empty || vaultStatus === "failed") ? (
         <>
@@ -590,8 +608,10 @@ export function CashOverview({
                     </>
                   ) : (
                     <ul className="list-none p-0">
-                      {rows.map((row) => (
-                        <BalanceRow
+                      {rows.map((row) => {
+                        const conversion = row.holding ? conversionsByCode.get(row.currency) : undefined;
+                        const openConversion = onOpenCurrency && conversion ? (opener: HTMLElement) => onOpenCurrency(conversion.code, opener) : undefined;
+                        return <BalanceRow
                           key={row.key}
                           icon={
                             <CurrencyMark
@@ -625,9 +645,12 @@ export function CashOverview({
                               ? unavailableValue()
                               : row.usdValue
                           }
-                          chevron={false}
-                        />
-                      ))}
+                          onActivate={openConversion}
+                          activateLabel={conversion ? `Open ${row.name}` : undefined}
+                          onIntent={onOpenCurrency && row.holding ? onCurrencyIntent : undefined}
+                          chevron={Boolean(openConversion)}
+                        />;
+                      })}
                     </ul>
                   )}
                 </CardContent>

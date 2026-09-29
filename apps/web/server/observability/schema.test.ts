@@ -2,6 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("normalizes boundary parse failures without source metadata or sensitive payload", () => {
+    const line = normalizeObservabilityEvent({
+      kind: "balances-contract",
+      route: "/api/balances",
+      reason: "private-reason",
+      source: "configured-base-rpc",
+      stage: "inventory",
+      owner: "private-address",
+      snapshot: { totals: "private-amount" },
+    } as never);
+    expect(line).toEqual({
+      schema: "home.observability.v2",
+      route: "/api/balances",
+      level: "error",
+      kind: "balances-contract",
+      code: "BALANCES_CONTRACT",
+      reason: "invalid-snapshot",
+    });
+    expect(JSON.stringify(line)).not.toMatch(/private-|configured-base-rpc|inventory/);
+  });
+
   test("preserves the staged Address History activity source", () => {
     expect(normalizeObservabilityEvent({
       kind: "activity-read",

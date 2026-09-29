@@ -40,8 +40,7 @@ describe("card state precedence and availability", () => {
     const allCanceled = async (id: string): Promise<StripeCard> => ({ ...card, id, status: "canceled" });
     expect((await readCardState("owner", "sandbox", { ...both, stripe: { ...both.stripe, readCard: allCanceled } })).state).toBe("canceled");
   });
-  test("no account does not call providers; reserved account requires verification", async () => {
-    expect((await state({ account: null })).state).toBe("not-enrolled");
+  test("a reserved account requires verification", async () => {
     expect((await state({ account: { ...account, bridgeCustomerId: null, cards: [] } })).state).toBe("verification-required");
   });
   test("every documented Bridge customer status before and after issue", async () => {

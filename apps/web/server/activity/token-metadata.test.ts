@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import {
   activityAssets,
 } from "@/shared/activity/types";
@@ -263,6 +263,71 @@ describe("Activity token metadata resolver", () => {
     const result = await response;
     expect(result.metadata.get(USDC.tokenAddress.toLowerCase())?.tokenImageUrl).toBeNull();
   }, 250);
+
+  test("waits out the default curated icon budget before resolving without icons", async () => {
+    jest.useFakeTimers();
+    try {
+      const icons = createLatestAssetIcons(() => new Promise(() => {}));
+      const resolve = createActivityTokenMetadataResolver({ assetIcons: icons });
+      const response = resolve([USDC.tokenAddress]);
+      let settled = false;
+      let iconUrl: string | null | undefined;
+      void response.then((value) => {
+        settled = true;
+        iconUrl = value.metadata.get(USDC.tokenAddress.toLowerCase())?.tokenImageUrl;
+      });
+      jest.advanceTimersByTime(ACTIVITY_ASSET_ICON_WAIT_MS - 1);
+      for (let tick = 0; tick < 32; tick += 1) await Promise.resolve();
+      expect(settled).toBeFalse();
+      jest.advanceTimersByTime(1);
+      for (let tick = 0; tick < 32 && !settled; tick += 1) await Promise.resolve();
+      expect(settled).toBeTrue();
+      expect(iconUrl).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("bounds a hung Codex lookup at the default Activity deadline", async () => {
+    const previousKey = process.env.CODEX_API_KEY;
+    const originalFetch = globalThis.fetch;
+    process.env["CODEX_API_KEY"] = "activity-test-key";
+    let fetchStarted = false;
+    let codexSignal: AbortSignal | null | undefined;
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      codexSignal = init?.signal;
+      fetchStarted = true;
+      return new Promise<Response>(() => {});
+    }) as unknown as typeof fetch;
+    jest.useFakeTimers();
+    try {
+      const resolve = createActivityTokenMetadataResolver({
+        assetIcons: createLatestAssetIcons(async () => ({})),
+        rpcLookup: async () => new Map([[ZORA, { kind: "metadata", symbol: "ZORA", decimals: 18 }]]),
+      });
+      const response = resolve([ZORA]);
+      for (let tick = 0; tick < 32 && !fetchStarted; tick += 1) await Promise.resolve();
+      expect(fetchStarted).toBeTrue();
+      jest.advanceTimersByTime(ACTIVITY_TOKEN_CODEX_TIMEOUT_MS - 1);
+      expect(codexSignal?.aborted).toBeFalse();
+      jest.advanceTimersByTime(1);
+      expect(codexSignal?.aborted).toBeTrue();
+      let settled = false;
+      let tokenSymbol: string | null | undefined;
+      void response.then((value) => {
+        settled = true;
+        tokenSymbol = value.metadata.get(ZORA)?.tokenSymbol;
+      });
+      for (let tick = 0; tick < 32 && !settled; tick += 1) await Promise.resolve();
+      expect(settled).toBeTrue();
+      expect(tokenSymbol).toBe("ZORA");
+    } finally {
+      jest.useRealTimers();
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.CODEX_API_KEY;
+      else process.env["CODEX_API_KEY"] = previousKey;
+    }
+  });
 
   test("drops only contracts positively classified by a decimals revert", async () => {
     const resolve = createActivityTokenMetadataResolver({

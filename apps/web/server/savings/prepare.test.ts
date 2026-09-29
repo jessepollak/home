@@ -13,7 +13,7 @@ import {
   getVerifiedSaveVault,
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
-import type { Address, MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import type { Address, MorphoVaultsResult } from "@/shared/savings/types";
 import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/store";
 import { CoinbaseSmartAccountBatchSimulationError } from "@/server/chain/coinbase-smart-account";
 import { issueMoneyAction } from "@/server/money-actions/issue";
@@ -266,20 +266,13 @@ describe("Morpho savings action preparation", () => {
     });
   });
 
-  test.each([
-    {
-      description: "an exponent-form tiny APY",
-      candidate: { netApy: 1e-7 },
-    },
-  ] satisfies Array<{
-    description: string;
-    candidate: Partial<MorphoVaultCandidate>;
-  }>)("issues with fallback review metadata when discovery returns $description", async ({ candidate }) => {
+  test("issues fallback review metadata for an exponent-form tiny APY", async () => {
     setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
     const preparedAt = new Date("2026-09-08T10:00:00.000Z");
     const result = vaultsResult(false);
     result.source.fetchedAt = preparedAt.toISOString();
-    Object.assign(result.candidates[0]!, candidate, {
+    Object.assign(result.candidates[0]!, {
+      netApy: 1e-7,
       stateAsOf: preparedAt.toISOString(),
       source: { ...result.candidates[0]!.source, fetchedAt: preparedAt.toISOString() },
     });

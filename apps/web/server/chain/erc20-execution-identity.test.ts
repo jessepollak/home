@@ -33,7 +33,7 @@ describe("ERC-20 execution identity", () => {
   test.each(["0x", null, "0x0"]) ("rejects no code: %p", async (code) => {
     await expect(readErc20ExecutionIdentity({ token: TOKEN, read: readWith({ code }).read })).rejects.toBeInstanceOf(TokenUnreadable);
   });
-  test.each(["0x", word(37), null])("rejects malformed, reverting or excessive decimals: %p", async (decimals) => {
+  test.each(["0x", word(37), null])("rejects malformed or excessive decimals: %p", async (decimals) => {
     await expect(readErc20ExecutionIdentity({ token: TOKEN, read: readWith({ decimals }).read })).rejects.toBeInstanceOf(TokenUnreadable);
   });
   test("rejects configured precision mismatch and malformed balance", async () => {

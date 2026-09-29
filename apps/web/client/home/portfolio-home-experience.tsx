@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
@@ -22,6 +24,8 @@ import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availa
 import { useShowSmallBalances } from "./use-show-small-balances";
 import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
 
+const LazyCardExperience = dynamic(() => import("@/client/cards/card-experience").then((module) => module.AuthenticatedCardExperience));
+
 const preferenceReadRetryDelays = [500, 1500] as const;
 
 export function PortfolioHomeExperience({
@@ -31,6 +35,7 @@ export function PortfolioHomeExperience({
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
   investVisibility,
+  cardsEnabled = false,
 }: {
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
@@ -38,6 +43,7 @@ export function PortfolioHomeExperience({
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
   investVisibility?: InvestSettings;
+  cardsEnabled?: boolean;
 }) {
   const account = useAccountWallet();
   const discover = useInvestDiscover();
@@ -202,6 +208,8 @@ export function PortfolioHomeExperience({
       regionReady={regionReady}
       initialPanel={initialLocation.panel}
       initialLocation={initialLocation}
+      cardsEnabled={cardsEnabled}
+      cardContent={cardsEnabled ? <LazyCardExperience /> : undefined}
       investContent={
         <PricedInvestExperienceWithDiscover
           discover={discover}

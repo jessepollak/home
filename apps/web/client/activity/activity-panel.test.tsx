@@ -1,7 +1,8 @@
 import "../account/dom-test-harness";
 
-import { getHomeQueryClient, HomeQueryClientProvider } from "@/client/query/query-client";
-import { defaultScheduler, focusManager, notifyManager } from "@tanstack/react-query";
+import { getHomeQueryClient, HomeQueryClientProvider, createHomeQueryClient, ownerQueryCachePrefix, restoreOwnerQueries } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { defaultScheduler, dehydrate, focusManager, notifyManager } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { holdClock, pinClock } from "@/tests/helpers/pin-clock";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -45,7 +46,10 @@ function ActivityPanel({
 const waitedFor = { timeout: 5_000 };
 const NOW = Date.parse("2026-09-28T12:00:00.000Z");
 let restoreClock: () => void;
-beforeEach(() => { restoreClock = pinClock("2026-09-28T12:00:00.000Z"); });
+beforeEach(() => {
+  jest.useRealTimers();
+  restoreClock = pinClock("2026-09-28T12:00:00.000Z");
+});
 
 class ControlledIntersectionObserver implements IntersectionObserver {
   static instances: ControlledIntersectionObserver[] = [];
@@ -242,6 +246,7 @@ afterEach(() => {
   restoreClock();
   cleanup();
   getHomeQueryClient().clear();
+  window.localStorage.clear();
   focusManager.setFocused(undefined);
   ControlledIntersectionObserver.instances = [];
   Object.defineProperty(globalThis, "IntersectionObserver", {
@@ -431,6 +436,31 @@ describe("ConnectedActivityPanel", () => {
     expect(calls).toBe(1);
     expect(view.getByText("Restored send")).toBeTruthy();
     expect(view.getByText("Received")).toBeTruthy();
+  });
+
+  test("hand-edited persisted activity and actions are discarded and refetched", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = dataOwnerKey(owner);
+    const source = createHomeQueryClient();
+    const activityKey = [ownerKey, "activity", new Date(NOW).toISOString(), "USD"];
+    const actionsKey = [ownerKey, "actions"];
+    source.setQueryData(activityKey, { pages: [{ transfers: [{}] }], pageParams: [null] });
+    source.setQueryData(actionsKey, { actions: [null] });
+    const queries = dehydrate(source).queries;
+    window.localStorage.setItem(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
+      timestamp: NOW, buster: "home-query-v3", clientState: { mutations: [], queries },
+    }));
+    expect(restoreOwnerQueries(getHomeQueryClient(), window.localStorage, ownerKey)).toBe(false);
+    expect(getHomeQueryClient().getQueryData(activityKey)).toBeUndefined();
+    expect(getHomeQueryClient().getQueryData(actionsKey)).toBeUndefined();
+    let activityCalls = 0;
+    let actionsCalls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async () => { activityCalls += 1; throw new Error("onchain unavailable"); }}
+      fetchOperations={async () => { actionsCalls += 1; throw actionFailure(401); }} />);
+    await waitFor(() => expect(view.getByText("Activity is temporarily unavailable.")).toBeTruthy(), { timeout: 2_000 });
+    expect(activityCalls).toBeGreaterThan(0);
+    expect(actionsCalls).toBeGreaterThan(0);
   });
 
   test("a malformed actions value restored from an earlier cache recovers instead of crashing", async () => {

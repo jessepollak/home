@@ -22,8 +22,12 @@ export function startFakeBridge(apiKey: string, response: unknown = fixtureCusto
       return Response.json(customer, { status: 201 });
     }
     if (request.method === "GET" && url.pathname === `/v0/customers/${fixtureCustomer.id}` && created) return Response.json(customer);
-    if (request.method === "GET" && url.pathname === `/v0/customers/${fixtureCustomer.id}/kyc_link` && url.searchParams.get("endorsement") === "cards" && created)
-      return Response.json({ url: "https://bridge.withpersona.com/inquiry?inquiry-id=inq_test" });
+    if (request.method === "GET" && url.pathname === `/v0/customers/${fixtureCustomer.id}/kyc_link` && url.searchParams.get("endorsement") === "cards" && created) {
+      const redirectUri = url.searchParams.get("redirect_uri");
+      const link = new URL("https://bridge.withpersona.com/inquiry?inquiry-id=inq_test");
+      if (redirectUri) link.searchParams.set("redirect_uri", redirectUri);
+      return Response.json({ url: link.toString() });
+    }
     if (request.method === "GET" && url.pathname === `/v0/customers/${fixtureCustomer.id}`) return Response.json(customer);
     return new Response(null, { status: 404 });
   } });

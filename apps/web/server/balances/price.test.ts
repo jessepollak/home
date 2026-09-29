@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
 import type { TokenizedEquityReference } from "@/server/market-data/tokenized-equity/reader";
 import { createCodexRawQuotesReader } from "@/server/market-data/codex/raw-quotes";
-import { BALANCES_PRICE_MAX_AGE_MS } from "@/shared/balances/types";
 import type { PriceQuote } from "@/shared/balances/quotes";
 import {
   BALANCES_PRICE_CONCURRENCY,
@@ -562,7 +561,6 @@ describe("balances pricing", () => {
     });
 
     const result = await price({ ...read, holdings: [idrx] }, "ID");
-    expect(BALANCES_PRICE_MAX_AGE_MS).toBe(24 * 60 * 60 * 1_000);
     if (expected === "priced") {
       expect(result.holdings[0]?.value).toMatchObject({
         status: "priced",

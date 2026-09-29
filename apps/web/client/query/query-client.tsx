@@ -5,6 +5,7 @@ import {
   QueryClient,
   QueryClientProvider,
   dehydrate,
+  hashKey,
   hydrate,
   useInfiniteQuery,
   useMutation,
@@ -20,8 +21,11 @@ import { recordHomeStartupCache } from "@/client/observability/perf-marks";
 import { recordHomeCachePersistence } from "@/client/observability/interaction-performance";
 import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
 import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
+import { isRecord } from "@/shared/guards";
 import type { OwnerQueryScope, PublicQueryScope, QueryScope } from "./query-scopes";
 import { invalidateMutationScopes } from "./mutation-options";
+import { queryScopes } from "./scopes";
+import type { QueryScopePolicy } from "./scopes/policy";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
 export const ownerQueryCacheTtlMs = OWNER_SESSION_RETENTION_MS;
@@ -85,6 +89,15 @@ export function ownerQueryStorageKey(ownerKey: string): string | null {
     : null;
 }
 
+function removePersistedQuietly(storage: Pick<Storage, "removeItem">, key: string): boolean {
+  try {
+    storage.removeItem(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function createOwnerQueryPersister(
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   ownerKey: string,
@@ -123,7 +136,7 @@ export function createOwnerQueryPersister(
         const value = storage.getItem(key);
         return value ? JSON.parse(value) as PersistedOwnerClient : undefined;
       } catch {
-        storage.removeItem(key);
+        removePersistedQuietly(storage, key);
         return undefined;
       }
     },
@@ -131,7 +144,7 @@ export function createOwnerQueryPersister(
       if (timer !== null) clearTimeout(timer);
       timer = null;
       pending = null;
-      storage.removeItem(key);
+      return removePersistedQuietly(storage, key);
     },
     flush: writePending,
     cancel() {
@@ -250,6 +263,41 @@ export function clearOwnerQueryMemory(queryClient: QueryClient): void {
   pauseOwnerPersistence(queryClient, () => queryClient.clear());
 }
 
+type TrustedRestoredQuery = {
+  queryKey: QueryKey;
+  queryHash: string;
+  meta?: Record<string, unknown>;
+  data: unknown;
+  dataUpdatedAt: number;
+  isInvalidated: boolean;
+};
+
+const scopePolicies: Partial<Record<string, QueryScopePolicy>> = queryScopes;
+
+export function trustedRestoredQuery(query: unknown, ownerKey: string, now = Date.now()): TrustedRestoredQuery | null {
+  if (!isRecord(query)) return null;
+  const { queryKey, state } = query;
+  if (!Array.isArray(queryKey) || queryKey[0] !== ownerKey || typeof queryKey[1] !== "string" ||
+    typeof query.queryHash !== "string" || query.promise !== undefined ||
+    (query.meta !== undefined && !isRecord(query.meta)) ||
+    !isRecord(state) || state.status !== "success" ||
+    typeof state.dataUpdatedAt !== "number" || !Number.isFinite(state.dataUpdatedAt) ||
+    state.dataUpdatedAt <= 0 || state.dataUpdatedAt > now || state.data === undefined ||
+    now - state.dataUpdatedAt > ownerQueryCacheTtlMs) return null;
+  const policy = scopePolicies[queryKey[1]];
+  if (!policy || policy.audience !== "owner" || policy.persistence !== "owner") return null;
+  const trusted = policy.validateRestored(state.data, { ownerKey, queryKey });
+  if (!trusted) return null;
+  return {
+    queryKey,
+    queryHash: hashKey(queryKey),
+    ...(query.meta ? { meta: query.meta } : {}),
+    data: trusted.data,
+    dataUpdatedAt: state.dataUpdatedAt,
+    isInvalidated: state.isInvalidated === true,
+  };
+}
+
 export function restoreOwnerQueries(
   queryClient: QueryClient,
   storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
@@ -259,18 +307,43 @@ export function restoreOwnerQueries(
   const persister = createOwnerQueryPersister(storage, ownerKey);
   const persisted = persister?.restoreClient();
   persister?.cancel();
-  if (!persisted || persisted.buster !== "home-query-v3" || now - persisted.timestamp > ownerQueryCacheTtlMs) {
+  if (!persisted || persisted.buster !== "home-query-v3" || typeof persisted.timestamp !== "number" ||
+    !Number.isFinite(persisted.timestamp) || now - persisted.timestamp > ownerQueryCacheTtlMs) {
     if (persisted) persister?.removeClient();
     return false;
   }
-  const state = persisted.clientState;
-  const queries = state.queries.filter((query) =>
-    query.queryKey[0] === ownerKey && now - query.state.dataUpdatedAt <= ownerQueryCacheTtlMs);
+  const persistedState: unknown = persisted.clientState;
+  if (!isRecord(persistedState) || !Array.isArray(persistedState.queries)) {
+    persister?.removeClient();
+    return false;
+  }
+  const queries = persistedState.queries
+    .map((query) => trustedRestoredQuery(query, ownerKey, now))
+    .filter((query): query is TrustedRestoredQuery => query !== null)
+    .map((query): DehydratedState["queries"][number] => ({
+      queryKey: query.queryKey,
+      queryHash: query.queryHash,
+      ...(query.meta ? { meta: query.meta } : {}),
+      state: {
+        data: query.data,
+        dataUpdatedAt: query.dataUpdatedAt,
+        dataUpdateCount: 0,
+        error: null,
+        errorUpdatedAt: 0,
+        errorUpdateCount: 0,
+        fetchFailureCount: 0,
+        fetchFailureReason: null,
+        fetchMeta: null,
+        isInvalidated: query.isInvalidated,
+        status: "success",
+        fetchStatus: "idle",
+      },
+    }));
   if (queries.length === 0) {
     persister?.removeClient();
     return false;
   }
-  hydrate(queryClient, { ...state, queries });
+  hydrate(queryClient, { mutations: [], queries });
   return true;
 }
 

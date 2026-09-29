@@ -1,7 +1,7 @@
 "use client";
 
-import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChartNoAxesCombined, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { ChartNoAxesCombined, CreditCard, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import { HomeMark } from "@/components/home-mark";
@@ -20,7 +20,7 @@ import {
 } from "@/components/primary-navigation-tab";
 import {
   isHomeNestedPanelId,
-  navigationItems,
+  visibleNavigationItems,
   type NavigationId,
   type ShellPanelId,
 } from "@/config/navigation";
@@ -32,6 +32,7 @@ type PrimaryNavigationProps = {
   activeNavigation: ShellPanelId;
   onNavigate: (id: NavigationId) => void;
   labels?: Partial<Record<NavigationId, string>>;
+  cardsEnabled?: boolean;
   isAccountSettingsOpen?: boolean;
   account?: {
     status: "loading" | "ready";
@@ -44,8 +45,11 @@ type PrimaryNavigationProps = {
 
 const navigationIcons = {
   home: House,
+  card: CreditCard,
   invest: ChartNoAxesCombined,
 } satisfies Record<NavigationId, typeof House>;
+
+type NavigationStyle = CSSProperties & Record<"--navigation-items", number>;
 
 const railStorageKey = "home:sidebar:collapsed";
 const railListeners = new Set<() => void>();
@@ -95,10 +99,12 @@ export function PrimaryNavigation({
   activeNavigation,
   onNavigate,
   labels,
+  cardsEnabled = false,
   isAccountSettingsOpen = false,
   account,
   onOpenAccount,
 }: PrimaryNavigationProps) {
+  const navigationItems = useMemo(() => visibleNavigationItems({ cardsEnabled }), [cardsEnabled]);
   const collapsed = useSyncExternalStore(subscribeRail, readCollapsed, () => false);
   const prefersReducedMotion = useReducedMotion();
   const [animated, setAnimated] = useState(false);
@@ -155,12 +161,13 @@ export function PrimaryNavigation({
     persistCollapsed(next);
     for (const listener of railListeners) listener();
   };
-  const lensTarget = activeIndex > 0 ? (direction === "rtl" ? -1 : 1) : 0;
+  const lensTarget = activeIndex > 0 ? activeIndex * (direction === "rtl" ? -1 : 1) : 0;
   const lensItems = useMemo(() => navigationItems.map((item) => ({
     id: item.id,
     label: labels?.[item.id] ?? item.label,
     Icon: navigationIcons[item.id],
-  })), [labels]);
+  })), [labels, navigationItems]);
+  const navigationStyle: NavigationStyle = { "--navigation-items": navigationItems.length };
 
   if (layout === "rail") {
     const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -232,7 +239,8 @@ export function PrimaryNavigation({
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
         data-lens={NavLens && lensReady ? "ready" : undefined}
-        className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid grid-cols-2 rounded-full p-1 opacity-100`}
+        style={navigationStyle}
+        className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100`}
       >
         <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span

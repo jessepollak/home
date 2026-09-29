@@ -23,7 +23,7 @@ export function createCardWriteHandlers(deps: {
   customer: (session: VerifiedAccountSession) => Promise<{ id: string; walletId?: string | null } | null>;
   service: () => Pick<ReturnType<typeof createCardWriteService>, "enroll" | "issue" | "freeze">;
 }) {
-  async function authorized(request: Request): Promise<{ session: VerifiedAccountSession; customerId: string } | Response> {
+  async function authorized(request: Request): Promise<{ session: VerifiedAccountSession; customerId: string; origin: string } | Response> {
     const session = await authorizeSession(request, deps.authorize);
     if (session instanceof Response) return withPrivateHeaders(session);
     const expected = requestOrigin(request);
@@ -37,14 +37,14 @@ export function createCardWriteHandlers(deps: {
     } catch { return failure("INVALID_CARD_REQUEST", 400); }
     const customer = await deps.customer(session);
     if (!customer) return failure("CARDS_UNAVAILABLE", 503);
-    return { session, customerId: customer.id };
+    return { session, customerId: customer.id, origin: expected.origin };
   }
-  async function respond(request: Request, operation: (customerId: string, session: VerifiedAccountSession) => Promise<object>, enrollment = false): Promise<Response> {
+  async function respond(request: Request, operation: (customerId: string, session: VerifiedAccountSession, origin: string) => Promise<object>, enrollment = false): Promise<Response> {
     let owner: Awaited<ReturnType<typeof authorized>>;
     try { owner = await authorized(request); } catch { return failure("CARDS_UNAVAILABLE", 503); }
     if (owner instanceof Response) return owner;
     try {
-      const result = { version: CARDS_CONTRACT_VERSION, ...await operation(owner.customerId, owner.session) };
+      const result = { version: CARDS_CONTRACT_VERSION, ...await operation(owner.customerId, owner.session, owner.origin) };
       if (enrollment ? !parseCardEnrollmentResponse(result) : !parseCardWriteResponse(result)) throw new Error("Invalid card write response");
       return privateJson(result);
     } catch (error) {
@@ -53,7 +53,7 @@ export function createCardWriteHandlers(deps: {
     }
   }
   return {
-    enrollment: (request: Request) => respond(request, async (id) => ({ kycUrl: await deps.service().enroll(id) }), true),
+    enrollment: (request: Request) => respond(request, async (id, _session, origin) => ({ kycUrl: await deps.service().enroll(id, `${origin}/card?return=verification`) }), true),
     issue: (request: Request) => respond(request, async (id, session) => ({ card: await deps.service().issue(id, session) })),
     freeze: (request: Request, id: string, freeze: boolean) => respond(request, async (customerId) => {
       if (!/^ic_[A-Za-z0-9]+$/.test(id)) throw new CardWriteFailure("CARD_NOT_FOUND", 404);

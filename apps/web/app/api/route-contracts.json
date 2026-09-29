@@ -27,11 +27,11 @@
     "balances/route.ts": { "contracts": ["shared/balances/contract.ts"] },
     "borrow/markets/[marketId]/route.ts": { "contracts": ["shared/borrowing/contract.ts"] },
     "borrow/route.ts": { "contracts": ["shared/borrowing/contract.ts"] },
-    "cards/[id]/ephemeral-key/route.ts": { "contracts": ["shared/cards/contract.ts"], "client": "The card reveal flow has no Home client fetcher yet; no card UI has landed." },
-    "cards/[id]/freeze/route.ts": { "contracts": ["shared/cards/contract.ts"], "client": "The card freeze control has no Home client fetcher yet; no card UI has landed." },
-    "cards/[id]/unfreeze/route.ts": { "contracts": ["shared/cards/contract.ts"], "client": "The card unfreeze control has no Home client fetcher yet; no card UI has landed." },
-    "cards/enrollment/route.ts": { "contracts": ["shared/cards/contract.ts"], "client": "Card enrollment is not yet called from a Home client; the enrollment UI has not landed." },
-    "cards/route.ts": { "contracts": ["shared/cards/contract.ts"], "client": "No Home client fetches card account reads yet; the card UI that consumes this response has not landed." },
+    "cards/[id]/ephemeral-key/route.ts": { "contracts": ["shared/cards/contract.ts"] },
+    "cards/[id]/freeze/route.ts": { "contracts": ["shared/cards/contract.ts"] },
+    "cards/[id]/unfreeze/route.ts": { "contracts": ["shared/cards/contract.ts"] },
+    "cards/enrollment/route.ts": { "contracts": ["shared/cards/contract.ts"] },
+    "cards/route.ts": { "contracts": ["shared/cards/contract.ts"] },
     "cards/webhooks/bridge/route.ts": { "exempt": { "kind": "webhook", "reason": "Bridge sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/immersve/[topic]/route.ts": { "exempt": { "kind": "webhook", "reason": "Immersve sends provider-defined event notifications; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/stripe/route.ts": { "exempt": { "kind": "webhook", "reason": "Stripe sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
@@ -96,7 +96,6 @@
     ],
     "handlerUnlinked": {
       "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-      "balances/route.ts": ["shared/balances/contract.ts"],
       "session/route.ts": ["shared/account/contracts/session.ts"]
     },
     "clientUnlinked": {

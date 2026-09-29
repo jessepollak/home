@@ -1,5 +1,8 @@
+import "@/client/account/dom-test-harness";
+
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import type { MoneyActionAmount } from "@/shared/money-actions/types";
 import type { ActivityTransfer } from "./types";
 import type { ActivityFeedItem } from "./activity-feed";
@@ -429,4 +432,40 @@ describe("presentActivityLedgerItems", () => {
     expect(present([fromAction(withAmount({ ...usdc, direction: "receive" }))])[0]?.amount).toBe("+~$123,456.78");
     expect(present([fromAction(withAmount({ ...usdc, symbol: "BTC", estimated: false }))])[0]?.amount).toMatch(/BTC/);
   });
+});
+
+test.each(["buy", "sell"] as const)("cash conversion activity has status-specific titles for %s without reclassifying another token", (direction) => {
+  const usd = cashConversionCurrencies.find((currency) => currency.code === "USD")!;
+  const eur = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
+  const [from, to] = direction === "buy" ? [usd, eur] : [eur, usd];
+  for (const [status, title] of [
+    ["confirmed", `Converted ${from.code} to ${to.code}`],
+    ["pending", `Converting ${from.code} to ${to.code}`],
+    ["failed", `Convert ${from.code} to ${to.code} failed`],
+    ["unknown", `Convert ${from.code} to ${to.code}`],
+  ] as const) {
+    const operation = action(status);
+    operation.action.kind = "trade";
+    operation.action.metadata = {
+      product: "trade", provider: "cdp-swaps", direction, network: { name: "Base", chainId: 8453 },
+      assetId: eur.tradeAssetId, assetName: eur.name,
+      fromAsset: { id: from.portfolioAssetId, symbol: from.symbol, decimals: from.decimals, address: from.address },
+      toAsset: { id: to.portfolioAssetId, symbol: to.symbol, decimals: to.decimals, address: to.address },
+      fromAmountBaseUnits: "1234567", expectedToAmountBaseUnits: "500000", minimumToAmountBaseUnits: "450000",
+      slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: TIME,
+      permitDeadline: "123", executionDeadline: "123",
+    };
+    const [entry] = present([fromAction(operation)]);
+    expect(entry?.title).toBe(title);
+    expect(entry?.detail).toMatchObject({ operation: `Convert ${from.code} to ${to.code}` });
+    const mismatched = operation.action.metadata;
+    if (mismatched?.product !== "trade") throw new Error("Expected trade");
+    mismatched.toAsset = { ...mismatched.toAsset, decimals: 18 };
+    expect(present([fromAction(operation)])[0]?.title).toBe({
+      confirmed: direction === "buy" ? "Bought Euro" : "Sold Euro",
+      pending: direction === "buy" ? "Buying Euro" : "Selling Euro",
+      failed: `${direction === "buy" ? "Buy" : "Sell"} Euro failed`,
+      unknown: `${direction === "buy" ? "Buy" : "Sell"} Euro`,
+    }[status]);
+  }
 });

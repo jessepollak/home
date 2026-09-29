@@ -6,6 +6,7 @@ export {
 
 export {
   formatChartPrice,
+  formatExactPresentationCashAmount,
   formatExactPresentationTokenAmount,
   formatFiatAmount,
   formatHealthFactor,

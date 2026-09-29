@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { MORPHO_GENERAL_ADAPTER1_ADDRESS } from "./abi";
 import {
@@ -97,7 +97,7 @@ describe("savings action RPC state", () => {
     const singles = requests.filter(
       (body): body is { method: string; params: unknown[] } => !Array.isArray(body),
     );
-    expect(requests.every((body) => !Array.isArray(body))).toBeTrue();
+    expect(singles).toHaveLength(requests.length);
     const calls = singles.filter((entry) => entry.method === "eth_call");
     expect(calls).toHaveLength(8);
     expect(calls.find((entry) => (entry.params[0] as { data: string }).data.startsWith("0xdd62ed3e"))?.params[0]).toEqual({
@@ -106,8 +106,35 @@ describe("savings action RPC state", () => {
     });
     expect(calls.every((entry) => entry.params[1] === "0x10")).toBeTrue();
     expect((requests.at(-1) as { params: unknown[] }).params[0]).toBe("0x10");
-    expect(SAVINGS_ACTION_RPC_TIMEOUT_MS).toBe(10_000);
     expect(maxInFlight).toBeLessThanOrEqual(SAVINGS_ACTION_RPC_CONCURRENCY);
+  });
+
+  test("aborts an in-flight read at the default timeout", async () => {
+    jest.useFakeTimers();
+    try {
+      let started!: () => void;
+      const fetchStarted = new Promise<void>((resolve) => { started = resolve; });
+      let signal: AbortSignal | null | undefined;
+      let calls = 0;
+      const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (calls++ === 0) return Response.json({ jsonrpc: "2.0", id: 1, result: "0x2105" });
+        signal = init?.signal;
+        started();
+        return new Promise<Response>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      }) as typeof fetch;
+      const read = createSavingsActionStateReader({ fetchImpl, rpcUrl: "https://rpc.example.test" })({
+        kind: "deposit", accountAddress: ACCOUNT, vaultAddress: VAULT, amount: BigInt(1),
+      });
+      jest.advanceTimersByTime(1);
+      await fetchStarted;
+      jest.advanceTimersByTime(SAVINGS_ACTION_RPC_TIMEOUT_MS - 1);
+      expect(signal?.aborted).toBeTrue();
+      await expect(read).rejects.toThrow("timed out or was aborted");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("retries a public-Base -32016 once, then completes the pinned read", async () => {

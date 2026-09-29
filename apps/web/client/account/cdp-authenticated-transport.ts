@@ -41,6 +41,7 @@ const accountResourcePrefixes = [
   "/api/trades",
   "/api/transfers",
   "/api/borrow",
+  "/api/cards",
   "/api/funding",
 ] as const;
 
