@@ -11,6 +11,7 @@ const KEYBOARD_HEIGHT = 300;
 const originalViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
 
 beforeEach(() => {
+  (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = false;
   Object.defineProperty(window, "visualViewport", {
     configurable: true,
     value: Object.assign(new EventTarget(), { height: window.innerHeight - KEYBOARD_HEIGHT, offsetTop: 0, scale: 1, width: window.innerWidth }),

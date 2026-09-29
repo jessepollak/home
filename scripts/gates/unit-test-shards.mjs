@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseJunit } from "./test-runtime.mjs";
 
@@ -67,10 +67,7 @@ export function run(argv = process.argv.slice(2)) {
     if (argv.length !== 2 || !shards.includes(argv[1])) return usage();
     const paths = shardArgs(trackedFiles(), argv[1]);
     if (!paths.length) throw new Error(`Empty ${argv[1]} shard`);
-    const output = resolve(web, "unit-test-results");
-    rmSync(output, { recursive: true, force: true });
-    mkdirSync(output, { recursive: true });
-    const result = spawnSync("bun", ["test", "--max-concurrency", "1", "--reporter=junit", "--reporter-outfile=unit-test-results/junit.xml", ...paths], { cwd: web, stdio: "inherit" });
+    const result = spawnSync("bun", ["run", "scripts/unit-tests.ts", ...paths], { cwd: web, stdio: "inherit" });
     if (result.error) throw result.error;
     return result.status ?? 1;
   }

@@ -44,6 +44,7 @@
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
     "scripts/review-links.ts!",
+    "scripts/unit-tests.ts!",
     "scripts/activity-scroll-profile.ts!",
     "scripts/modal-open-profile.ts!",
     "scripts/navigation-profile.ts!",
@@ -65,6 +66,7 @@
     "**/*.stories.fixture.ts",
     // Test-only harnesses are excluded rather than treated as production roots.
     "tests/**",
+    "scripts/unit-tests-fixture.ts",
     "server/funding/core/testing/**",
     "client/account/dom-test-harness.ts",
     "shared/balances/fixtures.ts",
