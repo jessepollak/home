@@ -2,9 +2,10 @@ import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import type { MoneyBreakdownItem } from "@/shared/balances/present";
 
-const segmentColors: Record<MoneyBreakdownItem["id"], string> = {
+const segmentFills: Record<MoneyBreakdownItem["id"], string> = {
   borrow: "var(--muted-foreground)",
   cash: "var(--balance-bar-cash)",
+  "pending-cash-out": "var(--balance-bar-pending-cash-out)",
   investments: "var(--balance-bar-investments)",
 };
 
@@ -37,36 +38,46 @@ export function SignedBalanceBar({ items, selectedId, onSelect }: BreakdownProps
 }
 
 export function MoneyBreakdownLegend({ items, selectedId, onSelect }: BreakdownProps) {
+  const pending = items.some((item) => item.id === "pending-cash-out");
   return (
-    <ul aria-label="Balance allocation" className="grid list-none grid-cols-3 gap-x-2 p-0 text-xs text-muted-foreground tabular-nums">
-      {items.map((item) => {
-        const selected = selectedId === item.id;
-        return (
-          <li key={item.id} className="min-w-0 leading-tight" data-breakdown-item={item.id} data-selected={selected ? "true" : undefined}>
-            <Button
-              type="button"
-              variant="balance-legend"
-              size="balance-legend"
-              press="none"
-              aria-pressed={selected}
-              data-selected={selected ? "true" : undefined}
-              onClick={() => onSelect(item.id)}
-              className="-mx-1.5 -my-1 flex w-full min-w-0 flex-col items-start gap-1 px-1.5 py-1 text-start"
-            >
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span
-                  className="size-1.5 shrink-0 rounded-xs"
-                  style={{ backgroundColor: segmentColors[item.id] }}
-                  aria-hidden="true"
-                />
-                <span>{item.label}</span>
-              </span>
-              <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} />
-            </Button>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="@container">
+      <ul
+        aria-label="Balance allocation"
+        data-items={items.length}
+        data-pending={pending ? "" : undefined}
+        className="grid list-none grid-cols-3 gap-x-2 p-0 text-xs text-muted-foreground tabular-nums data-pending:grid-cols-2 data-pending:gap-y-3 @max-[15rem]:data-pending:grid-cols-1 @md:data-pending:gap-y-0 @md:data-pending:data-[items=3]:grid-cols-3 @md:data-pending:data-[items=4]:grid-cols-4"
+      >
+        {items.map((item) => {
+          const selected = selectedId === item.id;
+          return (
+            <li key={item.id} className="min-w-0 leading-tight" data-breakdown-item={item.id} data-pending-cash-out={item.id === "pending-cash-out" ? "" : undefined} data-selected={selected ? "true" : undefined}>
+              <Button
+                type="button"
+                variant="balance-legend"
+                size="balance-legend"
+                press="none"
+                aria-pressed={selected}
+                data-selected={selected ? "true" : undefined}
+                onClick={() => onSelect(item.id)}
+                className="-mx-1.5 -my-1 flex w-full min-w-0 flex-col items-start gap-1 px-1.5 py-1 text-start"
+              >
+                <span className="flex w-full min-w-0 items-start gap-1.5">
+                  <span
+                    className="size-1.5 shrink-0 rounded-xs"
+                    style={{ background: segmentFills[item.id] }}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 text-balance @max-[15rem]:max-w-[5rem]">
+                    {item.id === "pending-cash-out" ? <>Pending <span className="whitespace-nowrap">cash-out</span></> : item.label}
+                  </span>
+                </span>
+                <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} />
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 
@@ -89,7 +100,7 @@ function Segment({ item, selectedId, onSelect }: {
       data-selected={selectedId === item.id ? "true" : undefined}
       data-muted={selectedId !== null && selectedId !== item.id ? "" : undefined}
       style={{
-        backgroundColor: segmentColors[item.id],
+        background: segmentFills[item.id],
         flexBasis: 0,
         flexGrow: item.weight,
       }}

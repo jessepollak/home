@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { cashoutFixtureAction, cashoutFixtureProgress } from "./feature-map/cashout-fixture";
+import { FIXED_NOW } from "./fixtures/fixed-time";
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   test(`Activity anchors older rows at ${viewport.width}x${viewport.height}`, async ({ page }) => {
@@ -9,7 +10,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await page.emulateMedia({ reducedMotion: "reduce" });
     await seedSignedInSession(page);
     await installApiFixtures(page);
-    const anchor = Date.now() - 60_000;
+    const anchor = FIXED_NOW - 60_000;
     const timestamp = (minute: number) => new Date(anchor - minute * 60_000).toISOString();
     const wallet = sessionBody.smartAccount.address;
     const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
@@ -196,12 +197,11 @@ for (const path of ["/home", "/activity"]) {
 }
 test("Activity preserves the visible row through an insertion, reorder, and size correction", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.clock.install();
   await seedSignedInSession(page);
-  await installApiFixtures(page);
+  await installApiFixtures(page, { clock: "playwright" });
   const wallet = sessionBody.smartAccount.address;
   const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-  const now = Date.now();
+  const now = FIXED_NOW;
   let prepend = false;
   let promote = false;
   let reads = 0;
@@ -288,10 +288,9 @@ test("Activity preserves the visible row through an insertion, reorder, and size
 
 test("Activity keeps the visible Recent row fixed when a pending action settles", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.clock.install();
   await seedSignedInSession(page);
-  await installApiFixtures(page);
-  const now = Date.now();
+  await installApiFixtures(page, { clock: "playwright" });
+  const now = FIXED_NOW;
   const wallet = sessionBody.smartAccount.address;
   const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
   const timestamp = (minute: number) => new Date(now - minute * 60_000).toISOString();
@@ -363,7 +362,7 @@ test("mobile Activity keeps 300 paginated rows bounded and restores keyboard foc
   await installApiFixtures(page);
   const wallet = sessionBody.smartAccount.address;
   const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
-  const timestamp = (index: number) => new Date(Date.now() - (index + 1) * 60_000).toISOString();
+  const timestamp = (index: number) => new Date(FIXED_NOW - (index + 1) * 60_000).toISOString();
   const time = Array.from({ length: 300 }, (_, index) => timestamp(index));
   await page.route("**/api/actions*", (route) => {
     if (new URL(route.request().url()).pathname !== "/api/actions") return route.fallback();

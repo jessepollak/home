@@ -44,36 +44,41 @@ export function useNativeBaseIdentity(
   >();
   const restoreSequence = useRef(0);
 
-  const restore = useCallback(async (signal?: AbortSignal) => {
-    if (!enabled) return;
+  const restoreSession = useCallback(async (signal?: AbortSignal) => {
+    if (!enabled || signal?.aborted) return;
     const sequence = ++restoreSequence.current;
-    await Promise.resolve();
-    if (signal?.aborted || sequence !== restoreSequence.current) return;
-    setIsSettled(false);
-    setInitializationError(undefined);
-    try {
-      const session = await restoreNativeBaseSession(fetch, signal);
-      if (signal?.aborted || sequence !== restoreSequence.current) return;
-      setIdentity(session);
-    } catch { // oxlint-disable-line home/no-silent-catch -- a superseded restore must not overwrite the newer attempt's state; the current attempt reports provider-unavailable
-      if (signal?.aborted || sequence !== restoreSequence.current) return;
-      setIdentity(null);
-      setInitializationError("provider-unavailable");
-    } finally {
+    await restoreNativeBaseSession(fetch, signal).then(
+      (session) => {
+        if (signal?.aborted || sequence !== restoreSequence.current) return;
+        setIdentity(session);
+      },
+      () => { // oxlint-disable-line home/no-silent-catch -- a superseded restore must not overwrite the newer attempt's state; the current attempt reports provider-unavailable
+        if (signal?.aborted || sequence !== restoreSequence.current) return;
+        setIdentity(null);
+        setInitializationError("provider-unavailable");
+      },
+    ).finally(() => {
       if (!signal?.aborted && sequence === restoreSequence.current) {
         markHomeAuthRestore("native-settled");
         setIsSettled(true);
         setHasSettled(true);
       }
-    }
+    });
   }, [enabled]);
+
+  const restore = useCallback(async (signal?: AbortSignal) => {
+    if (!enabled) return;
+    setIsSettled(false);
+    setInitializationError(undefined);
+    await restoreSession(signal);
+  }, [enabled, restoreSession]);
 
   useEffect(() => {
     if (!enabled || !mountRestore) return;
     const controller = new AbortController();
-    queueMicrotask(() => void restore(controller.signal));
+    void restoreSession(controller.signal);
     return () => controller.abort();
-  }, [enabled, mountRestore, restore]);
+  }, [enabled, mountRestore, restoreSession]);
 
   const availableIdentity = enabled ? identity : null;
   const availableInitializationError = enabled ? initializationError : undefined;

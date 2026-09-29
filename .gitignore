@@ -10,5 +10,6 @@ dist/
 *.log
 
 .factory/
+.home-verify/
 
 !apps/web/server/db/migrations/*.sql

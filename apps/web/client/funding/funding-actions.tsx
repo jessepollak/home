@@ -10,6 +10,7 @@ import {
   commitFlowUrl,
   flowHref,
   isCanonicalShellPathname,
+  readClientHistoryFlag,
   withoutFlowHref,
   type ShellFlow,
 } from "@/config/shell-location";
@@ -85,7 +86,7 @@ export function FundingActionsForWallet({
     setUserOpen(false);
     setDismissed(true);
     const routingPushedEntry =
-      routing !== null && window.history.state?.__homeFundingFlowPushed === true;
+      routing !== null && readClientHistoryFlag("fundingFlowPushed");
     if (routingPushedEntry || (!routing && takeOpenedInApp())) {
       window.history.back();
     } else if (

@@ -49,7 +49,7 @@ describe("brand resolver", () => {
     const failed = await resolveBrand({ store: () => ({ read: async () => { throw new Error("query failed"); } }) });
     const corrupt = await resolveBrand({ store: () => ({ read: async () => entry({ ...value, primaryColor: "invalid" }) }) });
     const newerVersion = await resolveBrand({ store: () => new OperatorSettingsStore({
-      query: async <T>() => ({ rows: [{ domain: "brand", schema_version: 2, value, revision: "1", updated_at: new Date(), updated_by: actor } as unknown as T], rowCount: 1 }),
+      query: async <T>() => ({ rows: [{ domain: "brand", schema_version: 2, value, revision: "1", updated_at: new Date("2026-09-28T12:00:00.000Z"), updated_by: actor } as unknown as T], rowCount: 1 }),
       transaction: async () => { throw new Error("must not write"); },
     }) });
     const priorUrl = process.env.DATABASE_URL;

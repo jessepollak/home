@@ -13,9 +13,11 @@ import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-hi
 import type { MarketDataState, MarketSession } from "@/shared/invest/invest-market";
 import { formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
 import { AssetDetailScreen } from "./asset-detail-screen";
+import { pinClock } from "@/tests/helpers/pin-clock";
 
 const chartWait = { timeout: 5000 };
-const clock = Date.now() - 60000;
+const TIME = "2026-09-25T12:00:00.000Z";
+const clock = Date.parse(TIME) - 60000;
 const staleOffsetMs = 8 * 86400000;
 const crypto = investAssets.find((asset) => asset.id === "cbbtc")!;
 const stock = investAssets.find((asset) => asset.id === "nvdac")!;
@@ -235,7 +237,8 @@ const meta = {
   beforeEach: () => {
     getHomeQueryClient().clear();
     resetHistoryControl();
-    return () => { historyControl.release(); getHomeQueryClient().clear(); };
+    const restoreClock = pinClock(TIME);
+    return () => { historyControl.release(); getHomeQueryClient().clear(); restoreClock(); };
   },
   parameters: {
     layout: "fullscreen", a11y: { test: "error" },
@@ -428,17 +431,19 @@ export const TradeBarScroll: Story = { args: { reducedMotion: false },
   render: (args) => <div className="h-140 overflow-y-auto" data-scroll-viewport><StoryHarness {...args} /></div>,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const bar = canvasElement.querySelector<HTMLElement>('[data-state="shown"]')!;
+    const barState = () => canvasElement.querySelector<HTMLElement>("[data-state]")?.getAttribute("data-state");
     const viewport = canvasElement.querySelector<HTMLElement>("[data-scroll-viewport]")!;
     await canvas.findByRole("group", { name: /1 week price history/ }, chartWait);
-    const scrollTo = (top: number) => { viewport.scrollTop = top; viewport.dispatchEvent(new Event("scroll")); };
-    scrollTo(120);
-    await waitFor(() => expect(bar).toHaveAttribute("data-state", "hidden"), chartWait);
-    viewport.dispatchEvent(new Event("scrollend"));
-    await waitFor(() => expect(bar).toHaveAttribute("data-state", "shown"), chartWait);
-    scrollTo(260);
-    await waitFor(() => expect(bar).toHaveAttribute("data-state", "hidden"), chartWait);
-    scrollTo(240);
-    await waitFor(() => expect(bar).toHaveAttribute("data-state", "shown"), chartWait);
+    const scrollBetween = (from: number, to: number, state: "shown" | "hidden") => waitFor(async () => {
+      viewport.scrollTop = from;
+      viewport.dispatchEvent(new Event("scroll"));
+      viewport.scrollTop = to;
+      viewport.dispatchEvent(new Event("scroll"));
+      await expect(barState()).toBe(state);
+    }, chartWait);
+    await scrollBetween(0, 120, "hidden");
+    await waitFor(async () => { viewport.dispatchEvent(new Event("scrollend")); await expect(barState()).toBe("shown"); }, chartWait);
+    await scrollBetween(120, 260, "hidden");
+    await scrollBetween(260, 240, "shown");
   },
 };

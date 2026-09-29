@@ -1,6 +1,7 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { pinClock } from "@/tests/helpers/pin-clock";
 import { useState } from "react";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -15,6 +16,9 @@ const { TradeMoneyDialog } = await import("./trade-money-dialog");
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+let restoreClock: () => void;
+beforeEach(() => { restoreClock = pinClock("2026-09-28T12:00:00.000Z"); });
 const session: VerifiedAccountSession = {
   user: { subject: "synthetic-trade-owner" }, smartAccount: { address: wallet, chainId: 8453 }, accountProvider: "cdp-embedded",
 };
@@ -31,11 +35,11 @@ function action(direction: TradeDirection, amount: string, traded: TradeToken, e
   const from = buy ? cash : tradedAsset;
   const to = buy ? tradedAsset : cash;
   const receive = buy ? (BigInt(10) ** BigInt(traded.decimals)).toString() : "69000000";
-  const expiresAt = new Date(Date.now() + (expired ? -1000 : 110_000)).toISOString();
+  const expiresAt = new Date(NOW + (expired ? -1000 : 110_000)).toISOString();
   return {
     id: `fixture-${direction}-${expiresAt}`, kind: "trade", title: `${buy ? "Buy" : "Sell"} DEGEN`,
     owner: { subject: session.user.subject, address: wallet, chainId: 8453, accountProvider: session.accountProvider },
-    createdAt: new Date().toISOString(), expiresAt, calls: [], warnings: ["Do not use this warning for review facts"],
+    createdAt: new Date(NOW).toISOString(), expiresAt, calls: [], warnings: ["Do not use this warning for review facts"],
     networkFee: { payment: "usdc", token: usdc, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
     amounts: [
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" },
@@ -47,7 +51,7 @@ function action(direction: TradeDirection, amount: string, traded: TradeToken, e
       assetId: traded.assetId, assetName: "DEGEN", fromAsset: from, toAsset: to,
       fromAmountBaseUnits: spend, expectedToAmountBaseUnits: receive,
       minimumToAmountBaseUnits: (BigInt(receive) * BigInt(99) / BigInt(100)).toString(),
-      slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date().toISOString(),
+      slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date(NOW).toISOString(),
       permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
       executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
     },
@@ -96,7 +100,7 @@ async function submit(view: ReturnType<typeof render>, value?: string) {
   click(view, "Continue");
 }
 
-afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
+afterEach(() => { cleanup(); getHomeQueryClient().clear(); restoreClock(); });
 
 describe("any-token trade review", () => {
   test.each([
@@ -279,7 +283,7 @@ describe("any-token trade review", () => {
   test("wallet rejection followed by expiry gets a fresh quote without executing again", async () => {
     const trade = dialog("sell", { prepare: async (params, traded, count) => {
       const prepared = action("sell", params.amountBaseUnits, traded);
-      if (count === 1) prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+      if (count === 1) prepared.expiresAt = new Date(NOW + 1200).toISOString();
       return prepared;
     } });
     await submit(trade.view, "0.5");
@@ -298,7 +302,7 @@ describe("any-token trade review", () => {
     const trade = dialog("buy", {
       prepare: async (params, traded) => {
         const prepared = action("buy", params.amountBaseUnits, traded);
-        prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+        prepared.expiresAt = new Date(NOW + 1200).toISOString();
         return prepared;
       },
       execute: async () => { throw new TransferExecutionError("not-submitted"); },
@@ -398,7 +402,7 @@ describe("any-token trade review", () => {
     const trade = dialog("buy", {
       prepare: async (params, traded) => {
         const prepared = action("buy", params.amountBaseUnits, traded);
-        prepared.expiresAt = new Date(Date.now() + 1200).toISOString();
+        prepared.expiresAt = new Date(NOW + 1200).toISOString();
         return prepared;
       },
       execute: async () => { throw new Error("synthetic dispatch outcome unknown"); },

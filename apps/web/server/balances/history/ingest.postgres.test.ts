@@ -308,8 +308,8 @@ suite("history ingest with Postgres", () => {
         else signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
       });
     } };
-    const result = await createHistoryIngest({ store, source, chain, lagBlocks: BigInt(0), replayBlocks: BigInt(0) }).run(address,
-      { heldAssets: [token], deadline: Date.now() + 20 });
+    const result = await createHistoryIngest({ store, source, chain, now: () => time, lagBlocks: BigInt(0), replayBlocks: BigInt(0) }).run(address,
+      { heldAssets: [token], deadline: time.getTime() + 20 });
     expect(entered).toBe(true);
     expect(result).toMatchObject({ status: "building", queries: 0, windows: 0 });
     expect((await store.getAddress(8453, address))?.backfillBlock).toBe(BigInt(110));

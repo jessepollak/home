@@ -95,7 +95,7 @@ There is no database persistence and no endpoint accepting an arbitrary user or 
 
 ## UI integration
 
-The dashboard shell renders `AuthenticatedCashExperience` through its `cashContent` callback at `/cash` (overview) and `/cash/savings` (detail):
+The dashboard shell renders `AuthenticatedCashExperience` through its `cashContent` callback at `/cash` (overview) and `/cash/savings` (detail); the shell owns the single pending-cash-out estimate (`usePendingCashoutEscrow`) and passes it down, because two mounts against the same actions query would race over which read confirms it:
 
 ```tsx
 <DashboardShell
@@ -106,6 +106,7 @@ The dashboard shell renders `AuthenticatedCashExperience` through its `cashConte
       view={view}
       onOpenSavings={onOpenSavings}
       regionReady={regionReady}
+      pendingCashout={pendingCashout}
     />
   )}
 />

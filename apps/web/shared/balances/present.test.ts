@@ -22,6 +22,7 @@ import {
   presentBalanceRows,
   presentBalances,
   presentMoneyGroups,
+  presentPendingCashout,
 } from "./present";
 import { holdingValueContext } from "./value-label";
 
@@ -104,6 +105,93 @@ describe("balance presentation precision", () => {
 });
 
 describe("balance presentation", () => {
+  test.each([
+    { region: "US" as const, unit: { atoms: "1", scale: 0 }, expected: "$20.00" },
+    { region: "GB" as const, unit: { atoms: "8", scale: 1 }, expected: "£16.00" },
+  ])("prices remaining escrow in $region without changing wallet Cash", ({ region, unit, expected }) => {
+    const snapshot = buildBalancesSnapshotFixture({ region });
+    const usdc = snapshot.holdings.find(({ id }) => id === "usdc")!;
+    usdc.unitValue = { currency: snapshot.quoteCurrency!, amount: unit };
+    const escrow = { state: "escrow" as const, baseUnits: "20000000", partial: false };
+    const view = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: false, pendingCashout: escrow });
+    expect(view.displayTotal).toBe(expected);
+    expect(view.totalStatus).toBe("complete");
+    expect(view.summary?.cash.value).toBe(region === "US" ? "$0.00" : "£0.00");
+    expect(view.breakdown.map(({ id }) => id)).toEqual(["cash", "pending-cash-out", "investments"]);
+    expect(view.breakdown.find(({ id }) => id === "pending-cash-out")?.value).toBe(expected);
+    expect(presentPendingCashout(snapshot, escrow)?.value).toBe(expected);
+  });
+
+  test("known escrow plus an indeterminate order adds only known funds to a partial total", () => {
+    const snapshot = buildBalancesSnapshotFixture();
+    snapshot.holdings.find(({ id }) => id === "usdc")!.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
+    const state = { status: "ready" as const, snapshot, error: null };
+    const before = presentBalances(state);
+    const escrow = { state: "escrow" as const, baseUnits: "20000000", partial: true };
+    const view = presentBalances(state, { showSmallBalances: false, pendingCashout: escrow });
+    expect(before.totalStatus).toBe("complete");
+    expect(view.displayTotal).toBe("$20.00");
+    expect(view.breakdown.find(({ id }) => id === "pending-cash-out")?.value).toBe("$20.00");
+    expect(view.totalStatus).toBe("partial");
+    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(presentPendingCashout(snapshot, escrow)).toEqual({ value: "$20.00" });
+    const withoutCurrency = buildBalancesSnapshotFixture({ region: "GLOBAL" });
+    const noCurrency = presentBalances({ status: "ready", snapshot: withoutCurrency, error: null },
+      { showSmallBalances: false, pendingCashout: escrow });
+    expect(noCurrency.totalStatus).toBe("unavailable");
+    expect(noCurrency.statusLabel).toBe("Choose a country in Account to set how money is shown");
+  });
+
+  test("missing unit price marks a pending escrow partial without adding it", () => {
+    const snapshot = buildBalancesSnapshotFixture();
+    const before = presentBalances({ status: "ready", snapshot, error: null });
+    const view = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: false, pendingCashout: { state: "escrow", baseUnits: "1000000", partial: false } });
+    expect(view.displayTotal).toBe(before.displayTotal);
+    expect(view.totalStatus).toBe("partial");
+    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(view.breakdown).toEqual(before.breakdown);
+    expect(presentPendingCashout(snapshot, { state: "escrow", baseUnits: "1000000", partial: false })).toBeNull();
+  });
+
+  test.each(["indeterminate", "unreadable", "loading"] as const)("%s escrow leaves the wallet-only breakdown and marks a priced net partial", (status) => {
+    const snapshot = buildBalancesSnapshotFixture();
+    snapshot.holdings.find(({ id }) => id === "usdc")!.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
+    const state = { status: "ready" as const, snapshot, error: null };
+    const before = presentBalances(state);
+    const pendingCashout = { state: status };
+    const view = presentBalances(state, { showSmallBalances: false, pendingCashout });
+    expect(view.displayTotal).toBe(before.displayTotal);
+    expect(view.breakdown).toEqual(before.breakdown);
+    expect(view.totalStatus).toBe("partial");
+    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(presentPendingCashout(snapshot, pendingCashout)).toEqual(status === "indeterminate" ? { value: null } : null);
+    const withoutCurrency = buildBalancesSnapshotFixture({ region: "GLOBAL" });
+    expect(presentBalances({ status: "ready", snapshot: withoutCurrency, error: null },
+      { showSmallBalances: false, pendingCashout }).totalStatus).toBe("unavailable");
+    expect(presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" },
+      { showSmallBalances: false, pendingCashout }).totalStatus).toBe("unavailable");
+  });
+
+  test("negative Borrow net crosses zero only when pending escrow exceeds debt", () => {
+    const snapshot = buildBalancesSnapshotFixture({ borrow: { coverage: "complete", positions: [borrowPosition({
+      collateralBaseUnits: "0", collateralValue: priced("USD", "0"),
+      debtBaseUnits: "5000000", debtValue: priced("USD", "500"),
+    })] } });
+    snapshot.holdings.find(({ id }) => id === "usdc")!.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
+    const state = { status: "ready" as const, snapshot, error: null };
+    expect(presentBalances(state, { showSmallBalances: false, pendingCashout: { state: "escrow", baseUnits: "3000000", partial: false } }).displayTotal).toBe("−$2.00");
+    expect(presentBalances(state, { showSmallBalances: false, pendingCashout: { state: "escrow", baseUnits: "7000000", partial: false } }).displayTotal).toBe("$2.00");
+  });
+
+  test("absent and zero escrow preserve the original presentation", () => {
+    const snapshot = buildBalancesSnapshotFixture();
+    const state = { status: "ready" as const, snapshot, error: null };
+    expect(presentBalances(state, { showSmallBalances: false, pendingCashout: null }))
+      .toEqual(presentBalances(state, { showSmallBalances: false }));
+    expect(presentBalances(state, { showSmallBalances: false, pendingCashout: { state: "escrow", baseUnits: "0", partial: false } }))
+      .toEqual(presentBalances(state, { showSmallBalances: false }));
+  });
+
   test("a successful post-action refetch keeps Borrow visible while a genuine empty failure is unavailable", () => {
     const position = borrowPosition({
       collateralBaseUnits: "100000", collateralValue: priced("USD", "5000"),

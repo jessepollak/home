@@ -16,7 +16,7 @@ test("operator page access schedules bounded background re-checks, throttles rel
     return new AbortController().signal;
   });
   setObservabilityLogWriterForTests((line) => { lines.push(line); });
-  let now = Date.now() + 60_000;
+  let now = Date.parse("2026-09-28T12:01:00.000Z");
   let fail = false;
   const deps = { now: () => now, recheck: async (options: { signal: AbortSignal; limit?: number; route: string }) => {
     calls.push(options);

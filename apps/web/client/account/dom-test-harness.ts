@@ -1,4 +1,5 @@
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import { beforeEach } from "bun:test";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { registerDomTestCleanup } from "@/tests/helpers/dom-test-cleanup";
 
@@ -18,6 +19,7 @@ if (typeof window === "undefined") {
       disableJavaScriptFileLoading: true,
     },
   });
+  (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
 
   for (const [name, descriptor] of Object.entries(serverFetchDescriptors)) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
@@ -29,6 +31,10 @@ if (typeof window === "undefined") {
       statusText: `Unit tests cannot reach the network: ${String(input)}`,
     })) as unknown as typeof fetch;
 }
+
+beforeEach(() => {
+  (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true;
+});
 
 const testingLibrary = await import("@testing-library/react");
 const cleanupDomTests = testingLibrary.cleanup;

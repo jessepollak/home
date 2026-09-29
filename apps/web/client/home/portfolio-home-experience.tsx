@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBalances } from "@/client/balances";
+import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { presentBalances } from "@/shared/balances/present";
@@ -165,14 +166,16 @@ export function PortfolioHomeExperience({
       (fetchedPreference?.status === "settled" && fetchedPreference.regionId !== null &&
         presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit",
   });
+  const pendingCashout = usePendingCashoutEscrow(accountReady ? account.session : null, balances.snapshot,
+    (signal) => account.fetchAccountResource("/api/actions", { signal }));
   const interruptionStatus = useInterruption(
     balances.observation,
     account.status === "verified" && account.verification === "server" && !suppressBalances,
     balances.retry,
   );
   const presentAssetBalances = useCallback(
-    (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances }),
-    [balances],
+    (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances, pendingCashout }),
+    [balances, pendingCashout],
   );
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
@@ -203,7 +206,7 @@ export function PortfolioHomeExperience({
         />
       }
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
-      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} />}
+      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       investmentsContent={(props) => <InvestmentsExperience {...props} balances={balances} discover={discover} />}
       applyInboundUrlIntent

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/store";
@@ -10,6 +10,8 @@ import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-a
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const VAULT = "0x2222222222222222222222222222222222222222" as const;
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(NOW));
 const session: VerifiedAccountSession = {
   user: { subject: "subject-a" },
   smartAccount: { address: ACCOUNT, chainId: 8453 },
@@ -40,7 +42,7 @@ function savingsDraft(operation: "deposit" | "withdraw"): MoneyActionDraft {
       },
     ],
     warnings: ["The wallet shows the Base network fee."],
-    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    expiresAt: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
     metadata: {
       product: "savings",
       operation,
@@ -94,7 +96,7 @@ function reviewedQuote() {
   };
 }
 
-afterEach(() => setActionsStoreForTests(null));
+afterEach(() => { setActionsStoreForTests(null); setSystemTime(); });
 
 describe("cash-out money action issuance", () => {
   test("normalizes the reviewed deposit payee hash and accepts legacy drafts without it", async () => {

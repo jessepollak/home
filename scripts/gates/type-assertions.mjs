@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
-const baselinePath = fileURLToPath(new URL("./type-assertions-baseline.json", import.meta.url));
+const exceptionsPath = "scripts/gates/type-assertions-exceptions.json";
 const kinds = ["assertion", "nonNull", "suppression", "genericParse"];
 const directive = /@ts-(?:ignore|expect-error|nocheck)\b|\b(?:eslint|oxlint)-disable(?:-[\w-]+)?\b/u;
 const parseCache = new Map();
@@ -84,93 +84,188 @@ function cachedCounts(file, content) {
   return counts;
 }
 
-function entries(files, budget) {
-  const invalid = [];
-  const scanned = new Map(files.map(({ path: file, content }) => [file, cachedCounts(file, content)]));
-  const base = budget?.files && typeof budget.files === "object" && !Array.isArray(budget.files) ? budget.files : {};
-  const exceptions = Array.isArray(budget?.exceptions) ? budget.exceptions : [];
-  if (base !== budget?.files) invalid.push("budget.files must be an object");
-  if (exceptions !== budget?.exceptions) invalid.push("budget.exceptions must be an array");
-  const extra = new Map();
-  const seen = new Set();
-  for (const [file, counts] of Object.entries(base)) {
-    if (!isProductionTypeScript(file) || !counts || typeof counts !== "object" || Array.isArray(counts) || !Object.keys(counts).length) {
-      invalid.push(`${file}: invalid or empty baseline entry`);
+function runGit(args, { cwd = root } = {}) {
+  return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function canResolve(args, cwd, gitRunner) {
+  try {
+    gitRunner(args, { cwd });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveBaseRevision({ base = process.env.BASE_REF || "main", cwd = root, gitRunner = runGit } = {}) {
+  if (/^[0-9a-f]{40}$/iu.test(base)) {
+    if (canResolve(["rev-parse", "--verify", "--quiet", `${base}^{commit}`], cwd, gitRunner)) return base;
+    throw new Error(`could not resolve base revision ${base}; fetch more history or set BASE_REF`);
+  }
+  const remote = `origin/${base}`;
+  if (!canResolve(["rev-parse", "--verify", "--quiet", remote], cwd, gitRunner)) {
+    try {
+      gitRunner(["fetch", "--no-tags", "--depth=200", "origin", base], { cwd });
+    } catch {
+    }
+    if (!canResolve(["rev-parse", "--verify", "--quiet", remote], cwd, gitRunner)) {
+      throw new Error(`could not resolve base ref ${remote}; fetch it or set BASE_REF`);
+    }
+  }
+  return remote;
+}
+
+export function mergeBaseRevision({ revision, cwd = root, gitRunner = runGit } = {}) {
+  try {
+    return String(gitRunner(["merge-base", revision, "HEAD"], { cwd })).trim() || revision;
+  } catch (error) {
+    if (canResolve(["merge-base", "--is-ancestor", revision, "HEAD"], cwd, gitRunner)) return revision;
+    throw new Error(`could not determine the merge base of ${revision} and HEAD; fetch more history or set BASE_REF`, { cause: error });
+  }
+}
+
+function baseBlobHash({ base, file, cwd, gitRunner }) {
+  try {
+    return String(gitRunner(["rev-parse", "--verify", "--quiet", `${base}:${file}`], { cwd })).trim();
+  } catch {
+    return "";
+  }
+}
+
+function worktreeBlobHash(file, cwd, gitRunner) {
+  try {
+    return String(gitRunner(["hash-object", "--path", file, file], { cwd })).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function changedProductionTypeScript({ base, cwd = root, gitRunner = runGit } = {}) {
+  const tracked = String(gitRunner(["diff", "--no-ext-diff", "--name-status", "-M", base, "--", "apps/web"], { cwd })).split("\n");
+  const changed = new Map();
+  const deleted = new Map();
+  for (const line of tracked) {
+    if (!line) continue;
+    const [status, source, destination] = line.split("\t");
+    if (status === "D") {
+      if (isProductionTypeScript(source)) {
+        const hash = baseBlobHash({ base, file: source, cwd, gitRunner });
+        if (hash) deleted.set(hash, [...(deleted.get(hash) ?? []), source]);
+      }
       continue;
     }
-    for (const [kind, count] of Object.entries(counts)) {
-      if (!kinds.includes(kind) || !Number.isSafeInteger(count) || count <= 0) invalid.push(`${file}: invalid ${kind} baseline count ${count}`);
-    }
+    if (!/^[MATR]/u.test(status)) continue;
+    const file = status.startsWith("R") ? destination : source;
+    if (!isProductionTypeScript(file)) continue;
+    const from = status.startsWith("R") && isProductionTypeScript(source) ? source : file;
+    changed.set(file, { path: file, basePath: from });
   }
-  for (const entry of exceptions) {
-    const { path: file, kind, count, reason } = entry ?? {};
-    if (!isProductionTypeScript(file) || !kinds.includes(kind) || !Number.isSafeInteger(count) || count <= 0
-      || typeof reason !== "string" || !reason.trim()) invalid.push(`${file ?? "(missing path)"}: invalid ${kind ?? "(missing kind)"} exception (positive count and reason required)`);
-    const key = `${file}:${kind}`;
-    if (seen.has(key)) invalid.push(`${key}: duplicate exception`);
-    seen.add(key);
-    if (isProductionTypeScript(file) && kinds.includes(kind) && Number.isSafeInteger(count) && count > 0) extra.set(key, (extra.get(key) ?? 0) + count);
-  }
-  for (const [key, count] of extra) {
-    const index = key.lastIndexOf(":");
-    const file = key.slice(0, index);
-    const kind = key.slice(index + 1);
-    if (scanned.has(file) && scanned.get(file)[kind] < count) invalid.push(`${file}: ${kind} exception exceeds current count; edit the exception by hand`);
-  }
-  return { scanned, base, exceptions, extra, invalid };
+  const untracked = String(gitRunner(["ls-files", "--others", "--exclude-standard", "-z", "--", "apps/web"], { cwd })).split("\0");
+  for (const file of untracked) if (isProductionTypeScript(file)) changed.set(file, { path: file, basePath: file });
+  return [...changed.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0).map((entry) => {
+    const content = readFileSync(path.join(cwd, entry.path), "utf8");
+    const atBase = canResolve(["cat-file", "-e", `${base}:${entry.basePath}`], cwd, gitRunner);
+    const candidates = atBase || !deleted.size ? undefined : deleted.get(worktreeBlobHash(entry.path, cwd, gitRunner));
+    const movedFrom = candidates?.length ? candidates.shift() : undefined;
+    const basePath = movedFrom ?? entry.basePath;
+    const baseContent = movedFrom !== undefined || atBase
+      ? String(gitRunner(["show", `${base}:${basePath}`], { cwd })) : undefined;
+    return { path: entry.path, basePath, content, baseContent };
+  });
 }
 
-export function evaluateAssertionBudget({ files, budget }) {
-  const { scanned, base, exceptions, extra, invalid } = entries(files, budget);
+function validException(entry) {
+  return isProductionTypeScript(entry?.path) && kinds.includes(entry?.kind)
+    && Number.isSafeInteger(entry?.count) && entry.count > 0
+    && typeof entry?.reason === "string" && Boolean(entry.reason.trim());
+}
+
+function exceptionCount(exceptions, file, kind) {
+  return exceptions.filter((entry) => validException(entry) && entry.path === file && entry.kind === kind)
+    .reduce((total, entry) => total + entry.count, 0);
+}
+
+export function evaluateAssertionDelta({ changed, exceptions, baseExceptions }) {
   const increases = [];
-  const stale = [];
-  for (const [file, counts] of scanned) {
+  const notes = [];
+  const invalid = [];
+  for (const entry of exceptions) if (!validException(entry)) {
+    invalid.push(`${entry?.path ?? "(missing path)"}: invalid ${entry?.kind ?? "(missing kind)"} exception (positive count and reason required)`);
+  }
+  for (const { path: file, content, basePath, baseContent } of changed) {
+    const actual = cachedCounts(file, content);
+    const before = baseContent === undefined ? null : cachedCounts(file, baseContent);
     for (const kind of kinds) {
-      const allowed = (Number.isSafeInteger(base[file]?.[kind]) && base[file][kind] > 0 ? base[file][kind] : 0) + (extra.get(`${file}:${kind}`) ?? 0);
-      if (counts[kind] > allowed) increases.push(`${file}: ${kind} ${counts[kind]} > ${allowed}; narrow with a runtime guard or parser, or add a reviewed exception with a reason`);
-      if (counts[kind] < allowed) stale.push(`${file}: ${kind} ${counts[kind]} < ${allowed}; run bun run assertions:shrink`);
+      const baseCount = before?.[kind] ?? 0;
+      const granted = Math.max(0, exceptionCount(exceptions, file, kind) - exceptionCount(baseExceptions, basePath, kind));
+      const allowed = baseCount + granted;
+      if (actual[kind] > allowed) increases.push(`${file}: ${kind} ${actual[kind]} > ${allowed}; narrow the new use with a runtime guard or add a reviewed exception with a reason`);
+      if (granted > Math.max(0, actual[kind] - baseCount)) notes.push(`${file}: ${kind} exception allows ${granted} but this change adds ${Math.max(0, actual[kind] - baseCount)}; remove or narrow it`);
     }
   }
-  for (const file of Object.keys(base)) if (!scanned.has(file)) stale.push(`${file}: baseline file missing; run bun run assertions:shrink`);
-  for (const entry of exceptions) if (typeof entry?.path === "string" && isProductionTypeScript(entry.path) && !scanned.has(entry.path)) stale.push(`${entry.path}: ${entry.kind} exception file missing; remove the exception by hand`);
-  return { increases: increases.sort(), stale: stale.sort(), invalid: invalid.sort() };
+  return { increases: increases.sort(), notes: notes.sort(), invalid: invalid.sort() };
 }
 
-export function shrinkBudget({ files, budget }) {
-  const { scanned, base, exceptions, extra } = entries(files, budget);
+function readExceptions(content) {
+  try {
+    const data = JSON.parse(content);
+    return Array.isArray(data?.exceptions) ? data.exceptions : null;
+  } catch {
+    return null;
+  }
+}
+
+export function assertionExceptions({ revision, cwd = root, gitRunner = runGit } = {}) {
+  try {
+    const content = revision === undefined
+      ? readFileSync(path.join(cwd, exceptionsPath), "utf8")
+      : String(gitRunner(["show", `${revision}:${exceptionsPath}`], { cwd }));
+    return readExceptions(content);
+  } catch {
+    return null;
+  }
+}
+
+function inventory(files, exceptions) {
   const result = {};
-  for (const file of [...scanned.keys()].sort()) {
-    const current = scanned.get(file);
-    const counts = {};
-    for (const kind of [...kinds].sort()) {
-      const old = base[file]?.[kind] ?? 0;
-      const remaining = current[kind] - (extra.get(`${file}:${kind}`) ?? 0);
-      const next = Math.max(0, Math.min(old, remaining));
-      if (next > 0) counts[kind] = next;
-    }
+  for (const { path: file, content } of files) {
+    const counts = Object.fromEntries(Object.entries(cachedCounts(file, content)).filter(([, count]) => count > 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
     if (Object.keys(counts).length) result[file] = counts;
   }
   return { files: result, exceptions };
 }
 
+export function assertionDebtReport({ cwd = root, gitRunner = runGit } = {}) {
+  const ref = resolveBaseRevision({ cwd, gitRunner });
+  const base = mergeBaseRevision({ revision: ref, cwd, gitRunner });
+  const changed = changedProductionTypeScript({ base, cwd, gitRunner });
+  const current = assertionExceptions({ cwd, gitRunner });
+  const result = evaluateAssertionDelta({ changed, exceptions: current ?? [], baseExceptions: assertionExceptions({ revision: base, cwd, gitRunner }) ?? [] });
+  if (current === null) result.invalid.push(`${exceptionsPath}: invalid exceptions file (missing, unparsable, or exceptions must be an array)`);
+  return { ref, base, result };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const shrink = process.argv.length === 3 && process.argv[2] === "--shrink";
-  if (process.argv.length > (shrink ? 3 : 2)) {
-    console.error("usage: node scripts/gates/type-assertions.mjs [--shrink]");
+  if (process.argv.length > 3 || (process.argv.length === 3 && process.argv[2] !== "--report")) {
+    console.error("usage: node scripts/gates/type-assertions.mjs [--report]");
     process.exitCode = 1;
+  } else if (process.argv[2] === "--report") {
+    const exceptions = assertionExceptions();
+    if (exceptions === null) {
+      console.error(`${exceptionsPath}: invalid exceptions file (missing, unparsable, or exceptions must be an array)`);
+      process.exitCode = 1;
+    } else console.log(JSON.stringify(inventory(repositoryFiles(), exceptions), null, 2));
   } else {
-    const files = repositoryFiles();
-    const budget = JSON.parse(readFileSync(baselinePath, "utf8"));
-    const before = evaluateAssertionBudget({ files, budget });
-    if (shrink && !before.invalid.length) {
-      const smaller = shrinkBudget({ files, budget });
-      writeFileSync(baselinePath, `${JSON.stringify(smaller, null, 2)}\n`);
-      const after = evaluateAssertionBudget({ files, budget: smaller });
-      for (const message of [...after.increases, ...after.stale, ...after.invalid]) console.error(message);
-      if (after.increases.length || after.stale.length || after.invalid.length) process.exitCode = 1;
-    } else {
-      for (const message of [...before.increases, ...before.stale, ...before.invalid]) console.error(message);
-      if (before.increases.length || before.stale.length || before.invalid.length) process.exitCode = 1;
+    try {
+      const { ref, base, result } = assertionDebtReport();
+      console.log(`## Type-assertion gate (base ${base === ref ? ref : `${ref} at ${base.slice(0, 12)}`})`);
+      for (const note of result.notes) console.log(`- ${note}`);
+      for (const finding of [...result.increases, ...result.invalid].sort()) console.error(finding);
+      if (result.increases.length || result.invalid.length) process.exitCode = 1;
+      else console.log("No production TypeScript file increased its assertion debt.");
+    } catch (error) {
+      console.error(error.message);
+      process.exitCode = 1;
     }
   }
 }

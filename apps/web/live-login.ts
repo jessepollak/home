@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
 import { pinnedAgentBrowser } from "./pinned-agent-browser";
+import { privateVerificationPath } from "./verification-paths";
 
 type BrowserCommand = (args: string[], input?: string) => string;
 type LoginOptions = { command?: BrowserCommand; home?: string; env?: Record<string, string | undefined>; getOtp?: (email: string, submittedAt: number) => Promise<string> };
@@ -18,7 +19,7 @@ export async function loadVerificationEnv(env: Record<string, string | undefined
   for (const key of verificationKeys) if (configured[key] === "") delete configured[key];
   if (configured.HOME_VERIFY_ENV_FILE === "") delete configured.HOME_VERIFY_ENV_FILE;
   if (verificationKeys.every((key) => configured[key] !== undefined)) return configured;
-  const path = resolve(configured.HOME_VERIFY_ENV_FILE ?? resolve(home, ".home-verify/live.env"));
+  const path = privateVerificationPath(configured.HOME_VERIFY_ENV_FILE ?? resolve(home, ".home-verify/live.env"));
   let file;
   try {
     const entry = await lstat(path);
@@ -101,7 +102,8 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
   let url: URL;
   try { url = new URL(base); } catch { throw new Error("--base-url must be an HTTPS origin."); }
   if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error("--base-url must be an HTTPS origin.");
-  const directory = resolve(options.home ?? homedir(), ".home-verify");
+  const credentialsPath = options.getOtp ? undefined : gmailCredentialsPath(env);
+  const directory = privateVerificationPath(resolve(options.home ?? homedir(), ".home-verify"));
   const path = resolve(directory, `${name}.state.json`);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
@@ -128,7 +130,7 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
     const code = options.getOtp
       ? await options.getOtp(email, submittedAt)
       : await pollGmailOtp(
-        await readGmailCredentials(gmailCredentialsPath(env)) as Required<GmailCredentials>,
+        await readGmailCredentials(credentialsPath ?? gmailCredentialsPath(env)) as Required<GmailCredentials>,
         env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender,
         submittedAt,
         { accountEmail: email },

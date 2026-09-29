@@ -81,7 +81,7 @@ test("native and disabled fees leave review without a USDC fee row", () => {
 test("review converts the fee using a fresh presentation FX quote", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(JSON.stringify({
-    version: 1, provider: "codex", fetchedAt: new Date().toISOString(), markets: {},
+    version: 1, provider: "codex", fetchedAt: "2026-09-25T12:00:00.000Z", markets: {},
     fx: [{ quoteCurrency: "EUR", quoteUnitsPerUsd: { atoms: "9", scale: 1 }, status: "fresh" }],
   }), { status: 200, headers: { "content-type": "application/json" } })) as unknown as typeof fetch;
   try {

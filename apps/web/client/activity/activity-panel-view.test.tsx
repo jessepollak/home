@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { afterAll, afterEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, spyOn, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import type { UseActivityResult } from "./use-activity";
@@ -16,6 +16,8 @@ const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const noop = () => undefined;
+const NOW = Date.parse("2026-09-15T13:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 
 function transfer(id: string, minute: number): ActivityTransfer {
   return {
@@ -151,6 +153,7 @@ function mockRowHeight() {
   });
 }
 afterEach(() => {
+  setSystemTime();
   jest.useRealTimers();
   cleanup();
   delete (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED;
@@ -1068,8 +1071,8 @@ describe("combined Activity panel", () => {
     const view = render(<ActivityPanelView activity={activity} orders={[{ ...ambiguous, clearableAt: null }]} regionId="US" />);
     fireEvent.click(view.getByRole("button", { description: "View Add money details" }));
     const dialog = await view.findByRole("dialog", { name: "Add money" });
-    jest.useFakeTimers();
-    const orders = [{ ...ambiguous, clearableAt: new Date(Date.now() + 3_000).toISOString() }];
+    jest.useFakeTimers({ now: NOW });
+    const orders = [{ ...ambiguous, clearableAt: new Date(NOW + 3_000).toISOString() }];
     view.rerender(<ActivityPanelView activity={activity} orders={orders} regionId="US" />);
     expect(within(dialog).getByText(/You can clear it after/)).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Clear order" })).toBeNull();

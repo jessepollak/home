@@ -13,6 +13,8 @@ import {
 import { BORROW_HEALTH_FLOOR_WAD } from "../../../shared/borrowing/config";
 import { CARDS_CONTRACT_VERSION, type CardsResponse, type CardState } from "../../../shared/cards/contract";
 
+import { FIXED_NOW } from "./fixed-time";
+
 export const sessionBody = {
   user: { subject: "playwright-smoke-subject" },
   smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
@@ -23,7 +25,7 @@ export const actionsBody = { actions: [] };
 export const fundingProvidersBody = { providers: [] };
 export const basenameProfileBody = { profile: null };
 
-export function cardsBody(state: CardState = "active", now = new Date()): CardsResponse {
+export function cardsBody(state: CardState = "active", now = new Date(FIXED_NOW)): CardsResponse {
   const status = state === "frozen" || state === "restricted" || state === "canceled" ? state : "active";
   const issued = status !== "active" || state === "active";
   return {

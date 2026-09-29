@@ -195,6 +195,92 @@ export const noRequestOnlyPlaywright = {
   },
 };
 
+const clockGlobals = new Set(["globalThis", "window", "self", "global"]);
+const pageCallbackMethods = new Set(["evaluate", "evaluateHandle", "addInitScript", "waitForFunction"]);
+const testClockModules = new Set(["@jest/globals", "bun:test", "vitest"]);
+const testClockNamespaces = new Set(["jest", "vi"]);
+const playwrightClockReceivers = new Set(["context", "page"]);
+
+function clockObject(node, name, sourceCode) {
+  node = unwrapBindingExpression(node);
+  return node?.type === "Identifier" && node.name === name
+    && !resolveVariable(sourceCode, node)?.defs.length
+    || node?.type === "MemberExpression" && memberName(node) === name
+    && node.object.type === "Identifier" && clockGlobals.has(node.object.name)
+    && !resolveVariable(sourceCode, node.object)?.defs.length;
+}
+
+function clockProperty(node, sourceCode) {
+  node = unwrapBindingExpression(node);
+  if (node?.type !== "MemberExpression" || memberName(node) !== "now") return null;
+  if (clockObject(node.object, "Date", sourceCode)) return "date";
+  if (clockObject(node.object, "performance", sourceCode)) return "performance";
+  return null;
+}
+
+function clockImport(sourceCode, identifier) {
+  const variable = resolveVariable(sourceCode, identifier);
+  if (!variable || variable.references.some((reference) => reference.isWrite() && !reference.init)) return null;
+  for (const definition of variable.defs) {
+    if (definition.type !== "ImportBinding" || definition.parent?.type !== "ImportDeclaration") continue;
+    if (definition.parent.importKind === "type" || definition.node.importKind === "type") continue;
+    if (!testClockModules.has(sourceValue(definition.parent.source))) continue;
+    return definition.node.type === "ImportNamespaceSpecifier" ? "namespace" : importedName(definition.node);
+  }
+  return null;
+}
+
+function clockNamespace(sourceCode, callee) {
+  if (callee?.type !== "MemberExpression") return false;
+  const owner = unwrapBindingExpression(callee.object);
+  if (owner?.type !== "Identifier") return false;
+  const imported = clockImport(sourceCode, owner);
+  return imported === "namespace" || testClockNamespaces.has(imported);
+}
+
+function unpinningInstant(node) {
+  node = unwrapBindingExpression(node);
+  if (node?.type === "UnaryExpression" && node.operator === "void") return true;
+  return node?.type === "Identifier" && node.name === "undefined";
+}
+
+function playwrightClockCall(callee) {
+  if (callee?.type !== "MemberExpression") return false;
+  const receiver = unwrapBindingExpression(callee.object);
+  if (receiver?.type !== "MemberExpression" || memberName(receiver) !== "clock") return false;
+  const owner = unwrapBindingExpression(receiver.object);
+  return owner?.type === "Identifier" && playwrightClockReceivers.has(owner.name);
+}
+
+function clockOptionValue(node, key) {
+  return node?.type === "ObjectExpression" ? node.properties.find((property) =>
+    property.type === "Property" && memberName({ type: "MemberExpression",
+      computed: property.computed, property: property.key }) === key)?.value : null;
+}
+
+function outerClockExpression(node) {
+  while (node.parent && ["ChainExpression", "ParenthesizedExpression",
+    "TSAsExpression", "TSNonNullExpression", "TSSatisfiesExpression", "TSTypeAssertion"].includes(node.parent.type)) {
+    node = node.parent;
+  }
+  return node;
+}
+
+function pageClockCallback(node) {
+  for (let current = node.parent; current; current = current.parent) {
+    if (!["ArrowFunctionExpression", "FunctionExpression"].includes(current.type)) continue;
+    const call = current.parent;
+    if (call?.type === "CallExpression" && call.arguments.includes(current)
+      && pageCallbackMethods.has(memberName(call.callee))) return true;
+  }
+  return false;
+}
+
+function performanceCall(node, sourceCode) {
+  node = unwrapBindingExpression(node);
+  return node?.type === "CallExpression" && clockProperty(node.callee, sourceCode) === "performance";
+}
+
 export const noRealWaits = {
   meta: {
     type: "problem", schema: [], messages: {
@@ -202,10 +288,96 @@ export const noRealWaits = {
       promiseDelay: "tests must not create delay promises; wait for an observable condition instead",
       sleep: "tests must not sleep; use fake timers or an injected scheduler",
       browserSleep: "Playwright tests must not use waitForTimeout; wait for a locator or poll an observable condition",
+      wallClock: "tests must not read the wall clock; inject a clock or pin a fixed time",
       wait: "tests must not wait longer than 2000ms; bound the wait deterministically",
     },
   },
   create(context) {
+    const playwright = /\.pw\.(?:ts|tsx)$/u.test(String(context.filename ?? ""));
+    const clockReads = [];
+    const pinCandidates = [];
+    const subtractions = [];
+    function pinnedPageClock(node, pageClockPinned) {
+      return playwright && pageClockPinned && pageClockCallback(node);
+    }
+    function withinArgument(node, argument) {
+      for (let current = node; current; current = current.parent) {
+        if (current === argument) return true;
+      }
+      return false;
+    }
+    function pinSources(argument) {
+      const sources = [argument];
+      const pending = [argument];
+      while (pending.length > 0) {
+        const node = pending.pop();
+        if (!node || typeof node.type !== "string") continue;
+        if (node.type === "Identifier") {
+          const init = resolveVariable(context.sourceCode, node)?.defs[0]?.node?.init;
+          if (init && !sources.includes(init)) {
+            sources.push(init);
+            pending.push(init);
+          }
+          continue;
+        }
+        for (const [key, value] of Object.entries(node)) {
+          if (key === "parent" || !value) continue;
+          if (key === "key" && node.type === "Property" && !node.computed) continue;
+          if (key === "property" && node.type === "MemberExpression" && !node.computed) continue;
+          if (Array.isArray(value)) pending.push(...value);
+          else if (typeof value.type === "string") pending.push(value);
+        }
+      }
+      return sources;
+    }
+    function measuredPerformance(call) {
+      const outer = outerClockExpression(call);
+      if (outer.parent?.type === "BinaryExpression" && outer.parent.operator === "-") return true;
+      if (outer.parent?.type !== "VariableDeclarator" || outer.parent.init !== outer
+        || outer.parent.id.type !== "Identifier"
+        || outer.parent.parent?.type !== "VariableDeclaration"
+        || outer.parent.parent.kind !== "const") return false;
+      const binding = resolveVariable(context.sourceCode, outer.parent.id);
+      return subtractions.some((minus) => {
+        const left = unwrapBindingExpression(minus.left);
+        const right = unwrapBindingExpression(minus.right);
+        const other = performanceCall(left, context.sourceCode) ? right
+          : performanceCall(right, context.sourceCode) ? left : null;
+        return other?.type === "Identifier" && other.name === outer.parent.id.name
+          && resolveVariable(context.sourceCode, other) === binding;
+      });
+    }
+    function pinnedBy(node) {
+      if (node.arguments.length === 0) return;
+      const callee = unwrapBindingExpression(node.callee);
+      const method = memberName(callee);
+      const argument = node.arguments[0];
+      const record = (instant) => {
+        if (!unpinningInstant(instant)) pinCandidates.push(argument);
+      };
+      const recordFakeTimers = () => {
+        const now = clockOptionValue(argument, "now");
+        if (now) record(now);
+      };
+      if (playwright) {
+        if (!playwrightClockCall(callee)) return;
+        if (method === "install") {
+          const time = clockOptionValue(argument, "time");
+          if (time) record(time);
+        } else if (method === "setFixedTime" || method === "setSystemTime") record(argument);
+        return;
+      }
+      if (callee?.type === "MemberExpression") {
+        if (!clockNamespace(context.sourceCode, callee)) return;
+        if (method === "setSystemTime") record(argument);
+        else if (method === "useFakeTimers") recordFakeTimers();
+        return;
+      }
+      if (callee?.type !== "Identifier") return;
+      const imported = clockImport(context.sourceCode, callee);
+      if (imported === "setSystemTime") record(argument);
+      else if (imported === "useFakeTimers") recordFakeTimers();
+    }
     function invokesResolver(node, resolverName) {
       if (!node) return false;
       if (node.type === "CallExpression" && node.callee.type === "Identifier"
@@ -236,8 +408,39 @@ export const noRealWaits = {
         && invokesResolver(timerCallback.body, resolver.name);
     }
     return {
+      BinaryExpression(node) {
+        if (node.operator === "-") subtractions.push(node);
+      },
+      MemberExpression(node) {
+        const kind = clockProperty(node, context.sourceCode);
+        if (!kind) return;
+        const outer = outerClockExpression(node);
+        const call = outer.parent?.type === "CallExpression" && outer.parent.callee === outer
+          ? outer.parent : null;
+        clockReads.push({ kind, node: call ?? node, call });
+      },
+      NewExpression(node) {
+        if (clockObject(node.callee, "Date", context.sourceCode) && node.arguments.length === 0) {
+          clockReads.push({ kind: "date", node });
+        }
+      },
+      "Program:exit"() {
+        const pins = pinCandidates.map(pinSources);
+        const withinPin = (read, sources) => sources.some((source) => withinArgument(read.node, source));
+        const validPin = pins.some((sources) => !clockReads.some((read) => withinPin(read, sources)));
+        for (const read of clockReads) {
+          const pinArgumentRead = pins.some((sources) => withinPin(read, sources));
+          if (!pinArgumentRead && read.kind === "date"
+            && (playwright ? pinnedPageClock(read.node, validPin) : validPin)) continue;
+          if (!pinArgumentRead && read.kind === "performance" && read.call
+            && measuredPerformance(read.call)) continue;
+          context.report({ node: read.node, messageId: "wallClock" });
+        }
+      },
       CallExpression(node) {
         const callee = node.callee;
+        pinnedBy(node);
+        if (clockObject(callee, "Date", context.sourceCode)) clockReads.push({ kind: "date", node });
         if (callee.type === "Identifier" && callee.name === "setTimeout" && isPromiseDelay(node)) {
           context.report({ node, messageId: "promiseDelay" });
         } else if (callee.type === "Identifier" && ["setTimeout", "setInterval"].includes(callee.name)) {

@@ -454,9 +454,10 @@ describe("useActivity pagination", () => {
   test("keeps the retry backoff when the sentinel leaves and returns during the wait", async () => {
     const queries: string[] = [];
     const requestedAt: number[] = [];
+    const started = performance.now();
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
-      requestedAt.push(Date.now());
+      requestedAt.push(performance.now() - started);
       if (queries.length === 1) return page(query, WALLET_A, [transfer(query, WALLET_A, "event-30", "30")], "cursor-1");
       if (queries.length === 2) throw new Error("transient later page failure");
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
@@ -1058,7 +1059,7 @@ describe("mounted first-page recovery with an empty cache", () => {
 
 describe("first-page onchain recovery", () => {
   test("retries transient first-page failures after 500 ms and recovers without a partial warning", async () => {
-    jest.useFakeTimers();
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:00.000Z") });
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner, "partial");
     const calls: number[] = [];

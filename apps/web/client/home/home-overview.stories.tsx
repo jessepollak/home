@@ -17,6 +17,13 @@ import {
   unavailableBalance,
 } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
+import { selectPendingCashoutEscrow } from "@/client/balances/pending-cashout";
+import {
+  pendingCashoutOperations,
+  withCashUnitPrice,
+  type PendingCashoutStoryState,
+} from "@/client/balances/pending-cashout.stories.fixture";
+import type { RegionId } from "@/config/regions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { ComponentProps } from "react";
 import { HomeOverview, HomeSectionHeading } from "./home-overview";
@@ -245,6 +252,7 @@ type HomeOverviewStoryProps = {
   onRetry: () => void;
   onOpenAccount: () => void;
   interruption?: { kind: "offline" | "interrupted" } | null;
+  regionId?: RegionId;
 };
 
 function HomeOverviewStory({
@@ -257,6 +265,7 @@ function HomeOverviewStory({
   onRetry,
   onOpenAccount,
   interruption = null,
+  regionId = "US",
 }: HomeOverviewStoryProps) {
   const status = headerStatus({ interruption, coverage: homeBalancesStatus(assetBalances) });
   return (
@@ -303,7 +312,7 @@ function HomeOverviewStory({
               operations={operations}
               actionsStatus={actionsStatus}
               retryActions={retryFailedActions}
-              regionId="US"
+              regionId={regionId}
               density="feed"
               header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>}
               emptyAction={
@@ -760,4 +769,96 @@ export const Interrupted: Story = {
     await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
     await expect(args.onRetry).toHaveBeenCalled();
   },
+};
+
+const pendingFundedSnapshot = withCashUnitPrice(buildBalancesSnapshotFixture({
+  registry: cash,
+  borrow: { coverage: "complete", positions: [fundedPosition] },
+}));
+const pendingGbSnapshot = withCashUnitPrice(buildBalancesSnapshotFixture({
+  region: "GB",
+  registry: {
+    usdc: { balance: ready("100000000"), value: priced("GBP", "8000"), cashValue: pricedCash("USD", "10000") },
+    eth: { balance: ready("25000000000000000"), value: priced("GBP", "6257") },
+  },
+}));
+
+function pendingCashoutArgs(state: PendingCashoutStoryState, snapshot = pendingFundedSnapshot) {
+  const operations = pendingCashoutOperations(state, snapshot);
+  return {
+    assetBalances: presentBalances({ status: "ready", snapshot, error: null }, {
+      showSmallBalances: false,
+      pendingCashout: selectPendingCashoutEscrow(operations, snapshot),
+    }),
+    activity: emptyActivity,
+    operations,
+    regionId: snapshot.region,
+  };
+}
+
+function expectPendingCashout(total: string, pending: string | null) {
+  return async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const hero = within(canvasElement).getByLabelText("Total balance");
+    await expect(hero.querySelector("[data-total-status]")).toBeNull();
+    await expect(within(hero).getByRole("img", { name: total })).toBeVisible();
+    const item = hero.querySelector<HTMLElement>("[data-pending-cash-out]");
+    if (pending === null) {
+      await expect(item).toBeNull();
+      return;
+    }
+    await expect(item).not.toBeNull();
+    await expect(within(item!).getByRole("button", { name: /Pending cash-out/ })).toBeVisible();
+    await expect(within(item!).getByRole("img", { name: pending })).toBeVisible();
+  };
+}
+
+export const PendingCashoutNone: Story = {
+  args: pendingCashoutArgs("none"),
+  play: expectPendingCashout("$60.54", null),
+};
+
+export const PendingCashoutWaiting: Story = {
+  args: pendingCashoutArgs("waiting"),
+  play: expectPendingCashout("$110.54", "$50.00"),
+};
+
+export const PendingCashoutPartiallyPaid: Story = {
+  args: pendingCashoutArgs("partial"),
+  play: expectPendingCashout("$80.54", "$20.00"),
+};
+
+export const PendingCashoutPaid: Story = {
+  args: pendingCashoutArgs("paid"),
+  play: expectPendingCashout("$60.54", null),
+};
+
+export const PendingCashoutReturned: Story = {
+  args: pendingCashoutArgs("returned"),
+  play: expectPendingCashout("$60.54", null),
+};
+
+export const PendingCashoutWaitingDesktop: Story = {
+  args: pendingCashoutArgs("waiting"),
+  parameters: { viewport: { defaultViewport: "desktop" } },
+  play: expectPendingCashout("$110.54", "$50.00"),
+};
+
+export const PendingCashoutNoneGb: Story = {
+  args: pendingCashoutArgs("none", pendingGbSnapshot),
+  play: expectPendingCashout("£142.57", null),
+};
+
+export const PendingCashoutWaitingGb: Story = {
+  args: pendingCashoutArgs("waiting", pendingGbSnapshot),
+  play: expectPendingCashout("£182.57", "£40.00"),
+};
+
+export const PendingCashoutPartiallyPaidGb: Story = {
+  args: pendingCashoutArgs("partial", pendingGbSnapshot),
+  play: expectPendingCashout("£158.57", "£16.00"),
+};
+
+export const PendingCashoutReturnedGb: Story = {
+  args: pendingCashoutArgs("returned", pendingGbSnapshot),
+  play: expectPendingCashout("£142.57", null),
 };

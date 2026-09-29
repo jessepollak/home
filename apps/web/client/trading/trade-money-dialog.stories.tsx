@@ -13,6 +13,10 @@ import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { TradeActions } from "./trade-actions";
 import { TradeMoneyDialog } from "./trade-money-dialog";
+import { pinClock } from "@/tests/helpers/pin-clock";
+
+const TIME = "2026-09-28T12:00:00.000Z";
+const NOW = Date.parse(TIME);
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
@@ -30,11 +34,11 @@ function syntheticAction(params: TradeActionParams, expired = false, tinyPrice =
   const to = buy ? traded : cash;
   const spend = params.amountBaseUnits === "all" ? "100000000000000000000" : params.amountBaseUnits;
   const expected = buy ? tinyPrice ? "2000000000000000000000000" : "35000000000000000000" : "700000";
-  const expiresAt = new Date(Date.now() + (expired ? -1000 : 110_000)).toISOString();
+  const expiresAt = new Date(NOW + (expired ? -1000 : 110_000)).toISOString();
   return {
     id: `synthetic-${params.direction}-${expiresAt}`, kind: "trade", title: `${buy ? "Buy" : "Sell"} DEGEN`,
     owner: { subject: session.user.subject, address: wallet, chainId: 8453, accountProvider: session.accountProvider },
-    createdAt: new Date().toISOString(), expiresAt, calls: [], warnings: [],
+    createdAt: TIME, expiresAt, calls: [], warnings: [],
     networkFee: { payment: "usdc", token: usdc, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "20000", decimals: 6 },
     amounts: [
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: spend, direction: "spend" },
@@ -46,7 +50,7 @@ function syntheticAction(params: TradeActionParams, expired = false, tinyPrice =
       assetId: token.assetId, assetName: "DEGEN", fromAsset: from, toAsset: to, fromAmountBaseUnits: spend,
       expectedToAmountBaseUnits: expected, minimumToAmountBaseUnits: buy ? tinyPrice ? "1980000000000000000000000" : "34650000000000000000" : "693000",
       slippageBps: 100, fees: [{ kind: "protocol", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000" }],
-      approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: new Date().toISOString(),
+      approval: "permit2-exact", quoteBlockNumber: "123", quotedAt: TIME,
       permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30), executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30),
     },
   };
@@ -137,6 +141,7 @@ const meta = {
   title: "Invest/DEGEN trade review",
   component: TradeStory,
   args: { direction: "buy", view: "amount", availability: "available" },
+  beforeEach: () => pinClock(TIME),
   parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" } },
 } satisfies Meta<typeof TradeStory>;
 export default meta;

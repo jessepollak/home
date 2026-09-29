@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -85,6 +86,23 @@ function sameCdpIdentityState(current: CdpBoundary | null, next: CdpBoundary): b
     current.provisionalSession?.smartAccount?.address === next.provisionalSession?.smartAccount?.address;
 }
 
+type RestorePlan = { captured: boolean; hint: ReturnType<typeof readHomeAuthRestoreHint>; cdpHint: boolean; baseHint: boolean };
+
+function createRestorePlanStore() {
+  let plan: RestorePlan = { captured: false, hint: "none", cdpHint: false, baseHint: false };
+  return {
+    getSnapshot: () => plan,
+    subscribe: (listener: () => void) => {
+      if (!plan.captured) {
+        const hint = readHomeAuthRestoreHint();
+        plan = { captured: true, hint, cdpHint: hint === "cdp", baseHint: hint === "base" };
+        listener();
+      }
+      return () => {};
+    },
+  };
+}
+
 export default function CompositeAccountProvider({
   projectId,
   baseAccountEnabled,
@@ -98,11 +116,12 @@ export default function CompositeAccountProvider({
   timing?: AccountProviderTiming;
   children: ReactNode;
 }) {
-  const [restorePlan, setRestorePlan] = useState({
-    captured: false,
-    cdpHint: false,
-    baseHint: false,
-  });
+  const [restorePlanStore] = useState(createRestorePlanStore);
+  const restorePlan = useSyncExternalStore(
+    restorePlanStore.subscribe,
+    restorePlanStore.getSnapshot,
+    restorePlanStore.getSnapshot,
+  );
   const [cdpCleanup] = useState(() => createCdpCleanupObligation(false));
   const [isCdpActive, setIsCdpActive] = useState(false);
   const [activationFailed, setActivationFailed] = useState(false);
@@ -127,6 +146,7 @@ export default function CompositeAccountProvider({
   ));
   const cdpCleanupInFlightRef = useRef(false);
   const emailSwitchInFlightRef = useRef(false);
+  const restoreStartedRef = useRef(false);
   const native = useNativeBaseIdentity(baseAccountEnabled, {
     restoreOnMount: renderSeed?.source === "home-session",
   });
@@ -152,17 +172,11 @@ export default function CompositeAccountProvider({
   }, [activationGate]);
 
   useLayoutEffect(() => {
-    let current = true;
-    queueMicrotask(() => {
-      if (!current) return;
-      const hint = readHomeAuthRestoreHint();
-      const cdpHint = hint === "cdp";
-      startHomeAuthRestore(hint);
-      setRestorePlan({ captured: true, cdpHint, baseHint: hint === "base" });
-      if (cdpHint) void activate().catch(() => {}); // oxlint-disable-line home/no-silent-catch -- onCdpError and activation onTimeout both record rejection as failed activation state
-    });
-    return () => { current = false; };
-  }, [activate]);
+    if (!restorePlan.captured || restoreStartedRef.current) return;
+    restoreStartedRef.current = true;
+    startHomeAuthRestore(restorePlan.hint);
+    if (restorePlan.cdpHint) void activate().catch(() => {}); // oxlint-disable-line home/no-silent-catch -- onCdpError and activation onTimeout both record rejection as failed activation state
+  }, [activate, restorePlan]);
 
   const cdp = useMemo<CdpBoundary>(() => {
     const published: Omit<

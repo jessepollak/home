@@ -10,7 +10,7 @@ const session = { user: { subject: "fee-test" }, smartAccount: { address: accoun
 const swap = { to: "0x2222222222222222222222222222222222222222" as const, data: "0x1234" as const, value: "0" };
 const permitApproval = { ...swap, approval: { assetId: "usdc", spender: swap.to } };
 const operatorTransfer = { to: BASE_USDC_ADDRESS, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [account, BigInt(10_000)] }), value: "0" };
-const draft: MoneyActionDraft = { kind: "trade", title: "Buy Bitcoin", calls: [permitApproval, swap], amounts: [], warnings: [], expiresAt: new Date(Date.now() + 600_000).toISOString() };
+const draft: MoneyActionDraft = { kind: "trade", title: "Buy Bitcoin", calls: [permitApproval, swap], amounts: [], warnings: [], expiresAt: "2026-09-28T12:10:00.000Z" };
 
 function service(usdc: bigint, eth = BigInt(0)) {
   let estimates = 0;

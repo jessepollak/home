@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import {
   getHomeQueryClient,
@@ -22,6 +22,8 @@ const session = {
   smartAccountAddress: balancesSnapshotFixture.owner.address,
   chainId: 8453 as const,
 };
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 
 function Harness({ fetchBalances }: { fetchBalances: FetchBalances }) {
   const state = useBalances(session, "US", fetchBalances);
@@ -90,6 +92,7 @@ function IdentityHarness({
 }
 
 afterEach(() => {
+  setSystemTime();
   cleanup();
   getHomeQueryClient().clear();
 });
@@ -128,7 +131,7 @@ describe("useBalances", () => {
     const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
     const key = ownerQueryKey(ownerKey, "balances", "US");
     getHomeQueryClient().setQueryData(key, balancesSnapshotFixture, {
-      updatedAt: Date.now() - 60_000,
+      updatedAt: NOW - 60_000,
     });
     let reads = 0;
     const view = render(<ProvisionalHarness provisional fetchBalances={() => {
@@ -170,7 +173,7 @@ describe("useBalances", () => {
 
   test("release to the same region keeps cached data visible during one background fetch", async () => {
     const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
-    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, { updatedAt: Date.now() - 60_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 60_000 });
     let reads = 0;
     let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
     const fetchBalances: FetchBalances = () => {
@@ -226,7 +229,7 @@ describe("useBalances", () => {
   test("a cached provisional failure stays ready without an error before verification refetches", async () => {
     const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
-      updatedAt: Date.now() - 60_000,
+      updatedAt: NOW - 60_000,
     });
     let reads = 0;
     const fetchBalances: FetchBalances = async () => {

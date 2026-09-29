@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { recentSendRecipientAddresses } from "@/shared/transfers/recent-recipients";
@@ -16,10 +16,11 @@ const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const NOW = new Date("2026-09-13T12:00:00.000Z");
+beforeEach(() => setSystemTime(NOW));
 
 type InsertInput = Parameters<ActionsStore["insert"]>[0];
 
-afterEach(() => setActionsStoreForTests(null));
+afterEach(() => { setActionsStoreForTests(null); setSystemTime(); });
 
 function session(): VerifiedAccountSession {
   return {
@@ -132,7 +133,7 @@ describe("prepare send", () => {
       recipient: RECIPIENT,
       amountBaseUnits: "1000000",
       recipientName: "EXAMPLE.BASE.ETH",
-    }, new Date(), {
+    }, new Date(NOW), {
       signal: AbortSignal.timeout(1_000),
       resolveName: async (name, options) => {
         resolved.push({ name, signal: options?.signal });
@@ -155,7 +156,7 @@ describe("prepare send", () => {
       recipient: OTHER,
       amountBaseUnits: "1000000",
       recipientName: "example.base.eth",
-    }, new Date(), { resolveName: async () => RECIPIENT })).rejects.toMatchObject({
+    }, new Date(NOW), { resolveName: async () => RECIPIENT })).rejects.toMatchObject({
       reason: "invalid-request",
     } satisfies Partial<TransferExecutionError>);
   });
@@ -168,7 +169,7 @@ describe("prepare send", () => {
       recipient: RECIPIENT,
       amountBaseUnits: "1000000",
       recipientName: "example.base.eth",
-    }, new Date(), { resolveName: async () => null })).rejects.toMatchObject({
+    }, new Date(NOW), { resolveName: async () => null })).rejects.toMatchObject({
       reason: "invalid-request",
     } satisfies Partial<TransferExecutionError>);
   });
@@ -184,7 +185,7 @@ describe("prepare send", () => {
       recipient: RECIPIENT,
       amountBaseUnits: "1000000",
       recipientName: "example",
-    }, new Date(), { resolveName: async () => RECIPIENT })).rejects.toMatchObject({
+    }, new Date(NOW), { resolveName: async () => RECIPIENT })).rejects.toMatchObject({
       reason: "invalid-request",
     } satisfies Partial<TransferExecutionError>);
     expect(inserts).toBe(0);
@@ -198,7 +199,7 @@ describe("prepare send", () => {
       assetId: "usdc",
       recipient: OTHER,
       amountBaseUnits: "1000000",
-    }, new Date(), {
+    }, new Date(NOW), {
       resolveName: async () => {
         calls += 1;
         return OTHER;

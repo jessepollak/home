@@ -66,6 +66,15 @@ describe("parseBalancesSnapshot", () => {
     expect(usdc?.cashValue).toEqual({ status: "priced", currency: "USD", amount: { atoms: "100", scale: 2 } });
   });
 
+  test("accepts a priced cash unit on a zero wallet balance", () => {
+    const snapshot = buildBalancesSnapshotFixture();
+    const usdc = snapshot.holdings.find((holding) => holding.id === "usdc")!;
+    expect(usdc.balance).toEqual({ status: "ready", baseUnits: "0" });
+    usdc.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
+    expect(parseBalancesSnapshot(clone(snapshot), session, "US").holdings.find((holding) => holding.id === "usdc")?.unitValue)
+      .toEqual(usdc.unitValue);
+  });
+
   test("accepts a wallet-discovered row alongside catalog rows", () => {
     const snapshot = buildBalancesSnapshotFixture({
       catalog: [

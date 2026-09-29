@@ -2,6 +2,7 @@ import { isShellPanelId, type ShellPanelId } from "./navigation";
 import { getBorrowMarketRef, type BorrowMarketId } from "@/shared/borrowing/config";
 import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { erc20AssetKey, nativeAssetKey, type AssetKey } from "@/shared/balances/types";
+import { isRecord } from "@/shared/guards";
 
 // The pathname is authoritative for page state. Only the ephemeral account and
 // flow overlays below may appear as query keys; obsolete `panel`, `shelf`,
@@ -315,25 +316,42 @@ export function homeHrefWithOverlays(search: ShellSearchInput): string {
 
 const SHELL_SCROLL_TOP_STATE_KEY = "__homeShellScrollTop";
 const SHELL_CLIENT_ENTRY_STATE_KEY = "__homeShellClientEntry";
+
+export type ShellHistoryFlag =
+  | "fundingFlowPushed"
+  | "cashSavingsFlowPushed"
+  | "cashSavingsOpenedInApp"
+  | "investmentsHoldingOpenedInApp";
+
+const shellHistoryFlagKeys: Record<ShellHistoryFlag, string> = {
+  fundingFlowPushed: "__homeFundingFlowPushed",
+  cashSavingsFlowPushed: "__cashSavingsFlowPushed",
+  cashSavingsOpenedInApp: "__cashSavingsOpenedInApp",
+  investmentsHoldingOpenedInApp: "__investmentsHoldingOpenedInApp",
+};
+
+export function readClientHistoryFlag(
+  flag: ShellHistoryFlag,
+  state: unknown = typeof window === "undefined" ? null : window.history.state,
+): boolean {
+  return isRecord(state) && state[shellHistoryFlagKeys[flag]] === true;
+}
+
 const beforeClientUrlCommitListeners = new Set<() => void>();
 
 function historyStateWithScrollTop(state: unknown, scrollTop: number): Record<string, unknown> {
-  const current = state && typeof state === "object" ? state as Record<string, unknown> : {};
+  const current = isRecord(state) ? state : {};
   return { ...current, [SHELL_SCROLL_TOP_STATE_KEY]: Math.max(0, scrollTop) };
 }
 
 export function readClientScrollTop(state: unknown = window.history.state): number | null {
-  if (!state || typeof state !== "object") return null;
-  const value = (state as Record<string, unknown>)[SHELL_SCROLL_TOP_STATE_KEY];
+  if (!isRecord(state)) return null;
+  const value = state[SHELL_SCROLL_TOP_STATE_KEY];
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : null;
 }
 
 export function isClientHistoryEntry(state: unknown = window.history.state): boolean {
-  return Boolean(
-    state &&
-    typeof state === "object" &&
-    (state as Record<string, unknown>)[SHELL_CLIENT_ENTRY_STATE_KEY] === true,
-  );
+  return isRecord(state) && state[SHELL_CLIENT_ENTRY_STATE_KEY] === true;
 }
 
 export function replaceClientScrollTop(scrollTop: number): void {

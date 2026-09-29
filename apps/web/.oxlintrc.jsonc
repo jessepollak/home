@@ -171,6 +171,15 @@
   },
   "overrides": [
     {
+      "files": ["{client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/stories/**"
+      ],
+      "rules": { "home/no-deferred-effect-setstate": "error" }
+    },
+    {
       "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "excludeFiles": [
         "components/ui/**", "client/money-modal/**",
@@ -217,6 +226,32 @@
       ],
       "rules": {
         "home/no-storybook-imports": "error"
+      }
+    },
+    {
+      "files": [
+        "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "lib/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "instrumentation*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "next.config.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "proxy.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-exploration-imports": "error"
       }
     },
     {
@@ -502,6 +537,7 @@
               "createClientPerformanceHandler",
               "emitServerEvent",
               "endHomeAuthRestoreStage",
+              "emitUpstreamCall",
               "finishHomeAuthRestore",
               "installClientErrorReporting",
               "markHomeAuthRestore",
