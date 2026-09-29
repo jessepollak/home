@@ -368,13 +368,12 @@ export function SendDialog({
         ...(recipientName === undefined ? {} : { recipientName }),
       };
       assertTransferRequest(next); setPreparing(true); setError(null);
-      const prepared = await prepareMoneyAction("send", next);
+      const outcome = await prepareMoneyAction("send", next).then((prepared) => ({ prepared }), (failure: unknown) => ({ failure }));
       if (token !== prepareTokenRef.current) return;
-      setRequest(next); setCashout(null); setPreparing(false); showPreparedReview(prepared);
-    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a superseded send preparation cannot overwrite the edited destination
-      if (token === prepareTokenRef.current) {
-        setPreparing(false); setError(networkFeeErrorMessage(caught) ?? "Enter a valid Base address and positive amount, then try again."); setStep("destination");
-      }
+      if ("failure" in outcome) throw outcome.failure;
+      setRequest(next); setCashout(null); setPreparing(false); showPreparedReview(outcome.prepared);
+    } catch (caught) {
+      setPreparing(false); setError(networkFeeErrorMessage(caught) ?? "Enter a valid Base address and positive amount, then try again."); setStep("destination");
     }
   }
 
