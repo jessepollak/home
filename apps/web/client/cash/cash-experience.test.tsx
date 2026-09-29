@@ -179,16 +179,23 @@ describe("Cash L2", () => {
     expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
     expect(routeCalls).toEqual([]);
   });
-  test("closing a direct deposit keeps its amount step until the sheet finishes closing", async () => {
-    cached();
-    render(<Route initialFlow="save-deposit" snapshot={held} />);
-    const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    await within(dialog).findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close deposit dialog" }));
-    expect(routeCalls.at(-1)).toBe("clear:replace");
-    expect(within(dialog).getByRole("textbox", { name: "Amount", hidden: true })).toBeTruthy();
-    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
-  }, 20_000);
+  for (const { mode, snapshot, available } of [
+    { mode: "deposit", snapshot: held, available: "$234.00 available" },
+    { mode: "withdraw", snapshot: single, available: "$800.00 available" },
+  ] as const) {
+    test(`closing a direct ${mode} keeps its amount and available balance until the sheet finishes closing`, async () => {
+      cached();
+      render(<Route initialFlow={`save-${mode}`} snapshot={snapshot} />);
+      const dialog = await page().findByRole("dialog", { name: mode === "deposit" ? "Deposit" : "Withdraw" });
+      await within(dialog).findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
+      expect(within(dialog).getByText(available)).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("button", { name: `Close ${mode} dialog` }));
+      expect(routeCalls.at(-1)).toBe("clear:replace");
+      expect(within(dialog).getByRole("textbox", { name: "Amount", hidden: true })).toBeTruthy();
+      expect(within(dialog).getByText(available)).toBeTruthy();
+      await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    }, 20_000);
+  }
   test("a held savings row opens its tray closed before presenting it", async () => {
     cached();
     render(<Surface snapshot={single} />);

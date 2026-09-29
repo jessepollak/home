@@ -155,6 +155,7 @@ export function CashExperience({
   }, [metadata, now, rateNowMs]);
 
   const [localMode, setLocalMode] = useState<Mode | null>(null);
+  const [openMode, setOpenMode] = useState<Mode | null>(null);
   const [targetSelection, setTargetSelection] = useState<{ owner: string; candidate: MorphoVaultCandidate } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [managementSelection, setManagementSelection] = useState<{ owner: string; address: string } | null>(null);
@@ -185,6 +186,7 @@ export function CashExperience({
       ? "withdraw"
       : null;
   const mode = routing ? routeMode : localMode;
+  const retainedMode = mode ?? openMode;
   const usdc = liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance;
   const management = useMemo(() => managementAddress ? savingsManagement({
     address: managementAddress,
@@ -235,7 +237,7 @@ export function CashExperience({
   });
 
   const available =
-    mode === "deposit"
+    retainedMode === "deposit"
       ? liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       : liveSnapshot?.holdings.find(
           (holding) =>
@@ -396,9 +398,8 @@ export function CashExperience({
   const closedJourney = () => { if (latestJourneyGeneration.current === journeyGeneration) restoreFocus(); };
   const sheetOpen = view === "savings" && session !== null && (management !== null ||
     (mode !== null && target !== null && ((availableBaseUnits !== null && balanceStatus !== "failed") || confirmed)));
-  const [openMode, setOpenMode] = useState<Mode | null>(null);
   if (sheetOpen && mode !== openMode) setOpenMode(mode);
-  const journeyMode = sheetOpen ? mode : mode ?? openMode;
+  const journeyMode = sheetOpen ? mode : retainedMode;
   const journeyKey = session && (activeManagement !== null || target !== null)
     ? `${session.user.subject}:${session.smartAccount?.address ?? ""}:${activeManagement?.address ?? target?.vaultAddress ?? ""}:${entry}`
     : null;
