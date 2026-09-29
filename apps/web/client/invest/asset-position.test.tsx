@@ -56,7 +56,7 @@ describe("AssetPosition", () => {
   test("shows the held value and exact quantity for crypto", async () => {
     const view = show(bitcoin, async () => patch((holding) => holding.id === "cbbtc" ? {
       ...holding, balance: { status: "ready", baseUnits: "1234000" },
-      value: { status: "priced", currency: "USD", amount: { atoms: "151030", scale: 2 }, asOf: new Date().toISOString() },
+      value: { status: "priced", currency: "USD", amount: { atoms: "151030", scale: 2 }, asOf: "2026-09-25T12:00:00.000Z" },
     } : holding));
     await waitFor(() => expect(view.getByText("Your balance")).toBeTruthy());
     expect(view.getByText("$1,510.30")).toBeTruthy();

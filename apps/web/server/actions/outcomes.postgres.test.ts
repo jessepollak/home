@@ -1,7 +1,7 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { isRecord } from "@/shared/guards";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { createHmac, randomUUID } from "node:crypto";
 import { createCdpWebhookHandler } from "@/server/balances/webhook";
@@ -89,7 +89,12 @@ describePostgres("write-once action outcomes with real handlers", () => {
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
   });
-  beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
+  beforeEach(async () => {
+    const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
+    setSystemTime(clock.rows[0]!.instant);
+    await sql.query("TRUNCATE actions CASCADE");
+  });
+  afterEach(() => setSystemTime());
   afterAll(async () => {
     setObservabilityLogWriterForTests();
     await sql?.dispose?.();

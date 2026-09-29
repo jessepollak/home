@@ -309,9 +309,9 @@ async function assertFunded({ canvasElement }: { canvasElement: HTMLElement }) {
   await assertButtonHeights(canvasElement, canvasElement.getBoundingClientRect().width >= 800);
 }
 const fixtureSnapshot = balancesSnapshot("US");
-const fixtureVaults = savingsVaultsBody(new Date().toISOString(), new Date().toISOString());
+const fixtureVaults = savingsVaultsBody(TIME, TIME);
 const fixtureParity = {
-  nowMs: Date.now(),
+  nowMs: NOW,
   snapshot: {
     ...fixtureSnapshot,
     holdings: fixtureSnapshot.holdings.map((holding) => ({ ...holding, imageUrl: undefined })),

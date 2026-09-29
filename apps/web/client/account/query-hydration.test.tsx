@@ -1,6 +1,6 @@
 import "./dom-test-harness";
 
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { dehydrate } from "@tanstack/react-query";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { VerifiedAccountSession } from "./session-client";
@@ -27,6 +27,8 @@ const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
 const ADDRESS_CASED = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa" as const;
 const ADDRESS_CASED_LOWER = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 
 function verifiedSession(subject: string, address: `0x${string}`): VerifiedAccountSession {
   return {
@@ -72,7 +74,7 @@ function persistValuation(ownerKey: string, amount: string): void {
   client.setQueryData(ownerQueryKey(ownerKey, persistedScope, "US"), { amount });
   const persister = createOwnerQueryPersister(window.localStorage, ownerKey);
   persister?.persistClient({
-    timestamp: Date.now(),
+    timestamp: NOW,
     buster: "home-query-v3",
     clientState: dehydrate(client, {
       shouldDehydrateQuery: (query) => shouldPersistOwnerQuery(query, ownerKey),
@@ -122,6 +124,7 @@ function HydrationProbe({ fetchValuation }: { fetchValuation: () => Promise<unkn
 }
 
 afterEach(() => {
+  setSystemTime();
   cleanup();
   observedClient = null;
   getHomeQueryClient().clear();
@@ -502,7 +505,7 @@ describe("owner query hydration lifecycle", () => {
     const ownerAKey = dataOwnerKey(first);
     const client = getHomeQueryClient();
     client.setQueryData(ownerQueryKey(ownerAKey, "balances", "US"), balancesSnapshotFixture, {
-      updatedAt: Date.now() - 60_000,
+      updatedAt: NOW - 60_000,
     });
     let releaseFirst!: (response: Response) => void;
     const pendingFirst = new Promise<Response>((resolve) => { releaseFirst = resolve; });

@@ -1,6 +1,6 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { validPrepared } from "@/shared/actions/contracts/prepare";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, hashTypedData, parseAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -29,7 +29,8 @@ const OWNER = "0x1111111111111111111111111111111111111111" as Address;
 const ROUTER = "0x3333333333333333333333333333333333333333" as Address;
 const makerAccount = privateKeyToAccount(`0x${"12".repeat(32)}`);
 const POOL = makerAccount.address.toLowerCase() as Address;
-const NOW = new Date(Math.floor(Date.now() / 1000) * 1000);
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(NOW));
 const word = (value: bigint | number) => BigInt(value).toString(16).padStart(64, "0");
 const addr = (value: Address) => word(BigInt(value));
 const input = (direction: "buy" | "sell", token: Address = TOKEN, fromAmount = BigInt(1_000_000)): SwapReviewRequest => ({ direction, token, fromAmount, taker: OWNER, slippageBps: 100 });
@@ -210,7 +211,7 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
   return { ...result, key };
 }
 
-afterEach(() => setActionsStoreForTests(null));
+afterEach(() => { setActionsStoreForTests(null); setSystemTime(); });
 describe("trade preparation", () => {
   test.each(["buy", "sell"] as const)("checks exact-address %s pair status before identity and quote", async (direction) => {
     const address = "0x2222222222222222222222222222222222222222";

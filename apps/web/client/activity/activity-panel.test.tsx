@@ -2,7 +2,8 @@ import "../account/dom-test-harness";
 
 import { getHomeQueryClient, HomeQueryClientProvider } from "@/client/query/query-client";
 import { focusManager } from "@tanstack/react-query";
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { pinClock } from "@/tests/helpers/pin-clock";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_CONTRACT_VERSION,
@@ -42,6 +43,9 @@ function ActivityPanel({
 }
 
 const waitedFor = { timeout: 5_000 };
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+let restoreClock: () => void;
+beforeEach(() => { restoreClock = pinClock("2026-09-28T12:00:00.000Z"); });
 
 class ControlledIntersectionObserver implements IntersectionObserver {
   static instances: ControlledIntersectionObserver[] = [];
@@ -98,7 +102,7 @@ class ControlledIntersectionObserver implements IntersectionObserver {
           isIntersecting,
           rootBounds: null,
           target: this.target,
-          time: performance.now(),
+          time: 0,
         },
       ],
       this,
@@ -233,6 +237,7 @@ async function waitForSentinel() {
 }
 
 afterEach(() => {
+  restoreClock();
   cleanup();
   getHomeQueryClient().clear();
   focusManager.setFocused(undefined);
@@ -390,7 +395,8 @@ describe("ConnectedActivityPanel", () => {
       }} />);
     await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
     const { activityOwnerKey } = await import("./use-activity");
-    jest.useFakeTimers();
+    restoreClock();
+    jest.useFakeTimers({ now: NOW });
     try {
       await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: [activityOwnerKey(owner), "actions"] }); });
       expect(calls).toBe(2);
@@ -412,7 +418,7 @@ describe("ConnectedActivityPanel", () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
     getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], { actions: [actionFor(owner, "Restored send")] }, {
-      updatedAt: Date.now() - 10 * 60_000,
+      updatedAt: NOW - 10 * 60_000,
     });
     let calls = 0;
     const view = render(<ActivityPanel session={owner}
@@ -427,7 +433,7 @@ describe("ConnectedActivityPanel", () => {
   test("a malformed actions value restored from an earlier cache recovers instead of crashing", async () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
-    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: Date.now() - 60_000 });
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: NOW - 60_000 });
     let calls = 0;
     const view = render(<ActivityPanel session={owner}
       fetchActivity={async (query) => pageFor(query, WALLET_A)}

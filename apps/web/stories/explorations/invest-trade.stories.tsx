@@ -10,6 +10,7 @@ import { TradeDetail } from "@/client/explorations/trade/trade-detail";
 import type { TradeAvailability } from "@/client/explorations/trade/trade-entry";
 import { TradeSheet, type TradeStep } from "@/client/explorations/trade/trade-sheet";
 import { TransferExecutionError, type TransferFailureReason } from "@/shared/transfers/types";
+import { pinClock } from "@/tests/helpers/pin-clock";
 import {
   buyQuote, expiredQuote, fixtureHolding, fixtureNow, fixtureValidUntil,
   refreshedQuote, sellMaxQuote, sellPartialQuote,
@@ -86,12 +87,7 @@ const meta = {
   component: TradeStory,
   args: { scene: "entry" },
   render: (args) => <TradeStory {...args} />,
-  beforeEach: () => {
-    const realNow = Date.now;
-    const realStart = realNow();
-    Date.now = () => Date.parse(fixtureNow) + (realNow() - realStart);
-    return () => { Date.now = realNow; };
-  },
+  beforeEach: () => pinClock(fixtureNow),
   decorators: [(Story) => <><aside className="relative z-50 px-4 pt-2"><Badge variant="outline">Development fixtures</Badge></aside><Story /></>],
   parameters: { layout: "fullscreen", a11y: { test: "todo" } },
   globals: { viewport: { value: "mobile" } },

@@ -1,10 +1,13 @@
 import { createHmac, generateKeyPairSync } from "node:crypto";
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import * as configModule from "@/server/cards/bridge/config";
 import * as storeModule from "@/server/cards/store";
 import * as sqlModule from "@/server/db/sql";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { POST } from "./route";
+
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+afterEach(() => setSystemTime());
 
 const secret = "whsec_synthetic_private_fixture";
 const config = configModule.readBridgeConfig({ BRIDGE_ENABLED: "1", BRIDGE_MODE: "sandbox", BRIDGE_STRIPE_API_VERSION: "2026-08-27.basil", BRIDGE_WEBHOOK_PUBLIC_KEY: generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey.export({ format: "pem", type: "spki" }).toString(),
@@ -14,6 +17,7 @@ const request = (body: string, signature?: string) => new Request("https://home.
   headers: signature ? { "stripe-signature": signature } : {} });
 
 test("Stripe route https://docs.stripe.com/webhooks: disabled 202, transient 503", async () => {
+  setSystemTime(NOW);
   const read = spyOn(configModule, "readBridgeConfig").mockReturnValue(null);
   const logs: string[] = [];
   setObservabilityLogWriterForTests((line) => { logs.push(line); });
@@ -24,7 +28,7 @@ test("Stripe route https://docs.stripe.com/webhooks: disabled 202, transient 503
     read.mockImplementation(() => { throw new Error("incomplete Bridge config"); });
     expect(await (await POST(request("{}"))).json()).toEqual({ accepted: false });
     read.mockReturnValue(config);
-    const timestamp = Math.floor(Date.now() / 1000);
+    const timestamp = Math.floor(NOW.getTime() / 1000);
     const body = JSON.stringify({ id: "evt_route_fixture", type: "issuing_transaction.created", api_version: "2026-08-27.basil", livemode: false, created: timestamp,
       data: { object: { object: "issuing.transaction", id: "itrx_fixture", card: "ic_fixture", cardholder: "ich_fixture", number: "PRIVATE" } } });
     const signature = `t=${timestamp},v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`;

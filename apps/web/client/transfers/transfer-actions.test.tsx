@@ -51,7 +51,7 @@ test("changing Send owner drops the sheet immediately and reopens without the pr
     await act(async () => {
       const callbacks = [...frames.values()];
       frames.clear();
-      callbacks.forEach((callback) => callback(performance.now()));
+      callbacks.forEach((callback) => callback(100_000));
       await Promise.resolve();
     });
   }

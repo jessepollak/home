@@ -13,9 +13,11 @@ import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-hi
 import type { MarketDataState, MarketSession } from "@/shared/invest/invest-market";
 import { formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
 import { AssetDetailScreen } from "./asset-detail-screen";
+import { pinClock } from "@/tests/helpers/pin-clock";
 
 const chartWait = { timeout: 5000 };
-const clock = Date.now() - 60000;
+const TIME = "2026-09-25T12:00:00.000Z";
+const clock = Date.parse(TIME) - 60000;
 const staleOffsetMs = 8 * 86400000;
 const crypto = investAssets.find((asset) => asset.id === "cbbtc")!;
 const stock = investAssets.find((asset) => asset.id === "nvdac")!;
@@ -235,7 +237,8 @@ const meta = {
   beforeEach: () => {
     getHomeQueryClient().clear();
     resetHistoryControl();
-    return () => { historyControl.release(); getHomeQueryClient().clear(); };
+    const restoreClock = pinClock(TIME);
+    return () => { historyControl.release(); getHomeQueryClient().clear(); restoreClock(); };
   },
   parameters: {
     layout: "fullscreen", a11y: { test: "error" },

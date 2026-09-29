@@ -1,5 +1,9 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, setSystemTime, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
+
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(NOW));
+afterEach(() => setSystemTime());
 import { issueInviteCookie } from "@/server/invites/cookie";
 import type { NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import {
@@ -77,7 +81,7 @@ afterAll(() => {
 
 describe("consolidated route authorization", () => {
   test("production CDP sign-in clears the presented invite cookie on verification", async () => {
-    const invite = issueInviteCookie(new Request(`${ORIGIN}/invite/abcdefghjk`), "abcdefghjk", new Date(), SECRET)!;
+    const invite = issueInviteCookie(new Request(`${ORIGIN}/invite/abcdefghjk`), "abcdefghjk", NOW, SECRET)!;
     const invitePair = setCookiePair(invite);
     const cdp = await sessionRoute.GET(new Request(`${ORIGIN}/api/session`, { headers: {
       Authorization: "Bearer verified.token.value", Cookie: invitePair,
@@ -170,8 +174,7 @@ describe("consolidated route authorization", () => {
 async function createSessionCookie(): Promise<string> {
   const dependencies = {
     sessionSecret: SECRET,
-    // Routes validate expiry against the wall clock; mint relative to it.
-    now: () => new Date(),
+    now: () => new Date(NOW),
     randomId: () => "a".repeat(48),
     verify: async () => true,
   };

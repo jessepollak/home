@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { getHomeQueryClient, ownerQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
-import { afterEach, describe, expect, jest, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, test } from "bun:test";
 import { useState, type ComponentProps } from "react";
 import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
@@ -358,7 +358,7 @@ function controlAnimationFrames() {
   return { pending: () => queued.size, flush: () => {
     const callbacks = [...queued.values()];
     queued.clear();
-    callbacks.forEach((callback) => callback(performance.now()));
+    callbacks.forEach((callback) => callback(0));
   } };
 }
 
@@ -372,6 +372,8 @@ function resetHistory() {
 }
 
 const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 function mockActivityLayout() {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
@@ -380,6 +382,7 @@ function mockActivityLayout() {
 }
 
 afterEach(() => {
+  setSystemTime();
   jest.useRealTimers();
   globalThis.fetch = nativeFetch;
   restoreAnimationFrames?.();
@@ -438,7 +441,7 @@ describe("pushed funding history", () => {
       if (path === "/api/activity/orders") return Response.json(emptyOrders());
       if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
       if (path.startsWith("/api/activity?")) {
-        const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+        const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date(NOW).toISOString();
         return Response.json({ version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
           window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD", transfers: [], nextCursor: null,
           source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: to, executionTimeMs: 1, fetchedAt: to } });
@@ -1233,7 +1236,7 @@ describe("Home shell routing and intents", () => {
         if (path === "/api/session") return Response.json(session());
         if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
         if (path.startsWith("/api/activity?")) {
-          const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date().toISOString();
+          const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date(NOW).toISOString();
           const response = { version: 1, walletAddress: ADDRESS.toLowerCase(), chainId: 8453,
             window: { from: new Date(Date.parse(to) - 86_400_000).toISOString(), to }, currency: "USD",
             transfers: [makeTransfer(btc, "cbBTC", 1, to), makeTransfer(usdc, "USDC", 2, to),
@@ -1816,7 +1819,7 @@ function refreshFixture() {
     if (String(input) === "/api/savings/vaults") {
       return fail ? Response.json({}, { status: 503 }) : Response.json({
         version: "v1", chainId: 8453, asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 },
-        candidates: [], source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: new Date().toISOString() }, stale: false,
+        candidates: [], source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: new Date(NOW).toISOString() }, stale: false,
       });
     }
     return nativeFetch(input, init);
@@ -1849,7 +1852,7 @@ function refreshFixture() {
     if (url.startsWith("/api/balances?")) return fail ? Response.json({}, { status: 503 }) : Response.json(snapshot);
     if (url === "/api/borrow") return fail ? Response.json({}, { status: 503 }) : Response.json({
       version: "2", chainId: 8453, owner: { address: ADDRESS, accountProvider: "cdp-embedded" },
-      discovery: { status: "complete", sourceBlock: null, candidateCount: 0, verifiedCount: 0, reason: null, fetchedAt: new Date().toISOString() },
+      discovery: { status: "complete", sourceBlock: null, candidateCount: 0, verifiedCount: 0, reason: null, fetchedAt: new Date(NOW).toISOString() },
       opportunities: [], positions: [],
     });
     throw new Error(`Unexpected read: ${url}`);
@@ -1996,7 +1999,7 @@ describe("walletless country preference read", () => {
       registry: { usdc: { balance: ready("1000000"), value: priced("EUR", "7890"), cashValue: pricedCash("USD", "100") } },
     });
     getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session()), "balances", "DE"), cached, {
-      updatedAt: Date.now() - 60_000,
+      updatedAt: NOW - 60_000,
     });
     const requests: string[] = [];
     const sessionFetch: SessionFetch = async (input) => {

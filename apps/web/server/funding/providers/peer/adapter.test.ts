@@ -1,6 +1,6 @@
 import "server-only";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import {
   encodeAbiParameters,
   encodeEventTopics,
@@ -36,7 +36,8 @@ import { PEER_PRODUCTION_CONTRACTS, PEER_SANDBOX_CONTRACTS } from "./manifest";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const PAYEE_HASH = `0x${"ab".repeat(32)}` as Hex;
-const NOW_SECONDS = Math.floor(Date.now() / 1000);
+const NOW_SECONDS = Date.parse("2026-09-28T12:00:00.000Z") / 1000;
+beforeEach(() => setSystemTime(new Date(NOW_SECONDS * 1000)));
 
 function context(paymentMethodId = "cashapp", region: "US" | "GB" = "US") {
   return createProviderContext({
@@ -178,6 +179,7 @@ function withdrawCall(name: "pruneExpiredIntents" | "withdrawDeposit") {
 afterEach(() => {
   setPeerClientFactoryForTests(null);
   setObservabilityLogWriterForTests();
+  setSystemTime();
 });
 
 describe("Peer funding provider", () => {
