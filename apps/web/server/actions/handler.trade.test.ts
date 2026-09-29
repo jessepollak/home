@@ -63,7 +63,13 @@ const request = (signature: string, provider: "base-account" | "cdp-embedded") =
 });
 
 describe("trade confirmation", () => {
-  test("rejects an unauthenticated pending-trade request", async () => {
+  test("answers an earlier client's pending-trade check with no blocking trade", async () => {
+    const handler = createGetPendingTradeHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+    });
+    const result = await handler(new Request("https://home.test/api/actions/trade-pending", { headers: { "X-Home-Account-Provider": "cdp-embedded" } }));
+    expect(result.status).toBe(200);
+    expect(await readJson(result)).toEqual({ version: 1, trade: null });
     const signedOut = createGetPendingTradeHandler({ authorize: async () => Response.json({ error: "unauthorized" }, { status: 401 }) });
     expect((await signedOut(new Request("https://home.test/api/actions/trade-pending"))).status).toBe(401);
   });
