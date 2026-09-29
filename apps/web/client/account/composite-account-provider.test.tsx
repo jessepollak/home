@@ -225,7 +225,6 @@ const { getHomeQueryClient } = await import("@/client/query/query-client");
 const { useAccountWallet } = await import("./cdp-client");
 const CompositeAccountProvider = (await import("./composite-account-provider")).default;
 const { AccountSignInSheet } = await import("./account-screen");
-await import("./cdp-sdk-provider");
 
 const CDP_ISLAND_MOUNT_WAIT = { timeout: 2_000 };
 
