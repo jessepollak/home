@@ -1311,25 +1311,11 @@ describe("actions HTTP handlers", () => {
     expect(body[0]?.transactionHash).toBeUndefined();
   });
 
-  test("list tolerates a recordHandle conflict and presents the stored row", async () => {
-    setObservabilityLogWriterForTests(() => undefined);
-    const candidate = confirmedBaseRow();
-    const handler = createListActionsHandler({
-      authorize: authorize("owner-a", "base-account"),
-      now: () => new Date("2026-09-12T12:10:00.000Z"),
-      store: { list: async () => [candidate], recordHandle: async () => null, recordOutcome: recorded },
-      resolveHandle: async () => ({ status: "complete", transactionHash: HASH }),
-    });
-
-    const response = await handler(baseRequest("/api/actions"));
-    const body = await readActions(response);
-
-    expect(response.status).toBe(200);
-    expect(body[0]).toMatchObject({ status: "pending" });
-    expect(body[0]?.transactionHash).toBeUndefined();
-  });
-
-  test("list tolerates a throwing recordHandle and presents the stored row", async () => {
+  test.each([
+    ["recordHandle conflict", "conflict"],
+    ["recordHandle error", "store-error"],
+    ["resolver error", "resolver-error"],
+  ] as const)("list presents the stored row after a %s", async (_name, failure) => {
     const writes: string[] = [];
     setObservabilityLogWriterForTests((line) => writes.push(line));
     const candidate = confirmedBaseRow();
@@ -1338,10 +1324,16 @@ describe("actions HTTP handlers", () => {
       now: () => new Date("2026-09-12T12:10:00.000Z"),
       store: {
         list: async () => [candidate],
-        recordHandle: async () => { throw new Error("database unavailable"); },
+        recordHandle: async () => {
+          if (failure === "store-error") throw new Error("database unavailable");
+          return null;
+        },
         recordOutcome: recorded,
       },
-      resolveHandle: async () => ({ status: "complete", transactionHash: HASH }),
+      resolveHandle: async () => {
+        if (failure === "resolver-error") throw new Error("provider failed");
+        return { status: "complete" as const, transactionHash: HASH };
+      },
     });
 
     const response = await handler(baseRequest("/api/actions"));
@@ -1350,11 +1342,11 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(body[0]).toMatchObject({ id: candidate.id, status: "pending" });
     expect(body[0]?.transactionHash).toBeUndefined();
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
-      kind: "action-reconcile",
-      outcome: "unavailable",
-      level: "info",
-    });
+    if (failure !== "conflict") {
+      expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+        kind: "action-reconcile", outcome: "unavailable", level: "info",
+      });
+    }
   });
 
   test("list reconciles at most five candidates per request and rotates the window across polls", async () => {
@@ -1430,27 +1422,6 @@ describe("actions HTTP handlers", () => {
     expect(receiptHashes).toEqual([HASH]);
   });
 
-  test("list survives a throwing resolver", async () => {
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
-    const candidate = confirmedBaseRow();
-    const handler = createListActionsHandler({
-      authorize: authorize("owner-a", "base-account"),
-      now: () => new Date("2026-09-12T12:10:00.000Z"),
-      store: { list: async () => [candidate], recordHandle: async () => null, recordOutcome: recorded },
-      resolveHandle: async () => { throw new Error("provider failed"); },
-    });
-
-    const response = await handler(baseRequest("/api/actions"));
-
-    expect(response.status).toBe(200);
-    expect((await readActions(response))[0]).toMatchObject({ id: candidate.id, status: "pending" });
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
-      kind: "action-reconcile",
-      outcome: "unavailable",
-      level: "info",
-    });
-  });
 
   test("GET reconciles one eligible candidate", async () => {
     setObservabilityLogWriterForTests(() => undefined);

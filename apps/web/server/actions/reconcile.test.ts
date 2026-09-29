@@ -102,24 +102,30 @@ describe("Base Account handle reconciliation", () => {
 
   for (const fixture of resultCases) {
     test(fixture.name, async () => {
-      const { calls, fetchImpl } = fixtureFetch((handle) => rpcResult(handle, fixture.overrides));
+      const { fetchImpl } = fixtureFetch((handle) => rpcResult(handle, fixture.overrides));
       const resolver = createActionHandleResolver({ fetchImpl });
 
       expect(await resolver(action())).toEqual(fixture.expected);
-      expect(calls).toHaveLength(1);
-      expect(calls[0]?.input).toBe("https://rpc.wallet.coinbase.com");
-      expect(calls[0]?.init).toMatchObject({
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-          "X-Cbw-Sdk-Version": "2.5.10",
-          "X-Cbw-Sdk-Platform": "@base-org/account",
-        },
-      });
     });
   }
+
+  test("sends handle resolutions to the Base Account RPC with the SDK transport contract", async () => {
+    const { calls, fetchImpl } = fixtureFetch((handle) => rpcResult(handle));
+    const resolver = createActionHandleResolver({ fetchImpl });
+    expect(await resolver(action())).toEqual({ status: "pending" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.input).toBe("https://rpc.wallet.coinbase.com");
+    expect(calls[0]?.init).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "X-Cbw-Sdk-Version": "2.5.10",
+        "X-Cbw-Sdk-Platform": "@base-org/account",
+      },
+    });
+  });
 
   test("backs off unknown JSON-RPC handles for five minutes", async () => {
     let currentTime = 1_000;
