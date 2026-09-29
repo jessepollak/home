@@ -23,10 +23,33 @@ import {
   presentBalances,
   presentMoneyGroups,
   presentPendingCashout,
+  presentInvestmentTotal,
+  presentHoldingMark,
 } from "./present";
 import { holdingValueContext } from "./value-label";
 
 const unpriced = { status: "unpriced" as const, reason: "price-unavailable" as const };
+
+describe("focused investment presentation", () => {
+  test.each([
+    { status: "complete" as const, expected: { status: "complete", value: "$12.34" } },
+    { status: "partial" as const, expected: { status: "partial", value: "$12.34" } },
+    { status: "unavailable" as const, expected: { status: "unavailable", value: null } },
+  ])("preserves $status investment totals without presenting holdings", ({ status, expected }) => {
+    const snapshot = buildBalancesSnapshotFixture();
+    snapshot.totals.investments = { status, value: { atoms: "1234", scale: 2 }, currency: "USD" };
+    Object.defineProperty(snapshot, "holdings", { get: () => { throw new Error("Totals must not walk holdings"); } });
+    expect(presentInvestmentTotal(snapshot)).toEqual(expected);
+  });
+
+  test("preserves image, native and symbol mark priority", () => {
+    const holding = walletHolding(FIXTURE_WALLET_TOKEN, "1", unpriced);
+    expect(presentHoldingMark({ ...holding, imageUrl: "https://example.com/token.png" }))
+      .toEqual({ kind: "image", url: "https://example.com/token.png", fallbackSymbol: holding.symbol });
+    expect(presentHoldingMark({ ...holding, imageUrl: undefined, kind: "native" })).toEqual({ kind: "eth" });
+    expect(presentHoldingMark({ ...holding, imageUrl: undefined })).toEqual({ kind: "symbol", symbol: holding.symbol });
+  });
+});
 
 function validatedPresentationSnapshot(options: BalancesFixtureOptions): BalancesSnapshot {
   const snapshot = buildBalancesSnapshotFixture(options);

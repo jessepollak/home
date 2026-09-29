@@ -52,6 +52,13 @@ describe("owned investments", () => {
     expect(selectOwnedInvestments(snapshot)).toHaveLength(65);
   });
 
+  it("orders unpriced accented and case-equivalent names by English base collation then key", () => {
+    const holdings = [token(43, "Zulu"), token(42, "éclair"), token(41, "ECLAIR"), token(40, "Alpha")]
+      .map((holding): Holding => ({ ...holding, value: { status: "unpriced", reason: "price-unavailable" } }));
+    expect(selectOwnedInvestments(buildBalancesSnapshotFixture({ catalog: holdings })).map((row) => row.holding.id))
+      .toEqual([holdings[3]!.id, holdings[2]!.id, holdings[1]!.id, holdings[0]!.id]);
+  });
+
   it("retains a sold holding as a known-zero detail target without including it in the overview", () => {
     const sold = token(99);
     const snapshot = buildBalancesSnapshotFixture({ catalog: [{ ...sold, balance: ready("0"), value: priced("USD", "0") }] });

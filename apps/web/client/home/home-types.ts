@@ -2,12 +2,13 @@ import type { ReactNode } from "react";
 import type { ShellPanelId } from "@/config/navigation";
 import type { HomeRegionState } from "./use-home-region";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
-import type { BalancesPresentation } from "@/shared/balances/present";
+import type { BalancesPresentation, HomeBalancesPresentation } from "@/shared/balances/present";
+import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import type { ShellLocation } from "@/config/shell-location";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import type { AssetKey } from "@/shared/balances/types";
+import type { AssetKey, BalancesState } from "@/shared/balances/types";
 
-export type HomeAssetBalancesPresentation = BalancesPresentation;
+export type HomeAssetBalancesPresentation = HomeBalancesPresentation;
 
 export type InvestmentsContentProps = {
   holding: AssetKey | null;
@@ -25,8 +26,9 @@ export type HomeExperienceProps = {
   initialPanel?: ShellPanelId;
   initialLocation?: ShellLocation;
   initialAccountSettingsOpen?: boolean;
-  assetBalances?: HomeAssetBalancesPresentation;
-  presentAssetBalances?: (showSmallBalances: boolean) => HomeAssetBalancesPresentation;
+  assetBalances?: HomeBalancesPresentation | BalancesPresentation;
+  balancesState?: BalancesState;
+  pendingCashout?: PendingCashoutEstimate;
   sendAvailability?: readonly TransferAssetAvailability[];
   canOpenAssetDetail?: (assetKey: string) => boolean;
   assetMarkResolution?: AssetMarkResolution;

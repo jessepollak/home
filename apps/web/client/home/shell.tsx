@@ -70,6 +70,7 @@ import {
   clampHomeScrollTop,
   homeBalancesRestoreScope,
   useBalancesRevealWindow,
+  useBalancesPresentation,
 } from "./balances-panel";
 import { ActivityPage } from "./activity-panel";
 import { CashPanel, InvestPanel, InvestmentsPanel } from "./feature-panels";
@@ -117,12 +118,8 @@ function PanelChromeSync({ onChrome }: { onChrome: (chrome: NestedAppChrome | nu
 const loadingAssetBalances: HomeAssetBalancesPresentation = {
   status: "loading",
   displayTotal: null,
-  groups: [],
   breakdown: [],
   summary: null,
-  rows: [],
-  hiddenRows: [],
-  hiddenCount: 0,
 };
 
 const panelStartupRoutes: Record<ShellPanelId, HomeInteractionRoute> = {
@@ -161,7 +158,8 @@ function DashboardShellBody({
   interruption = null,
   interruptionAnnouncement = null,
   onRetryInterruption,
-  presentAssetBalances,
+  balancesState,
+  pendingCashout,
   sendAvailability = [],
   canOpenAssetDetail = () => false,
   assetMarkResolution,
@@ -501,10 +499,17 @@ function DashboardShellBody({
   const showAllAssetBalances = showSmallBalances || revealSmallBalances;
   const paintedAssetBalances = useMemo(
     () => mayPaintBalances
-      ? (presentAssetBalances?.(showAllAssetBalances) ?? assetBalances ?? loadingAssetBalances)
+      ? (assetBalances ?? loadingAssetBalances)
       : loadingAssetBalances,
-    [assetBalances, mayPaintBalances, presentAssetBalances, showAllAssetBalances],
+    [assetBalances, mayPaintBalances],
   );
+  const paintedBalancesList = useBalancesPresentation({
+    state: balancesState,
+    active: mayPaintBalances && activeNavigation === balancesPanelId && !isAccountSettingsOpen,
+    showSmallBalances: showAllAssetBalances,
+    pendingCashout,
+    fallback: balancesState ? undefined : assetBalances,
+  });
   const balancesRevalidating = balancesRevalidatingProp ?? paintedAssetBalances.revalidating === true;
   useEffect(() => {
     if (mayPaintBalances && paintedAssetBalances.status === "ready") {
@@ -521,12 +526,13 @@ function DashboardShellBody({
   });
   const balancesReveal = useBalancesRevealWindow(
     balancesScope,
-    paintedAssetBalances.rows,
+    paintedBalancesList.rows,
     balancesRevealReset,
   );
+  const { groups: balancesGroups, rows: balancesRows } = paintedBalancesList;
   const balancesAnchorKey = useMemo(
-    () => balancesAnchorTopologyKey(paintedAssetBalances),
-    [paintedAssetBalances],
+    () => balancesAnchorTopologyKey({ groups: balancesGroups, rows: balancesRows }),
+    [balancesGroups, balancesRows],
   );
   const previousNavigationRef = useRef(activeNavigation);
 
@@ -1127,7 +1133,7 @@ function DashboardShellBody({
                   <MountedShellPanel active={activeNavigation === balancesPanelId} className={shellDesktopContentClassName}>
                     <BalancesPage
                       active={activeNavigation === balancesPanelId}
-                      assetBalances={paintedAssetBalances}
+                      assetBalances={paintedBalancesList}
                       showSmallBalances={showSmallBalances}
                       revealSmallBalances={revealSmallBalances}
                       onRevealSmallBalancesChange={setRevealSmallBalances}

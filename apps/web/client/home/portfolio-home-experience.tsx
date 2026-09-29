@@ -7,7 +7,7 @@ import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
-import { presentBalances } from "@/shared/balances/present";
+import { presentHomeBalances } from "@/shared/balances/present";
 import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey } from "@/shared/balances/types";
 import { ALL_REGIONS_OFFER, presentedRegionId, type CountryCode, type RegionOffer } from "@/config/regions";
@@ -176,10 +176,19 @@ export function PortfolioHomeExperience({
     account.status === "verified" && account.verification === "server" && !suppressBalances,
     balances.retry,
   );
-  const presentAssetBalances = useCallback(
-    (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances, pendingCashout }),
-    [balances, pendingCashout],
-  );
+  const balanceStatus = balances.status;
+  const snapshot = balances.snapshot;
+  const revalidating = balances.revalidating;
+  const homeBalances = useMemo(() => presentHomeBalances(
+    balanceStatus === "ready" && snapshot
+      ? { status: balanceStatus, snapshot, error: null }
+      : balanceStatus === "error"
+        ? { status: balanceStatus, snapshot: null, error: "balances-unavailable" }
+        : { status: balanceStatus === "unavailable" ? "unavailable" : "loading", snapshot: null, error: null },
+    { pendingCashout },
+  ), [balanceStatus, snapshot, pendingCashout]);
+  const assetBalances = useMemo(() => revalidating
+    ? { ...homeBalances, revalidating } : homeBalances, [homeBalances, revalidating]);
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
     [balances.snapshot],
@@ -218,7 +227,9 @@ export function PortfolioHomeExperience({
       interruption={interruptionStatus.interruption}
       interruptionAnnouncement={interruptionStatus.announcement}
       onRetryInterruption={interruptionStatus.retry}
-      presentAssetBalances={presentAssetBalances}
+      assetBalances={assetBalances}
+      balancesState={balances}
+      pendingCashout={pendingCashout}
       sendAvailability={sendAvailability}
       canOpenAssetDetail={canOpenAssetDetail}
       assetMarkResolution={assetMarkResolution}

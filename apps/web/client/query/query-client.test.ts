@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { dehydrate } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, spyOn, test } from "bun:test";
+import { dehydrate, QueryObserver } from "@tanstack/react-query";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { anonymousCountryPreferenceKey, legacyCountryPreferenceKey } from "@/config/country-preference";
 import {
   clearOwnerQueryBoundary,
+  clearOwnerQueryMemory,
   createHomeQueryClient,
   createOwnerQueryPersister,
   dehydrateOwnerQueries,
@@ -15,6 +16,7 @@ import {
   ownerRestoreCacheState,
   restoreOwnerQueries,
   shouldPersistOwnerQuery,
+  subscribeOwnerQueryPersistence,
 } from "./query-client";
 
 const NOW = Date.parse("2026-09-28T12:00:00.000Z");
@@ -229,5 +231,201 @@ describe("owner query cache boundary", () => {
     expect(restoreOwnerQueries(restored, storage, ownerKey)).toBe(true);
     expect(restored.getQueryData<{ amount: string }>(ownerQueryKey(ownerKey, "balances", "US")))
       .toEqual({ amount: "10" });
+  });
+});
+
+describe("coalesced owner query persistence", () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  function setup(ownerKey = "owner-a") {
+    const client = createHomeQueryClient();
+    const storage = memoryStorage();
+    const key = ownerQueryKey(ownerKey, "balances", "US");
+    client.setQueryDefaults(key, { meta: ownerQueryMeta(ownerKey) });
+    const write = spyOn(storage, "setItem");
+    const scan = spyOn(client.getQueryCache(), "getAll");
+    const cancel = subscribeOwnerQueryPersistence(client, storage, ownerKey);
+    return { client, storage, key, write, scan, cancel };
+  }
+
+  test("a burst scans and writes once after scheduling, with the latest whole snapshot", () => {
+    const { client, key, storage, scan, write, cancel } = setup();
+    for (let index = 0; index < 100; index += 1) client.setQueryData(key, { total: String(index) });
+    expect(scan).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1_000);
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledTimes(1);
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restored.getQueryData<{ total: string }>(key)).toEqual({ total: "99" });
+    cancel();
+  });
+
+  test("observer churn and fetch-only state do not scan or write", () => {
+    const { client, key, scan, write, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    jest.advanceTimersByTime(1_000);
+    scan.mockClear();
+    write.mockClear();
+    const observer = new QueryObserver(client, { queryKey: key, enabled: false, meta: ownerQueryMeta("owner-a") });
+    const unsubscribe = observer.subscribe(() => {});
+    observer.setOptions({ queryKey: key, enabled: false, meta: ownerQueryMeta("owner-a") });
+    const query = client.getQueryCache().find({ queryKey: key })!;
+    scan.mockClear();
+    query.setState({ fetchStatus: "fetching" });
+    query.setState({ fetchStatus: "idle" });
+    unsubscribe();
+    jest.advanceTimersByTime(1_000);
+    expect(scan).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    cancel();
+  });
+
+  test("public, memory-only, and mismatched owner changes do not schedule snapshots", () => {
+    const { client, scan, write, cancel } = setup();
+    for (const [owner, persistence] of [["owner-a", "memory"], ["owner-b", "owner"], ["unauthenticated", "owner"]] as const) {
+      const key = ownerQueryKey(owner, "activity");
+      client.setQueryDefaults(key, { meta: ownerQueryMeta(owner, persistence) });
+      client.setQueryData(key, { items: [] });
+    }
+    jest.advanceTimersByTime(1_000);
+    expect(scan).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    cancel();
+  });
+
+  test.each(["remove", "error", "reset"] as const)("%s removes a formerly successful query from persistence", (transition) => {
+    const { client, key, storage, write, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    jest.advanceTimersByTime(1_000);
+    if (transition === "remove") client.removeQueries({ queryKey: key });
+    else if (transition === "reset") client.getQueryCache().find({ queryKey: key })!.reset();
+    else client.getQueryCache().find({ queryKey: key })!.setState({ status: "error", error: new Error("offline") });
+    jest.advanceTimersByTime(1_000);
+    expect(write).toHaveBeenCalledTimes(2);
+    expect(restoreOwnerQueries(createHomeQueryClient(), storage, "owner-a")).toBe(false);
+    cancel();
+  });
+
+  test("an invalidation is persisted without fabricating fresh data", () => {
+    const { client, key, storage, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    void client.invalidateQueries({ queryKey: key, refetchType: "none" });
+    jest.advanceTimersByTime(1_000);
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restored.getQueryState(key)?.isInvalidated).toBe(true);
+    expect(restored.getQueryData<{ total: string }>(key)).toEqual({ total: "1" });
+    cancel();
+  });
+
+  test("a failed background read removes the errored query and later success restores persistence", async () => {
+    const { client, key, storage, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    jest.advanceTimersByTime(1_000);
+    await expect(client.fetchQuery({
+      queryKey: key,
+      staleTime: 0,
+      meta: ownerQueryMeta("owner-a"),
+      queryFn: () => Promise.reject(new Error("offline")),
+    })).rejects.toThrow("offline");
+    jest.advanceTimersByTime(1_000);
+    expect(client.getQueryData<{ total: string }>(key)).toEqual({ total: "1" });
+    expect(restoreOwnerQueries(createHomeQueryClient(), storage, "owner-a")).toBe(false);
+    client.setQueryData(key, { total: "2" });
+    jest.advanceTimersByTime(1_000);
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restored.getQueryData<{ total: string }>(key)).toEqual({ total: "2" });
+    cancel();
+  });
+
+  test.each(["signout", "memory-only"] as const)("%s clearing cannot be undone by a pending timer", (boundary) => {
+    const { client, key, storage, write, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    jest.advanceTimersByTime(1_000);
+    const previous = storage.getItem(`${ownerQueryCachePrefix}owner-a`);
+    client.setQueryData(key, { total: "2" });
+    if (boundary === "signout") clearOwnerQueryBoundary(client, storage);
+    else clearOwnerQueryMemory(client);
+    jest.advanceTimersByTime(1_000);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(storage.getItem(`${ownerQueryCachePrefix}owner-a`)).toBe(boundary === "signout" ? null : previous);
+    cancel();
+  });
+
+  test("preserving the active owner keeps its pending snapshot subscribed", () => {
+    const { client, key, storage, write, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    clearOwnerQueryBoundary(client, storage, "owner-a");
+    jest.advanceTimersByTime(1_000);
+    client.setQueryData(key, { total: "2" });
+    jest.advanceTimersByTime(1_000);
+    expect(write).toHaveBeenCalledTimes(2);
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restored.getQueryData<{ total: string }>(key)).toEqual({ total: "2" });
+    cancel();
+  });
+
+  test.each(["full", "memory-only"] as const)("%s boundary resumes same-owner persistence without reviving queued or detached work", (boundary) => {
+    const { client, key, storage, write, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    const detached = client.getQueryCache().find({ queryKey: key })!;
+    if (boundary === "full") clearOwnerQueryBoundary(client, storage);
+    else clearOwnerQueryMemory(client);
+    detached.setData({ total: "stale" });
+    jest.advanceTimersByTime(1_000);
+    expect(write).not.toHaveBeenCalled();
+    expect(storage.getItem(`${ownerQueryCachePrefix}owner-a`)).toBeNull();
+    client.setQueryData(key, { total: "2" });
+    jest.advanceTimersByTime(1_000);
+    expect(write).toHaveBeenCalledTimes(1);
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, "owner-a")).toBe(true);
+    expect(restored.getQueryData<{ total: string }>(key)).toEqual({ total: "2" });
+    cancel();
+  });
+
+  test("cleanup discards queued snapshots and future cache events", () => {
+    const { client, key, scan, write, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    cancel();
+    client.setQueryData(key, { total: "2" });
+    jest.advanceTimersByTime(1_000);
+    expect(scan).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  test("an owner boundary cancels old work before removals can resurrect its store", () => {
+    const { client, key, storage, write, cancel } = setup();
+    client.setQueryData(key, { total: "1" });
+    clearOwnerQueryBoundary(client, storage, "owner-b");
+    const otherKey = ownerQueryKey("owner-b", "balances", "US");
+    client.setQueryDefaults(otherKey, { meta: ownerQueryMeta("owner-b") });
+    const cancelOther = subscribeOwnerQueryPersistence(client, storage, "owner-b");
+    client.setQueryData(otherKey, { total: "2" });
+    jest.advanceTimersByTime(1_000);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(storage.getItem(`${ownerQueryCachePrefix}owner-a`)).toBeNull();
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, "owner-b")).toBe(true);
+    expect(restored.getQueryData<{ total: string }>(otherKey)).toEqual({ total: "2" });
+    cancel();
+    cancelOther();
+  });
+
+  test("lazy snapshots are not evaluated after cancellation and diagnostics fail open", () => {
+    const snapshot = mock(() => ({ timestamp: NOW, buster: "home-query-v3", clientState: { mutations: [], queries: [] } }));
+    const persister = createOwnerQueryPersister(memoryStorage(), "owner-a", 250, () => { throw new Error("diagnostics failed"); })!;
+    persister.persistClient(snapshot);
+    persister.cancel();
+    jest.advanceTimersByTime(1_000);
+    expect(snapshot).not.toHaveBeenCalled();
+    persister.persistClient(snapshot);
+    expect(() => jest.advanceTimersByTime(1_000)).not.toThrow();
+    expect(snapshot).toHaveBeenCalledTimes(1);
   });
 });

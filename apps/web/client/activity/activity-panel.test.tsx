@@ -237,6 +237,7 @@ async function waitForSentinel() {
 }
 
 afterEach(() => {
+  jest.useRealTimers();
   restoreClock();
   cleanup();
   getHomeQueryClient().clear();
@@ -395,10 +396,14 @@ describe("ConnectedActivityPanel", () => {
       }} />);
     await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
     const { activityOwnerKey } = await import("./use-activity");
+    await waitFor(() => expect(getHomeQueryClient().isFetching()).toBe(0));
     restoreClock();
     jest.useFakeTimers({ now: NOW });
     try {
-      await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: [activityOwnerKey(owner), "actions"] }); });
+      await act(async () => {
+        await getHomeQueryClient().invalidateQueries({ queryKey: [activityOwnerKey(owner), "actions"] });
+        jest.advanceTimersByTime(0);
+      });
       expect(calls).toBe(2);
       expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
       await act(async () => { jest.advanceTimersByTime(119_000); });
