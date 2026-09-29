@@ -42,6 +42,7 @@ afterEach(() => {
 });
 
 test("changing Send owner drops the sheet immediately and reopens without the previous draft", async () => {
+  (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = false;
   const frames = new Map<number, FrameRequestCallback>();
   let nextFrame = 0;
   window.requestAnimationFrame = (callback) => { const id = ++nextFrame; frames.set(id, callback); return id; };
@@ -61,7 +62,7 @@ test("changing Send owner drops the sheet immediately and reopens without the pr
   await flushFrame();
   await page().findByRole("dialog", { name: "Send" });
 
-  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1.25" } });
+  fireEvent.input(await page().findByRole("textbox", { name: "Amount" }), { target: { value: "1.25" } });
   fireEvent.click(page().getByRole("button", { name: "Continue" }));
   const recipient = page().getByRole("textbox", { name: "To" });
   fireEvent.focus(recipient);

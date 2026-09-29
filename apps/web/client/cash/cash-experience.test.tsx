@@ -146,6 +146,7 @@ describe("Cash L2", () => {
     await waitFor(() => expect(dialog.isConnected).toBe(false));
   });
   test("an unreadable open sheet clears its route once across rerenders and restores shell Back focus", async () => {
+    (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = false;
     cached();
     const unreadable = buildBalancesSnapshotFixture({ registry: { ...cash, usdc: { balance: unavailableBalance, value: { status: "unavailable" } } } });
     const view = render(<Route initialFlow="save-deposit" snapshot={held} deferClear />);
