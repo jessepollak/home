@@ -15,6 +15,7 @@ import { parseActivityPage } from "@/shared/activity/contract";
 import type { InvestmentsContentProps } from "./home-types";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
+import { readClientHistoryFlag } from "@/config/shell-location";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -417,10 +418,10 @@ describe("pushed funding history", () => {
     expect(window.location.pathname).toBe("/cash");
     fireEvent.click(page().getByRole("button", { name: "Add money in Cash" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=add-money");
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     fireEvent.click(await page().findByRole("button", { name: /Receive crypto/ }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash?flow=receive"));
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     fireEvent.click(within(await page().findByRole("dialog", { name: "Receive" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
     expect(historyEntries).toEqual(["/home", "/cash", "/cash?flow=receive"]);
@@ -452,7 +453,7 @@ describe("pushed funding history", () => {
     expect(emptyPrompt).not.toBe(prompt);
     emptyPrompt.focus();
     fireEvent.click(emptyPrompt);
-    expect(window.history.state?.__homeFundingFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).toBe(true);
     expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
     fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/home"));
@@ -473,12 +474,12 @@ describe("pushed funding history", () => {
     fireEvent.click(await page().findByRole("button", { name: "Start saving" }));
     const picker = await page().findByRole("dialog", { name: "Choose where to save" });
     expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=save-deposit");
-    expect(window.history.state?.__cashSavingsFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("cashSavingsFlowPushed")).toBe(true);
     fireEvent.click(within(picker).getByRole("button", { name: "Add money" }));
     expect(`${window.location.pathname}${window.location.search}`).toBe("/cash/savings?flow=add-money");
     expect(historyEntries).toEqual(["/cash/savings", "/cash/savings?flow=add-money"]);
-    expect(window.history.state?.__homeFundingFlowPushed).not.toBe(true);
-    expect(window.history.state?.__cashSavingsFlowPushed).toBe(true);
+    expect(readClientHistoryFlag("fundingFlowPushed")).not.toBe(true);
+    expect(readClientHistoryFlag("cashSavingsFlowPushed")).toBe(true);
     const funding = await page().findByRole("dialog", { name: "Add money" });
     expectSheetOpen(funding);
     expect(document.activeElement).not.toBe(page().getByRole("button", { name: "Start saving", hidden: true }));
@@ -1259,7 +1260,7 @@ describe("Home shell routing and intents", () => {
       await page().findByRole("dialog", { name: "Received" });
       fireEvent.click(await page().findByRole("button", { name: "Bitcoin Asset" }));
       expect(window.location.pathname).toBe(`/investments/${btc}`);
-      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(readClientHistoryFlag("investmentsHoldingOpenedInApp")).toBe(true);
       expect(page().getByRole("region", { name: "Holding detail" }).textContent).toContain(erc20AssetKey(BASE_CBBTC.address));
       expect(await page().findByRole("heading", { level: 1, name: "Bitcoin" })).toBeTruthy();
       await waitFor(() => expect(page().queryAllByRole("dialog")).toHaveLength(0));
@@ -1339,7 +1340,7 @@ describe("Home shell routing and intents", () => {
       fireEvent.scroll(main);
       fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
       expect(window.location.pathname).toBe(INVESTMENT_PATH);
-      expect(window.history.state?.__investmentsHoldingOpenedInApp).toBe(true);
+      expect(readClientHistoryFlag("investmentsHoldingOpenedInApp")).toBe(true);
       expect(page().getByRole("region", { name: "Holding detail" })).toBeTruthy();
       expect(await page().findByRole("heading", { level: 1, name: "Ethereum holding" })).toBeTruthy();
       expect(main.scrollTop).toBe(0);

@@ -55,6 +55,8 @@ Pilot outcome: `no-floating-promises` is enabled tree-wide; twelve intentional s
 
 JSON reads at application boundaries use `readJson` from `apps/web/shared/http/read-json.ts` (tests import it from `apps/web/tests/helpers/read-json.ts`). It returns `Promise<unknown>` rather than `response.json()`'s `any`, so callers narrow through an existing parser, a type guard or an `unknown`-accepting matcher. It deliberately has no type parameter: `readJson<T>` would reintroduce an unchecked cast.
 
+Home history flags are read through `readClientHistoryFlag` from `apps/web/config/shell-location.ts`, which validates the `any`-typed `history.state` and returns a boolean for the closed set of known flag keys, so call sites never touch `history.state` directly; writes keep their existing keys.
+
 ### Focused follow-up coverage (issue #677)
 
 A post-migration audit closed four shadcn/type-aware gaps without restoring ESLint or `@shadcn/lint`. Every new rule is a Home-owned Oxlint visitor with real-Oxlint fixtures and a delivery-contract canary.

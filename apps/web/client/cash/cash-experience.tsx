@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { readClientHistoryFlag } from "@/config/shell-location";
 import {
   isServerVerified,
   useAccountWallet,
@@ -522,7 +523,7 @@ export function CashExperience({
   useEffect(() => {
     if (!routing || !initialRoute.current || normalized.current) return;
     normalized.current = true;
-    if (window.history.state?.__cashSavingsFlowPushed === true) return;
+    if (readClientHistoryFlag("cashSavingsFlowPushed")) return;
     routing.clearFlow({ mode: "replace", normalizeInbound: true });
     routing.setFlow(initialRoute.current);
   }, [routing]);
