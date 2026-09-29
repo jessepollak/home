@@ -211,7 +211,7 @@
     },
     "apps/web/client/money-modal/money-modal.tsx": {
       "nonNull": 1,
-      "suppression": 2
+      "suppression": 1
     },
     "apps/web/client/observability/auth-performance.ts": {
       "nonNull": 3

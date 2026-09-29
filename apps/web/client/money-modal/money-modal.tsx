@@ -43,12 +43,51 @@ function stepFocusTarget(report: StepReport, allowAmountInput: boolean) {
   return report.element;
 }
 
+const UNSETTLED_POPUP_STATES = ["data-starting-style", "data-ending-style", "data-swiping", "data-nested-drawer-open"];
+
+type HeightTrack = { animation?: Animation; last: number; maxHeight: string };
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+function popupSettled(popup: HTMLElement) {
+  if (!popup.hasAttribute("data-open") || UNSETTLED_POPUP_STATES.some((name) => popup.hasAttribute(name))) return false;
+  return !(popup.getAnimations?.() ?? []).some((animation) => "transitionProperty" in animation);
+}
+
+function cancelAnimation(animation: Animation | undefined) {
+  if (!animation) return;
+  animation.onfinish = null;
+  animation.oncancel = null;
+  void animation.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling a step or height animation rejects finished; the host retargets from the measured state
+  animation.cancel();
+}
+
+function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number) {
+  cancelAnimation(track.animation);
+  track.animation = undefined;
+  const to = popup.offsetHeight;
+  track.last = to;
+  if (from <= 0 || Math.abs(to - from) < 1 || typeof popup.animate !== "function" || prefersReducedMotion()) return;
+  const animation = popup.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING });
+  track.animation = animation;
+  animation.onfinish = () => {
+    track.animation = undefined;
+    if (popupSettled(popup)) easePopupHeight(popup, track, to);
+    else track.last = popup.offsetHeight;
+  };
+  animation.oncancel = () => {
+    if (track.animation === animation) track.animation = undefined;
+  };
+}
+
 function MoneyModalStepHost({ children }: { children: ReactNode }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const previous = useRef<StepReport | null>(null);
-  const lastHeight = useRef(0);
+  const height = useRef<HeightTrack>({ last: 0, maxHeight: "" });
   const lastFocused = useRef<HTMLElement | null>(null);
-  const running = useRef<{ step?: Animation; height?: Animation }>({});
+  const stepAnimationRef = useRef<Animation | undefined>(undefined);
   const { pending } = useContext(MoneyModalPendingContext);
 
   const recoverFocus = useCallback(() => {
@@ -68,30 +107,26 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
   }, [pending, recoverFocus]);
 
   const stopAnimations = useCallback(() => {
-    const animations = running.current;
-    running.current = {};
-    if (animations.step) {
-      animations.step.onfinish = null;
-      animations.step.oncancel = null;
-      void animations.step.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the step animation rejects finished; focus recovery is handled separately
-      animations.step.cancel();
-    }
-    if (animations.height) {
-      animations.height.onfinish = null;
-      animations.height.oncancel = null;
-      void animations.height.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the height animation rejects finished; layout cleanup continues independently
-      animations.height.cancel();
-    }
-    hostRef.current?.style.removeProperty("overflow");
+    cancelAnimation(stepAnimationRef.current);
+    stepAnimationRef.current = undefined;
+    cancelAnimation(height.current.animation);
+    height.current.animation = undefined;
   }, []);
 
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
-      if (!running.current.height) lastHeight.current = host.offsetHeight;
+    const popup = host.closest<HTMLElement>("[data-slot=drawer-popup]");
+    const track = height.current;
+    const observer = !popup || typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (track.animation) return;
+      const maxHeight = getComputedStyle(popup).maxHeight;
+      const clampChanged = maxHeight !== track.maxHeight;
+      track.maxHeight = maxHeight;
+      if (!previous.current || clampChanged || !popupSettled(popup)) track.last = popup.offsetHeight;
+      else easePopupHeight(popup, track, track.last);
     });
-    observer?.observe(host);
+    if (popup) observer?.observe(popup);
     const onFocusIn = (event: FocusEvent) => {
       if (event.target instanceof HTMLElement) lastFocused.current = event.target;
     };
@@ -106,24 +141,26 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
   const report = useCallback((next: StepReport) => {
     const host = hostRef.current ?? next.element.parentElement;
     if (!host) return;
+    const popup = host.closest<HTMLElement>("[data-slot=drawer-popup]");
+    const track = height.current;
     const prior = previous.current;
     previous.current = next;
     if (!prior) {
-      lastHeight.current = host.offsetHeight;
+      if (popup) track.last = popup.offsetHeight;
       stepFocusTarget(next, true).focus({ preventScroll: true });
       return;
     }
     if (prior.step === next.step) {
+      if (popup && track.animation) easePopupHeight(popup, track, popup.offsetHeight);
       recoverFocus();
       return;
     }
-    const startHeight = running.current.height ? host.offsetHeight : lastHeight.current;
+    const from = popup && track.animation ? popup.offsetHeight : track.last;
     stopAnimations();
     stepFocusTarget(next, true).focus({ preventScroll: true });
-    const endHeight = host.offsetHeight;
-    lastHeight.current = endHeight;
+    if (popup) easePopupHeight(popup, track, from);
     if (typeof next.element.animate !== "function") return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const reduced = prefersReducedMotion();
     const direction = next.depth > prior.depth ? 1 : next.depth < prior.depth ? -1 : 0;
     const x = direction * (getComputedStyle(host).direction === "rtl" ? -16 : 16);
     const stepAnimation = next.element.animate(
@@ -133,27 +170,12 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
       ],
       { duration: reduced ? 120 : MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING },
     );
-    running.current.step = stepAnimation;
+    stepAnimationRef.current = stepAnimation;
     const finishStep = () => {
-      if (running.current.step === stepAnimation) running.current.step = undefined;
+      if (stepAnimationRef.current === stepAnimation) stepAnimationRef.current = undefined;
     };
     stepAnimation.onfinish = finishStep;
     stepAnimation.oncancel = finishStep;
-    if (reduced || Math.abs(endHeight - startHeight) < 1 || typeof host.animate !== "function") return;
-    host.style.setProperty("overflow", "hidden");
-    const heightAnimation = host.animate(
-      [{ height: `${startHeight}px` }, { height: `${endHeight}px` }],
-      { duration: MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING },
-    );
-    running.current.height = heightAnimation;
-    const finishHeight = () => {
-      if (running.current.height !== heightAnimation) return;
-      running.current.height = undefined;
-      host.style.removeProperty("overflow");
-      lastHeight.current = host.offsetHeight;
-    };
-    heightAnimation.onfinish = finishHeight;
-    heightAnimation.oncancel = finishHeight;
   }, [recoverFocus, stopAnimations]);
 
   return <MoneyModalStepContext value={report}><div ref={hostRef} data-slot="money-modal-steps" className="flex min-h-0 flex-1 flex-col">{children}</div></MoneyModalStepContext>;
