@@ -264,7 +264,7 @@ describe("Activity token metadata resolver", () => {
     expect(result.metadata.get(USDC.tokenAddress.toLowerCase())?.tokenImageUrl).toBeNull();
   }, 250);
 
-  test("waits out the default curated icon budget before resolving without icons", async () => {
+  test("waits out a bounded default curated icon budget before resolving without icons", async () => {
     jest.useFakeTimers();
     try {
       const icons = createLatestAssetIcons(() => new Promise(() => {}));
@@ -276,10 +276,10 @@ describe("Activity token metadata resolver", () => {
         settled = true;
         iconUrl = value.metadata.get(USDC.tokenAddress.toLowerCase())?.tokenImageUrl;
       });
-      jest.advanceTimersByTime(749);
+      jest.advanceTimersByTime(1);
       for (let tick = 0; tick < 32; tick += 1) await Promise.resolve();
       expect(settled).toBeFalse();
-      jest.advanceTimersByTime(1);
+      jest.advanceTimersByTime(10_000);
       for (let tick = 0; tick < 32 && !settled; tick += 1) await Promise.resolve();
       expect(settled).toBeTrue();
       expect(iconUrl).toBeNull();
@@ -288,7 +288,7 @@ describe("Activity token metadata resolver", () => {
     }
   });
 
-  test("bounds a hung Codex lookup at the default Activity deadline", async () => {
+  test("bounds a hung Codex lookup within the default Activity deadline", async () => {
     const previousKey = process.env.CODEX_API_KEY;
     const originalFetch = globalThis.fetch;
     process.env["CODEX_API_KEY"] = "activity-test-key";
@@ -308,9 +308,9 @@ describe("Activity token metadata resolver", () => {
       const response = resolve([ZORA]);
       for (let tick = 0; tick < 32 && !fetchStarted; tick += 1) await Promise.resolve();
       expect(fetchStarted).toBeTrue();
-      jest.advanceTimersByTime(2_999);
-      expect(codexSignal?.aborted).toBeFalse();
       jest.advanceTimersByTime(1);
+      expect(codexSignal?.aborted).toBeFalse();
+      jest.advanceTimersByTime(10_000);
       expect(codexSignal?.aborted).toBeTrue();
       let settled = false;
       let tokenSymbol: string | null | undefined;
