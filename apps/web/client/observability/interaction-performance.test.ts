@@ -319,7 +319,6 @@ describe("Home interaction recorder", () => {
     expect(value.sent[0]).not.toHaveProperty("longFrameMs");
   });
   test("swallows synchronous send failures", () => {
-    const value = fixture();
     const recorder = createHomeInteractionRecorder({
       now: () => 1, random: () => 0, sampleRate: 1, device: () => "mobile-low",
       engine: () => "webkit", isVisible: () => true,
@@ -329,7 +328,6 @@ describe("Home interaction recorder", () => {
       send: () => { throw new Error("network"); },
     });
     expect(() => { recorder.beginNavigation(navigation); recorder.commitNavigation("/cash"); }).not.toThrow();
-    expect(value.sent).toEqual([]);
   });
 });
 
