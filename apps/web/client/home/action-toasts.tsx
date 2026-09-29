@@ -4,10 +4,11 @@ import { Toaster } from "@/components/ui/toast";
 import { useCallback, useEffect, useRef } from "react";
 import { homeToastDurationMs, useHomeToast, type HomeToastRole, type HomeToastTone } from "./use-home-toast";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { RegionId } from "@/config/regions";
 import { formatAddress, formatFiatAmount, formatPresentationTokenAmount } from "@/shared/formatting";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
-import { cashoutMoney, outranksCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
+import { cashoutMoney, cashoutProgress, outranksCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
 import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { parseTradeMetadata } from "@/shared/trading/review";
@@ -36,6 +37,7 @@ type ToastAction = {
 };
 
 type Seen = { status: ToastAction["status"]; stage: string | null };
+type ActionToastMessage = { message: string; regionSensitive: boolean };
 
 function asOperation(action: ToastAction): RecentMoneyActionOperation {
   return {
@@ -68,38 +70,56 @@ function linkedWithdraw(action: ToastAction, actions: ToastAction[]): RecentMone
 }
 
 function stageFor(action: ToastAction, actions: ToastAction[]): string | null {
-  return action.kind === "cash-out" ? presentCashout(asOperation(action), linkedWithdraw(action, actions)).stage : null;
+  return action.kind === "cash-out" ? cashoutProgress(asOperation(action), linkedWithdraw(action, actions)).stage : null;
 }
 
 export function ActionToasts({
   session,
+  regionId,
   fetchOperations,
   dismissAfterMs = defaultDismissAfterMs,
 }: {
   session: VerifiedAccountSession | null;
+  regionId: RegionId;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   dismissAfterMs?: number;
 }) {
   const ownerKey = session?.smartAccount ? activityOwnerKey(session) : null;
   const seenStatuses = useRef(new Map<string, Seen>());
+  const regionToastIds = useRef(new Set<string>());
   const seededOwners = useRef(new Set<string>());
-  const { add, closeAll } = useHomeToast(ownerKey);
+  const previousPresentation = useRef({ ownerKey, regionId });
+  const { add, close, closeAll } = useHomeToast(ownerKey);
   const actions = useHomeQuery({
     queryKey: ownerKey ? ownerQueryKey(ownerKey, "actions") : ["unauthenticated", "action-toasts-disabled"],
     enabled: ownerKey !== null,
     ...recentActionsQueryOptions,
     refetchInterval: (query) => typeof document !== "undefined" && document.visibilityState === "visible" &&
       parseToastActions(query.state.data).some((action, _index, all) => action.kind === "cash-out" &&
-        presentCashout(asOperation(action), linkedWithdraw(action, all)).refreshing) ? 15_000 : false,
+        cashoutProgress(asOperation(action), linkedWithdraw(action, all)).refreshing) ? 15_000 : false,
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     select: parseToastActions,
   });
-  const addToast = useCallback((message: string, tone: HomeToastTone = "neutral", role: HomeToastRole = "status") => {
-    add({ message, tone, role, duration: dismissAfterMs });
+  const addToast = useCallback((message: string, tone: HomeToastTone = "neutral", role: HomeToastRole = "status", regionSensitive = false) => {
+    const id = add({
+      message, tone, role, duration: dismissAfterMs,
+      ...(regionSensitive ? { onClose: () => regionToastIds.current.delete(id) } : {}),
+    });
+    if (regionSensitive) regionToastIds.current.add(id);
   }, [add, dismissAfterMs]);
 
   useEffect(() => () => closeAll(), [closeAll]);
+  useEffect(() => {
+    const previous = previousPresentation.current;
+    if (previous.ownerKey !== ownerKey) {
+      regionToastIds.current.clear();
+    } else if (ownerKey && previous.regionId !== regionId) {
+      for (const id of regionToastIds.current) close(id);
+      regionToastIds.current.clear();
+    }
+    previousPresentation.current = { ownerKey, regionId };
+  }, [close, ownerKey, regionId]);
   useEffect(() => {
     if (!actions.data || !ownerKey) return;
     if (!seededOwners.current.has(ownerKey)) {
@@ -114,27 +134,28 @@ export function ActionToasts({
       const previous = seenStatuses.current.get(key);
       const stage = stageFor(action, actions.data);
       if (action.kind === "cash-out") {
-        const view = presentCashout(asOperation(action), linkedWithdraw(action, actions.data));
-        const amount = cashoutMoney(view.total, view.decimals);
+        const view = presentCashout(asOperation(action), linkedWithdraw(action, actions.data), { regionId });
+        const amount = cashoutMoney(view.total, view.decimals, regionId);
         if (previous === undefined && action.status === "pending") {
-          addToast(`Cash-out started ${amount}`);
+          addToast(`Cash-out started ${amount}`, "neutral", "status", true);
         } else if (previous?.stage && previous.stage !== stage && view.stage === "paid") {
-          addToast(`Paid ${amount} to ${view.app}`, "success");
+          addToast(`Paid ${amount} to ${view.app}`, "success", "status", true);
         } else if (previous?.stage && previous.stage !== stage && view.stage === "returned") {
-          addToast(BigInt(view.paid) === BigInt(0)
-            ? view.returned === "0" ? "Returned" : `Returned ${cashoutMoney(view.returned, view.decimals)}`
-            : view.status, "success");
+          const paid = BigInt(view.paid) !== BigInt(0);
+          const returned = view.returned !== "0";
+          addToast(paid ? view.status : returned ? `Returned ${cashoutMoney(view.returned, view.decimals, regionId)}` : "Returned",
+            "success", "status", paid || returned);
         }
       } else if (action.status === "pending" && previous === undefined) {
-        const message = actionToastMessage(action, "pending");
-        if (message) addToast(message);
+        const message = actionToastMessage(action, "pending", regionId);
+        if (message) addToast(message.message, "neutral", "status", message.regionSensitive);
       } else if (action.status === "confirmed" && previous?.status === "pending") {
-        const message = actionToastMessage(action, "confirmed");
-        if (message) addToast(message, "success");
+        const message = actionToastMessage(action, "confirmed", regionId);
+        if (message) addToast(message.message, "success", "status", message.regionSensitive);
       }
       seenStatuses.current.set(key, { status: action.status, stage });
     }
-  }, [actions.data, addToast, ownerKey]);
+  }, [actions.data, addToast, ownerKey, regionId]);
   useEffect(() => {
     const onFailure = (event: Event) => {
       const detail = (event as CustomEvent<unknown>).detail;
@@ -187,23 +208,26 @@ function parseToastActions(value: unknown): ToastAction[] {
   });
 }
 
-function actionToastMessage(action: ToastAction, status: "pending" | "confirmed"): string | null {
+function actionToastMessage(action: ToastAction, status: "pending" | "confirmed", regionId: RegionId): ActionToastMessage | null {
   const metadata = action.summary.metadata;
   const trade = action.kind === "trade" && metadata?.product === "trade" ? metadata : null;
   if (trade) {
     const spend = action.summary.amounts.find((amount) => amount.direction === "spend" && !amount.estimated && !amount.maximum);
     if (!spend) return null;
     const formatted = trade.direction === "buy"
-      ? formatFiatAmount(BigInt(spend.amountBaseUnits), spend.decimals, "USD")
+      ? formatFiatAmount(BigInt(spend.amountBaseUnits), spend.decimals, "USD", { regionId })
       : formatPresentationTokenAmount(spend.amountBaseUnits, spend.decimals, spend.symbol);
-    return trade.direction === "buy"
-      ? `${status === "pending" ? "Buying" : "Bought"} ${trade.assetName} for ${formatted}`
-      : `${status === "pending" ? "Selling" : "Sold"} ${formatted} of ${trade.assetName}`;
+    return {
+      message: trade.direction === "buy"
+        ? `${status === "pending" ? "Buying" : "Bought"} ${trade.assetName} for ${formatted}`
+        : `${status === "pending" ? "Selling" : "Sold"} ${formatted} of ${trade.assetName}`,
+      regionSensitive: trade.direction === "buy",
+    };
   }
   const borrowOperation = metadata?.product === "borrow" ? metadata.operation : undefined;
   const operation = operationKind(action.kind, borrowOperation);
-  if (borrowOperation === "repay-all") return status === "pending" ? "Repaying all Borrow debt" : "Repaid all Borrow debt";
-  if (borrowOperation === "close-position") return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
+  if (borrowOperation === "repay-all") return { message: status === "pending" ? "Repaying all Borrow debt" : "Repaid all Borrow debt", regionSensitive: false };
+  if (borrowOperation === "close-position") return { message: status === "pending" ? "Closing Borrow position" : "Closed Borrow position", regionSensitive: false };
   const amount = action.summary.amounts.find((candidate) =>
     operation === "withdraw" || operation === "cash-out-withdraw" || operation === "borrow"
       ? candidate.direction === "receive" && !candidate.estimated && !candidate.maximum
@@ -211,21 +235,24 @@ function actionToastMessage(action: ToastAction, status: "pending" | "confirmed"
   );
   if (!amount) return null;
   const formatted = amount.symbol === "USDC"
-    ? formatFiatAmount(BigInt(amount.amountBaseUnits), amount.decimals, "USD")
+    ? formatFiatAmount(BigInt(amount.amountBaseUnits), amount.decimals, "USD", { regionId })
     : formatPresentationTokenAmount(amount.amountBaseUnits, amount.decimals, amount.symbol);
+  const withAmount = (message: string): ActionToastMessage => ({
+    message, regionSensitive: amount.symbol === "USDC" || operation === "cash-out-withdraw",
+  });
   if (operation === "send") {
     const recipient = action.summary.warnings.find((warning) => warning.startsWith("Recipient: "))?.slice("Recipient: ".length);
     const target = recipient && /^0x[0-9a-fA-F]{40}$/.test(recipient) ? ` to ${formatAddress(recipient)}` : "";
-    return `${status === "pending" ? "Sending" : "Sent"} ${formatted}${target}`;
+    return withAmount(`${status === "pending" ? "Sending" : "Sent"} ${formatted}${target}`);
   }
-  if (operation === "deposit") return `${status === "pending" ? "Depositing" : "Deposited"} ${formatted}`;
-  if (operation === "withdraw") return `${status === "pending" ? "Withdrawing" : "Withdrawn"} ${formatted}`;
-  if (operation === "supply-collateral") return `${status === "pending" ? "Adding collateral" : "Added collateral"} ${formatted}`;
-  if (operation === "withdraw-collateral") return `${status === "pending" ? "Withdrawing collateral" : "Withdrew collateral"} ${formatted}`;
-  if (operation === "borrow") return `${status === "pending" ? "Borrowing" : "Borrowed"} ${formatted}`;
-  if (operation === "repay") return `${status === "pending" ? "Repaying" : "Repaid"} ${formatted}`;
-  if (operation === "cash-out-withdraw") return status === "pending" ? `Returning ${cashoutMoney(amount.amountBaseUnits, amount.decimals)}` : null;
-  if (operation === "close-position") return status === "pending" ? "Closing Borrow position" : "Closed Borrow position";
+  if (operation === "deposit") return withAmount(`${status === "pending" ? "Depositing" : "Deposited"} ${formatted}`);
+  if (operation === "withdraw") return withAmount(`${status === "pending" ? "Withdrawing" : "Withdrawn"} ${formatted}`);
+  if (operation === "supply-collateral") return withAmount(`${status === "pending" ? "Adding collateral" : "Added collateral"} ${formatted}`);
+  if (operation === "withdraw-collateral") return withAmount(`${status === "pending" ? "Withdrawing collateral" : "Withdrew collateral"} ${formatted}`);
+  if (operation === "borrow") return withAmount(`${status === "pending" ? "Borrowing" : "Borrowed"} ${formatted}`);
+  if (operation === "repay") return withAmount(`${status === "pending" ? "Repaying" : "Repaid"} ${formatted}`);
+  if (operation === "cash-out-withdraw") return status === "pending" ? withAmount(`Returning ${cashoutMoney(amount.amountBaseUnits, amount.decimals, regionId)}`) : null;
+  if (operation === "close-position") return { message: status === "pending" ? "Closing Borrow position" : "Closed Borrow position", regionSensitive: false };
   return null;
 }
 

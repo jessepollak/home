@@ -445,7 +445,7 @@ function QuoteReview({
                     // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
-                    value={formatFiatAmount(fee.amount, fee.currency)}
+                    value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
                   />
                 ))
               ) : (
@@ -501,7 +501,7 @@ function ProviderEconomicsReview({
   const instruction = order.instructions;
   const pay =
     instruction && instruction.kind !== "redirect"
-      ? formatFiatAmount(instruction.amount, instruction.currency)
+      ? formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })
       : null;
   return (
     <>
@@ -523,7 +523,7 @@ function ProviderEconomicsReview({
                     // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
-                    value={formatFiatAmount(fee.amount, fee.currency)}
+                    value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
                   />
                 ))
               ) : (
@@ -576,7 +576,7 @@ export function OpenOrderPrompt({
           </CardHeader>
           <CardContent>
             <dl className="space-y-3">
-              <DefinitionRow label="You pay" value={formatFiatAmount(order.fiatAmount, binding.currency)} />
+              <DefinitionRow label="You pay" value={formatFiatAmount(order.fiatAmount, binding.currency, { currencyNative: true })} />
               {order.createdAt ? (
                 <DefinitionRow
                   label="Started"
@@ -679,7 +679,7 @@ function SettledAmounts({
           // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
           key={`${fee.label}:${index}`}
           label={fee.label}
-          value={formatFiatAmount(fee.amount, fee.currency)}
+          value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
         />
       ))}
     </dl>
@@ -736,7 +736,7 @@ function InstructionView({
             ) : null}
           </dl>
           <MoneyLine
-            value={`Send exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`}
+            value={`Send exactly ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })}`}
           />
         </div>
       </section>
@@ -755,7 +755,7 @@ function InstructionView({
             valueKind="payment code"
           />
           <MoneyLine
-            value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`}
+            value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })}`}
           />
         </div>
       </section>
@@ -773,7 +773,7 @@ function InstructionView({
           />
         </dl>
         <MoneyLine
-          value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`}
+          value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })}`}
         />
       </div>
     </section>
@@ -837,7 +837,7 @@ function EmbedInstruction({
   return (
     <section className="flex flex-col gap-3">
       <MoneyLine
-        value={`Pay ${formatFiatAmount(instruction.amount, instruction.currency)} with Apple Pay`}
+        value={`Pay ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })} with Apple Pay`}
       />
       <iframe
         ref={iframeRef}

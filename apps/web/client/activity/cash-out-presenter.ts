@@ -5,7 +5,7 @@ import { formatFiatAmount } from "@/shared/formatting";
 
 export type CashoutStage = "failed" | "returning" | "returned" | "paid" | "paying" | "waiting" | "checking";
 
-export function cashoutMoney(atoms: string, decimals = 6, regionId?: RegionId): string {
+export function cashoutMoney(atoms: string, decimals: number, regionId: RegionId): string {
   const amount = BigInt(atoms);
   return formatFiatAmount(amount, decimals, "USD", {
     regionId,
@@ -56,12 +56,7 @@ export function cashoutOrderAction(order: ActivityCashoutOrder, withdraw?: Pick<
     ? "cancel-cash-out" : undefined;
 }
 
-export function presentCashout(
-  operation: RecentMoneyActionOperation,
-  withdraw?: RecentMoneyActionOperation,
-  options: { regionId?: RegionId } = {},
-) {
-  const money = (atoms: string, decimals: number) => cashoutMoney(atoms, decimals, options.regionId);
+export function cashoutProgress(operation: RecentMoneyActionOperation, withdraw?: RecentMoneyActionOperation) {
   const progress = operation.cashout;
   const metadata = operation.action.metadata?.product === "cashout" && operation.action.metadata.operation === "deposit"
     ? operation.action.metadata : null;
@@ -76,10 +71,8 @@ export function presentCashout(
   if (operation.action.metadata?.product === "cashout" && operation.action.metadata.operation === "withdraw") {
     return {
       stage: "returned" as CashoutStage,
-      label: operation.action.title,
-      status: operationStatusLabel[operation.status],
       app, total, paid, returned, remaining, decimals,
-      inProgress: false, refreshing: false, cancellable: false, metadata,
+      inProgress: false, refreshing: false, cancellable: false, metadata, withdrawal: true,
     };
   }
   const withdrawUnsettled = progress?.withdrawing === true;
@@ -93,16 +86,28 @@ export function presentCashout(
               : progress?.state === "matched" || progress?.state === "delivering" ? "paying"
                 : progress?.state === "unknown" || !progress?.depositId && (operation.status === "unknown" || operation.status === "failed") ? "checking"
                   : "waiting";
-  const label = `${money(total, decimals)} to ${app}`;
-  const status = stage === "failed" ? "Cash-out failed"
-    : stage === "returning" ? "Returning"
-      : stage === "returned" ? BigInt(paid) === BigInt(0) ? "Returned" : `Paid ${money(paid, decimals)} to ${app} · ${money(returned, decimals)} returned`
-        : stage === "paid" ? `Paid to ${app}`
-          : stage === "paying" ? BigInt(paid) === BigInt(0) ? "Buyer paying you" : `${money(paid, decimals)} paid · Buyer paying you`
-            : stage === "waiting" ? BigInt(paid) === BigInt(0) ? "Waiting for a buyer" : `${money(paid, decimals)} paid · ${money(remaining, decimals)} waiting for a buyer`
-              : "Checking status";
   const inProgress = stage === "waiting" || stage === "paying" || stage === "returning" || stage === "checking";
   const refreshing = inProgress || progress?.settledAt === null && stage !== "failed";
   const cancellable = stage === "waiting" && progress?.withdrawable === true && Boolean(progress.depositId) && /^\d+$/.test(remaining) && BigInt(remaining) > BigInt(0) && !withdrawUnsettled;
-  return { stage, label, status, app, total, paid, returned, remaining, decimals, inProgress, refreshing, cancellable, metadata };
+  return { stage, app, total, paid, returned, remaining, decimals, inProgress, refreshing, cancellable, metadata, withdrawal: false };
+}
+
+export function presentCashout(
+  operation: RecentMoneyActionOperation,
+  withdraw: RecentMoneyActionOperation | undefined,
+  options: { regionId: RegionId },
+) {
+  const { withdrawal, ...progress } = cashoutProgress(operation, withdraw);
+  const { stage, app, total, paid, returned, remaining, decimals } = progress;
+  const money = (atoms: string) => cashoutMoney(atoms, decimals, options.regionId);
+  if (withdrawal) return { ...progress, label: operation.action.title, status: operationStatusLabel[operation.status] };
+  const label = `${money(total)} to ${app}`;
+  const status = stage === "failed" ? "Cash-out failed"
+    : stage === "returning" ? "Returning"
+      : stage === "returned" ? BigInt(paid) === BigInt(0) ? "Returned" : `Paid ${money(paid)} to ${app} · ${money(returned)} returned`
+        : stage === "paid" ? `Paid to ${app}`
+          : stage === "paying" ? BigInt(paid) === BigInt(0) ? "Buyer paying you" : `${money(paid)} paid · Buyer paying you`
+            : stage === "waiting" ? BigInt(paid) === BigInt(0) ? "Waiting for a buyer" : `${money(paid)} paid · ${money(remaining)} waiting for a buyer`
+              : "Checking status";
+  return { ...progress, label, status };
 }

@@ -4,7 +4,7 @@ import { compareActivityTransferKeys } from "@/shared/activity/contract";
 import { activityAssets, type ActivityTransfer } from "@/shared/activity/types";
 import type { CardPurchase } from "@/shared/cards/transactions-contract";
 import type { MoneyActionAmount } from "@/shared/money-actions/types";
-import { cashoutWithdrawForDeposit, outranksCashoutWithdraw, presentCashout } from "./cash-out-presenter";
+import { cashoutProgress, cashoutWithdrawForDeposit, outranksCashoutWithdraw } from "./cash-out-presenter";
 
 export type ActivityFeedItem =
   | { kind: "order"; id: string; timestamp: string; order: ActivityOrder; withdraw?: RecentMoneyActionOperation; reviewed?: RecentMoneyActionOperation }
@@ -109,7 +109,7 @@ export function mergeActivityFeed(input: {
       const transfers = hash ? transfersByHash.get(hash) ?? [] : [];
       if (transfers.length === 0 && operation.status !== "pending" && loadedThroughTime !== null &&
         Date.parse(activityOperationTime(operation)) <= loadedThroughTime &&
-        !(operation.action.kind === "cash-out" && presentCashout(operation, withdrawals.get(operation.cashout?.depositId?.toLowerCase() ?? "")).inProgress)) return [];
+        !(operation.action.kind === "cash-out" && cashoutProgress(operation, withdrawals.get(operation.cashout?.depositId?.toLowerCase() ?? "")).inProgress)) return [];
       const sharedHash = hash !== undefined && (actionIdsByHash.get(hash)?.size ?? 0) > 1;
       const settled = transfers.length > 0 ? settleOperation(operation, transfers, !sharedHash) : operation;
       const withdraw = operation.cashout?.depositId ? withdrawals.get(operation.cashout.depositId.toLowerCase()) : undefined;
@@ -190,7 +190,7 @@ function settleAmount(amount: MoneyActionAmount, transfers: readonly ActivityTra
 }
 
 function compareActivityFeedItems(left: ActivityFeedItem, right: ActivityFeedItem, loadedThroughTime: number | null): number {
-  const pinned = (item: ActivityFeedItem) => item.kind === "action" && item.operation.action.kind === "cash-out" && presentCashout(item.operation, item.withdraw).inProgress;
+  const pinned = (item: ActivityFeedItem) => item.kind === "action" && item.operation.action.kind === "cash-out" && cashoutProgress(item.operation, item.withdraw).inProgress;
   if (pinned(left) !== pinned(right)) return pinned(left) ? -1 : 1;
   if (loadedThroughTime !== null) {
     const leftLeads = left.kind === "action" && left.transfers.length === 0 && left.operation.status === "pending" &&
