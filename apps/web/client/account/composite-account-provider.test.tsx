@@ -217,12 +217,17 @@ await mock.module("@base-org/account", () => ({
   }),
 }));
 
+// Warm the lazy CDP module so on-demand activation waits observe render state changes
+// rather than a cold module compile whose duration scales with machine load.
+await import("./cdp-sdk-provider");
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { getHomeQueryClient } = await import("@/client/query/query-client");
 const { useAccountWallet } = await import("./cdp-client");
 const CompositeAccountProvider = (await import("./composite-account-provider")).default;
 const { AccountSignInSheet } = await import("./account-screen");
 await import("./cdp-sdk-provider");
+
+const CDP_ISLAND_MOUNT_WAIT = { timeout: 2_000 };
 
 let observedClient: AccountWalletClient | null = null;
 let observedStatuses: AccountWalletClient["status"][] = [];
@@ -377,7 +382,7 @@ describe("composite account provider switches", () => {
       const second = currentClient().requestEmailCode("second@example.com");
       settled = Promise.allSettled([first, second]);
     });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     const results = await act(async () => settled);
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -395,7 +400,7 @@ describe("composite account provider switches", () => {
 
     let request!: Promise<{ flowId: string }>;
     act(() => { request = currentClient().requestEmailCode("person@example.com"); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     expect(activation.timers[0]?.timeoutMs).toBe(CDP_ACTIVATION_TIMEOUT_MS);
 
     act(() => setCdpState({ isInitialized: true }));
@@ -418,7 +423,7 @@ describe("composite account provider switches", () => {
       void results.then(() => { settled = true; });
     });
 
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     await act(async () => { await Promise.resolve(); });
     expect(events).toEqual([]);
     expect(settled).toBe(false);
@@ -469,7 +474,7 @@ describe("composite account provider switches", () => {
     expect(nativeRestores).toBe(0);
     let request!: Promise<{ flowId: string }>;
     act(() => { request = currentClient().requestEmailCode("person@example.com"); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     let result!: { flowId: string };
     await act(async () => { result = await request; });
     expect(result).toEqual({ flowId: "email-flow" });
@@ -505,7 +510,7 @@ describe("composite account provider switches", () => {
     for (const email of ["first@example.com", "second@example.com"]) {
       let request!: Promise<{ flowId: string }>;
       act(() => { request = currentClient().requestEmailCode(email); });
-      await waitFor(() => expect(cdpProviderMounts).toBe(1));
+      await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
       const { flowId } = await act(async () => request);
       await act(async () => { await currentClient().verifyEmailCode(flowId, "123456"); });
       await waitFor(() => expect(currentClient().status).toBe("verified"));
@@ -603,7 +608,7 @@ describe("composite account provider switches", () => {
     cdpProviderShouldThrow = false;
     let retry!: Promise<void>;
     act(() => { retry = currentClient().retrySessionValidation(); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     expect(nativeRestores).toBe(1);
 
     act(() => setCdpState({ isInitialized: true }));
@@ -626,7 +631,7 @@ describe("composite account provider switches", () => {
       target: { value: "person@example.com" },
     });
     fireEvent.click(view.getByRole("button", { name: "Continue with email" }));
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     expect(events).toEqual([]);
     expect(view.queryByRole("textbox", { name: "Verification code" })).toBeNull();
     expect(currentClient().verification).toBeNull();
@@ -652,7 +657,7 @@ describe("composite account provider switches", () => {
     installSessionFetch();
     const view = renderProvider(true, true);
 
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     expect(currentClient().status).toBe("restoring");
     expect(observedStatuses).not.toContain("signed-out");
     // The restoring status keeps the sign-in form hidden while the lazy CDP
@@ -669,7 +674,7 @@ describe("composite account provider switches", () => {
 
     await waitFor(() => expect(currentClient().status).toBe("restoring"));
     expect(observedStatuses).not.toContain("signed-out");
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
 
     await act(async () => setCdpState({
       isInitialized: true,
@@ -687,7 +692,7 @@ describe("composite account provider switches", () => {
     installSessionFetch();
     renderProvider(false, true, true, { scheduleActivationTimeout: activation.scheduleTimeout });
 
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     expect(currentClient().status).toBe("restoring");
     expect(activation.hasPending()).toBe(true);
     act(() => { activation.fireNextPending(); });
@@ -698,7 +703,7 @@ describe("composite account provider switches", () => {
 
     let retry!: Promise<void>;
     act(() => { retry = currentClient().retrySessionValidation(); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     expect(hasCdpRestoreMarker()).toBe(true);
 
     act(() => setCdpState({ isInitialized: true }));
@@ -724,7 +729,7 @@ describe("composite account provider switches", () => {
 
     let emailRequest!: Promise<{ flowId: string }>;
     act(() => { emailRequest = currentClient().requestEmailCode("person@example.com"); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
     const { flowId } = await act(async () => emailRequest);
     let verification!: Promise<void>;
     act(() => { verification = currentClient().verifyEmailCode(flowId, "123456"); });
