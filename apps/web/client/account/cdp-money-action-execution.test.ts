@@ -583,6 +583,58 @@ describe("thin action dispatch", () => {
     expect(fake.pending()).toBe(0);
   });
 
+  test("a malformed 2xx confirm response fails unavailable before wallet dispatch", async () => {
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject" },
+      smartAccount: { address: plan.calls[0].to, chainId: 8453 },
+      accountProvider: "cdp-embedded",
+    };
+    const ownerFence: OwnerGenerationFence = {
+      advance: () => 4,
+      capture: () => 4,
+      isCurrent: (generation) => generation === 4,
+      assertCurrent: (generation) => { expect(generation).toBe(4); },
+      updateAuthorizationBoundary: () => {},
+      updateOwnerKey: () => false,
+    };
+    const posts: string[] = [];
+    const transport = {
+      fetchAccountResource: async (path: string, options?: { method?: string }) => {
+        if (path === `/api/actions/${id}`) return {
+          id, kind: "send", summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+          calls: plan.calls, expiresAt: "2099-01-01T00:00:00.000Z",
+        };
+        if (path === `/api/actions/${id}/confirm`) {
+          expect(options?.method).toBe("POST");
+          posts.push(path);
+          return { calls: [{ ...plan.calls[0], to: "0xnothex" }] };
+        }
+        throw new Error(`Unexpected account resource ${path}`);
+      },
+    } as unknown as AuthenticatedTransport;
+    let dispatches = 0;
+    let execution!: ReturnType<typeof useMoneyActionExecution>;
+    function Probe() {
+      execution = useMoneyActionExecution({
+        session, status: "verified", verification: "server", ownerKey: "owner", ownerFence,
+        sdkSendUserOperation: async () => { dispatches += 1; throw new Error("Must not dispatch"); },
+        sdkGetUserOperation: undefined,
+        baseConnection: { current: null } as MutableRefObject<ConnectedBaseAccount | null>,
+        transport, signTypedData: async () => "0x12",
+      });
+      return null;
+    }
+    const view = render(createElement(Probe));
+    try {
+      const action = await execution.resumeMoneyAction(id);
+      await expect(execution.executeMoneyAction(action)).rejects.toMatchObject({ reason: "unavailable" });
+      expect(posts).toEqual([`/api/actions/${id}/confirm`]);
+      expect(dispatches).toBe(0);
+    } finally {
+      view.unmount();
+    }
+  });
+
   test("addresses the CDP smart account by its checksummed form when sending and polling", async () => {
     const fake = fakeClock();
     const lowercase = "0x7b058c8ea4f394d30047998202f45b3c2a94d196" as const;

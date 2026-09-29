@@ -6,7 +6,7 @@ import { createConfirmActionHandler, createDeclineActionHandler, createGetAction
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
+import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 
 function parseLog(line: string): unknown {
@@ -666,6 +666,37 @@ describe("actions HTTP handlers", () => {
       },
     };
   }
+
+  test.each(ACTION_KINDS.filter((kind) => kind !== "trade"))("confirm %s returns calls accepted by the shared parser", async (kind) => {
+    const transfer: MoneyActionCall = { to: ADDRESS, data: "0x", value: "123" };
+    const approval: MoneyActionCall = {
+      to: ADDRESS,
+      data: `0x095ea7b3${"0".repeat(24)}${ADDRESS.slice(2)}${"0".repeat(63)}1`,
+      value: "0",
+      approval: { assetId: "usdc", spender: ADDRESS },
+    };
+    const calls = kind === "send" ? [transfer] : [CALL, approval];
+    const draft: ActionRow = {
+      ...(kind === "cash-out" || kind === "cash-out-withdraw" ? cashoutConfirmRow(kind) : row),
+      kind,
+      pending: { calls },
+    };
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      store: {
+        get: async () => draft,
+        confirm: async (_owner, _id, confirmedCalls) => {
+          expect(confirmedCalls).toEqual(calls);
+          return { ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: confirmedCalls ?? [] } };
+        },
+      },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    expect(parseConfirmActionResponse(await readJson(response))?.calls).toEqual(calls);
+  });
 
   test("confirm rechecks the persisted cash-out region and refuses a removed region", async () => {
     let confirms = 0;
