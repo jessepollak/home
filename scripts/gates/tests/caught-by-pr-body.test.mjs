@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { caughtByPrBodyFindings } from "../caught-by-pr-body.mjs";
+import { caughtByPrBodyFindings, prBodyDetectors } from "../caught-by-pr-body.mjs";
 
 const title = "fix(home): repair state";
 
@@ -36,6 +36,12 @@ test("counts identical duplicate detectors once", () => {
 test("ignores comments and fences but accepts visible lines and normalized newlines", () => {
   const body = "<!-- Caught-by: review -->\r\n```\r\nCaught-by: bot\r\n```\r\nCaught-by: lint\r\n";
   assert.deepEqual(caughtByPrBodyFindings(title, body), []);
+});
+
+test("extracts only distinct visible PR body detectors", () => {
+  assert.deepEqual(prBodyDetectors("<!-- Caught-by: bot -->\n```\nCaught-by: production\n```\nCaught-by: review\nCaught-by: review"), ["review"]);
+  assert.deepEqual(prBodyDetectors("<!--\nCaught-by: bot\n-->\n~~~\nCaught-by: lint\n~~~"), []);
+  assert.deepEqual(prBodyDetectors("Caught-by: review\nCaught-by: bot"), ["review", "bot"]);
 });
 
 test("does not require a detector for non-fix and unscoped fix titles", () => {

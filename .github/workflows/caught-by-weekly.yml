@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
   issues: write
 
 jobs:
@@ -28,6 +29,9 @@ jobs:
           package-manager-cache: false
 
       - name: Generate the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: node scripts/gates/caught-by-report.mjs --since 7.days > "$RUNNER_TEMP/caught-by-report.md"
 
       - name: Post it to the report issue

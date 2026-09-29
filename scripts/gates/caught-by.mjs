@@ -49,7 +49,12 @@ export function readCommitsForRange(range, cwd = process.cwd()) {
   return parseCommitLog(git(["log", range, commitLogFormat], cwd));
 }
 
-const pullRequestSquashSubject = / \(#\d+\)$/;
+const pullRequestSquashSubject = / \(#(\d+)\)$/;
+
+export function pullRequestNumber(subject) {
+  const match = pullRequestSquashSubject.exec(subject);
+  return match ? Number(match[1]) : null;
+}
 
 // Outside a pull request the gate checks the pushed commit. A squash merge of a
 // pull request carries whatever message the merge tool wrote, so its detector is
@@ -57,7 +62,7 @@ const pullRequestSquashSubject = / \(#\d+\)$/;
 // only direct pushes are held to the trailer here.
 export function commitsForTrailerGate(commits, range) {
   if (range !== "HEAD^!") return commits;
-  return commits.filter((commit) => !pullRequestSquashSubject.test(commit.subject));
+  return commits.filter((commit) => pullRequestNumber(commit.subject) === null);
 }
 
 // Every well-formed Caught-by trailer value in a commit body, in order and
