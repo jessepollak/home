@@ -125,7 +125,7 @@ describe("Save estimated-growth owner", () => {
     expect(view.container.textContent).toBe(sampled);
     view.rerender(panel(true));
     expect(now).toHaveBeenCalledTimes(1);
-    void act(() => jest.advanceTimersByTime(1));
+    void act(() => jest.advanceTimersByTime(0));
     expect(now).toHaveBeenCalledTimes(2);
     expect(view.container.textContent).toBe("1000000362671982829");
     wall += 60_000;
