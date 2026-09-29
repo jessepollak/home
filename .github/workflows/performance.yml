@@ -1,0 +1,181 @@
+name: Performance budgets
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  performance:
+    name: performance budgets
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.12
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        run: bun run --cwd apps/web test:browser-install
+
+      - name: Build production fixture
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          HOME_PLAYWRIGHT_SMOKE: "1"
+          HOME_OPERATOR_ADDRESSES: 0x1111111111111111111111111111111111111111,0x3333333333333333333333333333333333333333
+          # Sampled navigation telemetry would add random beacons to the warm-request gate.
+          NEXT_PUBLIC_HOME_INTERACTION_SAMPLE_RATE: "0"
+        run: ./node_modules/.bin/next build
+
+      - name: Start production fixture
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          HOME_PLAYWRIGHT_SMOKE: "1"
+          HOME_OPERATOR_ADDRESSES: 0x1111111111111111111111111111111111111111,0x3333333333333333333333333333333333333333
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/apps/web/performance-results"
+          ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3199 > "$GITHUB_WORKSPACE/apps/web/performance-results/server.log" 2>&1 &
+          server_pid=$!
+          echo "$server_pid" > "$GITHUB_WORKSPACE/apps/web/performance-results/server.pid"
+          for attempt in {1..60}; do
+            if curl --silent --fail http://localhost:3199/ > /dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          echo "Production fixture did not become ready" >&2
+          tail -n 50 "$GITHUB_WORKSPACE/apps/web/performance-results/server.log" >&2
+          exit 1
+
+      # Structural gates block immediately; timing stays report-only during calibration.
+      - name: Measure performance budgets
+        id: budget
+        shell: bash
+        run: |
+          set +e
+          bun run --cwd apps/web perf:budget --base-url http://localhost:3199 --out-dir performance-results
+          budget_status=$?
+          echo "exit_code=$budget_status" >> "$GITHUB_OUTPUT"
+          if [[ -f apps/web/performance-results/summary.md ]]; then
+            cat apps/web/performance-results/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Performance budget produced no summary (exit $budget_status)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Verify structural regression seeds
+        shell: bash
+        run: |
+          set +e
+          bun run --cwd apps/web perf:seeds --base-url http://localhost:3199 --out-dir performance-results/seeds
+          seed_status=$?
+          if [[ -f apps/web/performance-results/seeds/seeds.md ]]; then
+            cat apps/web/performance-results/seeds/seeds.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Performance seeds produced no summary (exit $seed_status)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$seed_status"
+
+      - name: Verify CPU throttle restoration
+        shell: bash
+        run: |
+          set +e
+          bun run --cwd apps/web perf:cpu-check --base-url http://localhost:3199 --out-dir performance-results/cpu-check
+          cpu_status=$?
+          if [[ -f apps/web/performance-results/cpu-check/cpu-check.md ]]; then
+            cat apps/web/performance-results/cpu-check/cpu-check.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "CPU throttle self-check produced no summary (exit $cpu_status)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$cpu_status"
+
+      - name: Report performance trend
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          history="$RUNNER_TEMP/performance-history"
+          mkdir -p "$history"
+          run_ids=$(gh run list --workflow performance.yml --branch main --status completed --limit 21 --json databaseId --jq '.[].databaseId' || true)
+          seen=0
+          for run_id in $run_ids; do
+            if [[ "$run_id" == "$GITHUB_RUN_ID" ]]; then
+              continue
+            fi
+            seen=$((seen + 1))
+            if (( seen > 20 )); then
+              break
+            fi
+            run_dir="$history/$run_id"
+            mkdir -p "$run_dir"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > "$run_dir/run-api.json" || true
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?per_page=100" > "$run_dir/jobs-api.json" || true
+            jq -n --argjson id "$run_id" --slurpfile info "$run_dir/run-api.json" --slurpfile jobs "$run_dir/jobs-api.json" '
+              ($info[0] // {}) as $run |
+              ([(($jobs[0].jobs // [])[]) | select(.name == "performance budgets")] | last // {}) as $job |
+              {id: $id, headSha: $run.head_sha, createdAt: $run.created_at,
+               runAttempt: $run.run_attempt, jobConclusion: $job.conclusion,
+               jobStartedAt: $job.started_at, jobCompletedAt: $job.completed_at}
+            ' > "$run_dir/run.json"
+            gh run download "$run_id" -n performance-results -D "$run_dir" > /dev/null 2>&1 || true
+          done
+          node scripts/gates/performance-trend.mjs --current apps/web/performance-results/results.json --history "$history" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: performance-results
+          path: apps/web/performance-results
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Stop production fixture
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f apps/web/performance-results/server.pid ]]; then
+            kill "$(cat apps/web/performance-results/server.pid)" 2>/dev/null || true
+          fi
+
+      - name: Enforce performance budgets
+        if: always() && steps.budget.outputs.exit_code != ''
+        env:
+          BUDGET_EXIT: ${{ steps.budget.outputs.exit_code }}
+        run: exit "$BUDGET_EXIT"
