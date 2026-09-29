@@ -197,6 +197,7 @@ export function MoneyAmountDisplay({
   children,
   availableLabel,
   availableAmount,
+  topLine,
   assetId,
   assetLabel,
   assetCurrency,
@@ -220,6 +221,7 @@ export function MoneyAmountDisplay({
   children?: ReactNode;
   availableLabel?: string;
   availableAmount?: string | null;
+  topLine?: string;
   assetId?: string;
   assetLabel?: string;
   assetCurrency?: string | null;
@@ -278,6 +280,7 @@ export function MoneyAmountDisplay({
           locked={assetLocked}
         />
       ) : null}
+      {topLine ? <p className="max-w-full truncate text-center text-sm text-muted-foreground" title={topLine}>{topLine}</p> : null}
       <MoneyPrimaryAmount
         amount={primaryAmount}
         onAmountChange={onAmountChange ? mode === "fiat" && unit.kind === "convertible" ? setFiatAmount : onAmountChange : undefined}

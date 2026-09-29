@@ -480,6 +480,7 @@ export async function presentAction(
   now = new Date(),
 ) {
   const confirmedAt = iso(row.confirmed_at) ?? iso(row.created_at)!;
+  const settledAt = iso(row.settled_at);
   return {
     id: row.id,
     provider: row.provider,
@@ -496,6 +497,7 @@ export async function presentAction(
     createdAt: iso(row.created_at)!,
     confirmedAt,
     ...(iso(row.handle_recorded_at) ? { submittedAt: iso(row.handle_recorded_at)! } : {}),
+    ...(settledAt ? { settledAt } : {}),
     ...(row.provider_handle ? { providerHandle: row.provider_handle } : {}),
     ...(row.transaction_hash ? { transactionHash: row.transaction_hash.toLowerCase() } : {}),
     owner: {
