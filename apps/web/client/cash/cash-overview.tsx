@@ -607,7 +607,7 @@ export function CashOverview({
                                 row.value
                               )
                             ) : (
-                              unavailableValue()
+                              "Unavailable"
                             )
                           }
                           valueTone={

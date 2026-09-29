@@ -43,6 +43,10 @@ export function holdingsQuantity(entries: Holding[], holding: Holding, snapshot:
     : formatPresentationTokenAmount(baseUnits, holding.decimals, holding.symbol, { category: holding.kind === "native" ? "crypto" : undefined, regionId: snapshot.region });
 }
 
+export function ownedBalanceUnreadable(row: OwnedInvestment) {
+  return [...(row.wallet ? [row.wallet] : []), ...row.collateral].some((holding) => holding.balance.status !== "ready");
+}
+
 export function ownedQuantity(row: OwnedInvestment, snapshot: BalancesSnapshot, exact = false) {
   return holdingsQuantity([...(row.wallet ? [row.wallet] : []), ...row.collateral], row.holding, snapshot, exact);
 }
@@ -112,9 +116,10 @@ export function InvestmentsOverview({ snapshot, balanceStatus, refreshFailed = f
     {loading || rows.length > 0 ? <section aria-labelledby="investments-held-heading" aria-busy={loading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
       {loading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
         const context = ownedQuantity(row, active!);
+        const unreadable = ownedBalanceUnreadable(row);
         const value = row.amount ? amountLabel(row.amount, active!) : null;
         const reason = holdingValueContext(row.holding.value);
-        return <BalanceRow key={row.key} icon={holdingRowMark(row.holding, marks)} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name || row.holding.symbol}</span>} context={context} contextTitle={ownedQuantity(row, active!, true)} value={value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : unavailableValue()} valueTone={row.amount ? "default" : "muted"} valueContext={row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : reason === "Value unavailable" ? undefined : reason} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name || row.holding.symbol}`} chevron />;
+        return <BalanceRow key={row.key} icon={holdingRowMark(row.holding, marks)} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name.trim() || row.holding.symbol.trim()}</span>} context={unreadable ? undefined : context} contextTitle={unreadable ? undefined : ownedQuantity(row, active!, true)} value={unreadable ? "Unavailable" : value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : unavailableValue()} valueTone={row.amount ? "default" : "muted"} valueContext={row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : unreadable || reason === "Value unavailable" ? undefined : reason} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name.trim() || row.holding.symbol.trim()}`} chevron />;
       })}</ul>{visibleCount < rows.length ? <><span role="status" className="sr-only">Showing {visibleCount} of {rows.length} investments</span><div ref={sentinel} aria-hidden="true" /></> : null}</>}
     </CardContent></Card></section> : null}
   </div>;

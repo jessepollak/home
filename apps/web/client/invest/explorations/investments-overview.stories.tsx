@@ -150,7 +150,7 @@ export const Single: Story = { args: { snapshot: singleSnapshot }, play: async (
 export const Empty: Story = { args: { snapshot: emptySnapshot }, play: async ({ canvasElement }) => { const canvas = screen(canvasElement); const hero = canvas.getByLabelText("Investments balance"); await expect(hero).toHaveTextContent("$0.00"); await expect(canvas.queryByText("No investments yet")).toBeNull(); await expect(canvas.queryByRole("region", { name: "Your investments" })).toBeNull(); await heights(canvasElement); } };
 export const Loading: Story = { args: { snapshot: null, balanceStatus: "loading" }, play: async ({ canvasElement }) => { await expect(hero(canvasElement)).toHaveAttribute("aria-busy", "true"); await expect(screen(canvasElement).getByRole("region", { name: "Your investments" })).toHaveAttribute("aria-busy", "true"); await expect(canvasElement.querySelectorAll('[data-shimmer="row"]')).toHaveLength(3); await heights(canvasElement); } };
 export const LoadingToFunded: Story = { render: () => <LoadingTransitionSurface />, play: async ({ canvasElement }) => { const loadingHeight = hero(canvasElement).getBoundingClientRect().height; await userEvent.click(within(canvasElement).getByRole("button", { name: "Show funded" })); await waitFor(() => expect(hero(canvasElement)).not.toHaveAttribute("aria-busy")); await expect(Math.abs(hero(canvasElement).getBoundingClientRect().height - loadingHeight)).toBeLessThanOrEqual(2); } };
-export const PartialInventory: Story = { args: { snapshot: partialSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, partialSnapshot); const canvas = screen(canvasElement); await expect(canvas.getByRole("button", { description: "Open Bitcoin" })).toBeVisible(); await expect(canvas.queryByRole("button", { description: "Open Ethereum" })).toBeNull(); await expect(canvas.queryByText("Balance unavailable")).toBeNull(); await expect(canvas.getByLabelText("Investments balance").querySelector('[data-tone="muted"]')).toBeVisible(); await expect(canvas.getByText("Some balances couldn't be loaded")).toBeVisible(); await userEvent.click(canvas.getByRole("button", { name: "Try again" })); await expect(onRetry).toHaveBeenCalledOnce(); await heights(canvasElement); } };
+export const PartialInventory: Story = { args: { snapshot: partialSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, partialSnapshot); const canvas = screen(canvasElement); await expect(canvas.getByRole("button", { description: "Open Bitcoin" })).toBeVisible(); const ethereum = canvas.getByRole("button", { description: "Open Ethereum" }); await expect(ethereum).toHaveTextContent("Balance unavailable"); await expect(within(ethereum).getByText("Value unavailable")).toBeInTheDocument(); await expect(canvas.getByLabelText("Investments balance").querySelector('[data-tone="muted"]')).toBeVisible(); await expect(canvas.getByText("Some balances couldn't be loaded")).toBeVisible(); await userEvent.click(canvas.getByRole("button", { name: "Try again" })); await expect(onRetry).toHaveBeenCalledOnce(); await heights(canvasElement); } };
 export const CollateralWithoutAvailableEntry: Story = { args: { snapshot: collateralMissingEntrySnapshot }, play: async ({ canvasElement }) => {
   const canvas = screen(canvasElement);
   const listRow = canvas.getByRole("button", { description: "Open Coinbase Wrapped Staked ETH" });
@@ -228,7 +228,7 @@ export const PartialBorrowNoHoldings: Story = { args: { snapshot: partialBorrowN
   await heights(canvasElement);
 } };
 export const PartialInventoryRefreshFailed: Story = { args: { snapshot: partialSnapshot, refreshFailed: true }, play: async ({ canvasElement }) => { const canvas = screen(canvasElement); await expect(canvas.getByText("Some balances couldn't be loaded")).toBeVisible(); await expect(canvas.getByText("Couldn't refresh")).toBeVisible(); await expect(canvas.getAllByRole("button", { name: "Try again" })).toHaveLength(1); await userEvent.click(canvas.getByRole("button", { name: "Try again" })); await expect(onRetry).toHaveBeenCalledOnce(); await heights(canvasElement); } };
-export const RegistryOutage: Story = { args: { snapshot: registryOutageSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, registryOutageSnapshot); const canvas = screen(canvasElement); await expect(canvas.queryByRole("region", { name: "Your investments" })).toBeNull(); const balance = canvas.getByLabelText("Investments balance"); await expect(balance.querySelector('[data-tone="muted"]')).toBeVisible(); await expect(balance).not.toHaveTextContent("$0.00"); await expect(within(balance).getByText("Value unavailable")).toBeInTheDocument(); await expect(canvas.getByText("Balances aren't available right now.")).toBeVisible(); await userEvent.click(canvas.getByRole("button", { name: "Try again" })); await expect(onRetry).toHaveBeenCalledOnce(); await heights(canvasElement); } };
+export const RegistryOutage: Story = { args: { snapshot: registryOutageSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, registryOutageSnapshot); const canvas = screen(canvasElement); const region = canvas.getByRole("region", { name: "Your investments" }); await expect(within(region).getAllByRole("listitem")).toHaveLength(3); const balance = canvas.getByLabelText("Investments balance"); await expect(balance.querySelector('[data-tone="muted"]')).toBeVisible(); await expect(balance).not.toHaveTextContent("$0.00"); await expect(within(balance).getByText("Value unavailable")).toBeInTheDocument(); await expect(canvas.getByText("Some balances couldn't be loaded")).toBeVisible(); await userEvent.click(canvas.getByRole("button", { name: "Try again" })); await expect(onRetry).toHaveBeenCalledOnce(); await heights(canvasElement); } };
 export const Unpriced: Story = { args: { snapshot: unpricedSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, unpricedSnapshot); await expect(screen(canvasElement).getByText("Some values are unavailable")).toBeVisible(); await expect(screen(canvasElement).queryByRole("button", { name: "Try again" })).toBeNull(); } };
 export const MetadataFallback: Story = { args: { snapshot: metadataFallbackSnapshot }, play: async ({ canvasElement }) => { await assertSnapshot(canvasElement, metadataFallbackSnapshot); const row = screen(canvasElement).getByRole("button", { description: "Open FALL" }); await expect(row).toBeVisible(); await expect(row.querySelector('[data-mark="symbol"]')?.textContent).toBe("FA"); } };
 export const ManyHoldingsFocusReturn: Story = { args: { snapshot: manyHoldingsSnapshot }, play: async ({ canvasElement }) => {
@@ -255,9 +255,9 @@ export const Collateral: Story = { args: { snapshot: collateralSnapshot }, play:
 export const DetailCollateralPartialInventory: Story = { args: { snapshot: collateralPartialInventorySnapshot, initialAsset: ownedInvestmentRows(collateralPartialInventorySnapshot).find((row) => row.holding.symbol === "cbXRP")!.key }, play: async ({ canvasElement }) => {
   const canvas = screen(canvasElement);
   const row = ownedInvestmentRows(collateralPartialInventorySnapshot).find((item) => item.holding.symbol === "cbXRP")!;
-  await expect(row.wallet).toBeNull();
+  await expect(row.wallet?.balance.status).toBe("unavailable");
   await expect(row.amount).toBeNull();
-  const detail = within(canvas.getByRole("region", { name: "Coinbase Wrapped XRP details" }));
+  const detail = within(canvas.getByRole("region", { name: "XRP details" }));
   const total = detail.getByText("Your balance").nextElementSibling!;
   await expect(within(total as HTMLElement).getByText("Value unavailable")).toBeInTheDocument();
   await expect(total).not.toHaveTextContent("$5.00");
@@ -279,15 +279,15 @@ export const DetailCollateralPartialInventory: Story = { args: { snapshot: colla
   await expect(trade.getByRole("button", { name: "Sell" })).toBeDisabled();
   await expect(detail.getByRole("note")).toHaveTextContent("Trading isn't available right now. Try again later.");
   await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" }));
-  const listRow = canvas.getByRole("button", { description: "Open Coinbase Wrapped XRP" });
+  const listRow = canvas.getByRole("button", { description: "Open XRP" });
   await expect(within(listRow).getByText("Value unavailable")).toBeInTheDocument();
   await expect(listRow).toHaveTextContent("Balance unavailable");
-  await expect(within(listRow).getByText("Collateral")).toBeVisible();
+  await expect(within(listRow).getByText("Includes collateral")).toBeVisible();
   await expect(listRow).not.toHaveTextContent("$5.00");
   await expect(canvas.getByText("Some balances couldn't be loaded")).toBeVisible();
   await heights(canvasElement);
   await userEvent.click(listRow);
-  await expect(await canvas.findByRole("region", { name: "Coinbase Wrapped XRP details" })).toBeVisible();
+  await expect(await canvas.findByRole("region", { name: "XRP details" })).toBeVisible();
 } };
 async function settledTrade(canvasElement: HTMLElement, note: string) {
   await waitFor(() => expect(screen(canvasElement).getByRole("note")).toHaveTextContent(note));
@@ -332,7 +332,7 @@ export const DetailCollateralUnavailable: Story = { args: { snapshot: collateral
   const listRow = canvas.getByRole("button", { description: "Open Bitcoin" });
   await expect(within(listRow).getByText("Value unavailable")).toBeInTheDocument();
   await expect(listRow).toHaveTextContent("Balance unavailable");
-  await expect(within(listRow).getByText("Collateral")).toBeVisible();
+  await expect(within(listRow).getByText("Includes collateral")).toBeVisible();
   await expect(listRow).not.toHaveTextContent("$35,000.00");
   await expect(canvas.getByText("Some balances couldn't be loaded")).toBeVisible();
   await heights(canvasElement);

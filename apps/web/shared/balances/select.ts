@@ -110,8 +110,8 @@ export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
   for (const holding of cashHoldings) {
     if (
       used.has(holding.id) ||
-      holding.balance.status !== "ready" ||
-      holding.balance.baseUnits === "0"
+      (holding.balance.status === "ready" && holding.balance.baseUnits === "0") ||
+      (holding.balance.status === "unavailable" && !holding.name.trim() && !holding.symbol.trim())
     ) continue;
     selected.push({ kind: "holding", holding });
     used.add(holding.id);
@@ -128,8 +128,8 @@ export function selectMoneyGroups(snapshot: BalancesSnapshot): MoneyGroups {
     holding.kind !== "vault-share" &&
     holding.cashCurrency === null &&
     !selectedCashIds.has(holding.id) &&
-    holding.balance.status === "ready" &&
-    holding.balance.baseUnits !== "0"
+    (holding.balance.status !== "ready" || holding.balance.baseUnits !== "0") &&
+    (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim())
   );
 
   return {
