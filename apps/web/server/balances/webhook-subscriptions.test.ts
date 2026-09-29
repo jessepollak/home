@@ -59,26 +59,6 @@ describe("CDP balance webhook subscriptions", () => {
     expect(failures).toEqual(["cdp-webhooks-invalid-list"]);
   });
 
-  test("falls back to legacy event_type when eventTypes is not an array", async () => {
-    const requests: string[] = [];
-    let updated = false;
-    const manager = createCdpWebhookSubscriptions({
-      env, store: persistentStore(["subscription-1"]), generateJwtImpl: jwt,
-      fetchImpl: async (_input, init) => {
-        const method = init?.method ?? "GET";
-        requests.push(method);
-        if (method === "PUT") updated = true;
-        return Response.json({ subscriptions: [{
-          ...subscription(updated ? [OTHER, ADDRESS] : [OTHER]),
-          eventTypes: "not-an-array",
-          event_type: "wallet_activity",
-        }] });
-      },
-    });
-    await manager.ensureAddressSubscribed(ADDRESS);
-    expect(requests).toEqual(["GET", "GET", "PUT", "GET"]);
-  });
-
   test("does not update a legacy subscription with non-array event_filters", async () => {
     const requests: string[] = [];
     const manager = createCdpWebhookSubscriptions({
@@ -155,33 +135,24 @@ describe("CDP balance webhook subscriptions", () => {
     expect(failures).toEqual(["subscription-encryption-unavailable"]);
   });
 
-  test("legacy plaintext subscriptions still receive address updates without a keyring", async () => {
+  test.each([
+    { name: "legacy event_type with invalid eventTypes", legacy: false, withoutKeyring: false, legacyEventType: true },
+    { name: "legacy plaintext credential without a keyring", legacy: true, withoutKeyring: true, legacyEventType: false },
+    { name: "sealed credential", legacy: false, withoutKeyring: false, legacyEventType: false },
+  ])("re-lists before PUT and confirms the address for $name", async ({ legacy, withoutKeyring, legacyEventType }) => {
     const requests: string[] = [];
     let updated = false;
     const manager = createCdpWebhookSubscriptions({
-      env, store: persistentStore(["subscription-1"], true), keyring: null, generateJwtImpl: jwt as never,
+      env, store: persistentStore(["subscription-1"], legacy), generateJwtImpl: jwt as never,
+      ...(withoutKeyring ? { keyring: null } : {}),
       fetchImpl: async (_input, init) => {
         const method = init?.method ?? "GET";
         requests.push(method);
         if (method === "PUT") updated = true;
-        return Response.json({ subscriptions: [subscription(updated ? [OTHER, ADDRESS] : [OTHER])] });
-      },
-    });
-    await manager.ensureAddressSubscribed(ADDRESS);
-    expect(requests).toEqual(["GET", "GET", "PUT", "GET"]);
-  });
-  test("re-lists before PUT and confirms the address after a successful update", async () => {
-    const requests: string[] = [];
-    let updated = false;
-    const manager = createCdpWebhookSubscriptions({
-      env,
-      store: persistentStore(["subscription-1"]),
-      generateJwtImpl: jwt as never,
-      fetchImpl: async (_input, init) => {
-        const method = init?.method ?? "GET";
-        requests.push(method);
-        if (method === "PUT") updated = true;
-        return Response.json({ subscriptions: [subscription(updated ? [OTHER, ADDRESS] : [OTHER])] });
+        return Response.json({ subscriptions: [{
+          ...subscription(updated ? [OTHER, ADDRESS] : [OTHER]),
+          ...(legacyEventType ? { eventTypes: "not-an-array", event_type: "wallet_activity" } : {}),
+        }] });
       },
     });
     await manager.ensureAddressSubscribed(ADDRESS);
