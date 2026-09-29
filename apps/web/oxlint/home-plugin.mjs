@@ -3,6 +3,7 @@ import {
   noBrowserSdkImports,
   noClassicZodImports,
   noClientServerImports,
+  noExplorationImports,
   noRelativeLocationAssignment,
   noServerClientImports,
   noSharedRuntimeImports,
@@ -44,6 +45,7 @@ const homePlugin = {
   meta: { name: "home" },
   rules: {
     "no-storybook-imports": noStorybookImports,
+    "no-exploration-imports": noExplorationImports,
     "no-client-server-imports": noClientServerImports,
     "no-server-client-imports": noServerClientImports,
     "no-shared-runtime-imports": noSharedRuntimeImports,
