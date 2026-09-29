@@ -71,13 +71,20 @@ async function seededStore() {
 }
 
 describe("CDP balance activity webhook", () => {
-  test.each(["v0", "v1"] as const)("verifies sealed %s deliveries", async (version) => {
+  test.each([
+    ["v0", "sealed"], ["v1", "sealed"],
+    ["v0", "legacy plaintext"], ["v1", "legacy plaintext"],
+  ] as const)("verifies %s deliveries with %s credentials", async (version, kind) => {
     const store = await seededStore();
     const record = { subscriptionId: "subscription-1", target: "https://home.example/api/webhooks/cdp", eventType: "wallet_activity", createdAt: NOW.toISOString() };
-    const sealed = { ...record, credential: { kind: "envelope" as const, envelope: sealSecret(keyring, SECRET, webhookSecretAad(record)), keyVersion: 1 } };
-    const raw = body({ eventType: "wallet.activity.multi", data: { address: ADDRESS } });
+    const subscriptions = kind === "sealed"
+      ? { list: async () => [{ ...record, credential: { kind: "envelope" as const, envelope: sealSecret(keyring, SECRET, webhookSecretAad(record)), keyVersion: 1 } }] }
+      : subscriptionStore();
+    const raw = kind === "sealed"
+      ? body({ eventType: "wallet.activity.multi", data: { address: ADDRESS } })
+      : body({ eventType: "wallet.activity.multi", data: { network: "base-mainnet", matchedAddress: ADDRESS.toUpperCase().replace("0X", "0x") } });
     const headers = new Headers({ "content-type": "application/json" });
-    const handle = createCdpWebhookHandler({ store, subscriptions: { list: async () => [sealed] }, keyring, now: () => NOW });
+    const handle = createCdpWebhookHandler({ store, subscriptions, ...(kind === "sealed" ? { keyring } : {}), now: () => NOW });
     expect((await handle(raw, signed(raw, undefined, version, headers), headers)).status).toBe(200);
     expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
   });
@@ -99,17 +106,6 @@ describe("CDP balance activity webhook", () => {
       expect(logs).not.toContain(sealed.credential.envelope);
       expect(logs).not.toContain(record.subscriptionId);
     } finally { setObservabilityLogWriterForTests(); }
-  });
-  test.each(["v0", "v1"] as const)("accepts a valid %s signature", async (version) => {
-    const store = await seededStore();
-    const raw = body({
-      eventType: "wallet.activity.multi",
-      data: { network: "base-mainnet", matchedAddress: ADDRESS.toUpperCase().replace("0X", "0x") },
-    });
-    const headers = new Headers({ "content-type": "application/json" });
-    const response = await createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW })(raw, signed(raw, undefined, version, headers), headers);
-    expect(response.status).toBe(200);
-    expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
   });
   test("marks snapshot stale and enrolled history dirty with the same addresses and time", async () => {
     const store = await seededStore();

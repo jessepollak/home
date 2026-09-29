@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 name="home-fixture-$(openssl rand -hex 4)"
-if [[ ${1:-} == --session && $# == 2 ]]; then name=$2
-elif [[ $# != 0 ]]; then echo 'Usage: fixture-session [--session <name>]' >&2; exit 2
-fi
+cdp=()
+while (( $# )); do
+  case $1 in
+    --session) [[ $# -ge 2 ]] || { echo 'Usage: fixture-session [--session <name>] [--cdp <port>]' >&2; exit 2; }; name=$2; shift 2 ;;
+    --cdp) [[ $# -ge 2 && $2 =~ ^[0-9]{1,5}$ ]] || { echo 'Usage: fixture-session [--session <name>] [--cdp <port>]' >&2; exit 2; }; cdp=(--cdp "$2"); shift 2 ;;
+    *) echo 'Usage: fixture-session [--session <name>] [--cdp <port>]' >&2; exit 2 ;;
+  esac
+done
 if [[ ! $name =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]; then echo 'Invalid fixture session name.' >&2; exit 2; fi
 repository=$(cd "$(dirname "$0")/../.." && pwd)
-browser_command() { env -i HOME="$HOME" PATH="$PATH" AGENT_BROWSER_SESSION="$name" bun run --cwd "$repository" ab -- --session "$name" "$@"; }
+browser_command() { env -i HOME="$HOME" PATH="$PATH" AGENT_BROWSER_SESSION="$name" bun run --cwd "$repository" ab -- --session "$name" ${cdp[@]+"${cdp[@]}"} "$@"; }
 private="$HOME/.home-verify"
 mkdir -p "$private"
 chmod 700 "$private"

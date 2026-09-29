@@ -342,12 +342,13 @@ describe("CDP Onchain Data Token Balances client", () => {
       generateJwtImpl: async () => "signed-jwt",
       fetchImpl: async () => new Response("slow down", { status: 429 }),
     });
-    await expect(client.listBalances({ address: ADDRESS })).rejects.toBeInstanceOf(
-      CdpTokenBalancesError,
+    const failure = client.listBalances({ address: ADDRESS }).then(
+      () => { throw new Error("expected first page to fail"); },
+      (error: unknown) => error,
     );
-    await expect(client.listBalances({ address: ADDRESS })).rejects.toMatchObject({
-      code: "rate-limited",
-    });
+    const error = await failure;
+    expect(error).toBeInstanceOf(CdpTokenBalancesError);
+    expect(error).toMatchObject({ code: "rate-limited" });
   });
 
   test("treats 404 as empty and fails closed on auth or missing configuration", async () => {

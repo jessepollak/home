@@ -75,7 +75,7 @@ describe("server-side action follow-through", () => {
   });
 
 
-  test("a delivery follows its matched rows with bounded concurrency instead of serially", async () => {
+  test.each(["webhook delivery", "operator re-check"] as const)("%s follows rows with bounded concurrency", async (entry) => {
     const rows = Array.from({ length: 8 }, (_, index) => ({ ...fixture("cdp-embedded"),
       id: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`, provider_handle: handle }));
     const byId = new Map(rows.map((row) => [row.id, row]));
@@ -83,18 +83,23 @@ describe("server-side action follow-through", () => {
     let active = 0;
     let peak = 0;
     setObservabilityLogWriterForTests(() => {});
-    await settleOpenActionsForAccounts([address], { signal: new AbortController().signal, route: "/api/webhooks/cdp", limit: 8,
-      deps: { store: {
-        ...memory(rows[0]!).store,
-        get: async (_owner: MoneyActionOwner, rowId: string) => {
-          active += 1; peak = Math.max(peak, active);
-          await Promise.resolve();
-          active -= 1;
-          return byId.get(rowId) ?? null;
-        },
-        listOpenByAccounts: async () => rows,
-      } as unknown as FollowActionDeps["store"],
-      resolveHandle: async (row) => { followed.push(row.id); return { status: "pending" }; } } });
+    const store = { ...memory(rows[0]!).store,
+      get: async (_owner: MoneyActionOwner, rowId: string) => {
+        active += 1; peak = Math.max(peak, active);
+        await Promise.resolve();
+        active -= 1;
+        return byId.get(rowId) ?? null;
+      },
+      listOpenByAccounts: async () => rows,
+      listOpenForFollowUp: async () => rows,
+    } as unknown as FollowActionDeps["store"];
+    const deps: FollowActionDeps = { store, now: () => 0,
+      resolveHandle: async (row) => { followed.push(row.id); return { status: "pending" }; } };
+    if (entry === "webhook delivery") {
+      await settleOpenActionsForAccounts([address], { signal: new AbortController().signal, route: "/api/webhooks/cdp", limit: 8, deps });
+    } else {
+      await recheckOpenActions({ signal: new AbortController().signal, limit: 8, route: "/admin", deps });
+    }
 
     expect(followed).toHaveLength(rows.length);
     expect(peak).toBeGreaterThan(1);
@@ -184,30 +189,6 @@ describe("server-side action follow-through", () => {
     expect(followed).toHaveLength(rows.length - 1);
   });
 
-  test("an operator re-check follows its rows with bounded concurrency", async () => {
-    const rows = Array.from({ length: 8 }, (_, index) => ({ ...fixture("cdp-embedded"),
-      id: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`, provider_handle: handle }));
-    const byId = new Map(rows.map((row) => [row.id, row]));
-    let active = 0;
-    let peak = 0;
-    setObservabilityLogWriterForTests(() => {});
-    await recheckOpenActions({ signal: new AbortController().signal, limit: 8, route: "/admin", deps: {
-      now: () => 0,
-      store: {
-        ...memory(rows[0]!).store,
-        get: async (_owner: MoneyActionOwner, rowId: string) => {
-          active += 1; peak = Math.max(peak, active);
-          await Promise.resolve();
-          active -= 1;
-          return byId.get(rowId) ?? null;
-        },
-        listOpenForFollowUp: async () => rows,
-      } as unknown as FollowActionDeps["store"],
-      resolveHandle: async () => ({ status: "pending" }),
-    } });
-
-    expect(peak).toBeGreaterThan(1);
-  });
   test("an operator re-check follows at most its limit of open actions and rotates through the rest", async () => {
     const rows = Array.from({ length: 12 }, (_, index) => ({
       ...fixture("cdp-embedded"),

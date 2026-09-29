@@ -94,6 +94,10 @@ describe("funding provider registry validation", () => {
     const undeclared = fixture();
     undeclared.manifest.onramp!.webhook = { signatureHeader: "x-signature", env: { US: "US_WEBHOOK_SECRET" } };
     expect(() => validateFundingProviders([undeclared])).toThrow("webhook secret");
+
+    const webhookGap = fixture();
+    webhookGap.manifest.onramp!.webhook = { signatureHeader: "x-signature", env: "WEBHOOK_SECRET" };
+    expect(() => validateFundingProviders([webhookGap])).toThrow("webhook secret");
   });
 
   test("rejects an onramp binding that declares another mapped region's webhook secret", () => {
@@ -113,7 +117,7 @@ describe("funding provider registry validation", () => {
     expect(() => validateFundingProviders([invalid])).toThrow("must not declare another region's webhook secret");
   });
 
-  test("rejects ambiguous direction methods, duplicate origins, and webhook env gaps", () => {
+  test("rejects ambiguous direction methods and duplicate origins", () => {
     const duplicateMethod = fixture();
     duplicateMethod.manifest.bindings = [...duplicateMethod.manifest.bindings, {
       ...duplicateMethod.manifest.bindings[0]!,
@@ -124,9 +128,5 @@ describe("funding provider registry validation", () => {
     const duplicateOrigin = fixture();
     duplicateOrigin.manifest.onramp!.apiOrigins = ["https://onramp.example", "https://onramp.example"];
     expect(() => validateFundingProviders([duplicateOrigin])).toThrow("duplicated");
-
-    const webhookGap = fixture();
-    webhookGap.manifest.onramp!.webhook = { signatureHeader: "x-signature", env: "WEBHOOK_SECRET" };
-    expect(() => validateFundingProviders([webhookGap])).toThrow("webhook secret");
   });
 });

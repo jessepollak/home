@@ -64,6 +64,29 @@ rm -f "$HOME_FIXTURE_SERVER_LOG"
 
 Apply this cleanup also on interruptions/failures. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the exact PID was terminated or already exited and waited for.
 
+### Real Android device
+
+On a runner that exposes a real Android device, supplement the required rungs with an Android Chrome check for mobile-web behavior: safe areas, software keyboard, touch/gestures, fixed bottom UI, viewport units, and sheets. The runner must provide exclusive access to the device (one agent at a time) and its Chrome CDP port. The fixture check below uses the credential-free fixture server; `fixture-session --cdp <port>` seeds the signed-in fixture state and routes in the device's Chrome instead of a local browser. Use no app on the device beyond what the check needs.
+
+```sh
+: "${CDP_PORT:?Set the runner-provided Android Chrome CDP port}"
+unset AGENT_BROWSER_ALLOWED_DOMAINS
+adb forward "tcp:${CDP_PORT}" localabstract:chrome_devtools_remote
+adb reverse "tcp:${HOME_FIXTURE_PORT}" "tcp:${HOME_FIXTURE_PORT}"
+bun run --cwd apps/web fixture-session --session home-android-fixture --cdp "$CDP_PORT"
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" open "http://127.0.0.1:${HOME_FIXTURE_PORT}/..."
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" snapshot
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" eval '({ width: innerWidth, height: innerHeight })'
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" screenshot
+bun run ab -- --session home-android-fixture --cdp "$CDP_PORT" close
+adb reverse --remove "tcp:${HOME_FIXTURE_PORT}"
+adb forward --remove "tcp:${CDP_PORT}"
+```
+
+The reverse makes the device's loopback `${HOME_FIXTURE_PORT}` reach the fixture server. Route intercepts last only while this agent-browser session stays attached, so pass `--cdp "$CDP_PORT"` on every command, and remove the private fixture init file as in the local cleanup. In v0.38.1, `--allowed-domains` (including `AGENT_BROWSER_ALLOWED_DOMAINS`) rejects CDP, so leave it unset and keep navigation to the intended hosts yourself. `--cdp` targets only the explicitly provided device endpoint; it is not the forbidden `--auto-connect`. Label evidence with device model, browser, and CSS viewport size. `close` only detaches; remove the reverse on completion, including failure. This proves Android Chrome only; iOS/Safari remains unverified and this check never replaces any required rung.
+
+Jesse may directly authorize a device runner to hold his own signed-in Home session on the approved host. Under that authorization, agents may read real data and walk flows to the review screen on the device, and may confirm only within the cap, recipients, and From account the runner enforces immediately before each press; record every confirm in PR evidence as for Rung 3. Without that authorization, the device check is fixture-only. Capture with `agent-browser screenshot` (page viewport only); a full-device screencap is allowed only when the runner's operator has silenced notifications.
+
 ### Live session
 
 Any runner with the bot-account credentials may use live login: an operator, a provisioned runner, or a future agent canary. There is no role gate. Configure `HOME_VERIFY_ACCOUNT_EMAIL`, a private mode-0600 Gmail readonly credential file (`HOME_VERIFY_GMAIL_CREDENTIALS`, default `~/.home-verify/gmail.json`), optional `HOME_VERIFY_OTP_SENDER` (default `no-reply@info.coinbase.com`), and `HOME_ACCESS_PASSWORD` only if the deployment uses the access gate. Unset or empty environment values can instead come from `~/.home-verify/live.env` (or `HOME_VERIFY_ENV_FILE`; an empty override selects the default file): a current-user-owned, non-symlink, mode-0600 file of literal `KEY=VALUE` lines. Only the four named settings plus `HOME_VERIFY_CASHOUT_HANDLE`, `HOME_VERIFY_ACCOUNT_ADDRESS`, and `HOME_VERIFY_PRODUCTION_URL` are accepted; nonempty exported environment values take precedence. `--base-url` is optional when `HOME_VERIFY_PRODUCTION_URL` is provisioned: the explicit flag overrides that setting, and either source must be an HTTPS origin. Keep these out of the repository and do not print them. `live-login` refuses private settings, Gmail credential, or state paths inside the checkout; the repository ignores `.home-verify/` directories. To bootstrap the Gmail file once, supply the installed-app `client_id` and `client_secret` from the approved credential store in that file, then run `bun run --cwd apps/web live-login --gmail-auth` and authorize **the configured bot mailbox**, not a personal account. On a remote runner use `--no-open --port 58531` and forward loopback `58531` over SSH to open the printed consent URL locally. OAuth grants only `gmail.readonly`, checks the mailbox, and saves the refresh token privately. Inspect the OTP message sender without copying its code; set `HOME_VERIFY_OTP_SENDER` only if it differs.
