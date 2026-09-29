@@ -22,6 +22,12 @@ Import money-flow pieces from `@/client/money-modal`; import `deferSheet` and `d
 - Loading step via `MoneyModalStepLoading`.
 - Result step via `MoneyResult` and `MoneyResultFooter`.
 
+## Loading and in-flight work
+
+While prepare, quote, resume, wallet-signature, or verify work is in flight, keep the **current** `MoneyModalStep` key and depth, header, body content, and footer mounted. Show progress on its primary footer control (`MoneyModalFooter primaryLoading`, `MoneyConfirmFooter submitting`, or owned `Button loading`); keep it disabled and `aria-busy` while loading. A short loading label on that button (such as “Getting quote…”) is fine. Surface errors on the step that started the work; prevent double submission and keep `useMoneyModalPending` exit blocking unchanged. Advance only when the next screen’s data is ready (review/confirm, or `MoneyResult` pending/result). Do not replace the sheet body with a transient notice, bare spinner, or spinner-only step; do not remove its footer, flip body padding, or title the next step “Confirm” before it is ready. See `client/activity/activity-ledger-sheet.tsx` for the prepare-button pattern.
+
+`MoneyModalStepLoading` remains the lazy chunk-loading fallback before a step exists, not a placeholder for asynchronous work within an already mounted step.
+
 ## Add a new money flow
 
 - Use one `MoneyModal` per journey and one `MoneyModalStep` per screen, keyed by step; lazy-load the entry with `deferSheet` and nested steps with `deferStep`.

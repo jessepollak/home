@@ -199,6 +199,24 @@
       }
     },
     {
+      "files": ["{app,client,config,lib,server,shared,types}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/no-unowned-loading": "error" }
+    },
+    {
+      "files": ["client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/no-transient-money-copy": "error" }
+    },
+    {
       "files": [
         "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
