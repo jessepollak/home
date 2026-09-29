@@ -194,6 +194,7 @@ export function MoneyAmountDisplay({
   amountError,
   onSubmit,
   disabled = false,
+  readOnly = false,
   children,
   availableLabel,
   availableAmount,
@@ -217,6 +218,7 @@ export function MoneyAmountDisplay({
   amountError?: string;
   onSubmit?: () => void;
   disabled?: boolean;
+  readOnly?: boolean;
   children?: ReactNode;
   availableLabel?: string;
   availableAmount?: string | null;
@@ -284,6 +286,7 @@ export function MoneyAmountDisplay({
         maxDecimals={mode === "fiat" ? 2 : maxDecimals}
         onSubmit={onSubmit}
         disabled={disabled}
+        readOnly={readOnly}
         focusKey={assetId}
         availableId={availableLine || amountError ? availableId : undefined}
         overAvailable={overAvailable || Boolean(amountError)}
@@ -309,6 +312,7 @@ export function MoneyAmountDisplay({
             unit={primaryUnit}
             availableAmount={maxAmount}
             quickMaximum={mode === "fiat" && unit.kind === "convertible" && maxAmount ? nativeToFiat(maxAmount, unit.perUnit) : maxAmount}
+            disabled={disabled || readOnly}
             onSelect={(value) => {
               if (mode === "fiat" && unit.kind === "convertible") {
                 const maxFiat = maxAmount ? nativeToFiat(maxAmount, unit.perUnit) : null;
@@ -333,6 +337,7 @@ export function MoneyPrimaryAmount({
   maxDecimals,
   onSubmit,
   disabled = false,
+  readOnly = false,
   focusKey,
   availableId,
   overAvailable = false,
@@ -344,6 +349,7 @@ export function MoneyPrimaryAmount({
   maxDecimals: number;
   onSubmit?: () => void;
   disabled?: boolean;
+  readOnly?: boolean;
   focusKey?: string;
   availableId?: string;
   overAvailable?: boolean;
@@ -394,7 +400,7 @@ export function MoneyPrimaryAmount({
 
   const applyEdit = (raw: string, rawCaret: number, input: HTMLInputElement) => {
     const result = normalizeTypedAmount(raw, maxDecimals);
-    if (!result.ok) {
+    if (readOnly || !result.ok) {
       input.value = amount;
       input.setSelectionRange(previousSelection.current.start, previousSelection.current.end);
       return;
@@ -438,6 +444,7 @@ export function MoneyPrimaryAmount({
                 value={amount}
                 placeholder="0"
                 disabled={disabled}
+                readOnly={readOnly}
                 onSelect={rememberSelection}
                 onBeforeInput={rememberSelection}
                 onKeyDown={(event) => {
@@ -597,6 +604,7 @@ export function MoneyQuickChips({
   quickMaximum = availableAmount,
   onSelect,
   onMax = onSelect,
+  disabled = false,
 }: {
   chipSet: MoneyChipSet;
   unit: MoneyAmountUnit;
@@ -604,10 +612,11 @@ export function MoneyQuickChips({
   quickMaximum?: string | null;
   onSelect: (amount: string) => void;
   onMax?: (amount: string) => void;
+  disabled?: boolean;
 }) {
   if (chipSet === "none") return null;
-  const maxEnabled = isAvailablePositive(availableAmount);
-  const quickDisabled = unit.kind === "native";
+  const maxEnabled = !disabled && isAvailablePositive(availableAmount);
+  const quickDisabled = disabled || unit.kind === "native";
   const localCurrency = unit.kind === "native" ? "USD" : unit.currency;
 
   return (

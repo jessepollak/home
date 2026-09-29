@@ -69,7 +69,8 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
   const metadata = prepared?.metadata?.product === "trade" ? prepared.metadata : null;
   const { expired, recheckExpired } = useReactiveExpiry(prepared?.expiresAt ?? null);
   const actionExpired = expired || (prepared !== null && serverExpiredId === prepared.id);
-  const expiredUnresolved = step === "confirm" && actionExpired && attempted;
+  const expiredUnresolved = step === "confirm" && actionExpired && attempted && busy !== "wallet";
+  const expiryRecovery = actionExpired && busy !== "wallet";
   const canGoBack = step === "failed" || (step === "confirm" && !attempted);
   const secondsLeft = prepared ? Math.max(0, Math.ceil((Date.parse(prepared.expiresAt) - now) / 1000)) : 0;
   useEffect(() => {
@@ -177,7 +178,7 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
         {...(step === "amount" ? { assetControl: <MoneyAssetPicker {...amountAssetProps} locked /> } : canGoBack ? { onBack: back, backDisabled: busy !== null } : {})} closeLabel="Close trade dialog" />
       <MoneyModalBody hasFooter className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={(value) => { if (busy !== null) return; setAmount(value); setMaxSelected(false); }}
+          <MoneyAmountDisplay amount={amount} maxDecimals={decimals} readOnly={busy !== null} onAmountChange={(value) => { if (busy !== null) return; setAmount(value); setMaxSelected(false); }}
             onMaxSelect={() => { if (busy === null) setMaxSelected(true); }}
             overAvailable={exceedsAvailable} onSubmit={canContinue && busy === null ? () => void prepare() : undefined}
             {...amountAssetProps} assetControl="header" assetLocked
@@ -202,8 +203,8 @@ export function TradeMoneyDialog({ open, direction, session, token, assetName, a
       </MoneyModalBody>
       {step === "amount" ? <MoneyModalFooter primaryLabel={busy === "quote" ? "Getting quote…" : "Continue"} primaryDisabled={!canContinue} primaryLoading={busy === "quote"} onPrimary={() => void prepare()} /> : null}
       {step === "confirm" && prepared ? <MoneyConfirmFooter action={prepared} actionExpired={actionExpired} submitting={busy !== null}
-        primaryLabel={busy === "quote" ? "Getting quote…" : expiredUnresolved ? "Close" : actionExpired ? "Get new quote" : attempted ? "Retry" : `${direction === "buy" ? "Buy" : "Sell"} ${spentAmount}`}
-        primaryDisabled={!metadata} onPrimary={() => void (expiredUnresolved ? close() : actionExpired ? prepare(true) : confirm())}
+        primaryLabel={busy === "quote" ? "Getting quote…" : expiredUnresolved ? "Close" : expiryRecovery ? "Get new quote" : attempted ? "Retry" : `${direction === "buy" ? "Buy" : "Sell"} ${spentAmount}`}
+        primaryDisabled={!metadata} onPrimary={() => void (expiredUnresolved ? close() : expiryRecovery ? prepare(true) : confirm())}
         {...(canGoBack ? { secondaryLabel: "Back", onSecondary: back } : {})} /> : null}
       {step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={back} secondaryLabel="Close" onSecondary={close} /> : null}
       {step === "dispatch-unknown" ? <MoneyModalFooter primaryLabel="Close" onPrimary={close} /> : null}

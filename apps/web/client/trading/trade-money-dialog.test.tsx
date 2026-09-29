@@ -7,10 +7,12 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import type { ExpiryScheduler } from "@/client/actions/expiry";
 import type { TradeActionParams, TradeDirection, TradeMoneyActionMetadata, TradeToken } from "@/shared/trading/contract";
 
-const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { TradeMoneyDialog } = await import("./trade-money-dialog");
+const { ExpirySchedulerContext } = await import("@/client/actions/expiry");
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
@@ -62,12 +64,13 @@ type DialogOptions = {
   execute?: () => Promise<{ id: string; status: "rejected" | "submitted" }>;
   fetchAccountResource?: (path: string) => Promise<unknown>;
   assetPrice?: { currency: string; perUnit: { atoms: string; scale: number } } | null;
+  scheduler?: ExpiryScheduler;
 };
 function dialog(direction: TradeDirection, options: DialogOptions = {}) {
   const traded = token(options.decimals ?? 18);
   const requests: TradeActionParams[] = [];
   let executions = 0;
-  const view = render(<TradeMoneyDialog open direction={direction} session={session}
+  const tree = <TradeMoneyDialog open direction={direction} session={session}
     token={traded} assetName="DEGEN"
     availableBaseUnits={options.balance ?? (direction === "buy" ? "10000000" : "123000000000000000000")}
     assetPrice={options.assetPrice}
@@ -82,7 +85,8 @@ function dialog(direction: TradeDirection, options: DialogOptions = {}) {
     executeMoneyAction={async () => {
       executions++;
       return options.execute ? options.execute() : { id: "fixture", status: "rejected" };
-    }} onClose={() => undefined} />);
+    }} onClose={() => undefined} />;
+  const view = render(options.scheduler ? <ExpirySchedulerContext value={options.scheduler}>{tree}</ExpirySchedulerContext> : tree);
   return { view, requests, executions: () => executions };
 }
 function click(view: ReturnType<typeof render>, name: string) {
@@ -278,6 +282,50 @@ describe("any-token trade review", () => {
     resolveQuote(action("buy", trade.requests[0]!.amountBaseUnits, token(18)));
     await waitFor(() => expect(trade.view.getByRole("dialog", { name: "Confirm" })).toBeTruthy());
     expect(trade.view.getByRole("button", { name: "Buy $1.00" }).getAttribute("aria-busy")).toBeNull();
+  });
+  test("waiting for a quote locks the amount and Max, and the quote reviews the locked amount", async () => {
+    let resolveQuote: (value: PreparedMoneyAction) => void = () => undefined;
+    const trade = dialog("sell", { prepare: () => new Promise((resolve) => { resolveQuote = resolve; }) });
+    const input = trade.view.getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "0.5" } });
+    await waitFor(() => expect((trade.view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    input.focus();
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Getting quote…" })).toBeTruthy());
+    expect(input.readOnly).toBe(true);
+    expect(document.activeElement).toBe(input);
+    const max = trade.view.getByRole("button", { name: "Max" }) as HTMLButtonElement;
+    expect(max.disabled).toBe(true);
+    fireEvent.input(input, { target: { value: "2" } });
+    fireEvent.click(max);
+    expect(input.value).toBe("0.5");
+    expect(trade.requests).toHaveLength(1);
+    resolveQuote(action("sell", trade.requests[0]!.amountBaseUnits, token(18)));
+    await waitFor(() => expect(trade.view.getByRole("dialog", { name: "Confirm" })).toBeTruthy());
+    expect(trade.view.getByRole("button", { name: "Sell 0.5 DEGEN" })).toBeTruthy();
+  });
+  test("a quote expiring during the wallet request keeps the busy Buy until it settles", async () => {
+    let now = Date.now();
+    const timers = new Map<number, () => void>();
+    let nextTimer = 0;
+    const scheduler: ExpiryScheduler = {
+      now: () => now,
+      setTimeout(callback) { timers.set(++nextTimer, callback); return nextTimer; },
+      clearTimeout(id) { timers.delete(id); },
+    };
+    const flush = () => { for (const [id, callback] of [...timers]) { timers.delete(id); callback(); } };
+    let resolveExecute: (value: { id: string; status: "rejected" }) => void = () => undefined;
+    const trade = dialog("buy", { scheduler, execute: () => new Promise((resolve) => { resolveExecute = resolve; }) });
+    await submit(trade.view, "1");
+    click(trade.view, await waitFor(() => trade.view.getByRole("button", { name: "Buy $1.00" }).textContent!));
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Buy $1.00" }).getAttribute("aria-busy")).toBe("true"));
+    now += 200_000;
+    act(() => { flush(); flush(); });
+    expect(trade.view.queryByRole("button", { name: "Get new quote" })).toBeNull();
+    expect(trade.view.getByRole("button", { name: "Buy $1.00" }).getAttribute("aria-busy")).toBe("true");
+    resolveExecute({ id: "fixture", status: "rejected" });
+    await waitFor(() => expect(trade.view.getByRole("button", { name: "Get new quote" }).getAttribute("aria-busy")).toBeNull());
+    expect(trade.executions()).toBe(1);
   });
   test("waiting for the wallet keeps the review with a busy Buy and disabled Back", async () => {
     let resolveExecute: (value: { id: string; status: "rejected" }) => void = () => undefined;
