@@ -179,6 +179,23 @@ describe("Cash L2", () => {
     expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
     expect(routeCalls).toEqual([]);
   });
+  test("closing a direct deposit keeps its amount step until the sheet finishes closing", async () => {
+    cached();
+    render(<Route initialFlow="save-deposit" snapshot={held} />);
+    const dialog = await page().findByRole("dialog", { name: "Deposit" });
+    await within(dialog).findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close deposit dialog" }));
+    expect(routeCalls.at(-1)).toBe("clear:replace");
+    expect(within(dialog).getByRole("textbox", { name: "Amount", hidden: true })).toBeTruthy();
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+  }, 20_000);
+  test("a held savings row opens its tray closed before presenting it", async () => {
+    cached();
+    render(<Surface snapshot={single} />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    expect(page().queryByRole("dialog")).toBeNull();
+    expect(await page().findByRole("dialog", { name: "Gauntlet USDC Prime" })).toBeTruthy();
+  }, 20_000);
   test("routes an inbound withdrawal to the sole funded vault", async () => {
     cached();
     render(<Route initialFlow="save-withdraw" snapshot={single} />);
@@ -498,7 +515,7 @@ describe("Cash L2", () => {
     cached();
     render(<Surface snapshot={held} />);
     fireEvent.click(await page().findByRole("button", { name: /^Steakhouse USDC/, description: "Manage Steakhouse USDC" }));
-    fireEvent.click(page().getByRole("button", { name: "Withdraw" }));
+    fireEvent.click(await page().findByRole("button", { name: "Withdraw" }));
     await page().findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Withdraw" })));
@@ -507,14 +524,14 @@ describe("Cash L2", () => {
     cached();
     render(<Surface snapshot={single} />);
     fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
-    const hero = page().getByRole("img", { name: "$800.00" }).closest("p");
+    const hero = (await page().findByRole("img", { name: "$800.00" })).closest("p");
     await waitFor(() => expect(document.activeElement).toBe(hero));
   }, 20_000);
   test("Back restores focus to the most recently chosen action", async () => {
     cached();
     render(<Surface snapshot={held} />);
     fireEvent.click(await page().findByRole("button", { name: /^Steakhouse USDC/, description: "Manage Steakhouse USDC" }));
-    fireEvent.click(page().getByRole("button", { name: "Deposit more" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
     await page().findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Deposit more" })));

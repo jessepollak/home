@@ -396,6 +396,20 @@ export function CashExperience({
   const closedJourney = () => { if (latestJourneyGeneration.current === journeyGeneration) restoreFocus(); };
   const sheetOpen = view === "savings" && session !== null && (management !== null ||
     (mode !== null && target !== null && ((availableBaseUnits !== null && balanceStatus !== "failed") || confirmed)));
+  const [openMode, setOpenMode] = useState<Mode | null>(null);
+  if (sheetOpen && mode !== openMode) setOpenMode(mode);
+  const journeyMode = sheetOpen ? mode : mode ?? openMode;
+  const journeyKey = session && (activeManagement !== null || target !== null)
+    ? `${session.user.subject}:${session.smartAccount?.address ?? ""}:${activeManagement?.address ?? target?.vaultAddress ?? ""}:${entry}`
+    : null;
+  const [presentedJourney, setPresentedJourney] = useState<string | null>(null);
+  if (journeyKey === null && openMode !== null) setOpenMode(null);
+  if (journeyKey === null && presentedJourney !== null) setPresentedJourney(null);
+  useEffect(() => {
+    if (!sheetOpen || journeyKey === null || presentedJourney === journeyKey) return;
+    const frame = window.requestAnimationFrame(() => setPresentedJourney(journeyKey));
+    return () => window.cancelAnimationFrame(frame);
+  }, [sheetOpen, journeyKey, presentedJourney]);
   const centsLabel =
     availableBaseUnits !== null
       ? `${formatUsdStablecoinAmount(
@@ -439,14 +453,14 @@ export function CashExperience({
           onRetryBalances={onRetryBalances}
         />
       )}
-      {session && (activeManagement !== null || target !== null) ? (
+      {session && journeyKey !== null ? (
         <SavingsJourney
           titleId={SAVINGS_JOURNEY_TITLE_ID}
-          key={`${session.user.subject}:${session.smartAccount?.address ?? ""}:${activeManagement?.address ?? target?.vaultAddress ?? ""}:${entry}`}
-          open={sheetOpen}
+          key={journeyKey}
+          open={sheetOpen && presentedJourney === journeyKey}
           entry={entry}
           management={activeManagement}
-          mode={mode}
+          mode={journeyMode}
           session={session}
           candidate={target}
           availableLabel={centsLabel}
