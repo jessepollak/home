@@ -9,12 +9,12 @@ import {
   useHomeInfiniteQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import { publicInfiniteQuery } from "@/client/query/query-options";
 import type { InvestAsset } from "@/config/invest-assets";
 import { parseDiscoverResponse, type InvestDiscoverState } from "@/shared/invest/contracts/discover";
 import type { MemePagination } from "./discover";
 
 const DISCOVER_ENDPOINT = "/api/invest/discover";
-const VISIBILITY_REFRESH_COOLDOWN_MS = 60_000;
 const MAX_CONSECUTIVE_EMPTY_PAGES = 3;
 
 type FetchLike = (
@@ -31,7 +31,6 @@ export type UseInvestDiscoverOptions = {
   endpoint?: string;
   fetchImpl?: FetchLike;
   now?: () => number;
-  refreshCooldownMs?: number;
 };
 
 const emptyIcons = {} as const;
@@ -64,38 +63,48 @@ const errorDiscoverState: InvestDiscoverState = {
   memePagination: emptyPagination,
 };
 
-export function useInvestDiscover({
+async function fetchDiscoverPage(pageParam: number | null, signal: AbortSignal, endpoint: string, fetchImpl: FetchLike): Promise<InvestDiscoverState> {
+  const queryString = pageParam === null ? "" : new URLSearchParams({ offset: String(pageParam) }).toString();
+  const url = !queryString ? endpoint : endpoint.includes("?") ? `${endpoint}&${queryString}` : `${endpoint}?${queryString}`;
+  const payload = parseDiscoverResponse(await publicResource(url, { signal, fetchImpl }));
+  if (!payload) throw new Error("Invalid invest discover response");
+  if (pageParam !== null && (payload.memeStatus === "error" || payload.memeStatus === "unavailable")) {
+    throw new Error("Discover page provider failed.");
+  }
+  return payload;
+}
+
+export function investDiscoverOptions({
   endpoint = DISCOVER_ENDPOINT,
   fetchImpl = fetch,
-  refreshCooldownMs = VISIBILITY_REFRESH_COOLDOWN_MS,
-}: UseInvestDiscoverOptions = {}): UseInvestDiscoverResult {
-  const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const loadMoreInFlightRef = useRef(false);
-  const [manualLoadState, setManualLoadState] = useState<"idle" | "loading" | "error">("idle");
-  const queryKey = publicQueryKey("invest-discover", endpoint);
-  const fetchPage = useCallback(async (pageParam: number | null, signal: AbortSignal) => {
-    const queryString = pageParam === null ? "" : new URLSearchParams({ offset: String(pageParam) }).toString();
-    const url = !queryString ? endpoint : endpoint.includes("?") ? `${endpoint}&${queryString}` : `${endpoint}?${queryString}`;
-    const payload = parseDiscoverResponse(await publicResource(url, { signal, fetchImpl }));
-    if (!payload) throw new Error("Invalid invest discover response");
-    if (pageParam !== null && (payload.memeStatus === "error" || payload.memeStatus === "unavailable")) {
-      throw new Error("Discover page provider failed.");
-    }
-    return payload;
-  }, [endpoint, fetchImpl]);
-  const query = useHomeInfiniteQuery({
-    queryKey,
-    initialPageParam: null as number | null,
-    staleTime: refreshCooldownMs,
+}: { endpoint?: string; fetchImpl?: FetchLike } = {}) {
+  const fetchPage = (pageParam: number | null, signal: AbortSignal) => fetchDiscoverPage(pageParam, signal, endpoint, fetchImpl);
+  return publicInfiniteQuery<InvestDiscoverState, number | null>({
+    scope: "invest-discover", key: [endpoint],
+    initialPageParam: null,
     retry: false,
     refetchOnWindowFocus: false,
     queryFn: ({ pageParam, signal }) => fetchPage(pageParam, signal),
     getNextPageParam: (page) => page.memePagination.nextOffset ?? undefined,
   });
+}
+
+export function useInvestDiscover({
+  endpoint = DISCOVER_ENDPOINT,
+  fetchImpl = fetch,
+}: UseInvestDiscoverOptions = {}): UseInvestDiscoverResult {
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const loadMoreInFlightRef = useRef(false);
+  const [manualLoadState, setManualLoadState] = useState<"idle" | "loading" | "error">("idle");
+  const queryKey = publicQueryKey("invest-discover", endpoint);
+  const fetchPage = useCallback((pageParam: number | null, signal: AbortSignal) =>
+    fetchDiscoverPage(pageParam, signal, endpoint, fetchImpl), [endpoint, fetchImpl]);
+  const query = useHomeInfiniteQuery(investDiscoverOptions({ endpoint, fetchImpl }));
   const state = useMemo(() => {
     const pages = query.data?.pages;
-    if (!pages?.length) return query.isError ? errorDiscoverState : initialDiscoverState;
-    return pages.slice(1).reduce(mergeDiscoverPages, pages[0]!);
+    const firstPage = pages?.[0];
+    if (!firstPage) return query.isError ? errorDiscoverState : initialDiscoverState;
+    return pages.slice(1).reduce(mergeDiscoverPages, firstPage);
   }, [query.data?.pages, query.isError]);
   const visibleState: InvestDiscoverState = {
     ...state,
