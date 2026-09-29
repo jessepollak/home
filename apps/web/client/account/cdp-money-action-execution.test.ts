@@ -430,28 +430,28 @@ describe("thin action dispatch", () => {
     expect(fake.pending()).toBe(0);
   });
 
-  test("stops a failed operation without a hash and does not post a transaction handle", async () => {
-    const fake = fakeClock();
-    const posts: string[] = [];
-    const failures: string[] = [];
-    const run = pollTransactionResolution({
-      generation: 2,
-      fence: { assertCurrent: () => {} },
-      check: async () => ({ status: "failed", reason: "Bundler rejected the operation." }),
-      recordTransactionHash: async (hash) => { posts.push(hash); },
-      onFailedWithoutHash: (reason) => { failures.push(reason); },
-      clock: fake.clock,
-    });
-
-    await fake.advance(1_500);
-    await run.result;
-
-    expect(posts).toEqual([]);
-    expect(failures).toEqual(["Bundler rejected the operation."]);
-    expect(fake.pending()).toBe(0);
-  });
-
-  test("does not record a provider hash for a failed operation and announces the failure instead", async () => {
+  test.each([
+    {
+      name: "without a hash reports the bundler failure and never posts a handle",
+      resolution: { status: "failed" as const, reason: "Bundler rejected the operation." },
+      reason: "Bundler rejected the operation.",
+      checkCount: false,
+    },
+    {
+      name: "with a provider hash reports its reason and never posts a handle",
+      resolution: normalizeResolutionState({
+        status: "failed", transactionHash, failureReason: "User operation reverted inside the bundle.",
+      }),
+      reason: "User operation reverted inside the bundle.",
+      checkCount: true,
+    },
+    {
+      name: "with a provider hash and no reason reports the default and never posts a handle",
+      resolution: normalizeResolutionState({ status: "failed", transactionHash }),
+      reason: "The wallet operation failed.",
+      checkCount: false,
+    },
+  ])("failed operation $name", async ({ resolution, reason, checkCount }) => {
     const fake = fakeClock();
     const posts: string[] = [];
     const failures: string[] = [];
@@ -459,16 +459,9 @@ describe("thin action dispatch", () => {
     const run = pollTransactionResolution({
       generation: 2,
       fence: { assertCurrent: () => {} },
-      check: async () => {
-        checks += 1;
-        return normalizeResolutionState({
-          status: "failed",
-          transactionHash,
-          failureReason: "User operation reverted inside the bundle.",
-        });
-      },
+      check: async () => { checks += 1; return resolution; },
       recordTransactionHash: async (hash) => { posts.push(hash); },
-      onFailedWithoutHash: (reason) => { failures.push(reason); },
+      onFailedWithoutHash: (failure) => { failures.push(failure); },
       clock: fake.clock,
     });
 
@@ -476,29 +469,8 @@ describe("thin action dispatch", () => {
     await run.result;
 
     expect(posts).toEqual([]);
-    expect(failures).toEqual(["User operation reverted inside the bundle."]);
-    expect(checks).toBe(1);
-    expect(fake.pending()).toBe(0);
-  });
-
-  test("announces a failed operation carrying a hash with the default reason when the provider gives none", async () => {
-    const fake = fakeClock();
-    const posts: string[] = [];
-    const failures: string[] = [];
-    const run = pollTransactionResolution({
-      generation: 2,
-      fence: { assertCurrent: () => {} },
-      check: async () => normalizeResolutionState({ status: "failed", transactionHash }),
-      recordTransactionHash: async (hash) => { posts.push(hash); },
-      onFailedWithoutHash: (reason) => { failures.push(reason); },
-      clock: fake.clock,
-    });
-
-    await fake.advance(1_500);
-    await run.result;
-
-    expect(posts).toEqual([]);
-    expect(failures).toEqual(["The wallet operation failed."]);
+    expect(failures).toEqual([reason]);
+    if (checkCount) expect(checks).toBe(1);
     expect(fake.pending()).toBe(0);
   });
 
