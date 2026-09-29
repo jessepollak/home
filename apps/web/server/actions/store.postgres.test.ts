@@ -200,12 +200,16 @@ describePostgres("actions schema and store", () => {
     const older = randomUUID();
     const newer = randomUUID();
     const reviewedOnly = randomUUID();
+    const trade = randomUUID();
     const other = randomUUID();
     for (const [id, actionOwner] of [[older, owner], [newer, owner], [reviewedOnly, owner], [other, otherOwner]] as const) {
       await store.insert({ id, owner: actionOwner, kind: "send", summary, pending: { calls }, createdAt: "2020-01-01T00:00:00.000Z" });
       await store.confirm(actionOwner, id);
     }
     await store.recordHandle(owner, older, { providerHandle: `0x${"11".repeat(32)}` });
+    await store.insert({ id: trade, owner, kind: "trade", summary, pending: { calls }, createdAt: "2020-01-01T00:00:00.000Z" });
+    await store.confirm(owner, trade);
+    await store.recordHandle(owner, trade, { providerHandle: `0x${"44".repeat(32)}` });
     await store.recordHandle(owner, newer, { transactionHash: `0x${"22".repeat(32)}` });
     await store.recordHandle(otherOwner, other, { providerHandle: `0x${"33".repeat(32)}` });
     await sql.query("UPDATE actions SET confirmed_at = CASE id WHEN $1 THEN $3::timestamptz WHEN $2 THEN $4::timestamptz ELSE $5::timestamptz END", [
