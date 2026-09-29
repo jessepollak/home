@@ -13,14 +13,35 @@ import { reportClientError } from "@/client/observability/client-reporter";
 
 type SheetProps = { open?: boolean };
 
+export type DeferredSheetHandoff = {
+  carryHeight: (height: number) => void;
+  carryReturnFocus: (target: HTMLElement | null) => void;
+  take: () => { height: number; returnFocus: HTMLElement | null };
+};
+
+function createHandoff(): DeferredSheetHandoff {
+  let height = 0;
+  let returnFocus: HTMLElement | null = null;
+  return {
+    carryHeight: (next) => { height = next; },
+    carryReturnFocus: (next) => { returnFocus = next; },
+    take: () => {
+      const taken = { height, returnFocus };
+      height = 0;
+      returnFocus = null;
+      return taken;
+    },
+  };
+}
+
 const AUTOMATIC_LOAD_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 1_000;
 
 export type DeferredSheetLoading<P> = (props: P) => {
   onCancel: () => void;
   onClosed?: () => void;
-  render: (state: { open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void; onEntered: () => void }) => ReactNode;
-  renderLoaded?: (sheet: ReactNode) => ReactNode;
+  render: (state: { open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void; onEntered: () => void; handoff: DeferredSheetHandoff }) => ReactNode;
+  renderLoaded?: (sheet: ReactNode, handoff: DeferredSheetHandoff) => ReactNode;
 };
 
 export type DeferredSheet<P extends SheetProps> = ComponentType<P> & {
@@ -119,6 +140,7 @@ export function deferSheet<P extends SheetProps>(
     const [closingShell, setClosingShell] = useState(false);
     const [shellFinished, setShellFinished] = useState(false);
     const [shellEntered, setShellEntered] = useState(false);
+    const [handoff] = useState(createHandoff);
     const [staging, setStaging] = useState(() => open && visibleInstances === 0);
     if (open && !Loaded && !staging) setStaging(true);
     if (loading && open && !Loaded && !showLoadingShell) setShowLoadingShell(true);
@@ -153,12 +175,13 @@ export function deferSheet<P extends SheetProps>(
         onCancel: () => { setClosingShell(true); shell.onCancel(); },
         onClosed: () => { setClosingShell(false); setShellFinished(true); setShellEntered(false); shell.onClosed?.(); },
         onEntered: () => { setShellEntered(true); },
+        handoff,
       });
     }
     if (!Loaded) return null;
     if (!shellFinished) setShellFinished(true);
     const sheet = createElement(Loaded, { ...props, open: visible });
-    return loading && showLoadingShell ? loading(props).renderLoaded?.(sheet) ?? sheet : sheet;
+    return loading && showLoadingShell ? loading(props).renderLoaded?.(sheet, handoff) ?? sheet : sheet;
   }
 
   return Object.assign(Sheet, { preload: loader.preload });

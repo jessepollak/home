@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { useState, type ComponentType } from "react";
+import { useLayoutEffect, useState, type ComponentType } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { deferSheet } = await import("./deferred-sheet");
@@ -57,6 +57,22 @@ function DetailSheet({ open, onCancel, onClosed }: LoadingProps) {
       <MoneyModalHeader title="Loaded money sheet" titleId="loaded-detail-title" closeLabel="Close loaded sheet" />
     </MoneyModalStep>
   </MoneyModal>;
+}
+
+function NestedDetailSheet(props: LoadingProps) {
+  return <>
+    <MoneyModal open={false} labelledBy="inner-title" onCancel={() => {}} onClose={() => {}}>
+      <MoneyModalHeader title="Inner sheet" titleId="inner-title" />
+    </MoneyModal>
+    <MoneyModal open={props.open} labelledBy="loaded-detail-title" onCancel={props.onCancel} onClose={props.onClosed}>
+      <MoneyModalStep step="detail">
+        <MoneyModalHeader title="Loaded money sheet" titleId="loaded-detail-title" closeLabel="Close loaded sheet" />
+        <MoneyModal open={false} labelledBy="nested-title" onCancel={() => {}} onClose={() => {}}>
+          <MoneyModalHeader title="Nested sheet" titleId="nested-title" />
+        </MoneyModal>
+      </MoneyModalStep>
+    </MoneyModal>
+  </>;
 }
 
 type PopupHeightAnimation = { frames: Keyframe[]; options: KeyframeAnimationOptions };
@@ -457,6 +473,52 @@ describe("deferSheet", () => {
     await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
     await page().findByRole("dialog", { name: "Loaded money sheet" });
     expect(heights).toEqual([]);
+  });
+
+  test("an unrelated sheet mounted in the handoff commit does not take the shell height", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    let showSibling!: () => void;
+    let shellEntered = false;
+    const Sheet = deferSheet(
+      () => new Promise<ComponentType<LoadingProps>>((done) => { resolve = done; }).then((component) => { showSibling(); return component; }),
+      (props: LoadingProps) => {
+        const shell = moneySheetLoading({ title: "Add money", titleId: "add-money-title", closeLabel: "Close add money", onCancel: props.onCancel, onClosed: props.onClosed });
+        return { ...shell, render: (state) => shell.render({ ...state, onEntered: () => { shellEntered = true; state.onEntered(); } }) };
+      },
+    );
+    function Journey() {
+      const [sibling, setSibling] = useState(false);
+      useLayoutEffect(() => { showSibling = () => setSibling(true); }, []);
+      return <>
+        {sibling ? <MoneyModal open={false} labelledBy="sibling-title" onCancel={() => {}} onClose={() => {}}>
+          <MoneyModalHeader title="Sibling sheet" titleId="sibling-title" />
+        </MoneyModal> : null}
+        <Sheet open onCancel={() => {}} onClosed={() => {}} />
+      </>;
+    }
+    render(<Journey />);
+    await waitFor(() => expect(shellEntered).toBe(true));
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
+  });
+
+  test("closed sheets inside the loaded sheet do not take the shell height", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(NestedDetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
   });
 
   test("reopening a handed-off sheet does not replay the shell height", async () => {
