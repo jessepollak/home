@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildRuntimeReport, parseJunit, readBaseAllowlist, validateAllowlist } from "../test-runtime.mjs";
+import { buildRuntimeReport, mergeJunitReports, parseJunit, readBaseAllowlist, validateAllowlist } from "../test-runtime.mjs";
 
 const checkedIn = JSON.parse(readFileSync(fileURLToPath(new URL("../test-runtime-allowlist.json", import.meta.url)), "utf8"));
 const empty = { tests: [], files: [] };
@@ -112,6 +112,7 @@ test("root tests count is required and checks all testcase elements, including r
   assert.throws(() => parseJunit(xml("")), /missing its tests count/);
   assert.throws(() => parseJunit(xml(' tests="2"')), /root tests count 2 does not match 3 testcase elements/);
   assert.equal(parseJunit(xml(' tests="3"')).tests.length, 2);
+  assert.equal(parseJunit(xml(' tests="3"')).testcaseCount, 3);
 });
 
 test("XML entities, nested describes, self-closing and child-bearing cases make correct IDs; duplicates use max", () => {
@@ -215,6 +216,30 @@ test("CLI fails for a missing JUnit and writes findings to summary JSON", (t) =>
   assert.equal(result.status, 1);
   assert.match(result.stdout, /JUnit unavailable or invalid/);
   assert.ok(JSON.parse(readFileSync(summary, "utf8")).findings.length);
+});
+
+test("multiple JUnit reports merge test and file timings and retain allowlisted entries from either shard", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "test-runtime-merge-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const second = "server/other.test.ts";
+  const allowlist = { tests: [{ file: second, test: "slow", maxSeconds: 9, reason: "measured slow test" }], files: [] };
+  const firstXml = junit(testcase("fast", 1));
+  const secondXml = junit(testcase("slow", 6, second), second);
+  const merged = mergeJunitReports([parseJunit(firstXml), parseJunit(secondXml)]);
+  assert.deepEqual(merged.files.map((entry) => entry.file), [file, second]);
+  assert.equal(merged.testcaseCount, 2);
+  assert.deepEqual(buildRuntimeReport(merged, allowlist, allowlist).findings, []);
+  const allowlistFile = join(dir, "allowlist.json");
+  const firstFile = join(dir, "client.xml");
+  const secondFile = join(dir, "server.xml");
+  const summary = join(dir, "runtime.json");
+  writeFileSync(allowlistFile, JSON.stringify(allowlist));
+  writeFileSync(firstFile, firstXml);
+  writeFileSync(secondFile, secondXml);
+  const cli = fileURLToPath(new URL("../test-runtime.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, [cli, "--junit", firstFile, "--junit", secondFile, "--allowlist", allowlistFile, "--summary-json", summary], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(summary, "utf8")).files.map((entry) => entry.file), [file, second]);
 });
 
 test("CLI reports an unresolvable base as a note without failing", (t) => {
