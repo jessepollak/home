@@ -11,6 +11,7 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
+import { flushSync } from "react-dom";
 import { ArrowDownUp } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
 import { InputGroupAddon } from "@/components/ui/input-group";
@@ -101,23 +102,16 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
   const sizerRef = useRef<HTMLSpanElement>(null);
   const [fontSize, setFontSize] = useState<number | undefined>(undefined);
   const [overflows, setOverflows] = useState(false);
-  const lastWidthRef = useRef(-1);
-  const lastNaturalWidthRef = useRef(-1);
+  const availableWidthRef = useRef(-1);
+  const naturalWidthRef = useRef(-1);
 
-  const measure = useCallback(() => {
+  const fitWidths = useCallback((available: number, natural: number) => {
     const container = containerRef.current;
     const sizer = sizerRef.current;
     if (!container || !sizer) return;
 
-    lastWidthRef.current = container.clientWidth;
     const computed = window.getComputedStyle(container);
-    const horizontalPadding =
-      (Number.parseFloat(computed.paddingLeft) || 0)
-      + (Number.parseFloat(computed.paddingRight) || 0);
-    const available = container.clientWidth - horizontalPadding;
     const base = Number.parseFloat(window.getComputedStyle(sizer).fontSize);
-    const natural = sizer.getBoundingClientRect().width;
-    lastNaturalWidthRef.current = natural;
     if (available <= 0 || natural <= 0 || !Number.isFinite(base) || base <= 0) return;
     const minRaw = computed.getPropertyValue(AMOUNT_MIN_FONT_PROPERTY);
     const min = minRem === undefined
@@ -136,20 +130,43 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
     );
   }, [minRem]);
 
+  const measureFallback = useCallback(() => {
+    const container = containerRef.current;
+    const sizer = sizerRef.current;
+    if (!container || !sizer) return;
+    const computed = window.getComputedStyle(container);
+    const horizontalPadding =
+      (Number.parseFloat(computed.paddingLeft) || 0)
+      + (Number.parseFloat(computed.paddingRight) || 0);
+    fitWidths(container.clientWidth - horizontalPadding, sizer.getBoundingClientRect().width);
+  }, [fitWidths]);
+
   useLayoutEffect(() => {
     const container = containerRef.current;
     const sizer = sizerRef.current;
     if (!container || !sizer) return;
 
-    let observer: ResizeObserver | undefined;
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(() => {
-        if (container.clientWidth !== lastWidthRef.current
-          || sizer.getBoundingClientRect().width !== lastNaturalWidthRef.current) measure();
-      });
-      observer.observe(container);
-      observer.observe(sizer);
-    }
+    const hasResizeObserver = typeof ResizeObserver !== "undefined";
+    const observer = hasResizeObserver ? new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === container) {
+          const box = entry.contentBoxSize;
+          availableWidthRef.current = (Array.isArray(box) ? box[0] : box)?.inlineSize ?? entry.contentRect.width;
+        } else if (entry.target === sizer) {
+          const box = entry.borderBoxSize;
+          naturalWidthRef.current = (Array.isArray(box) ? box[0] : box)?.inlineSize ?? sizer.getBoundingClientRect().width;
+        }
+      }
+      flushSync(() => fitWidths(availableWidthRef.current, naturalWidthRef.current));
+    }) : undefined;
+    observer?.observe(container);
+    observer?.observe(sizer);
+    const measure = observer
+      ? () => {
+        observer.unobserve(container);
+        observer.observe(container);
+      }
+      : measureFallback;
     const rootStyleObserver = typeof MutationObserver === "undefined"
       ? undefined
       : new MutationObserver(measure);
@@ -159,7 +176,7 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
     });
 
     let active = true;
-    const fonts = document.fonts;
+    const fonts = observer ? undefined : document.fonts;
     fonts?.addEventListener?.("loadingdone", measure);
     fonts?.ready?.then(() => {
       if (active) measure();
@@ -171,11 +188,11 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
       rootStyleObserver?.disconnect();
       fonts?.removeEventListener?.("loadingdone", measure);
     };
-  }, [measure]);
+  }, [fitWidths, measureFallback]);
 
   useLayoutEffect(() => {
-    measure();
-  }, [measure, text]);
+    if (typeof ResizeObserver === "undefined") measureFallback();
+  }, [measureFallback, text]);
 
   return { containerRef, sizerRef, fontSize, overflows };
 }
