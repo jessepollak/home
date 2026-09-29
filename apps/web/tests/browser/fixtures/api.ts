@@ -3,6 +3,7 @@ import type { RegionId } from "../../../config/regions";
 import type { BalancesSnapshot } from "../../../shared/balances/types";
 import { FIXED_NOW, installFixedPageDate } from "./fixed-time";
 import { balancesSnapshot } from "./balances";
+import { savingsPrepareFixture } from "../feature-map/savings-fixture";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
 import {
   actionsBody,
@@ -156,6 +157,14 @@ export async function installApiFixtures(
     }
     if (path === "/api/actions/network-fee") return json(route, { version: 1, usdcReserveBaseUnits: "20000" });
     if (path === "/api/actions/prepare" && request.method() === "POST") {
+      const body = request.postDataJSON() as { kind?: string; params?: { vaultAddress?: `0x${string}`; amountBaseUnits?: string } };
+      if (body.kind === "savings-deposit" || body.kind === "savings-withdraw") {
+        return json(route, savingsPrepareFixture({
+          operation: body.kind === "savings-deposit" ? "deposit" : "withdraw",
+          vaultAddress: body.params?.vaultAddress,
+          amountBaseUnits: body.params?.amountBaseUnits,
+        }));
+      }
       status = "unconfirmed";
       return json(route, currentAction);
     }
