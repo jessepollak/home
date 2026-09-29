@@ -77,7 +77,8 @@ export function SignInOtp({
         className="w-full"
         size="touch"
         type="submit"
-        disabled={isVerifyingCode || otp.length !== 6}
+        loading={isVerifyingCode}
+        disabled={otp.length !== 6}
       >
         {isVerifyingCode ? "Verifying…" : "Verify and continue"}
       </Button>
@@ -86,7 +87,7 @@ export function SignInOtp({
         size="touch"
         variant="secondary"
         onClick={onResend}
-        disabled={isSendingCode || resendSeconds > 0}
+        disabled={isVerifyingCode || isSendingCode || resendSeconds > 0}
       >
         {isSendingCode
           ? "Sending…"

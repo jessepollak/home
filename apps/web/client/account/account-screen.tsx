@@ -112,13 +112,16 @@ export function AccountSignInSheet({
     signInAvailability === "provider-unavailable";
   const isCleaningUp = !signInBlocked && status === "signing-out";
   const isChecking = !signInBlocked && (isHandingOff || status === "restoring" || status === "validating");
-  const initialFocusRef = flowId
-    ? otpInputRef
-    : projectConfigured
-      ? emailInputRef
-      : baseAccountButtonRef;
+  const attemptPending = isHandingOff || completedAttemptSequence !== null || activeBaseAccountPhase !== null;
+  const isFinishingAttempt = isChecking && attemptPending;
+  const isRestoring = isChecking && !attemptPending;
+  if (flowId !== null && completedAttemptSequence !== null && status === "signed-out") {
+    setFlowId(null);
+    setOtp("");
+    setResendAvailableAt(null);
+  }
   const hasStatus = Boolean(
-    isCleaningUp || isChecking || status === "signout-error" || status === "unavailable",
+    isCleaningUp || isRestoring || status === "signout-error" || status === "unavailable",
   );
   const step = signInBlocked
     ? "blocked"
@@ -129,6 +132,11 @@ export function AccountSignInSheet({
         : flowId
           ? "otp"
           : "email";
+  const initialFocusRef = step === "otp"
+    ? otpInputRef
+    : projectConfigured
+      ? emailInputRef
+      : baseAccountButtonRef;
 
   useEffect(() => {
     if (open && !isInitialized && signInAvailability === "ready") {
@@ -239,9 +247,6 @@ export function AccountSignInSheet({
       await verifyEmailCode(flowId, otp);
       if (sequence !== uiAttemptSequence.current) return;
       setCompletedAttemptSequence(sequence);
-      setOtp("");
-      setFlowId(null);
-      setResendAvailableAt(null);
     } catch (error) { // oxlint-disable-line home/no-silent-catch -- a superseded verify attempt must not overwrite the newer attempt's error state
       if (sequence === uiAttemptSequence.current) {
         setAuthError(messageForCodeError(error));
@@ -291,7 +296,7 @@ export function AccountSignInSheet({
         <DrawerHeader className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-left">
           <span />
           <DrawerTitle id="account-sign-in-title" className="text-center">
-            {flowId ? "Check your email" : "Sign in to Home"}
+            {step === "otp" ? "Check your email" : "Sign in to Home"}
           </DrawerTitle>
           <Button
             className="size-11 shrink-0"
@@ -312,7 +317,7 @@ export function AccountSignInSheet({
               {authError ? <StatusMessage className="mt-4" tone="error" role="alert">{authError}</StatusMessage> : null}
               <SignInStatus
                 cleaningUp={isCleaningUp}
-                checking={isChecking}
+                checking={isRestoring}
                 signOutError={status === "signout-error"}
                 unavailable={status === "unavailable"}
                 onRetrySignOut={() => void signOut().catch(() => {})} // oxlint-disable-line home/no-silent-catch -- session sign-out displays its own signout-error state and retry message
@@ -331,7 +336,7 @@ export function AccountSignInSheet({
                   email={email}
                   otp={otp}
                   isSendingCode={isSendingCode}
-                  isVerifyingCode={isVerifyingCode}
+                  isVerifyingCode={isVerifyingCode || isFinishingAttempt}
                   invalid={codeRejected}
                   resendSeconds={resendSeconds}
                   inputRef={otpInputRef}
