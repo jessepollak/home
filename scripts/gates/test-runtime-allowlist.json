@@ -1,5 +1,6 @@
 {
   "tests": [
+    { "file": "app/api/route-contracts.contract.test.ts", "test": "inventories every API route and rejects newly introduced or stale contract gaps", "maxSeconds": 15, "reason": "whole-repository route and contract inventory scan; 4.8 s local cold run exceeds the 5 s default under CI load" },
     { "file": "client/cash/cash-experience.test.tsx", "test": "Cash L2 > Back returns to the tray and X exits the journey", "maxSeconds": 31, "reason": "ten-sample CI max 24.48 s x 1.25" },
     { "file": "client/cash/cash-experience.test.tsx", "test": "Cash L2 > close and reopen resets the draft and keeps the correct vault", "maxSeconds": 28, "reason": "ten-sample CI max 22.27 s x 1.25" },
     { "file": "client/cash/cash-experience.test.tsx", "test": "Cash L2 > closing the tray after modal Back leaves Forward an ordinary inbound flow", "maxSeconds": 26, "reason": "ten-sample CI max 20.60 s x 1.25" },
