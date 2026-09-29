@@ -31,8 +31,8 @@ describe("home/no-full-portfolio-presentation", () => {
   it("rejects full presenters even when imported under aliases or relative paths", async () => {
     expect(await lint(`
       import { presentBalances as summary } from "@/shared/balances/present";
-      import { presentMoneyGroups } from "../../shared/balances/present.ts";
-      import { presentBalanceRows } from "@/shared/balances/../balances/present";
+      import { presentBalances as relative } from "../../shared/balances/present.ts";
+      import { presentBalances as grouped } from "@/shared/balances/../balances/present";
     `)).toHaveLength(3);
   });
 

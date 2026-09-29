@@ -188,23 +188,6 @@ function signedNetWithPending(net: ExactDecimal, negative: boolean, pending: Exa
   return { value: { atoms: (sum < BigInt(0) ? -sum : sum).toString(), scale }, negative: sum < BigInt(0) };
 }
 
-export function presentMoneyGroups(snapshot: BalancesSnapshot): MoneyGroupPresentation[] {
-  const partitions = presentMoneyGroupPartitions(snapshot);
-  return buildMoneyGroups(
-    snapshot,
-    partitions.cashSelections,
-    partitions.investmentHoldings,
-    partitions.cashRows,
-    [...partitions.investmentRows, ...partitions.hiddenRows],
-    partitions.unpricedRows,
-  );
-}
-
-/** @public exercised by shared/balances/present.test.ts */
-export function presentBalanceRows(snapshot: BalancesSnapshot): BalanceRowModel[] {
-  return presentMoneyGroups(snapshot).flatMap((group) => group.rows);
-}
-
 function presentMoneyGroupPartitions(snapshot: BalancesSnapshot): {
   cashSelections: CashSelection[];
   cashRows: BalanceRowModel[];

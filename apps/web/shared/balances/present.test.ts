@@ -19,9 +19,7 @@ import {
 import type { BalancesFixtureOptions } from "./fixtures";
 import type { BalancesSnapshot } from "./types";
 import {
-  presentBalanceRows,
   presentBalances,
-  presentMoneyGroups,
   presentPendingCashout,
   presentInvestmentTotal,
   presentHoldingMark,
@@ -29,6 +27,10 @@ import {
 import { holdingValueContext } from "./value-label";
 
 const unpriced = { status: "unpriced" as const, reason: "price-unavailable" as const };
+
+function presentedRows(snapshot: BalancesSnapshot) {
+  return presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: true }).rows;
+}
 
 describe("focused investment presentation", () => {
   test.each([
@@ -66,10 +68,10 @@ describe("balance presentation precision", () => {
     const asset = stockAssets.find((stock) => stock.id === "msftc");
     if (!asset) throw new Error("Microsoft asset missing");
     const baseUnits = (BigInt(12345) * BigInt(10) ** BigInt(asset.representation.decimals - 4)).toString();
-    const pricedRow = presentBalanceRows(validatedPresentationSnapshot({
+    const pricedRow = presentedRows(validatedPresentationSnapshot({
       registry: { msftc: { balance: ready(baseUnits), value: priced("USD", "200") } },
     })).find((row) => row.name === asset.displayName);
-    const unpricedRow = presentBalanceRows(validatedPresentationSnapshot({
+    const unpricedRow = presentedRows(validatedPresentationSnapshot({
       registry: { msftc: { balance: ready(baseUnits), value: unpriced } },
     })).find((row) => row.name === asset.displayName);
     expect(pricedRow?.secondary).toBe("1.2345 MSFTc");
@@ -80,7 +82,7 @@ describe("balance presentation precision", () => {
     for (const asset of stockAssets) {
       const { tokenSymbol, decimals } = asset.representation;
       const baseUnits = (BigInt(12345) * BigInt(10) ** BigInt(decimals - 4)).toString();
-      const row = presentBalanceRows(validatedPresentationSnapshot({
+      const row = presentedRows(validatedPresentationSnapshot({
         registry: { [asset.id]: { balance: ready(baseUnits), value: priced("USD", "200") } },
       })).find((entry) => entry.name === asset.displayName);
       expect(row?.secondary).toBe(`1.2345 ${tokenSymbol}`);
@@ -100,7 +102,7 @@ describe("balance presentation precision", () => {
       decimals: asset.representation.decimals,
     }, baseUnits, unpriced);
     const snapshot = validatedPresentationSnapshot({ catalog: [holding] });
-    expect(presentBalanceRows(snapshot).find((row) => row.key === holding.key)?.primary)
+    expect(presentedRows(snapshot).find((row) => row.key === holding.key)?.primary)
       .toBe("1.2345 MSFTc");
   });
 
@@ -116,7 +118,7 @@ describe("balance presentation precision", () => {
     ]));
     const unknown = walletHolding({ ...FIXTURE_WALLET_TOKEN, symbol: "UNKNOWN" },
       "1234500000000000000", unpriced);
-    const rows = presentBalanceRows(validatedPresentationSnapshot({ registry, catalog: [unknown] }));
+    const rows = presentedRows(validatedPresentationSnapshot({ registry, catalog: [unknown] }));
     for (const asset of assets) {
       expect(rows.find((row) => row.name === asset.displayName)?.primary)
         .toBe(`1.2345 ${asset.representation.tokenSymbol}`);
@@ -231,7 +233,7 @@ describe("balance presentation", () => {
       .toEqual({ kind: "unavailable" });
   });
   test("keeps cash truth, hides noncash zero and vault shares, and includes unreadable named assets", () => {
-    const rows = presentBalanceRows(balancesSnapshotFixture);
+    const rows = presentedRows(balancesSnapshotFixture);
     expect(rows.map((row) => row.name)).toEqual([
       "US dollar",
       "Ethereum",
@@ -243,7 +245,7 @@ describe("balance presentation", () => {
     ]);
     expect(rows.some((row) => row.name.includes("vault"))).toBeFalse();
     expect(rows.find((row) => row.name === "Toshi")).toMatchObject({ primary: "Unavailable", secondary: null, tone: "error" });
-    expect(presentMoneyGroups(balancesSnapshotFixture).map((group) => ({
+    expect(presentBalances({ status: "ready", snapshot: balancesSnapshotFixture, error: null }, { showSmallBalances: true }).groups.map((group) => ({
       id: group.id,
       rows: group.rows.slice(0, 3).map((row) => row.name),
     }))).toEqual([
@@ -262,7 +264,7 @@ describe("balance presentation", () => {
       },
       catalog: [catalogHolding(FIXTURE_CATALOG.priced, "1", priced("USD", "300"))],
     });
-    expect(presentBalanceRows(snapshot).map((row) => row.name)).toEqual([
+    expect(presentedRows(snapshot).map((row) => row.name)).toEqual([
       "US dollar",
       "Aerodrome",
       "Ethereum",
@@ -366,8 +368,8 @@ describe("balance presentation", () => {
         status: "partial",
       });
     }
-    expect(presentMoneyGroups(snapshot).at(-1)?.id).toBe("unpriced");
-    expect(presentBalanceRows(snapshot).at(-1)?.name).toBe("Zebra Token");
+    expect(presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: true }).groups.at(-1)?.id).toBe("unpriced");
+    expect(presentedRows(snapshot).at(-1)?.name).toBe("Zebra Token");
   });
 
   test("never hides cash and restores dust at the end when the setting is on", () => {
@@ -408,7 +410,7 @@ describe("balance presentation", () => {
       catalog: [{ ...unread, balance: unavailableBalance }],
       coverage: { catalog: "incomplete" },
     });
-    const rows = presentBalanceRows(snapshot);
+    const rows = presentedRows(snapshot);
     expect(rows.find((row) => row.name === "Euro")).toMatchObject({ primary: "Unavailable", secondary: null, tone: "error" });
     expect(rows.filter((row) => row.group === "asset" && row.primary === "Unavailable").map((row) => row.name)).toEqual(["Bitcoin", "Discovered Token"]);
     expect(rows.every((row) => row.primary !== "$0.00" || row.name === "US dollar")).toBe(true);
@@ -424,12 +426,12 @@ describe("balance presentation", () => {
     expect(presentation.hiddenRows).toEqual([]);
     expect(presentation.rows.find((row) => row.name === holding.name)).toMatchObject({ primary: "Unavailable", tone: "error" });
     const symbolOnly = { ...walletHolding({ ...FIXTURE_WALLET_TOKEN, name: " ", symbol: "DISC" }, "1", { status: "unavailable" as const }), balance: unavailableBalance };
-    expect(presentBalanceRows(buildBalancesSnapshotFixture({ catalog: [symbolOnly] })).find((row) => row.group === "asset")).toMatchObject({ name: "DISC", primary: "Unavailable", tone: "error" });
+    expect(presentedRows(buildBalancesSnapshotFixture({ catalog: [symbolOnly] })).find((row) => row.group === "asset")).toMatchObject({ name: "DISC", primary: "Unavailable", tone: "error" });
   });
 
   test("keeps a ready unpriced investment's quantity while its price is delayed", () => {
     const snapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: ready("100000000"), value: { status: "unpriced", reason: "price-stale" } } } });
-    expect(presentBalanceRows(snapshot).find((row) => row.name === "Bitcoin")).toMatchObject({ primary: "1.0000 cbBTC", tone: "muted" });
+    expect(presentedRows(snapshot).find((row) => row.name === "Bitcoin")).toMatchObject({ primary: "1.0000 cbBTC", tone: "muted" });
     expect(holdingValueContext(snapshot.holdings.find((holding) => holding.id === "cbbtc")!.value)).toBe("Price delayed");
   });
 
@@ -440,12 +442,12 @@ describe("balance presentation", () => {
       },
       total: { status: "unavailable", value: null },
     });
-    expect(presentBalanceRows(snapshot)[0]).toMatchObject({
+    expect(presentedRows(snapshot)[0]).toMatchObject({
       name: "US dollar",
       primary: "Unavailable",
       tone: "error",
     });
-    expect(presentMoneyGroups(snapshot)[0]?.displaySubtotal).toBeNull();
+    expect(presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: true }).groups[0]?.displaySubtotal).toBeNull();
   });
 
   test("renders a positive non-selected cash holding once in the cash group", () => {
@@ -458,7 +460,7 @@ describe("balance presentation", () => {
         },
       },
     });
-    const idrRows = presentBalanceRows(snapshot).filter(
+    const idrRows = presentedRows(snapshot).filter(
       (row) => row.group === "cash" && row.mark.kind === "flag" && row.mark.currency === "IDR",
     );
 
@@ -475,7 +477,7 @@ describe("balance presentation", () => {
       },
     });
 
-    const idrx = presentBalanceRows(snapshot).find((row) => row.name === "Rupiah");
+    const idrx = presentedRows(snapshot).find((row) => row.name === "Rupiah");
     expect(idrx).toMatchObject({
       primary: "234,327.00 IDR",
       tone: "default",
@@ -490,7 +492,7 @@ describe("balance presentation", () => {
         eurc: { balance: ready("0"), cashValue: pricedCash("EUR", "0") },
       },
     });
-    const usd = presentBalanceRows(snapshot).find((row) => row.name === "US dollar");
+    const usd = presentedRows(snapshot).find((row) => row.name === "US dollar");
     expect(usd?.primary).toContain("$");
     expect(usd?.primary).not.toContain("€");
   });
@@ -509,7 +511,7 @@ describe("balance presentation", () => {
         ? { ...holding, imageUrl: "https://assets.example.invalid/cbbtc.png" }
         : holding),
     };
-    const rows = presentBalanceRows(snapshot);
+    const rows = presentedRows(snapshot);
 
     expect(rows.find((row) => row.name === "US dollar")?.mark).toEqual({
       kind: "flag",
@@ -537,7 +539,7 @@ describe("balance presentation", () => {
         },
       },
     });
-    expect(presentBalanceRows(snapshot).find((row) => row.name === "Bitcoin")?.mark).toEqual({
+    expect(presentedRows(snapshot).find((row) => row.name === "Bitcoin")?.mark).toEqual({
       kind: "symbol",
       symbol: "cbBTC",
     });

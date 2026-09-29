@@ -143,12 +143,6 @@ function investmentHoldings(snapshot: BalancesSnapshot, cash: CashSelection[]): 
   );
 }
 
-/** @public exercised by shared/balances/select.test.ts */
-export function selectAssetCount(snapshot: BalancesSnapshot): number {
-  const groups = selectMoneyGroups(snapshot);
-  return groups.cash.length + groups.investments.length;
-}
-
 export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {
   return snapshot.totals;
 }

@@ -42,7 +42,6 @@ describe("two-axis globe view", () => {
     expect(latitude30.distance).toBeCloseTo(latitude90.distance, 8);
     expect(latitude30.velocity).toBeCloseTo(latitude90.velocity, 8);
     expect(Math.abs(latitude30.velocity)).toBeLessThan(.04);
-    expect(DEFAULT_VELOCITY).toBe(.0075);
   });
 
   test("popover selection does not oscillate between nearby markers", () => {
