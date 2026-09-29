@@ -17,9 +17,33 @@ for (const type of ["feat", "fix", "test", "ops", "dx", "docs", "chore"]) {
   }
 }
 
-for (const keyword of ["Closes", "Fixes", "Resolves"]) {
-  test(`accepts ${keyword} with a positive issue number`, () => {
-    assert.deepEqual(prClosingLinkFindings(title, `## Test plan\nFailure-cases: N/A: CI-only\n${keyword} #123`), []);
+for (const subject of ["feat!: change", "fix(home)!: change"]) {
+  test(`${subject} requires a closing link or no-issue reason`, () => {
+    assert.match(prClosingLinkFindings(subject, "")[0], /must have a visible/);
+    assert.deepEqual(prClosingLinkFindings(subject, "Closes #123"), []);
+  });
+}
+
+for (const keyword of ["close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"]) {
+  test(`accepts ${keyword} case-insensitively with a positive issue number`, () => {
+    assert.deepEqual(prClosingLinkFindings(title, `## Test plan\nFailure-cases: N/A: CI-only\n${keyword.toUpperCase()} #123`), []);
+    assert.deepEqual(prClosingLinkFindings(title, `${keyword} #123`), []);
+  });
+}
+
+for (const [name, body] of [
+  ["optional colon", "Fixes: #123"],
+  ["indentation", "  closes #123"],
+  ["unordered list", "- Closes #123"],
+  ["ordered list", "1. Closes #123"],
+  ["blockquote", "> Closes #123"],
+  ["nested blockquote", "> > Closes #123"],
+  ["qualified issue", "Fixes jessepollak/home#123"],
+  ["full issue URL", "Resolves https://github.com/jessepollak/home/issues/123"],
+  ["comma-separated targets", "Closes #123, jessepollak/home#124, https://github.com/jessepollak/home/issues/125"],
+]) {
+  test(`accepts ${name}`, () => {
+    assert.deepEqual(prClosingLinkFindings(title, body), []);
   });
 }
 
@@ -31,6 +55,11 @@ test("accepts visible lines after comments and fences, including normalized newl
 for (const [name, body] of [
   ["empty body", ""],
   ["only a reference", "Refs #123"],
+  ["keyword inside prose", "This change closes #123"],
+  ["keyword inside a list item after prose", "- This change fixes #123"],
+  ["another repository", "Closes another/repo#123"],
+  ["another URL", "Closes https://github.com/another/repo/issues/123"],
+  ["invalid second target", "Closes #123, not-an-issue"],
   ["no issue number", "Closes #"],
   ["zero issue number", "Fixes #0"],
   ["trailing prose on closing line", "Resolves #123 and others"],

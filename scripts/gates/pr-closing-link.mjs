@@ -2,8 +2,12 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { visibleMarkdownLines } from "./failure-cases.mjs";
 
-const implementationTitle = /^(?:feat|fix|test|ops|dx|docs|chore)(?:\([^)]+\))?:/;
-const closingLink = /^(?:Closes|Fixes|Resolves) #[1-9]\d*[ \t]*$/;
+const implementationTitle = /^(?:feat|fix|test|ops|dx|docs|chore)(?:\([^)]+\))?!?:/;
+const issueTarget = String.raw`(?:#[1-9]\d*|jessepollak/home#[1-9]\d*|https://github\.com/jessepollak/home/issues/[1-9]\d*)`;
+const closingLink = new RegExp(
+  String.raw`^[ \t]*(?:(?:>[ \t]*)+|(?:[-*+]|\d+[.)])[ \t]+)?(?:close(?:s|d)?|fix(?:es|ed)?|resolve(?:s|d)?):?[ \t]+${issueTarget}(?:[ \t]*,[ \t]*${issueTarget})*[ \t]*$`,
+  "i",
+);
 const noIssue = /^No issue:[ \t]*\S.*$/;
 
 export function prClosingLinkFindings(title, body) {
