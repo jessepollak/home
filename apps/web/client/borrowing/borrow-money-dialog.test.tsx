@@ -220,6 +220,39 @@ describe("Borrow action result", () => {
     expect(await dialog.findByText("Borrowing 1 USDC")).toBeTruthy();
   });
 
+  test("preparing keeps the amount step with a busy Continue until the review is ready", async () => {
+    let finish!: (value: PreparedMoneyAction) => void;
+    let calls = 0;
+    const body = mount({ prepare: async () => { calls++; return new Promise((resolve) => { finish = resolve; }); } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    const continueButton = dialog.getByRole("button", { name: "Continue" });
+    fireEvent.click(continueButton);
+    expect(dialog.getByRole("heading", { name: "Borrow" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Continue" })).toBe(continueButton);
+    expect(continueButton.getAttribute("aria-busy")).toBe("true");
+    expect(dialog.getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(dialog.queryByText(/Preparing/)).toBeNull();
+    expect(dialog.queryByRole("heading", { name: "Confirm" })).toBeNull();
+    expect(dialog.getByRole("button", { name: "Close Borrow action" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(continueButton);
+    fireEvent.keyDown(dialog.getByRole("textbox", { name: "Amount" }), { key: "Enter" });
+    expect(calls).toBe(1);
+    await act(async () => finish(action));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(dialog.getByRole("heading", { name: "Confirm" })).toBeTruthy();
+  });
+
+  test("a failed prepare returns the error on the amount step", async () => {
+    const body = mount({ prepare: async () => { throw new Error("boom"); } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByRole("alert")).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
+    expect(dialog.getByRole("textbox", { name: "Amount" })).toBeTruthy();
+  });
+
   test("submitted is pending with two real stages; another owner cannot confirm it, but its own confirmed row can", async () => {
     const body = mount();
     const { dialog, confirm } = await review(body);
