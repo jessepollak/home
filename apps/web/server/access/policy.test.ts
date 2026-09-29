@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { accessErrorCode } from "@/shared/access/contract";
 import { issueAccessToken } from "./token";
 import { enforceAccess } from "./policy";
 
@@ -75,7 +76,9 @@ describe("deployment access policy", () => {
       const response = enforceAccess(request(path, { method }), enabled, now)!;
       expect(response.status).toBe(401);
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      const parsed = response.clone();
       expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_REQUIRED" } });
+      expect(accessErrorCode(await parsed.json())).toBe("ACCESS_REQUIRED");
     }
   });
 
@@ -85,7 +88,9 @@ describe("deployment access policy", () => {
     const response = enforceAccess(request("/api/session"), { kind: "misconfigured" }, now)!;
     expect(response.status).toBe(503);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    const parsed = response.clone();
     expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_UNAVAILABLE" } });
+    expect(accessErrorCode(await parsed.json())).toBe("ACCESS_UNAVAILABLE");
   });
 
   test("allows a valid independent access cookie and makes the response private", () => {

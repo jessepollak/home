@@ -7,6 +7,7 @@ import {
   ACCESS_CONTRACT_VERSION,
   ACCESS_COOKIE_NAME,
   parseSafeAccessDestination,
+  type AccessError,
   type AccessErrorCode,
 } from "@/shared/access/contract";
 
@@ -47,8 +48,9 @@ function withReferrerPolicy(response: NextResponse): NextResponse {
 }
 
 function errorResponse(code: AccessErrorCode, status: 401 | 503): NextResponse {
+  const payload: AccessError = { version: ACCESS_CONTRACT_VERSION, error: { code } };
   return withReferrerPolicy(privateHeaders(NextResponse.json(
-    { version: ACCESS_CONTRACT_VERSION, error: { code } },
+    payload,
     { status },
   )));
 }

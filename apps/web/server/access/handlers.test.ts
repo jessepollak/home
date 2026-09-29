@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { accessErrorCode, accessSuccessDestination } from "@/shared/access/contract";
 import { createAccessLoginHandler, createAccessLogoutHandler } from "./handlers";
 
 const CREDENTIAL = "a".repeat(8);
@@ -57,6 +58,32 @@ describe("access login", () => {
       version: 1,
       destination: "/save?asset=usdc",
     });
+  });
+
+  test("JSON login responses round-trip through the client contract", async () => {
+    const success = await handle(request(body(CREDENTIAL, "/save?asset=usdc"), {
+      "x-home-access-response": "json",
+    }));
+    expect(success.status).toBe(200);
+    expect(accessSuccessDestination(await success.json())).toBe("/save?asset=usdc");
+
+    const invalid = await handle(request(body("wrong")));
+    expect(invalid.status).toBe(401);
+    expect(accessErrorCode(await invalid.json())).toBe("INVALID_ACCESS");
+
+    const unavailable = createAccessLoginHandler({ getConfig: () => ({ kind: "misconfigured" }) });
+    const outage = await unavailable(request(body(CREDENTIAL)));
+    expect(outage.status).toBe(503);
+    expect(accessErrorCode(await outage.json())).toBe("ACCESS_UNAVAILABLE");
+  });
+
+  test("rejects an extra form field without setting a cookie", async () => {
+    const form = new URLSearchParams(body(CREDENTIAL));
+    form.append("unexpected", "value");
+    const response = await handle(request(form.toString()));
+    expect(response.status).toBe(401);
+    expect(response.headers.has("set-cookie")).toBe(false);
+    expect(await response.json()).toEqual({ version: 1, error: { code: "INVALID_ACCESS" } });
   });
 
   test("returns generic bounded failures with no cookie", async () => {
