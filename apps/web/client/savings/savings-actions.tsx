@@ -120,6 +120,7 @@ function OwnerBoundSavingsJourney({
   const [attemptedAction, setAttemptedAction] = useState(false);
   const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
   const [step, setStep] = useState<DialogStep>("amount");
+  const [preparing, setPreparing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsId = useId();
   const managementFocusRef = useRef<HTMLElement>(null);
@@ -140,6 +141,7 @@ function OwnerBoundSavingsJourney({
     setSubmittedAt(undefined);
     setError(null);
     setStep("amount");
+    setPreparing(false);
   }
   useLayoutEffect(() => {
     preparation.current += 1;
@@ -176,6 +178,10 @@ function OwnerBoundSavingsJourney({
   const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
 
   function changeAmount(value: string) {
+    if (preparing) {
+      preparation.current += 1;
+      setPreparing(false);
+    }
     setAmount(value);
   }
 
@@ -189,6 +195,7 @@ function OwnerBoundSavingsJourney({
     setSubmission(null);
     setSubmittedAt(undefined);
     setStep("amount");
+    setPreparing(false);
     setError(null);
   }
 
@@ -225,7 +232,7 @@ function OwnerBoundSavingsJourney({
   }
 
   async function continueFromAmount() {
-    if (!mode || !candidate) return;
+    if (!mode || !candidate || preparing) return;
     const generation = ++preparation.current;
     try {
       if (!assetRouteConfigured) {
@@ -243,7 +250,7 @@ function OwnerBoundSavingsJourney({
       const preparationIdentity = ownerIdentity;
       setAmountBaseUnits(nextAmount);
       setError(null);
-      setStep("pending");
+      setPreparing(true);
       const action = await prepareMoneyAction(mode === "withdraw" ? "savings-withdraw" : "savings-deposit", {
         kind: mode,
         vaultAddress: candidate.vaultAddress,
@@ -269,11 +276,13 @@ function OwnerBoundSavingsJourney({
       setPreparedAction(action);
       setAttemptedAction(false);
       setServerExpiredActionId(null);
+      setPreparing(false);
       setStep("confirm");
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a stale preparation fenced by a newer journey generation has no state to report
       if (generation !== preparation.current) return;
       setPreparedAction(null);
       setError(messageForPrepareError(caught));
+      setPreparing(false);
       setStep("amount");
     }
   }
@@ -355,7 +364,7 @@ function OwnerBoundSavingsJourney({
         open={open}
         immediate={motion === "reduced"}
         labelledBy={titleId}
-        pending={step === "pending"}
+        pending={step === "pending" || preparing}
         onCancel={onClose}
         onClose={() => {
           reset();
@@ -380,7 +389,7 @@ function OwnerBoundSavingsJourney({
           closeLabel={`Close ${mode} dialog`}
         />
 
-        <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
+        <MoneyModalBody hasFooter className="gap-4 pt-4">
           {step === "amount" ? (
             <>
               <MoneyAmountDisplay
@@ -444,6 +453,7 @@ function OwnerBoundSavingsJourney({
           <MoneyModalFooter
             primaryLabel="Continue"
             primaryDisabled={!canContinue}
+            primaryLoading={preparing}
             onPrimary={() => void continueFromAmount()}
           />
         ) : null}
