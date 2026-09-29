@@ -215,6 +215,11 @@ export type ObservabilityEvent =
       durationMs?: number;
     }
   | {
+      kind: "balances-contract";
+      route: "/api/balances";
+      reason: "invalid-snapshot";
+    }
+  | {
       kind: "balances-read";
       route: "/api/balances";
       outcome: BalancesReadOutcome;
@@ -372,6 +377,12 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         reason: PortfolioBalanceSourceReason;
         pageCount: number;
         durationMs: number;
+      }
+    | {
+        level: "error";
+        kind: "balances-contract";
+        code: "BALANCES_CONTRACT";
+        reason: "invalid-snapshot";
       }
     | {
         level: "error" | "info";
@@ -689,6 +700,16 @@ export function normalizeObservabilityEvent(
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
+    };
+  }
+
+  if (event.kind === "balances-contract") {
+    return {
+      ...base,
+      level: "error",
+      kind: event.kind,
+      code: "BALANCES_CONTRACT",
+      reason: "invalid-snapshot",
     };
   }
 

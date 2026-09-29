@@ -5,6 +5,7 @@ import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authoriz
 import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import { privateError, privateJson } from "@/server/http/private-response";
+import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import type {
   BalancesAddress,
   BalancesSnapshot,
@@ -43,17 +44,42 @@ export function createBalancesHandler(dependencies: {
       fireAndForgetSubscription(() => dependencies.ensureAddressSubscribed?.(address));
     }
 
+    let snapshot: BalancesSnapshot;
     try {
-      const snapshot = await dependencies.readBalances(
+      snapshot = await dependencies.readBalances(
         address,
         region,
         request.signal,
       );
-      return privateJson(snapshot, 200);
     } catch {
-      emitReadFailure(log);
+      emitFailure(log, {
+        kind: "portfolio-balance-source",
+        route: "/api/balances",
+        source: "configured-base-rpc",
+        stage: "inventory",
+        outcome: "unavailable",
+        reason: "read-failed",
+      });
       return privateError("BALANCES_UNAVAILABLE", "Balances are temporarily unavailable.", 502);
     }
+
+    let parsed: BalancesSnapshot;
+    try {
+      parsed = parseBalancesSnapshot(snapshot, {
+        subject: session.user.subject,
+        smartAccountAddress: address,
+        chainId: session.smartAccount.chainId,
+      }, region);
+    } catch {
+      emitFailure(log, {
+        kind: "balances-contract",
+        route: "/api/balances",
+        reason: "invalid-snapshot",
+      });
+      return privateError("BALANCES_UNAVAILABLE", "Balances are temporarily unavailable.", 502);
+    }
+
+    return privateJson(parsed, 200);
   };
 }
 
@@ -62,18 +88,12 @@ function readRegion(request: Request): RegionId | null {
   return values.length === 1 && isRegionId(values[0]) ? values[0] : null;
 }
 
-function emitReadFailure(
+function emitFailure(
   log: (event: ObservabilityEvent) => unknown,
+  event: ObservabilityEvent,
 ): void {
   try {
-    log({
-      kind: "portfolio-balance-source",
-      route: "/api/balances",
-      source: "configured-base-rpc",
-      stage: "inventory",
-      outcome: "unavailable",
-      reason: "read-failed",
-    });
+    log(event);
   } catch { // oxlint-disable-line home/no-silent-catch -- the balances error-path log sink is isolated so observability cannot change the error response
   }
 }
