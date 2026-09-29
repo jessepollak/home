@@ -106,7 +106,7 @@ export function useCards({ ownerKey, fetchAccountResource }: {
     },
     setFrozen: (cardId, frozen) => confirmedWrite(async () => {
       const response = parseCardWriteResponse(await fetchAccountResource(
-        `/api/cards/${encodeURIComponent(cardId)}/${frozen ? "freeze" : "unfreeze"}`, { method: "POST", body: {} },
+        frozen ? `/api/cards/${encodeURIComponent(cardId)}/freeze` : `/api/cards/${encodeURIComponent(cardId)}/unfreeze`, { method: "POST", body: {} },
       ));
       if (!response || response.card.id !== cardId) throw new Error("Invalid card response");
     }, (read) => read.cards.find((card) => card.id === cardId)?.status === (frozen ? "frozen" : "active")),
