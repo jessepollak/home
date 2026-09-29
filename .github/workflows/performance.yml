@@ -18,7 +18,7 @@ jobs:
     if: github.event_name != 'pull_request' || (contains(github.event.pull_request.labels.*.name, 'perf') && (github.event.action != 'labeled' || github.event.label.name == 'perf'))
     runs-on: ubuntu-24.04
     concurrency:
-      group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+      group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     timeout-minutes: 45
     permissions:
