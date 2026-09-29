@@ -64,7 +64,7 @@ describe("Home interaction recorder", () => {
     expect(value.sent).toEqual([]);
     value.at(27); value.idle();
     expect(value.sent).toEqual([{ version: 1, kind: "home-navigation", route: "/cash",
-      from: "/home", trigger: "in-app", cache: "first-visit", device: "mobile-low", engine: "webkit", durationMs: 30 }]);
+      from: "/home", trigger: "in-app", cache: "first-visit", device: "mobile-low", engine: "webkit", durationMs: 30, cachePersistMs: 0 }]);
     value.recorder.beginNavigation({ ...navigation, from: "/cash" });
     expect(value.frames.size).toBe(0);
     expect(value.draws).toBe(1);
@@ -78,6 +78,71 @@ describe("Home interaction recorder", () => {
     value.recorder.commitNavigation("/borrow");
     value.frame(); value.hide(); value.idle();
     expect(value.sent).toEqual([]);
+  });
+  test("separates queued input, navigation paint, and overlapping cache writes", () => {
+    const value = fixture();
+    value.at(800);
+    value.recorder.notePersistence(50, 650);
+    value.recorder.notePersistence(10, 20);
+    value.recorder.noteInput(100);
+    value.at(820);
+    value.recorder.beginNavigation({ ...navigation, to: "/investments" });
+    value.recorder.noteContent("/cash", "loading");
+    value.recorder.noteContent("/investments", "ready");
+    value.recorder.commitNavigation("/investments");
+    value.at(850); value.frame();
+    value.at(860); value.idle();
+    expect(value.sent).toEqual([{ version: 1, kind: "home-navigation", route: "/investments",
+      from: "/home", trigger: "in-app", cache: "first-visit", device: "mobile-low", engine: "webkit",
+      durationMs: 40, dispatchDelayMs: 700, inputToPaintMs: 760, cachePersistMs: 600, contentState: "ready" }]);
+  });
+  test("normalizes epoch event timestamps and reports a loading destination honestly", () => {
+    const value = fixture();
+    value.at(500);
+    value.recorder.noteInput(1_000_100, 1_000_000);
+    value.recorder.beginNavigation(navigation);
+    value.recorder.noteContent("/cash", "loading");
+    value.recorder.commitNavigation("/cash"); value.frame(); value.idle();
+    expect(value.sent[0]).toMatchObject({ dispatchDelayMs: 400, inputToPaintMs: 400, contentState: "loading" });
+  });
+  test("does not attach an expired click to a later programmatic navigation", () => {
+    const value = fixture();
+    value.at(100); value.recorder.noteInput(50); value.idle();
+    value.recorder.beginNavigation(navigation);
+    value.recorder.commitNavigation("/cash"); value.frame(); value.idle();
+    expect(value.sent[0]).not.toHaveProperty("dispatchDelayMs");
+  });
+  test("history navigation does not inherit click timing", () => {
+    const value = fixture();
+    value.at(100); value.recorder.noteInput(50);
+    value.recorder.beginNavigation({ ...navigation, trigger: "history" });
+    value.recorder.commitNavigation("/cash"); value.frame(); value.idle();
+    expect(value.sent[0]).not.toHaveProperty("inputToPaintMs");
+  });
+  test("invalid input clocks do not fabricate dispatch delay", () => {
+    for (const timestamp of [NaN, Infinity, -1, 0, 101, -100_000]) {
+      const value = fixture();
+      value.at(100); value.recorder.noteInput(timestamp);
+      value.recorder.beginNavigation(navigation);
+      value.recorder.commitNavigation("/cash"); value.frame(); value.idle();
+      expect(value.sent[0]).not.toHaveProperty("dispatchDelayMs");
+    }
+  });
+  test("unsampled inputs and cache writes schedule no telemetry work", () => {
+    const value = fixture({ sampleRate: 0 });
+    value.at(100); value.recorder.noteInput(10); value.recorder.notePersistence(10, 80);
+    expect(value.timers.size).toBe(0);
+    expect(value.frames.size).toBe(0);
+    expect(value.sent).toEqual([]);
+  });
+  test("hidden pages discard previous input and cache attribution", () => {
+    const value = fixture();
+    value.at(500); value.recorder.noteInput(100); value.recorder.notePersistence(100, 300);
+    value.hide(); value.show();
+    value.recorder.beginNavigation(navigation);
+    value.recorder.commitNavigation("/cash"); value.frame(); value.idle();
+    expect(value.sent[0]).toMatchObject({ cachePersistMs: 0 });
+    expect(value.sent[0]).not.toHaveProperty("dispatchDelayMs");
   });
   test("hiding during pending navigation cancels both paint and delivery even after resuming", () => {
     for (const afterPaint of [false, true]) {

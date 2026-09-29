@@ -26,6 +26,8 @@ import type {
   Holding,
 } from "./types";
 
+const rowNameCollator = new Intl.Collator("en", { sensitivity: "base" });
+
 export type BalanceRowModel = {
   key: string;
   group: "cash" | "asset";
@@ -392,7 +394,7 @@ function scaledAtoms(value: ExactDecimal, scale: number): bigint {
   return BigInt(value.atoms) * BigInt(10) ** BigInt(scale - value.scale);
 }
 
-function assetMark(holding: Holding): BalanceRowModel["mark"] {
+export function presentHoldingMark(holding: Holding): BalanceRowModel["mark"] {
   return holding.imageUrl
     ? { kind: "image", url: holding.imageUrl, fallbackSymbol: holding.symbol }
     : holding.kind === "native"
@@ -453,14 +455,14 @@ function presentAsset(holding: Holding, snapshot: BalancesSnapshot): BalanceRowM
       key: holding.key,
       group: "asset",
       name: holding.name.trim() || holding.symbol.trim(),
-      mark: assetMark(holding),
+      mark: presentHoldingMark(holding),
       primary: "Unavailable",
       secondary: null,
       tone: "error",
     };
   }
   const quantity = tokenQuantity(holding, snapshot);
-  const mark = assetMark(holding);
+  const mark = presentHoldingMark(holding);
   if (holding.value.status === "priced") {
     return {
       key: holding.key,
@@ -552,5 +554,9 @@ function isAtLeastOneCent(value: ExactDecimal): boolean {
 }
 
 function compareRows(left: BalanceRowModel, right: BalanceRowModel): number {
-  return left.name.localeCompare(right.name, "en", { sensitivity: "base" });
+  return rowNameCollator.compare(left.name, right.name);
+}
+
+export function presentInvestmentTotal(snapshot: BalancesSnapshot): HomeSummaryAmount {
+  return summaryAmount(selectBalanceTotals(snapshot).investments, snapshot.region);
 }

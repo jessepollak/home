@@ -14,6 +14,8 @@ import type {
 
 export type SendableBalance = TransferAsset & { balanceBaseUnits: string; imageUrl?: string };
 
+const holdingNameCollator = new Intl.Collator("en", { sensitivity: "base" });
+
 export type CashSelection =
   | { kind: "holding"; holding: Holding }
   | {
@@ -181,5 +183,5 @@ function compareExactDecimals(left: ExactDecimal, right: ExactDecimal): number {
 }
 
 function compareHoldingNames(left: Holding, right: Holding): number {
-  return left.name.localeCompare(right.name, "en", { sensitivity: "base" });
+  return holdingNameCollator.compare(left.name, right.name);
 }

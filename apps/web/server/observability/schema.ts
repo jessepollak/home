@@ -293,6 +293,10 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         engine?: HomeNavigationReport["engine"];
         deployment: string;
         durationMs: number;
+        dispatchDelayMs?: number;
+        inputToPaintMs?: number;
+        cachePersistMs?: number;
+        contentState?: HomeNavigationReport["contentState"];
       }
     | {
         level: "info";
@@ -419,6 +423,11 @@ export type ObservabilityLogLine = ObservabilityLogBase &
       }
   );
 
+function sanitizeDeployment(value: unknown): string {
+  if (typeof value !== "string") return "unknown";
+  return /^dpl_[A-Za-z0-9]{1,60}$/.test(value) ? value : sanitizeIdentifier(value, "unknown");
+}
+
 function sanitizeMethod(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const method = value.trim().toUpperCase();
@@ -472,9 +481,15 @@ export function normalizeObservabilityEvent(
       cache: event.cache,
       device: event.device,
       ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
-      deployment: typeof event.deployment === "string"
-        ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
+      deployment: sanitizeDeployment(event.deployment),
       durationMs: boundedInteger(event.durationMs, 10_000),
+      ...(event.dispatchDelayMs === undefined || event.inputToPaintMs === undefined ? {} : {
+        dispatchDelayMs: boundedInteger(event.dispatchDelayMs, 30_000),
+        inputToPaintMs: boundedInteger(event.inputToPaintMs, 30_000),
+      }),
+      ...(event.cachePersistMs === undefined ? {} : { cachePersistMs: boundedInteger(event.cachePersistMs, 30_000) }),
+      ...(event.contentState === "ready" || event.contentState === "loading" || event.contentState === "unavailable"
+        ? { contentState: event.contentState } : {}),
     };
   }
 
@@ -490,8 +505,7 @@ export function normalizeObservabilityEvent(
       cache: event.cache,
       device: event.device,
       ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
-      deployment: typeof event.deployment === "string"
-        ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
+      deployment: sanitizeDeployment(event.deployment),
       durationMs: boundedInteger(event.durationMs, 30_000),
       frameCount,
       slowFrameCount: Math.min(frameCount, boundedInteger(event.slowFrameCount, 10_000)),

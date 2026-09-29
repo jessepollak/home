@@ -155,6 +155,8 @@ Each query scope keeps its audience, persistence, stale time, and `mutatedByActi
 
 ## Quality bar
 
+Owner-cache persistence subscribes only to relevant owner query changes, not observer notifications or fetch-only state. It coalesces before building the snapshot, so a burst traverses and serializes the latest cache once rather than dehydrating on every notification. The existing full-snapshot and seven-day retention policies are unchanged. Owner boundary clearing synchronously cancels affected pending writes and pauses subscriptions while removing cache/storage; they resume afterward so same-owner revalidation remains persistent. Detached-query events cannot schedule writes; preserved-owner subscriptions keep their pending work. Storage/diagnostic failure remains best effort, never a rendering or authorization failure. Cross-tab behavior is unchanged: each owner storage key remains last-writer-wins.
+
 Marks: `shell:paint`, `session:verified`, `balances:painted` (fires on `ready` only), `action:first-interactive`; CI budgets `balances:painted`. Product-phase reporting and known undercount behavior are documented in [performance observability](performance-observability.md). Playwright smoke runs on every preview against a fixture provider. Each subsystem doc lists its unverified assumptions; each is verified once on preview and struck there. Frame budget: never `setState` per pointer move or price tick. UI direction ([AGENTS.md](../AGENTS.md)): direct and minimal; one row component and one formatting module; actionable review facts on confirm screens only; disclosures live under Account.
 
 ## Fork and contribution contract
