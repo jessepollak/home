@@ -2,6 +2,7 @@ import "./dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, render, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import type { VerifiedAccountSession } from "./session-client";
 import { jsonResponse } from "@/tests/helpers/http";
 // composite-account-provider.test.tsx replaces ./native-base-bridge process-wide; the query suffix loads the real module.
@@ -86,5 +87,46 @@ describe("native Base identity restore", () => {
 
     await waitFor(() => expect(sessionReads).toEqual(["/api/session"]));
     expect(result.current.identity).toBeNull();
+  });
+
+  test("ignores an aborted StrictMode restore after the live mount settles", async () => {
+    const pending: Array<{ signal: AbortSignal | undefined; resolve: (response: Response) => void }> = [];
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve) => {
+      pending.push({ signal: init?.signal ?? undefined, resolve });
+    })) as typeof fetch;
+
+    const { result } = renderHook(() => useNativeBaseIdentity(true), { wrapper: StrictMode });
+    expect(pending).toHaveLength(2);
+    expect(pending[0]!.signal?.aborted).toBe(true);
+    expect(pending[1]!.signal?.aborted).toBe(false);
+
+    await act(async () => {
+      pending[1]!.resolve(jsonResponse({ ...SEED_SESSION, accountProvider: "base-account" }));
+    });
+    await waitFor(() => expect(result.current.isSettled).toBe(true));
+    expect(result.current.identity?.user.subject).toBe(SEED_SESSION.user.subject);
+
+    await act(async () => { pending[0]!.resolve(jsonResponse({ error: { code: "UNAUTHENTICATED" } }, 401)); });
+    expect(result.current.identity?.user.subject).toBe(SEED_SESSION.user.subject);
+  });
+
+  test("retry leaves restoring visible until its request settles", async () => {
+    stubSessionEndpoint(() => jsonResponse({ error: { code: "UNAVAILABLE" } }, 503));
+    const { result } = renderHook(() => useNativeBaseIdentity(true));
+    await waitFor(() => expect(result.current.initializationError).toBe("provider-unavailable"));
+
+    let resolveRetry!: (response: Response) => void;
+    globalThis.fetch = ((_input: RequestInfo | URL) => new Promise<Response>((resolve) => { resolveRetry = resolve; })) as typeof fetch;
+    let retry!: Promise<void>;
+    act(() => { retry = result.current.restore(); });
+    expect(result.current.isSettled).toBe(false);
+    expect(result.current.initializationError).toBeUndefined();
+
+    await act(async () => {
+      resolveRetry(jsonResponse({ ...SEED_SESSION, accountProvider: "base-account" }));
+      await retry;
+    });
+    expect(result.current.isSettled).toBe(true);
+    expect(result.current.identity?.user.subject).toBe(SEED_SESSION.user.subject);
   });
 });

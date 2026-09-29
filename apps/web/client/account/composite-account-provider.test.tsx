@@ -1,7 +1,7 @@
 import "./dom-test-harness";
 
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { useEffect, useSyncExternalStore, type ReactNode } from "react";
+import { StrictMode, useEffect, useSyncExternalStore, type ReactNode } from "react";
 import { renderToString } from "react-dom/server";
 import type { AccountWalletClient } from "./cdp-client";
 import type { AccountProviderTiming } from "./composite-account-provider";
@@ -367,6 +367,27 @@ describe("composite account provider switches", () => {
     expect(withHint).toBe(withoutHint);
     expect(withHint).toContain("child");
     expect(cdpProviderMounts).toBe(0);
+  });
+
+  test("captures the restore hint once per mount across StrictMode effect replay", async () => {
+    await import("./cdp-sdk-provider");
+    const content = () => (
+      <StrictMode>
+        <CompositeAccountProvider projectId="project-id" baseAccountEnabled>
+          <ClientProbe />
+        </CompositeAccountProvider>
+      </StrictMode>
+    );
+    const view = render(content());
+    expect(cdpProviderMounts).toBe(0);
+
+    writeCdpRestoreMarker();
+    view.rerender(content());
+    expect(cdpProviderMounts).toBe(0);
+
+    view.unmount();
+    render(content());
+    await waitFor(() => expect(cdpProviderMounts).toBe(1));
   });
 
   test("settles natively with no hint and deduplicates on-demand CDP activation", async () => {

@@ -121,6 +121,42 @@ export function InvestExperience({
   const [editedQuery, setQuery] = useState<string | null>(null);
   const query = editedQuery ?? savedQuery;
   const [composing, setComposing] = useState(false);
+  const [appliedPopRevision, setAppliedPopRevision] = useState(routing?.popRevision ?? 0);
+  const [inAppChildDepth, setInAppChildDepth] = useState(0);
+  const [appliedRootRevision, setAppliedRootRevision] = useState(routing?.rootRequest?.revision ?? 0);
+  if (routing?.rootRequest && appliedRootRevision !== routing.rootRequest.revision) {
+    setAppliedRootRevision(routing.rootRequest.revision);
+    if (routing.rootRequest.panel === "invest") {
+      setView({ screen: "hub" });
+      setQuery("");
+      setInAppChildDepth(0);
+    }
+  }
+  if (routing && appliedPopRevision !== routing.popRevision) {
+    setAppliedPopRevision(routing.popRevision);
+    if (routing.state.location.panel === "invest") {
+      setQuery(historySearchState().query);
+      setView((previous) => {
+        const next = investViewFromLocation(routing.state.location);
+        if (next.screen === "detail") {
+          const state: unknown = window.history.state;
+          const from = state && typeof state === "object"
+            ? (state as Record<string, unknown>)[investDetailFromStateKey]
+            : null;
+          if (from === "hub") return next;
+          if (typeof from === "string") {
+            const shelf = getDiscoverShelf(from);
+            if (shelf) return { ...next, from: shelf.id };
+          }
+          if (previous.screen === "category" && !routing.state.location.shelf) {
+            return { ...next, from: previous.shelfId };
+          }
+        }
+        return next;
+      });
+      setInAppChildDepth((depth) => Math.max(0, depth - 1));
+    }
+  }
   const search = useInvestSearch(query, composing);
   const visibleSearch = {
     ...search,
@@ -146,16 +182,6 @@ export function InvestExperience({
     ...search.results.map((result) => result.asset),
     ...(resolvedDetail ? [resolvedDetail] : []),
   ];
-  const [inAppChildDepth, setInAppChildDepth] = useState(0);
-  const [appliedRootRevision, setAppliedRootRevision] = useState(routing?.rootRequest?.revision ?? 0);
-  if (routing?.rootRequest && appliedRootRevision !== routing.rootRequest.revision) {
-    setAppliedRootRevision(routing.rootRequest.revision);
-    if (routing.rootRequest.panel === "invest") {
-      setView({ screen: "hub" });
-      setQuery("");
-      setInAppChildDepth(0);
-    }
-  }
   const hostRef = useRef<HTMLDivElement>(null);
   const currentViewKey = viewKey(displayView);
   const markets = { stockMarket, memeMarket, cryptoMarket };
@@ -177,38 +203,6 @@ export function InvestExperience({
       else window.scrollTo(0, scrollTop);
     } else resetHostScroll(hostRef.current);
   }, [currentViewKey, displayView.screen]);
-
-  const appliedPopRevisionRef = useRef(routing?.popRevision ?? 0);
-  useEffect(() => {
-    if (!routing || appliedPopRevisionRef.current === routing.popRevision) return;
-    appliedPopRevisionRef.current = routing.popRevision;
-    if (routing.state.location.panel !== "invest") return;
-    let active = true;
-    queueMicrotask(() => {
-      if (!active) return;
-      setQuery(historySearchState().query);
-      setView((previous) => {
-        const next = investViewFromLocation(routing.state.location);
-        if (next.screen === "detail") {
-          const state: unknown = window.history.state;
-          const from = state && typeof state === "object"
-            ? (state as Record<string, unknown>)[investDetailFromStateKey]
-            : null;
-          if (from === "hub") return next;
-          if (typeof from === "string") {
-            const shelf = getDiscoverShelf(from);
-            if (shelf) return { ...next, from: shelf.id };
-          }
-          if (previous.screen === "category" && !routing.state.location.shelf) {
-            return { ...next, from: previous.shelfId };
-          }
-        }
-        return next;
-      });
-      setInAppChildDepth((depth) => Math.max(0, depth - 1));
-    });
-    return () => { active = false; };
-  }, [routing]);
 
   const lastRoutingRef = useRef({ panel: routing?.state.panel ?? null, popRevision: routing?.popRevision ?? 0 });
   useEffect(() => {
