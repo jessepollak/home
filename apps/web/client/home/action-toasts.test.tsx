@@ -87,6 +87,19 @@ function mount(initial: unknown[] = []) {
 }
 
 describe("action toast owner fence", () => {
+  test("describes a card allowance without inventing a sent amount", async () => {
+    const change = { ...row, kind: "card-allowance", summary: { ...row.summary, amounts: [],
+      metadata: { product: "card", operation: "revoke-allowance", provider: "bridge", mode: "production",
+        token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+        allowanceBaseUnits: "0", previousAllowanceBaseUnits: "25000000", maximumBaseUnits: null, source: { blockNumber: "100" } } } };
+    const { key, view, update } = mount();
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([change]);
+    await waitFor(() => expect(view.getByText("Removing card spending permission")).toBeTruthy());
+    update([{ ...change, status: "confirmed" }]);
+    await waitFor(() => expect(view.getByText("Card spending permission removed")).toBeTruthy());
+    expect(view.queryByText(/\$25\.00/)).toBeNull();
+  });
   test("shows new pending and confirmed send once after the first snapshot", async () => {
     const next = { ...row, id: "22222222-2222-4222-8222-222222222222" };
     const { key, view, update } = mount([row]);

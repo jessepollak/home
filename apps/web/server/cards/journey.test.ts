@@ -32,6 +32,33 @@ describe("card state precedence and availability", () => {
     expect(result.state).toBe("not-enrolled");
     expect(calls).toBe(0);
   });
+  test("an aborted eligibility state read does not issue subsequent Stripe reads", async () => {
+    const controller = new AbortController();
+    const observed: string[] = [];
+    await expect(readCardState("owner", "production", { ...deps(),
+      bridge: { readCustomer: async (_id, signal) => {
+        expect(signal).toBe(controller.signal);
+        observed.push("bridge");
+        controller.abort();
+        return bridge;
+      } },
+      stripe: { readCardholder: async () => { observed.push("holder"); return { id: "ich_123", status: "active" }; },
+        readCard: async () => { observed.push("card"); return card; } },
+    }, controller.signal)).rejects.toThrow();
+    expect(observed).toEqual(["bridge"]);
+  });
+  test("forwards the eligibility signal to account, Bridge, cardholder, and card reads", async () => {
+    const signal = new AbortController().signal;
+    const observed: Array<{ kind: string; signal?: AbortSignal }> = [];
+    const result = await readCardState("owner", "production", {
+      store: { read: async (_id, _mode, received) => { observed.push({ kind: "account", signal: received }); return account; } },
+      bridge: { readCustomer: async (_id, received) => { observed.push({ kind: "bridge", signal: received }); return bridge; } },
+      stripe: { readCardholder: async (_id, received) => { observed.push({ kind: "holder", signal: received }); return { id: "ich_123", status: "active" }; },
+        readCard: async (_id, received) => { observed.push({ kind: "card", signal: received }); return card; } },
+    }, signal);
+    expect(result.state).toBe("active");
+    expect(observed).toEqual(["account", "bridge", "holder", "card"].map((kind) => ({ kind, signal })));
+  });
   test("a replacement card is active while its canceled predecessor is ignored", async () => {
     const replaced = { ...account, cards: [{ id: "old", stripeCardId: "ic_old", walletAddress: account.cards[0]!.walletAddress }, account.cards[0]!] };
     const both = deps({ account: replaced });

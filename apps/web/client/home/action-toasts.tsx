@@ -11,6 +11,7 @@ import { cashoutMoney, outranksCashoutWithdraw, presentCashout } from "@/client/
 import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { parseTradeMetadata } from "@/shared/trading/review";
+import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
 import { actionFailureEvent } from "./action-toast-events";
 import { fetchRecentActions, recentActionsQueryOptions } from "@/client/actions/recent-actions-query";
 
@@ -22,7 +23,8 @@ type ToastAction = {
   cashout?: CashoutProgress;
   depositId?: string;
   summary: {
-    metadata?: { product: "borrow"; operation: string } | { product: "trade"; direction: "buy" | "sell"; assetName: string };
+    metadata?: { product: "borrow"; operation: string } | { product: "trade"; direction: "buy" | "sell"; assetName: string } |
+      { product: "card"; operation: "set-allowance" | "revoke-allowance" };
     amounts: Array<{
       symbol: string;
       decimals: number;
@@ -166,6 +168,8 @@ function parseToastActions(value: unknown): ToastAction[] {
     });
     const metadata = isRecord(item.summary.metadata) ? item.summary.metadata : null;
     const trade = metadata?.product === "trade" ? parseTradeMetadata(metadata) : null;
+    const card = item.kind === "card-allowance" ? parseCardAllowanceMetadata(metadata) : null;
+    if (item.kind === "card-allowance" && (!card || amounts.length !== 0)) return [];
     const cashout = item.kind === "cash-out" ? readCashoutProgress(item.cashout) : null;
     return [{
       id: item.id,
@@ -175,6 +179,7 @@ function parseToastActions(value: unknown): ToastAction[] {
       ...(metadata?.product === "cashout" && metadata.operation === "withdraw" && typeof metadata.depositId === "string"
         ? { depositId: metadata.depositId } : {}),
       summary: {
+        ...(card ? { metadata: { product: "card" as const, operation: card.operation } } : {}),
         ...(metadata?.product === "borrow" && typeof metadata.operation === "string"
           ? { metadata: { product: "borrow" as const, operation: metadata.operation } }
           : trade
@@ -189,6 +194,10 @@ function parseToastActions(value: unknown): ToastAction[] {
 
 function actionToastMessage(action: ToastAction, status: "pending" | "confirmed"): string | null {
   const metadata = action.summary.metadata;
+  if (action.kind === "card-allowance" && metadata?.product === "card") {
+    if (metadata.operation === "set-allowance") return status === "pending" ? "Setting card spending limit" : "Card spending limit set";
+    return status === "pending" ? "Removing card spending permission" : "Card spending permission removed";
+  }
   const trade = action.kind === "trade" && metadata?.product === "trade" ? metadata : null;
   if (trade) {
     const spend = action.summary.amounts.find((amount) => amount.direction === "spend" && !amount.estimated && !amount.maximum);
@@ -245,6 +254,7 @@ function operationKind(kind: string, borrowOperation?: string): "send" | "deposi
 function failedVerb(kind: string): string {
   switch (kind) {
     case "send": return "Send";
+    case "card-allowance": return "Card spending limit";
     case "savings-deposit": return "Deposit";
     case "savings-withdraw": return "Withdrawal";
     case "cash-out": return "Cash-out";

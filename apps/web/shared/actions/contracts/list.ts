@@ -12,6 +12,7 @@ import {
 import { isSavingsMetadata } from "@/shared/savings/review";
 import { parseCashoutQuote } from "@/shared/funding/cash-out-quote";
 import { parseTradeMetadata } from "@/shared/trading/review";
+import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
 
 export type ActionListItem = {
   id: string;
@@ -96,6 +97,8 @@ function isCompleteRecentActionItem(item: unknown): item is CompleteRecentAction
   if (!Array.isArray(summary.amounts) || !summary.amounts.every((amount) => isMoneyActionAmount(amount, maxDecimals)) ||
     !Array.isArray(summary.warnings) || !summary.warnings.every((warning) => typeof warning === "string")) return false;
   if ("cashout" in item && item.kind !== "cash-out") return false;
+  if (item.kind === "card-allowance") return summary.amounts.length === 0 && parseCardAllowanceMetadata(summary.metadata) !== null;
+  if (isRecord(summary.metadata) && summary.metadata.product === "card") return false;
   const isDeposit = item.kind === "cash-out";
   const isWithdraw = item.kind === "cash-out-withdraw";
   if (!isDeposit && !isWithdraw) return true;
@@ -181,6 +184,7 @@ function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.estimateAsOf === "string" && typeof value.escrow === "string" &&
       (value.quote === undefined || (value.operation === "deposit" && parseCashoutQuote(value.quote) !== null));
   }
+  if (value.product === "card") return parseCardAllowanceMetadata(value) !== null;
   if (value.product === "savings") return isSavingsMetadata(value);
   if (value.product === "trade") return parseTradeMetadata(value) !== null;
   return value.product === "borrow" && typeof value.operation === "string" &&
