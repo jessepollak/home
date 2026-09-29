@@ -91,22 +91,33 @@ function isCompleteRecentActionItem(item: unknown): item is CompleteRecentAction
   const summary = item.summary;
   if (typeof item.id !== "string" || !isActionKind(item.kind) || !isDerivedStatus(item.status) ||
     typeof item.createdAt !== "string" || typeof item.confirmedAt !== "string" || typeof summary.title !== "string" ||
-    !Array.isArray(summary.amounts) || !Array.isArray(summary.warnings) || typeof summary.expiresAt !== "string") return false;
+    typeof summary.expiresAt !== "string") return false;
+  const maxDecimals = item.kind === "cash-out" || item.kind === "cash-out-withdraw" ? maxCashoutAmountDecimals : maxActionAmountDecimals;
+  if (!Array.isArray(summary.amounts) || !summary.amounts.every((amount) => isMoneyActionAmount(amount, maxDecimals)) ||
+    !Array.isArray(summary.warnings) || !summary.warnings.every((warning) => typeof warning === "string")) return false;
   if ("cashout" in item && item.kind !== "cash-out") return false;
   const isDeposit = item.kind === "cash-out";
   const isWithdraw = item.kind === "cash-out-withdraw";
   if (!isDeposit && !isWithdraw) return true;
   const metadata = summary.metadata;
-  if (metadata === undefined) return isDeposit && summary.amounts.every(isMoneyActionAmount);
+  if (metadata === undefined) return isDeposit;
   if (!isMoneyMetadata(metadata) || metadata.product !== "cashout" || metadata.operation !== (isWithdraw ? "withdraw" : "deposit")) return false;
-  return summary.amounts.every(isMoneyActionAmount);
+  return true;
 }
 
-function isMoneyActionAmount(value: unknown): boolean {
+const maxAtomicUnits = (BigInt(1) << BigInt(256)) - BigInt(1);
+const maxCashoutAmountDecimals = 20;
+const maxActionAmountDecimals = 255;
+
+function isMoneyActionAmount(value: unknown, maxDecimals: number): value is MoneyActionAmount {
   return isRecord(value) && typeof value.assetId === "string" && typeof value.symbol === "string" &&
-    typeof value.decimals === "number" && Number.isSafeInteger(value.decimals) && value.decimals >= 0 && value.decimals <= 20 &&
-    typeof value.amountBaseUnits === "string" && /^\d+$/.test(value.amountBaseUnits) &&
-    (value.direction === "spend" || value.direction === "receive");
+    typeof value.decimals === "number" && Number.isSafeInteger(value.decimals) && value.decimals >= 0 &&
+    value.decimals <= maxDecimals &&
+    typeof value.amountBaseUnits === "string" && /^(?:0|[1-9][0-9]*)$/.test(value.amountBaseUnits) &&
+    BigInt(value.amountBaseUnits) <= maxAtomicUnits &&
+    (value.direction === "spend" || value.direction === "receive") &&
+    (value.estimated === undefined || typeof value.estimated === "boolean") &&
+    (value.maximum === undefined || typeof value.maximum === "boolean");
 }
 
 function sameOwner(owner: Record<string, unknown>, session: VerifiedAccountSession): boolean {

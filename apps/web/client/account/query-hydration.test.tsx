@@ -6,6 +6,7 @@ import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client
 import type { VerifiedAccountSession } from "./session-client";
 import type { AccountRenderSeed } from "@/shared/account/session-types";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { TRADE_AVAILABILITY_CONTRACT_VERSION } from "@/shared/trading/contract";
 import { useBalances } from "@/client/balances/use-balances";
 import {
   createHomeQueryClient,
@@ -64,14 +65,19 @@ function sdk(
   };
 }
 
-const persistedScope = "stock-trade-eligibility" as const;
+const persistedScope = "trade-availability" as const;
 
-function persistValuation(ownerKey: string, amount: string): void {
+function persistValuation(ownerKey: string, value: string): void {
   const client = createHomeQueryClient();
-  client.setQueryDefaults(ownerQueryKey(ownerKey, persistedScope, "US"), {
+  client.setQueryDefaults(ownerQueryKey(ownerKey, persistedScope, "usdc"), {
     meta: ownerQueryMeta(ownerKey, "owner"),
   });
-  client.setQueryData(ownerQueryKey(ownerKey, persistedScope, "US"), { amount });
+  client.setQueryData(ownerQueryKey(ownerKey, persistedScope, "usdc"), {
+    version: TRADE_AVAILABILITY_CONTRACT_VERSION,
+    status: "available",
+    token: { assetId: "usdc", address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", symbol: "USDC", decimals: 6 },
+    buy: "available", balanceBaseUnits: value,
+  });
   const persister = createOwnerQueryPersister(window.localStorage, ownerKey);
   persister?.persistClient({
     timestamp: NOW,
@@ -109,7 +115,7 @@ function HydrationProbe({ fetchValuation }: { fetchValuation: () => Promise<unkn
     : null;
   const valuation = useHomeQuery({
     queryKey: ownerKey
-      ? ownerQueryKey(ownerKey, persistedScope, "US")
+      ? ownerQueryKey(ownerKey, persistedScope, "usdc")
       : ["unauthenticated", "valuation-disabled"],
     enabled: ownerKey !== null && account.verification === "server",
     staleTime: 0,
@@ -117,8 +123,8 @@ function HydrationProbe({ fetchValuation }: { fetchValuation: () => Promise<unkn
     queryFn: fetchValuation,
   });
   const amount = valuation.data && typeof valuation.data === "object" &&
-    "amount" in valuation.data && typeof valuation.data.amount === "string"
-    ? valuation.data.amount
+    "balanceBaseUnits" in valuation.data && typeof valuation.data.balanceBaseUnits === "string"
+    ? valuation.data.balanceBaseUnits
     : "none";
   return <output data-testid="valuation">{amount}</output>;
 }
@@ -250,7 +256,7 @@ describe("owner query hydration lifecycle", () => {
         renderSeed={{ session: seededSession, source: "cdp-hint" }}
         sessionFetch={async () => sessionResponse}
       >
-        <HydrationProbe fetchValuation={async () => ({ amount: "20000000" })} />
+        <HydrationProbe fetchValuation={async () => ({ balanceBaseUnits: "20000000" })} />
       </AccountWalletSessionOwner>
     );
     const view = render(owner({ ...sdk(null), isInitialized: false }));
@@ -259,14 +265,14 @@ describe("owner query hydration lifecycle", () => {
     await act(async () => { view.rerender(owner(sdk("subject-b", liveSession))); });
     await waitFor(() => expect(observedClient?.verification).toBe("provisional"));
     expect(view.getByTestId("valuation").textContent).toBe("none");
-    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, persistedScope, "US"))).toBeUndefined();
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, persistedScope, "usdc"))).toBeUndefined();
     expect(window.localStorage.getItem(ownerQueryStorageKey(seededOwnerKey)!)).toBeNull();
 
     resolveSession(Response.json(liveSession));
     await waitFor(() => expect(observedClient?.verification).toBe("server"));
     await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("20000000"));
     expect(view.getByTestId("valuation").textContent).not.toBe("12340000");
-    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, persistedScope, "US"))).toBeUndefined();
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(seededOwnerKey, persistedScope, "usdc"))).toBeUndefined();
     expect(window.localStorage.getItem(ownerQueryStorageKey(seededOwnerKey)!)).toBeNull();
   });
 
@@ -357,7 +363,7 @@ describe("owner query hydration lifecycle", () => {
       expect(valuationFetches).toBe(0);
       await expect(observedClient!.fetchAccountResource("/api/actions")).rejects.toMatchObject({ reason: "stale-session" });
       await expect(observedClient!.prepareMoneyAction("send", { amountBaseUnits: "1" })).rejects.toMatchObject({ reason: "stale-session" });
-      expect(getHomeQueryClient().getQueryData(ownerQueryKey(cachedOwnerKey, persistedScope, "US")))
+      expect(getHomeQueryClient().getQueryData(ownerQueryKey(cachedOwnerKey, persistedScope, "usdc")))
         [row.name === "matching" ? "toBeDefined" : "toBeUndefined"]();
 
       cleanup();
@@ -464,7 +470,7 @@ describe("owner query hydration lifecycle", () => {
       expect(view.getByTestId("valuation").textContent).toBe("12340000");
       resolveSession(Response.json(row.server));
       await waitFor(() => expect(observedClient?.verification).toBe("server"));
-      expect(queryClient.getQueryData(ownerQueryKey(provisionalOwnerKey, persistedScope, "US")))
+      expect(queryClient.getQueryData(ownerQueryKey(provisionalOwnerKey, persistedScope, "usdc")))
         [row.survives ? "toBeDefined" : "toBeUndefined"]();
       if (row.survives) expect(window.localStorage.getItem(storageKey)).not.toBeNull();
       else expect(window.localStorage.getItem(storageKey)).toBeNull();

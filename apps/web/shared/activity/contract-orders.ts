@@ -107,9 +107,13 @@ const atomicPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 
+export function isActivityOrdersResponse(value: unknown): value is { version: typeof ACTIVITY_ORDERS_CONTRACT_VERSION; owner: unknown; orders: unknown[] } {
+  return isRecord(value) && value.version === ACTIVITY_ORDERS_CONTRACT_VERSION && isRecord(value.owner) && Array.isArray(value.orders);
+}
+
 export function parseActivityOrders(value: unknown, session: VerifiedAccountSession): ActivityOrder[] {
-  if (!isRecord(value) || value.version !== ACTIVITY_ORDERS_CONTRACT_VERSION || !isRecord(value.owner) ||
-    !Array.isArray(value.orders)) throw new ActivityOrdersResponseError();
+  if (!isActivityOrdersResponse(value)) throw new ActivityOrdersResponseError();
+  if (!isRecord(value.owner)) throw new ActivityOrdersResponseError();
   if (value.owner.subject !== session.user.subject || value.owner.accountProvider !== session.accountProvider) {
     throw new ActivityOrdersResponseError();
   }
