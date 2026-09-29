@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { dynamic, GET, runtime } from "./route";
+import { GET } from "./route";
 
 describe("GET /api/market-prices/stats route", () => {
-  test("is public, dynamic, Node-only and rejects invalid asset ids", async () => {
-    expect(runtime).toBe("nodejs");
-    expect(dynamic).toBe("force-dynamic");
+  test("rejects invalid asset ids without caching", async () => {
     const response = await GET(new Request("https://home.test/api/market-prices/stats?assetId=invalid"));
     expect(response.status).toBe(400);
     expect(response.headers.get("cache-control")).toBe("no-store");

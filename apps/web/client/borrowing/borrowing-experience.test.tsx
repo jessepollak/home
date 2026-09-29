@@ -13,7 +13,6 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
   BorrowExperience,
-  borrowTeaserPositionDescription,
   formatCash,
   openingBorrowAvailableBaseUnits,
   presentBorrowAssetMark,
@@ -707,11 +706,7 @@ describe("Borrow bigint helpers", () => {
     expect(recommendedRepayMaximumBaseUnits("100000000", "100000100", "1000000000")).toBe("100000100");
   });
 
-  test("describes a collateral-only server position without a zero borrowed amount", () => {
-    const active = overview().positions[0];
-    const collateralOnly = { ...active, borrowSharesRaw: "0", debtAssetsRaw: "0", healthFactorWad: null };
-    expect(borrowTeaserPositionDescription(collateralOnly, "US")).toBe("No debt · 0.5000 cbBTC locked");
-    expect(borrowTeaserPositionDescription(active, "US")).toContain("$100.00 borrowed · ");
+  test("formats borrowed cash with the loan token symbol", () => {
     expect(formatCash("100000000", { ...BORROW_LOAN_TOKEN, id: BORROW_COLLATERAL_TOKEN.id }, "US")).toContain("USDC");
   });
 });

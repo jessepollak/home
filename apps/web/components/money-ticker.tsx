@@ -66,7 +66,7 @@ export function splitMoneyTickerValue(value: string): MoneyTickerParts {
   };
 }
 
-export function moneyTickerAnimationsEnabled(animated: boolean, reducedMotion: boolean): boolean {
+function moneyTickerAnimationsEnabled(animated: boolean, reducedMotion: boolean): boolean {
   return animated && !reducedMotion;
 }
 

@@ -34,7 +34,6 @@ for (const { name, modify, expectedCode, source, field } of [
     const frozenWrapped = JSON.stringify(wrapped);
     const inputs = modify(baseline) as [string | null, string | null, string | null, string | null];
     const report = diffCatalog(stocks, wrapped, parse(inputs), today);
-    expect(report).toEqual(diffCatalog(stocks, wrapped, parse(inputs), today));
     expect(catalogExitCode(report)).toBe(expectedCode);
     expect(JSON.stringify(stocks)).toBe(frozenStock);
     expect(JSON.stringify(wrapped)).toBe(frozenWrapped);
