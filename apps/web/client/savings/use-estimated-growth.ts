@@ -146,7 +146,7 @@ export function useEstimatedSavingsGrowth(
         : anchor.authoritativeBaseUnits;
       setSample({ identity: anchor.identity, value });
     };
-    const schedule = (delay: number = SAMPLE_INTERVAL_MS) => {
+    const schedule = () => {
       clearSample();
       if (!active || document.hidden) return;
       timeout = setTimeout(() => {
@@ -154,7 +154,7 @@ export function useEstimatedSavingsGrowth(
         if (!active || document.hidden) return;
         compute();
         schedule();
-      }, delay);
+      }, SAMPLE_INTERVAL_MS);
     };
     const onVisibilityChange = () => {
       clearSample();
@@ -164,7 +164,8 @@ export function useEstimatedSavingsGrowth(
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
-    schedule(resumed ? 0 : SAMPLE_INTERVAL_MS);
+    if (resumed && !document.hidden) compute();
+    schedule();
     return () => {
       active = false;
       clearSample();

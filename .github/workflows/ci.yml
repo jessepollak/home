@@ -114,6 +114,9 @@ jobs:
 
       - name: Run unit tests
         run: node scripts/gates/unit-test-shards.mjs run ${{ matrix.shard }}
+      - name: Unit-test file order
+        if: matrix.shard == 'client'
+        run: node scripts/gates/unit-test-file-order.mjs client
 
       - name: Upload unit-test results
         if: always()
