@@ -484,6 +484,7 @@ describe("useActivity pagination", () => {
 
   test("keeps the retry backoff when the sentinel leaves and returns during the wait", async () => {
     controlPaginationClock();
+    jest.useFakeTimers({ now: paginationRetryNow });
     const queries: string[] = [];
     const requestedAt: number[] = [];
     const fetchActivity: FetchActivity = async (query) => {

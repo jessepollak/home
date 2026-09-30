@@ -198,8 +198,65 @@ export const noRequestOnlyPlaywright = {
 const clockGlobals = new Set(["globalThis", "window", "self", "global"]);
 const pageCallbackMethods = new Set(["evaluate", "evaluateHandle", "addInitScript", "waitForFunction"]);
 const testClockModules = new Set(["@jest/globals", "bun:test", "vitest"]);
+const clockFrameworkModules = new Set([...testClockModules, "@playwright/test"]);
 const testClockNamespaces = new Set(["jest", "vi"]);
 const playwrightClockReceivers = new Set(["context", "page"]);
+const clockTestNames = new Set(["test", "it"]);
+const clockHookNames = new Set(["beforeEach", "beforeAll", "afterEach", "afterAll", "before", "after"]);
+const clockPreHookNames = new Set(["beforeEach", "beforeAll", "before"]);
+const clockTestModifiers = new Set(["only", "skip", "todo", "fixme", "fail", "slow", "concurrent", "sequential", "each",
+  "skipIf", "runIf", "if", "todoIf", "failIf", "fails", "failsIf", "for"]);
+const clockContainerModifiers = new Set(["only", "skip", "each", "serial", "parallel",
+  "concurrent", "sequential", "shuffle", "todo", "runIf", "skipIf"]);
+
+function clockContextName(node, sourceCode) {
+  return node?.type === "Identifier" ? clockImport(sourceCode, node, clockFrameworkModules) ?? node.name
+    : node?.type === "MemberExpression" && !node.computed
+    && node.property.type === "Identifier" ? node.property.name : null;
+}
+
+function clockContextKind(callee, sourceCode) {
+  callee = unwrapBindingExpression(callee);
+  if (callee?.type === "CallExpression") return clockContextKind(callee.callee, sourceCode);
+  if (callee?.type === "TaggedTemplateExpression") return clockContextKind(callee.tag, sourceCode);
+  const name = clockContextName(callee, sourceCode);
+  if (clockTestNames.has(name)) return { kind: "test", name };
+  if (clockHookNames.has(name)) return { kind: "hook", name };
+  if (name === "describe") return { kind: "container", name };
+  if (callee?.type !== "MemberExpression"
+    || !clockTestModifiers.has(name) && !clockContainerModifiers.has(name)) return null;
+  for (let owner = unwrapBindingExpression(callee.object); owner;) {
+    const ownerName = clockContextName(owner, sourceCode);
+    if (ownerName === "describe" && clockContainerModifiers.has(name)) {
+      return { kind: "container", name: ownerName };
+    }
+    if (clockTestNames.has(ownerName) && clockTestModifiers.has(name)) return { kind: "test", name: ownerName };
+    owner = unwrapBindingExpression(owner.type === "CallExpression" ? owner.callee
+      : owner.type === "MemberExpression" && !owner.computed ? owner.object : null);
+  }
+  return null;
+}
+
+function clockScope(node, sourceCode, containerOnly = false) {
+  for (let current = node.parent; current; current = current.parent) {
+    if (current.type === "Program") return { kind: "program", node: current };
+    if (!["ArrowFunctionExpression", "FunctionExpression"].includes(current.type)) continue;
+    let callbackNode = current;
+    while (callbackNode.parent && unwrapBindingExpression(callbackNode.parent) === current) {
+      callbackNode = callbackNode.parent;
+    }
+    const call = callbackNode.parent;
+    if (call?.type !== "CallExpression") continue;
+    const callback = [...call.arguments].reverse().map(unwrapBindingExpression).find((argument) =>
+      argument?.type === "ArrowFunctionExpression" || argument?.type === "FunctionExpression");
+    if (callback !== current) continue;
+    const contextKind = clockContextKind(call.callee, sourceCode);
+    if (contextKind && (!containerOnly || contextKind.kind === "container")) {
+      return { ...contextKind, node: current };
+    }
+  }
+  return { kind: "program", node: null };
+}
 
 function clockObject(node, name, sourceCode) {
   node = unwrapBindingExpression(node);
@@ -218,13 +275,13 @@ function clockProperty(node, sourceCode) {
   return null;
 }
 
-function clockImport(sourceCode, identifier) {
+function clockImport(sourceCode, identifier, modules = testClockModules) {
   const variable = resolveVariable(sourceCode, identifier);
   if (!variable || variable.references.some((reference) => reference.isWrite() && !reference.init)) return null;
   for (const definition of variable.defs) {
     if (definition.type !== "ImportBinding" || definition.parent?.type !== "ImportDeclaration") continue;
     if (definition.parent.importKind === "type" || definition.node.importKind === "type") continue;
-    if (!testClockModules.has(sourceValue(definition.parent.source))) continue;
+    if (!modules.has(sourceValue(definition.parent.source))) continue;
     return definition.node.type === "ImportNamespaceSpecifier" ? "namespace" : importedName(definition.node);
   }
   return null;
@@ -353,7 +410,7 @@ export const noRealWaits = {
       const method = memberName(callee);
       const argument = node.arguments[0];
       const record = (instant) => {
-        if (!unpinningInstant(instant)) pinCandidates.push(argument);
+        if (!unpinningInstant(instant)) pinCandidates.push({ argument, scope: clockScope(node, context.sourceCode) });
       };
       const recordFakeTimers = () => {
         const now = clockOptionValue(argument, "now");
@@ -425,13 +482,23 @@ export const noRealWaits = {
         }
       },
       "Program:exit"() {
-        const pins = pinCandidates.map(pinSources);
+        const pins = pinCandidates.map(({ argument, scope }) => ({ sources: pinSources(argument), scope }));
         const withinPin = (read, sources) => sources.some((source) => withinArgument(read.node, source));
-        const validPin = pins.some((sources) => !clockReads.some((read) => withinPin(read, sources)));
+        const validPins = pins.filter(({ sources }) => !clockReads.some((read) => withinPin(read, sources)));
         for (const read of clockReads) {
-          const pinArgumentRead = pins.some((sources) => withinPin(read, sources));
+          const pinArgumentRead = pins.some(({ sources }) => withinPin(read, sources));
+          const scope = clockScope(read.node, context.sourceCode);
+          const governed = validPins.some((pin) => {
+            if (pin.scope.node === scope.node) return true;
+            if (pin.scope.kind !== "hook" || !clockPreHookNames.has(pin.scope.name)
+              || !["test", "hook"].includes(scope.kind)) return false;
+            const container = clockScope(pin.scope.node, context.sourceCode, true).node;
+            if (pin.scope.name === "beforeEach" && ["beforeAll", "before"].includes(scope.name)
+              && clockScope(scope.node, context.sourceCode, true).node === container) return false;
+            return withinArgument(scope.node, container);
+          });
           if (!pinArgumentRead && read.kind === "date"
-            && (playwright ? pinnedPageClock(read.node, validPin) : validPin)) continue;
+            && (playwright ? pinnedPageClock(read.node, governed) : governed)) continue;
           if (!pinArgumentRead && read.kind === "performance" && read.call
             && measuredPerformance(read.call)) continue;
           context.report({ node: read.node, messageId: "wallClock" });
