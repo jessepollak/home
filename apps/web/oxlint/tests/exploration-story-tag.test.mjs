@@ -1,46 +1,15 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
-import { afterAll, describe, expect, it } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "bun:test";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
 // Every case spawns an oxlint child and cleanup deletes its temporary mirror, so each phase gets its own
 // budget instead of sharing bun's 5 s default budget under concurrent load.
-const budgetMs = 20_000;
 
-const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-exploration-tag-"));
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-await writeFile(path.join(mirror, ".oxlintrc.jsonc"), JSON.stringify({
-  plugins: [], categories: { correctness: "off" },
-  jsPlugins: ["./oxlint/home-plugin.mjs"],
-  rules: { "home/exploration-story-tag": "error" },
-}));
-afterAll(() => rm(mirror, { recursive: true, force: true }), budgetMs);
-
-async function diagnostics(fixtures) {
-  const directory = path.join(mirror, "stories/explorations");
-  await mkdir(directory, { recursive: true });
-  const files = await Promise.all(Object.entries(fixtures).map(async ([name, code]) => {
-    const file = `stories/explorations/${name}.stories.tsx`;
-    await writeFile(path.join(mirror, file), code);
-    return file;
-  }));
-  const result = spawnSync(path.join(appsWebDir, "node_modules/.bin/oxlint"),
-    ["-c", ".oxlintrc.jsonc", "--disable-nested-config", "-f", "json", ...files],
-    { cwd: mirror, encoding: "utf8" });
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  const findings = Object.fromEntries(Object.keys(fixtures).map((name) => [name, []]));
-  for (const diagnostic of JSON.parse(result.stdout).diagnostics.filter((item) => item.code === "home(exploration-story-tag)")) {
-    findings[path.basename(diagnostic.filename, ".stories.tsx")].push(diagnostic);
-  }
-  return findings;
-}
+const { lint: diagnostics } = await createOxlintWorkspace("home-exploration-tag-", {
+  path: (name) => `stories/explorations/${name}.stories.tsx`,
+  rules: ["exploration-story-tag"],
+});
 
 describe("home/exploration-story-tag", () => {
   it("requires an explicit exploration tag on the default meta", async () => {

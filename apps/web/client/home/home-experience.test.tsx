@@ -1229,12 +1229,12 @@ describe("Home shell routing and intents", () => {
       pendingSelectionReady = true;
       const originalObserver = globalThis.MutationObserver;
       const callbacks = new Set<() => void>();
-      globalThis.MutationObserver = class {
+      globalThis.MutationObserver = class extends originalObserver {
         callback: () => void;
-        constructor(callback: () => void) { this.callback = callback; }
+        constructor(callback: MutationCallback) { super(callback); this.callback = () => callback([], this); }
         observe() { callbacks.add(this.callback); }
         disconnect() { callbacks.delete(this.callback); }
-      } as unknown as typeof MutationObserver;
+      };
       try {
       render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
         assetBalances={fundedInvestments()} investmentsContent={PendingInvestmentsFixture} />);

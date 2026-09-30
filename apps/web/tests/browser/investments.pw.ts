@@ -143,31 +143,28 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
   await focusedRow.focus();
   const before = await page.evaluate(() => window.scrollY);
   expect(before).toBeGreaterThan(0);
-  await page.evaluate(() => {
+  const refreshSamples = await page.evaluateHandle(() => {
     const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
     if (!main) throw new Error("Missing Home scroll container");
     const samples: { busy: boolean; scroll: number }[] = [];
-    const witness = window as typeof window & { investmentRefreshSamples?: typeof samples };
-    witness.investmentRefreshSamples = samples;
     new MutationObserver(() => {
       const section = main.querySelector('[aria-labelledby="investments-held-heading"]');
       samples.push({ busy: section?.getAttribute("aria-busy") === "true", scroll: window.scrollY });
     }).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-busy"] });
+    return samples;
   });
   await page.clock.install();
   changed = true;
   await page.clock.fastForward(16_000);
   await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
   await expect.poll(() => changedReads).toBeGreaterThan(0);
-  await expect.poll(() => page.evaluate(() => {
-    const samples = (window as typeof window & { investmentRefreshSamples?: { busy: boolean; scroll: number }[] }).investmentRefreshSamples ?? [];
-    return samples.some((entry) => entry.busy) && samples.at(-1)?.busy === false;
-  })).toBe(true);
-  const pendingScrolls = await page.evaluate(() => (window as typeof window & {
-    investmentRefreshSamples?: { busy: boolean; scroll: number }[];
-  }).investmentRefreshSamples?.filter((entry) => entry.busy).map((entry) => entry.scroll) ?? []);
+  await expect.poll(() => refreshSamples.evaluate((samples) =>
+    samples.some((entry) => entry.busy) && samples.at(-1)?.busy === false,
+  )).toBe(true);
+  const pendingScrolls = await refreshSamples.evaluate((samples) => samples.filter((entry) => entry.busy).map((entry) => entry.scroll));
   expect(pendingScrolls.length).toBeGreaterThan(0);
   for (const scroll of pendingScrolls) expect(scroll).toBeCloseTo(before, 0);
   await expect(list.getByRole("button").filter({ has: page.locator(`[data-holding-key="${focusedKey}"]`) })).toBeFocused();
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeCloseTo(before, 0);
+  await refreshSamples.dispose();
 });

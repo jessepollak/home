@@ -5,6 +5,7 @@ import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { budgetMs } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
 const web = fileURLToPath(new URL("../..", import.meta.url));
@@ -33,7 +34,7 @@ describe("production memoization guardrails", () => {
       }`);
     expect(result.status).toBe(1);
     expect(result.diagnostics.some((item) => item.code.includes("exhaustive-deps"))).toBe(true);
-  });
+  }, budgetMs);
 
   it("rejects async memo calculations", async () => {
     const result = await lint(`import { useMemo } from "react";
@@ -43,7 +44,7 @@ describe("production memoization guardrails", () => {
       }`);
     expect(result.status).toBe(1);
     expect(result.diagnostics.some((item) => item.code.includes("use-memo"))).toBe(true);
-  });
+  }, budgetMs);
 
   it("accepts complete memo dependencies and cheap direct derivations", async () => {
     const result = await lint(`import { useMemo } from "react";
@@ -54,5 +55,5 @@ describe("production memoization guardrails", () => {
       }`);
     expect(result.status).toBe(0);
     expect(result.diagnostics).toEqual([]);
-  });
+  }, budgetMs);
 });

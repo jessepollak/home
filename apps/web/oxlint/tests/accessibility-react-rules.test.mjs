@@ -1,16 +1,15 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
-import { afterAll, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, it } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-accessibility-react-"));
-await mkdir(path.join(mirror, "client"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
+const { directory: mirror, lintWithConfig } = await createOxlintWorkspace("home-oxlint-accessibility-react-", {
+  path: (name) => `client/${name}.tsx`,
+});
 const source = await readFile(path.join(appsWebDir, ".oxlintrc.jsonc"), "utf8");
 const config = JSON.parse(source.replace(/^\s*\/\/.*$/gm, ""));
 await writeFile(path.join(mirror, ".oxlintrc.jsonc"), JSON.stringify({
@@ -20,22 +19,13 @@ await writeFile(path.join(mirror, ".oxlintrc.jsonc"), JSON.stringify({
   rules: Object.fromEntries(Object.entries(config.rules).filter(([rule]) =>
     rule.startsWith("jsx-a11y/") || rule.startsWith("react/"))),
 }));
-afterAll(() => rm(mirror, { recursive: true, force: true }));
 
 async function diagnostics(fixtures, enabledRules = []) {
-  const files = await Promise.all(Object.entries(fixtures).map(async ([name, code]) => {
-    const file = `client/${name}.tsx`;
-    await writeFile(path.join(mirror, file), code);
-    return file;
-  }));
-  const result = spawnSync(
-    path.join(appsWebDir, "node_modules/.bin/oxlint"),
-    ["-c", ".oxlintrc.jsonc", "--disable-nested-config", "-f", "json", ...enabledRules.flatMap((rule) => ["-D", rule]), ...files],
-    { cwd: mirror, encoding: "utf8" },
-  );
-  expect(result.signal).toBeNull();
-  expect(result.error).toBeUndefined();
-  return JSON.parse(result.stdout).diagnostics;
+  const found = await lintWithConfig(fixtures, {
+    config: ".oxlintrc.jsonc",
+    flags: enabledRules.flatMap((rule) => ["-D", rule]),
+  });
+  return Object.values(found).flat();
 }
 
 const selectedRules = [
@@ -130,7 +120,7 @@ describe("selected accessibility and React lint rules", () => {
     const missing = Object.entries(bad).filter(([name, [rule]]) =>
       !found.some((item) => item.filename.endsWith(`/${name}.tsx`) && item.code === rule));
     expect(missing).toEqual([]);
-  });
+  }, budgetMs);
 
   it("allows owned controls inside labels, stable keys, and memoized context values", async () => {
     const found = await diagnostics({
@@ -139,14 +129,14 @@ describe("selected accessibility and React lint rules", () => {
       memoizedContext: 'import { createContext, useMemo } from "react"; const Context = createContext({ value: 0 }); export function View({ value }) { const context = useMemo(() => ({ value }), [value]); return <Context.Provider value={context}><p>Content</p></Context.Provider>; }',
     });
     expect(found).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("accepts a reasoned, targeted disable for a positional key", async () => {
     const found = await diagnostics({
       justified: 'export const View = ({ chars }) => <p>{chars.map((char, index) => (\n// oxlint-disable-next-line react/no-array-index-key -- Character position identifies the displayed segment.\n<span key={index}>{char}</span>))}</p>;',
     });
     expect(found).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("leaves prefer-tag-over-role, no-autofocus and no-static-element-interactions off", async () => {
     const fixture = { deliberatelyOff: 'export const View = ({ role }) => <><div role="navigation">Navigation</div><input autoFocus aria-label="First field" /><div role={role} tabIndex={0} onClick={() => {}} onKeyDown={() => {}}>Explore</div></>;' };
@@ -156,5 +146,5 @@ describe("selected accessibility and React lint rules", () => {
     for (const rule of offRules) {
       expect(enabled.some((item) => item.code === `jsx-a11y(${rule.split("/")[1]})`)).toBe(true);
     }
-  });
+  }, budgetMs);
 });

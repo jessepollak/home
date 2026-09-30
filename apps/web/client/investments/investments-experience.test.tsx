@@ -6,13 +6,20 @@ import type { BalancesSnapshot } from "@/shared/balances/types";
 const queued: (() => void)[] = [];
 const originalChannel = globalThis.MessageChannel;
 beforeEach(() => {
-  globalThis.MessageChannel = class {
-    port1 = { onmessage: null as (() => void) | null, close() {} };
-    port2 = { postMessage: () => queued.push(() => this.port1.onmessage?.()), close() {} };
-  } as unknown as typeof MessageChannel;
+  globalThis.MessageChannel = class extends originalChannel {
+    constructor() {
+      super();
+      this.port2.postMessage = () => queued.push(() => this.port1.onmessage?.(new MessageEvent("message")));
+    }
+  };
 });
 afterEach(() => { globalThis.MessageChannel = originalChannel; queued.length = 0; });
-function finishSelection() { act(() => { while (queued.length) queued.shift()!(); }); }
+function nextSelection() {
+  const next = queued.shift();
+  if (!next) throw new Error("Missing queued investment selection");
+  next();
+}
+function finishSelection() { act(() => { while (queued.length) nextSelection(); }); }
 const { useInvestmentRows } = await import("./investments-experience");
 
 function measuredSnapshot(count: number) {
@@ -31,8 +38,9 @@ describe("owned investment navigation work", () => {
   for (const count of [100, 1000, 10000]) {
     test(`${count} holdings: defer deep-link sorting, reuse Back rows, invalidate refreshed and removed snapshots`, () => {
       const first = measuredSnapshot(count);
+      const initialProps: { snapshot: BalancesSnapshot | null; enabled: boolean } = { snapshot: first.snapshot, enabled: false };
       const view = renderHook(({ snapshot, enabled }) => useInvestmentRows(snapshot, enabled), {
-        initialProps: { snapshot: first.snapshot as BalancesSnapshot | null, enabled: false },
+        initialProps,
       });
       expect(view.result.current.rows).toHaveLength(0);
       expect(first.reads()).toBe(0);
@@ -86,7 +94,7 @@ test("an interrupted job cannot publish or continue valuing a replaced owner", (
     const view = renderHook(({ snapshot, enabled }) => useInvestmentRows(snapshot, enabled), {
       initialProps: { snapshot: old.snapshot, enabled: true },
     });
-    act(() => queued.shift()!());
+    act(nextSelection);
     view.rerender({ snapshot: replacement.snapshot, enabled: true });
     const oldReads = old.reads();
     expect(view.result.current.rows).toHaveLength(0);
@@ -105,7 +113,8 @@ test("an interrupted job cannot publish or continue valuing a replaced owner", (
 
 test("selection failure stays unavailable and retry recomputes the same snapshot", () => {
   const fixture = measuredSnapshot(100);
-  const holding = fixture.snapshot.holdings.find((entry) => entry.symbol === "A0")!;
+  const holding = fixture.snapshot.holdings.find((entry) => entry.symbol === "A0");
+  if (!holding) throw new Error("Missing failing-selection fixture holding");
   const balance = holding.balance;
   let broken = true;
   Object.defineProperty(holding, "balance", { get: () => { if (broken) throw new Error("selection failed"); return balance; } });
