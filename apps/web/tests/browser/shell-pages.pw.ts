@@ -56,28 +56,46 @@ for (const path of pages) {
   });
 }
 
-test("manual-production: warm Home, Cash and Invest taps avoid document and RSC requests", async ({ page }) => {
-  test.skip(process.env.HOME_PLAYWRIGHT_PRODUCTION !== "1",
-    "manual-production: Next dev refetches RSC payloads; run with HOME_PLAYWRIGHT_PRODUCTION=1 against a production fixture build");
+test("production: warm Home, Cash and Invest taps avoid document and RSC requests", async ({ page }, testInfo) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
   await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
-  await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash / }).click();
-  await expect(page).toHaveURL("/cash");
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Invest", exact: true }).last().click();
-  await expect(page).toHaveURL("/invest");
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).last().click();
-  await expect(page).toHaveURL("/home");
-  const requests: string[] = [];
+  const destinations = {
+    Cash: { path: "/cash", ready: page.getByRole("region", { name: "Cash", exact: true }) },
+    Invest: { path: "/invest", ready: page.getByRole("textbox", { name: "Search assets" }) },
+    Home: { path: "/home", ready: page.getByRole("heading", { name: "Your money" }) },
+  };
+  const navigate = async (target: keyof typeof destinations) => {
+    if (target === "Cash") {
+      await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash / }).click();
+    } else {
+      await mainNavigation(page, target).click();
+    }
+    await expect(page).toHaveURL(destinations[target].path);
+    await expect(destinations[target].ready).toBeVisible();
+  };
+  for (const target of ["Cash", "Invest", "Home"] as const) await navigate(target);
+
+  const documents: string[] = [];
+  const rsc: string[] = [];
   page.on("request", (request) => {
-    if (request.isNavigationRequest() || request.headers()["rsc"] === "1") requests.push(request.url());
+    if (request.isNavigationRequest()) documents.push(request.url());
+    if (request.headers()["rsc"] === "1") rsc.push(request.url());
   });
-  for (const target of ["Invest", "Home"] as const) {
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: target, exact: true }).last().click();
-    await expect(page).toHaveURL(target === "Home" ? "/home" : "/invest");
+  for (const target of ["Cash", "Home", "Invest", "Home"] as const) {
+    documents.length = 0;
+    rsc.length = 0;
+    await navigate(target);
+    const counts = { target, documents: documents.length, rsc: rsc.length };
+    console.log(`Warm navigation requests: ${JSON.stringify(counts)}`);
+    await testInfo.attach(`warm-${target}-requests`, {
+      body: JSON.stringify({ ...counts, documentUrls: documents, rscUrls: rsc }),
+      contentType: "application/json",
+    });
+    expect(documents, `warm ${target} document requests`).toEqual([]);
+    expect(rsc, `warm ${target} RSC requests`).toEqual([]);
   }
-  expect(requests).toEqual([]);
 });
 
 test("a left Savings page makes no vault requests while hidden for two fake minutes", async ({ page }) => {

@@ -55,6 +55,7 @@ function findExecutable(
   return undefined;
 }
 
+const productionNavigation = process.env.HOME_PLAYWRIGHT_PRODUCTION === "1";
 const executablePath = cachedChromiumExecutable();
 const fixturePort = resolveFixturePort(process.env.HOME_FIXTURE_PORT);
 process.env.HOME_FIXTURE_PORT = fixturePort;
@@ -88,7 +89,7 @@ process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
 process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
-  globalSetup: "./tests/browser/global-setup.ts",
+  globalSetup: productionNavigation ? undefined : "./tests/browser/global-setup.ts",
   testDir: "./tests/browser",
   testMatch: "**/*.pw.ts",
   fullyParallel: false,
@@ -96,9 +97,14 @@ export default defineConfig({
   // Hosted runners are slower and render fonts differently. A real failure fails
   // every attempt; a pass only on retry fails CI. Failed attempts keep trace + video.
   ...browserSmokeCiPolicy(Boolean(process.env.CI)),
+  ...(productionNavigation ? {
+    retries: 0,
+    outputDir: "test-results/production-navigation",
+    reporter: [["list"], ["json", { outputFile: "test-results/production-navigation.json" }]],
+  } satisfies Parameters<typeof defineConfig>[0] : {}),
   webServer: {
-    ...(process.env.HOME_PLAYWRIGHT_PRODUCTION === "1"
-      ? { command: `bunx next build && bunx next start --hostname 127.0.0.1 --port ${fixturePort}`, timeout: 900_000 }
+    ...(productionNavigation
+      ? { command: `./node_modules/.bin/next build && ./node_modules/.bin/next start --hostname 127.0.0.1 --port ${fixturePort}`, timeout: 900_000 }
       : { command: `bun run dev -- --port ${fixturePort}` }),
     url: fixtureBaseUrl,
     reuseExistingServer: false,
@@ -133,10 +139,13 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium-smoke",
+      name: productionNavigation ? "chromium-production-navigation" : "chromium-smoke",
+      ...(productionNavigation
+        ? { testMatch: "shell-pages.pw.ts", grep: /production:/ }
+        : { grepInvert: /production:/ }),
       use: {
         browserName: "chromium",
-        launchOptions: executablePath ? { executablePath } : undefined,
+        launchOptions: !productionNavigation && executablePath ? { executablePath } : undefined,
       },
     },
   ],
