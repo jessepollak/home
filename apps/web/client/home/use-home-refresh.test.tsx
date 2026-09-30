@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bu
 import { getHomeQueryClient, ownerQueryKey, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { useActivity } from "@/client/activity/use-activity";
-import { nextActivityWindowEnd } from "@/client/query/after-action";
+import { invalidateAfterAction, nextActivityWindowEnd } from "@/client/query/after-action";
 import type { ActivityPage, ActivityTransfer, FetchActivity } from "@/client/activity/types";
 import { ACTIVITY_CONTRACT_VERSION, type ActivityResponse } from "@/shared/activity/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -160,6 +160,53 @@ afterEach(() => {
 });
 
 describe("useHomeRefresh", () => {
+  test.each(["success", "failure"] as const)("a pull waits for its coalesced controller read after an after-action read: %s", async (outcome) => {
+    const f = fixture();
+    const afterAction = deferred<ActivityResponse>();
+    const pull = deferred<ActivityResponse>();
+    const fetchActivity: FetchActivity = async (query) => {
+      f.calls.activity.push(query);
+      if (f.calls.activity.length === 2) return afterAction.promise;
+      if (f.calls.activity.length === 3) {
+        const response = await pull.promise;
+        if (outcome === "failure") throw new Error("Latest activity unavailable");
+        return response;
+      }
+      return page(query, walletA, [transfer(walletA, 30, Date.parse(f.oldEnd) - 30_000)], null);
+    };
+    const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={fetchActivity} capture={f.capture} />);
+    await ready(view);
+    await act(async () => { await invalidateAfterAction(getHomeQueryClient(), f.key); });
+    expect(f.calls.activity).toHaveLength(2);
+    setSystemTime(new Date(NOW + 2_000));
+    const pullStart = NOW + 2_000;
+    let settled = false;
+    let pending!: ReturnType<ReturnType<typeof useHomeRefresh>["refresh"]>;
+    act(() => {
+      pending = f.current().refresh();
+      void pending.then(() => { settled = true; });
+    });
+    expect(f.calls.activity).toHaveLength(2);
+    expect(settled).toBe(false);
+    await act(async () => {
+      afterAction.resolve(page(f.calls.activity[1]!, walletA, [transfer(walletA, 40, NOW - 30_000)], null));
+    });
+    await waitFor(() => expect(f.calls.activity).toHaveLength(3));
+    await waitFor(() => expect(view.getByTestId("activity").textContent).toBe("event-40"));
+    expect(settled).toBe(false);
+    expect(view.getByTestId("refresh").textContent).toBe("refreshing");
+    const finalEnd = new URLSearchParams(f.calls.activity[2]).get("to")!;
+    expect(Date.parse(finalEnd)).toBeGreaterThanOrEqual(pullStart);
+    await act(async () => {
+      pull.resolve(page(f.calls.activity[2]!, walletA, [transfer(walletA, 50, NOW + 1_000)], null));
+      expect(await pending).toEqual(outcome === "success" ? { phase: "complete" } : { phase: "partial", failed: ["activity"] });
+    });
+    await waitFor(() => expect(view.getByTestId("activity").textContent).toBe(outcome === "success" ? "event-50" : "event-40"));
+    expect(getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window"))).toBe(
+      outcome === "success" ? finalEnd : new URLSearchParams(f.calls.activity[1]).get("to")!,
+    );
+  });
+
   test("refresh fetches every advertised scope", async () => {
     const f = fixture();
     const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
@@ -340,7 +387,7 @@ describe("useHomeRefresh", () => {
     expect(getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window"))).toBe(f.oldEnd);
   });
 
-  test("owner change cancels prefetch and supersedes the previous cycle without swapping its window", async () => {
+  test("owner change cancels controller prefetch and supersedes the previous cycle", async () => {
     const f = fixture();
     const pending = deferred<unknown>();
     let oldSignal: AbortSignal | undefined;
@@ -364,7 +411,7 @@ describe("useHomeRefresh", () => {
     expect(view.getByTestId("refresh").textContent).toBe("idle");
     expect(oldSignal?.aborted).toBe(true);
     await act(async () => { pending.resolve(page(`to=${encodeURIComponent(new Date(NOW).toISOString())}&currency=USD`, walletA, [], null)); expect(await oldCycle).toEqual({ phase: "superseded" }); });
-    expect(getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window")) === f.oldEnd).toBe(true);
+    expect(Date.parse(getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window"))!)).toBeGreaterThan(Date.parse(f.oldEnd));
     expect(view.getByTestId("refresh").textContent).toBe("idle");
   });
 

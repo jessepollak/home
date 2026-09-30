@@ -626,6 +626,39 @@ describe("combined Activity panel", () => {
     expect(tones).toEqual(["success", "default"]);
   });
 
+  test("shows a latest-activity retry while keeping earlier rows visible", () => {
+    const retry = mock(() => undefined);
+    const activity = { ...ready([transfer("earlier", 5)]), latestUnavailable: true, retry };
+    const view = render(<ActivityPanelView activity={activity} />);
+    expect(view.getByText("Latest activity didn't load. Earlier activity is still shown.").getAttribute("role")).toBe("status");
+    expect(view.getByRole("list")).toBeTruthy();
+    expect(view.queryByText(/Onchain transfers are unavailable/)).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Retry latest activity" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("uses the existing Home feed unavailable line to retry latest activity", () => {
+    const retry = mock(() => undefined);
+    const activity = { ...ready([transfer("earlier", 5)]), latestUnavailable: true, retry };
+    const view = render(<ActivityPanelView activity={activity} density="feed" />);
+    expect(view.getByText("Some activity is unavailable").getAttribute("role")).toBe("status");
+    expect(view.getByRole("list")).toBeTruthy();
+    expect(view.queryByText("Latest activity didn't load. Earlier activity is still shown.")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Reload activity" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not stack latest and onchain unavailable status lines", () => {
+    const activity = ready([transfer("earlier", 5)]);
+    if (activity.status !== "ready") throw new Error("Expected ready activity");
+    activity.latestUnavailable = true;
+    activity.page.onchainStatus = "unavailable";
+    const view = render(<ActivityPanelView activity={activity} />);
+    expect(view.getByText(/Onchain transfers are unavailable/)).toBeTruthy();
+    expect(view.queryByText("Latest activity didn't load. Earlier activity is still shown.")).toBeNull();
+    expect(view.queryByRole("button", { name: "Retry latest activity" })).toBeNull();
+  });
+
   test("keeps recorded actions visible and retries when onchain activity fails", () => {
     const retry = mock(() => undefined);
     const view = render(

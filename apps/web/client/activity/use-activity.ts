@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { InfiniteQueryObserver, infiniteQueryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import {
   compareActivityTransferKeys,
@@ -28,6 +28,7 @@ import {
   advanceActivityWindowEnd,
   initialActivityWindowEnd,
   nextActivityWindowEnd,
+  registerActivityWindowAdvancer,
 } from "@/client/query/after-action";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ResourceFailure } from "@/client/account/resource-failure";
@@ -35,6 +36,7 @@ import type { RegionId } from "@/config/regions";
 import { presentationMoneyMetadata } from "@/shared/formatting";
 
 export const activityStaleTimeMs = 10_000;
+export const activityLatestReadTimeoutMs = 45_000;
 const activityRefreshExtraPages = 10;
 export const activityContinuationBurstPages = 3;
 export const activityContinuationYieldMs = 250;
@@ -211,15 +213,16 @@ export async function refreshLatestActivity(input: {
   fetchActivity: FetchActivity;
   isCurrent: () => boolean;
   onPrefetchKey: (key: QueryKey | null) => void;
-}): Promise<void> {
+}): Promise<"advanced" | "superseded" | "skipped"> {
   const { queryClient, ownerKey, session, regionId, fetchActivity, isCurrent, onPrefetchKey } = input;
+  if (!isCurrent()) return "skipped";
   const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
   const windowEnd = queryClient.getQueryData<string>(windowKey) ?? initialActivityWindowEnd();
   const currency = presentationMoneyMetadata(regionId).currency;
   const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, currency);
   const current = queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey);
   const currentPages = current?.pages ?? [];
-  if (!currentPages.length && queryClient.getQueryCache().findAll({ queryKey: currentKey, exact: true, type: "active" }).length === 0) return;
+  if (!currentPages.length && queryClient.getQueryCache().findAll({ queryKey: currentKey, exact: true, type: "active" }).length === 0) return "skipped";
   const boundary = currentPages.length ? mergeActivityPages(currentPages).transfers.at(-1) : undefined;
   const nextEnd = nextActivityWindowEnd(windowEnd);
   const nextKey = ownerQueryKey(ownerKey, "activity", nextEnd, currency);
@@ -231,7 +234,7 @@ export async function refreshLatestActivity(input: {
       pages: Math.max(1, currentPages.length),
       staleTime: 0,
     });
-    if (!isCurrent()) return;
+    if (!isCurrent()) return "skipped";
     if (boundary) {
       const reachedBoundary = (pages: ActivityPage[]) => {
         const transfers = mergeActivityPages(pages).transfers;
@@ -244,27 +247,252 @@ export async function refreshLatestActivity(input: {
           throw new Error("Activity refresh did not reach the previous boundary.");
         }
         const result = await observer.fetchNextPage({ cancelRefetch: false, throwOnError: true });
-        if (!isCurrent()) return;
+        if (!isCurrent()) return "skipped";
         if (!result.data || result.isFetchNextPageError) throw new Error("Activity refresh page failed.");
         next = result.data;
       }
     }
-    if (!isCurrent()) return;
+    if (!isCurrent()) return "skipped";
     if (queryClient.getQueryData<string>(windowKey) !== windowEnd) {
-      await queryClient.cancelQueries({ queryKey: nextKey, exact: true });
-      queryClient.removeQueries({ queryKey: nextKey, exact: true });
-      return;
+      if (queryClient.getQueryData<string>(windowKey) !== nextEnd) {
+        await queryClient.cancelQueries({ queryKey: nextKey, exact: true });
+        if (isCurrent()) queryClient.removeQueries({ queryKey: nextKey, exact: true });
+      }
+      return "superseded";
     }
     queryClient.setQueryData(windowKey, nextEnd);
+    return "advanced";
   } catch (error) {
     if (!isCurrent()) throw error;
-    await queryClient.cancelQueries({ queryKey: nextKey, exact: true });
-    queryClient.removeQueries({ queryKey: nextKey, exact: true });
+    if (queryClient.getQueryData<string>(windowKey) !== nextEnd) {
+      await queryClient.cancelQueries({ queryKey: nextKey, exact: true });
+      if (isCurrent()) queryClient.removeQueries({ queryKey: nextKey, exact: true });
+    }
     throw error;
   } finally {
     onPrefetchKey(null);
   }
 }
+
+type ActivityAdvanceInputs = {
+  session: VerifiedAccountSession | null;
+  regionId: RegionId;
+  fetchActivity: FetchActivity;
+};
+
+type ActivityAdvanceInputsBox = { current: ActivityAdvanceInputs };
+type ActivityLatestFailure = { windowEnd: string; currency: string } | null;
+type ActivityRunToken = { epoch: number };
+type ActivityRefreshWaiter = {
+  ticket: number;
+  epoch: number;
+  resolve: () => void;
+  reject: (reason: Error) => void;
+};
+
+class ActivityWindowController {
+  observers = new Map<symbol, ActivityAdvanceInputsBox>();
+  active: ActivityRunToken | null = null;
+  requested = 0;
+  served = 0;
+  waiters: ActivityRefreshWaiter[] = [];
+  epoch = 0;
+  dirty = false;
+  failure: ActivityLatestFailure = null;
+  listeners = new Set<() => void>();
+  prefetchKey: QueryKey | null = null;
+  unregisterAdvancer: (() => void) | null = null;
+
+  constructor(private queryClient: QueryClient, private ownerKey: string) {}
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  getFailure = () => this.failure;
+
+  setFailure(failure: ActivityLatestFailure) {
+    if (this.failure === failure) return;
+    this.failure = failure;
+    for (const listener of this.listeners) listener();
+  }
+
+  updateObserver(id: symbol, inputs: ActivityAdvanceInputsBox) {
+    if (!this.observers.has(id)) return;
+    this.observers.delete(id);
+    this.observers.set(id, inputs);
+  }
+
+  registerObserver(id: symbol, inputs: ActivityAdvanceInputsBox) {
+    this.observers.set(id, inputs);
+    if (this.observers.size === 1) {
+      this.unregisterAdvancer = registerActivityWindowAdvancer(this.queryClient, this.ownerKey, () => {
+        this.request();
+        return Promise.resolve();
+      });
+    }
+    return () => {
+      this.observers.delete(id);
+      if (this.observers.size > 0) return;
+      const needsFallback = this.dirty || this.active !== null || this.failure !== null;
+      this.epoch += 1;
+      this.active = null;
+      const waiters = this.waiters;
+      this.waiters = [];
+      for (const waiter of waiters) waiter.reject(new Error("Latest activity refresh abandoned."));
+      this.served = this.requested;
+      this.unregisterAdvancer?.();
+      this.unregisterAdvancer = null;
+      const windowKey = ownerQueryKey(this.ownerKey, activityWindowScope);
+      if (this.prefetchKey && this.queryClient.getQueryData<string>(windowKey) !== this.prefetchKey[2]) {
+        void this.queryClient.cancelQueries({ queryKey: this.prefetchKey, exact: true });
+        this.queryClient.removeQueries({ queryKey: this.prefetchKey, exact: true });
+      }
+      this.prefetchKey = null;
+      if (needsFallback) {
+        advanceActivityWindowEnd(this.queryClient, this.ownerKey);
+        void this.queryClient.invalidateQueries({ queryKey: ownerQueryKey(this.ownerKey, "activity") });
+        this.dirty = false;
+        this.setFailure(null);
+      }
+    };
+  }
+
+  latestInputs() {
+    return Array.from(this.observers.values()).at(-1)?.current;
+  }
+
+  currentCurrency() {
+    const inputs = this.latestInputs();
+    return inputs ? presentationMoneyMetadata(inputs.regionId).currency : null;
+  }
+
+  request = (): number => {
+    const ticket = ++this.requested;
+    this.dirty = true;
+    this.startRun();
+    return ticket;
+  };
+
+  refresh = (): Promise<void> => {
+    const ticket = ++this.requested;
+    this.dirty = true;
+    return new Promise((resolve, reject) => {
+      this.waiters.push({ ticket, epoch: this.epoch, resolve, reject });
+      this.startRun();
+    });
+  };
+
+  startRun() {
+    if (this.active?.epoch === this.epoch) return;
+    const token = { epoch: this.epoch };
+    this.active = token;
+    void this.run(token);
+  }
+
+  async run(token: ActivityRunToken) {
+    while (this.active === token) {
+      const target = this.requested;
+      let runCurrency: string | null = null;
+      let attemptedWindow = initialActivityWindowEnd();
+      let failed = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const inputs = this.latestInputs();
+        if (inputs?.session && activityOwnerKey(inputs.session) === this.ownerKey) {
+          runCurrency = presentationMoneyMetadata(inputs.regionId).currency;
+          attemptedWindow = this.queryClient.getQueryData<string>(ownerQueryKey(this.ownerKey, activityWindowScope)) ?? initialActivityWindowEnd();
+          let timedOut = false;
+          let inputsChanged = false;
+          let prefetchKey: QueryKey | null = null;
+          const timeout = new Promise<"timed-out">((resolve) => {
+            timer = setTimeout(() => {
+              timedOut = true;
+              resolve("timed-out");
+            }, activityLatestReadTimeoutMs);
+          });
+          const result = await Promise.race([
+            refreshLatestActivity({
+              queryClient: this.queryClient, ownerKey: this.ownerKey, ...inputs, session: inputs.session,
+              isCurrent: () => {
+                const current = this.active === token && !timedOut && this.currentCurrency() === runCurrency;
+                if (!current) inputsChanged = true;
+                return current;
+              },
+              onPrefetchKey: (key) => {
+                if (timedOut || this.active !== token) return;
+                prefetchKey = key;
+                this.prefetchKey = key;
+              },
+            }).catch(() => "failed" as const),
+            timeout,
+          ]);
+          if (timer !== undefined) clearTimeout(timer);
+          if (this.active !== token) return;
+          if (result === "timed-out") {
+            const windowKey = ownerQueryKey(this.ownerKey, activityWindowScope);
+            if (prefetchKey && this.queryClient.getQueryData<string>(windowKey) !== prefetchKey[2]) {
+              await this.queryClient.cancelQueries({ queryKey: prefetchKey, exact: true });
+              if (this.active !== token) return;
+              this.queryClient.removeQueries({ queryKey: prefetchKey, exact: true });
+            }
+            this.prefetchKey = null;
+          }
+          if (result === "superseded" || (result === "skipped" && inputsChanged && !timedOut) || this.currentCurrency() !== runCurrency) continue;
+          failed = result === "failed" || result === "timed-out";
+          if (failed && this.queryClient.getQueryData<string>(ownerQueryKey(this.ownerKey, activityWindowScope)) !== attemptedWindow) continue;
+        }
+        if (this.active !== token) return;
+        this.served = target;
+        this.setFailure(failed && runCurrency !== null ? { windowEnd: attemptedWindow, currency: runCurrency } : null);
+      } catch {
+        if (this.active !== token) return;
+        failed = true;
+        this.served = target;
+        if (runCurrency !== null) this.setFailure({ windowEnd: attemptedWindow, currency: runCurrency });
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+      if (this.active !== token) return;
+      const settled = this.waiters.filter((waiter) => waiter.epoch === token.epoch && waiter.ticket <= target);
+      this.waiters = this.waiters.filter((waiter) => waiter.epoch !== token.epoch || waiter.ticket > target);
+      for (const waiter of settled) {
+        if (failed) waiter.reject(new Error("Latest activity refresh unavailable."));
+        else waiter.resolve();
+      }
+      if (this.requested > this.served) continue;
+      this.active = null;
+      this.dirty = false;
+      return;
+    }
+  }
+}
+
+const activityWindowControllers = new WeakMap<QueryClient, Map<string, ActivityWindowController>>();
+
+function activityWindowController(queryClient: QueryClient, ownerKey: string): ActivityWindowController {
+  let owners = activityWindowControllers.get(queryClient);
+  if (!owners) {
+    owners = new Map();
+    activityWindowControllers.set(queryClient, owners);
+  }
+  let controller = owners.get(ownerKey);
+  if (!controller) {
+    controller = new ActivityWindowController(queryClient, ownerKey);
+    owners.set(ownerKey, controller);
+  }
+  return controller;
+}
+
+export function refreshActivityThroughController(input: Parameters<typeof refreshLatestActivity>[0]): Promise<void> {
+  const controller = activityWindowControllers.get(input.queryClient)?.get(input.ownerKey);
+  if (controller && controller.observers.size > 0) return controller.refresh();
+  return refreshLatestActivity(input).then(() => undefined);
+}
+
+const subscribeWithoutOwner = () => () => {};
+const failureWithoutOwner = () => null;
 
 export function useActivity(
   session: VerifiedAccountSession | null,
@@ -307,6 +535,24 @@ export function useActivity(
   }, [query.data?.pages]);
 
   const continuationScope = `${ownerKey ?? "signed-out"}\u0000${windowEnd}\u0000${currency}`;
+  const controller = ownerKey ? activityWindowController(queryClient, ownerKey) : null;
+  const failure = useSyncExternalStore(
+    controller?.subscribe ?? subscribeWithoutOwner,
+    controller?.getFailure ?? failureWithoutOwner,
+    controller?.getFailure ?? failureWithoutOwner,
+  );
+  const latestUnavailable = Boolean(ownerKey && failure?.windowEnd === windowEnd && failure.currency === currency);
+  const observerId = useRef(Symbol());
+  const advanceInputRef = useRef({ session: validSession, regionId, fetchActivity });
+  useEffect(() => {
+    advanceInputRef.current = { session: validSession, regionId, fetchActivity };
+    controller?.updateObserver(observerId.current, advanceInputRef);
+  });
+  const canAdvance = validSession !== null;
+  useEffect(() => {
+    if (!ownerKey || !canAdvance) return;
+    return activityWindowController(queryClient, ownerKey).registerObserver(observerId.current, advanceInputRef);
+  }, [ownerKey, canAdvance, queryClient]);
   const activityQuery = ownerKey
     ? queryClient.getQueryCache().find({ queryKey: activityQueryKey, exact: true })
     : undefined;
@@ -515,7 +761,14 @@ export function useActivity(
     };
   }, [continuationScope]);
 
-  const retry = useCallback(() => { void query.refetch(); }, [query]);
+  const retry = useCallback(() => {
+    if (latestUnavailable && controller) {
+      controller.setFailure(null);
+      void controller.request();
+    } else {
+      void query.refetch();
+    }
+  }, [controller, latestUnavailable, query]);
   const refresh = useCallback(() => {
     if (ownerKey) advanceActivityWindowEnd(queryClient, ownerKey);
     markFailed(false);
@@ -582,6 +835,7 @@ export function useActivity(
     loadingMore: query.isFetchingNextPage,
     loadMoreError: loadMoreFailed,
     continuing,
+    latestUnavailable,
     retry,
     refresh,
     setSentinelVisible,

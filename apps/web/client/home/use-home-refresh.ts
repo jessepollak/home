@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { QueryKey } from "@tanstack/react-query";
 import { isVerifiedActivitySession } from "@/shared/activity/contract";
 import type { FetchActivity } from "@/client/activity/types";
-import { refreshLatestActivity } from "@/client/activity/use-activity";
+import { refreshActivityThroughController } from "@/client/activity/use-activity";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { activityWindowScope, initialActivityWindowEnd } from "@/client/query/after-action";
 import {
@@ -95,7 +95,7 @@ export function useHomeRefresh(input: {
     let ownedPrefetchKey: QueryKey | null = null;
     const promise = Promise.allSettled([
       refetch(balancesKey),
-      refreshLatestActivity({
+      refreshActivityThroughController({
         queryClient, ownerKey, session, regionId: input.regionId, fetchActivity: input.fetchActivity,
         isCurrent,
         onPrefetchKey: (key) => {

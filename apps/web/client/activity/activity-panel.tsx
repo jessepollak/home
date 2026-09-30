@@ -189,16 +189,17 @@ export function ActivityPanelView({
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null && activity.page.onchainStatus !== "unavailable";
   const plain = density === "feed";
   const onchainUnavailable = activity.status === "ready" && activity.page.onchainStatus === "unavailable";
+  const latestUnavailable = activity.status === "ready" && activity.latestUnavailable === true;
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
   const retryFailedSources = () => {
-    if (activity.status === "error" || onchainUnavailable) activity.retry();
+    if (activity.status === "error" || onchainUnavailable || latestUnavailable) activity.retry();
     if (actionsStatus === "error") retryActions?.();
     if (ordersStatus === "error") retryOrders?.();
     if (activity.status === "ready" && activity.loadMoreError) activity.retryLoadMore();
   };
   const inlineStatus = !plain;
 
-  const historyUnknown = activity.status === "error" || onchainUnavailable || actionsStatus === "error" || ordersStatus === "error";
+  const historyUnknown = activity.status === "error" || onchainUnavailable || latestUnavailable || actionsStatus === "error" || ordersStatus === "error";
 
   if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error" && ordersStatus !== "error") {
     return (
@@ -257,6 +258,14 @@ export function ActivityPanelView({
               Onchain transfers are unavailable. Other available activity is still shown.
             </p>
             <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
+          </div>
+        ) : null}
+        {inlineStatus && activity.status !== "error" && latestUnavailable && !onchainUnavailable ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">
+              Latest activity didn&apos;t load. Earlier activity is still shown.
+            </p>
+            <LoadRetryButton onRetry={activity.retry}>Retry latest activity</LoadRetryButton>
           </div>
         ) : null}
         {inlineStatus && actionsStatus === "error" ? (

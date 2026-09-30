@@ -91,7 +91,7 @@ const pendingSend: RecentMoneyActionOperation = {
   updatedAt: "2026-09-26T12:00:00.000Z",
 };
 
-function activity(records: ActivityTransfer[]): UseActivityResult {
+function activity(records: ActivityTransfer[]): Extract<UseActivityResult, { status: "ready" }> {
   const to = "2026-09-26T12:00:00.000Z";
   return {
     status: "ready",
@@ -181,6 +181,37 @@ export const ActivityPageDesktop: Story = {
 
 export const ActivityPageMobile: Story = {
   args: { activity: activity(transfers), operations: [pendingSend], regionId: "US", density: "page", header: null },
+};
+
+export const ActivityPageLatestUnavailable: Story = {
+  args: {
+    activity: { ...activity(transfers), latestUnavailable: true },
+    operations: [pendingSend], regionId: "US", density: "page", header: null,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Latest activity didn't load. Earlier activity is still shown.")).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Retry latest activity" })).toBeVisible();
+    const recent = canvas.getByRole("list", { name: "Recent" });
+    await expect(recent).toBeVisible();
+    await expect(within(recent).getByRole("button", { description: "4 Received USDC transfers" })).toBeVisible();
+  },
+};
+
+export const HomeFeedLatestUnavailable: Story = {
+  args: {
+    activity: { ...activity(transfers), latestUnavailable: true },
+    operations: [pendingSend], regionId: "US", density: "feed",
+    header: <h2 id="activity-title" className="text-lg font-semibold">Activity</h2>,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Some activity is unavailable")).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Reload activity" })).toBeVisible();
+    const recent = canvas.getByRole("list", { name: "Recent" });
+    await expect(recent).toBeVisible();
+    await expect(within(recent).getByRole("button", { description: "4 Received USDC transfers" })).toBeVisible();
+  },
 };
 
 export const LongRunScroll: Story = {
