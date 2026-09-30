@@ -68,6 +68,13 @@ jobs:
           set -o pipefail
           node scripts/gates/failure-cases.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: SQL performance evidence
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+        run: node scripts/gates/sql-performance.mjs
+
       - name: Gates
         env:
           BASE_REF: ${{ github.base_ref || github.event.before }}
