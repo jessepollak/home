@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
 import { presentInvestAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
@@ -15,7 +17,7 @@ import { usePresentationRegionId } from "./presentation-quote";
 
 const unavailableBalances: AccountWalletClient["fetchBalances"] = async () => { throw new Error("Account unavailable"); };
 
-export function findAssetHolding(holdings: readonly Holding[], asset: InvestAsset) {
+export function findAssetHolding(holdings: readonly Holding[], asset: Pick<InvestAsset, "id" | "contractAddress">) {
   return holdings.find((holding) => holding.contractAddress?.toLowerCase() === asset.contractAddress.toLowerCase())
     ?? (investAssets.some((configured) => configured.id === asset.id)
       ? holdings.find((holding) => holding.id === asset.id) : undefined);
@@ -34,6 +36,10 @@ export function AssetPosition({ asset, assetMarkResolution }: {
     chainId: session.smartAccount.chainId,
     accountProvider: session.accountProvider,
   } : null, regionId, account?.fetchBalances ?? unavailableBalances);
+  const holdings = balances.status === "ready" && session?.smartAccount && !balances.snapshot.stale && !balances.refreshError
+    ? balances.snapshot.holdings : null;
+  const holding = useMemo(() => holdings ? findAssetHolding(holdings, { id: asset.id, contractAddress: asset.contractAddress }) : undefined,
+    [holdings, asset.id, asset.contractAddress]);
   if (!session?.smartAccount) return null;
   if (balances.status === "loading") return <ul aria-label="Your balance"><li className="py-2"><Skeleton className="h-16 w-full" /></li></ul>;
   const unavailable = balances.status === "error" || balances.status === "ready" && (balances.snapshot.stale || balances.refreshError);
@@ -41,7 +47,6 @@ export function AssetPosition({ asset, assetMarkResolution }: {
   if (unavailable) return <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"
     context="Balance unavailable" value="—" chevron={false} /></ul>;
   if (balances.status !== "ready") return null;
-  const holding = findAssetHolding(balances.snapshot.holdings, asset);
   const configured = investAssets.some((item) => item.id === asset.id);
   const covered = configured ? balances.snapshot.coverage.registry === "complete" : balances.snapshot.coverage.catalog === "complete";
   if (!holding && !covered) return <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"

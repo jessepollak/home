@@ -1,9 +1,11 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { ownerQueryKey } from "@/client/query/query-client";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import type { Holding } from "@/shared/balances/types";
@@ -126,4 +128,29 @@ describe("findAssetHolding", () => {
     const upper = { ...bitcoin, contractAddress: bitcoin.contractAddress.toUpperCase().replace("0X", "0x") as `0x${string}` };
     expect(findAssetHolding(holdings, upper)?.id).toBe("cbbtc");
   });
+});
+
+
+test("holding lookup reuses stable inputs and invalidates when the selected asset changes", async () => {
+  const session = { user: { subject: "memo-position" }, smartAccount: { address: owner, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+  const snapshot = balancesSnapshot();
+  const key = ownerQueryKey(dataOwnerKey(session), "balances", "US");
+  getHomeQueryClient().setQueryData(key, snapshot);
+  const stored = getHomeQueryClient().getQueryData<typeof snapshot>(key)!;
+  const find = spyOn(stored.holdings, "find");
+  const client = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified" as const,
+    verification: "server" as const, session, fetchBalances: async () => snapshot };
+  const surface = (asset: InvestAsset) => <AccountWalletClientProvider client={client as never}>
+    <PresentationRegionProvider regionId="US"><AssetPosition asset={asset} assetMarkResolution={{}} /></PresentationRegionProvider>
+  </AccountWalletClientProvider>;
+  try {
+    const view = render(surface(bitcoin));
+    await waitFor(() => expect(view.getByText("Your balance")).toBeTruthy());
+    const reads = find.mock.calls.length;
+    expect(reads).toBeGreaterThan(0);
+    view.rerender(surface({ ...bitcoin }));
+    expect(find.mock.calls.length).toBe(reads);
+    view.rerender(surface(stock));
+    expect(find.mock.calls.length).toBeGreaterThan(reads);
+  } finally { find.mockRestore(); }
 });

@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { useRef, useState } from "react";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, HomeQueryClientProvider, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
@@ -1861,3 +1861,22 @@ describe("Cash L2", () => {
   });
 });
 
+
+test("Cash preserves the savings anchor on unrelated renders and invalidates owner and freshness", async () => {
+  const growth = await import("@/client/savings/use-estimated-growth");
+  const anchor = spyOn(growth, "createSavingsGrowthAnchor");
+  try {
+    cached();
+    const view = render(<Surface view="cash" snapshot={single} />);
+    const initialCalls = anchor.mock.calls.length;
+    expect(initialCalls).toBeGreaterThan(0);
+    view.rerender(<Surface view="cash" snapshot={single} onAddMoney={() => {}} />);
+    expect(anchor.mock.calls.length).toBe(initialCalls);
+    const replacementOwner = { ...session, user: { subject: "replacement-owner" } };
+    view.rerender(<Surface view="cash" snapshot={single} owner={replacementOwner} />);
+    const replacedCalls = anchor.mock.calls.length;
+    expect(replacedCalls).toBeGreaterThan(initialCalls);
+    view.rerender(<Surface view="cash" snapshot={single} owner={replacementOwner} stale />);
+    expect(anchor.mock.calls.length).toBeGreaterThan(replacedCalls);
+  } finally { anchor.mockRestore(); }
+});

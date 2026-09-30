@@ -5,6 +5,7 @@ import { render } from "@testing-library/react";
 import { cryptoAssets } from "@/config/invest-assets";
 import { buildBalancesSnapshotFixture, walletHolding } from "@/shared/balances/fixtures";
 
+const { OwnedAssetDetail } = await import("./owned-asset-detail");
 const { InvestmentsOverview, holdingsQuantity, quantity } = await import("./investments-overview");
 
 function configuredCrypto(id: string) {
@@ -59,4 +60,22 @@ describe("investments route quantity precision", () => {
     expect(holdingsQuantity([wallet, collateral], wallet, buildBalancesSnapshotFixture()))
       .toBe(`2.4690 ${symbol}`);
   });
+});
+
+test("owned detail reuses its selection on refresh status and replaces it with the owner snapshot", () => {
+  const snapshot = buildBalancesSnapshotFixture({ registry: { eth: { balance: { status: "ready", baseUnits: "1000000000000000000" }, value: { status: "priced", currency: "USD", amount: { atoms: "123400", scale: 2 }, asOf: "2026-09-10T12:00:00.000Z" } } } });
+  const holdings = snapshot.holdings;
+  const assetKey = holdings.find((holding) => holding.id === "eth")!.key;
+  let reads = 0;
+  Object.defineProperty(snapshot, "holdings", { get: () => { reads += 1; return holdings; } });
+  const props = { snapshot, balanceStatus: "ready" as const, assetKey, catalog: [], markets: { stockMarket: { status: "unavailable" as const }, memeMarket: { status: "unavailable" as const }, cryptoMarket: { status: "unavailable" as const } }, assetMarkResolution: {}, onBack: () => {}, onRetryBalances: () => {} };
+  const view = render(<OwnedAssetDetail {...props} />);
+  expect(view.getByRole("img", { name: "$1,234.00" })).toBeTruthy();
+  const initialReads = reads;
+  view.rerender(<OwnedAssetDetail {...props} refreshFailed />);
+  expect(reads).toBe(initialReads);
+  const replacement = buildBalancesSnapshotFixture();
+  replacement.owner = { ...replacement.owner, address: "0x9999999999999999999999999999999999999999" };
+  view.rerender(<OwnedAssetDetail {...props} snapshot={replacement} />);
+  expect(view.queryByRole("img", { name: "$1,234.00" })).toBeNull();
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import { ChevronDown, CircleDollarSign, Coins, ShieldCheck } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -237,16 +237,16 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const opportunities = overview?.opportunities ?? [];
   const selected = opportunities.find((entry) => entry.market.id === marketId);
   const snapshot = selected?.availability.status === "available" ? selected.availability.snapshot : null;
-  const loans = overview ? openLoans(overview) : [];
-  const assets = overview ? borrowableAssets(overview) : [];
-  const tradeCandidates = assets.flatMap((asset) => {
+  const loans = useMemo(() => overview ? openLoans(overview) : [], [overview]);
+  const assets = useMemo(() => overview ? borrowableAssets(overview) : [], [overview]);
+  const tradeCandidates = useMemo(() => assets.flatMap((asset) => {
     const assetId = asset.kind === "not-held" ? buyRouteForToken({ chainId: asset.snapshot.chainId, address: asset.market.collateralToken.address }) : null;
     return assetId ? [{ assetId, assetName: collateralDisplayName(asset.market.id) }] : [];
-  });
+  }), [assets]);
   const trade = useAssetTrade(tradeCandidates, { session: tradeCandidates.length ? session : null, regionId, onFallbackFocus: focusOverview });
   const buy = { states: trade.states, intent: (assetId: string) => trade.intent(assetId, "buy"), open: (assetId: string, button: HTMLButtonElement) => trade.open(assetId, "buy", button) };
   const ready = status === "ready" && overview !== null;
-  const complete = ready && summarizeBorrowOverview(overview).completeness === "complete";
+  const complete = useMemo(() => ready && summarizeBorrowOverview(overview).completeness === "complete", [ready, overview]);
   const showIntro = complete && loans.length === 0;
   const hasBorrowableAsset = assets.some((asset) => asset.kind === "held");
   const empty = !loans.length && !assets.some((asset) => asset.kind === "held" || asset.kind === "held-no-capacity");

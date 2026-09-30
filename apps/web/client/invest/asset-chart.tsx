@@ -24,8 +24,8 @@ const plotPadding = { top: 20, right: 18, bottom: 20, left: 16 };
 let plotId = 0;
 
 function samePlot(a: Plot | undefined, b: Plot) {
-  return a?.assetId === b.assetId && a.range === b.range && a.points.length === b.points.length
-    && a.points.every((point, index) => point.time === b.points[index]?.time && point.value === b.points[index]?.value);
+  return a === b || a?.assetId === b.assetId && a.range === b.range && (a.points === b.points || a.points.length === b.points.length
+    && a.points.every((point, index) => point.time === b.points[index]?.time && point.value === b.points[index]?.value));
 }
 function pointX(time: number, plot: Plot, width: number, now: number) {
   const chartWidth = width - plotPadding.left - plotPadding.right;
