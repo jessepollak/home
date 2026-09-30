@@ -9,6 +9,7 @@ import { evaluateStructural, evaluateTiming, exitCode, limitFor, median, percent
 import { runFeed } from "./feed";
 import { runModal } from "./modal";
 import { runNavigation } from "./navigation";
+import { runWalletNavigation } from "./wallet";
 
 const baselineFile = join(import.meta.dir, "baseline.json");
 function parseArgs(argv: string[]) {
@@ -48,6 +49,7 @@ async function main() {
   const structuralInputs: StructuralInput[] = [];
   const timingInputs: TimingInput[] = [];
   const traces: string[] = [];
+  const wallets: Awaited<ReturnType<typeof runWalletNavigation>>[] = [];
   const reruns = new Map<string, (dir: string) => Promise<void>>();
   const cpuScenarios: Record<string, { requested: number[]; applied: number[] }> = {};
   const cpuMismatches: string[] = [];
@@ -173,6 +175,14 @@ async function main() {
         reruns.set(key, async (dir) => { await withSession(browser, seed, (session) => runModal(session, baseUrl, rows, kind, seed === "resource-growth"), { dir, name: key }); });
       }
     }
+    if (!only && !seed) {
+      for (const holdings of [100, 1000, 10000]) {
+        const key = `wallet-${holdings}`;
+        const result = await phase(key, () => withSession(browser, null, (session) => runWalletNavigation(session, baseUrl, holdings)));
+        recordCpu(key, result.cpu);
+        wallets.push(result);
+      }
+    }
     const structural = evaluateStructural(structuralInputs), timing = evaluateTiming(timingInputs);
     const failures = new Set<string>();
     for (const row of structural) if (!row.pass) {
@@ -190,7 +200,7 @@ async function main() {
     const results = {
       version: 1, startedAt, durationMs: round(performance.now() - started), sha, seed, only,
       environment: { browser: `chromium ${browser.version()}`, viewport: "mobile", cpuThrottle, platform: platform() },
-      phases: phaseRows, structural, timing, cpu: { requested: cpuThrottle, pass: cpuMismatches.length === 0, mismatches: cpuMismatches, scenarios: cpuScenarios },
+      phases: phaseRows, structural, timing, wallets, cpu: { requested: cpuThrottle, pass: cpuMismatches.length === 0, mismatches: cpuMismatches, scenarios: cpuScenarios },
       timingMode: "report-only", reportOnlyUntil: "2026-10-11", traces,
     };
     await writeFile(join(outDir, "results.json"), JSON.stringify(results, null, 2) + "\n");
@@ -203,6 +213,8 @@ async function main() {
         .flatMap((row) => (row.detail.requests as { method: string; path: string }[]).map((request) => `- ${row.label}: ${request.method} ${request.path}`)),
       "", "## Timing (report only)", "", "| Metric | Scenario | Value | 20-row calibration | Ratio | Absolute ceiling | Relative ceiling | Breach |", "|---|---|---:|---:|---:|---:|---:|:---:|",
       ...timing.map((row) => `| ${row.id} | ${row.scenario} | ${format(row.value)} ${row.unit} | ${format(row.calibration)} ${row.unit} | ${row.ratio === null ? "—" : `${format(row.ratio)}×`} | ${row.absoluteCeiling === null ? "—" : `${format(row.absoluteCeiling)} ${row.unit}`} | ${row.relativeCeiling === null ? "—" : row.relativeMode === "delta" ? `+${format(row.relativeCeiling)} ${row.unit}` : `${format(row.relativeCeiling)}×`} | ${row.breach ? "yes" : "no"} |`),
+      "", "## Large-wallet navigation (report only)", "", "| Holdings | Scenario | Duration ms |", "|---:|---|---:|",
+      ...wallets.flatMap((wallet) => Object.entries(wallet.durations).map(([scenario, duration]) => `| ${wallet.holdings} | ${scenario} | ${format(duration)} |`)),
       "", "## Phase runtimes", "", "| Phase | Duration |", "|---|---:|",
       ...phaseRows.map((row) => `| ${row.name} | ${format(row.durationMs)} ms |`), "",
       ...(traces.length ? ["Traces: " + traces.join(", "), ""] : [])];
