@@ -8,7 +8,10 @@ import { fileURLToPath } from "node:url";
 
 import {
   collectReport,
+  githubPullRequestBody,
   maxReportCharacters,
+  pullRequestLookupBudgetMs,
+  pullRequestLookupTimeoutMs,
   parseArguments,
   renderMarkdown,
   sinceArgument,
@@ -172,6 +175,77 @@ test("excludes fixes marked pre-policy from detector counts and shares", () => {
   ]);
 });
 
+test("recovers title-only squash detectors from visible PR body lines", () => {
+  const calls = [];
+  const summary = summarizeFixCommits([
+    commit_("1".repeat(40), "fix(home): repair (#12)"),
+    commit_("2".repeat(40), "fix(home): repeated (#13)"),
+    commit_("3".repeat(40), "fix(home): conflicting (#14)"),
+    commit_("4".repeat(40), "fix(home): commented (#15)"),
+    commit_("5".repeat(40), "fix(home): fenced (#16)"),
+    commit_("6".repeat(40), "fix(home): empty (#17)"),
+  ], { pullRequestBody: (number) => {
+    calls.push(number);
+    return {
+      12: "Details\nCaught-by: review\n",
+      13: "Caught-by: bot\nCaught-by: bot",
+      14: "Caught-by: review\nCaught-by: production",
+      15: "<!--\nCaught-by: lint\n-->",
+      16: "```\nCaught-by: lint\n```",
+      17: "No detector",
+    }[number];
+  } });
+  assert.deepEqual(calls, [12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(summary.fixes.map(({ detector, detectorSource }) => [detector, detectorSource]), [
+    ["review", "pr-body"], ["bot", "pr-body"], ["mixed", "pr-body"],
+    ["unknown", "none"], ["unknown", "none"], ["unknown", "none"],
+  ]);
+});
+
+test("does not look up a PR body for a trailer, non-PR subject, non-fix, or pre-policy fix", () => {
+  const calls = [];
+  const summary = summarizeFixCommits([
+    commit_("1".repeat(40), "fix(home): has trailer (#12)", "Caught-by: lint"),
+    commit_("2".repeat(40), "fix(home): no number"),
+    commit_("3".repeat(40), "feat(home): new feature (#13)"),
+    commit_("4".repeat(40), "fix(home): predates policy (#14)"),
+  ], {
+    isPrePolicy: (sha) => sha === "4".repeat(40),
+    pullRequestBody: (number) => { calls.push(number); return "Caught-by: review"; },
+  });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(summary.fixes.map(({ detector, detectorSource, prePolicy }) => [detector, detectorSource, prePolicy]), [
+    ["lint", "trailer", false], ["unknown", "none", false], ["unknown", "none", true],
+  ]);
+});
+
+test("unavailable PR body lookup leaves an unknown fix with its source recorded", () => {
+  const calls = [];
+  const summary = summarizeFixCommits([commit_("1".repeat(40), "fix(home): repair (#12)")], {
+    pullRequestBody: (number) => { calls.push(number); return null; },
+  });
+  assert.deepEqual(calls, [12]);
+  assert.equal(summary.fixes[0].detector, "unknown");
+  assert.equal(summary.fixes[0].detectorSource, "pr-body-unavailable");
+});
+
+test("reads PR bodies with bounded gh and treats failed lookups as unavailable", () => {
+  const calls = [];
+  const runner = (bin, args, options) => {
+    calls.push({ bin, args, options });
+    return { status: 0, stdout: "Caught-by: review\n\n" };
+  };
+  assert.equal(githubPullRequestBody(12, { cwd: repo, runner }), "Caught-by: review\n");
+  assert.deepEqual(calls, [{
+    bin: "gh", args: ["pr", "view", "12", "--json", "body", "--jq", ".body"],
+    options: { cwd: repo, encoding: "utf8", timeout: pullRequestLookupTimeoutMs },
+  }]);
+  for (const result of [{ status: 1, stdout: "" }, { status: null, error: new Error("timeout") }]) {
+    assert.equal(githubPullRequestBody(12, { cwd: repo, runner: () => result }), null);
+  }
+  assert.equal(githubPullRequestBody(12, { cwd: repo, runner: () => { throw new Error("missing gh"); } }), null);
+});
+
 test("defaults to the last 30 days on the current branch", () => {
   const report = collectReport({ cwd: repo });
   assert.equal(report.since, "30.days");
@@ -239,6 +313,7 @@ test("renders an empty corpus without rows or candidates", () => {
   assert.ok(markdown.includes("Fix commits: 0"));
   assert.ok(markdown.includes("| _(none)_ | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"));
   assert.ok(markdown.includes("None in this range."));
+  assert.ok(!markdown.includes("Detectors recovered from pull request bodies:"));
 });
 
 function summarizeReport(total, candidates = []) {
@@ -294,6 +369,93 @@ test("marks fixes that predate the policy commit and reports the excluded count"
   assert.ok(markdown.includes(`Trailer policy started at \`${shas.review.slice(0, 8)}\` (#709, 2026-09-21). Pre-policy fix commits in this range: 1 of 6 — excluded from shares.`));
   assert.ok(markdown.includes("| bot | 0 | 0.0% |"));
   assert.ok(markdown.includes("| review | 1 | 20.0% |"));
+});
+
+test("collectReport passes through PR body lookup, includes recovered candidates and unavailable count", () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-pr-recovery-"));
+  const localGit = (args) => {
+    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  try {
+    localGit(["init", "-q", "-b", "main"]);
+    localGit(["config", "user.email", "gates-fixture@example.com"]);
+    localGit(["config", "user.name", "Gates Fixture"]);
+    writeFileSync(path.join(fixture, "seed.txt"), "seed\n");
+    localGit(["add", "seed.txt"]);
+    localGit(["commit", "-q", "-m", "chore(home): seed fixture"]);
+    for (const [number, file] of [[12, "review.ts"], [13, "unavailable.ts"]]) {
+      writeFileSync(path.join(fixture, file), `export const pr = ${number};\n`);
+      localGit(["add", file]);
+      localGit(["commit", "-q", "-m", `fix(home): repair (#${number})`]);
+    }
+    const calls = [];
+    const report = collectReport({ cwd: fixture, pullRequestBody: (number) => {
+      calls.push(number);
+      return number === 12 ? "Details\nCaught-by: review\n" : null;
+    } });
+    assert.deepEqual(calls, [13, 12]);
+    assert.equal(report.prBodyRecovered, 1);
+    assert.equal(report.prBodyUnavailable, 1);
+    assert.equal(report.detectors.find(({ detector }) => detector === "unknown").count, 1);
+    assert.deepEqual(report.candidates.map(({ detector, detectorSource, files }) => ({ detector, detectorSource, files })), [
+      { detector: "review", detectorSource: "pr-body", files: ["review.ts"] },
+    ]);
+    const markdown = renderMarkdown({ ...report, policyStart: "a".repeat(40) });
+    assert.ok(markdown.indexOf("Trailer policy started at") < markdown.indexOf("Detectors recovered from pull request bodies:"));
+    assert.match(markdown, /Detectors recovered from pull request bodies: 1\. Pull request body lookups unavailable: 1 — counted as unknown\./);
+    assert.match(markdown, /fix\(home\): repair \(#12\) — `review\.ts`/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
+test("collectReport bounds default PR lookups, retaining memoized bodies after the deadline", () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-lookup-budget-"));
+  const localGit = (args) => {
+    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  try {
+    localGit(["init", "-q", "-b", "main"]);
+    localGit(["config", "user.email", "gates-fixture@example.com"]);
+    localGit(["config", "user.name", "Gates Fixture"]);
+    for (const [index, number] of [12, 13, 14, 14].entries()) {
+      const file = `fix-${index}.ts`;
+      writeFileSync(path.join(fixture, file), `export const pr = ${number};\n`);
+      localGit(["add", file]);
+      localGit(["commit", "-q", "-m", `fix(home): repair ${index} (#${number})`]);
+    }
+    const remainingMs = 5_000;
+    let timeMs = 1_000;
+    const calls = [];
+    const runner = (bin, args, options) => {
+      calls.push({ bin, args, options });
+      timeMs = 1_000 + pullRequestLookupBudgetMs;
+      return { status: 0, stdout: "Caught-by: review\n" };
+    };
+    const report = collectReport({
+      cwd: fixture, runner,
+      now: () => {
+        const current = timeMs;
+        if (timeMs === 1_000) timeMs = 1_000 + pullRequestLookupBudgetMs - remainingMs;
+        return current;
+      },
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].bin, "gh");
+    assert.deepEqual(calls[0].args, ["pr", "view", "14", "--json", "body", "--jq", ".body"]);
+    assert.equal(calls[0].options.cwd, fixture);
+    assert.equal(calls[0].options.encoding, "utf8");
+    assert.ok(calls[0].options.timeout > 0 && calls[0].options.timeout <= remainingMs, "a lookup is bounded by the budget it has left");
+    assert.equal(report.prBodyRecovered, 2, "the repeated PR uses its cached body after the deadline");
+    assert.equal(report.prBodyUnavailable, 2, "later distinct PRs are unavailable without gh calls");
+    assert.equal(report.detectors.find(({ detector }) => detector === "unknown").count, 2);
+    assert.equal(report.detectors.find(({ detector }) => detector === "review").count, 2);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 });
 
 test("the CLI prints JSON for a range and the markdown summary otherwise", () => {

@@ -9,6 +9,7 @@ import {
   squashedCommits,
   detectCommitRange,
   readCommitsForRange,
+  pullRequestNumber,
 } from "../caught-by.mjs";
 
 const commit = (subject, body = "") => ({ sha: "a".repeat(40), subject, body });
@@ -146,6 +147,13 @@ test("does not apply the trailer contract to non-fix or unscoped subjects", () =
     commit("docs(ops): explain fixes"),
     commit("fix: legacy unscoped subject"),
   ]), []);
+});
+
+test("extracts only a trailing pull request squash number", () => {
+  assert.equal(pullRequestNumber("fix(home): repair state (#12)"), 12);
+  for (const subject of ["fix(home): repair state", "fix(home): mention (#12) mid-subject", "fix(home): repair state (#a)", "fix(home): repair state (#12) "]) {
+    assert.equal(pullRequestNumber(subject), null);
+  }
 });
 
 test("a pushed pull request squash is left to the PR body gate, while direct pushes and PR ranges stay checked", () => {
