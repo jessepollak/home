@@ -1,4 +1,5 @@
 import "server-only";
+import { requireAddress } from "@/shared/chain/hex";
 
 import { randomUUID } from "node:crypto";
 import { encodeFunctionData, erc20Abi, hashTypedData } from "viem";
@@ -28,6 +29,7 @@ import { moneyActionOwner } from "./session";
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const hexDataPattern = /^0x(?:[0-9a-fA-F]{2})*$/;
 const integerPattern = /^(?:0|[1-9][0-9]*)$/;
+const PERMIT2 = requireAddress(PERMIT2_ADDRESS);
 const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
 const MAX_ACTION_LIFETIME_MS = 30 * 60 * 1000;
 const actionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -436,7 +438,7 @@ function assertTradeDraft(calls: MoneyActionCall[], amounts: MoneyActionAmount[]
   if (!swap || swap.value !== "0" || swap.approval || actionCalls.length > 2 ||
     actionCalls.some((call) => call.to !== metadata.fromAsset.address || call.value !== "0" ||
       call.approval?.assetId !== metadata.fromAsset.id || call.approval.spender !== PERMIT2_ADDRESS ||
-      decodeMoneyActionApproval(call)?.spender !== PERMIT2_ADDRESS)) throw new MoneyActionIssueError("invalid-draft");
+      decodeMoneyActionApproval(call)?.spender !== PERMIT2)) throw new MoneyActionIssueError("invalid-draft");
   const approvals = actionCalls.map((call) => decodeMoneyActionApproval(call)?.amountBaseUnits);
   const exact = metadata.fromAmountBaseUnits;
   if (metadata.approval === "permit2-exact"
@@ -472,7 +474,7 @@ function assertExactApprovalCaps(
       continue;
     }
     if (index === 0 && networkFee?.payment === "usdc") continue;
-    const eligibleSpends = trade && approval.spender === PERMIT2_ADDRESS && approval.token === trade.fromAsset.address
+    const eligibleSpends = trade && approval.spender === PERMIT2 && approval.token === trade.fromAsset.address
       ? [{ assetId: trade.fromAsset.id, symbol: trade.fromAsset.symbol, decimals: trade.fromAsset.decimals,
           direction: "spend" as const, amountBaseUnits: trade.fromAmountBaseUnits }]
       : amounts.filter((amount) => amount.direction === "spend" && amount.assetId === approval.assetId);
@@ -480,7 +482,7 @@ function assertExactApprovalCaps(
     const spend = (cappedSpends.length > 0 ? cappedSpends : eligibleSpends).find((amount) =>
       amount.amountBaseUnits === approval.amountBaseUnits
     );
-    const tradeToken = trade && approval.spender === PERMIT2_ADDRESS &&
+    const tradeToken = trade && approval.spender === PERMIT2 &&
       approval.token === trade.fromAsset.address && approval.assetId === trade.fromAsset.id;
     if (!spend || !(tradeToken || approvalTokenMatchesCanonicalAsset(approval.token, spend.assetId))) {
       throw new MoneyActionIssueError("invalid-draft");

@@ -1,4 +1,5 @@
 import "server-only";
+import { parseAddress, requireAddress } from "@/shared/chain/hex";
 
 import { randomUUID } from "node:crypto";
 import { encodeFunctionData, erc20Abi } from "viem";
@@ -68,7 +69,7 @@ export async function prepareTradeAction(
     id: resolved.assetId, address: resolved.address, decimals: identity.decimals,
     symbol: resolved.configured?.representation.tokenSymbol ?? identity.symbol ?? `0x${resolved.address.slice(2, 6)}`,
   };
-  const usdcAsset: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
+  const usdcAsset: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: requireAddress(BASE_USDC_ADDRESS) };
   const grossAmount = parsed.amountBaseUnits === "all" ? identity.balance! : BigInt(parsed.amountBaseUnits);
   if (grossAmount === BigInt(0)) throw new TradePreparationError("insufficient-balance");
   const policy = feePolicyForTaker(await (deps.resolveFeePolicy ?? resolveOperatorFeePolicy)("trade"), taker);
@@ -155,9 +156,11 @@ export async function prepareTradeAction(
     primaryType: "CoinbaseSmartWalletMessage",
     message: { hash: reviewed.permit.hash },
   };
-  const signing: TradeSigningRequest = session.accountProvider === "base-account"
+  const evmAccount = parseAddress(signer.signerAddress);
+  if (session.accountProvider !== "base-account" && !evmAccount) throw new TradePreparationError("signer-unsupported");
+  const signing: TradeSigningRequest = session.accountProvider === "base-account" || !evmAccount
     ? { signer: "base-account", typedData: reviewed.permit.typedData }
-    : { signer: "cdp-embedded", evmAccount: signer.signerAddress, typedData: signingTypedData };
+    : { signer: "cdp-embedded", evmAccount, typedData: signingTypedData };
   const expiresAt = Math.min(Number(reviewed.executionDeadline) * 1000 - 30_000, now.getTime() + 120_000);
   if (expiresAt <= now.getTime()) throw new TradePreparationError("stale-quote");
   const metadata: TradeMoneyActionMetadata = {

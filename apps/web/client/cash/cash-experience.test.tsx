@@ -8,6 +8,7 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeInboundPanelState } from "@/client/home/panel-routing";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
+import { parseAddress } from "@/shared/chain/hex";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -140,7 +141,7 @@ function preparedTrade(): PreparedMoneyAction {
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: "1000000", direction: "spend" },
       { assetId: to.id, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: "2000000", direction: "receive", estimated: true },
     ],
-    signing: { signer: "cdp-embedded", evmAccount: session.smartAccount!.address, typedData: {
+    signing: { signer: "cdp-embedded", evmAccount: parseAddress(session.smartAccount!.address)!, typedData: {
       domain: { name: "Coinbase Smart Wallet", version: "1", chainId: 8453, verifyingContract: session.smartAccount!.address },
       types: {
         EIP712Domain: [

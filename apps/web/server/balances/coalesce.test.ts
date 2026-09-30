@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import type { BalancesSnapshot } from "@/shared/balances/types";
 import { presentBalances } from "@/shared/balances/present";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import {
@@ -860,7 +861,7 @@ describe("balance observations", () => {
       subject: "fixture",
       smartAccountAddress: owner,
       chainId: 8453,
-    }, "US")).toEqual(snapshot);
+    }, "US") as BalancesSnapshot).toEqual(snapshot);
   });
 
   test("a genuinely complete re-observe replaces stored non-registry holdings", async () => {

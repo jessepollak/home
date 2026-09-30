@@ -1,3 +1,4 @@
+import { parseAddress } from "@/shared/chain/hex";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -164,7 +165,7 @@ describe("per-asset trading availability", () => {
     expect(view.availabilityRequests()).toBe(1);
   });
   test("keeps refreshing successful availability so balance and chain recovery reach a mounted page", () => {
-    const token = { assetId: "cbbtc", address: "0x2222222222222222222222222222222222222222" as const, symbol: "cbBTC", decimals: 8 };
+    const token = { assetId: "cbbtc", address: parseAddress("0x2222222222222222222222222222222222222222")!, symbol: "cbBTC", decimals: 8 };
     expect(tradeAvailabilityRefetchInterval({ state: { status: "error" } })).toBe(30_000);
     expect(tradeAvailabilityRefetchInterval({ state: { status: "success", data: { version: 2, status: "unavailable", reason: "chain-unavailable" } } })).toBe(30_000);
     expect(tradeAvailabilityRefetchInterval({ state: { status: "success", data: { version: 2, status: "available", token, buy: "available", balanceBaseUnits: "1" } } })).toBe(60_000);

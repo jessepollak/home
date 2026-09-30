@@ -1,5 +1,5 @@
 import "@/client/account/dom-test-harness";
-
+import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
@@ -11,8 +11,8 @@ import { isActivityLedgerGroup } from "./activity-ledger";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
-const TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
-const HASH = `0x${"a".repeat(64)}` as const;
+const TOKEN = parseAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")!;
+const HASH = parseHash32(`0x${"a".repeat(64)}`)!;
 const TIME = "2026-09-15T12:00:00.000Z";
 
 function transfer(direction: ActivityTransfer["direction"] = "incoming", priced = false): ActivityTransfer {

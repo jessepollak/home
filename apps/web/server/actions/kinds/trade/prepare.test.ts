@@ -1,7 +1,8 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { validPrepared } from "@/shared/actions/contracts/prepare";
+import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, hashTypedData, parseAbiParameters } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, getAddress, hashTypedData, parseAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
@@ -432,11 +433,11 @@ describe("trade preparation", () => {
     setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
     const draft = structuredClone(preparedTrade.draft);
     if (draft.metadata?.product !== "trade" || draft.signing?.signer !== "cdp-embedded") throw new Error("missing trade facts");
-    draft.metadata.fromAsset.address = draft.metadata.fromAsset.address.toUpperCase().replace("0X", "0x") as Address;
-    draft.signing.evmAccount = draft.signing.evmAccount.toUpperCase().replace("0X", "0x") as Address;
+    Object.assign(draft.metadata.fromAsset, { address: getAddress(draft.metadata.fromAsset.address) });
+    Object.assign(draft.signing, { evmAccount: getAddress(draft.signing.evmAccount) });
     const result = await issueMoneyAction(sessions(), draft, { pending: { ...preparedTrade.pending, swapCallIndex: 1 } });
-    expect(result.metadata?.product === "trade" && result.metadata.fromAsset.address).toBe(BASE_USDC_ADDRESS.toLowerCase() as Address);
-    expect(result.signing?.signer === "cdp-embedded" && result.signing.evmAccount).toBe(OWNER);
+    expect(result.metadata?.product === "trade" && result.metadata.fromAsset.address).toBe(parseAddress(BASE_USDC_ADDRESS)!);
+    expect(result.signing?.signer === "cdp-embedded" && result.signing.evmAccount).toBe(parseAddress(OWNER)!);
     if (draft.metadata.product !== "trade") throw new Error("missing trade metadata");
     draft.metadata.minimumToAmountBaseUnits = "1001";
     await expect(issueMoneyAction(sessions(), draft, { pending: { ...preparedTrade.pending, swapCallIndex: 1 } })).rejects.toMatchObject({ reason: "invalid-draft" });
@@ -676,7 +677,7 @@ describe("generic token trade preparation", () => {
     const swapCallIndex = direction === "buy" ? 2 : 1;
     const action = await issueMoneyAction(sessions(), trade.draft, { pending: { ...trade.pending, swapCallIndex } });
     expect(action.metadata?.product === "trade" && action.metadata.fromAsset.address)
-      .toBe(direction === "buy" ? BASE_USDC_ADDRESS.toLowerCase() as Address : address);
+      .toBe(direction === "buy" ? requireAddress(BASE_USDC_ADDRESS) : requireAddress(address));
     expect(action.metadata?.product === "trade" && action.metadata.operatorFee?.recipient).toBe(recipient);
   });
   test("pins a full sell to the exact chain balance; a rebasing drop refuses review", async () => {

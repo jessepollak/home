@@ -1,3 +1,4 @@
+import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
@@ -230,4 +231,26 @@ describe("recent Home action activity", () => {
     for (const value of [{ actions: [] }, { actions: [], truncated: false }, { actions: [], truncated: "true" }, null, "truncated"])
       expect(readRecentActionsTruncated(value)).toBe(false);
   });
+});
+
+test("recent action hash fields canonicalize mixed-case and reject malformed wire values", () => {
+  const checksum = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const input = { ...row(checksum), providerHandle: `0x${"Ab".repeat(32)}`, transactionHash: `0x${"Cd".repeat(32)}` };
+  const parsed = parseRecentMoneyActions({ actions: [input] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } });
+  expect(String(parsed[0]?.transactionHash)).toBe(`0x${"cd".repeat(32)}`);
+  expect(String(parsed[0]?.userOperationHash)).toBe(`0x${"ab".repeat(32)}`);
+  expect(parseRecentMoneyActions({ actions: [{ ...input, owner: { ...input.owner, address: checksum.replace("A", "a") } }] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } })).toEqual([]);
+  expect(parseRecentMoneyActions({ actions: [{ ...input, transactionHash: "0xno" }] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } })[0]?.transactionHash).toBeUndefined();
+});
+
+test("borrow action metadata carries canonical market and source hashes only", () => {
+  const metadata = { product: "borrow", operation: "borrow", marketId: `0x${"Ab".repeat(32)}`,
+    loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "asset", symbol: "ASSET" },
+    source: { blockNumber: "1", blockHash: `0x${"Cd".repeat(32)}`, blockTimestamp: "1" } };
+  const withMetadata = (value: unknown) => ({ ...row(), summary: { ...row().summary, metadata: value } });
+  const parsed = parseRecentMoneyActions({ actions: [withMetadata(metadata)] }, session)[0]?.action.metadata;
+  expect(parsed?.product === "borrow" ? String(parsed.marketId) : null).toBe(`0x${"ab".repeat(32)}`);
+  expect(parsed?.product === "borrow" ? String(parsed.source.blockHash) : null).toBe(`0x${"cd".repeat(32)}`);
+  const invalid = parseRecentMoneyActions({ actions: [withMetadata({ ...metadata, source: { ...metadata.source, blockHash: "0x1234" } })] }, session)[0]?.action.metadata;
+  expect(invalid).toBeUndefined();
 });

@@ -1,3 +1,4 @@
+import { parseAddress, parseHash32, type Address, type Hash32 } from "@/shared/chain/hex";
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -21,11 +22,12 @@ import type { FiatCurrencyCode } from "@/config/regions";
 import { parseCardPurchases } from "@/shared/cards/transactions-contract";
 
 export const ACTIVITY_CONTRACT_VERSION = 1;
-export type ActivityResponse = ActivityPage & {
-  version: typeof ACTIVITY_CONTRACT_VERSION;
+export type ParsedActivityTransfer = ActivityTransfer & {
+  tokenAddress: Address; walletAddress: Address; fromAddress: Address; toAddress: Address;
+  blockHash: Hash32; transactionHash: Hash32;
 };
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
-const hashPattern = /^0x[0-9a-fA-F]{64}$/;
+export type ParsedActivityPage = ActivityPage & { walletAddress: Address; transfers: ParsedActivityTransfer[] };
+export type ActivityResponse = ActivityPage & { version: typeof ACTIVITY_CONTRACT_VERSION };
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const uint256Max = (BigInt(1) << BigInt(256)) - BigInt(1);
 const maxWindowMs = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -48,7 +50,7 @@ export function isVerifiedActivitySession(
       (value.accountProvider === "cdp-embedded" ||
         value.accountProvider === "base-account") &&
       value.smartAccount &&
-      addressPattern.test(value.smartAccount.address) &&
+      parseAddress(value.smartAccount.address) !== null &&
       value.smartAccount.chainId === ACTIVITY_BASE_CHAIN_ID,
   );
 }
@@ -58,7 +60,7 @@ export function parseActivityPage(
   expectedSession: VerifiedAccountSession,
   expectedWindowEnd: string,
   expectedCurrency: FiatCurrencyCode = "USD",
-): ActivityPage {
+): ParsedActivityPage {
   if (
     !isVerifiedActivitySession(expectedSession) ||
     !isRecord(value) ||
@@ -69,8 +71,8 @@ export function parseActivityPage(
 
   const walletAddress = readAddress(value.walletAddress);
   if (
-    walletAddress.toLowerCase() !==
-      expectedSession.smartAccount.address.toLowerCase() ||
+    walletAddress !==
+      parseAddress(expectedSession.smartAccount.address) ||
     value.chainId !== ACTIVITY_BASE_CHAIN_ID ||
     !isActivityValuationCurrency(expectedCurrency) ||
     value.currency !== expectedCurrency ||
@@ -111,7 +113,7 @@ export function parseActivityPage(
   assertStrictDescending(transfers);
 
   return {
-    walletAddress: walletAddress.toLowerCase() as `0x${string}`,
+    walletAddress,
     chainId: ACTIVITY_BASE_CHAIN_ID,
     window: { from, to },
     currency: expectedCurrency,
@@ -125,18 +127,18 @@ export function parseActivityPage(
 
 function parseTransfer(
   value: unknown,
-  walletAddress: `0x${string}`,
+  walletAddress: Address,
   from: string,
   to: string,
   expectedCurrency: FiatCurrencyCode,
-): ActivityTransfer {
+): ParsedActivityTransfer {
   if (!isRecord(value)) {
     throw new ActivityResponseError();
   }
 
   const transferWallet = readAddress(value.walletAddress);
   const tokenAddress = readAddress(value.tokenAddress);
-  const normalizedTokenAddress = tokenAddress.toLowerCase();
+  const normalizedTokenAddress = tokenAddress;
   const asset = activityAssetsByContract.get(normalizedTokenAddress);
   const tokenMetadata = parseTokenMetadata(value, asset);
   const fromAddress = readAddress(value.fromAddress);
@@ -146,9 +148,9 @@ function parseTransfer(
   const blockTimestamp = readTimestamp(value.blockTimestamp);
   const blockTime = new Date(blockTimestamp).getTime();
   const direction = value.direction;
-  const normalizedWallet = walletAddress.toLowerCase();
-  const normalizedFrom = fromAddress.toLowerCase();
-  const normalizedTo = toAddress.toLowerCase();
+  const normalizedWallet = walletAddress;
+  const normalizedFrom = fromAddress;
+  const normalizedTo = toAddress;
   const expectedDirection =
     normalizedFrom === normalizedWallet && normalizedTo === normalizedWallet
       ? "self"
@@ -165,7 +167,7 @@ function parseTransfer(
     value.id !== `${ACTIVITY_BASE_CHAIN_ID}:${normalizedTokenAddress}:${value.logId}` ||
     value.id.length > 512 ||
     value.chainId !== ACTIVITY_BASE_CHAIN_ID ||
-    transferWallet.toLowerCase() !== normalizedWallet ||
+    transferWallet !== normalizedWallet ||
     direction !== expectedDirection ||
     typeof value.amountBaseUnits !== "string" ||
     !decimalIntegerPattern.test(value.amountBaseUnits) ||
@@ -185,13 +187,13 @@ function parseTransfer(
     logId: value.logId,
     chainId: ACTIVITY_BASE_CHAIN_ID,
     assetId: tokenMetadata.assetId,
-    tokenAddress: normalizedTokenAddress as `0x${string}`,
+    tokenAddress: normalizedTokenAddress,
     tokenSymbol: tokenMetadata.tokenSymbol,
     tokenDecimals: tokenMetadata.tokenDecimals,
     tokenImageUrl: tokenMetadata.tokenImageUrl,
-    walletAddress: transferWallet.toLowerCase() as `0x${string}`,
-    fromAddress: fromAddress.toLowerCase() as `0x${string}`,
-    toAddress: toAddress.toLowerCase() as `0x${string}`,
+    walletAddress: transferWallet,
+    fromAddress: fromAddress,
+    toAddress: toAddress,
     direction: direction as ActivityTransfer["direction"],
     amountBaseUnits: value.amountBaseUnits as string,
     blockNumber: value.blockNumber as string,
@@ -317,18 +319,16 @@ export function compareActivityTransferKeys(
   return left.id > right.id ? 1 : -1;
 }
 
-function readAddress(value: unknown): `0x${string}` {
-  if (typeof value !== "string" || !addressPattern.test(value)) {
-    throw new ActivityResponseError();
-  }
-  return value as `0x${string}`;
+function readAddress(value: unknown): Address {
+  const address = parseAddress(value);
+  if (!address) throw new ActivityResponseError();
+  return address;
 }
 
-function readHash(value: unknown): `0x${string}` {
-  if (typeof value !== "string" || !hashPattern.test(value)) {
-    throw new ActivityResponseError();
-  }
-  return value.toLowerCase() as `0x${string}`;
+function readHash(value: unknown): Hash32 {
+  const hash = parseHash32(value);
+  if (!hash) throw new ActivityResponseError();
+  return hash;
 }
 
 function readTimestamp(value: unknown): string {

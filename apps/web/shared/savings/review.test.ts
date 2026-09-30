@@ -1,3 +1,4 @@
+import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { isSavingsMetadata, readSavingsPreparedReview } from "./review";
@@ -136,4 +137,15 @@ describe("savings prepared review", () => {
       stateAsOf: null,
     });
   });
+});
+
+test("savings review canonicalizes checksummed vaults and rejects malformed wire hex", () => {
+  const base = action("deposit");
+  const metadata = base.metadata!;
+  if (metadata.product !== "savings") throw new Error("not savings");
+  const address = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const valid = { ...base, metadata: { ...metadata, vaultAddress: address, source: { ...metadata.source, blockHash: `0x${"Ab".repeat(32)}` } } };
+  expect(String(readSavingsPreparedReview(valid as PreparedMoneyAction)?.vaultAddress)).toBe(address.toLowerCase());
+  expect(readSavingsPreparedReview({ ...valid, metadata: { ...valid.metadata, vaultAddress: address.replace("A", "a") } } as PreparedMoneyAction)).toBeNull();
+  expect(readSavingsPreparedReview({ ...valid, metadata: { ...valid.metadata, source: { ...valid.metadata.source, blockHash: "0x12" } } } as PreparedMoneyAction)).toBeNull();
 });

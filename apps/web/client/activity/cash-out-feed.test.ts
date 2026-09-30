@@ -1,9 +1,10 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityTransfer } from "@/shared/activity/types";
 import { mergeActivityFeed } from "./activity-feed";
 
-const hash = `0x${"a".repeat(64)}` as `0x${string}`;
+const hash = parseHash32(`0x${"a".repeat(64)}`)!;
 const deposit: RecentMoneyActionOperation = {
   action: { id: "deposit", kind: "cash-out", title: "Cash out", amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000", direction: "spend" }], warnings: [], expiresAt: "", createdAt: "" },
   status: "confirmed", createdAt: "2026-09-15T12:00:00Z", updatedAt: "2026-09-15T12:00:00Z", transactionHash: hash,
@@ -14,7 +15,7 @@ const withdrawalMetadata = {
   product: "cashout", operation: "withdraw", depositId: "escrow", providerId: "peer", providerName: "Peer", environment: "sandbox", platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "50", minConversionRate: "1", intentAmountRange: { min: "50000000", max: "50000000" }, estimateAsOf: "2026-09-15T12:00:00Z", escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
 } as const;
 const withdrawal: RecentMoneyActionOperation = {
-  ...deposit, transactionHash: `0x${"b".repeat(64)}`,
+  ...deposit, transactionHash: parseHash32(`0x${"b".repeat(64)}`)!,
   action: { ...deposit.action, id: "withdrawal", kind: "cash-out-withdraw", metadata: withdrawalMetadata },
   status: "pending", cashout: undefined,
 };
@@ -58,7 +59,7 @@ test("folds a mixed-case withdrawal deposit ID into a lowercase cash-out deposit
 
 test("folds every linked withdrawal and prefers an unsettled attempt over a newer failure", () => {
   const live = { ...withdrawal, updatedAt: "2026-09-15T12:01:00Z", action: { ...withdrawal.action, id: "live" }, status: "pending" as const };
-  const failed = { ...withdrawal, updatedAt: "2026-09-15T12:02:00Z", transactionHash: `0x${"c".repeat(64)}` as `0x${string}`, action: { ...withdrawal.action, id: "failed" }, status: "failed" as const };
+  const failed = { ...withdrawal, updatedAt: "2026-09-15T12:02:00Z", transactionHash: parseHash32(`0x${"c".repeat(64)}`)!, action: { ...withdrawal.action, id: "failed" }, status: "failed" as const };
   const items = mergeActivityFeed({ transfers: [], operations: [failed, live, withdrawingDeposit], loadedThrough: null });
   expect(items.map((item) => item.id)).toEqual(["deposit"]);
   const first = items[0];

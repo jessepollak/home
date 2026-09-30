@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ACTIVITY_CONTRACT_VERSION, parseActivityPage } from "@/shared/activity/contract";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { parseBorrowOverview } from "@/shared/borrowing/contract";
 import { isRecord } from "@/shared/guards";
 import { borrowOverviewBody } from "@/tests/browser/fixtures/bodies";
 import { queryScopes } from "./scopes";
@@ -212,9 +213,12 @@ describe("restored owner cache scope guards", () => {
 
   test("accepts the borrow overview and market snapshot the live reads store", () => {
     const policy = queryScopes.borrow;
-    const overview = borrowOverviewBody({ openMarketId: null });
-    expect(policy.validateRestored(overview, { ownerKey, queryKey: [ownerKey, "borrow", "overview"] })?.data).toEqual(overview);
-    expect(policy.validateRestored({ ...overview, opportunities: [] }, { ownerKey, queryKey: [ownerKey, "borrow", "overview"] })).toBeNull();
+    const overviewEntry = { ownerKey, queryKey: [ownerKey, "borrow", "overview"] };
+    const wire = borrowOverviewBody({ openMarketId: null });
+    const overview = parseBorrowOverview(wire, wire.owner.address)!;
+    expect(policy.validateRestored(wire, overviewEntry)?.data).toEqual(overview);
+    expect(policy.validateRestored(overview, overviewEntry)?.data).toEqual(overview);
+    expect(policy.validateRestored({ ...overview, opportunities: [] }, overviewEntry)).toBeNull();
     const available = overview.opportunities.flatMap((opportunity) =>
       opportunity.availability.status === "available" ? [opportunity.availability.snapshot] : []);
     expect(available.length).toBeGreaterThan(0);

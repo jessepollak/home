@@ -1,3 +1,4 @@
+import { parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
 
@@ -48,7 +49,7 @@ export type ActivityFundingOrder = {
   sandbox: boolean;
   expiresAt: string | null;
   clearableAt: string | null;
-  transactionHash: `0x${string}` | null;
+  transactionHash: Hash32 | null;
   logIndex: string | null;
   createdAt: string;
   updatedAt: string;
@@ -105,7 +106,6 @@ const cashoutStates: readonly string[] = [
 ];
 const atomicPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
-const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 
 export function isActivityOrdersResponse(value: unknown): value is { version: typeof ACTIVITY_ORDERS_CONTRACT_VERSION; owner: unknown; orders: unknown[] } {
   return isRecord(value) && value.version === ACTIVITY_ORDERS_CONTRACT_VERSION && isRecord(value.owner) && Array.isArray(value.orders);
@@ -138,10 +138,10 @@ function readActivityOrder(value: unknown): ActivityOrder | null {
       typeof value.resumable !== "boolean" ||
       !(value.expiresAt === null || timestamp(value.expiresAt)) ||
       !(value.clearableAt === null || timestamp(value.clearableAt)) ||
-      !(value.transactionHash === null || typeof value.transactionHash === "string" && hashPattern.test(value.transactionHash)) ||
+      !(value.transactionHash === null || parseHash32(value.transactionHash) !== null) ||
       !(value.logIndex === null || atomic(value.logIndex)) ||
       (value.transactionHash === null && value.logIndex !== null)) return null;
-    return value as ActivityFundingOrder;
+    return { ...value, transactionHash: value.transactionHash === null ? null : parseHash32(value.transactionHash) } as ActivityFundingOrder;
   }
   if (value.kind === "cash-out") {
     if (!(value.orderId === null || text(value.orderId)) || !text(value.platform) || !text(value.platformLabel) ||

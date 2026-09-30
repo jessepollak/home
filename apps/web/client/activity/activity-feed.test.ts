@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityCashoutOrder } from "@/shared/activity/contract-orders";
@@ -5,15 +6,15 @@ import type { ActivityTransfer } from "@/shared/activity/types";
 import { mergeActivityFeed } from "./activity-feed";
 import { presentActivityLedgerItems } from "./activity-ledger-items";
 
-const HASH_A = `0x${"a".repeat(64)}` as const;
-const HASH_B = `0x${"b".repeat(64)}` as const;
-const HASH_C = `0x${"c".repeat(64)}` as const;
+const HASH_A = parseHash32(`0x${"a".repeat(64)}`)!;
+const HASH_B = parseHash32(`0x${"b".repeat(64)}`)!;
+const HASH_C = parseHash32(`0x${"c".repeat(64)}`)!;
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const VAULT = "0xee8f4ec5672f09119b96ab6fb59c27e1b7e44b61" as const;
 
-function transfer(id: string, blockTimestamp: string, transactionHash = HASH_A): ActivityTransfer {
+function transfer(id: string, blockTimestamp: string, transactionHash: `0x${string}` = HASH_A): ActivityTransfer {
   return {
     id: `8453:${TOKEN}:${id}`,
     logId: id,
@@ -51,7 +52,7 @@ function operation(id: string, updatedAt: string, transactionHash?: `0x${string}
     status: "confirmed",
     createdAt: updatedAt,
     updatedAt,
-    ...(transactionHash ? { transactionHash } : {}),
+    ...(transactionHash ? { transactionHash: parseHash32(transactionHash)! } : {}),
   };
 }
 
@@ -425,13 +426,13 @@ describe("combined Activity feed", () => {
 
   test("matches transaction hashes case-insensitively", () => {
     const items = mergeActivityFeed({
-      transfers: [transfer("loaded", "2026-09-15T12:02:00.000Z", HASH_A)],
-      operations: [operation("matched", "2026-09-15T12:03:00.000Z", HASH_A.toUpperCase() as `0x${string}`)],
+      transfers: [transfer("loaded", "2026-09-15T12:02:00.000Z", HASH_A.toUpperCase() as `0x${string}`)],
+      operations: [operation("matched", "2026-09-15T12:03:00.000Z", HASH_A)],
       loadedThrough: null,
     });
 
     expect(items.map(({ kind, id }) => `${kind}:${id}`)).toEqual(["action:matched"]);
-    expect(items[0]?.kind === "action" && items[0].transfers).toEqual([transfer("loaded", "2026-09-15T12:02:00.000Z", HASH_A)]);
+    expect(items[0]?.kind === "action" && items[0].transfers).toEqual([transfer("loaded", "2026-09-15T12:02:00.000Z", HASH_A.toUpperCase() as `0x${string}`)]);
   });
 
   test("settles deposit spend and estimated vault shares by token and direction without changing previews", () => {

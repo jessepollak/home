@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import { BORROW_HEALTH_FLOOR_WAD, BORROW_MARKETS, type BorrowMarketRef } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
@@ -8,7 +9,7 @@ import { BorrowPreparationError, prepareBorrowAction } from "./prepare";
 import type { BorrowRpcReader } from "./rpc";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
-const BLOCK_HASH = `0x${"ab".repeat(32)}` as const;
+const BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`)!;
 const prices = [
   "843242900000000000000000000000000000000",
   "1504740000000000000000000000000000000",

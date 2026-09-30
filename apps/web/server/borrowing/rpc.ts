@@ -1,4 +1,5 @@
 import "server-only";
+import { parseHash32 } from "@/shared/chain/hex";
 
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { BorrowAddress, BorrowMarketRef } from "@/shared/borrowing/config";
@@ -62,6 +63,8 @@ function projectBorrowSnapshot(snapshot: MorphoMarketSnapshot, borrowMode: Borro
     positionBorrowShares: borrowShares, totalBorrowAssets, totalBorrowShares,
     maxDebtAssets: policyMaxDebt, liquidityAssets: liquidity,
   });
+  const blockHash = parseHash32(snapshot.source.blockHash);
+  if (!blockHash) throw new Error("Invalid block hash");
   const policyRequiredCollateral = minimumCollateralForHealthFactor(debt, oraclePrice, lltvWad, BORROW_HEALTH_FLOOR_WAD);
   const withdrawableCollateral = collateral > policyRequiredCollateral ? collateral - policyRequiredCollateral : BigInt(0);
   return {
@@ -70,7 +73,7 @@ function projectBorrowSnapshot(snapshot: MorphoMarketSnapshot, borrowMode: Borro
       mode: borrowMode, newRisk: borrowMode === "enabled",
       reason: borrowMode === "enabled" ? null : "This verified market is available only for risk reduction.",
     },
-    source: snapshot.source, state: snapshot.state, wallet: snapshot.wallet,
+    source: { ...snapshot.source, blockHash }, state: snapshot.state, wallet: snapshot.wallet,
     position: {
       collateralRaw: snapshot.position.collateralRaw,
       borrowSharesRaw: snapshot.position.borrowSharesRaw,
