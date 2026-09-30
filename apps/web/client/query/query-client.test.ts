@@ -336,7 +336,7 @@ describe("owner query cache boundary", () => {
       orderReads += 1;
       return { version: 1, owner: { subject: session.user.subject, accountProvider: session.accountProvider }, orders: [] };
     } });
-    expect(await source.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
+    expect(await source.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
     expect(await source.fetchQuery(orders)).toEqual([]);
     expect(actionReads).toBe(1);
     expect(orderReads).toBe(1);
@@ -353,7 +353,7 @@ describe("owner query cache boundary", () => {
     expect(restoreOwnerQueries(reloaded, storage, ownerKey)).toBe(false);
     expect(reloaded.getQueryData(actions.queryKey)).toBeUndefined();
     expect(reloaded.getQueryData(orders.queryKey)).toBeUndefined();
-    expect(await reloaded.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
+    expect(await reloaded.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
     expect(await reloaded.fetchQuery(orders)).toEqual([]);
     expect(actionReads).toBe(2);
     expect(orderReads).toBe(2);

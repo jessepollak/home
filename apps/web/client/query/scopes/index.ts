@@ -6,6 +6,7 @@ import { activityWindow } from "./activity-window";
 import { balances } from "./balances";
 import { basename } from "./basename";
 import { borrow } from "./borrow";
+import { borrowMarket } from "./borrow-market";
 import { cards } from "./cards";
 import { cardSpending } from "./card-spending";
 import { fundingOpenOrder } from "./funding-open-order";
@@ -34,6 +35,7 @@ export const queryScopes = {
   balances,
   basename,
   borrow,
+  "borrow-market": borrowMarket,
   cards,
   "card-spending": cardSpending,
   "funding-open-order": fundingOpenOrder,

@@ -7,6 +7,13 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 export const recentActionsPath = "/api/actions";
 
+type RecentActionsRead = RecentActionsPayload & { readSequence: number };
+let recentActionsReadSequence = 0;
+
+export function getRecentActionsReadSequence(): number {
+  return recentActionsReadSequence;
+}
+
 export function retryRecentActions(failures: number, error: unknown): boolean {
   return failures < 2 && isTransientAccountResourceFailure(error);
 }
@@ -20,7 +27,7 @@ type RecentActionsInput = {
 };
 
 export function recentActionsQuery(input: RecentActionsInput) {
-  return ownerQuery<RecentActionsPayload>({
+  return ownerQuery<RecentActionsRead>({
     owner: input.owner && input.session ? input.owner : null,
     scope: "actions",
     retry: retryRecentActions,
@@ -29,7 +36,8 @@ export function recentActionsQuery(input: RecentActionsInput) {
     refetchOnReconnect: refetchFailedRecentActions,
     queryFn: async ({ signal }) => {
       if (!input.session) throw new Error("Recent actions are unavailable.");
-      return parseRecentActionsPayload(await input.fetchOperations(signal), input.session);
+      const readSequence = ++recentActionsReadSequence;
+      return { ...parseRecentActionsPayload(await input.fetchOperations(signal), input.session), readSequence };
     },
   });
 }

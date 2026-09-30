@@ -11,6 +11,14 @@ const handledPath = "/api/actions/action-123/handle";
 const ownerScopes = Object.keys(queryScopes).filter((scope): scope is OwnerQueryScope =>
   queryScopes[scope as QueryScope].audience === "owner");
 
+test("borrow market detail is immediately stale while the overview retains its short freshness window", () => {
+  expect(queryScopes["borrow-market"].staleTime).toBe(0);
+  expect(queryScopes["borrow-market"].audience).toBe("owner");
+  expect(queryScopes["borrow-market"].persistence).toBe("owner");
+  expect(queryScopes["borrow-market"].mutatedByActions).toBe(true);
+  expect(queryScopes.borrow.staleTime).toBe(15_000);
+});
+
 for (const scope of Object.keys(queryScopes) as QueryScope[]) {
   if (!queryScopes[scope].mutatedByActions) continue;
   test(`${scope} is invalidated after a confirmed action or refreshed on pull`, async () => {
@@ -88,6 +96,7 @@ export function rejectedScopeKeys() {
 
 test("registered scopes build their keys", () => {
   expect(ownerQueryKey(owner, "balances")).toEqual([owner, "balances"]);
+  expect(ownerQueryKey(owner, "borrow-market", "market-1")).toEqual([owner, "borrow-market", "market-1"]);
   expect(publicQueryKey("savings-vaults")).toEqual(["unauthenticated", "savings-vaults"]);
 });
 

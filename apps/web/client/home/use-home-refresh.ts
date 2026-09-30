@@ -23,6 +23,7 @@ const homeRefreshScope = {
   actions: "actions",
   vaults: "savings-vaults",
   borrow: "borrow",
+  borrowMarket: "borrow-market",
 } as const satisfies Record<string, QueryScope>;
 export const homeRefreshScopes: readonly QueryScope[] = Object.values(homeRefreshScope);
 
@@ -78,13 +79,14 @@ export function useHomeRefresh(input: {
     const actionsKey = ownerQueryKey(ownerKey, homeRefreshScope.actions);
     const vaultsKey = publicQueryKey(homeRefreshScope.vaults);
     const borrowKey = ownerQueryKey(ownerKey, homeRefreshScope.borrow, "overview");
+    const borrowMarketKey = ownerQueryKey(ownerKey, homeRefreshScope.borrowMarket);
     const windowEnd = queryClient.getQueryData<string>(ownerQueryKey(ownerKey, activityWindowScope)) ?? initialActivityWindowEnd();
     const activityKey = ownerQueryKey(ownerKey, homeRefreshScope.activity, windowEnd);
     const attempted = [
       active(balancesKey),
       active(activityKey) || queryClient.getQueryCache().findAll({ queryKey: activityKey }).some((q) => q.state.data !== undefined),
       active(actionsKey),
-      active(vaultsKey, true) || active(borrowKey, true),
+      active(vaultsKey, true) || active(borrowKey, true) || active(borrowMarketKey),
     ];
     const refetch = (key: QueryKey, exact = false) => queryClient.refetchQueries(
       { queryKey: key, exact, type: "active" },
@@ -110,7 +112,7 @@ export function useHomeRefresh(input: {
         },
       }),
       refetch(actionsKey),
-      Promise.allSettled([refetch(vaultsKey, true), refetch(borrowKey, true)]).then((results) => {
+      Promise.allSettled([refetch(vaultsKey, true), refetch(borrowKey, true), refetch(borrowMarketKey)]).then((results) => {
         if (results.some((result) => result.status === "rejected")) throw new Error("Rates refresh failed.");
       }),
     ]).then((results): HomeRefreshOutcome => {

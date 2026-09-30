@@ -316,6 +316,21 @@ describe("Borrow action result", () => {
     expect(dialog.getByRole("button", { name: "Done" })).toBeTruthy();
   });
 
+  test("submission invalidates the overview and every market detail for only this owner", async () => {
+    const client = getHomeQueryClient();
+    const owner = dataOwnerKey(session);
+    const overviewKey = ownerQueryKey(owner, "borrow", "overview");
+    const marketKeys = [ownerQueryKey(owner, "borrow-market", snapshot.market.id), ownerQueryKey(owner, "borrow-market", "other-market")];
+    const foreignKey = ownerQueryKey("other-owner", "borrow-market", snapshot.market.id);
+    for (const queryKey of [overviewKey, ...marketKeys, foreignKey]) client.setQueryData(queryKey, snapshot);
+    const body = mount();
+    const { dialog, confirm } = await review(body);
+    fireEvent.click(confirm);
+    await dialog.findByText("Borrowing 1 USDC");
+    for (const queryKey of [overviewKey, ...marketKeys]) expect(client.getQueryState(queryKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(foreignKey)?.isInvalidated).toBe(false);
+  });
+
   test("failed row permits a fresh review while preserving the entered amount", async () => {
     let prepares = 0;
     const body = mount({ prepare: async () => { prepares++; return action; } });
