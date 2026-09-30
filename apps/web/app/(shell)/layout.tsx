@@ -6,9 +6,7 @@ import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
 import { PortfolioHomeExperience } from "@/client/home/portfolio-home-experience";
 import { readRequestCountry } from "@/server/region/request-country";
 import { readRenderSession } from "@/server/auth/render-session";
-import { readCountryPreferenceForRender } from "@/server/preferences/country";
-import { readRegionOfferForRender } from "@/server/operator-settings/regions";
-import { readInvestSettingsForRender } from "@/server/operator-settings/invest";
+import { readShellPolicyForRender } from "@/server/operator-settings/shell-policy";
 import { cardJourneyEnabled } from "@/server/cards/bridge/journey-config";
 
 export default function ShellLayout({ children }: { children: React.ReactNode }) {
@@ -17,11 +15,7 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
 
 async function ShellContent({ children }: { children: React.ReactNode }) {
   const rendered = readRenderSession(await cookies());
-  const preference = rendered ? await readCountryPreferenceForRender(rendered.session) : null;
-  const accountPreference = rendered && preference
-    ? { accountProvider: rendered.session.accountProvider, subject: rendered.session.user.subject, regionId: preference.regionId }
-    : null;
-  const investVisibility = await readInvestSettingsForRender();
+  const { accountPreference, investVisibility, regionOffer } = await readShellPolicyForRender(rendered?.session ?? null);
   return (
     <AccountRouteProvider
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}
@@ -32,7 +26,7 @@ async function ShellContent({ children }: { children: React.ReactNode }) {
     >
       <PortfolioHomeExperience
         detectedCountry={readRequestCountry(await headers())}
-        regionOffer={await readRegionOfferForRender()}
+        regionOffer={regionOffer}
         accountPreference={accountPreference}
         investVisibility={investVisibility}
         cardsEnabled={cardJourneyEnabled()}

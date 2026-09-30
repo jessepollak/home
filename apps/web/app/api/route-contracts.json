@@ -32,7 +32,7 @@
     "cards/[id]/unfreeze/route.ts": { "contracts": ["shared/cards/contract.ts"] },
     "cards/enrollment/route.ts": { "contracts": ["shared/cards/contract.ts"] },
     "cards/route.ts": { "contracts": ["shared/cards/contract.ts"] },
-    "cards/spending/route.ts": { "contracts": ["shared/cards/allowance-contract.ts"], "client": "No Home client fetches the card spending read yet; the card UI that consumes it has not landed." },
+    "cards/spending/route.ts": { "contracts": ["shared/cards/allowance-contract.ts"] },
     "cards/webhooks/bridge/route.ts": { "exempt": { "kind": "webhook", "reason": "Bridge sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/immersve/[topic]/route.ts": { "exempt": { "kind": "webhook", "reason": "Immersve sends provider-defined event notifications; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/stripe/route.ts": { "exempt": { "kind": "webhook", "reason": "Stripe sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
@@ -61,6 +61,10 @@
     "transfers/recipient-name/route.ts": { "contracts": ["shared/transfers/contracts/recipients.ts"] },
     "webhooks/cdp/route.ts": { "exempt": { "kind": "webhook", "reason": "CDP sends signed provider-defined wallet activity; Home returns only webhook acknowledgement status." } }
   },
+  "appRoutes": {
+    "app/coverage.csv/route.ts": { "exempt": { "kind": "document", "reason": "The coverage CSV is downloaded as a document and is never parsed by a Home client." } },
+    "app/invite/[code]/route.ts": { "exempt": { "kind": "redirect", "reason": "Invite landing links answer with a 303 redirect to /home or / and return no parsed body." } }
+  },
   "baseline": {
     "routesWithoutVersionedParser": {
       "actions/[id]/confirm/route.ts": ["shared/actions/contracts/confirm.ts"],
@@ -70,7 +74,6 @@
       "actions/route.ts": ["shared/actions/contracts/list.ts"],
       "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
       "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-      "balances/route.ts": ["shared/balances/contract.ts"],
       "funding/orders/[id]/route.ts": ["shared/funding/contracts/order.ts"],
       "funding/orders/route.ts": ["shared/funding/contracts/order.ts"],
       "session/route.ts": ["shared/account/contracts/session.ts"]
@@ -83,7 +86,6 @@
       "shared/actions/contracts/handle.ts",
       "shared/actions/contracts/list.ts",
       "shared/actions/contracts/prepare.ts",
-      "shared/balances/contract.ts",
       "shared/cards/transactions-contract.ts",
       "shared/fees/contract.ts",
       "shared/funding/contracts/order.ts",

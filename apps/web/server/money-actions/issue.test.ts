@@ -5,6 +5,7 @@ import { encodeFunctionData, erc20Abi } from "viem";
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
+import { MAX_MONEY_ACTION_AMOUNT_DECIMALS } from "@/shared/money-actions/types";
 import { setActionsStoreForTests, type ActionsStore } from "@/server/actions/store";
 import { issueMoneyAction, MoneyActionIssueError } from "./issue";
 import { makePaymasterApproval } from "@/server/paymaster/fee";
@@ -196,6 +197,18 @@ describe("savings money action issuance", () => {
       expect(inserts[0]?.summary.metadata).toEqual(action.metadata);
     },
   );
+
+  test("accepts the shared amount decimal bound and rejects amounts beyond it", async () => {
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    const draft = savingsDraft("deposit");
+    if (draft.metadata?.product !== "savings") throw new Error("Expected savings metadata");
+    draft.metadata.shareDecimals = MAX_MONEY_ACTION_AMOUNT_DECIMALS;
+    draft.amounts[1]!.decimals = MAX_MONEY_ACTION_AMOUNT_DECIMALS;
+    expect((await issueMoneyAction(session, draft)).amounts[1]?.decimals).toBe(MAX_MONEY_ACTION_AMOUNT_DECIMALS);
+    const beyond = savingsDraft("deposit");
+    beyond.amounts[1]!.decimals = MAX_MONEY_ACTION_AMOUNT_DECIMALS + 1;
+    await expect(issueMoneyAction(session, beyond)).rejects.toMatchObject({ reason: "invalid-draft" });
+  });
 
   test("rejects a legacy deposit draft while preserving stored legacy metadata elsewhere", async () => {
     const draft = savingsDraft("deposit");

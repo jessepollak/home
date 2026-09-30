@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { requestBackgroundRevalidation } from "./fixtures/background-revalidation";
 import { sessionBody } from "./fixtures/bodies";
 import { cashoutFixtureAction, cashoutFixtureProgress } from "./feature-map/cashout-fixture";
 import { FIXED_NOW } from "./fixtures/fixed-time";
@@ -262,8 +263,7 @@ test("Activity preserves the visible row through an insertion, reorder, and size
   expect(before.top).toBeLessThan(0);
   prepend = true;
   await page.clock.fastForward(11_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-  await expect.poll(() => reads).toBeGreaterThan(1);
+  await requestBackgroundRevalidation(page, () => reads, 1);
   await expect(section.locator('ul > li[aria-posinset="1"]')).toHaveAttribute("aria-setsize", "25");
   await expect.poll(async () => Math.abs((await snapshot()).top - before.top)).toBeLessThanOrEqual(1);
   const afterInsert = await snapshot();
@@ -271,8 +271,7 @@ test("Activity preserves the visible row through an insertion, reorder, and size
   expect(Math.abs(afterInsert.top - before.top)).toBeLessThanOrEqual(1);
   promote = true;
   await page.clock.fastForward(16_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-  await expect.poll(() => reads).toBeGreaterThan(2);
+  await requestBackgroundRevalidation(page, () => reads, 2);
   await expect(section.locator('ul > li[aria-posinset="2"] time')).toHaveAttribute("datetime", new Date(now - 90_000).toISOString());
   await expect.poll(async () => (await snapshot()).rowIndex).toBe(String(Number(afterInsert.rowIndex) + 1));
   await expect.poll(async () => Math.abs((await snapshot()).top - before.top)).toBeLessThanOrEqual(1);

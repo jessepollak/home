@@ -5,14 +5,20 @@ import type { ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
-import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { createCardAllowanceEligibility } from "@/server/cards/allowance/prepare";
 
 function parseLog(line: string): unknown {
   const parsed: unknown = JSON.parse(line);
   return parsed;
+}
+
+function captureObservabilityEvents() {
+  const lines: string[] = [];
+  setObservabilityLogWriterForTests((line) => lines.push(line));
+  return (kind: string) => lines.map(parseLog).filter(isRecord).filter((event) => event.kind === kind);
 }
 
 async function readStatus(response: Response): Promise<unknown> {
@@ -929,8 +935,7 @@ describe("actions HTTP handlers", () => {
 
   test("Base confirm returns a padded batch gas hint and estimator failure remains non-blocking", async () => {
     const estimatedCalls: unknown[] = [];
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const events = captureObservabilityEvents();
     const store = {
       get: async () => ({ ...row, provider: "base-account" as const }),
       confirm: async (_owner: MoneyActionOwner, _id: string, calls?: MoneyActionCall[]) => ({
@@ -944,6 +949,7 @@ describe("actions HTTP handlers", () => {
       authorize: authorize("owner-a", "base-account"),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       store,
+      recordConfirmed: async () => {},
       estimateBaseBatch: async (calls, account) => {
         estimatedCalls.push({ calls, account });
         return BigInt(100_000);
@@ -953,25 +959,27 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(await readJson(response)).toMatchObject({ calls: [CALL], batchGasLimit: "150000" });
     expect(estimatedCalls).toEqual([{ calls: [CALL], account: ADDRESS }]);
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
-      kind: "action-confirm",
-      code: "BASE_BATCH_GAS_HINT_APPLIED",
-      outcome: "ok",
-    });
 
     const unavailable = createConfirmActionHandler({
       authorize: authorize("owner-a", "base-account"),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       store,
+      recordConfirmed: async () => {},
       estimateBaseBatch: async () => { throw new Error("rpc unavailable"); },
     });
     const fallback = await unavailable(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
     expect(fallback.status).toBe(200);
     expect(await readJson(fallback)).not.toHaveProperty("batchGasLimit");
-    expect(JSON.parse(writes[1] ?? "{}")).toMatchObject({
+    expect(events("action-confirm")).toHaveLength(2);
+    expect(events("action-confirm")).toMatchObject([{
+      kind: "action-confirm",
+      code: "BASE_BATCH_GAS_HINT_APPLIED",
+      outcome: "ok",
+    }, {
+      kind: "action-confirm",
       code: "BASE_BATCH_GAS_HINT_UNAVAILABLE",
       outcome: "unavailable",
-    });
+    }]);
   });
 
   test("Base confirm still estimates a two-call batch", async () => {
@@ -1001,12 +1009,12 @@ describe("actions HTTP handlers", () => {
       { to: "0x3333333333333333333333333333333333333333", data: "0x238d6579", value: "0" },
       { to: "0x3333333333333333333333333333333333333333", data: "0x50d8cd4b", value: "0" },
     ];
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const events = captureObservabilityEvents();
     let estimates = 0;
     const handler = createConfirmActionHandler({
       authorize: authorize("owner-a", "base-account"),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
+      recordConfirmed: async () => {},
       estimateBaseBatch: async () => { estimates += 1; return BigInt(100_000); },
       store: {
         get: async () => ({ ...row, provider: "base-account", pending: { calls } }),
@@ -1022,10 +1030,10 @@ describe("actions HTTP handlers", () => {
     expect(parseConfirmActionResponse(body)?.calls).toEqual(calls);
     expect(body).not.toHaveProperty("batchGasLimit");
     expect(estimates).toBe(0);
-    expect(writes).toHaveLength(1);
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+    expect(events("action-confirm")).toHaveLength(1);
+    expect(events("action-confirm")).toMatchObject([{
       level: "info", kind: "action-confirm", code: "BASE_BATCH_GAS_HINT_SKIPPED", outcome: "skipped", provider: "base-account",
-    });
+    }]);
   });
 
   test("CDP confirm never invokes the Base estimator", async () => {
@@ -1180,11 +1188,11 @@ describe("actions HTTP handlers", () => {
   });
 
   test("a rejected balance signal still returns the normal confirm response and emits one event", async () => {
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const events = captureObservabilityEvents();
     const handler = createConfirmActionHandler({
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
+      recordConfirmed: async () => {},
       markHot: async () => { throw new Error("database unavailable"); },
       store: {
         get: async () => row,
@@ -1198,12 +1206,12 @@ describe("actions HTTP handlers", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(writes).toHaveLength(1);
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+    expect(events("balances-signal")).toHaveLength(1);
+    expect(events("balances-signal")).toMatchObject([{
       kind: "balances-signal",
       code: "BALANCE_SIGNAL_FAILED",
       outcome: "unavailable",
-    });
+    }]);
   });
 
   test("a failed confirm emits exactly one bounded event without money or call fields", async () => {
@@ -1336,6 +1344,24 @@ describe("actions HTTP handlers", () => {
 
     expect(response.status).toBe(200);
     expect(resolverCalls).toBe(0);
+  });
+
+  test("the list response parses through the shared action parser for its owner", async () => {
+    const session = { user: { subject: "owner-a" }, smartAccount: { address: ADDRESS, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+    const stored: ActionRow = { ...row, summary: { ...row.summary,
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }] } };
+    const handler = createListActionsHandler({
+      authorize: authorize(),
+      store: { list: async () => [stored], recordHandle: async () => null, recordOutcome: recorded },
+      now: () => new Date("2026-09-12T12:00:30.000Z"),
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const parsed = parseRecentMoneyActions(await readJson(response), session);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.action).toMatchObject({ id: ID, kind: "send", title: "Send USDC",
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }] });
+    expect(parsed[0]?.status).toBe("pending");
   });
 
   test("list records a completed handle and derives status from its receipt", async () => {

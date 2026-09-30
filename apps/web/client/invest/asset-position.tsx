@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 
 import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
-import { useBalances } from "@/client/balances";
+import { useBalancesData } from "@/client/balances";
 import { presentInvestAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { BalanceRow } from "@/components/finance-rows";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,7 +30,7 @@ export function AssetPosition({ asset, assetMarkResolution }: {
   const account = useOptionalAccountWallet();
   const session = account && isServerVerified(account) ? account.session : null;
   const regionId = usePresentationRegionId();
-  const balances = useBalances(session?.smartAccount ? {
+  const balances = useBalancesData(session?.smartAccount ? {
     subject: session.user.subject,
     smartAccountAddress: session.smartAccount.address,
     chainId: session.smartAccount.chainId,

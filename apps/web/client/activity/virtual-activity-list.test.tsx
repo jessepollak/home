@@ -474,3 +474,28 @@ test("a no-op jump does not remeasure rows on the next fling scroll", () => {
   fireEvent.scroll(main);
   expect(query).not.toHaveBeenCalledWith("li[data-index]");
 });
+
+test("reads the viewport size only when the list mounts", () => {
+  mockHeights();
+  const rows = Array.from({ length: 20 }, (_, index) => item(`row-${index}`));
+  const reads = { width: 0, height: 0 };
+  const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  const height = Object.getOwnPropertyDescriptor(window, "innerHeight");
+  Object.defineProperty(window, "innerWidth", { configurable: true, get() { reads.width++; return 390; } });
+  Object.defineProperty(window, "innerHeight", { configurable: true, get() { reads.height++; return 844; } });
+  try {
+    const view = render(list(rows));
+    expect(reads).toEqual({ width: 1, height: 1 });
+    view.rerender(<main data-app-main-authenticated=""><section tabIndex={-1} aria-label="Activity">
+      <VirtualActivityList {...props} onOpen={() => {}} id="recent-list" items={rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted={false} labelledBy="recent-title" />
+    </section></main>);
+    view.rerender(list([item("row-new"), ...rows]));
+    expect(view.container.querySelectorAll("li").length).toBeGreaterThan(0);
+    expect(reads).toEqual({ width: 1, height: 1 });
+  } finally {
+    if (width) Object.defineProperty(window, "innerWidth", width);
+    else Reflect.deleteProperty(window, "innerWidth");
+    if (height) Object.defineProperty(window, "innerHeight", height);
+    else Reflect.deleteProperty(window, "innerHeight");
+  }
+});

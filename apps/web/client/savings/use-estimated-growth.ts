@@ -141,7 +141,7 @@ export function useEstimatedSavingsGrowth(
         : anchor.authoritativeBaseUnits;
       setSample({ identity: anchor.identity, value });
     };
-    const schedule = (delay: number = SAMPLE_INTERVAL_MS) => {
+    const schedule = () => {
       clearSample();
       if (!active || document.hidden) return;
       timeout = setTimeout(() => {
@@ -149,7 +149,7 @@ export function useEstimatedSavingsGrowth(
         if (!active || document.hidden) return;
         compute();
         schedule();
-      }, delay);
+      }, SAMPLE_INTERVAL_MS);
     };
     const onVisibilityChange = () => {
       clearSample();

@@ -8,7 +8,7 @@ import { deriveTracking } from "./tracking";
 import {
   HISTORY_CHAIN_ID, HISTORY_INGEST_LAG_BLOCKS, HISTORY_REPLAY_BLOCKS, HISTORY_RECONCILE_INTERVAL_SECONDS, HISTORY_WINDOW_SECONDS,
   type BalanceCheckpoint, type BlockRef, type ChainBucket, type HexAddress, type HistoryAsset, type TransferLoggedAsset,
-  type HistoryChainReader, type HistoryStore, type HistoryTransferSource,
+  type HistoryChainReader, type HistoryStore, type HistoryTransferSource, type HistoryAssetKey, type QuantityRead,
 } from "./types";
 
 const registryAssets = getDirectPortfolioAssets().flatMap((asset) => asset.contractAddress
@@ -211,7 +211,7 @@ export function createHistoryIngest(deps: {
           const missing = due.filter((asset) => !existing.has(asset.key));
           const quantities = missing.length
             ? await chain.readQuantities({ address, assets: missing, block: row.forwardBlock, signal })
-            : new Map();
+            : new Map<HistoryAssetKey, QuantityRead>();
           checkAbort();
           if (missing.length) report.reads++;
           const ready = due.flatMap((asset) => {

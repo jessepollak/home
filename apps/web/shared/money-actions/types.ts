@@ -32,6 +32,8 @@ export type MoneyActionCall = {
   };
 };
 
+export const MAX_MONEY_ACTION_AMOUNT_DECIMALS = 255;
+
 export type MoneyActionAmount = {
   assetId: string;
   symbol: string;

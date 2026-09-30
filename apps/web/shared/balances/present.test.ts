@@ -452,26 +452,26 @@ describe("balance presentation", () => {
 
   test("keeps an unverified local currency visible without inventing a balance or affecting totals", () => {
     const snapshot = buildBalancesSnapshotFixture({
-      region: "BR",
+      region: "MX",
       registry: {
-        usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+        usdc: { balance: ready("5000000"), value: priced("MXN", "2500"), cashValue: pricedCash("USD", "500") },
       },
     });
     const presentation = presentBalances({ status: "ready", snapshot, error: null });
     const cash = presentation.groups.find((group) => group.id === "cash");
-    const unsupported = cash?.rows.find((row) => row.key === "cash:unsupported:BRL");
+    const unsupported = cash?.rows.find((row) => row.key === "cash:unsupported:MXN");
 
     expect(unsupported).toMatchObject({
-      name: "Brazilian real",
-      mark: { kind: "flag", currency: "BRL" },
+      name: "Mexican peso",
+      mark: { kind: "flag", currency: "MXN" },
       primary: "Verification pending",
       secondary: null,
       tone: "muted",
     });
     expect(`${unsupported?.primary}${unsupported?.secondary ?? ""}`).not.toMatch(/[0-9]/);
-    expect(cash?.displaySubtotal).toBe("R$ 25,00");
-    expect(presentation.displayTotal).toBe("R$ 25,00");
-    expect(presentation.summary?.cash.value).toBe("R$ 25,00");
+    expect(cash?.displaySubtotal).toBe("$25.00");
+    expect(presentation.displayTotal).toBe("$25.00");
+    expect(presentation.summary?.cash.value).toBe("$25.00");
   });
 
   test("renders a positive non-selected cash holding once in the cash group", () => {

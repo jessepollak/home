@@ -51,7 +51,7 @@ export function verifyReports(files, reports) {
   return { counts, findings };
 }
 
-function trackedFiles() {
+export function trackedFiles() {
   const result = spawnSync("git", ["ls-files", "-z", "--", "."], { cwd: web });
   if (result.status !== 0) throw new Error(result.stderr.toString().trim() || "git ls-files failed");
   return discoverFiles(result.stdout.toString().split("\0").filter(Boolean));

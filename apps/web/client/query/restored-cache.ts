@@ -2,9 +2,7 @@ import { regionIds } from "@/config/regions";
 import { ACTIVITY_CONTRACT_VERSION, isVerifiedActivitySession, parseActivityPage } from "@/shared/activity/contract";
 import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import { mergeActivityPages } from "@/shared/activity/pages";
-import { isActivityOrdersResponse, parseActivityOrders } from "@/shared/activity/contract-orders";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
-import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { BALANCES_CHAIN_ID } from "@/shared/balances/types";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { parseBorrowOverview, parseSnapshot } from "@/shared/borrowing/contract";
@@ -65,8 +63,8 @@ function isFundingFee(value: unknown): boolean {
 function isTrustedFundingOrderSummary(value: unknown): boolean {
   if (!isFundingOrderSummary(value)) return false;
   return (value.fees === undefined || Array.isArray(value.fees) && value.fees.every(isFundingFee)) &&
-    (value.instructions === undefined || value.instructions === null) &&
-    (value.providerStatus === undefined || value.providerStatus === null || typeof value.providerStatus === "string") &&
+    (value.instructions === null) &&
+    (value.providerStatus === null || typeof value.providerStatus === "string") &&
     (value.sandbox === undefined || typeof value.sandbox === "boolean") &&
     (value.quote === undefined || isRecord(value.quote)) &&
     optionalString(value.quoteToken) && optionalAtomic(value.expectedTokenAmountAtomic) &&
@@ -74,17 +72,6 @@ function isTrustedFundingOrderSummary(value: unknown): boolean {
     optionalString(value.createdAt) && optionalString(value.updatedAt);
 }
 
-
-export function trustRestoredActions(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
-  const owner = restoredOwner(entry.ownerKey);
-  const session = owner ? activitySession(owner) : null;
-  if (!session || !isRecord(data) || !Array.isArray(data.actions)) return null;
-  try {
-    return parseRecentMoneyActions(data, session).length === data.actions.length ? { data } : null;
-  } catch {
-    return null;
-  }
-}
 
 export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const owner = restoredOwner(entry.ownerKey);
@@ -94,6 +81,7 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
   if (!session || !isRecord(data) || !Array.isArray(data.pageParams) || !Array.isArray(data.pages) ||
     data.pages.length === 0 || data.pages.length !== data.pageParams.length ||
     typeof windowEnd !== "string" || !isActivityValuationCurrency(currency) || !data.pages.every(isRecord)) return null;
+  const pageParams: unknown[] = data.pageParams;
   try {
     const pages = data.pages.map((page) =>
       parseActivityPage({ ...page, version: ACTIVITY_CONTRACT_VERSION }, session, windowEnd, currency));
@@ -101,18 +89,7 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
       !data.pageParams.every((param, index) =>
         index === 0 || (typeof pages[index - 1]?.nextCursor === "string" && param === pages[index - 1]?.nextCursor))) return null;
     mergeActivityPages(pages);
-    return { data: { pages, pageParams: [...data.pageParams] } };
-  } catch {
-    return null;
-  }
-}
-
-export function trustRestoredActivityOrders(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
-  const owner = restoredOwner(entry.ownerKey);
-  const session = owner ? activitySession(owner) : null;
-  if (!session || !isActivityOrdersResponse(data)) return null;
-  try {
-    return parseActivityOrders(data, session).length === data.orders.length ? { data } : null;
+    return { data: { pages, pageParams: [...pageParams] } };
   } catch {
     return null;
   }

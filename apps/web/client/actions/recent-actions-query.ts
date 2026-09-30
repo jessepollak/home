@@ -1,16 +1,11 @@
 import { useEffect, useState } from "react";
 import { isTransientAccountResourceFailure } from "@/client/account/resource-failure";
-import { assertRecentActionsResponse } from "@/shared/actions/contracts/list";
 import { queryViewState } from "@/client/query/query-view-state";
+import { ownerQuery } from "@/client/query/query-options";
+import { parseRecentActionsPayload, type RecentActionsPayload } from "@/shared/actions/contracts/list";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
-export async function fetchRecentActions(
-  fetchOperations: (signal?: AbortSignal) => Promise<unknown>,
-  signal: AbortSignal,
-): Promise<{ actions: unknown[] }> {
-  const value = await fetchOperations(signal);
-  assertRecentActionsResponse(value);
-  return value;
-}
+export const recentActionsPath = "/api/actions";
 
 export function retryRecentActions(failures: number, error: unknown): boolean {
   return failures < 2 && isTransientAccountResourceFailure(error);
@@ -18,13 +13,26 @@ export function retryRecentActions(failures: number, error: unknown): boolean {
 
 export const refetchFailedRecentActions = (query: { state: { status: string } }) => query.state.status === "error";
 
-export const recentActionsQueryOptions = {
-  staleTime: 10_000,
-  retry: retryRecentActions,
-  retryDelay: (attempt: number) => Math.min(500 * 3 ** attempt, 1_500),
-  refetchOnWindowFocus: refetchFailedRecentActions,
-  refetchOnReconnect: refetchFailedRecentActions,
+type RecentActionsInput = {
+  owner: string | null;
+  session: VerifiedAccountSession | null;
+  fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
 };
+
+export function recentActionsQuery(input: RecentActionsInput) {
+  return ownerQuery<RecentActionsPayload>({
+    owner: input.owner && input.session ? input.owner : null,
+    scope: "actions",
+    retry: retryRecentActions,
+    retryDelay: (attempt) => Math.min(500 * 3 ** attempt, 1_500),
+    refetchOnWindowFocus: refetchFailedRecentActions,
+    refetchOnReconnect: refetchFailedRecentActions,
+    queryFn: async ({ signal }) => {
+      if (!input.session) throw new Error("Recent actions are unavailable.");
+      return parseRecentActionsPayload(await input.fetchOperations(signal), input.session);
+    },
+  });
+}
 
 const RECENT_ACTIONS_STALE_TOLERANCE_MS = 120_000;
 

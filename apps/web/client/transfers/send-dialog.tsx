@@ -1,6 +1,7 @@
 "use client";
 
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
+import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { MoneyAssetPrice } from "@/client/money-modal";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
@@ -640,7 +641,7 @@ function SendResult({ action, submission, amount, provider, submittedAt, fetchAc
   const { outcome } = useMoneyActionOutcome({
     action, submission,
     fetchOperations: (signal) => fetchAccountResource
-      ? fetchAccountResource("/api/actions", { signal })
+      ? fetchAccountResource(recentActionsPath, { signal })
       : Promise.reject(new Error("Actions unavailable")),
   });
   return <>

@@ -1,5 +1,5 @@
+import * as z from "zod/mini";
 import { parseAddress, parseHash32, type Address, type Hash32 } from "@/shared/chain/hex";
-
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_BASE_CHAIN_ID,
@@ -27,10 +27,64 @@ export type ParsedActivityTransfer = ActivityTransfer & {
   blockHash: Hash32; transactionHash: Hash32;
 };
 export type ParsedActivityPage = ActivityPage & { walletAddress: Address; transfers: ParsedActivityTransfer[] };
-export type ActivityResponse = ActivityPage & { version: typeof ACTIVITY_CONTRACT_VERSION };
+export type ActivityResponse = z.input<typeof pageSchema> & ActivityPage;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const uint256Max = (BigInt(1) << BigInt(256)) - BigInt(1);
 const maxWindowMs = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+const addressSchema = z.pipe(
+  z.string().check(z.refine((value) => parseAddress(value) !== null)),
+  z.transform((value: string): Address => parseAddress(value) as Address),
+);
+const hashSchema = z.pipe(
+  z.string().check(z.refine((value) => parseHash32(value) !== null)),
+  z.transform((value: string): Hash32 => parseHash32(value) as Hash32),
+);
+const timestampSchema = z.string().check(z.refine((value) =>
+  Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value,
+));
+const decimalIntegerSchema = z.string().check(z.regex(decimalIntegerPattern));
+const transferSchema = z.object({
+  id: z.string().check(z.maxLength(512)),
+  logId: z.string().check(z.minLength(1), z.maxLength(256)),
+  chainId: z.literal(ACTIVITY_BASE_CHAIN_ID),
+  assetId: z.unknown(),
+  tokenAddress: addressSchema,
+  tokenSymbol: z.unknown(),
+  tokenDecimals: z.unknown(),
+  tokenImageUrl: z.optional(z.unknown()),
+  walletAddress: addressSchema,
+  fromAddress: addressSchema,
+  toAddress: addressSchema,
+  direction: z.enum(["incoming", "outgoing", "self"]),
+  amountBaseUnits: decimalIntegerSchema,
+  blockNumber: decimalIntegerSchema,
+  blockHash: hashSchema,
+  transactionHash: hashSchema,
+  logIndex: decimalIntegerSchema,
+  blockTimestamp: timestampSchema,
+  valuation: z.optional(z.unknown()),
+});
+type ActivityWireTransfer = z.output<typeof transferSchema>;
+const sourceSchema = z.object({
+  provider: z.enum(["cdp-sql", "cdp-address-history"]),
+  cached: z.boolean(),
+  stale: z.boolean(),
+  executionTimestamp: timestampSchema,
+  executionTimeMs: z.int().check(z.nonnegative()),
+  fetchedAt: timestampSchema,
+});
+const pageSchema = z.object({
+  version: z.literal(ACTIVITY_CONTRACT_VERSION),
+  walletAddress: addressSchema,
+  chainId: z.literal(ACTIVITY_BASE_CHAIN_ID),
+  window: z.object({ from: timestampSchema, to: timestampSchema }),
+  currency: z.string(),
+  transfers: z.array(transferSchema).check(z.maxLength(ACTIVITY_PAGE_SIZE)),
+  cards: z.optional(z.unknown()),
+  nextCursor: z.nullable(z.string().check(z.minLength(1), z.maxLength(4096))),
+  source: z.nullable(sourceSchema),
+  onchainStatus: z.optional(z.literal("unavailable")),
+});
 export class ActivityResponseError extends Error {
   constructor() {
     super("The activity response is invalid.");
@@ -61,53 +115,31 @@ export function parseActivityPage(
   expectedWindowEnd: string,
   expectedCurrency: FiatCurrencyCode = "USD",
 ): ParsedActivityPage {
-  if (
-    !isVerifiedActivitySession(expectedSession) ||
-    !isRecord(value) ||
-    value.version !== ACTIVITY_CONTRACT_VERSION
-  ) {
+  const result = pageSchema.safeParse(value);
+  if (!isVerifiedActivitySession(expectedSession) || !result.success) {
     throw new ActivityResponseError();
   }
-
-  const walletAddress = readAddress(value.walletAddress);
+  const wire = result.data;
+  const walletAddress = wire.walletAddress;
+  const { from, to } = wire.window;
   if (
-    walletAddress !==
-      parseAddress(expectedSession.smartAccount.address) ||
-    value.chainId !== ACTIVITY_BASE_CHAIN_ID ||
+    walletAddress !== parseAddress(expectedSession.smartAccount.address) ||
+    wire.chainId !== ACTIVITY_BASE_CHAIN_ID ||
     !isActivityValuationCurrency(expectedCurrency) ||
-    value.currency !== expectedCurrency ||
-    !isRecord(value.window)
-  ) {
-    throw new ActivityResponseError();
-  }
-
-  const from = readTimestamp(value.window.from);
-  const to = readTimestamp(value.window.to);
-  if (
+    wire.currency !== expectedCurrency ||
     to !== expectedWindowEnd ||
     new Date(from).getTime() >= new Date(to).getTime() ||
     new Date(to).getTime() - new Date(from).getTime() > maxWindowMs
   ) {
     throw new ActivityResponseError();
   }
-
-  if (
-    !Array.isArray(value.transfers) ||
-    value.transfers.length > ACTIVITY_PAGE_SIZE ||
-    (value.nextCursor !== null &&
-      (typeof value.nextCursor !== "string" ||
-        value.nextCursor.length === 0 ||
-        value.nextCursor.length > 4096))
-  ) {
-    throw new ActivityResponseError();
-  }
-  if (value.onchainStatus === "unavailable"
-    ? value.source !== null || value.nextCursor !== null || value.transfers.length !== 0 || value.cards === undefined
-    : value.onchainStatus !== undefined || value.source === null) {
+  if (wire.onchainStatus === "unavailable"
+    ? wire.source !== null || wire.nextCursor !== null || wire.transfers.length !== 0 || wire.cards === undefined
+    : wire.source === null) {
     throw new ActivityResponseError();
   }
 
-  const transfers = value.transfers.map((transfer) =>
+  const transfers = wire.transfers.map((transfer) =>
     parseTransfer(transfer, walletAddress, from, to, expectedCurrency),
   );
   assertStrictDescending(transfers);
@@ -118,64 +150,42 @@ export function parseActivityPage(
     window: { from, to },
     currency: expectedCurrency,
     transfers,
-    ...(value.cards === undefined ? {} : { cards: parseCardPurchases(value.cards) }),
-    nextCursor: value.nextCursor,
-    source: value.onchainStatus === "unavailable" ? null : parseSource(value.source),
-    ...(value.onchainStatus === "unavailable" ? { onchainStatus: "unavailable" as const } : {}),
+    ...(wire.cards === undefined ? {} : { cards: parseCardPurchases(wire.cards) }),
+    nextCursor: wire.nextCursor,
+    source: wire.onchainStatus === "unavailable" ? null : wire.source,
+    ...(wire.onchainStatus === "unavailable" ? { onchainStatus: wire.onchainStatus } : {}),
   };
 }
 
 function parseTransfer(
-  value: unknown,
+  value: ActivityWireTransfer,
   walletAddress: Address,
   from: string,
   to: string,
   expectedCurrency: FiatCurrencyCode,
 ): ParsedActivityTransfer {
-  if (!isRecord(value)) {
-    throw new ActivityResponseError();
-  }
-
-  const transferWallet = readAddress(value.walletAddress);
-  const tokenAddress = readAddress(value.tokenAddress);
-  const normalizedTokenAddress = tokenAddress;
-  const asset = activityAssetsByContract.get(normalizedTokenAddress);
+  const transferWallet = value.walletAddress;
+  const tokenAddress = value.tokenAddress;
+  const asset = activityAssetsByContract.get(tokenAddress);
   const tokenMetadata = parseTokenMetadata(value, asset);
-  const fromAddress = readAddress(value.fromAddress);
-  const toAddress = readAddress(value.toAddress);
-  const transactionHash = readHash(value.transactionHash);
-  const blockHash = readHash(value.blockHash);
-  const blockTimestamp = readTimestamp(value.blockTimestamp);
+  const fromAddress = value.fromAddress;
+  const toAddress = value.toAddress;
+  const { transactionHash, blockHash, blockTimestamp, direction } = value;
   const blockTime = new Date(blockTimestamp).getTime();
-  const direction = value.direction;
-  const normalizedWallet = walletAddress;
-  const normalizedFrom = fromAddress;
-  const normalizedTo = toAddress;
   const expectedDirection =
-    normalizedFrom === normalizedWallet && normalizedTo === normalizedWallet
+    fromAddress === walletAddress && toAddress === walletAddress
       ? "self"
-      : normalizedTo === normalizedWallet
+      : toAddress === walletAddress
         ? "incoming"
-        : normalizedFrom === normalizedWallet
+        : fromAddress === walletAddress
           ? "outgoing"
           : null;
 
   if (
-    typeof value.logId !== "string" ||
-    value.logId.length === 0 ||
-    value.logId.length > 256 ||
-    value.id !== `${ACTIVITY_BASE_CHAIN_ID}:${normalizedTokenAddress}:${value.logId}` ||
-    value.id.length > 512 ||
-    value.chainId !== ACTIVITY_BASE_CHAIN_ID ||
-    transferWallet !== normalizedWallet ||
+    value.id !== `${ACTIVITY_BASE_CHAIN_ID}:${tokenAddress}:${value.logId}` ||
+    transferWallet !== walletAddress ||
     direction !== expectedDirection ||
-    typeof value.amountBaseUnits !== "string" ||
-    !decimalIntegerPattern.test(value.amountBaseUnits) ||
     BigInt(value.amountBaseUnits) > uint256Max ||
-    typeof value.blockNumber !== "string" ||
-    !decimalIntegerPattern.test(value.blockNumber) ||
-    typeof value.logIndex !== "string" ||
-    !decimalIntegerPattern.test(value.logIndex) ||
     blockTime < new Date(from).getTime() ||
     blockTime >= new Date(to).getTime()
   ) {
@@ -187,26 +197,26 @@ function parseTransfer(
     logId: value.logId,
     chainId: ACTIVITY_BASE_CHAIN_ID,
     assetId: tokenMetadata.assetId,
-    tokenAddress: normalizedTokenAddress,
+    tokenAddress,
     tokenSymbol: tokenMetadata.tokenSymbol,
     tokenDecimals: tokenMetadata.tokenDecimals,
     tokenImageUrl: tokenMetadata.tokenImageUrl,
     walletAddress: transferWallet,
-    fromAddress: fromAddress,
-    toAddress: toAddress,
-    direction: direction as ActivityTransfer["direction"],
-    amountBaseUnits: value.amountBaseUnits as string,
-    blockNumber: value.blockNumber as string,
+    fromAddress,
+    toAddress,
+    direction,
+    amountBaseUnits: value.amountBaseUnits,
+    blockNumber: value.blockNumber,
     blockHash,
     transactionHash,
-    logIndex: value.logIndex as string,
+    logIndex: value.logIndex,
     blockTimestamp,
     valuation: parseActivityTransferValuation(
       value.valuation,
       {
-        tokenAddress: normalizedTokenAddress,
+        tokenAddress,
         tokenDecimals: tokenMetadata.tokenDecimals,
-        amountBaseUnits: value.amountBaseUnits as string,
+        amountBaseUnits: value.amountBaseUnits,
         blockTimestamp,
       },
       expectedCurrency,
@@ -263,33 +273,11 @@ function parseTokenMetadata(
   return { ...sanitized, tokenImageUrl };
 }
 
-function parseSource(value: unknown): ActivityPage["source"] {
-  if (
-    !isRecord(value) ||
-    (value.provider !== "cdp-sql" &&
-      value.provider !== "cdp-address-history") ||
-    typeof value.cached !== "boolean" ||
-    typeof value.stale !== "boolean" ||
-    !Number.isSafeInteger(value.executionTimeMs) ||
-    (value.executionTimeMs as number) < 0
-  ) {
-    throw new ActivityResponseError();
-  }
-
-  return {
-    provider: value.provider,
-    cached: value.cached,
-    stale: value.stale,
-    executionTimestamp: readTimestamp(value.executionTimestamp),
-    executionTimeMs: value.executionTimeMs as number,
-    fetchedAt: readTimestamp(value.fetchedAt),
-  };
-}
-
 function assertStrictDescending(transfers: readonly ActivityTransfer[]) {
   const ids = new Set<string>();
   for (let index = 0; index < transfers.length; index += 1) {
-    const current = transfers[index]!;
+    const current = transfers[index];
+    if (!current) throw new ActivityResponseError();
     if (ids.has(current.id)) {
       throw new ActivityResponseError();
     }
@@ -317,31 +305,4 @@ export function compareActivityTransferKeys(
   }
   if (left.id === right.id) return 0;
   return left.id > right.id ? 1 : -1;
-}
-
-function readAddress(value: unknown): Address {
-  const address = parseAddress(value);
-  if (!address) throw new ActivityResponseError();
-  return address;
-}
-
-function readHash(value: unknown): Hash32 {
-  const hash = parseHash32(value);
-  if (!hash) throw new ActivityResponseError();
-  return hash;
-}
-
-function readTimestamp(value: unknown): string {
-  if (typeof value !== "string") {
-    throw new ActivityResponseError();
-  }
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime()) || date.toISOString() !== value) {
-    throw new ActivityResponseError();
-  }
-  return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

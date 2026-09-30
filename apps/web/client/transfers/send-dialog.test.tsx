@@ -71,6 +71,13 @@ function withdrawAction(): PreparedMoneyAction {
   };
 }
 
+function resultRow(action: PreparedMoneyAction, status: "pending" | "confirmed" | "failed" | "unknown") {
+  return {
+    id: action.id, kind: action.kind, status, owner: action.owner,
+    createdAt: action.createdAt, confirmedAt: action.createdAt,
+    summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+  };
+}
 const feeResponse = { version: 1, usdcReserveBaseUnits: "20000" };
 const offrampResponse = {
   version: 2,
@@ -734,7 +741,7 @@ test("cash-out result names the provider without claiming payout delivery", asyn
   render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="cashout-result" resumeActionId={ACTION_ID}
     prepareMoneyAction={async () => prepared} resumeMoneyAction={async () => prepared}
     executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
-    fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [{ id: ACTION_ID, status: "confirmed", owner: prepared.owner }] } : { version: 1, recipients: [] }}
+    fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [resultRow(prepared, "confirmed")] } : { version: 1, recipients: [] }}
     onClose={() => {}} />);
   fireEvent.click(await page().findByRole("button", { name: "Cash out $1.00" }));
   expect(await page().findByRole("heading", { name: "$1.00 sent to cash out" })).toBeTruthy();
@@ -854,7 +861,7 @@ test("cash-out withdrawal result describes funds returning to the account, not a
   render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="withdraw-result" resumeActionId={ACTION_ID}
     prepareMoneyAction={async () => prepared} resumeMoneyAction={async () => prepared}
     executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
-    fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [{ id: ACTION_ID, status: "confirmed", owner: prepared.owner }] } : { version: 1, recipients: [] }}
+    fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [resultRow(prepared, "confirmed")] } : { version: 1, recipients: [] }}
     onClose={() => {}} />);
   fireEvent.click(await page().findByRole("button", { name: "Withdraw $2.00" }));
   expect(await page().findByRole("heading", { name: "$2.00 returned to your account" })).toBeTruthy();

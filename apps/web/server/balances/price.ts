@@ -38,6 +38,7 @@ import {
 import type { FxQuote, NativeEthQuote, PriceQuote } from "@/shared/balances/quotes";
 import { assembleBorrow, borrowPricingPairs } from "./borrow";
 import { getCoinbaseExchangeRates } from "./fx-coinbase";
+import { BALANCES_READ_DEADLINE_MS } from "./read";
 import type { BalancesRead, ReadHolding } from "./types";
 import {
   getPriceObservationStore,
@@ -49,6 +50,7 @@ import {
 
 const PRICE_BATCH_SIZE = 25;
 export const BALANCES_PRICE_CONCURRENCY = 4;
+export const BALANCES_PRICE_BUDGET_MS = BALANCES_READ_DEADLINE_MS;
 export const BALANCES_PRICE_REFRESH_MS = 60_000;
 export const STOCK_REFERENCE_REFRESH_MS = 30_000;
 export const STOCK_REFERENCE_MAX_AGE_MS = 5 * 60_000;
@@ -69,7 +71,7 @@ export type PriceBalancesResult = {
   durationMs: { store: number; codex: number; coinbase: number };
 };
 type Dependencies = {
-  readPrices?: (inputs: readonly CodexRawQuoteInput[], options?: { freshnessMs?: number }) => Promise<PriceQuote[]>;
+  readPrices?: (inputs: readonly CodexRawQuoteInput[], options?: { freshnessMs?: number; signal?: AbortSignal }) => Promise<PriceQuote[]>;
   readExchangeRates?: () => Promise<ExchangeRates>;
   stockAssets?: readonly InvestAsset[];
   readStockReferences?: (feeds: readonly TokenizedEquityFeed[]) => Promise<TokenizedEquityReference[]>;
@@ -77,6 +79,7 @@ type Dependencies = {
   now?: () => Date;
   nowMs?: () => number;
   schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
+  priceBudgetMs?: number;
 };
 
 type RefreshWork = {
@@ -94,17 +97,20 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
   const now = dependencies.now ?? (() => new Date());
   const nowMs = dependencies.nowMs ?? (() => Date.now());
   const schedule = dependencies.schedule ?? ((task) => { void (typeof task === "function" ? task() : task); });
+  const priceBudgetMs = dependencies.priceBudgetMs ?? BALANCES_PRICE_BUDGET_MS;
   const refreshing = new Set<string>();
   let stockReferences: { at: number; byId: Map<string, TokenizedEquityReference> } | null = null;
   let stockReferenceAttemptAt: number | null = null;
   let stockReferenceScheduled = false;
   let stockReferencePending: Promise<void> | null = null;
   const lastWrittenFetchedAt = new Map<string, number>();
+  const persistenceByKey = new Map<string, Promise<void>>();
 
   return async function priceRead(
     read: BalancesRead,
     region: RegionId,
     mode: ValuationMode = "bootstrap",
+    signal?: AbortSignal,
   ): Promise<PriceBalancesResult> {
     const startedStore = nowMs();
     const currentTime = now();
@@ -138,21 +144,26 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     const work = refreshWork(tokenInputs, fxKeys, storedByKey, attemptsByKey, currentTime);
 
     let bootstrapQuotes: PriceQuote[] = [];
+    let bootstrapRevalidating = false;
     if (mode === "bootstrap") {
       const bootstrapWork = {
         tokenInputs: work.tokenInputs.filter(({ assetKey }) => !safeObservation(storedByKey.get(assetKey), currentTime)),
         fxKeys: work.fxKeys.filter((key) => !safeObservation(storedByKey.get(key), currentTime)),
       };
       if (bootstrapWork.tokenInputs.length > 0 || bootstrapWork.fxKeys.length > 0) {
-        const provider = await runRefresh(bootstrapWork, currentTime, durationMs);
+        const provider = await runRefresh(bootstrapWork, currentTime, durationMs, { signal });
         bootstrapQuotes = provider.quotes;
         for (const observation of provider.observations) storedByKey.set(observation.assetKey, observation);
+        if (provider.uncompletedInputs.length > 0 && !signal?.aborted) {
+          bootstrapRevalidating = true;
+          scheduleRefresh({ tokenInputs: provider.uncompletedInputs, fxKeys: [] });
+        }
       }
-      scheduleRefresh({
+      if (!signal?.aborted) scheduleRefresh({
         tokenInputs: work.tokenInputs.filter(({ assetKey }) => !bootstrapWork.tokenInputs.some((input) => input.assetKey === assetKey)),
         fxKeys: work.fxKeys.filter((key) => !bootstrapWork.fxKeys.includes(key)),
       });
-    } else if (work.tokenInputs.length > 0 || work.fxKeys.length > 0) {
+    } else if (!signal?.aborted && (work.tokenInputs.length > 0 || work.fxKeys.length > 0)) {
       scheduleRefresh(work);
     }
 
@@ -169,7 +180,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     });
 
     const degradedKeys = allKeys.filter((key) => !safeObservation(storedByKey.get(key), currentTime));
-    const revalidating = mode === "cached" && (degradedKeys.some((key) => refreshing.has(key)) || referencesDegraded);
+    const revalidating = bootstrapRevalidating || (mode === "cached" && (degradedKeys.some((key) => refreshing.has(key)) || referencesDegraded));
     const prices = tokenInputs.map((input) => bootstrapQuotes.find(({ assetKey, status }) =>
       assetKey === input.assetKey && (status === "fresh" || status === "stale"))
       ?? quoteFromObservation(storedByKey.get(input.assetKey), input, currentTime));
@@ -249,22 +260,35 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     }
   }
 
-  async function runRefresh(work: RefreshWork, attemptTime: Date, durations: PriceBalancesResult["durationMs"]) {
+  async function runRefresh(work: RefreshWork, attemptTime: Date, durations: PriceBalancesResult["durationMs"], request?: { signal?: AbortSignal }) {
     const observations: PriceObservation[] = [];
     const attempts: ValuationAttempt[] = [];
     const providerQuotes: PriceQuote[] = [];
+    let uncompletedInputs: CodexRawQuoteInput[] = [];
     if (work.tokenInputs.length > 0) {
       const started = nowMs();
-      const quotes = await fetchPriceInputs(readPrices, work.tokenInputs);
-      providerQuotes.push(...quotes);
-      durations.codex += Math.max(0, nowMs() - started);
-      for (const quote of quotes) {
+      const storeBefore = durations.store;
+      const fetched = await fetchPriceInputs(readPrices, work.tokenInputs, request
+        ? { signal: request.signal, budgetMs: priceBudgetMs }
+        : { onCompleted: async (quotes) => {
+          await persistOutcomes(
+            quotes.flatMap((quote) => { const observation = observationFromPrice(quote); return observation ? [observation] : []; }),
+            quotes.map((quote) => ({ assetKey: quote.assetKey, attemptAt: attemptTime.toISOString(), status: quote.status })),
+            durations,
+          );
+        } });
+      providerQuotes.push(...fetched.quotes);
+      uncompletedInputs = fetched.uncompletedInputs;
+      durations.codex += Math.max(0, nowMs() - started - (durations.store - storeBefore));
+      for (const quote of fetched.completedQuotes) {
         attempts.push({ assetKey: quote.assetKey, attemptAt: attemptTime.toISOString(), status: quote.status });
         const observation = observationFromPrice(quote);
         if (observation) observations.push(observation);
       }
     }
-    if (work.fxKeys.length > 0) {
+    const checkpointedObservations = request ? 0 : observations.length;
+    const checkpointedAttempts = request ? 0 : attempts.length;
+    if (work.fxKeys.length > 0 && !request?.signal?.aborted) {
       const started = nowMs();
       let rates: ExchangeRates | null = null;
       try { rates = await readExchangeRates(); } catch { rates = null; }
@@ -274,25 +298,52 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       attempts.push(...mapped.attempts);
     }
     const currentObservations = newestObservations(observations);
-    const observationsToWrite = currentObservations.filter((observation) =>
-      Date.parse(observation.fetchedAt) >
-        (lastWrittenFetchedAt.get(observation.assetKey) ?? Number.NEGATIVE_INFINITY));
-    const storeStarted = nowMs();
-    const [observationsWritten] = await Promise.all([
-      observationsToWrite.length > 0
-        ? priceStore.putMany(observationsToWrite).then(() => true, () => false)
-        : Promise.resolve(false),
-      attempts.length > 0
-        ? priceStore.putAttempts?.(attempts).catch(() => undefined) ?? Promise.resolve(undefined)
-        : Promise.resolve(undefined),
-    ]);
-    durations.store += Math.max(0, nowMs() - storeStarted);
-    if (observationsWritten) {
-      for (const observation of observationsToWrite) {
-        lastWrittenFetchedAt.set(observation.assetKey, Date.parse(observation.fetchedAt));
+    await persistOutcomes(observations.slice(checkpointedObservations), attempts.slice(checkpointedAttempts), durations, request?.signal);
+    return { observations: currentObservations, attempts, quotes: providerQuotes, uncompletedInputs };
+  }
+
+  function persistOutcomes(observations: readonly PriceObservation[], attempts: readonly ValuationAttempt[], durations: PriceBalancesResult["durationMs"], signal?: AbortSignal): Promise<void> {
+    if ((observations.length === 0 && attempts.length === 0) || signal?.aborted) return Promise.resolve();
+    const keys = [...new Set([...observations, ...attempts].map(({ assetKey }) => assetKey))];
+    const precedingByKey = new Map(keys.map((key) => [key, persistenceByKey.get(key)]));
+    const ready = Promise.all([...new Set(precedingByKey.values())]);
+    let onAbort: (() => void) | undefined;
+    const aborted = signal ? new Promise<void>((resolve) => {
+      onAbort = () => resolve();
+      signal.addEventListener("abort", onAbort, { once: true });
+    }) : undefined;
+    const task = (aborted ? Promise.race([ready, aborted]) : ready).then(async () => {
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      if (signal?.aborted) return;
+      const observationsToWrite = newestObservations(observations).filter((observation) =>
+        Date.parse(observation.fetchedAt) >
+          (lastWrittenFetchedAt.get(observation.assetKey) ?? Number.NEGATIVE_INFINITY));
+      const storeStarted = nowMs();
+      const [observationsWritten] = await Promise.all([
+        observationsToWrite.length > 0
+          ? priceStore.putMany(observationsToWrite).then(() => true, () => false)
+          : Promise.resolve(false),
+        attempts.length > 0
+          ? priceStore.putAttempts?.(attempts).catch(() => undefined) ?? Promise.resolve(undefined)
+          : Promise.resolve(undefined),
+      ]);
+      durations.store += Math.max(0, nowMs() - storeStarted);
+      if (observationsWritten) {
+        for (const observation of observationsToWrite) {
+          lastWrittenFetchedAt.set(observation.assetKey, Date.parse(observation.fetchedAt));
+        }
       }
+    });
+    const settled = task.catch(() => undefined).finally(() => {
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+    });
+    for (const key of keys) {
+      const tail = Promise.all([precedingByKey.get(key), settled]).then(() => {
+        if (persistenceByKey.get(key) === tail) persistenceByKey.delete(key);
+      });
+      persistenceByKey.set(key, tail);
     }
-    return { observations: currentObservations, attempts, quotes: providerQuotes };
+    return aborted ? Promise.race([task, aborted]) : task;
   }
 }
 
@@ -493,18 +544,48 @@ function pricingInput(holding: ReadHolding): CodexRawQuoteInput {
   return { assetKey: key as `eip155:8453/erc20:${string}`, address: address as `0x${string}`, networkId: 8453 };
 }
 function uniqueInputs(inputs: readonly CodexRawQuoteInput[]) { return [...new Map(inputs.map((input) => [input.assetKey, input])).values()]; }
-async function fetchPriceInputs(readPrices: NonNullable<Dependencies["readPrices"]>, inputs: readonly CodexRawQuoteInput[]): Promise<PriceQuote[]> {
+async function fetchPriceInputs(
+  readPrices: NonNullable<Dependencies["readPrices"]>,
+  inputs: readonly CodexRawQuoteInput[],
+  options: { signal?: AbortSignal; budgetMs?: number; onCompleted?: (quotes: readonly PriceQuote[]) => Promise<void> } = {},
+) {
   const batches: CodexRawQuoteInput[][] = [];
   for (let index = 0; index < inputs.length; index += PRICE_BATCH_SIZE) batches.push(inputs.slice(index, index + PRICE_BATCH_SIZE));
-  return (await mapWithConcurrency(batches, BALANCES_PRICE_CONCURRENCY, (batch) => readPriceBatch(readPrices, batch))).flat();
+  const budget = new AbortController();
+  const signal = options.signal ? AbortSignal.any([options.signal, budget.signal]) : budget.signal;
+  const timer = options.budgetMs !== undefined && !signal.aborted
+    ? setTimeout(() => budget.abort(), options.budgetMs)
+    : undefined;
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<null>((resolve) => {
+    onAbort = () => resolve(null);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+  try {
+    const results = await mapWithConcurrency(batches, BALANCES_PRICE_CONCURRENCY, async (batch) => {
+      if (signal.aborted) return null;
+      const quotes = await Promise.race([readPriceBatch(readPrices, batch, signal), aborted]);
+      if (quotes !== null && options.onCompleted) await options.onCompleted(quotes);
+      return quotes;
+    });
+    return {
+      quotes: batches.flatMap((batch, index) => results[index] ?? unavailablePrices(batch)),
+      completedQuotes: results.flatMap((quotes) => quotes ?? []),
+      uncompletedInputs: batches.flatMap((batch, index) => results[index] === null ? batch : []),
+    };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }
 export async function mapWithConcurrency<T, R>(values: readonly T[], concurrency: number, map: (value: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(values.length); let nextIndex = 0;
   const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => { while (nextIndex < values.length) { const index = nextIndex++; results[index] = await map(values[index]!, index); } });
   await Promise.all(workers); return results;
 }
-async function readPriceBatch(readPrices: NonNullable<Dependencies["readPrices"]>, inputs: readonly CodexRawQuoteInput[]) {
-  try { return await readPrices(inputs, { freshnessMs: BALANCES_PRICE_MAX_AGE_MS }); }
+async function readPriceBatch(readPrices: NonNullable<Dependencies["readPrices"]>, inputs: readonly CodexRawQuoteInput[], signal: AbortSignal) {
+  try { return await readPrices(inputs, { freshnessMs: BALANCES_PRICE_MAX_AGE_MS, signal }); }
   catch { return unavailablePrices(inputs); }
 }
 function positivePricingAmount(holding: ReadHolding) { const amount = holding.kind === "vault-share" ? holding.underlyingBalance : holding.balance; return amount?.status === "ready" && BigInt(amount.baseUnits) > BigInt(0); }

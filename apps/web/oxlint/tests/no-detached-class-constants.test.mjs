@@ -3,12 +3,14 @@
 // are parsed by Oxlint directly, with no ESLint compatibility parser. The 96
 // cases ported from PR #673 are retained below, followed by scope, mutation,
 // reachability, role, and TypeScript-assertion regressions for Oxlint.
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
 const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-detached-"));

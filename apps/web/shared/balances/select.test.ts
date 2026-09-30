@@ -125,10 +125,23 @@ describe("balance selectors", () => {
     expect(selectMoneyGroups(symbolSnapshot).investments.map((holding) => holding.key)).toEqual([symbolOnly.key]);
   });
 
-  test("adds an unsupported local placeholder ahead of USDC", () => {
-    const snapshot = buildBalancesSnapshotFixture({ region: "BR" });
-    expect(selectCash(snapshot).map((entry) => entry.kind)).toEqual(["unsupported", "holding"]);
-    expect(selectCash(snapshot)[0]).toMatchObject({ currency: "BRL", symbol: "wBRL" });
+  test("keeps unverified local placeholders but resolves verified local cash holdings", () => {
+    const au = buildBalancesSnapshotFixture({ region: "AU", registry: { usdc: { balance: ready("1") } } });
+    expect(selectCash(au).map((entry) => entry.kind)).toEqual(["unsupported", "holding"]);
+    expect(selectCash(au)[0]).toMatchObject({ currency: "AUD", symbol: "AUDD" });
+
+    const br = buildBalancesSnapshotFixture({
+      region: "BR",
+      registry: { usdc: { balance: ready("1") }, wbrl: { balance: ready("1000000000000000000") } },
+    });
+    expect(selectCash(br).map((entry) => entry.kind)).toEqual(["holding", "holding"]);
+    expect(selectCash(br)[0]).toMatchObject({
+      kind: "holding", holding: { id: "wbrl", cashCurrency: "BRL", symbol: "wBRL" },
+    });
+
+    const ar = buildBalancesSnapshotFixture({ region: "AR", registry: { usdc: { balance: ready("1") } } });
+    expect(selectCash(ar).filter((entry) => entry.kind === "unsupported")).toEqual([]);
+    expect(selectCash(ar)[0]).toMatchObject({ kind: "holding", holding: { id: "wars", balance: ready("0") } });
   });
 
   test("the cash group keeps the authored regional order even when USD is larger", () => {

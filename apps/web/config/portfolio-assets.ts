@@ -3,6 +3,7 @@ import type { FiatCurrencyCode } from "./regions";
 import {
   BASE_CHAIN_ID,
   BASE_ETH,
+  BASE_FUNDING_ASSETS,
   BASE_MORPHO_USDC_VAULTS,
   BASE_USDC,
 } from "@/shared/assets/base";
@@ -78,14 +79,43 @@ export const verifiedLocalCashAssets = {
   },
   IDR: {
     id: "idrx",
-    assetKey:
-      "eip155:8453/erc20:0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
+    assetKey: assetKeyForErc20(BASE_FUNDING_ASSETS["base:idrx"].address),
     name: "Rupiah",
-    symbol: "IDRX",
-    decimals: 2,
+    symbol: BASE_FUNDING_ASSETS["base:idrx"].symbol,
+    decimals: BASE_FUNDING_ASSETS["base:idrx"].decimals,
     kind: "erc20",
-    contractAddress: "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
-    cashCurrency: "IDR",
+    contractAddress: BASE_FUNDING_ASSETS["base:idrx"].address,
+    cashCurrency: BASE_FUNDING_ASSETS["base:idrx"].fiatCurrency,
+  },
+  ARS: {
+    id: "wars",
+    assetKey: assetKeyForErc20(BASE_FUNDING_ASSETS["base:wars"].address),
+    name: "Argentine peso",
+    symbol: BASE_FUNDING_ASSETS["base:wars"].symbol,
+    decimals: BASE_FUNDING_ASSETS["base:wars"].decimals,
+    kind: "erc20",
+    contractAddress: BASE_FUNDING_ASSETS["base:wars"].address,
+    cashCurrency: BASE_FUNDING_ASSETS["base:wars"].fiatCurrency,
+  },
+  BRL: {
+    id: "wbrl",
+    assetKey: assetKeyForErc20(BASE_FUNDING_ASSETS["base:wbrl"].address),
+    name: "Brazilian real",
+    symbol: BASE_FUNDING_ASSETS["base:wbrl"].symbol,
+    decimals: BASE_FUNDING_ASSETS["base:wbrl"].decimals,
+    kind: "erc20",
+    contractAddress: BASE_FUNDING_ASSETS["base:wbrl"].address,
+    cashCurrency: BASE_FUNDING_ASSETS["base:wbrl"].fiatCurrency,
+  },
+  COP: {
+    id: "wcop",
+    assetKey: assetKeyForErc20(BASE_FUNDING_ASSETS["base:wcop"].address),
+    name: "Colombian peso",
+    symbol: BASE_FUNDING_ASSETS["base:wcop"].symbol,
+    decimals: BASE_FUNDING_ASSETS["base:wcop"].decimals,
+    kind: "erc20",
+    contractAddress: BASE_FUNDING_ASSETS["base:wcop"].address,
+    cashCurrency: BASE_FUNDING_ASSETS["base:wcop"].fiatCurrency,
   },
 } as const satisfies Partial<Record<FiatCurrencyCode, DirectPortfolioAsset>>;
 

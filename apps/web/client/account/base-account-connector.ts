@@ -271,7 +271,7 @@ async function openBaseProvider(
         if (!Array.isArray(accounts) || accounts.length !== 1) {
           throw new BaseAccountConnectorError("invalid-provider-response");
         }
-        const account = accounts[0];
+        const account = response.accounts[0];
         connectedAddress = parseAddress(account?.address);
         if (!connectedAddress) throw new BaseAccountConnectorError("invalid-provider-response");
         if (options.requestEmail && !signInEmail) {
@@ -280,7 +280,7 @@ async function openBaseProvider(
         const signIn = account.capabilities?.unstable_signInWithEthereum;
         const capabilityCode = providerErrorCode(signIn);
         if (capabilityCode !== null) {
-          if ("signature" in signIn) {
+          if (signIn && "signature" in signIn) {
             throw new BaseAccountConnectorError("invalid-provider-response", signIn);
           }
           if ([4200, -32601, -32004].includes(capabilityCode)) {
@@ -542,7 +542,8 @@ async function openBaseProvider(
       if (!("receipts" in result) || !Array.isArray(result.receipts) || result.receipts.length < 1) {
         throw new BaseAccountConnectorError("invalid-provider-response");
       }
-      const hashes = new Set(result.receipts.map((receipt) =>
+      const receipts: unknown[] = result.receipts;
+      const hashes = new Set(receipts.map((receipt) =>
         receipt && typeof receipt === "object" && "transactionHash" in receipt && typeof receipt.transactionHash === "string"
           ? receipt.transactionHash.toLowerCase()
           : "",

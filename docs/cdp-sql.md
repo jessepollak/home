@@ -70,6 +70,10 @@ The smoke command refuses network access unless `CDP_SQL_SMOKE=1`. It sends one 
 
 Do not run the smoke command in CI or during ordinary local tests. The parent/operator should make at most one tiny authorized probe after confirming project entitlement.
 
+## Performance requirements
+
+Follow [SQL performance](sql-performance.md) for provider index/pruning fields, bounded read-only evidence and cold-query validation. A decoded wallet filter plus LIMIT does not prove a bounded events scan; narrowing output after net-action aggregation must not hide scan costs. Home cannot add indexes to CDP-owned tables.
+
 ## Schema and correctness notes
 
 The template uses the currently documented `base.events` columns: `log_id`, block fields, transaction hash, log index, event signature, contract `address`, decoded `parameters`, and `action`. CDP documents `parameters` as a variant map and describes an event as active when actions for a log ID sum above zero. Values from `parameters['value']` are cast to strings in SQL. The schema documents `log_id` only as `String`, without a character-set guarantee, so row and cursor validation use the same non-empty 256-character local bound rather than rejecting otherwise safe string characters.

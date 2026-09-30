@@ -8,6 +8,7 @@ import {
   normalizeTransferRecipientName,
 } from "@/shared/transfers/recipient-name";
 import { RECENT_TRANSFER_RECIPIENT_LIMIT } from "@/shared/transfers/contracts/recipients";
+import { readJson } from "@/shared/http/read-json";
 
 const REVERSE_RESOLVER_ORIGIN = "https://api.ensideas.com";
 const REVERSE_RESOLVER_PATH = "/ens/resolve/";
@@ -277,7 +278,7 @@ async function requestReverseResolver(
   }
   if (!response.ok) return null;
   try {
-    return await response.json();
+    return await readJson(response);
   } catch {
     return null;
   }

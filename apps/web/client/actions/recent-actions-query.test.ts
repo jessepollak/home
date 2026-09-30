@@ -1,34 +1,105 @@
 import { describe, expect, test } from "bun:test";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { createHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ResourceFailureKind } from "@/client/account/resource-failure";
-import {
-  fetchRecentActions,
-  recentActionsQueryOptions,
-  recentActionsStatus,
-  retryRecentActions,
-} from "./recent-actions-query";
+import { recentActionsQuery, recentActionsStatus, retryRecentActions } from "./recent-actions-query";
 
+const session: VerifiedAccountSession = {
+  user: { subject: "subject" },
+  smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+  accountProvider: "cdp-embedded",
+};
 const failure = (reason: ConstructorParameters<typeof TransferExecutionError>[0], kind: ResourceFailureKind, status?: number) =>
   Object.assign(new TransferExecutionError(reason), { kind }, status === undefined ? {} : { status });
 
 describe("recent actions recovery", () => {
-  test("rejects malformed responses from the fetch and forwards the signal without changing valid data", async () => {
-    const signal = new AbortController().signal;
+  test("rejects malformed responses inside the query and forwards the signal; caches parsed rows", async () => {
+    const client = createHomeQueryClient();
     let receivedSignal: AbortSignal | undefined;
-    const malformed = () => fetchRecentActions(async (inputSignal) => {
-      receivedSignal = inputSignal;
+    const malformed = recentActionsQuery({ owner: "owner", session, fetchOperations: async (signal) => {
+      receivedSignal = signal;
       return {};
-    }, signal);
-    await expect(malformed()).rejects.toThrow("Recent actions response is invalid.");
-    expect(receivedSignal).toBe(signal);
+    } });
+    await expect(client.fetchQuery(malformed)).rejects.toThrow("Recent actions response is invalid.");
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    expect(client.getQueryData(malformed.queryKey)).toBeUndefined();
 
-    const response = { actions: [null, { id: "malformed-item" }] };
-    const actual = await fetchRecentActions(async (inputSignal) => {
-      receivedSignal = inputSignal;
-      return response;
-    }, signal);
-    expect(actual).toBe(response);
-    expect(receivedSignal).toBe(signal);
+    const valid = recentActionsQuery({ owner: "owner", session, fetchOperations: async (signal) => {
+      receivedSignal = signal;
+      return { actions: [null, { id: "malformed-item" }] };
+    } });
+    expect(await client.fetchQuery(valid)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
+    expect(client.getQueryData<unknown>(valid.queryKey)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    client.clear();
+  });
+
+  test("caches only session-owned parsed operations in descending update order", async () => {
+    const client = createHomeQueryClient();
+    const row = (id: string, confirmedAt: string, subject = session.user.subject) => ({
+      id, kind: "send", status: "confirmed", createdAt: "2026-09-12T12:00:00.000Z", confirmedAt,
+      owner: { subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
+      summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2026-09-12T13:00:00.000Z" },
+    });
+    const options = recentActionsQuery({ owner: "owner", session, fetchOperations: async () => ({ actions: [
+      row("older", "2026-09-12T12:01:00.000Z"),
+      row("foreign", "2026-09-12T12:03:00.000Z", "another-owner"),
+      row("newer", "2026-09-12T12:02:00.000Z"),
+    ] }) });
+    expect((await client.fetchQuery(options)).operations.map((item) => item.action.id)).toEqual(["newer", "older"]);
+    expect(client.getQueryData<unknown>(options.queryKey)).toMatchObject({
+      operations: [{ action: { id: "newer" }, status: "confirmed" }, { action: { id: "older" }, status: "confirmed" }],
+      unparsedSavingsDeposits: [],
+    });
+    client.clear();
+  });
+  test("keeps a settled trade row whose token decimals exceed the cash-out range", async () => {
+    const client = createHomeQueryClient();
+    const options = recentActionsQuery({ owner: "owner", session, fetchOperations: async () => ({ actions: [{
+      id: "trade-36", kind: "trade", status: "confirmed", createdAt: "2026-09-12T12:00:00.000Z", confirmedAt: "2026-09-12T12:01:00.000Z",
+      owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
+      summary: { title: "Buy MICRO", amounts: [{ assetId: "micro", symbol: "MICRO", decimals: 36, amountBaseUnits: "1", direction: "receive" }], warnings: [], expiresAt: "2026-09-12T13:00:00.000Z" },
+    }] }) });
+    expect((await client.fetchQuery(options)).operations.map((item) => item.action.id)).toEqual(["trade-36"]);
+    expect(client.getQueryData<unknown>(options.queryKey)).toMatchObject({ operations: [{ action: { id: "trade-36", amounts: [{ decimals: 36 }] } }], unparsedSavingsDeposits: [] });
+    client.clear();
+  });
+
+
+  test("caches parsed operations and owned unparsed savings-deposit stubs under one actions key", async () => {
+    const client = createHomeQueryClient();
+    const owner = { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider };
+    const vaultAddress = "0x2222222222222222222222222222222222222222";
+    const parsedDeposit = {
+      id: "parsed", kind: "savings-deposit", status: "pending", owner,
+      createdAt: "2026-09-12T12:00:00.000Z", confirmedAt: "2026-09-12T12:01:00.000Z",
+      summary: { title: "Deposit", amounts: [], warnings: [], expiresAt: "2026-09-12T13:00:00.000Z" },
+    };
+    const stub = {
+      id: "stub", kind: "savings-deposit", status: "confirmed", owner, settledAt: "2026-09-12T12:02:00.000Z",
+      summary: { metadata: { product: "savings", operation: "deposit", vaultAddress } },
+    };
+    const options = recentActionsQuery({ owner: "owner", session, fetchOperations: async () => ({ actions: [
+      parsedDeposit, { ...stub, id: parsedDeposit.id }, stub,
+      { ...stub, id: "invalid-status", status: "legacy", settledAt: null, summary: null },
+      { ...stub, id: "foreign-subject", owner: { ...owner, subject: "another-owner" } },
+      { ...stub, id: "foreign-provider", owner: { ...owner, accountProvider: "another-provider" } },
+      { ...stub, id: "foreign-chain", owner: { ...owner, chainId: 1 } },
+      { ...stub, id: "foreign-address", owner: { ...owner, address: vaultAddress } },
+      { ...stub, id: "malformed-owner", owner: null },
+      { ...stub, id: "send", kind: "send" }, null,
+    ] }) });
+    expect([...options.queryKey]).toEqual([...ownerQueryKey("owner", "actions")]);
+    const payload = await client.fetchQuery(options);
+    expect(payload.operations.map((operation) => operation.action.id)).toEqual(["parsed"]);
+    expect(payload.unparsedSavingsDeposits).toEqual([
+      { status: "confirmed", settledAt: stub.settledAt, vaultAddress },
+      { status: null, vaultAddress: null },
+    ]);
+    expect(client.getQueryData<unknown>(ownerQueryKey("owner", "actions"))).toEqual(payload);
+    expect(client.getQueryCache().getAll()).toHaveLength(1);
+    client.clear();
   });
 
   test("retries only transient transport failures at most twice", () => {
@@ -53,9 +124,11 @@ describe("recent actions recovery", () => {
   });
 
   test("refetches on return only after a failed query", () => {
+    const options = recentActionsQuery({ owner: "owner", session, fetchOperations: async () => ({ actions: [] }) });
     const state = (status: "error" | "success") => ({ state: { status } });
-    const onFocus = recentActionsQueryOptions.refetchOnWindowFocus;
-    const onReconnect = recentActionsQueryOptions.refetchOnReconnect;
+    const onFocus = options.refetchOnWindowFocus;
+    const onReconnect = options.refetchOnReconnect;
+    if (typeof onFocus !== "function" || typeof onReconnect !== "function") throw new Error("Expected conditional refetch callbacks.");
     expect(onFocus(state("success") as Parameters<typeof onFocus>[0])).toBe(false);
     expect(onReconnect(state("success") as Parameters<typeof onReconnect>[0])).toBe(false);
     expect(onFocus(state("error") as Parameters<typeof onFocus>[0])).toBe(true);
@@ -68,12 +141,8 @@ describe("recent actions recovery", () => {
     expect(recentActionsStatus(base)).toBe("ready");
     expect(recentActionsStatus({ ...base, hasData: true, dataUpdatedAt: 1_000 })).toBe("ready");
     expect(recentActionsStatus({ ...base, isError: true, errorUpdatedAt: 1_000 })).toBe("error");
-    expect(recentActionsStatus({
-      ...base, hasData: true, isError: true, dataUpdatedAt: 1_000, errorUpdatedAt: 121_000,
-    })).toBe("ready");
-    expect(recentActionsStatus({
-      ...base, hasData: true, isError: true, dataUpdatedAt: 1_000, errorUpdatedAt: 121_001,
-    })).toBe("error");
+    expect(recentActionsStatus({ ...base, hasData: true, isError: true, dataUpdatedAt: 1_000, errorUpdatedAt: 121_000 })).toBe("ready");
+    expect(recentActionsStatus({ ...base, hasData: true, isError: true, dataUpdatedAt: 1_000, errorUpdatedAt: 121_001 })).toBe("error");
     expect(recentActionsStatus({
       ...base, hasData: true, isError: true, dataUpdatedAt: 1_000, errorUpdatedAt: 1_000,
     }, { tolerateStaleError: false })).toBe("error");

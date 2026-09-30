@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import { useBalances } from "@/client/balances";
+import { useBalancesData } from "@/client/balances";
 import { useNow } from "@/client/time/use-now";
 import type { RegionId } from "@/config/regions";
 import {
@@ -10,7 +10,7 @@ import {
   BASE_USDC_DECIMALS,
   MORPHO_V1_CANDIDATE_ADDRESSES,
 } from "@/shared/savings/config";
-import { selectVaultPositions } from "@/shared/balances/select";
+import { useVaultPositions } from "@/client/balances/vault-positions";
 import {
   nextSavingsRateExpiryAt,
   summarizeSavingsPortfolio,
@@ -35,10 +35,10 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true): str
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, regionId, account.fetchBalances, {
+  const balances = useBalancesData(balancesSession, regionId, account.fetchBalances, {
     enabled: account.verification === "server" && regionReady,
   });
-  const positions = useMemo(() => balances.snapshot ? selectVaultPositions(balances.snapshot) : null, [balances.snapshot]);
+  const positions = useVaultPositions(balances.snapshot);
   const metadataQuery = useSavingsVaults();
   const metadata = metadataQuery.data;
   const nextDeadline = useCallback(

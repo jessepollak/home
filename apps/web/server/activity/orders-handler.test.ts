@@ -69,7 +69,99 @@ test("echoes verified owner, fences source queries and merges newest updates", a
   expect(isRecord(body) ? body.owner : body).toEqual({ subject: "owner", accountProvider: "base-account" });
   expect(parseActivityOrders(body, session).map((order) => order.id)).toEqual(["cashout", "owned"]);
   expect(() => parseActivityOrders(body, { ...session, user: { subject: "other" } })).toThrow();
+  expect(() => parseActivityOrders(body, { ...session, accountProvider: "cdp-embedded" })).toThrow();
   expect(JSON.stringify(body)).not.toContain("provider-1");
+});
+
+test("real handler orders reject every truncated field independently while preserving valid siblings", async () => {
+  const olderFunding = { ...funding, id: "older", updatedAt: "2026-09-12T00:30:00.000Z" };
+  const get = createActivityOrdersHandler({
+    authorize: async () => session,
+    listFundingOrders: async () => [funding, olderFunding],
+    getOpenFundingOrder: async () => null,
+    listCashoutOrders: async () => [cashout],
+    now: () => new Date("2026-09-12T12:00:00.000Z"),
+  });
+  const body = await readJson(await get(request()));
+  if (!isRecord(body) || !Array.isArray(body.orders)) throw new Error("Expected handler orders");
+  const parsed = parseActivityOrders(body, session);
+  expect(parsed.map(({ id }) => id)).toEqual(["cashout", "owned", "older"]);
+  for (const [index, order] of body.orders.entries()) {
+    if (!isRecord(order)) throw new Error("Expected a handler order record");
+    for (const key of Object.keys(order)) {
+      const truncated: Record<string, unknown> = { ...order };
+      delete truncated[key];
+      const orders = [...body.orders];
+      orders[index] = truncated;
+      expect(parseActivityOrders({ ...body, orders }, session))
+        .toEqual(parsed.filter((_, current) => current !== index));
+    }
+  }
+  for (const [index, order] of body.orders.entries()) {
+    if (!isRecord(order) || order.kind !== "funding" || !isRecord(order.asset)) continue;
+    for (const key of Object.keys(order.asset)) {
+      const asset: Record<string, unknown> = { ...order.asset };
+      delete asset[key];
+      const orders = [...body.orders];
+      orders[index] = { ...order, asset };
+      expect(parseActivityOrders({ ...body, orders }, session))
+        .toEqual(parsed.filter((_, current) => current !== index));
+    }
+  }
+  const envelopeCases: unknown[] = [
+    { owner: body.owner, orders: body.orders },
+    { ...body, version: 2 },
+    { ...body, version: "1" },
+    { version: body.version, orders: body.orders },
+    { ...body, owner: null },
+    { ...body, owner: "owner" },
+    { ...body, owner: { subject: "another", accountProvider: session.accountProvider } },
+    { version: body.version, owner: body.owner },
+    { ...body, orders: null },
+    { ...body, orders: {} },
+  ];
+  for (const malformed of envelopeCases) {
+    expect(() => parseActivityOrders(malformed, session)).toThrow();
+  }
+});
+
+test("real handler orders reject malformed field values while preserving the other order", async () => {
+  const get = createActivityOrdersHandler({
+    authorize: async () => session,
+    listFundingOrders: async () => [funding],
+    getOpenFundingOrder: async () => null,
+    listCashoutOrders: async () => [cashout],
+    now: () => new Date("2026-09-12T12:00:00.000Z"),
+  });
+  const body = await readJson(await get(request()));
+  if (!isRecord(body) || !Array.isArray(body.orders)) throw new Error("Expected handler orders");
+  const surviving = parseActivityOrders(body, session).map(({ id }) => id);
+  const cases: readonly (readonly [string, string, Record<string, unknown>])[] = [
+    ["unknown status", "funding", { status: "settled" }],
+    ["unknown funding stage", "funding", { stage: "arrived" }],
+    ["unknown instruction", "funding", { instruction: "wire" }],
+    ["unknown order kind", "funding", { kind: "transfer" }],
+    ["negative atomic token amount", "funding", { tokenAmountAtomic: "-1" }],
+    ["fractional atomic token amount", "funding", { tokenAmountAtomic: "1.5" }],
+    ["zero-padded log index", "funding", { transactionHash: `0x${"a".repeat(64)}`, logIndex: "012" }],
+    ["fractional asset decimals", "funding", { asset: { id: "usdc", symbol: "USDC", decimals: 6.5 } }],
+    ["unparseable created timestamp", "funding", { createdAt: "not-a-timestamp" }],
+    ["empty provider name", "funding", { providerName: "" }],
+    ["unknown cash-out state", "cash-out", { state: "held" }],
+    ["fractional atomic cash-out amount", "cash-out", { amountAtomic: "1000000.5" }],
+    ["negative returned amount", "cash-out", { returnedAtomic: "-1" }],
+    ["non-boolean withdrawable flag", "cash-out", { withdrawable: "true" }],
+    ["unparseable settled timestamp", "cash-out", { settledAt: "not-a-timestamp" }],
+  ];
+  for (const [label, kind, patch] of cases) {
+    const index = body.orders.findIndex((order) => isRecord(order) && order.kind === kind);
+    const target = body.orders[index];
+    if (index < 0 || !isRecord(target)) throw new Error(`Expected a ${kind} handler order`);
+    const orders = [...body.orders];
+    orders[index] = { ...target, ...patch };
+    expect([label, parseActivityOrders({ ...body, orders }, session).map(({ id }) => id)])
+      .toEqual([label, surviving.filter((_, current) => current !== index)]);
+  }
 });
 
 test("only the latest updated open order per region is resumable, fenced to the owner", async () => {

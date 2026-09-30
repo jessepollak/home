@@ -67,9 +67,11 @@ export function ownerQueryMeta(ownerKey: string, persistence: "memory" | "owner"
 
 export function shouldPersistOwnerQuery(query: Query, ownerKey: string, now = Date.now()): boolean {
   const meta = query.meta as HomeQueryMeta | undefined;
-  return isSafeQueryIdentity(ownerKey) && meta?.persistence === "owner" && meta.ownerKey === ownerKey &&
-    query.queryKey[0] === ownerKey && query.state.status === "success" &&
-    now - query.state.dataUpdatedAt <= ownerQueryCacheTtlMs;
+  const scope = query.queryKey[1];
+  const policy = typeof scope === "string" ? scopePolicies[scope] : undefined;
+  return isSafeQueryIdentity(ownerKey) && policy?.audience === "owner" && policy.persistence === "owner" &&
+    meta?.persistence === "owner" && meta.ownerKey === ownerKey && query.queryKey[0] === ownerKey &&
+    query.state.status === "success" && now - query.state.dataUpdatedAt <= ownerQueryCacheTtlMs;
 }
 
 export function dehydrateOwnerQueries(
@@ -195,7 +197,7 @@ export function subscribeOwnerQueryPersistence(
     if (!affectsPersistedOwner(event, ownerKey)) return;
     persister.persistClient(() => ({
       timestamp: Date.now(),
-      buster: "home-query-v3",
+      buster: "home-query-v4",
       clientState: dehydrateOwnerQueries(queryClient, ownerKey),
     }));
   });
@@ -307,7 +309,7 @@ export function restoreOwnerQueries(
   const persister = createOwnerQueryPersister(storage, ownerKey);
   const persisted = persister?.restoreClient();
   persister?.cancel();
-  if (!persisted || persisted.buster !== "home-query-v3" || typeof persisted.timestamp !== "number" ||
+  if (!persisted || persisted.buster !== "home-query-v4" || typeof persisted.timestamp !== "number" ||
     !Number.isFinite(persisted.timestamp) || now - persisted.timestamp > ownerQueryCacheTtlMs) {
     if (persisted) persister?.removeClient();
     return false;

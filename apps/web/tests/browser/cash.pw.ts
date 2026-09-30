@@ -3,7 +3,8 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { buildBalancesSnapshotFixture, ready, priced, pricedCash } from "../../shared/balances/fixtures";
-import { cashConversionCurrencies } from "../../shared/trading/cash-conversion";
+import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "../../shared/trading/cash-conversion";
+import { canonicalUsdcAsset, verifiedLocalCashAssets } from "../../config/portfolio-assets";
 import { preparedConversionFixture } from "./feature-map/conversion-fixture";
 
 test("warm Cash and Home paint with deferred API reads and restore Home scroll", async ({ page }) => {
@@ -219,6 +220,60 @@ test("legacy Save redirects to Savings with the Deposit sheet and refresh preser
 });
 
 for (const width of [390, 1280]) {
+  test(`Cash lists six currencies and guards unavailable Convert destinations at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
+      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
+      [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
+      [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
+      [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
+      [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
+      [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+    } }) });
+    const unavailableIds = new Set(cashConversionCurrencies.filter((currency) => !currency.convertOffered).map((currency) => currency.tradeAssetId));
+    const tradeRequests: string[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/api/trades") tradeRequests.push(url.searchParams.get("assetId") ?? "");
+      if (url.pathname === "/api/actions/prepare" && request.method() === "POST") {
+        const body = request.postDataJSON() as { kind?: string; params?: { assetId?: string } };
+        if (body.kind === "trade") tradeRequests.push(body.params?.assetId ?? "");
+      }
+    });
+    await page.goto("/home");
+    await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
+    const currencies = page.getByRole("region", { name: "Currencies" });
+    for (const name of ["US dollar", "Euro", "Rupiah", "Argentine peso", "Brazilian real", "Colombian peso"]) {
+      await expect(currencies.getByRole("button", { name: new RegExp(`^${name}`) })).toBeVisible();
+    }
+    await expect(currencies.getByRole("listitem")).toHaveCount(6);
+    await page.getByRole("region", { name: "Cash", exact: true }).getByRole("button", { name: "Convert" }).click();
+    const picker = page.getByRole("dialog", { name: "Convert to" });
+    await expect(picker.getByRole("listitem")).toHaveCount(5);
+    for (const name of ["Euro", "Rupiah", "Argentine peso", "Brazilian real", "Colombian peso"]) await expect(picker.getByText(name)).toBeVisible();
+    await expect(picker.getByText("US dollar")).toHaveCount(0);
+    await picker.getByRole("textbox", { name: "Search currencies" }).fill("wbrl");
+    await expect(picker.getByRole("listitem")).toHaveCount(1);
+    await expect(picker.getByText("Brazilian real")).toBeVisible();
+    await picker.getByRole("button", { name: "Clear search" }).click();
+    await expect(picker.getByRole("listitem")).toHaveCount(5);
+    for (const name of ["Argentine peso", "Brazilian real", "Colombian peso"]) {
+      const row = picker.getByText(name).locator("xpath=ancestor::li");
+      await expect(row).toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
+      await expect(row.getByRole("button")).toHaveCount(0);
+    }
+    await picker.getByText("Argentine peso").click();
+    await expect(picker).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Amount" })).toHaveCount(0);
+    await picker.getByRole("button", { name: "Close conversion" }).click();
+    await currencies.getByRole("button", { name: /^Argentine peso/ }).click();
+    const detail = page.getByRole("dialog", { name: "Argentine peso" });
+    await expect(detail).toContainText("$123.45");
+    await expect(detail).toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
+    await expect(detail.getByRole("button", { name: "Convert" })).toHaveCount(0);
+    expect(tradeRequests.filter((id) => unavailableIds.has(id))).toEqual([]);
+  });
   test(`Cash Convert opens EUR review and EUR row detail in one sheet at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await seedSignedInSession(page);
@@ -267,3 +322,67 @@ for (const width of [390, 1280]) {
     await expect(euroRow).toBeFocused();
   });
 }
+
+test("Cash Convert keeps the last currency reachable above a simulated mobile keyboard", async ({ page }) => {
+  const viewportHeight = 844;
+  const keyboardInset = 300;
+  const viewportTop = 100;
+  await page.setViewportSize({ width: 390, height: viewportHeight });
+  await seedSignedInSession(page);
+  await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
+    [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
+    [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
+    [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
+    [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
+    [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
+    [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+  } }) });
+  await page.goto("/home");
+  await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
+  await page.getByRole("region", { name: "Cash", exact: true }).getByRole("button", { name: "Convert" }).click();
+  const picker = page.getByRole("dialog", { name: "Convert to" });
+  const body = page.locator("[data-slot=drawer-popup] [data-slot=money-modal-body]");
+  const search = picker.getByRole("textbox", { name: "Search currencies" });
+  const lastRow = picker.getByText("Colombian peso").locator("xpath=ancestor::li");
+  await expect(picker.getByRole("listitem")).toHaveCount(5);
+  const drawerViewport = page.locator("[data-slot=drawer-viewport]");
+  await drawerViewport.evaluate((element, frame) => {
+    element.style.setProperty("--sheet-keyboard-inset", `${frame.inset}px`);
+    element.style.setProperty("--sheet-keyboard-top", `${frame.top}px`);
+  }, { inset: keyboardInset, top: viewportTop });
+  try {
+    await expect.poll(async () => (await picker.boundingBox())?.y ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(viewportTop);
+    await expect.poll(async () => {
+      const box = await picker.boundingBox();
+      return box ? box.y + box.height : Number.POSITIVE_INFINITY;
+    }).toBeLessThanOrEqual(viewportHeight - keyboardInset);
+    await expect(search).toBeVisible();
+    const searchBox = await search.boundingBox();
+    const bodyBox = await body.boundingBox();
+    expect(searchBox).not.toBeNull();
+    expect(bodyBox).not.toBeNull();
+    expect(searchBox!.y).toBeGreaterThanOrEqual(bodyBox!.y);
+    expect(searchBox!.y + searchBox!.height).toBeLessThanOrEqual(bodyBox!.y + bodyBox!.height);
+    await expect.poll(async () => {
+      const listBox = await picker.getByRole("list").boundingBox();
+      const visibleBody = await body.boundingBox();
+      return listBox && visibleBody ? listBox.height - visibleBody.height : Number.NEGATIVE_INFINITY;
+    }).toBeGreaterThan(0);
+    expect.soft(await body.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
+    await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await expect.poll(async () => {
+      const row = await lastRow.boundingBox();
+      const visibleBody = await body.boundingBox();
+      return row && visibleBody ? Math.min(visibleBody.y + visibleBody.height, viewportHeight - keyboardInset) - (row.y + row.height) : Number.NEGATIVE_INFINITY;
+    }).toBeGreaterThanOrEqual(0);
+    const rowBox = await lastRow.boundingBox();
+    const visibleBody = await body.boundingBox();
+    expect(rowBox!.y).toBeGreaterThanOrEqual(Math.max(visibleBody!.y, viewportTop));
+    await expect(lastRow).toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
+  } finally {
+    await drawerViewport.evaluate((element) => {
+      element.style.removeProperty("--sheet-keyboard-inset");
+      element.style.removeProperty("--sheet-keyboard-top");
+    });
+  }
+});

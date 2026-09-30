@@ -12,7 +12,6 @@ const acceptedGaps = {
     "actions/route.ts": ["shared/actions/contracts/list.ts"],
     "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
     "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-    "balances/route.ts": ["shared/balances/contract.ts"],
     "funding/orders/[id]/route.ts": ["shared/funding/contracts/order.ts"],
     "funding/orders/route.ts": ["shared/funding/contracts/order.ts"],
     "session/route.ts": ["shared/account/contracts/session.ts"],
@@ -21,7 +20,7 @@ const acceptedGaps = {
     "shared/account/contracts/base-verify.ts", "shared/account/contracts/session.ts",
     "shared/actions/contracts/confirm.ts", "shared/actions/contracts/get.ts",
     "shared/actions/contracts/handle.ts", "shared/actions/contracts/list.ts",
-    "shared/actions/contracts/prepare.ts", "shared/balances/contract.ts", "shared/cards/transactions-contract.ts", "shared/fees/contract.ts",
+    "shared/actions/contracts/prepare.ts", "shared/cards/transactions-contract.ts", "shared/fees/contract.ts",
     "shared/funding/contracts/order.ts",
     "shared/funding/provider-contract.ts",
   ]),
@@ -40,7 +39,7 @@ const acceptedGaps = {
   },
 };
 
-const exemptions = {
+const apiExemptions = {
   "access/logout/route.ts": "redirect",
   "actions/[id]/paymaster/route.ts": "machine",
   "auth/base/logout/route.ts": "status",
@@ -52,7 +51,12 @@ const exemptions = {
   "webhooks/cdp/route.ts": "webhook",
 };
 
-test("inventories every API route and rejects newly introduced or stale contract gaps", () => {
+const appExemptions = {
+  "app/coverage.csv/route.ts": "document",
+  "app/invite/[code]/route.ts": "redirect",
+};
+
+test("inventories every route and rejects newly introduced or stale contract gaps", () => {
   expect(inventoryRouteContracts({ root: join(import.meta.dir, "../.."), manifest })).toEqual([]);
 }, 30_000);
 
@@ -72,7 +76,6 @@ const clientReasonRoutes = [
   "admin/audit/route.ts",
   "admin/session/route.ts",
   "admin/settings/route.ts",
-  "cards/spending/route.ts",
 ];
 
 test("accepts only frozen baseline identities", () => {
@@ -91,8 +94,16 @@ test("client reasons are frozen to the reviewed routes", () => {
     .map(([path]) => path)).toEqual(clientReasonRoutes);
 });
 
-test("exempts only redirect, status-only, paymaster callback, and provider webhook routes", () => {
+test("app routes are frozen to the reviewed exemptions", () => {
+  expect(Object.keys(manifest.appRoutes)).toEqual(["app/coverage.csv/route.ts", "app/invite/[code]/route.ts"]);
+  for (const entry of Object.values(manifest.appRoutes)) expect(entry.exempt).toBeDefined();
+});
+
+test("exempts only document, redirect, status-only, paymaster callback, and provider webhook routes", () => {
   expect(Object.fromEntries(Object.entries(manifest.routes)
     .filter(([, entry]) => "exempt" in entry)
-    .map(([path, entry]) => [path, "exempt" in entry ? entry.exempt.kind : undefined]))).toEqual(exemptions);
+    .map(([path, entry]) => [path, "exempt" in entry ? entry.exempt.kind : undefined]))).toEqual(apiExemptions);
+  expect(Object.fromEntries(Object.entries(manifest.appRoutes)
+    .filter(([, entry]) => "exempt" in entry)
+    .map(([path, entry]) => [path, "exempt" in entry ? entry.exempt.kind : undefined]))).toEqual(appExemptions);
 });

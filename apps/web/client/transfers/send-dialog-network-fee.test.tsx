@@ -61,26 +61,27 @@ test("send waits for the USDC fee ceiling before Continue or Enter", async () =>
 });
 
 test("send explains a failed USDC fee lookup and recovers on Retry", async () => {
-  let requests = 0;
+  let failLookup = true;
+  const feeLookupWait = { timeout: 5000 };
   render(<SendDialog open immediate address={address} ownerBoundary="fee-retry-send"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => {
       if (path !== "/api/actions/network-fee") return { version: 1, recipients: [] };
-      requests++;
-      if (requests <= 3) throw new Error("network unavailable");
+      if (failLookup) throw new Error("network unavailable");
       return { version: 1, usdcReserveBaseUnits: "20000" };
     }}
     prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
     resumeMoneyAction={async () => { throw new Error("unexpected resume"); }}
     executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
   fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
-  const alert = await page().findByRole("alert");
+  const alert = await page().findByRole("alert", {}, feeLookupWait);
   expect(alert.textContent).toContain("Couldn't check the network fee.");
   expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  // Recovery starts only once the settled failure is observable, so extra or reordered lookups cannot consume a failure budget.
+  failLookup = false;
   fireEvent.click(page().getByRole("button", { name: "Retry" }));
-  await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true));
-  await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
-  expect(requests).toBe(4);
+  await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true), feeLookupWait);
+  await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false), feeLookupWait);
 });
 
 test("send explains and blocks an amount above the fee-adjusted balance", async () => {

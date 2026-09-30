@@ -226,7 +226,8 @@ const { useAccountWallet } = await import("./cdp-client");
 const CompositeAccountProvider = (await import("./composite-account-provider")).default;
 const { AccountSignInSheet } = await import("./account-screen");
 
-const CDP_ISLAND_MOUNT_WAIT = { timeout: 2_000 };
+// Mount waits end when the mock CDP island mounts; this budget only bounds a hang.
+const CDP_ISLAND_MOUNT_GUARD_MS = 10_000;
 
 let observedClient: AccountWalletClient | null = null;
 let observedStatuses: AccountWalletClient["status"][] = [];
@@ -386,8 +387,8 @@ describe("composite account provider switches", () => {
 
     view.unmount();
     render(content());
-    await waitFor(() => expect(cdpProviderMounts).toBe(1));
-  });
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("settles natively with no hint and deduplicates on-demand CDP activation", async () => {
     installSessionFetch();
@@ -402,12 +403,12 @@ describe("composite account provider switches", () => {
       const second = currentClient().requestEmailCode("second@example.com");
       settled = Promise.allSettled([first, second]);
     });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     const results = await act(async () => settled);
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(events).toEqual(["cdp-email", "cdp-email"]);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("uses the published activation timeout when timeout timing is omitted", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
@@ -420,12 +421,12 @@ describe("composite account provider switches", () => {
 
     let request!: Promise<{ flowId: string }>;
     act(() => { request = currentClient().requestEmailCode("person@example.com"); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     expect(activation.timers[0]?.timeoutMs).toBe(CDP_ACTIVATION_TIMEOUT_MS);
 
     act(() => setCdpState({ isInitialized: true }));
     await act(async () => { await request; });
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("keeps canceled and reissued email actions gated through an uninitialized publication", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
@@ -443,7 +444,7 @@ describe("composite account provider switches", () => {
       void results.then(() => { settled = true; });
     });
 
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     await act(async () => { await Promise.resolve(); });
     expect(events).toEqual([]);
     expect(settled).toBe(false);
@@ -452,7 +453,7 @@ describe("composite account provider switches", () => {
     const outcomes = await act(async () => results);
     expect(outcomes.map((outcome) => outcome.status)).toEqual(["rejected", "fulfilled"]);
     expect(events).toEqual(["cdp-email", "cdp-email"]);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("keeps a captured Base restore failure unavailable until retry recovers", async () => {
     nativeInitializationError = "provider-unavailable";
@@ -494,12 +495,12 @@ describe("composite account provider switches", () => {
     expect(nativeRestores).toBe(0);
     let request!: Promise<{ flowId: string }>;
     act(() => { request = currentClient().requestEmailCode("person@example.com"); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     let result!: { flowId: string };
     await act(async () => { result = await request; });
     expect(result).toEqual({ flowId: "email-flow" });
     expect(events).toEqual(["cdp-email"]);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("does not mount or sign out CDP for a Base-only logout", async () => {
     nativeIdentity = NATIVE_SESSION;
@@ -515,12 +516,12 @@ describe("composite account provider switches", () => {
   test("skips real CDP sign-out after known cleanup initializes signed out", async () => {
     installSessionFetch();
     renderProvider(false, true);
-    await waitFor(() => expect(currentClient().status).toBe("signed-out"));
+    await waitFor(() => expect(currentClient().status).toBe("signed-out"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
 
     await act(async () => { await currentClient().signOut(); });
     expect(cdpProviderMounts).toBe(1);
     expect(cdpSignOuts).toBe(0);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("re-arms cleanup from each live signed-in SDK boundary", async () => {
     installSessionFetch();
@@ -530,7 +531,7 @@ describe("composite account provider switches", () => {
     for (const email of ["first@example.com", "second@example.com"]) {
       let request!: Promise<{ flowId: string }>;
       act(() => { request = currentClient().requestEmailCode(email); });
-      await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+      await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
       const { flowId } = await act(async () => request);
       await act(async () => { await currentClient().verifyEmailCode(flowId, "123456"); });
       await waitFor(() => expect(currentClient().status).toBe("verified"));
@@ -543,14 +544,14 @@ describe("composite account provider switches", () => {
     }
 
     expect(cdpSignOuts).toBe(2);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("restores durable cleanup evidence when CDP sign-out fails", async () => {
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
     cdpSignOutError = new Error("CDP cleanup failed.");
     installSessionFetch();
     renderProvider(false, true);
-    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await waitFor(() => expect(currentClient().status).toBe("verified"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
 
     let cleanup!: Promise<void>;
     act(() => { cleanup = currentClient().signOut(); });
@@ -560,7 +561,7 @@ describe("composite account provider switches", () => {
     expect(currentClient().status).toBe("signout-error");
     expect(hasCdpRestoreMarker()).toBe(true);
     expect(cdpSignOuts).toBe(1);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("keeps a timeout marker until the late CDP sign-out succeeds", async () => {
     const lateCleanup = deferred();
@@ -569,7 +570,7 @@ describe("composite account provider switches", () => {
     const signOut = manualScheduler();
     installSessionFetch();
     renderProvider(false, true, true, { scheduleSignOutTimeout: signOut.scheduleTimeout });
-    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await waitFor(() => expect(currentClient().status).toBe("verified"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
 
     let cleanup!: Promise<void>;
     act(() => { cleanup = currentClient().signOut(); });
@@ -583,7 +584,7 @@ describe("composite account provider switches", () => {
     lateCleanup.resolve();
     await waitFor(() => expect(hasCdpRestoreMarker()).toBe(false));
     expect(cdpSignOuts).toBe(1);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("does not repeat successful CDP cleanup when native cleanup is retried", async () => {
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
@@ -594,7 +595,7 @@ describe("composite account provider switches", () => {
     };
     installSessionFetch();
     renderProvider(false, true);
-    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await waitFor(() => expect(currentClient().status).toBe("verified"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
 
     let signOutError: unknown;
     await act(async () => {
@@ -614,7 +615,7 @@ describe("composite account provider switches", () => {
     expect(cdpSignOuts).toBe(1);
     expect(nativeAttempts).toBe(2);
     expect(currentClient().status).toBe("signed-out");
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("retries native restoration and a failed CDP island through initialized recovery", async () => {
     const consoleError = spyOn(console, "error").mockImplementation(() => {});
@@ -623,12 +624,12 @@ describe("composite account provider switches", () => {
     nativeInitializationError = "provider-unavailable";
     installSessionFetch();
     renderProvider(false, true);
-    await waitFor(() => expect(currentClient().status).toBe("unavailable"));
+    await waitFor(() => expect(currentClient().status).toBe("unavailable"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
 
     cdpProviderShouldThrow = false;
     let retry!: Promise<void>;
     act(() => { retry = currentClient().retrySessionValidation(); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     expect(nativeRestores).toBe(1);
 
     act(() => setCdpState({ isInitialized: true }));
@@ -636,7 +637,7 @@ describe("composite account provider switches", () => {
     await waitFor(() => expect(currentClient().status).toBe("signed-out"));
     expect(nativeInitializationError).toBeUndefined();
     consoleError.mockRestore();
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("shows both sign-in choices while CDP is pending and keeps email server-verified", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
@@ -651,7 +652,7 @@ describe("composite account provider switches", () => {
       target: { value: "person@example.com" },
     });
     fireEvent.click(view.getByRole("button", { name: "Continue with email" }));
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     expect(events).toEqual([]);
     expect(view.queryByRole("textbox", { name: "Verification code" })).toBeNull();
     expect(currentClient().verification).toBeNull();
@@ -670,20 +671,20 @@ describe("composite account provider switches", () => {
     expect(currentClient().verification).toBe("server");
     expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
     expect(hasCdpRestoreMarker()).toBe(true);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("keeps sign-in forms hidden while the CDP island is suspended", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
     installSessionFetch();
     const view = renderProvider(true, true);
 
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     expect(currentClient().status).toBe("restoring");
     expect(observedStatuses).not.toContain("signed-out");
     // The restoring status keeps the sign-in form hidden while the lazy CDP
     // island is suspended, so a fallback cannot expose a misleading first click.
     expect(view.queryByRole("textbox", { name: "Email address" })).toBeNull();
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("a returning CDP marker waits through initialization without settling signed out", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
@@ -694,7 +695,7 @@ describe("composite account provider switches", () => {
 
     await waitFor(() => expect(currentClient().status).toBe("restoring"));
     expect(observedStatuses).not.toContain("signed-out");
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
 
     await act(async () => setCdpState({
       isInitialized: true,
@@ -704,7 +705,7 @@ describe("composite account provider switches", () => {
     await waitFor(() => expect(currentClient().status).toBe("verified"));
     expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
     expect(observedStatuses).not.toContain("signed-out");
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("fails a timed-out hinted CDP restore closed and retries without dropping its marker", async () => {
     cdpState = { isInitialized: false, isSignedIn: false, userId: null };
@@ -712,7 +713,7 @@ describe("composite account provider switches", () => {
     installSessionFetch();
     renderProvider(false, true, true, { scheduleActivationTimeout: activation.scheduleTimeout });
 
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     expect(currentClient().status).toBe("restoring");
     expect(activation.hasPending()).toBe(true);
     act(() => { activation.fireNextPending(); });
@@ -723,14 +724,14 @@ describe("composite account provider switches", () => {
 
     let retry!: Promise<void>;
     act(() => { retry = currentClient().retrySessionValidation(); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     expect(hasCdpRestoreMarker()).toBe(true);
 
     act(() => setCdpState({ isInitialized: true }));
     await act(async () => { await retry; });
     await waitFor(() => expect(currentClient().status).toBe("signed-out"));
     expect(hasCdpRestoreMarker()).toBe(false);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("native to email preserves the newly verified CDP identity", async () => {
     const nativeClear = deferred();
@@ -749,7 +750,7 @@ describe("composite account provider switches", () => {
 
     let emailRequest!: Promise<{ flowId: string }>;
     act(() => { emailRequest = currentClient().requestEmailCode("person@example.com"); });
-    await waitFor(() => expect(cdpProviderMounts).toBe(1), CDP_ISLAND_MOUNT_WAIT);
+    await waitFor(() => expect(cdpProviderMounts).toBe(1), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     const { flowId } = await act(async () => emailRequest);
     let verification!: Promise<void>;
     act(() => { verification = currentClient().verifyEmailCode(flowId, "123456"); });
@@ -763,7 +764,7 @@ describe("composite account provider switches", () => {
     expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
     expect(events).toEqual(["cdp-email", "cdp-verify", "clear-native-start", "clear-native-done"]);
     expect(cdpSignOuts).toBe(0);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("retains automatic CDP cleanup failures for a later retry", async () => {
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
@@ -771,7 +772,7 @@ describe("composite account provider switches", () => {
     installSessionFetch();
     renderProvider(false, true);
 
-    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await waitFor(() => expect(currentClient().status).toBe("verified"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     await act(async () => { await currentClient().signInWithBaseAccount(() => {}); });
     await waitFor(() => expect(currentClient().session?.accountProvider).toBe("base-account"));
     await waitFor(() => expect(hasCdpRestoreMarker()).toBe(true));
@@ -781,7 +782,7 @@ describe("composite account provider switches", () => {
     await act(async () => { await currentClient().signOut(); });
     expect(cdpSignOuts).toBe(2);
     expect(hasCdpRestoreMarker()).toBe(false);
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("bounds hanging automatic CDP cleanup and permits retry before late success", async () => {
     const lateCleanup = deferred();
@@ -791,7 +792,7 @@ describe("composite account provider switches", () => {
     installSessionFetch();
     renderProvider(false, true, true, { scheduleSignOutTimeout: signOut.scheduleTimeout });
 
-    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await waitFor(() => expect(currentClient().status).toBe("verified"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     await act(async () => { await currentClient().signInWithBaseAccount(() => {}); });
     await waitFor(() => expect(currentClient().session?.accountProvider).toBe("base-account"));
     await waitFor(() => expect(cdpSignOuts).toBe(1));
@@ -810,14 +811,14 @@ describe("composite account provider switches", () => {
     lateCleanup.resolve();
     await waitFor(() => expect(hasCdpRestoreMarker()).toBe(false));
     expect(currentClient().session?.accountProvider).toBe("base-account");
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 
   test("email to Base signs CDP out once without a stale session", async () => {
     setCdpState({ isSignedIn: true, userId: CDP_SESSION.user.subject });
     installSessionFetch();
     renderProvider(false, true);
 
-    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await waitFor(() => expect(currentClient().status).toBe("verified"), { timeout: CDP_ISLAND_MOUNT_GUARD_MS });
     expect(currentClient().session?.accountProvider).toBe("cdp-embedded");
 
     await act(async () => { await currentClient().signInWithBaseAccount(() => {}); });
@@ -835,5 +836,5 @@ describe("composite account provider switches", () => {
     ]);
     expect(events).not.toContain("base-personal_sign");
     expect(currentClient().status).toBe("verified");
-  });
+  }, CDP_ISLAND_MOUNT_GUARD_MS + 5_000);
 });

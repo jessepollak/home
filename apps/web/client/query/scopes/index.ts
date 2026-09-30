@@ -7,6 +7,7 @@ import { balances } from "./balances";
 import { basename } from "./basename";
 import { borrow } from "./borrow";
 import { cards } from "./cards";
+import { cardSpending } from "./card-spending";
 import { fundingOpenOrder } from "./funding-open-order";
 import { fundingOrder } from "./funding-order";
 import { fundingOrderIsolated } from "./funding-order-isolated";
@@ -34,6 +35,7 @@ export const queryScopes = {
   basename,
   borrow,
   cards,
+  "card-spending": cardSpending,
   "funding-open-order": fundingOpenOrder,
   "funding-order": fundingOrder,
   "funding-order-isolated": fundingOrderIsolated,

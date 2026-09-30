@@ -12,7 +12,14 @@ Storybook, story files, MSW, or `explorations/` code. Oxlint enforces all four
 boundaries; `home/no-exploration-imports` rejects any import, re-export,
 dynamic import, `require()`, or type query (`typeof import("./x")`) of an
 `explorations/` path from a production module, so a barrel cannot expose
-exploration code.
+exploration code. The rule also consults TypeScript's JSDoc parse in JavaScript
+and TypeScript files and reports exploration references TypeScript resolves,
+including braced or brace-less type queries, `@import` tags, and escaped
+specifiers. Comment text TypeScript does not read as a reference, such as
+non-JSDoc comments, description prose, and template-literal specifiers, stays
+clean. `home/no-test-support-imports` closes the other barrel path: a
+production module cannot import a `tests/`, `testing/`, or `*.test.*` module
+either.
 
 Keep proposals thin: compose owned `apps/web/components/ui` components and
 variants with existing feature components instead of rebuilding shells or
@@ -30,8 +37,11 @@ exemption for a production-path module that only stories or explorations
 reach, directly or through a chain of modules nothing else consumes:
 `bun run gates` fails it. `scripts/gates/knip-exemptions-baseline.json` is the
 reviewed exception surface, so an exemption passes only when the same change
-adds a baseline entry with a reason, and a baseline entry fails as
+adds a baseline entry with a reason and `kind`, and an exploration-only baseline entry fails as
 stale once a product screen imports the module, so remove both together.
+A new production-path module reachable only through a baselined
+`"exploration-only"` exemption fails the gate with the import chain from that
+exemption.
 
 While a design is being selected, a shared component `cva` variant or export
 that only stories and explorations use is reported, not blocked: `bun run gates`

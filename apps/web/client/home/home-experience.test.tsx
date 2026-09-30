@@ -401,7 +401,7 @@ function EmptySavingsFunding({ view, onOpenSavings }: { view: "cash" | "savings"
   const routing = useOptionalHomeShellRouting();
   return <CashExperience view={view} onOpenSavings={onOpenSavings} session={session()}
     snapshot={buildBalancesSnapshotFixture()} balanceStatus="ready"
-    fetchVaults={async () => savingsVaultsBody(new Date().toISOString(), new Date().toISOString())}
+    fetchVaults={async () => savingsVaultsBody(new Date(NOW).toISOString(), new Date(NOW).toISOString())}
     onAddMoney={(options) => { routing?.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push" }); }}
     prepareMoneyAction={async () => { throw new Error("Not part of this test"); }}
     executeMoneyAction={async () => { throw new Error("Not part of this test"); }} />;

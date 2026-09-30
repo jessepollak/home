@@ -8,6 +8,7 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeInboundPanelState } from "@/client/home/panel-routing";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
+import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
 import { parseAddress } from "@/shared/chain/hex";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
@@ -54,8 +55,8 @@ const held = buildBalancesSnapshotFixture({ registry: {
 } });
 const single = buildBalancesSnapshotFixture({ registry: { ...cash, "morpho-steakhouse-usdc": { balance: ready("800000000000000000000"), underlyingBalance: ready("800000000"), value: priced("USD", "80000") } } });
 const empty = buildBalancesSnapshotFixture({ registry: cash });
-const unsupportedLocalCash = buildBalancesSnapshotFixture({ region: "BR", registry: {
-  usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+const unsupportedLocalCash = buildBalancesSnapshotFixture({ region: "MX", registry: {
+  usdc: { balance: ready("5000000"), value: priced("MXN", "2500"), cashValue: pricedCash("USD", "500") },
 } });
 const noop = () => undefined;
 const preparedInputs: unknown[] = [];
@@ -181,15 +182,36 @@ describe("Cash L2", () => {
   test("unsupported local currency shows verification pending without inventing an amount", () => {
     render(<Surface view="cash" snapshot={unsupportedLocalCash} />);
     const currencies = page().getByRole("region", { name: "Currencies" });
-    const brazilianRealRow = within(currencies).getByText("Brazilian real").closest("li");
-    expect(brazilianRealRow).not.toBeNull();
-    expect(brazilianRealRow?.textContent).toContain("Verification pending");
-    expect(brazilianRealRow?.textContent).not.toMatch(/[0-9]/);
-    expect(within(brazilianRealRow!).queryByRole("img", { name: "Verification pending" })).toBeNull();
+    const mexicanPesoRow = within(currencies).getByText("Mexican peso").closest("li");
+    expect(mexicanPesoRow).not.toBeNull();
+    expect(mexicanPesoRow?.textContent).toContain("Verification pending");
+    expect(mexicanPesoRow?.textContent).not.toMatch(/[0-9]/);
+    expect(within(mexicanPesoRow!).queryByRole("img", { name: "Verification pending" })).toBeNull();
     const usDollarRow = within(currencies).getByText("US dollar").closest("li");
     expect(usDollarRow).not.toBeNull();
-    expect(within(usDollarRow!).getByRole("img", { name: "$5,00" })).toBeTruthy();
-    expect(within(usDollarRow!).getByText("R$ 25,00")).toBeTruthy();
+    expect(within(usDollarRow!).getByRole("img", { name: "$5.00" })).toBeTruthy();
+    expect(within(usDollarRow!).getByText("$25.00")).toBeTruthy();
+  });
+  test("held verified cash currencies render their own balances, including wBRL as Brazilian real", async () => {
+    cached();
+    const snapshot = buildBalancesSnapshotFixture({ registry: {
+      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
+      [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
+      [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
+      [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
+      [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
+      [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+    } });
+    render(<Surface view="cash" snapshot={snapshot} />);
+    const currencies = within(await page().findByRole("region", { name: "Currencies" }));
+    expect(currencies.getAllByRole("listitem")).toHaveLength(6);
+    for (const [name, amount] of [["US dollar", "$234.00"], ["Euro", "€15.00"], ["Rupiah", "Rp 1,900,000.00"], ["Argentine peso", "$123.45"], ["Brazilian real", "R$ 23.45"], ["Colombian peso", "$1,234.56"]] as const) {
+      const row = currencies.getByRole("button", { name: new RegExp(`^${name}`) });
+      expect(row.textContent).toContain(amount);
+    }
+    const real = currencies.getByRole("button", { name: /^Brazilian real/ });
+    expect(real.textContent).toContain(verifiedLocalCashAssets.BRL.symbol);
+    expect(currencies.queryByText("Unsupported", { exact: true })).toBeNull();
   });
   test("shows priced pending escrow below the wallet-only Cash balance", () => {
     const snapshot = buildBalancesSnapshotFixture({ registry: cash });
@@ -253,7 +275,7 @@ describe("Cash L2", () => {
     await waitFor(() => expect(page().getByRole("button", { name: "Save" })).toBeTruthy());
   });
   test("the Cash currency Save arms the fresh deposit history floor and files the submitted deposit", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
     cached();
     const releases: Array<() => void> = [];
     const preparations: unknown[] = [];
@@ -293,7 +315,7 @@ describe("Cash L2", () => {
     expect(executed).toEqual(["cash-deposit-1"]);
   });
   test("an embedded Save whose dispatch outcome is unknown files the ambiguous deposit and keeps the entry blocked", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
     cached();
     const releases: Array<() => void> = [];
     const preparations: unknown[] = [];
@@ -323,7 +345,7 @@ describe("Cash L2", () => {
     expect(preparations).toEqual([{ kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "1000000" }]);
   });
   test("a first deposit that appears after the embedded Save opens blocks the deposit step", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
     cached();
     const preparations: unknown[] = [];
     let otherTabDeposit = false;
@@ -353,7 +375,7 @@ describe("Cash L2", () => {
     expect(preparations).toEqual([]);
   });
   test("a Convert execution does not exempt the next Save entry from its history gate", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { actions: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
     cached();
     let holdHistory = false;
     let reads = 0;
@@ -940,7 +962,7 @@ describe("Cash L2", () => {
   });
   test("a routed first deposit needs a newer history read before it can confirm", async () => {
     const actionsKey = ownerQueryKey(dataOwnerKey(session), "actions");
-    getHomeQueryClient().setQueryData(actionsKey, { actions: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(actionsKey, { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
     cached();
     onlineManager.setOnline(false);
     render(<Route initialFlow="save-deposit" snapshot={empty} fetchAccountResource={async (path) => {

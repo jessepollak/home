@@ -2,9 +2,8 @@ import "@/client/account/dom-test-harness";
 
 import { useState } from "react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
-import { hydrateRoot, type Root } from "react-dom/client";
-import { renderToString } from "react-dom/server";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { hydrateServerRender, type HydratedServerRender } from "@/tests/helpers/hydration";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { AppearancePreference } from "@/shared/appearance/preference";
@@ -197,9 +196,7 @@ describe("AccountSettings", () => {
     const originalShare = Object.getOwnPropertyDescriptor(navigator, "share");
     const originalConsoleError = console.error;
     const consoleErrors: unknown[][] = [];
-    const hydrationErrors: unknown[] = [];
-    let root: Root | null = null;
-    let container: HTMLDivElement | null = null;
+    let fixture: HydratedServerRender | null = null;
     Object.defineProperty(navigator, "share", { configurable: true, value: mock(async () => {}) });
     console.error = (...args: unknown[]) => { consoleErrors.push(args); };
     try {
@@ -207,25 +204,17 @@ describe("AccountSettings", () => {
       const url = `${window.location.origin}/invite/abcdefghjk`;
       getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "invite-link"), url);
       const settings = inviteSettings(async () => ({ version: 1, code: "abcdefghjk" }), ownerKey);
-      const serverMarkup = renderToString(settings);
+      fixture = await hydrateServerRender(settings);
+      const { container, hydrationErrors, serverMarkup } = fixture;
       expect(serverMarkup).toContain("Invite friends");
       expect(serverMarkup).toContain("abcdefghjk");
       expect(serverMarkup).not.toContain('aria-label="Share invite link"');
 
-      container = document.createElement("div");
-      container.innerHTML = serverMarkup;
-      document.body.append(container);
-      await act(async () => {
-        root = hydrateRoot(container!, settings, {
-          onRecoverableError: (error) => hydrationErrors.push(error),
-        });
-      });
       expect(hydrationErrors).toEqual([]);
       expect(consoleErrors).toEqual([]);
       expect(within(container).getByRole("button", { name: "Share invite link" })).toBeTruthy();
     } finally {
-      if (root) await act(async () => root?.unmount());
-      container?.remove();
+      await fixture?.unmount();
       console.error = originalConsoleError;
       if (originalShare) Object.defineProperty(navigator, "share", originalShare);
       else Reflect.deleteProperty(navigator, "share");

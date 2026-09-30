@@ -206,7 +206,7 @@ export function appendPermit2Signature(calldata: Hex, wrapper: Hex): Hex {
 function assertFields(value: unknown, expected: readonly { name: string; type: string }[]): void {
   if (!Array.isArray(value) || value.length !== expected.length) reject();
   for (let index = 0; index < expected.length; index += 1) {
-    const field = value[index];
+    const field: unknown = value[index];
     if (
       !isRecord(field) ||
       Object.keys(field).sort().join(",") !== "name,type" ||

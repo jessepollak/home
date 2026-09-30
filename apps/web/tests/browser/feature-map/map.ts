@@ -18,6 +18,35 @@ const nextField = String.raw`(?=\n- \*\*[A-Z]|\n## |$)`;
 const reachCommand = /^(goto|click|click-prefix|fill|press|expect)((?:\s+"[^"]*")*)$/;
 const commandWord = /^[a-z][a-z-]*/;
 const commandWords = ["goto", "click", "click-prefix", "fill", "press", "expect"];
+const stepVerbWords = [...commandWords].sort((left, right) => right.length - left.length).join("|");
+function maskCodeSpans(file: string, text: string): string {
+  const lineAt = (index: number) => text.split("\n")[text.slice(0, index).split("\n").length - 1].trim();
+  let masked = "";
+  let inside = false;
+  let opened = 0;
+  let wrapped = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === "\\") {
+      masked += character + (text[index + 1] ?? "");
+      index += 1;
+      continue;
+    }
+    if (character === "\n" && inside) wrapped = true;
+    if (character === "`") {
+      inside = !inside;
+      if (inside) opened = index;
+      else if (wrapped) throw new Error(`Wrapped code span in feature-map surface ${file}: ${lineAt(opened)}`);
+      masked += "\u0000";
+      continue;
+    }
+    masked += inside ? "\u0000" : character;
+  }
+  if (inside) throw new Error(`Unclosed code span in feature-map surface ${file}: ${lineAt(opened)}`);
+  return masked;
+}
+const proseStep = new RegExp(String.raw`(?<![\w-])(?:${stepVerbWords})(?:\s+(?:the|a|an|this|that|these|those|your|our|their|its|my|any|each|every|all|another|some))?\s*\u0000|^[ \t:>]*\d+[.)]\s*(?:${stepVerbWords})(?!\w|-(?=[\p{L}\p{N}_]|\s+(?:and|or)\b))`, "mu");
+const headingPrefix = /^- \*\*Reach(?: \([^()]*\))?\*\*(?: \([^()]*\))? ?: ?/;
 const commandArity = new Map([["goto", 1], ["click", 1], ["click-prefix", 1], ["fill", 2], ["press", 1], ["expect", 1]]);
 
 function looksLikeCommand(token: string): boolean {
@@ -49,6 +78,19 @@ function parseReachSteps(block: string): ReachStep[] {
     .filter((step): step is ReachStep => step !== null));
 }
 
+function assertMachineReadableReach(file: string, block: string, heading: string): void {
+  const content = heading.replace(headingPrefix, "");
+  if (content === heading) throw new Error(`Unsupported Reach heading in feature-map surface ${file}: ${heading.trim()}`);
+  const lines = [heading, ...block.split("\n")];
+  const masked = maskCodeSpans(file, `${content}\n${block}`).toLowerCase();
+  const match = proseStep.exec(masked);
+  if (match) {
+    const index = masked.slice(0, match.index).split("\n").length - 1;
+    throw new Error(`Prose Reach step in feature-map surface ${file}: ${(index === 0 ? heading : lines[index] ?? heading).trim()}`);
+  }
+  if (heading.includes("`")) throw new Error(`Code span in Reach heading of feature-map surface ${file}: ${heading.trim()}`);
+}
+
 export function parseSurface(file: string, markdown: string): Surface {
   const section = markdown.split(/^###\s+/m)[1];
   const id = section?.match(/^`([^`]+)`/)?.[1];
@@ -56,14 +98,21 @@ export function parseSurface(file: string, markdown: string): Surface {
     throw new Error(`Invalid feature-map surface: ${file}`);
   }
   const body = section.slice(section.indexOf("\n") + 1);
-  const block = body.match(new RegExp(String.raw`- \*\*Reach\*\*[^\n]*\n([\s\S]*?)${nextField}`))?.[1] ?? "";
-  const variants = [...body.matchAll(new RegExp(String.raw`- \*\*Reach \(replay: ([a-z0-9-]+)\)\*\*[^\n]*\n([\s\S]*?)${nextField}`, "g"))]
-    .map((match) => ({ name: match[1], reach: parseReachSteps(match[2]) }));
+  const manual = /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body);
+  const reachBlock = body.match(new RegExp(String.raw`(- \*\*Reach\*\*[^\n]*)\n([\s\S]*?)${nextField}`));
+  const block = reachBlock?.[2] ?? "";
+  const variantBlocks = [...body.matchAll(new RegExp(String.raw`(- \*\*Reach \(replay: ([a-z0-9-]+)\)\*\*[^\n]*)\n([\s\S]*?)${nextField}`, "g"))]
+    .map((match) => ({ heading: match[1], name: match[2], block: match[3] }));
   const replayHeadings = body.match(/- \*\*Reach \(replay:/g)?.length ?? 0;
-  if (replayHeadings !== variants.length || new Set(variants.map((variant) => variant.name)).size !== variants.length) {
+  if (replayHeadings !== variantBlocks.length || new Set(variantBlocks.map((variant) => variant.name)).size !== variantBlocks.length) {
     throw new Error(`Invalid or duplicate replay Reach in feature-map surface: ${file}`);
   }
-  return { id, reach: parseReachSteps(block), variants, manual: /^- \*\*Verify\*\*:\s*manual\s*$/m.test(body) };
+  if (!manual) {
+    if (reachBlock) assertMachineReadableReach(file, reachBlock[2], reachBlock[1]);
+    for (const variant of variantBlocks) assertMachineReadableReach(file, variant.block, variant.heading);
+  }
+  const variants = variantBlocks.map((variant) => ({ name: variant.name, reach: parseReachSteps(variant.block) }));
+  return { id, reach: parseReachSteps(block), variants, manual };
 }
 
 export async function readFeatureMap(path: string): Promise<{ surfaces: Map<string, Surface> }> {

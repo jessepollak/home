@@ -1,13 +1,6 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { installApiFixtures, RECIPIENT, seedSignedInSession } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
-
-function zeroDurationTransitions(locator: Locator) {
-  return locator.evaluate((element) =>
-    getComputedStyle(element).transitionDuration
-      .split(",")
-      .every((duration) => Number.parseFloat(duration) === 0));
-}
 
 test("submitted send shows a pending result and clears its review route before reload", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -15,7 +8,9 @@ test("submitted send shows a pending result and clears its review route before r
   await installApiFixtures(page);
   await page.goto("/home");
   await page.getByRole("button", { name: "Send" }).click();
-  await expect.poll(() => zeroDurationTransitions(page.locator("[data-slot=drawer-popup]"))).toBe(true);
+  const popup = page.locator("[data-slot=drawer-popup]");
+  await expect(popup).toBeVisible();
+  await expect(popup).toHaveCSS("transition-duration", "0s");
   await typeAmount(page, "1");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);

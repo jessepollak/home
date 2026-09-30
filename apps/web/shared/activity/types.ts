@@ -90,6 +90,7 @@ export type ActivityReadyState = {
   loadingMore: boolean;
   loadMoreError: boolean;
   continuing: boolean;
+  latestUnavailable?: boolean;
 };
 
 export type ActivityFailure = {

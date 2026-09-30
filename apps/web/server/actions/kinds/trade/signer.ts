@@ -171,13 +171,14 @@ function parseFreshIdentity(value: unknown, session: VerifiedAccountSession): Fr
     if (!isRecord(account)) unsupported();
     controlled.add(parseAddress(account.address) ?? unsupported());
   }
-  const matches = value.evmSmartAccountObjects.filter((account) =>
+  const matches = value.evmSmartAccountObjects.filter((account: unknown): account is Record<string, unknown> =>
     isRecord(account) && (parseAddress(account.address) ?? unsupported()) === session.smartAccount!.address,
   );
   if (matches.length !== 1) unsupported();
   const match = matches[0];
   if (!Array.isArray(match.ownerAddresses) || match.ownerAddresses.length < 1) unsupported();
-  const ownerAddresses: Address[] = match.ownerAddresses.map((address: unknown) => parseAddress(address) ?? unsupported());
+  const owners: unknown[] = match.ownerAddresses;
+  const ownerAddresses: Address[] = owners.map((address) => parseAddress(address) ?? unsupported());
   if (new Set(ownerAddresses).size !== ownerAddresses.length) unsupported();
   const controlledOwners = ownerAddresses.filter((address) => controlled.has(address));
   if (controlledOwners.length < 1) unsupported();

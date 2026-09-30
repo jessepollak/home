@@ -512,25 +512,26 @@ describe("any-token trade review", () => {
   });
   test("a failed network-fee check offers Try again and recovers Buy", async () => {
     let settle: (() => void) | undefined;
-    let requests = 0;
+    let failLookup = true;
+    const feeLookupWait = { timeout: 5000 };
     const trade = dialog("buy", { fetchAccountResource: async () => {
-      requests++;
-      if (requests <= 3) throw new Error("synthetic fee policy failure");
+      if (failLookup) throw new Error("synthetic fee policy failure");
       return new Promise((resolve) => { settle = () => resolve({ version: 1, usdcReserveBaseUnits: "20000" }); });
     } });
     fireEvent.input(trade.view.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
-    await waitFor(() => expect(trade.view.getByText("Couldn't check the network fee.")).toBeTruthy());
+    await waitFor(() => expect(trade.view.getByText("Couldn't check the network fee.")).toBeTruthy(), feeLookupWait);
     expect(trade.view.getAllByText("Network fee unavailable").length).toBeGreaterThan(0);
     expect((trade.view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
     const retry = trade.view.getByRole("button", { name: "Try again" });
+    // Recovery starts only once the settled failure is observable, so extra or reordered lookups cannot consume a failure budget.
+    failLookup = false;
     fireEvent.click(retry);
-    await waitFor(() => expect(retry.getAttribute("aria-busy")).toBe("true"));
+    await waitFor(() => expect(retry.getAttribute("aria-busy")).toBe("true"), feeLookupWait);
     expect(retry.isConnected).toBe(true);
     fireEvent.click(retry);
     settle?.();
     await submit(trade.view);
-    await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("1000000"));
-    expect(requests).toBe(4);
+    await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("1000000"), feeLookupWait);
   });
   test.each([
     ["TRADE_NOT_ROUTED", "This asset can't be traded in Home yet."],

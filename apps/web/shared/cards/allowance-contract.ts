@@ -14,7 +14,6 @@ export type CardSpendingResponse =
   | Readonly<{ version: 1; status: "not-configured" }>
   | Readonly<{ version: 1; status: "unavailable"; fetchedAt: string }>;
 
-/** @public Versioned card spending response parser for future client consumers. */
 export function parseCardSpendingResponse(value: unknown): CardSpendingResponse | null {
   if (!record(value) || value.version !== CARD_ALLOWANCE_CONTRACT_VERSION) return null;
   if (value.status === "not-configured" && Object.keys(value).length === 2) return { version: 1, status: "not-configured" };

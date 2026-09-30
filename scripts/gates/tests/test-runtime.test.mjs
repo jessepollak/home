@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { buildRuntimeReport, mergeJunitReports, parseJunit, readBaseAllowlist, validateAllowlist } from "../test-runtime.mjs";
 
 const checkedIn = JSON.parse(readFileSync(fileURLToPath(new URL("../test-runtime-allowlist.json", import.meta.url)), "utf8"));
-const empty = { tests: [], files: [] };
+const empty = { tests: [], files: [], testFiles: [] };
 const file = "client/example.test.ts";
 const escape = (text) => text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("'", "&apos;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const testcase = (name, time, path = file) => `<testcase name="${escape(name)}" file="${escape(path)}" time="${time}" />`;
@@ -24,33 +24,59 @@ for (const [name, xml, pattern] of [
 }
 
 test("baseline-shaped JUnit within every allowlisted ceiling passes", () => {
+  const allowlist = {
+    tests: [
+      { file, test: "Example > nested", maxSeconds: 20, reason: "measured slow test" },
+      { file, test: "top level", maxSeconds: 18, reason: "measured slow test" },
+      { file: "server/other.test.ts", test: "other", maxSeconds: 9, reason: "measured slow test" },
+    ],
+    files: [{ file, maxSeconds: 40, reason: "measured slow file" }],
+    testFiles: [{ file: "oxlint/tests/example.test.mjs", maxSeconds: 20, reason: "declared harness budget" }],
+  };
   const groups = new Map();
-  for (const entry of checkedIn.tests) {
+  for (const entry of allowlist.tests) {
     const [describe, name] = entry.test.includes(" > ") ? entry.test.split(/ > (.*)/s).filter(Boolean) : [null, entry.test];
     const testXml = testcase(name, entry.maxSeconds - 2, entry.file);
     groups.set(entry.file, (groups.get(entry.file) ?? "") + (describe ? `<testsuite name="${escape(describe)}">${testXml}</testsuite>` : testXml));
   }
+  for (const entry of allowlist.testFiles) {
+    groups.set(entry.file, (groups.get(entry.file) ?? "") + testcase("rule-check case", entry.maxSeconds - 2, entry.file));
+  }
   const suites = [...groups].map(([path, cases]) => `<testsuite file="${escape(path)}" name="${escape(path)}" time="0">${cases}</testsuite>`).join("");
   const xml = `<testsuites tests="${countCases(suites)}">${suites}</testsuites>`;
-  const result = report(xml, checkedIn);
+  const result = report(xml, allowlist);
   assert.deepEqual(result.findings, []);
-  assert.equal(result.tests.length, checkedIn.tests.length);
+  assert.equal(result.tests.length, allowlist.tests.length + allowlist.testFiles.length);
   assert.equal(result.files.length, groups.size);
 });
 
+test("an empty allowlist passes reporter-shaped JUnit within the default ceilings", () => {
+  const second = "server/other.test.ts";
+  const groups = [
+    [file, `${testcase("first", 4)}${testcase("second", 3)}`],
+    [second, `${testcase("first", 4.5, second)}${testcase("second", 2.5, second)}`],
+  ];
+  const suites = groups.map(([path, cases]) => `<testsuite file="${escape(path)}" name="${escape(path)}" time="0">${cases}</testsuite>`).join("");
+  const xml = `<testsuites tests="${countCases(suites)}">${suites}</testsuites>`;
+  const result = report(xml, empty);
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.tests.length, 4);
+  assert.equal(result.files.length, 2);
+});
+
 test("an allowlisted test exceeding its ceiling fails", () => {
-  const allowlist = { tests: [{ file, test: "slow", maxSeconds: 9, reason: "measured slow test" }], files: [] };
+  const allowlist = { ...empty, tests: [{ file, test: "slow", maxSeconds: 9, reason: "measured slow test" }], files: [] };
   assert.match(report(junit(testcase("slow", 9.01)), allowlist).findings.join("\n"), /9\.010 s exceeds 9 s/);
 });
 
 test("stale test and file entries fail with removal instructions", () => {
-  const allowlist = { tests: [{ file, test: "absent", maxSeconds: 9, reason: "measured slow test" }], files: [{ file: "absent.test.ts", maxSeconds: 40, reason: "measured slow file" }] };
+  const allowlist = { ...empty, tests: [{ file, test: "absent", maxSeconds: 9, reason: "measured slow test" }], files: [{ file: "absent.test.ts", maxSeconds: 40, reason: "measured slow file" }] };
   const findings = report(junit(testcase("present", 1)), allowlist).findings;
   assert.equal(findings.filter((finding) => finding.includes("Stale") && finding.includes("remove it")).length, 2);
 });
 
 test("an allowlisted test and file within the defaults are removable notes, not failures", () => {
-  const allowlist = { tests: [{ file, test: "fast", maxSeconds: 9, reason: "measured slow test" }], files: [{ file, maxSeconds: 40, reason: "measured slow file" }] };
+  const allowlist = { ...empty, tests: [{ file, test: "fast", maxSeconds: 9, reason: "measured slow test" }], files: [{ file, maxSeconds: 40, reason: "measured slow file" }] };
   const result = report(junit(testcase("fast", 1)), allowlist);
   assert.deepEqual(result.findings, []);
   assert.equal(result.notes.filter((note) => note.includes("Removable")).length, 2);
@@ -58,6 +84,7 @@ test("an allowlisted test and file within the defaults are removable notes, not 
 
 test("added, raised, and removed entries of both kinds produce notes without findings", () => {
   const base = {
+    ...empty,
     tests: [
       { file, test: "removed", maxSeconds: 9, reason: "previous measurement" },
       { file, test: "slow", maxSeconds: 8, reason: "previous measurement" },
@@ -65,6 +92,7 @@ test("added, raised, and removed entries of both kinds produce notes without fin
     files: [{ file: "removed.test.ts", maxSeconds: 40, reason: "previous measurement" }],
   };
   const current = {
+    ...empty,
     tests: [
       { file, test: "added", maxSeconds: 9, reason: "new measurement" },
       { file, test: "slow", maxSeconds: 10, reason: "new measurement" },
@@ -84,20 +112,106 @@ test("added, raised, and removed entries of both kinds produce notes without fin
 });
 
 test("lowering a ceiling produces no base-comparison note", () => {
-  const base = { tests: [{ file, test: "slow", maxSeconds: 10, reason: "previous measurement" }], files: [] };
-  const current = { tests: [{ file, test: "slow", maxSeconds: 8, reason: "new measurement" }], files: [] };
+  const base = { ...empty, tests: [{ file, test: "slow", maxSeconds: 10, reason: "previous measurement" }], files: [] };
+  const current = { ...empty, tests: [{ file, test: "slow", maxSeconds: 8, reason: "new measurement" }], files: [] };
   const result = report(junit(testcase("slow", 7)), current, base);
   assert.deepEqual(result.findings, []);
   assert.deepEqual(result.notes, []);
 });
 
 test("raising a file ceiling reports both values without a finding", () => {
-  const base = { tests: [], files: [{ file, maxSeconds: 40, reason: "previous measurement" }] };
-  const current = { tests: [], files: [{ file, maxSeconds: 45, reason: "new measurement" }] };
+  const base = { ...empty, tests: [], files: [{ file, maxSeconds: 40, reason: "previous measurement" }] };
+  const current = { ...empty, tests: [], files: [{ file, maxSeconds: 45, reason: "new measurement" }] };
   const xml = junit(Array.from({ length: 7 }, (_, index) => testcase(`fast ${index}`, 4.5)).join(""));
   const result = report(xml, current, base);
   assert.deepEqual(result.findings, []);
   assert.deepEqual(result.notes, [`Raised files allowlist ceiling: ${file} (40 s → 45 s).`]);
+});
+
+test("testFiles ceilings permit cases above the default but reject cases above the declared budget", () => {
+  const allowlist = { ...empty, testFiles: [{ file, maxSeconds: 20, reason: "declared harness budget" }] };
+  for (const seconds of [6, 19, 20]) assert.deepEqual(report(junit(testcase("rule-check case", seconds)), allowlist).findings, []);
+  assert.match(report(junit(testcase("rule-check case", 20.01)), allowlist).findings.join("\n"), /Test client\/example.test.ts > rule-check case: 20\.010 s exceeds 20 s/);
+});
+
+test("testFiles file ceilings scale with the measured test count", () => {
+  const allowlist = { ...empty, testFiles: [{ file, maxSeconds: 20, reason: "declared harness budget" }] };
+  for (const count of [1, 2, 3]) {
+    const cases = (seconds) => Array.from({ length: count }, (_, index) => testcase(`case ${index}`, seconds)).join("");
+    for (const seconds of [19, 20]) assert.deepEqual(report(junit(cases(seconds)), allowlist).findings, []);
+    const above = report(junit(Array.from({ length: count }, (_, index) => testcase(`case ${index}`, index === 0 ? 20.01 : 20)).join("")), allowlist);
+    assert.deepEqual(above.findings.filter((finding) => finding.startsWith("File ")), [
+      `File ${file}: ${(20 * count + 0.01).toFixed(3)} s exceeds ${20 * count} s.`,
+    ]);
+  }
+});
+
+test("exact test and file entries take precedence over testFiles ceilings", () => {
+  const testFiles = [{ file, maxSeconds: 20, reason: "declared harness budget" }];
+  const tests = [{ file, test: "slow", maxSeconds: 9, reason: "measured slow test" }];
+  assert.match(report(junit(testcase("slow", 9.01)), { ...empty, tests, testFiles }).findings.join("\n"), /9\.010 s exceeds 9 s/);
+  assert.deepEqual(report(junit(testcase("slow", 25)), { ...empty, tests: [{ ...tests[0], maxSeconds: 30 }], files: [{ file, maxSeconds: 40, reason: "measured slow file" }], testFiles }).findings, []);
+  const xml = junit(`${testcase("first", 19)}${testcase("second", 19)}`);
+  assert.match(report(xml, { ...empty, files: [{ file, maxSeconds: 35, reason: "measured slow file" }], testFiles }).findings.join("\n"), /38\.000 s exceeds 35 s/);
+});
+
+test("stale testFiles entries fail with a removal instruction even when the file has an aggregate timing", () => {
+  const allowlist = { ...empty, testFiles: [{ file: "absent.test.ts", maxSeconds: 20, reason: "declared harness budget" }] };
+  const timings = parseJunit(junit(testcase("present", 1)));
+  timings.files.push({ file: "absent.test.ts", seconds: 0 });
+  assert.deepEqual(buildRuntimeReport(timings, allowlist, allowlist).findings, ["Stale testFiles allowlist entry: absent.test.ts; remove it."]);
+});
+
+test("testFiles budgets within the default are not removable notes", () => {
+  const allowlist = { ...empty, testFiles: [{ file, maxSeconds: 20, reason: "declared harness budget" }] };
+  const result = report(junit(testcase("fast", 1)), allowlist);
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.notes, []);
+});
+
+test("added, raised, and removed testFiles budgets produce notes without findings", () => {
+  const added = "client/new.test.ts";
+  const removed = "client/removed.test.ts";
+  const entry = (path, maxSeconds) => ({ file: path, maxSeconds, reason: "declared harness budget" });
+  const base = { ...empty, testFiles: [entry(file, 20), entry(removed, 20)] };
+  const current = { ...empty, testFiles: [entry(file, 25), entry(added, 20)] };
+  const result = report(junit(`${testcase("present", 1)}${testcase("added", 1, added)}`), current, base);
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.notes, [
+    `Raised testFiles allowlist ceiling: ${file} (20 s → 25 s).`,
+    `Added testFiles allowlist entry: ${added} (20 s).`,
+    `Removed testFiles allowlist entry: ${removed} (20 s).`,
+  ]);
+});
+
+test("testFiles validation rejects wrong fields, non-finite ceilings, and ceilings at or below the default", () => {
+  const entry = { file, maxSeconds: 20, reason: "declared harness budget" };
+  for (const invalid of [{ ...entry, test: "extra" }, { file, maxSeconds: 20 }, { ...entry, maxSeconds: Infinity }, { ...entry, maxSeconds: NaN }]) {
+    assert.deepEqual(validateAllowlist({ ...empty, testFiles: [invalid] }).findings, ["Invalid testFiles allowlist entry: expected file,maxSeconds,reason."]);
+  }
+  for (const maxSeconds of [0, 5]) {
+    assert.deepEqual(validateAllowlist({ ...empty, testFiles: [{ ...entry, maxSeconds }] }).findings, [`testFiles allowlist maxSeconds must exceed 5: ${file}.`]);
+  }
+});
+
+test("testFiles entries must be sorted and unique by file", () => {
+  const entry = { file, maxSeconds: 20, reason: "declared harness budget" };
+  for (const testFiles of [[entry, entry], [{ ...entry, file: "z.test.ts" }, entry]]) {
+    assert.deepEqual(validateAllowlist({ ...empty, testFiles }).findings, [`testFiles allowlist entries must be sorted and unique: ${file}.`]);
+  }
+});
+
+test("a base allowlist without testFiles is a note, not a finding", () => {
+  const result = report(junit(testcase("fast", 1)), empty, { tests: [], files: [] });
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.notes, ["Base allowlist unavailable or invalid: Allowlist must have exactly the arrays tests, files, and testFiles."]);
+});
+
+test("an unavailable current allowlist produces no comparison notes", () => {
+  const base = { ...empty, tests: [{ file, test: "slow", maxSeconds: 8, reason: "previous measurement" }] };
+  const result = buildRuntimeReport(parseJunit(junit(testcase("slow", 4))), undefined, base);
+  assert.deepEqual(result.findings, ["Allowlist must have exactly the arrays tests, files, and testFiles."]);
+  assert.deepEqual(result.notes, []);
 });
 
 test("empty and malformed JUnit fail, including zero testcases", () => {
@@ -123,7 +237,16 @@ test("XML entities, nested describes, self-closing and child-bearing cases make 
     + `</testsuite></testsuite>`, path);
   const timings = parseJunit(xml);
   assert.deepEqual(timings.tests, [{ file: path, test: 'outer & A > inner <x> > one "quoted" \'test\'', seconds: 3 }]);
-  assert.deepEqual(timings.files, [{ file: path, seconds: 5 }]);
+  assert.deepEqual(timings.files, [{ file: path, seconds: 5, testcases: 2 }]);
+});
+
+test("a repeated test identity counts each occurrence toward the testFiles file ceiling", () => {
+  const allowlist = { ...empty, testFiles: [{ file, maxSeconds: 20, reason: "declared harness budget" }] };
+  const repeated = (seconds) => `${testcase("rule-check case", seconds)}${testcase("rule-check case", seconds)}`;
+  const within = report(junit(repeated(15)), allowlist);
+  assert.deepEqual(within.findings, []);
+  assert.deepEqual(within.files, [{ file, seconds: 30, testcases: 2 }]);
+  assert.match(report(junit(repeated(21)), allowlist).findings.join("\n"), /Test client\/example\.test\.ts > rule-check case: 21\.000 s exceeds 20 s\.\nFile client\/example\.test\.ts: 42\.000 s exceeds 40 s\./);
 });
 test("reporter-shaped JUnit builds IDs from nested suites, not the reversed classname", () => {
   const path = "client/nested.test.tsx";
@@ -143,12 +266,13 @@ test("reporter-shaped JUnit builds IDs from nested suites, not the reversed clas
 
 test("checked-in allowlist validates cleanly and rejects invalid shapes, ordering, and default ceilings", () => {
   assert.deepEqual(validateAllowlist(checkedIn).findings, []);
+  assert.deepEqual(validateAllowlist(empty).findings, []);
   for (const invalid of [
     { ...empty, extra: 1 },
-    { tests: [{ file, test: "x", maxSeconds: 5, reason: "measured slow test" }], files: [] },
-    { tests: [], files: [{ file, maxSeconds: "99", reason: "measured slow file" }] },
-    { tests: [{ file, test: "z", maxSeconds: 9, reason: "measured slow test" }, { file, test: "a", maxSeconds: 9, reason: "measured slow test" }], files: [] },
-    { tests: [], files: [{ file, maxSeconds: 60, reason: "measured slow file" }, { file, maxSeconds: 61, reason: "measured slow file" }] },
+    { ...empty, tests: [{ file, test: "x", maxSeconds: 5, reason: "measured slow test" }], files: [] },
+    { ...empty, tests: [], files: [{ file, maxSeconds: "99", reason: "measured slow file" }] },
+    { ...empty, tests: [{ file, test: "z", maxSeconds: 9, reason: "measured slow test" }, { file, test: "a", maxSeconds: 9, reason: "measured slow test" }], files: [] },
+    { ...empty, tests: [], files: [{ file, maxSeconds: 60, reason: "measured slow file" }, { file, maxSeconds: 61, reason: "measured slow file" }] },
   ]) assert.notEqual(validateAllowlist(invalid).findings.length, 0);
 });
 
@@ -156,15 +280,15 @@ test("missing or blank reasons fail for both test and file entries", () => {
   for (const entry of [
     { file, test: "slow", maxSeconds: 9 },
     { file, test: "slow", maxSeconds: 9, reason: " \t " },
-  ]) assert.match(validateAllowlist({ tests: [entry], files: [] }).findings.join("\n"), /Invalid tests allowlist entry/);
+  ]) assert.match(validateAllowlist({ ...empty, tests: [entry] }).findings.join("\n"), /Invalid tests allowlist entry/);
   for (const entry of [
     { file, maxSeconds: 40 },
     { file, maxSeconds: 40, reason: " \n " },
-  ]) assert.match(validateAllowlist({ tests: [], files: [entry] }).findings.join("\n"), /Invalid files allowlist entry/);
+  ]) assert.match(validateAllowlist({ ...empty, files: [entry] }).findings.join("\n"), /Invalid files allowlist entry/);
 });
 
 test("invalid base allowlist is a note, not a finding", () => {
-  const result = report(junit(testcase("fast", 1)), empty, { tests: [{ file, test: "fast", maxSeconds: 9 }], files: [] });
+  const result = report(junit(testcase("fast", 1)), empty, { ...empty, tests: [{ file, test: "fast", maxSeconds: 9 }], files: [] });
   assert.deepEqual(result.findings, []);
   assert.match(result.notes.join("\n"), /Base allowlist unavailable or invalid/);
 });
@@ -222,7 +346,7 @@ test("multiple JUnit reports merge test and file timings and retain allowlisted 
   const dir = mkdtempSync(join(tmpdir(), "test-runtime-merge-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const second = "server/other.test.ts";
-  const allowlist = { tests: [{ file: second, test: "slow", maxSeconds: 9, reason: "measured slow test" }], files: [] };
+  const allowlist = { ...empty, tests: [{ file: second, test: "slow", maxSeconds: 9, reason: "measured slow test" }], files: [] };
   const firstXml = junit(testcase("fast", 1));
   const secondXml = junit(testcase("slow", 6, second), second);
   const merged = mergeJunitReports([parseJunit(firstXml), parseJunit(secondXml)]);
@@ -258,4 +382,57 @@ test("CLI reports an unresolvable base as a note without failing", (t) => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Base allowlist unavailable or invalid: Could not resolve origin\/main or local main/);
   assert.match(result.stdout, /No findings\./);
+});
+
+test("CLI compares a custom allowlist path against the same path at the base", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "test-runtime-custom-base-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const run = (command, args, cwd = dir) => {
+    const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return result;
+  };
+  const allowlist = join(dir, "custom", "allowlist.json");
+  const entry = (maxSeconds) => ({ ...empty, tests: [{ file, test: "slow", maxSeconds, reason: "measured slow test" }] });
+  run("git", ["init", "--quiet", "--initial-branch=main"]);
+  run("mkdir", ["custom"]);
+  writeFileSync(allowlist, JSON.stringify(entry(8)));
+  run("git", ["add", "custom/allowlist.json"]);
+  run("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "base"]);
+  writeFileSync(allowlist, JSON.stringify(entry(9)));
+  const junitFile = join(dir, "junit.xml");
+  writeFileSync(junitFile, junit(testcase("slow", 6)));
+  const cli = fileURLToPath(new URL("../test-runtime.mjs", import.meta.url));
+  const env = { ...process.env, BASE_REF: "main" };
+  for (const [cwd, allowlistArg] of [[dir, allowlist], [join(dir, "custom"), "allowlist.json"]]) {
+    const result = spawnSync(process.execPath, [cli, "--junit", junitFile, "--allowlist", allowlistArg], { cwd, encoding: "utf8", env });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Raised tests allowlist ceiling: client\/example\.test\.ts > slow \(8 s → 9 s\)/);
+    assert.doesNotMatch(result.stdout, /Added tests allowlist entry|Base allowlist unavailable/);
+  }
+});
+
+test("CLI keeps the selected allowlist path when the working tree replaces it with a symlink", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "test-runtime-symlink-base-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const allowlist = join(dir, "custom", "allowlist.json");
+  const entry = (maxSeconds) => ({ ...empty, tests: [{ file, test: "slow", maxSeconds, reason: "measured slow test" }] });
+  const git = (args) => {
+    const result = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  };
+  git(["init", "--quiet", "--initial-branch=main"]);
+  mkdirSync(join(dir, "custom"));
+  writeFileSync(allowlist, JSON.stringify(entry(8)));
+  git(["add", "custom/allowlist.json"]);
+  git(["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "base"]);
+  writeFileSync(join(dir, "custom", "target.json"), JSON.stringify(entry(9)));
+  rmSync(allowlist);
+  symlinkSync("target.json", allowlist);
+  const junitFile = join(dir, "junit.xml");
+  writeFileSync(junitFile, junit(testcase("slow", 6)));
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../test-runtime.mjs", import.meta.url)), "--junit", junitFile, "--allowlist", "custom/allowlist.json"], { cwd: dir, encoding: "utf8", env: { ...process.env, BASE_REF: "main" } });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Raised tests allowlist ceiling: client\/example\.test\.ts > slow \(8 s → 9 s\)/);
+  assert.doesNotMatch(result.stdout, /Added tests allowlist entry|Base allowlist unavailable/);
 });
