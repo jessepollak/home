@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   description: "Fund your verified Home Base account.",
 };
 
+export const instant = false;
+
 export default async function FundPage({
   searchParams,
 }: PageProps<"/fund">) {

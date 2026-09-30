@@ -92,6 +92,7 @@ export type PresentBalancesOptions = {
   pendingCashout?: PendingCashoutEstimate;
 };
 
+/** @public builds the grouped list in tests and stories, and the Reveal small balances control returns to a page-scoped caller in #1468; no production page constructs the full list. */
 export function presentBalances(
   state: BalancesState,
   { showSmallBalances, pendingCashout }: PresentBalancesOptions = {

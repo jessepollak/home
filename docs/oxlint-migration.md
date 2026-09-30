@@ -55,7 +55,7 @@ Pilot outcome: `no-floating-promises` is enabled tree-wide; twelve intentional s
 
 JSON reads at application boundaries use `readJson` from `apps/web/shared/http/read-json.ts` (tests import it from `apps/web/tests/helpers/read-json.ts`). It returns `Promise<unknown>` rather than `response.json()`'s `any`, so callers narrow through an existing parser, a type guard or an `unknown`-accepting matcher. It deliberately has no type parameter: `readJson<T>` would reintroduce an unchecked cast.
 
-Home history flags are read through `readClientHistoryFlag` from `apps/web/config/shell-location.ts`, which validates the `any`-typed `history.state` and returns a boolean for the closed set of known flag keys, so call sites never touch `history.state` directly; writes keep their existing keys.
+Home history flags are read through `readClientHistoryFlag` from `apps/web/config/shell-location.ts`, which validates the `any`-typed `history.state` and returns a boolean for the two keys money-flow navigation writes (`fundingFlowPushed` → `__homeFundingFlowPushed` and `cashSavingsFlowPushed` → `__cashSavingsFlowPushed`), so call sites never touch `history.state` directly; writes keep their existing keys. The shell's in-app origin marker is read and written through `readShellHistoryOrigin` and `writeShellHistoryOrigin` in the same module.
 
 ### Focused follow-up coverage (issue #677)
 

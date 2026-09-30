@@ -27,7 +27,7 @@ export function createInviteLinkHandler(deps: Dependencies = {
     if (readCookie(request, HOME_SESSION_COOKIE).present && !headers.has(ACCOUNT_PROVIDER_HEADER)) {
       headers.set(ACCOUNT_PROVIDER_HEADER, "base-account");
     }
-    const session = await deps.authorize(new Request(request, { headers }));
+    const session = await deps.authorize(new Request(request.url, { method: request.method, headers }));
     if (session instanceof Response) return session;
     const unavailable = () => privateJson({ error: { code: "INVITES_UNAVAILABLE" } }, 503);
     if (!deps.available()) return unavailable();

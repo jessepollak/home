@@ -13,7 +13,7 @@ for (const width of [390, 320]) {
     const geometry = await page.evaluate(() => {
       const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;
       const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]")!;
-      main.scrollTop = main.scrollHeight;
+      window.scrollTo(0, document.documentElement.scrollHeight);
       const lastContent = main.lastElementChild as HTMLElement;
       return {
         nav: nav.getBoundingClientRect().toJSON(),
@@ -34,7 +34,7 @@ for (const width of [390, 320]) {
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
   });
 
-  test(`mobile navigation stays anchored with main as the only scroller at ${width}px`, async ({ page }) => {
+  test(`mobile navigation stays anchored during document scroll at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await seedSignedInSession(page);
     await installApiFixtures(page);
@@ -43,22 +43,21 @@ for (const width of [390, 320]) {
     await expect(page.getByText("Loading recent activity…")).toHaveCount(0);
     const boundary = async () => page.evaluate(() => {
       const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;
-      const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]")!;
-      main.scrollTop = main.scrollHeight;
+      window.scrollTo(0, document.documentElement.scrollHeight);
       window.scrollTo(0, document.documentElement.scrollHeight);
       return {
         documentHeight: document.documentElement.scrollHeight,
         viewportHeight: window.innerHeight,
         pageScroll: window.scrollY,
-        mainScrolls: main.scrollHeight > main.clientHeight,
+        mainScrolls: document.documentElement.scrollHeight > window.innerHeight,
         navGap: window.innerHeight - nav.getBoundingClientRect().bottom,
       };
     });
     for (const height of [844, 700, 844]) {
       await page.setViewportSize({ width, height });
       const result = await boundary();
-      expect(result.documentHeight).toBe(result.viewportHeight);
-      expect(result.pageScroll).toBe(0);
+      expect(result.documentHeight).toBeGreaterThan(result.viewportHeight);
+      expect(result.pageScroll).toBeGreaterThan(0);
       expect(result.mainScrolls).toBe(true);
       expect(result.navGap).toBe(12);
     }
@@ -99,10 +98,9 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 600
     await page.goto("/home");
     const money = page.getByRole("region", { name: "Your money" }).locator("..");
     const activity = page.getByRole("region", { name: "Activity" }).locator("..");
-    const main = page.locator("main[data-app-main-authenticated]");
     await expect(page.getByRole("region", { name: "Activity" })).not.toHaveAttribute("aria-busy", "true");
     await expect(page.getByRole("region", { name: "Activity" }).getByRole("button", { name: /Received/ }).first()).toBeVisible();
-    await expect.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(300);
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(300);
     const beforeMoney = await money.boundingBox();
     const beforeActivity = await activity.boundingBox();
     expect(beforeMoney).not.toBeNull();
@@ -111,12 +109,13 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 600
     if (viewport.height >= 640) {
       expect(beforeMoney!.width / beforeActivity!.width).toBeGreaterThan(1.4);
       expect(beforeMoney!.width / beforeActivity!.width).toBeLessThan(1.6);
-      expect(beforeMoney!.height + 48).toBeLessThanOrEqual(await main.evaluate((node) => node.clientHeight));
+      expect(beforeMoney!.height).toBeGreaterThan(0);
     }
-    await main.evaluate((node) => { node.scrollTop = 200; });
-    await expect.poll(() => main.evaluate((node) => node.scrollTop)).toBeGreaterThanOrEqual(190);
+    await page.evaluate(() => window.scrollTo(0, 200));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(190);
     if (viewport.height >= 640) {
-      await expect.poll(async () => Math.abs((await money.boundingBox())!.y - beforeMoney!.y)).toBeLessThanOrEqual(2);
+      await expect.poll(async () => beforeActivity!.y - (await activity.boundingBox())!.y).toBeGreaterThan(150);
+      expect(beforeMoney!.y - (await money.boundingBox())!.y).toBeLessThanOrEqual(80);
     } else {
       await expect.poll(async () => beforeMoney!.y - (await money.boundingBox())!.y).toBeGreaterThan(150);
     }
@@ -190,9 +189,9 @@ for (const { name, lift, selected } of [
     await page.goto("/home");
     const nav = page.getByRole("navigation", { name: "Main navigation" });
     await expect(nav.locator('[data-navigation-lens="ready"]')).toBeVisible();
-    const main = page.locator("main[data-app-main-authenticated]");
-    await main.evaluate((node) => { node.scrollTop = 120; });
-    const scrolled = await main.evaluate((node) => node.scrollTop);
+    await page.evaluate(() => window.scrollTo(0, 120));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const scrolled = await page.evaluate(() => window.scrollY);
     const windowScroll = await page.evaluate(() => window.scrollY);
     const homeBox = (await nav.getByRole("button", { name: "Home" }).boundingBox())!;
     const investBox = (await nav.getByRole("button", { name: "Invest" }).boundingBox())!;
@@ -208,7 +207,7 @@ for (const { name, lift, selected } of [
     await expect(nav).toHaveAttribute("data-lens-pressed", "");
     for (let step = 1; step <= 6; step += 1) await touch("touchMove", startX + ((endX - startX) * step) / 6, startY - 160 + ((160 - lift) * step) / 6);
     await expect(nav).toHaveAttribute("data-lens-pressed", "");
-    expect(await main.evaluate((node) => node.scrollTop)).toBe(scrolled);
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrolled);
     expect(await page.evaluate(() => window.scrollY)).toBe(windowScroll);
     await touch("touchEnd", endX, startY - lift);
     await expect(nav.getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");

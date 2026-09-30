@@ -15,7 +15,7 @@ test("submitted send shows a pending result and clears its review route before r
   await installApiFixtures(page);
   await page.goto("/home");
   await page.getByRole("button", { name: "Send" }).click();
-  expect(await zeroDurationTransitions(page.locator("[data-slot=drawer-popup]"))).toBe(true);
+  await expect.poll(() => zeroDurationTransitions(page.locator("[data-slot=drawer-popup]"))).toBe(true);
   await typeAmount(page, "1");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);

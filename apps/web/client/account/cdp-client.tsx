@@ -208,15 +208,17 @@ function LazyConfiguredAccountProvider({
   projectId,
   baseAccountEnabled,
   renderSeed,
+  hideWhileLoading,
   children,
 }: {
   projectId: string;
   baseAccountEnabled: boolean;
   renderSeed: AccountRenderSeed | null;
+  hideWhileLoading: boolean;
   children: ReactNode;
 }) {
   return (
-    <Suspense fallback={(
+    <Suspense fallback={hideWhileLoading ? null : (
       <AccountWalletClientProvider client={createLoadingAccountWalletClient(baseAccountEnabled)}>
         {children}
       </AccountWalletClientProvider>
@@ -237,18 +239,20 @@ export function CdpAccountProvider({
   baseAccountEnabled = false,
   smokeFixture = false,
   renderSeed = null,
+  hideWhileLoading = false,
   children,
 }: {
   projectId: string | null;
   baseAccountEnabled?: boolean;
   smokeFixture?: boolean;
   renderSeed?: AccountRenderSeed | null;
+  hideWhileLoading?: boolean;
   children: ReactNode;
 }) {
   if (smokeFixture) {
     return (
-      <Suspense fallback={(
-        <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>
+      <Suspense fallback={hideWhileLoading ? null : (
+        <AccountWalletClientProvider client={createLoadingAccountWalletClient(baseAccountEnabled)}>{children}</AccountWalletClientProvider>
       )}>
         <LazySmokeFixtureAccountProvider>{children}</LazySmokeFixtureAccountProvider>
       </Suspense>
@@ -260,6 +264,7 @@ export function CdpAccountProvider({
         projectId={projectId}
         baseAccountEnabled
         renderSeed={renderSeed}
+        hideWhileLoading={hideWhileLoading}
       >
         {children}
       </LazyConfiguredAccountProvider>
@@ -271,6 +276,7 @@ export function CdpAccountProvider({
         projectId={projectId}
         baseAccountEnabled={false}
         renderSeed={renderSeed}
+        hideWhileLoading={hideWhileLoading}
       >
         {children}
       </LazyConfiguredAccountProvider>
@@ -278,8 +284,8 @@ export function CdpAccountProvider({
   }
   if (baseAccountEnabled) {
     return (
-      <Suspense fallback={(
-        <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>
+      <Suspense fallback={hideWhileLoading ? null : (
+        <AccountWalletClientProvider client={createLoadingAccountWalletClient(true)}>{children}</AccountWalletClientProvider>
       )}>
         <LazyNativeBaseAccountBridge renderSeed={renderSeed}>{children}</LazyNativeBaseAccountBridge>
       </Suspense>

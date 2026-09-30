@@ -3,8 +3,6 @@ import { getFundingCore } from "@/server/funding/core/runtime";
 import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 import { emitServerEvent } from "@/server/observability/log";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request, context: { params: Promise<{ provider: string }> }): Promise<Response> {
   const startedAt = Date.now();

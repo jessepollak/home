@@ -1,7 +1,7 @@
 export const gateIds = ["mounted-rows", "dom-nodes", "warm-requests", "initial-js", "resource-growth", "history-writes"] as const;
 export type GateId = typeof gateIds[number];
 
-export const routes = ["/home", "/activity", "/cash", "/invest", "/borrow", "/investments", "/balances"] as const;
+export const routes = ["/home", "/activity", "/cash", "/invest", "/borrow", "/investments"] as const;
 export const navigationPaths = ["/invest", "/cash", "/borrow", "/investments"] as const;
 export const feedSizes = [20, 100, 300, 2000] as const;
 export const repetitions = 3;
@@ -26,7 +26,7 @@ export const relativeDeltas: Partial<Record<keyof typeof timingCeilings, number>
 };
 export type TimingId = keyof typeof timingCeilings;
 
-// The shared shell offers no Home→Activity or Home→Balances control; both are cold-route-only.
+// The shared shell offers no Home→Activity control, so Activity stays a cold-route-only scenario.
 // Warm round trips use only real Home controls: Invest, Cash, Borrow, Investments.
 // Pending actions and orders are excluded: their 15 s refetch intervals are navigation-independent.
 // The priced fixture prevents the 15 s unpriced-valuation retry; no action/order is pending.

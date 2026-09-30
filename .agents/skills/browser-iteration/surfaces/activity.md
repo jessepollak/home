@@ -2,7 +2,7 @@
 - **Entry context**: activity · `/activity` · same · signed-in seed + `/api/activity`, `/api/actions`, `/api/activity/orders` fixtures · goto path (Home renders the same feed inline since #789).
 
 - **Live**: read-only
-- **Owned paths**: `apps/web/app/activity/**`, `apps/web/client/activity/**`, `apps/web/client/home/activity-panel.tsx`, `apps/web/app/api/activity/**`
+- **Owned paths**: `apps/web/app/(shell)/activity/**`, `apps/web/client/activity/**`, `apps/web/client/home/activity-panel.tsx`, `apps/web/app/api/activity/**`
 - **Reach**:
   1. `goto "/activity"`
   2. `expect "Activity"`

@@ -210,3 +210,16 @@ test("no Home session redirects to sign-in, while deployment access runs first",
   expectUncacheable(await page.goto("/admin"));
   await expect(page).toHaveURL(/\/access\?next=%2Fadmin$/);
 });
+
+test("revoked operator authorization is rechecked on a section navigation", async ({ page, context }) => {
+  await setSession(context, admin);
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
+  await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Growth" }).click();
+  await expect(page).toHaveURL(/\/admin\/growth$/);
+  await expect(page.getByRole("heading", { name: "Growth" })).toBeVisible();
+  await setSession(context, customer);
+  await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Overview" }).click();
+  await expect(page).not.toHaveURL(/\/admin/);
+  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toHaveCount(0);
+});

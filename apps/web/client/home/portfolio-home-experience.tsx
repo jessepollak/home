@@ -1,8 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
-
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
@@ -17,21 +15,17 @@ import { InvestmentsExperience } from "@/client/investments/investments-experien
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
-import type { ShellLocation } from "@/config/shell-location";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 import { useShowSmallBalances } from "./use-show-small-balances";
 import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
 
-const LazyCardExperience = dynamic(() => import("@/client/cards/card-experience").then((module) => module.AuthenticatedCardExperience));
-
 const preferenceReadRetryDelays = [500, 1500] as const;
 
 export function PortfolioHomeExperience({
   detectedCountry,
-  initialLocation,
-  initialSearch,
+  children,
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
   investVisibility,
@@ -39,8 +33,7 @@ export function PortfolioHomeExperience({
 }: {
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
-  initialLocation: ShellLocation;
-  initialSearch?: string;
+  children?: ReactNode;
   accountPreference: CountryPreferenceSeed | null;
   investVisibility?: InvestSettings;
   cardsEnabled?: boolean;
@@ -136,10 +129,6 @@ export function PortfolioHomeExperience({
     writeAccountPreference,
     offer: regionOffer,
   });
-  const initialInvestView = useMemo(
-    () => investViewFromLocation(initialLocation),
-    [initialLocation],
-  );
   const session = account.verification && account.session?.smartAccount
     ? {
         subject: account.session.user.subject,
@@ -206,35 +195,23 @@ export function PortfolioHomeExperience({
     <DashboardShell
       region={region}
       regionReady={regionReady}
-      initialPanel={initialLocation.panel}
-      initialLocation={initialLocation}
       cardsEnabled={cardsEnabled}
-      cardContent={cardsEnabled ? <LazyCardExperience /> : undefined}
-      investContent={
-        <PricedInvestExperienceWithDiscover
-          discover={discover}
-          initialView={initialInvestView}
-          investVisibility={investVisibility}
-        />
-      }
+      // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
+      investContent={(location) => <PricedInvestExperienceWithDiscover
+        discover={discover} initialView={investViewFromLocation(location)} investVisibility={investVisibility} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       investmentsContent={(props) => <InvestmentsExperience {...props} balances={balances} discover={discover} />}
-      applyInboundUrlIntent
-      initialSearch={initialSearch}
-      balancesRevalidating={balances.revalidating === true}
       interruption={interruptionStatus.interruption}
       interruptionAnnouncement={interruptionStatus.announcement}
       onRetryInterruption={interruptionStatus.retry}
       assetBalances={assetBalances}
-      balancesState={balances}
-      pendingCashout={pendingCashout}
       sendAvailability={sendAvailability}
       canOpenAssetDetail={canOpenAssetDetail}
       assetMarkResolution={assetMarkResolution}
       showSmallBalances={showSmallBalances}
       onShowSmallBalancesChange={setShowSmallBalances}
-    />
+    >{children}</DashboardShell>
   );
 }

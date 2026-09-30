@@ -3,8 +3,6 @@ import { privateError, privateJson } from "@/server/http/private-response";
 import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/runtime";
 import { FUNDING_PROVIDER_CUSTOMERS_VERSION } from "@/shared/funding/contracts/provider-customers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   const authorized = await authorizeFundingRequest(request, authorizeFundingSession);

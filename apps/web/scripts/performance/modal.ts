@@ -14,14 +14,14 @@ export async function runModal(session: Session, baseUrl: string, rows: number, 
   if (kind === "detail") {
     await fillFeed(session, rows, fixture.filled);
     fixture.verify();
-    await page.locator("main[data-app-main-authenticated]").evaluate((element) => { element.scrollTop = 0; });
+    await page.evaluate(() => window.scrollTo(0, 0));
     await twoFrames(page);
     button = page.locator('section[aria-label="Activity"]:not(#navigation-panel) ul > li[aria-posinset]:not([data-perf-clone]) button').first();
   } else {
     if (rows > 20) {
       await fillFeed(session, rows, fixture.filled, "section[data-activity-feed]");
       fixture.verify();
-      await page.locator("main[data-app-main-authenticated]").evaluate((main) => { main.scrollTop = 0; });
+      await page.evaluate(() => window.scrollTo(0, 0));
       await twoFrames(page);
     }
     button = page.getByRole("button", { name: "Send", exact: true }).first();
@@ -54,7 +54,7 @@ export async function runModal(session: Session, baseUrl: string, rows: number, 
       }
     }
     else await page.waitForFunction(() => document.activeElement instanceof HTMLButtonElement &&
-      document.activeElement.isConnected && Boolean(document.activeElement.closest('[data-shell-panel]:not([hidden])')),
+      document.activeElement.isConnected && Boolean(document.activeElement.closest("#navigation-panel")),
       null, { timeout: 5_000 });
     await leakCycle(page, seedLeak);
     return openMs;

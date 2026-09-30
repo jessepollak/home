@@ -210,7 +210,7 @@ describe("combined Activity panel", () => {
       direction: index % 2 ? "outgoing" as const : "incoming" as const,
       blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
     }));
-    const view = render(<main data-app-main-authenticated=""><ActivityPanelView activity={ready(rows)} /></main>);
+    const view = render(<main data-app-main-authenticated="" style={{ overflowY: "auto" }}><ActivityPanelView activity={ready(rows)} /></main>);
     const button = view.getByRole("list").querySelector('li[aria-posinset="1"] button')!;
     (button as HTMLButtonElement).focus();
     const main = view.container.querySelector("main")!;
@@ -570,7 +570,7 @@ describe("combined Activity panel", () => {
       direction: index % 2 ? "outgoing" as const : "incoming" as const,
       blockTimestamp: new Date(Date.parse("2026-09-15T12:59:00Z") - index * 60_000).toISOString(),
     }));
-    const view = render(<main data-app-main-authenticated=""><ActivityPanelView activity={ready(rows)} /></main>);
+    const view = render(<main data-app-main-authenticated="" style={{ overflowY: "auto" }}><ActivityPanelView activity={ready(rows)} /></main>);
     const main = view.container.querySelector("main")!;
     main.scrollTo = (options?: ScrollToOptions | number, y?: number) => {
       main.scrollTop = typeof options === "number" ? y ?? 0 : options?.top ?? 0;

@@ -6,8 +6,6 @@ import { createCardEventStore } from "@/server/cards/store";
 import { createImmersveWebhookHandler, isImmersveWebhookTopic, type ImmersveWebhookResult } from "@/server/cards/immersve/webhook";
 import { emitServerEvent } from "@/server/observability/log";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 let cachedHandler: ReturnType<typeof createImmersveWebhookHandler> | undefined;
 

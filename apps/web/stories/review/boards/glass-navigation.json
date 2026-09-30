@@ -41,13 +41,6 @@
           "label": "Nested Investments",
           "viewport": "mobile",
           "change": "new"
-        },
-        {
-          "id": "nested-your-money",
-          "story": "journeys-mobile-navigation--nested-your-money",
-          "label": "Nested Your money",
-          "viewport": "mobile",
-          "change": "new"
         }
       ]
     },
@@ -55,20 +48,6 @@
       "id": "scroll",
       "title": "Scroll and safe area",
       "frames": [
-        {
-          "id": "last-row",
-          "story": "journeys-mobile-navigation--last-row",
-          "label": "Your money · last row",
-          "viewport": "mobile",
-          "change": "new"
-        },
-        {
-          "id": "home-indicator",
-          "story": "journeys-mobile-navigation--home-indicator",
-          "label": "34px home indicator · last row",
-          "viewport": "mobile",
-          "change": "new"
-        },
         {
           "id": "activity-under-capsule",
           "story": "journeys-mobile-navigation--activity-under-capsule",

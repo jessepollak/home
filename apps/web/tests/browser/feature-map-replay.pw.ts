@@ -8,7 +8,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
 const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/surfaces"));
 const replaySurfaceIds = [
-  "landing", "sign-in", "home-panel", "balances", "activity", "save", "invest", "investments",
+  "landing", "sign-in", "home-panel", "activity", "save", "invest", "investments",
   "send", "account-settings", "coverage",
 ];
 const fixtureSkips: Record<string, string> = {

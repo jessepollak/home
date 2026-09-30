@@ -37,8 +37,8 @@ export function parseNavigationReport(body: unknown): HomeNavigationReport | nul
 }
 
 export function validateNavigationSample(report: HomeNavigationReport, expected: Pick<HomeNavigationReport, "route" | "from" | "trigger">): HomeNavigationReport {
-  if (report.route !== expected.route || report.from !== expected.from || report.trigger !== expected.trigger || report.cache !== "retained" || !report.device.startsWith("desktop-")) {
-    throw new Error(`Unexpected navigation report: ${JSON.stringify(report)}; expected ${JSON.stringify(expected)} retained desktop`);
+  if (report.route !== expected.route || report.from !== expected.from || report.trigger !== expected.trigger || !report.device.startsWith("desktop-")) {
+    throw new Error(`Unexpected navigation report: ${JSON.stringify(report)}; expected ${JSON.stringify(expected)} on desktop`);
   }
   return report;
 }
@@ -66,9 +66,9 @@ export function summarizeNavigation(samples: NavigationSample[]): NavigationSumm
   return { groups, legs };
 }
 type FlingTiming = { p95: number; over33: number; droppedPct: number; blockingMs: number };
-type FlingSample = { p95: number; over33: number; droppedPct: number; blockingMs: number; maxRows: number; settledRows: number; historyWrites: number; frames: number };
+type FlingSample = { p95: number; over33: number; droppedPct: number; blockingMs: number; maxRows: number; settledRows: number; historyWrites: number; frames: number; scrollHost: "document" | "main" };
 type Comparison = { summary: NavigationSummary; fling: { timing: FlingTiming };
-  environment: { appSha: string; headless: boolean; webkit: string; chromium: string; platform: string; cpu: string; cores: number };
+  environment: { appSha: string; headless: boolean; webkit: string; chromium: string; platform: string; cpu: string; cores: number; fixtureClock: string };
   options: { skipBuild: boolean; rows: number; flingRepeat: number; headed: boolean; smoke: boolean; sessions?: number; roundTrips?: number };
   label: string | null; flingAttempts?: { attempt: number; ok: boolean }[] };
 
@@ -90,7 +90,7 @@ export function compactNavigationBaseline<TOptions, TEnvironment, TTiming extend
           .sort((a, b) => a.roundTrip - b.roundTrip).map((sample) => sample.durationMs)];
       })) as Record<(typeof legsInOrder)[number], number[]>,
     })),
-    fling: { flings: result.fling.flings.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, roundTo(value, 2)])) as FlingSample),
+    fling: { flings: result.fling.flings.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === "number" ? roundTo(value, 2) : value])) as FlingSample),
       timing: result.fling.timing },
   };
 }
@@ -117,7 +117,8 @@ export function isFlingResult(value: unknown, expectedRepeat: number): boolean {
       return validMetrics(row) && Number.isInteger(values.maxRows) && (values.maxRows as number) >= 1
         && Number.isInteger(values.settledRows) && (values.settledRows as number) >= 1
         && Number.isInteger(values.historyWrites) && (values.historyWrites as number) >= 0
-        && Number.isInteger(values.frames) && (values.frames as number) >= 3;
+        && Number.isInteger(values.frames) && (values.frames as number) >= 3
+        && (values.scrollHost === "document" || values.scrollHost === "main");
     })
     && validMetrics(result.timing) && typeof result.browserVersion === "string" && result.browserVersion.trim().length > 0;
 }
@@ -149,6 +150,12 @@ export function baselineMismatches(current: unknown, baseline: unknown): string[
       else if (actual !== previous) mismatches.push(field);
     }
   }
+  const actualClock = object(run.environment).fixtureClock;
+  const previousClock = object(previousRun.environment).fixtureClock;
+  const knownClock = (clock: unknown) => clock === "system" || clock === "date" || clock === "playwright";
+  if (!knownClock(previousClock)) mismatches.push(`environment.fixtureClock: ${previousClock == null ? "missing" : "unknown"} in baseline`);
+  else if (!knownClock(actualClock)) mismatches.push(`environment.fixtureClock: ${actualClock == null ? "missing" : "unknown"} in current run`);
+  else if (actualClock !== previousClock) mismatches.push("environment.fixtureClock");
   const groups = object(object(run.summary).groups);
   const baselineGroups = object(object(previousRun.summary).groups);
   for (const name of Object.keys(groups)) {
@@ -157,6 +164,20 @@ export function baselineMismatches(current: unknown, baseline: unknown): string[
     if (typeof previous !== "object" || previous === null || Array.isArray(previous)) mismatches.push(`${field}: missing in baseline`);
     else if (!Number.isFinite(object(previous).p95)) mismatches.push(`${field}.p95: missing in baseline`);
     else if ((object(previous).p95 as number) < 0) mismatches.push(`${field}.p95: invalid baseline value`);
+  }
+  const currentFlings = object(run.fling).flings;
+  const previousFlings = object(previousRun.fling).flings;
+  if (Array.isArray(currentFlings) || Array.isArray(previousFlings)) {
+    const host = (flings: unknown): string | null => {
+      if (!Array.isArray(flings) || flings.length === 0) return null;
+      const first = object(flings[0]).scrollHost;
+      return (first === "main" || first === "document") && flings.every((row) => object(row).scrollHost === first) ? first : null;
+    };
+    const previousHost = host(previousFlings);
+    const currentHost = host(currentFlings);
+    if (previousHost === null) mismatches.push("fling.scrollHost: missing or mixed in baseline");
+    else if (currentHost === null) mismatches.push("fling.scrollHost: missing or mixed in current run");
+    else if (previousHost !== currentHost) mismatches.push("fling.scrollHost");
   }
   const timing = object(object(run.fling).timing);
   const baselineTiming = object(object(previousRun.fling).timing);

@@ -19,8 +19,8 @@ test("Invest search keeps identity, query and scroll when returning from a reloa
   await expect(rows).toHaveCount(3);
   await expect(rows.first()).toContainText("0x1111…1111");
   await page.setViewportSize({ width: 390, height: 320 });
-  const main = page.locator("[data-app-main-authenticated]");
-  expect(await main.evaluate((node) => { node.scrollTop = 80; return node.scrollTop; })).toBeGreaterThan(0);
+  await page.evaluate(() => window.scrollTo(0, 80));
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await rows.first().click();
   await expect(page).toHaveURL(new RegExp(`/invest/base:${nonTrendingAddress}$`));
   await expect(page.locator("[data-shell-header-title]")).toContainText("Orbit");
@@ -33,7 +33,7 @@ test("Invest search keeps identity, query and scroll when returning from a reloa
   await expect(page).toHaveURL(/\/invest$/);
   await expect(input).toHaveValue("ORB");
   await expect(rows).toHaveCount(3);
-  await expect.poll(() => main.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Clear search" }).click();
   await expect(input).toHaveValue("");
   await expect(page.getByRole("heading", { name: "Stocks" })).toBeVisible();

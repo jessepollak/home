@@ -2,7 +2,6 @@ import "@/client/account/dom-test-harness";
 
 import { afterAll, afterEach, describe, expect, jest, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import { MountedShellPanel } from "@/client/home/panel-shared";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
 import { createSavingsGrowthAnchor, useEstimatedSavingsGrowth, type SavingsGrowthAnchor, type SavingsGrowthAuthority } from "./use-estimated-growth";
@@ -104,34 +103,17 @@ describe("Save estimated-growth owner", () => {
     expect(view.container.textContent).not.toBe("1000000000000000000");
   });
 
-  test("pauses growth in an inactive shell panel and samples right after return", () => {
+  test("stops sampling after the route unmounts", () => {
     jest.useFakeTimers();
-    let wall = 2_000_000_060_000;
+    const wall = 2_000_000_060_000;
     const now = jest.fn(() => wall);
     const value = anchor("panel", BigInt("1000000000000000000"), wall - 60_000);
-    const panel = (active: boolean) => (
-      <MountedShellPanel active={active}>
-        <Harness value={value} now={now} />
-      </MountedShellPanel>
-    );
-    const view = render(panel(true));
+    const view = render(<Harness value={value} now={now} />);
     void act(() => jest.advanceTimersByTime(250));
     expect(now).toHaveBeenCalledTimes(1);
-    const sampled = view.container.textContent;
-    view.rerender(panel(false));
-    wall += 60_000;
-    void act(() => jest.advanceTimersByTime(1_000));
+    view.unmount();
+    void act(() => jest.advanceTimersByTime(120_000));
     expect(now).toHaveBeenCalledTimes(1);
-    expect(view.container.textContent).toBe(sampled);
-    view.rerender(panel(true));
-    expect(now).toHaveBeenCalledTimes(1);
-    void act(() => jest.advanceTimersByTime(0));
-    expect(now).toHaveBeenCalledTimes(2);
-    expect(view.container.textContent).toBe("1000000362671982829");
-    wall += 60_000;
-    void act(() => jest.advanceTimersByTime(250));
-    expect(now).toHaveBeenCalledTimes(3);
-    expect(view.container.textContent).toBe("1000000544008023567");
   });
 
   test("closes a queued callback race while hidden and expires to B0 on resume", () => {

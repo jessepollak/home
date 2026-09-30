@@ -34,6 +34,7 @@ export type FundingActionsProps = {
   regionId?: RegionId;
   regionReady?: boolean;
   onClosed?: () => void;
+  showTrigger?: boolean;
 };
 
 export function FundingActions(props: FundingActionsProps) {
@@ -49,10 +50,12 @@ export function FundingActionsForWallet({
   regionId = "GLOBAL",
   regionReady = true,
   onClosed,
+  showTrigger = true,
 }: FundingActionsProps & {
   wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
 }) {
   const pathname = usePathname();
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const routing = useOptionalHomeShellRouting();
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
@@ -118,7 +121,14 @@ export function FundingActionsForWallet({
       navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
       onClose={close}
-      onClosed={onClosed}
+      onClosed={() => {
+        const before = document.activeElement;
+        onClosed?.();
+        const trigger = triggerRef.current;
+        if (before === document.activeElement && trigger?.isConnected && !trigger.disabled) {
+          trigger.focus({ preventScroll: true });
+        }
+      }}
       returnedFromProvider={returnedFromProvider}
       returnedFromVerification={returnedFromVerification}
       initialStep={requestedFlow === "receive" ? "receive" : "method"}
@@ -130,7 +140,8 @@ export function FundingActionsForWallet({
 
   return (
     <>
-      <Button
+      {showTrigger ? <Button
+        ref={triggerRef}
         size="touch"
         {...intent}
         onClick={() => {
@@ -142,7 +153,7 @@ export function FundingActionsForWallet({
       >
         <Plus className="size-4" aria-hidden="true" />
         Add money
-      </Button>
+      </Button> : null}
       {mounted ? modal : null}
     </>
   );
