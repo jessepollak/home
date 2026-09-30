@@ -5,9 +5,11 @@ import type { BorrowOverviewResponse, BorrowResponse } from "@/shared/borrowing/
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { emitServerEvent } from "@/server/observability/log";
 import { privateError, privateJson } from "@/server/http/private-response";
+import { offeredMarketMode, resolveProductOffering } from "@/shared/operator-settings/products";
+import { readProductOffering } from "@/server/operator-settings/offering";
 import type { BorrowRpcReadResult, BorrowRpcReader } from "./rpc";
 
-export function createBorrowHandler(dependencies: { authorize: SessionAuthorizer; rpc: BorrowRpcReader; now?: () => Date }) {
+export function createBorrowHandler(dependencies: { authorize: SessionAuthorizer; rpc: BorrowRpcReader; now?: () => Date; readOffering?: typeof readProductOffering }) {
   return async function GET(request: Request) {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
@@ -19,6 +21,9 @@ export function createBorrowHandler(dependencies: { authorize: SessionAuthorizer
     } catch {
       results = BORROW_MARKETS.map((market) => ({ market, error: new Error("The shared Base source block could not be verified.") }));
     }
+    let offering;
+    try { offering = await (dependencies.readOffering ?? readProductOffering)(); }
+    catch { offering = resolveProductOffering({ kind: "unavailable" }); }
     const fetchedAt = (dependencies.now?.() ?? new Date()).toISOString();
     const verified = results.filter((result): result is Extract<BorrowRpcReadResult, { snapshot: object }> => result.snapshot !== undefined);
     for (const result of results) {
@@ -43,12 +48,17 @@ export function createBorrowHandler(dependencies: { authorize: SessionAuthorizer
         reason: verified.length === results.length ? null : "One or more configured markets could not be verified. Missing values are unavailable, not zero.",
         fetchedAt,
       },
-      opportunities: results.map(({ market, snapshot }) => ({
-        market: snapshot?.market ?? marketIdentity(market),
-        availability: snapshot
-          ? { status: "available", mode: market.availability, reason: null, source: snapshot.source, snapshot }
-          : { status: "unavailable", mode: market.availability, reason: "Current verified chain state is unavailable for this market.", source: null },
-      })),
+      opportunities: results.map(({ market, snapshot }) => {
+        const mode = offeredMarketMode(offering, market.marketId);
+        return {
+          market: snapshot?.market ?? marketIdentity(market),
+          availability: snapshot
+            ? { status: "available", mode, reason: null, source: snapshot.source, snapshot: {
+                ...snapshot, eligibility: { ...snapshot.eligibility, mode, newRisk: mode === "enabled" },
+              } }
+            : { status: "unavailable", mode, reason: "Current verified chain state is unavailable for this market.", source: null },
+        };
+      }),
       positions: verified.flatMap(({ snapshot }) => BigInt(snapshot.position.collateralRaw) > BigInt(0) || BigInt(snapshot.position.borrowSharesRaw) > BigInt(0)
         ? [{
             market: snapshot.market, source: snapshot.source,
@@ -61,7 +71,7 @@ export function createBorrowHandler(dependencies: { authorize: SessionAuthorizer
   };
 }
 
-export function createBorrowMarketHandler(dependencies: { authorize: SessionAuthorizer; rpc: BorrowRpcReader }) {
+export function createBorrowMarketHandler(dependencies: { authorize: SessionAuthorizer; rpc: BorrowRpcReader; readOffering?: typeof readProductOffering }) {
   return async function GET(request: Request, context: { params: Promise<{ marketId: string }> }) {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
@@ -70,7 +80,12 @@ export function createBorrowMarketHandler(dependencies: { authorize: SessionAuth
     const market = getBorrowMarketRef(marketId);
     if (!market) return privateError("BORROW_MARKET_NOT_FOUND", "The borrowing market is not configured.", 404);
     try {
-      return privateJson(await dependencies.rpc.readSnapshot(session.smartAccount.address, market, request.signal), 200);
+      const snapshot = await dependencies.rpc.readSnapshot(session.smartAccount.address, market, request.signal);
+      let offering;
+      try { offering = await (dependencies.readOffering ?? readProductOffering)(); }
+      catch { offering = resolveProductOffering({ kind: "unavailable" }); }
+      const mode = offeredMarketMode(offering, market.marketId);
+      return privateJson({ ...snapshot, eligibility: { ...snapshot.eligibility, mode, newRisk: mode === "enabled" } }, 200);
     } catch {
       return privateError("BORROW_STATE_UNAVAILABLE", "Current verified market, position, oracle, liquidity, or limit state is unavailable.", 502);
     }

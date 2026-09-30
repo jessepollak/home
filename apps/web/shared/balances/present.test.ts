@@ -681,7 +681,13 @@ describe("balance presentation", () => {
     const summary = presentBalances({ status: "ready", snapshot, error: null }).summary;
 
     expect(summary?.investments.assetCount).toBe(2);
-    expect(summary?.borrow).toEqual({ kind: "none" });
+    expect(summary?.borrow).toEqual({ kind: "none", hasCollateral: true });
+  });
+
+  test("reports an empty Borrow summary without collateral", () => {
+    const snapshot = buildBalancesSnapshotFixture({ borrow: { coverage: "complete", positions: [] } });
+    expect(presentBalances({ status: "ready", snapshot, error: null }).summary?.borrow)
+      .toEqual({ kind: "none", hasCollateral: false });
   });
 
   test("shows a negative net with a leading minus when debt exceeds assets", () => {

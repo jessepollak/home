@@ -22,6 +22,8 @@ import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { ShellLocation } from "@/config/shell-location";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
+import { ProductOfferingProvider } from "./product-offering";
+import { resolveProductOffering, type ProductOffering } from "@/shared/operator-settings/products";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 import { useShowSmallBalances } from "./use-show-small-balances";
 import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
@@ -37,6 +39,7 @@ export function PortfolioHomeExperience({
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
   investVisibility,
+  productOffering = resolveProductOffering({ kind: "deployment" }),
   cardsEnabled = false,
 }: {
   detectedCountry: CountryCode | null;
@@ -45,6 +48,7 @@ export function PortfolioHomeExperience({
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
   investVisibility?: InvestSettings;
+  productOffering?: ProductOffering;
   cardsEnabled?: boolean;
 }) {
   const account = useAccountWallet();
@@ -206,6 +210,7 @@ export function PortfolioHomeExperience({
 
   return (
     <VaultPositionsProvider snapshot={snapshot}>
+    <ProductOfferingProvider value={productOffering}>
     <DashboardShell
       region={region}
       regionReady={regionReady}
@@ -239,6 +244,7 @@ export function PortfolioHomeExperience({
       showSmallBalances={showSmallBalances}
       onShowSmallBalancesChange={setShowSmallBalances}
     />
+    </ProductOfferingProvider>
     </VaultPositionsProvider>
   );
 }

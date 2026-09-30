@@ -10,7 +10,7 @@ import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { readJson } from "@/shared/http/read-json";
 import { TransferExecutionError } from "@/shared/transfers/types";
-import { parsePrepareActionErrorResponse } from "@/shared/actions/contracts/prepare";
+import { parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse } from "@/shared/actions/contracts/prepare";
 import { parseConfirmActionErrorResponse } from "@/shared/actions/contracts/confirm";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import {
@@ -73,13 +73,20 @@ export function normalizeAccountResourcePath(path: string): string {
   return `${url.pathname}${url.search}`;
 }
 
-function actionErrorDetails(pathname: string, payload: unknown): { code: string; serverMessage: string } | null {
-  const parsed = /^\/api\/actions\/[^/]+\/confirm$/.test(pathname)
-    ? parseConfirmActionErrorResponse(payload)
-    : pathname === "/api/actions/prepare"
-      ? parsePrepareActionErrorResponse(payload)
-      : null;
-  return parsed ? { code: parsed.error.code, serverMessage: parsed.error.message } : null;
+function actionErrorDetails(pathname: string, payload: unknown): { code: string | null; serverMessage: string | null } {
+  if (/^\/api\/actions\/[^/]+\/confirm$/.test(pathname)) {
+    const parsed = parseConfirmActionErrorResponse(payload);
+    return parsed
+      ? { code: parsed.error.code, serverMessage: parsed.error.message }
+      : { code: null, serverMessage: responseErrorDetails(payload).serverMessage };
+  }
+  if (pathname === "/api/actions/prepare") {
+    const parsed = parsePrepareActionErrorResponse(payload);
+    if (parsed) return { code: parsed.error.code, serverMessage: parsed.error.message };
+    const productNotOffered = parseProductNotOfferedPrepareErrorResponse(payload);
+    if (productNotOffered) return { code: productNotOffered.error.code, serverMessage: productNotOffered.error.message };
+  }
+  return responseErrorDetails(payload);
 }
 
 function responseErrorDetails(payload: unknown): {
@@ -278,8 +285,8 @@ export function useAuthenticatedTransport({
       if (!response.ok) {
         let details = { code: null as string | null, serverMessage: null as string | null };
         try {
-          const payload = await readJson(response);
-          details = actionErrorDetails(pathname, payload) ?? responseErrorDetails(payload);
+          const payload: unknown = await readJson(response);
+          details = actionErrorDetails(pathname, payload);
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);

@@ -12,6 +12,8 @@ import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
 import { parseAddress } from "@/shared/chain/hex";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
+import { ProductOfferingProvider } from "@/client/home/product-offering";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import type { BalancesSnapshot } from "@/shared/balances/types";
@@ -271,6 +273,22 @@ describe("Cash L2", () => {
     fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
     expect(await page().findByRole("dialog", { name: "US dollar" })).toBeTruthy();
     await waitFor(() => expect(page().getByRole("button", { name: "Save" })).toBeTruthy());
+  });
+  test("exit-only Save removes the USD currency-row deposit entry while leaving Convert reachable", async () => {
+    const resource: NonNullable<CashExperienceProps["fetchAccountResource"]> = async (path) => {
+      if (path === "/api/actions") return { actions: [] };
+      if (path.startsWith("/api/trades?")) return fetchAccountResource(path);
+      throw new Error(`Unexpected account resource: ${path}`);
+    };
+    const surface = <Surface view="cash" snapshot={empty} fetchVaults={async () => metadata} fetchAccountResource={resource} />;
+    const view = render(<ProductOfferingProvider value={resolveProductOffering({ kind: "deployment" })}>{surface}</ProductOfferingProvider>);
+    fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
+    const detail = await page().findByRole("dialog", { name: "US dollar" });
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "Save" })).toBeTruthy());
+    view.rerender(<ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}>{surface}</ProductOfferingProvider>);
+    await waitFor(() => expect(within(detail).queryByRole("button", { name: "Save" })).toBeNull());
+    fireEvent.click(within(detail).getByRole("button", { name: "Convert" }));
+    expect(await page().findByRole("dialog", { name: "Convert to" })).toBeTruthy();
   });
   test("the Cash currency Save arms the fresh deposit history floor and files the submitted deposit", async () => {
     getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false }, { updatedAt: NOW - 61_000 });
@@ -1607,7 +1625,7 @@ describe("Cash L2", () => {
   test("a vault missing from a complete snapshot is absent, not unreadable", () => {
     const snapshot = buildBalancesSnapshotFixture();
     const without = { ...snapshot, holdings: snapshot.holdings.filter((holding) => holding.contractAddress?.toLowerCase() !== GAUNTLET.toLowerCase()) };
-    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
+    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false, offering: resolveProductOffering({ kind: "deployment" }) });
     expect(management.absent).toBe(true);
     expect(management.savedBaseUnits).toBe("0");
     expect(management.unreadable).toBe(false);
@@ -1616,7 +1634,7 @@ describe("Cash L2", () => {
   test("a vault missing from a partial snapshot stays unavailable", () => {
     const snapshot = buildBalancesSnapshotFixture({ coverage: { registry: "partial" } });
     const without = { ...snapshot, holdings: snapshot.holdings.filter((holding) => holding.contractAddress?.toLowerCase() !== GAUNTLET.toLowerCase()) };
-    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
+    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false, offering: resolveProductOffering({ kind: "deployment" }) });
     expect(management.absent).toBe(false);
     expect(management.savedBaseUnits).toBeNull();
     expect(management.withdraw.reason).toBe("Couldn't check this balance.");
@@ -1802,6 +1820,150 @@ describe("Cash L2", () => {
     const dialog = await page().findByRole("dialog", { name: "Gauntlet USDC Prime" });
     expect(within(dialog).getByText("No liquidity available to withdraw right now.")).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: "Withdraw" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+  test("Save on keeps the held Savings row and recovery visible without rate metadata", async () => {
+    const view = render(<Surface snapshot={single} fetchVaults={async () => { throw new Error("Rates unavailable"); }} />);
+    await view.findByText("Savings rates unavailable");
+    expect(view.getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" })).toBeTruthy();
+    expect(view.queryByText("This is no longer offered.")).toBeNull();
+    view.rerender(<Surface view="cash" snapshot={single} fetchVaults={async () => { throw new Error("Rates unavailable"); }} />);
+    expect(view.getByRole("region", { name: "Savings" })).toBeTruthy();
+  });
+  test("Save on offers an uncatalogued discovery candidate as before", async () => {
+    const unknown = "0x9999999999999999999999999999999999999999" as const;
+    cached({ ...metadata, candidates: [vault(unknown, "Discovered vault", 0.042)] });
+    render(<Surface snapshot={empty} />);
+    fireEvent.click(await page().findByRole("button", { name: "Start saving" }));
+    const options = await page().findByRole("dialog", { name: "Choose where to save" });
+    expect(within(options).getByRole("button", { description: "Deposit to Discovered vault" })).toBeTruthy();
+    expect(page().queryByText("This is no longer offered.")).toBeNull();
+  });
+  test("exit-only Save states the offering instead of the first-use intro", async () => {
+    cached();
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    const view = render(<ProductOfferingProvider value={offering}><Surface snapshot={empty} /></ProductOfferingProvider>);
+    expect(await view.findByText("This is no longer offered.")).toBeTruthy();
+    expect(view.queryByRole("heading", { name: "Earn on your savings", level: 2 })).toBeNull();
+    expect(view.queryByRole("button", { name: "Start saving" })).toBeNull();
+  });
+  test("exit-only Save holds the deposit check while the history loads, then states the offering", async () => {
+    cached();
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    const history = Promise.withResolvers<{ actions: unknown[] }>();
+    render(<HomeQueryClientProvider><ProductOfferingProvider value={offering}><Surface snapshot={empty} fetchAccountResource={async (path) => {
+      if (path !== "/api/actions") return { version: 1, usdcReserveBaseUnits: "100000" };
+      return history.promise;
+    }} /></ProductOfferingProvider></HomeQueryClientProvider>);
+    expect(await page().findByText("Loading savings")).toBeTruthy();
+    expect(page().queryByText("This is no longer offered.")).toBeNull();
+    await act(async () => history.resolve({ actions: [] }));
+    await page().findByText("This is no longer offered.");
+    expect(page().queryByText("Loading savings")).toBeNull();
+  });
+  test("exit-only Save keeps the deposit-check retry when the history is unavailable", async () => {
+    cached();
+    focusManager.setFocused(false);
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    let reads = 0;
+    render(<HomeQueryClientProvider><ProductOfferingProvider value={offering}><Surface snapshot={empty} fetchAccountResource={async (path) => {
+      if (path !== "/api/actions") return { version: 1, usdcReserveBaseUnits: "100000" };
+      reads += 1;
+      if (reads === 2) throw new Error("Actions unavailable");
+      return { actions: [] };
+    }} /></ProductOfferingProvider></HomeQueryClientProvider>);
+    await page().findByText("This is no longer offered.");
+    act(() => focusManager.setFocused(true));
+    await page().findByText("Couldn't check your deposits");
+    expect(page().queryByText("This is no longer offered.")).toBeNull();
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
+    await page().findByText("This is no longer offered.");
+  });
+  test("exit-only Save keeps a pending deposit visible instead of the paused note", async () => {
+    cached();
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    const view = render(<HomeQueryClientProvider><ProductOfferingProvider value={offering}><Surface snapshot={empty} fetchAccountResource={async (path) => path === "/api/actions"
+      ? { actions: [pendingActionRow({ ...preparedDeposit(), id: "prior-deposit" }, "unknown")] }
+      : { version: 1, usdcReserveBaseUnits: "100000" }} /></ProductOfferingProvider></HomeQueryClientProvider>);
+    await waitFor(() => expect(within(view.getByRole("region", { name: "Your savings" })).getByText("Pending")).toBeTruthy());
+    expect(view.queryByText("This is no longer offered.")).toBeNull();
+    expect(view.queryByRole("button", { name: "Start saving" })).toBeNull();
+  });
+  test("exit-only Save does not claim the offering on a stale empty balance", async () => {
+    cached();
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    const view = render(<ProductOfferingProvider value={offering}><Surface snapshot={empty} stale /></ProductOfferingProvider>);
+    await view.findByLabelText("Savings balance");
+    expect(view.queryByText("This is no longer offered.")).toBeNull();
+  });
+  test("exit-only Save keeps the Savings section while the balance may be out of date", async () => {
+    cached();
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    const view = render(<ProductOfferingProvider value={offering}><Surface view="cash" snapshot={{ ...empty, stale: true as const }} /></ProductOfferingProvider>);
+    expect(view.getByRole("region", { name: "Savings" })).toBeTruthy();
+  });
+  test("exit-only Save hides empty entry points but preserves held withdrawals", async () => {
+    cached();
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    const view = render(<ProductOfferingProvider value={offering}><Surface view="cash" snapshot={empty} /></ProductOfferingProvider>);
+    expect(view.queryByRole("region", { name: "Savings" })).toBeNull();
+    view.rerender(<ProductOfferingProvider value={offering}><Surface snapshot={single} /></ProductOfferingProvider>);
+    const row = await view.findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
+    fireEvent.click(row);
+    const tray = await view.findByRole("dialog", { name: "Gauntlet USDC Prime" });
+    expect((within(tray).getByRole<HTMLButtonElement>("button", { name: "Deposit more" })).disabled).toBe(true);
+    expect(within(tray).getByText("Couldn't check whether this vault is offered.")).toBeTruthy();
+    expect((within(tray).getByRole<HTMLButtonElement>("button", { name: "Withdraw" })).disabled).toBe(false);
+    expect(view.queryByRole("heading", { name: "More ways to save" })).toBeNull();
+  });
+  test("exit-only Save keeps a funded holder's APY in the Cash hero", async () => {
+    cached();
+    const heroRate = (offering: ReturnType<typeof resolveProductOffering>) => {
+      const view = render(<ProductOfferingProvider value={offering}><Surface view="cash" snapshot={single} /></ProductOfferingProvider>);
+      const text = view.container.querySelector("[data-cash-rate]")?.textContent ?? null;
+      view.unmount();
+      return text;
+    };
+    const offered = heroRate(resolveProductOffering({ kind: "deployment" }));
+    expect(offered).toMatch(/^\d+\.\d+% APY$/);
+    expect(heroRate(resolveProductOffering({ kind: "unavailable" }))).toBe(offered);
+  });
+  test("exit-only Save keeps unknown savings visible without claiming they are no longer offered", async () => {
+    cached();
+    const offering = resolveProductOffering({ kind: "unavailable" });
+    const view = render(<ProductOfferingProvider value={offering}><Surface view="cash" snapshot={null} status="loading" /></ProductOfferingProvider>);
+    expect(view.getByRole("region", { name: "Savings" })).toBeTruthy();
+    view.rerender(<ProductOfferingProvider value={offering}><Surface snapshot={null} status="loading" /></ProductOfferingProvider>);
+    expect(view.queryByText("This is no longer offered.")).toBeNull();
+    const unknown = buildBalancesSnapshotFixture({ registry: { ...cash, "morpho-steakhouse-usdc": { balance: unavailableBalance, value: { status: "unavailable" } } } });
+    view.rerender(<ProductOfferingProvider value={offering}><Surface view="cash" snapshot={unknown} status="ready" /></ProductOfferingProvider>);
+    expect(view.getByRole("region", { name: "Savings" })).toBeTruthy();
+    view.rerender(<ProductOfferingProvider value={offering}><Surface snapshot={unknown} status="ready" /></ProductOfferingProvider>);
+    expect(view.queryByText("This is no longer offered.")).toBeNull();
+    view.rerender(<ProductOfferingProvider value={offering}><Surface view="cash" snapshot={empty} status="ready" /></ProductOfferingProvider>);
+    expect(view.queryByRole("region", { name: "Savings" })).toBeNull();
+  });
+  test("a reducing-only vault is not a deposit destination while another remains offered", async () => {
+    cached();
+    const defaults = resolveProductOffering({ kind: "deployment" });
+    const offering = { ...defaults, vaults: { ...defaults.vaults, ["morpho-steakhouse-usdc"]: "reducing-only" as const } };
+    const view = render(<ProductOfferingProvider value={offering}><Surface snapshot={single} /></ProductOfferingProvider>);
+    expect(view.queryByRole("button", { description: "Deposit to Gauntlet USDC Prime" })).toBeNull();
+    fireEvent.click(await view.findByRole("button", { name: /^Steakhouse USDC/, description: "Deposit to Steakhouse USDC" }));
+    const dialog = await view.findByRole("dialog", { name: "Deposit" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(preparedInputs).toEqual([{ kind: "deposit", vaultAddress: STEAKHOUSE, amountBaseUnits: "2000000" }]));
+  });
+  test("a reducing-only vault is not offered in the first-use picker", async () => {
+    cached();
+    const defaults = resolveProductOffering({ kind: "deployment" });
+    const offering = { ...defaults, vaults: { ...defaults.vaults, ["morpho-steakhouse-usdc"]: "reducing-only" as const } };
+    const view = render(<ProductOfferingProvider value={offering}><Surface snapshot={empty} /></ProductOfferingProvider>);
+    fireEvent.click(await view.findByRole("button", { name: "Start saving" }));
+    const options = await view.findByRole("dialog", { name: "Choose where to save" });
+    expect(within(options).queryByRole("button", { description: "Deposit to Gauntlet USDC Prime" })).toBeNull();
+    expect(within(options).getByRole("button", { description: "Deposit to Steakhouse USDC" })).toBeTruthy();
   });
   test("adds only savings growth and reconciles a new authoritative snapshot once", async () => {
     cached();

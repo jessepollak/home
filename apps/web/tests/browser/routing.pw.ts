@@ -84,6 +84,11 @@ test("tapping active Invest from a category pushes a root entry that Back restor
   await expect(page).toHaveURL(/\/invest$/);
   await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
   await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/invest$/);
+  await expect(page.locator("#navigation-panel")).toBeFocused();
+  await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
+  await expect(page).toHaveURL(/\/invest\/crypto$/);
   await investTab.click();
   await expect(page).toHaveURL(/\/invest$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
@@ -297,6 +302,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await expect(addDialog).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(addDialog).toHaveCount(0);
+    await expect(addMoney).toBeFocused();
+    await page.evaluate(() => window.dispatchEvent(new PopStateEvent("popstate")));
     await expect(addMoney).toBeFocused();
 
     await addMoney.click();

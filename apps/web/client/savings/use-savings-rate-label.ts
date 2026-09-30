@@ -5,6 +5,7 @@ import { useAccountWallet } from "@/client/account/cdp-client";
 import { useBalancesData } from "@/client/balances";
 import { useNow } from "@/client/time/use-now";
 import type { RegionId } from "@/config/regions";
+import type { ProductOffering } from "@/shared/operator-settings/products";
 import {
   BASE_USDC_ADDRESS,
   BASE_USDC_DECIMALS,
@@ -24,7 +25,7 @@ const BASE_USDC_ASSET = {
   decimals: BASE_USDC_DECIMALS,
 } as const;
 
-export function useSavingsRateLabel(regionId: RegionId, regionReady = true): string | null {
+export function useSavingsRateLabel(regionId: RegionId, regionReady = true, offering: ProductOffering): string | null {
   const account = useAccountWallet();
   const session = account.verification ? account.session : null;
   const balancesSession = session?.smartAccount
@@ -66,6 +67,7 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true): str
   return savingsTeaserApyLabel({
     regionId,
     summary,
+    offering,
     candidates: metadataQuery.data.candidates,
     metadata: metadataQuery.data,
     nowMs: rateNowMs,

@@ -5,6 +5,7 @@ import { BaseRpcError } from "@/server/chain/rpc";
 import { TradePreparationError } from "./permit2";
 import { createTradeAvailabilityHandler } from "./availability";
 import { tradeBuyBlocked } from "./buy-policy";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const session: VerifiedAccountSession = {
@@ -87,6 +88,13 @@ describe("trade availability", () => {
     expect(await readJson((await handler({ buyBlocked: (id) => tradeBuyBlocked(id, removed) })(request()))))
       .toMatchObject({ status: "available", buy: "blocked", balanceBaseUnits: "7" });
   });
+  test("invest pause and offering outage block only buying in the trade availability response", async () => {
+    const offering = resolveProductOffering({ kind: "deployment" });
+    const paused = { ...offering, products: { ...offering.products, invest: "exit-only" as const } };
+    expect(await (await handler({ readOffering: async () => paused })(request())).json()).toMatchObject({ status: "available", buy: "blocked", balanceBaseUnits: "7" });
+    expect(await (await handler({ readOffering: async () => { throw new Error("db outage"); } })(request())).json()).toMatchObject({ status: "available", buy: "blocked" });
+  });
+
   test("rejects the wrong RPC chain without claiming token availability", async () => {
     const wrongChain = handler({ rpc: async (method, params) => method === "eth_chainId" ? "0x1" : rpc(method, params) });
     expect(await readJson((await wrongChain(request())))).toEqual({ version: 2, status: "unavailable", reason: "chain-unavailable" });

@@ -56,6 +56,8 @@ import { TransferExecutionError } from "@/shared/transfers/types";
 import { CashOverview, SavingsDetail } from "./cash-overview";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 import { savingsManagement, type SavingsManagement } from "./savings-management";
+import { useProductOffering } from "@/client/home/product-offering";
+import { depositOffered } from "./save-offering";
 
 const SAVINGS_JOURNEY_TITLE_ID = "savings-journey-title";
 const noDeadline = () => null;
@@ -305,6 +307,7 @@ export function CashExperience({
   const routing = useOptionalHomeShellRouting();
   const region = usePresentationRegionId();
   const ownerIdentity = session ? `${session.user.subject}:${session.smartAccount?.address.toLowerCase() ?? ""}:${session.accountProvider}` : "signed-out";
+  const offering = useProductOffering();
   const query = useSavingsVaults({ fetchVaults });
   const metadata = query.data ?? null;
   const nextDeadline = useCallback(
@@ -337,6 +340,7 @@ export function CashExperience({
     ? savingsTeaserApyLabel({
         regionId: region,
         summary,
+        offering,
         candidates: metadata.candidates,
         metadata,
         nowMs: rateNowMs,
@@ -496,7 +500,8 @@ export function CashExperience({
     actionsAvailable: Boolean(session?.smartAccount),
     usdcBaseUnits: usdc?.status === "ready" ? usdc.baseUnits : null,
     usdcUnavailable: usdc?.status !== "ready" || balanceStatus === "failed",
-  }) : null, [managementAddress, liveSnapshot, metadata, rateNowMs, region, session?.smartAccount, usdc, balanceStatus]);
+    offering,
+  }) : null, [managementAddress, liveSnapshot, metadata, rateNowMs, region, session?.smartAccount, usdc, balanceStatus, offering]);
   const activeManagement = management ?? closingManagement;
   const [previousAccountIdentity, setPreviousAccountIdentity] = useState(accountIdentity);
   const fundedNow = Boolean(summary?.funded || liveSnapshot?.holdings.some((holding) =>
@@ -614,7 +619,8 @@ export function CashExperience({
     [liveSnapshot, metadata]
   );
   const best =
-    metadata?.candidates.reduce<MorphoVaultCandidate | null>(
+    metadata?.candidates.filter((candidate) => depositOffered(offering, candidate))
+      .reduce<MorphoVaultCandidate | null>(
       (current, candidate) => {
         const rate = getSavingsRateState(candidate, {
           metadataFetchedAt: metadata.source.fetchedAt,
@@ -756,6 +762,7 @@ export function CashExperience({
     else setLocalMode("deposit");
   }
   function open(nextMode: Mode, candidate: MorphoVaultCandidate) {
+    if (nextMode === "deposit" && !depositOffered(offering, candidate)) return;
     autoClosed.current = null;
     setAutoClosedSelection(null);
     leavingForAddMoney.current = false;
@@ -853,7 +860,7 @@ export function CashExperience({
   }) : null;
   const depositCashState: "ready" | "empty" | "unavailable" =
     availableBaseUnits === null ? "unavailable" : BigInt(availableBaseUnits) > BigInt(0) ? "ready" : "empty";
-  const pickerOptions = choosing && metadata ? metadata.candidates.map((candidate) => {
+  const pickerOptions = choosing && metadata ? metadata.candidates.filter((candidate) => depositOffered(offering, candidate)).map((candidate) => {
     const rate = getSavingsRateState(candidate, {
       metadataFetchedAt: metadata.source.fetchedAt, metadataStale: metadata.stale, nowMs: rateNowMs,
     });

@@ -10,6 +10,7 @@ import { resolveTradeAsset } from "@/shared/trading/assets";
 import type { TradeSignerResolver } from "@/shared/trading/server-types";
 import { parseTradeAvailabilityResponse, TRADE_AVAILABILITY_CONTRACT_VERSION, type TradeUnavailableReason } from "@/shared/trading/contract";
 import { tradeBuyBlocked } from "./buy-policy";
+import { readProductOffering } from "@/server/operator-settings/offering";
 import { TradePreparationError } from "./permit2";
 import { createTradeSignerResolver } from "./signer";
 
@@ -19,6 +20,7 @@ export function createTradeAvailabilityHandler(deps: {
   env?: Readonly<Record<string, string | undefined>>;
   rpc?: typeof baseRpc;
   buyBlocked?: typeof tradeBuyBlocked;
+  readOffering?: typeof readProductOffering;
 } = {}) {
   return async function GET(request: Request): Promise<Response> {
     const session = await (deps.authorize ?? authorizeSession)(request);
@@ -48,10 +50,13 @@ export function createTradeAvailabilityHandler(deps: {
         read,
       });
       const symbol = resolved.configured?.representation.tokenSymbol ?? identity.symbol ?? `0x${resolved.address.slice(2, 6)}`;
+      let investOn = false;
+      try { investOn = (await (deps.readOffering ?? readProductOffering)()).products.invest === "on"; }
+      catch { investOn = false; }
       return privateJson(parseTradeAvailabilityResponse({
         version: TRADE_AVAILABILITY_CONTRACT_VERSION, status: "available",
         token: { assetId: resolved.assetId, address: resolved.address, symbol, decimals: identity.decimals },
-        buy: (deps.buyBlocked ?? tradeBuyBlocked)(resolved.assetId) ? "blocked" : "available",
+        buy: !investOn || (deps.buyBlocked ?? tradeBuyBlocked)(resolved.assetId) ? "blocked" : "available",
         balanceBaseUnits: identity.balance!.toString(),
       })!, 200);
     } catch (error) {

@@ -84,10 +84,12 @@ import {
   type HomeInboundPanelState,
 } from "./panel-routing";
 import { ShellHeader } from "./shell-chrome";
+import { panelFocusKey } from "./navigation-focus";
 import { subscribeShellScrollPersistence } from "./shell-scroll-persistence";
 import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
 import { ActionToasts } from "./action-toasts";
 import { useBalancesRestore } from "./use-balances-restore";
+import { useProductOffering } from "./product-offering";
 import { useHomeRefresh } from "./use-home-refresh";
 import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } from "@/components/ui/pull-to-refresh";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
@@ -202,6 +204,7 @@ function DashboardShellBody({
     selectRegion,
     offeredCountries,
   } = region;
+  const { products } = useProductOffering();
   const [activeNavigation, setActiveNavigation] = useState<ShellPanelId>(initialPanel);
   const [navigationRequest, setNavigationRequest] = useState(0);
   const [balancesRevealReset, setBalancesRevealReset] = useState(0);
@@ -613,6 +616,8 @@ function DashboardShellBody({
     isVerified,
     paintedAssetBalances.status,
   ]);
+  const currentPanelFocusKey = panelFocusKey(activeNavigation, urlIntent.location);
+  const lastPanelFocusKeyRef = useRef(currentPanelFocusKey);
 
   useEffect(() => () => {
     pendingHoldingRestoreCleanup.current?.();
@@ -621,7 +626,11 @@ function DashboardShellBody({
 
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;
-    panelStageRef.current.focus({ preventScroll: true });
+    const panelStage = panelStageRef.current;
+    const focusMoved = lastPanelFocusKeyRef.current !== currentPanelFocusKey;
+    lastPanelFocusKeyRef.current = currentPanelFocusKey;
+    const focusOutsideStage = !panelStage.contains(document.activeElement);
+    if (focusMoved || focusOutsideStage) panelStage.focus({ preventScroll: true });
     if (cashSavingsFocusReturnRef.current) {
       cashSavingsFocusReturnRef.current = false;
       mainRef.current?.querySelector<HTMLButtonElement>(
@@ -712,6 +721,7 @@ function DashboardShellBody({
     cancelPendingShellScroll,
     disarmBalancesRestore,
     navigationRequest,
+    currentPanelFocusKey,
     scheduleShellScroll,
     urlIntent.location.group,
   ]);
@@ -773,6 +783,7 @@ function DashboardShellBody({
     holding: AssetKey | null = null,
   ) {
     settingsOpenerRef.current = null;
+    if (nextNavigation === "invest" && products.invest !== "on") return;
     settingsFocusHandoffRef.current = true;
     const skipHistory = activeNavigation === nextNavigation && !isAccountSettingsOpen &&
       (nextNavigation !== "borrow" || urlIntent.location.market === market) &&
@@ -1143,7 +1154,7 @@ function DashboardShellBody({
                       fetchOperations={account.fetchOperations}
                       onOpenCash={() => navigateTo(cashPanelId)}
                       onOpenInvestments={() => navigateTo(
-                        paintedAssetBalances.summary?.investments.ownedCount === 0 &&
+                        products.invest === "on" && paintedAssetBalances.summary?.investments.ownedCount === 0 &&
                         paintedAssetBalances.summary.investments.status === "complete"
                           ? "invest" : investmentsPanelId,
                       )}

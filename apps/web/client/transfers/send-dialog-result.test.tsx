@@ -36,6 +36,14 @@ const parsed = (rows: unknown[]) => parseRecentActionsPayload({ actions: rows },
 
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
+test("paused send review still loads and explains an offer withdrawn at confirm", async () => {
+  render(<SendDialog open immediate sendOffered={false} address={ACCOUNT} ownerBoundary="offer-withdrawn" resumeActionId={ID} availableAssets={[balance]}
+    prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
+    executeMoneyAction={async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; }}
+    onClose={() => {}} />);
+  fireEvent.click(await page().findByRole("button", { name: "Send $1.00" }));
+  expect((await page().findByRole("alert")).textContent).toBe("This is no longer offered.");
+});
 test("submitted stays in the dialog, ignores a different owner, and adopts the matching confirmed row", async () => {
   const calls: string[] = [];
   let closeCount = 0;

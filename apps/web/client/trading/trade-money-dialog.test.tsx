@@ -533,6 +533,17 @@ describe("any-token trade review", () => {
     await submit(trade.view);
     await waitFor(() => expect(trade.requests[0]?.amountBaseUnits).toBe("1000000"), feeLookupWait);
   });
+  test("a withdrawn offer is explained at both quote and prepared-action confirmation", async () => {
+    const prepare = dialog("buy", { error: "PRODUCT_NOT_OFFERED" });
+    await submit(prepare.view, "1");
+    expect((await prepare.view.findByRole("alert")).textContent).toBe("This is no longer offered.");
+    cleanup();
+    const confirm = dialog("buy", { execute: async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; } });
+    await submit(confirm.view, "1");
+    const button = await confirm.view.findByRole("button", { name: "Buy $1.00" });
+    fireEvent.click(button);
+    expect((await confirm.view.findByRole("alert")).textContent).toBe("This is no longer offered.");
+  });
   test.each([
     ["TRADE_NOT_ROUTED", "This asset can't be traded in Home yet."],
     ["TRADE_STOCK_RESTRICTED", "Stock buys aren't available in your location."],

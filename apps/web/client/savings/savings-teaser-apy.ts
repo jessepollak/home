@@ -1,5 +1,7 @@
 import type { RegionId } from "@/config/regions";
+import { depositOffered } from "@/client/cash/save-offering";
 import { formatPresentationPercentage } from "@/shared/formatting";
+import type { ProductOffering } from "@/shared/operator-settings/products";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import {
   formatExactSavingsApy,
@@ -10,12 +12,14 @@ import {
 export function savingsTeaserApyLabel({
   regionId,
   summary,
+  offering,
   candidates,
   metadata,
   nowMs,
 }: {
   regionId: RegionId;
   summary: SavingsPortfolioSummary | null;
+  offering: ProductOffering;
   candidates: readonly MorphoVaultCandidate[];
   metadata: MorphoVaultsResult;
   nowMs: number;
@@ -23,7 +27,7 @@ export function savingsTeaserApyLabel({
   if (summary?.funded && (summary.apy.status === "available" || summary.apy.status === "stale")) {
     return `${formatExactSavingsApy(summary.apy.value, regionId)} APY`;
   }
-  const rates = candidates.map((candidate) =>
+  const rates = candidates.filter((candidate) => depositOffered(offering, candidate)).map((candidate) =>
     getSavingsRateState(candidate, {
       metadataFetchedAt: metadata.source.fetchedAt,
       metadataStale: metadata.stale,

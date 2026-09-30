@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cashoutPrepareErrorResponse, isCashoutPrepareErrorCode, parsePrepareActionErrorResponse, validPrepared } from "./prepare";
+import { cashoutPrepareErrorResponse, isCashoutPrepareErrorCode, parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse, validPrepared } from "./prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 const address = "0x1111111111111111111111111111111111111111" as const;
@@ -67,5 +67,13 @@ describe("cashout prepare error contract", () => {
     expect(parsePrepareActionErrorResponse({ code: "CASHOUT_UNAVAILABLE", message: "x" })).toBeNull();
     expect(parsePrepareActionErrorResponse({ error: { code: "CARD_ALLOWANCE_NOT_READY", message: "An eligible card is required." } }))
       .toEqual({ error: { code: "CARD_ALLOWANCE_NOT_READY", message: "An eligible card is required." } });
+  });
+
+  test("parses a product-not-offered prepare error and rejects malformed responses", () => {
+    expect(parseProductNotOfferedPrepareErrorResponse({ error: { code: "PRODUCT_NOT_OFFERED", message: "This is no longer offered." } }))
+      .toEqual({ error: { code: "PRODUCT_NOT_OFFERED", message: "This is no longer offered." } });
+    expect(parseProductNotOfferedPrepareErrorResponse({ error: { code: "PRODUCT_NOT_OFFERED" } })).toBeNull();
+    expect(parseProductNotOfferedPrepareErrorResponse({ error: { code: "CASHOUT_UNAVAILABLE", message: "x" } })).toBeNull();
+    expect(parseProductNotOfferedPrepareErrorResponse({ code: "PRODUCT_NOT_OFFERED", message: "x" })).toBeNull();
   });
 });

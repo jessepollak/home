@@ -174,6 +174,15 @@ describe("recent Home action activity", () => {
     expect(parseRecentMoneyActions({ actions: [legacy] }, session)[0]?.action.metadata)
       .toMatchObject({ product: "savings", exchangeConstraint: "deposit-preview-no-minimum-shares" });
   });
+  test("preserves legacy borrow Activity metadata without a risk flag", () => {
+    const metadata = { product: "borrow", operation: "withdraw-collateral", marketId: `0x${"1".repeat(64)}`,
+      loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "eth", symbol: "ETH" },
+      projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
+      source: { blockNumber: "1", blockHash: `0x${"2".repeat(64)}`, blockTimestamp: "1789214400" } };
+    const legacy = { ...row(), kind: "withdraw-collateral", summary: { ...row().summary, metadata } };
+    expect(parseRecentMoneyActions({ actions: [legacy] }, session)[0]?.action.metadata).toMatchObject({ product: "borrow", operation: "withdraw-collateral", marketId: metadata.marketId });
+    expect(parseRecentMoneyActions({ actions: [legacy] }, session)[0]?.action.metadata).not.toHaveProperty("riskIncreased");
+  });
 
   test("keeps pending rows without transaction hashes and rejects non-derived statuses", () => {
     const pending = { ...row(undefined, "pending"), transactionHash: undefined };

@@ -24,6 +24,7 @@ import {
   type NavigationId,
   type ShellPanelId,
 } from "@/config/navigation";
+import { useProductOffering } from "@/client/home/product-offering";
 import { visualViewportKeyboardInset } from "./visual-viewport";
 import styles from "./primary-navigation.module.css";
 
@@ -104,7 +105,8 @@ export function PrimaryNavigation({
   account,
   onOpenAccount,
 }: PrimaryNavigationProps) {
-  const navigationItems = useMemo(() => visibleNavigationItems({ cardsEnabled }), [cardsEnabled]);
+  const { products } = useProductOffering();
+  const visibleItems = useMemo(() => visibleNavigationItems({ cardsEnabled }).filter((item) => item.id !== "invest" || products.invest === "on"), [cardsEnabled, products.invest]);
   const collapsed = useSyncExternalStore(subscribeRail, readCollapsed, () => false);
   const prefersReducedMotion = useReducedMotion();
   const [animated, setAnimated] = useState(false);
@@ -113,9 +115,10 @@ export function PrimaryNavigation({
   const [motionReady, setMotionReady] = useState(false);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const NavLens = useNavLens();
+  const navigationLens = visibleItems.length > 1 ? NavLens : null;
   const [lensReady, setLensReady] = useState(false);
 
-  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : navigationItems.findIndex((item) =>
+  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : visibleItems.findIndex((item) =>
     activeNavigation === item.id ||
     (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
   const pillOffStart = activeIndex > 0;
@@ -162,12 +165,12 @@ export function PrimaryNavigation({
     for (const listener of railListeners) listener();
   };
   const lensTarget = activeIndex > 0 ? activeIndex * (direction === "rtl" ? -1 : 1) : 0;
-  const lensItems = useMemo(() => navigationItems.map((item) => ({
+  const lensItems = useMemo(() => visibleItems.map((item) => ({
     id: item.id,
     label: labels?.[item.id] ?? item.label,
     Icon: navigationIcons[item.id],
-  })), [labels, navigationItems]);
-  const navigationStyle: NavigationStyle = { "--navigation-items": navigationItems.length };
+  })), [labels, visibleItems]);
+  const navigationStyle: NavigationStyle = { "--navigation-items": visibleItems.length };
 
   if (layout === "rail") {
     const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -183,7 +186,7 @@ export function PrimaryNavigation({
             <HomeMark compact onClick={() => onNavigate("home")} data-breakpoint-peer="home-mark" data-breakpoint-fallback="nav-home" />
           </div>
           <nav className="flex flex-col gap-2 px-2.5 py-4" aria-label="Main navigation">
-            {navigationItems.map((item, index) => {
+            {visibleItems.map((item, index) => {
               const Icon = navigationIcons[item.id];
               const isActive = index === activeIndex;
               const label = labels?.[item.id] ?? item.label;
@@ -238,7 +241,8 @@ export function PrimaryNavigation({
         aria-hidden={keyboardOpen ? true : undefined}
         inert={keyboardOpen}
         data-keyboard-hidden={keyboardOpen ? "true" : undefined}
-        data-lens={NavLens && lensReady ? "ready" : undefined}
+        data-navigation-items={visibleItems.length}
+        data-lens={navigationLens && lensReady ? "ready" : undefined}
         style={navigationStyle}
         className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100`}
       >
@@ -249,7 +253,7 @@ export function PrimaryNavigation({
           className={`${styles.pill} pointer-events-none absolute inset-y-1 start-1 rounded-full bg-foreground/10 dark:bg-foreground/15`}
           style={{ transform: `translateX(${lensTarget * 100}%)` }}
         />
-        {navigationItems.map((item, index) => {
+        {visibleItems.map((item, index) => {
           const Icon = navigationIcons[item.id];
           const isActive = index === activeIndex;
           const tone = navigationTabTone[isActive ? "selected" : "unselected"];
@@ -272,8 +276,8 @@ export function PrimaryNavigation({
             </Button>
           );
         })}
-        {NavLens && activeIndex >= 0 ? (
-          createElement(NavLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onReadyChange: setLensReady })
+        {navigationLens && activeIndex >= 0 ? (
+          createElement(navigationLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onReadyChange: setLensReady })
         ) : null}
       </nav>
     </div>

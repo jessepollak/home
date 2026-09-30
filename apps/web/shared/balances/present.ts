@@ -65,7 +65,7 @@ export type HomeMoneySummary = {
   investments: HomeSummaryAmount & { assetCount: number; ownedCount: number };
   borrow:
     | (HomeSummaryAmount & { kind: "position"; rate: string | null; debts: Array<{ marketId: string; baseUnits: string }> })
-    | { kind: "none" }
+    | { kind: "none"; hasCollateral: boolean }
     | { kind: "unavailable" };
 };
 
@@ -286,11 +286,14 @@ function presentBorrowSummary(
   snapshot: BalancesSnapshot,
   total: BalancesTotal,
 ): HomeMoneySummary["borrow"] {
-  const owing = selectBorrowPositions(snapshot).filter((position) =>
+  const positions = selectBorrowPositions(snapshot);
+  const owing = positions.filter((position) =>
     BigInt(position.debt.balance.baseUnits) > BigInt(0)
   );
   if (owing.length === 0) {
-    return snapshot.borrow.coverage === "complete" ? { kind: "none" } : { kind: "unavailable" };
+    return snapshot.borrow.coverage === "complete"
+      ? { kind: "none", hasCollateral: positions.some((position) => BigInt(position.collateral.balance.baseUnits) > BigInt(0)) }
+      : { kind: "unavailable" };
   }
   const rate = weightedBorrowAprWad(owing);
   return {

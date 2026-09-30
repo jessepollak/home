@@ -7,6 +7,7 @@ import { useReactiveExpiry } from "@/client/actions/expiry";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 import {
   MoneyAmountDisplay, MoneyAssetPicker, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
   MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
@@ -216,6 +217,11 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
       complete();
       refreshHost(result);
     } catch (caught) {
+      if (isRecord(caught) && caught.code === PRODUCT_NOT_OFFERED_CODE) {
+        setError("This is no longer offered.");
+        setStep("confirm");
+        return;
+      }
       if (isRecord(caught) && (caught.code === "ACTION_EXPIRED" || caught.code === "TRADE_QUOTE_STALE")) {
         setServerExpiredId(prepared.id);
         setError("This quote expired. Get a new quote.");
@@ -360,6 +366,7 @@ function messageForTradeError(error: unknown, direction: TradeDirection, convers
       if (code === "TRADE_TOKEN_UNREADABLE") return `Can't read ${conversion.to.name} on Base right now. Try again later.`;
     }
     switch (code) {
+      case PRODUCT_NOT_OFFERED_CODE: return "This is no longer offered.";
       case "TRADE_STOCK_RESTRICTED": return "Stock buys aren't available in your location.";
       case "TRADE_NOT_ROUTED": return "This asset can't be traded in Home yet.";
       case "TRADE_ROUTE_UNAVAILABLE": return "No route for this amount. Try a different amount or try again later.";

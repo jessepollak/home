@@ -47,12 +47,14 @@ export default async function ShellPage({
   const cardsEnabled = cardJourneyEnabled();
   if (initialLocation.panel === "card" && !cardsEnabled) redirect("/home");
   const rendered = readRenderSession(await cookies());
-  const { accountPreference, investVisibility, regionOffer } = await readShellPolicyForRender(rendered?.session ?? null);
+  const { accountPreference, investVisibility, productOffering, regionOffer } = await readShellPolicyForRender(rendered?.session ?? null);
+  if (productOffering.products.invest !== "on" && initialLocation.panel === "invest") redirect("/home");
   return (
     <PortfolioHomeExperience
       detectedCountry={readRequestCountry(await headers())}
       regionOffer={regionOffer}
       accountPreference={accountPreference}
+      productOffering={productOffering}
       initialLocation={initialLocation}
       cardsEnabled={cardsEnabled}
       investVisibility={investVisibility}

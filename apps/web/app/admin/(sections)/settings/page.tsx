@@ -3,6 +3,9 @@ import { RegionsPane } from "@/client/admin/regions-pane";
 import { FeeSettingsForm, type FeeSettingsState } from "@/client/operator/fee-settings-form";
 import { FeeSettingsUnavailable } from "@/client/operator/fee-settings-unavailable";
 import { getSqlExecutor } from "@/server/db/sql";
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import { readOperatorPageDecision } from "@/server/operator/page";
 import { readInvestSettingsEntry } from "@/server/operator-settings/invest";
@@ -48,6 +51,10 @@ export default async function SettingsPage() {
   const fees = await readFeeSettings();
   return (
     <OperatorSection address={address} heading="Settings">
+      <Item variant="outline" render={<Link href="/admin/settings/products" />}>
+        <ItemContent><ItemTitle>Products and markets</ItemTitle><ItemDescription>Manage which new entries are offered.</ItemDescription></ItemContent>
+        <ItemActions><ChevronRight className="size-4" aria-hidden="true" /></ItemActions>
+      </Item>
       {regionEntry ? <RegionsPane key={address} initialEntry={regionEntry} operator={address} /> : <OperatorEmpty>{database ? "Region settings are unavailable. Try again shortly." : "Region settings need a database. Home is offering its built-in regions."}</OperatorEmpty>}
       {investEntry ? <InvestPane key={address} initialEntry={investEntry} operator={address} /> : <OperatorEmpty>{database ? "Invest settings are unavailable. Try again shortly." : "Invest settings need a database. Home is showing its full catalog."}</OperatorEmpty>}
       {fees ? <FeeSettingsForm key={address} operator={address} initial={fees} /> : <FeeSettingsUnavailable />}

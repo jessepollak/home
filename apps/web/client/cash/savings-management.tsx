@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import type { RegionId } from "@/config/regions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import { formatPresentationDate, formatPresentationPercentage, formatUsdStablecoinAmount } from "@/shared/formatting";
+import type { ProductOffering } from "@/shared/operator-settings/products";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import { depositOffered } from "./save-offering";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 
 export type SavingsManagementAction = { enabled: boolean; reason: string | null };
@@ -52,7 +54,7 @@ export function formatWadPercent(value: string): string {
   return fraction ? `${whole}.${fraction}%` : `${whole}%`;
 }
 
-export function savingsManagement({ address, snapshot, metadata, nowMs, regionId, actionsAvailable, usdcBaseUnits, usdcUnavailable }: {
+export function savingsManagement({ address, snapshot, metadata, nowMs, regionId, actionsAvailable, usdcBaseUnits, usdcUnavailable, offering }: {
   address: string;
   snapshot: BalancesSnapshot | null;
   metadata: MorphoVaultsResult | null;
@@ -61,6 +63,7 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, regionId
   actionsAvailable: boolean;
   usdcBaseUnits: string | null;
   usdcUnavailable: boolean;
+  offering: ProductOffering;
 }): SavingsManagement {
   const normalized = address.toLowerCase();
   const holding = snapshot?.holdings.find((entry) => entry.kind === "vault-share" && entry.contractAddress?.toLowerCase() === normalized);
@@ -73,7 +76,9 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, regionId
   const depositReason = !actionsAvailable ? "Verify a Base smart account to deposit."
     : usdcUnavailable ? "Couldn't check your Cash balance."
       : metadata === null ? "Rates are unavailable. Try again."
-        : depositCandidate === null ? "Deposits are paused for this vault." : null;
+        : depositCandidate === null ? "Deposits are paused for this vault."
+          : !depositOffered(offering, depositCandidate) ? offering.source === "unavailable" ? "Couldn't check whether this vault is offered." : "This is no longer offered."
+            : null;
   const withdrawReason = !actionsAvailable ? "Verify a Base smart account to withdraw."
     : savedBaseUnits === null ? "Couldn't check this balance."
       : BigInt(savedBaseUnits) === BigInt(0) ? "Nothing saved to withdraw."

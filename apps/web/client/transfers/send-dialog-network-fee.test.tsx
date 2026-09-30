@@ -100,6 +100,17 @@ test("send explains and blocks an amount above the fee-adjusted balance", async 
   await waitFor(() => expect(page().getByLabelText("To")).toBeTruthy());
 });
 
+test("send explains an offer withdrawn during preparation", async () => {
+  renderSend(async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; });
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
+  await waitFor(() => expect((page().getByRole<HTMLButtonElement>("button", { name: "Continue" })).disabled).toBe(false));
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => recipient } });
+  fireEvent.click(page().getByRole("button", { name: "Paste address" }));
+  await waitFor(() => expect((page().getByRole<HTMLButtonElement>("button", { name: "Continue" })).disabled).toBe(false));
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  expect((await page().findByRole("alert")).textContent).toBe("This is no longer offered.");
+});
 test("send shows the exact unfunded prepare message", async () => {
   renderSend(async () => { throw Object.assign(new Error("unfunded"), { status: 409, code: "NETWORK_FEE_UNFUNDED", serverMessage: "Add USDC to cover the network fee." }); });
   fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });

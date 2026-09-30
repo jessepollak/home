@@ -2,6 +2,10 @@
 
 Each operator sets these values for their own instance; this checklist lists what to set and where, never the values themselves.
 
+## Products and markets
+
+At Admin → Settings → Products and markets, a saved settings row wins over deployment values. Without a saved row the pane shows deployment values; reading the pane does not write anything. Review and save to change offerings. Settings only narrow code and credential availability: turning off new entries leaves existing positions and exits available. A first save identical to deployment values leaves the row absent.
+
 ## Hosting project
 
 | Value | Where you set it | Docs |

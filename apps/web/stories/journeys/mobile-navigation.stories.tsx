@@ -4,6 +4,8 @@ import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { AppChromeProvider } from "@/components/app-chrome";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { PrimaryNavigation } from "@/components/primary-navigation";
+import { ProductOfferingProvider } from "@/client/home/product-offering";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { isChromiumEngine, type EngineBrand } from "@/client/liquid-glass/lens-gate";
 import { ShellHeader } from "@/client/home/shell-chrome";
 import { HomeOverview, HomeSectionHeading } from "@/client/home/home-overview";
@@ -191,6 +193,26 @@ async function verifyNav(canvasElement: HTMLElement, selected: "Home" | "Card" |
   await expect(within(nav).getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
   return nav;
 }
+async function verifyExitOnlyNavigation(canvasElement: HTMLElement) {
+  const nav = await verifyNav(canvasElement, "Home");
+  await expect(within(nav).getAllByRole("button")).toHaveLength(1);
+  await expect(within(nav).queryByRole("button", { name: "Invest" })).toBeNull();
+  await new Promise<void>((resolve) => { requestIdleCallback(() => resolve(), { timeout: 2_000 }); });
+  await expect(nav.querySelector("[data-navigation-lens]")).toBeNull();
+  await expect(nav).not.toHaveAttribute("data-lens");
+  const home = within(nav).getByRole("button", { name: "Home" });
+  const pill = nav.querySelector<HTMLElement>("[data-navigation-pill]");
+  if (!pill) throw new Error("Expected the navigation pill to be mounted.");
+  await expect(pill).toBeVisible();
+  await waitFor(async () => {
+    const tab = home.getBoundingClientRect();
+    const rect = pill.getBoundingClientRect();
+    await expect(Math.abs(rect.left - tab.left)).toBeLessThanOrEqual(2);
+    await expect(Math.abs(rect.right - tab.right)).toBeLessThanOrEqual(2);
+    await expect(Math.abs(rect.top - tab.top)).toBeLessThanOrEqual(2);
+    await expect(Math.abs(rect.bottom - tab.bottom)).toBeLessThanOrEqual(2);
+  });
+}
 async function verifySelectionGeometry(nav: HTMLElement, selected: "Home" | "Card" | "Invest") {
   const button = within(nav).getByRole("button", { name: selected });
   await expect(button).toHaveAttribute("aria-current", "page");
@@ -367,6 +389,15 @@ export const HomeLight: Story = { play: async ({ canvasElement }) => {
 } };
 export const HomeDark: Story = { globals: { theme: "dark" }, play: async ({ canvasElement }) => { await verifyNav(canvasElement, "Home"); } };
 export const Invest: Story = { args: { initialPanel: "invest" }, play: async ({ canvasElement }) => { await verifyNav(canvasElement, "Invest"); } };
+export const ExitOnlyInvest: Story = {
+  decorators: [(Story) => <ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}><Story /></ProductOfferingProvider>],
+  play: async ({ canvasElement }) => { await verifyExitOnlyNavigation(canvasElement); },
+};
+export const ExitOnlyInvestNarrow320: Story = {
+  decorators: [(Story) => <ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}><Story /></ProductOfferingProvider>],
+  parameters: { viewport: { defaultViewport: "mobile320" } },
+  play: async ({ canvasElement }) => { await verifyExitOnlyNavigation(canvasElement); },
+};
 export const NestedCash: Story = { args: { initialPanel: "cash" }, play: async ({ canvasElement }) => {
   await verifyNav(canvasElement, "Home");
   await expect(within(canvasElement).getByRole("heading", { name: "Cash", level: 1 })).toBeVisible();

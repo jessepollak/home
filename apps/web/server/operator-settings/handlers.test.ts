@@ -6,6 +6,9 @@ import { parseAllSettingsResponse, parseAuditListResponse, parseOperatorSettings
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "./handlers";
 import { AdminAuditLog } from "./audit";
 import { OperatorSettingsConflictError, OperatorSettingsStore, OperatorSettingsValidationError } from "./store";
+import { deploymentProductSettings } from "@/shared/operator-settings/products";
+import { invalidateProductOffering, readProductOffering } from "./offering";
+import type { SqlExecutor } from "@/server/db/sql";
 
 const X = "0x1111111111111111111111111111111111111111" as const;
 const Y = "0x2222222222222222222222222222222222222222" as const;
@@ -63,6 +66,38 @@ describe("support contract", () => {
     expect(parseOperatorSettingsErrorResponse({ error: { code: "NOT_FOUND" } })).not.toBeNull();
     expect(parseOperatorSettingsErrorResponse({ error: { code: "OPERATOR_CHANGED" }, current: { version: 1, ...entry } })).toEqual({ error: { code: "OPERATOR_CHANGED" }, current: { version: 1, ...entry } });
   });
+});
+
+test("products writes require exactly the compiled catalog and successful PUT invalidates the offering", async () => {
+  let transactions = 0;
+  const products = deploymentProductSettings();
+  const sql: SqlExecutor = {
+    query: async () => ({ rows: [], rowCount: 0 }),
+    transaction: async () => { transactions++; throw new Error("Unexpected SQL write"); },
+  };
+  const realStore = new OperatorSettingsStore(sql);
+  await expect(realStore.write({ domain: "products", value: { ...products, vaults: {} }, expectedRevision: 0, actor: X })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
+  await expect(realStore.write({ domain: "products", value: { ...products, markets: { ...products.markets, [`0x${"c".repeat(64)}`]: "enabled" } }, expectedRevision: 0, actor: X })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
+  expect(transactions).toBe(0);
+  const previous = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  invalidateProductOffering();
+  try {
+    const first = await readProductOffering();
+    const productsContext = { params: Promise.resolve({ domain: "products" }) };
+    const store = { ...fakeStore, hasDomain: (domain: string) => domain === "products", write: async () => ({ domain: "products", settings: { value: products, revision: 1, source: "stored", updatedAt: null, updatedBy: X } }) } as unknown as OperatorSettingsStore;
+    const result = await createSettingsDomainHandlers({ ...deps(), store: () => store }).PUT(request("PUT", "settings/products", { headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 0, value: products, operator: X }) }), productsContext);
+    expect(result.status).toBe(200);
+    const saved = parseSettingsResponse(await result.json());
+    expect(saved?.domain).toBe("products");
+    expect(saved?.settings.value).toEqual(products);
+    expect(saved?.settings.revision).toBe(1);
+    expect(await readProductOffering()).not.toBe(first);
+  } finally {
+    invalidateProductOffering();
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
+  }
 });
 
 test("each endpoint authorizes before accessing stores", async () => {

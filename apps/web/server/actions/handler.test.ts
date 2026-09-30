@@ -5,9 +5,13 @@ import type { ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
+import { VERIFIED_SAVE_VAULTS } from "@/shared/savings/config";
+import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import { createCardAllowanceEligibility } from "@/server/cards/allowance/prepare";
 
 function parseLog(line: string): unknown {
@@ -38,6 +42,13 @@ const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const CALL = { to: ADDRESS, data: "0x1234" as const, value: "0" };
 const HANDLE = "bundle:base-account:fixture";
 const HASH = `0x${"ab".repeat(32)}` as const;
+
+function enabledMarket() {
+  const market = BORROW_MARKETS.find((item) => item.availability === "enabled");
+  if (!market) throw new Error("Expected an enabled borrow market fixture.");
+  return market;
+}
+
 const recorded = async (_owner: MoneyActionOwner, _id: string, input: { outcome: "succeeded" | "reverted" | "not_submitted" }) => ({
   row: { ...row, outcome: input.outcome }, written: true, conflict: false,
 });
@@ -683,7 +694,7 @@ describe("actions HTTP handlers", () => {
         ...row.summary,
         title: "Repay all",
         metadata: {
-          product: "borrow", operation: "repay-all", marketId: HASH,
+          product: "borrow", operation: "repay-all", marketId: HASH, riskIncreased: false,
           loanAsset: { id: "usdc", symbol: "USDC" },
           collateralAsset: { id: "eth", symbol: "ETH" },
           projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null,
@@ -771,6 +782,7 @@ describe("actions HTTP handlers", () => {
     let draft: ActionRow = row;
     const handler = createConfirmActionHandler({ authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
       store: { get: async () => draft, confirm: async () => {
         draft = { ...row, confirmed_at: "2026-09-12T12:05:00.000Z" };
         return draft;
@@ -783,6 +795,114 @@ describe("actions HTTP handlers", () => {
     expect(subscribed).toEqual([ADDRESS]);
     expect((await post()).status).toBe(404);
     expect(subscribed).toEqual([ADDRESS]);
+  });
+  test.each(["send", "savings-deposit", "borrow", "trade"] as const)("re-checks paused unconfirmed %s drafts before committing", async (kind) => {
+    const market = enabledMarket();
+    const metadata = kind === "savings-deposit" ? { product: "savings", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
+      : kind === "borrow" ? { product: "borrow", marketId: market.marketId, riskIncreased: true }
+      : kind === "trade" ? { product: "trade", direction: "buy" } : undefined;
+    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const offering = resolveProductOffering({ kind: "deployment" });
+    const paused = { ...offering, products: { save: "exit-only" as const, borrow: "exit-only" as const, invest: "exit-only" as const, send: "off" as const } };
+    let reads = 0;
+    let confirms = 0;
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; return paused; },
+      store: { get: async () => draft, confirm: async () => { confirms++; throw new Error("Must not confirm"); } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(409);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(reads).toBe(1);
+    expect(confirms).toBe(0);
+  });
+  test.each(["savings-deposit", "borrow"] as const)("rejects late confirm when the %s catalog entry is paused", async (kind) => {
+    const vault = VERIFIED_SAVE_VAULTS[0];
+    const market = enabledMarket();
+    const deployment = resolveProductOffering({ kind: "deployment" });
+    const offering = resolveProductOffering({ kind: "saved", value: { products: deployment.products,
+      vaults: { ...deployment.vaults, [vault.id]: "reducing-only" }, markets: { ...deployment.markets, [market.marketId]: "reducing-only" } } });
+    const metadata = kind === "borrow" ? { product: "borrow", marketId: market.marketId, riskIncreased: true } : { product: "savings", vaultAddress: vault.address };
+    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"), readOffering: async () => offering,
+      store: { get: async () => draft, confirm: async () => { throw new Error("Must not confirm"); } } });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(409);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+  });
+
+  test.each(["savings-withdraw", "repay", "supply-collateral", "withdraw-collateral"] as const)("confirms %s exits without consulting settings", async (kind) => {
+    let reads = 0;
+    const draft = { ...row, kind, summary: { ...row.summary, ...(kind === "withdraw-collateral" ? { metadata: { product: "borrow", riskIncreased: false } as ActionRow["summary"]["metadata"] } : {}) } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async () => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }) },
+    });
+    expect((await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+    expect(reads).toBe(0);
+  });
+  test("confirms an offered cash-out without consulting product settings", async () => {
+    let reads = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      regionOffered: async () => true,
+      markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
+    });
+    expect((await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+    expect(reads).toBe(0);
+  });
+  test.each([
+    ["borrow exit-only", "paused-product", true, 409],
+    ["market reducing-only", "paused-market", true, 409],
+    ["legacy paused", "paused-product", undefined, 409],
+    ["legacy offered", "offered", undefined, 200],
+  ] as const)("re-checks %s collateral withdrawal before confirming", async (_label, offeringMode, riskIncreased, expectedStatus) => {
+    const market = enabledMarket();
+    const deployment = resolveProductOffering({ kind: "deployment" });
+    const offering = offeringMode === "paused-product"
+      ? { ...deployment, products: { ...deployment.products, borrow: "exit-only" as const } }
+      : offeringMode === "paused-market"
+        ? resolveProductOffering({ kind: "saved", value: { products: deployment.products, vaults: deployment.vaults, markets: { ...deployment.markets, [market.marketId]: "reducing-only" } } })
+        : deployment;
+    const draft: ActionRow = { ...row, kind: "withdraw-collateral", summary: { ...row.summary, metadata: { product: "borrow", operation: "withdraw-collateral", marketId: market.marketId,
+      ...(riskIncreased === undefined ? {} : { riskIncreased }), loanAsset: { id: market.loanToken.id, symbol: market.loanToken.symbol },
+      collateralAsset: { id: market.collateralToken.id, symbol: market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null,
+      borrowAprWad: "0", source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1789214400" },
+    } as ActionRow["summary"]["metadata"] } };
+    let reads = 0;
+    let confirms = 0;
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; return offering; }, markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async () => { confirms++; return { ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(expectedStatus);
+    if (expectedStatus === 409) expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(reads).toBe(1);
+    expect(confirms).toBe(expectedStatus === 200 ? 1 : 0);
+  });
+  test("rejects collateral withdrawal without borrow metadata even when Borrow is offered", async () => {
+    const draft = { ...row, kind: "withdraw-collateral" as const };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
+      store: { get: async () => draft, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(409);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+  });
+  test("an offering outage blocks a new send but not an already-confirmed non-entry action", async () => {
+    let reads = 0;
+    const handler = (confirmed: boolean) => createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      store: { get: async () => ({ ...row, confirmed_at: confirmed ? "2026-09-12T12:04:00.000Z" : null }), confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    expect((await handler(false)(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(409);
+    expect((await handler(true)(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
+    expect(reads).toBe(1);
   });
 
   test("confirm returns only the reviewed calls after the store clears pending", async () => {
@@ -827,15 +947,20 @@ describe("actions HTTP handlers", () => {
       approval: { assetId: "usdc", spender: ADDRESS },
     };
     const calls = kind === "send" ? [transfer] : [CALL, approval];
+    const market = enabledMarket();
+    const metadata = kind === "savings-deposit" ? { product: "savings", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
+      : kind === "borrow" || kind === "withdraw-collateral" ? { product: "borrow", marketId: market.marketId, riskIncreased: kind === "borrow" } : null;
     const draft: ActionRow = {
       ...(kind === "cash-out" || kind === "cash-out-withdraw" ? cashoutConfirmRow(kind) : row),
       kind,
+      ...(metadata ? { summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } } : {}),
       pending: { calls },
     };
     const handler = createConfirmActionHandler({
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered: async () => true,
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
       store: {
         get: async () => draft,
         confirm: async (_owner, _id, confirmedCalls) => {

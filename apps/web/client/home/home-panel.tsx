@@ -13,6 +13,7 @@ import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { useSavingsRateLabel } from "@/client/savings/use-savings-rate-label";
 import { useBorrowOfferRate } from "@/client/borrowing/borrowing-experience";
+import { borrowEntryOffered } from "@/client/borrowing/borrow-offering";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { TransferActions } from "@/client/transfers";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
@@ -24,6 +25,7 @@ import { HomeOverview, HomeSectionHeading } from "./home-overview";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
 import { useOptionalHomeShellRouting } from "./panel-routing";
+import { useProductOffering } from "./product-offering";
 
 export function HomePanel({
   assetBalances,
@@ -75,9 +77,10 @@ export function HomePanel({
   const showSessionShimmer = activitySession
     ? !regionReady
     : sessionSettling || isLoading || isRevalidating;
-  const cashRate = useSavingsRateLabel(regionId, regionReady);
+  const offering = useProductOffering();
+  const cashRate = useSavingsRateLabel(regionId, regionReady, offering);
   const borrowOfferRate = useBorrowOfferRate({
-    enabled: assetBalances?.summary?.borrow.kind === "none",
+    enabled: borrowEntryOffered(offering) && assetBalances?.summary?.borrow.kind === "none",
     regionId,
   });
   const activityHeading = <HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>;
@@ -125,6 +128,7 @@ export function HomePanel({
           />
           <PresentationRegionProvider regionId={regionId}>
             <TransferActions
+              sendOffered={offering.products.send === "on"}
               initialOpen={initialSendFlow}
               initialActionId={initialSendActionId}
               availableAssets={sendAvailability}

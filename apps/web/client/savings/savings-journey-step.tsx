@@ -39,6 +39,7 @@ import {
   formatPresentationPercentage,
   formatUsdStablecoinAmount,
 } from "@/shared/formatting";
+import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 import { readSavingsPreparedReview, type SavingsPreparedReview } from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import { verifiedCashCurrency } from "@/config/portfolio-assets";
@@ -311,6 +312,11 @@ export function SavingsJourneyStep({
         setSubmission("ambiguous");
         setStep("result");
       } else {
+        if (isRecord(caught) && caught.code === PRODUCT_NOT_OFFERED_CODE) {
+          setError("This is no longer offered.");
+          setStep("confirm");
+          return;
+        }
         if (isRecord(caught) && caught.code === "ACTION_EXPIRED") {
           setAttemptedAction(false);
           setServerExpiredActionId(preparedAction.id);
@@ -509,6 +515,7 @@ function messageForPrepareError(error: unknown): string {
   if (error instanceof SavingsActionClientError) return error.message;
   const status = isRecord(error) && typeof error.status === "number" ? error.status : null;
   const code = isRecord(error) && typeof error.code === "string" ? error.code : null;
+  if (code === PRODUCT_NOT_OFFERED_CODE) return "This is no longer offered.";
   const serverMessage = isRecord(error) && typeof error.serverMessage === "string"
     ? error.serverMessage
     : null;

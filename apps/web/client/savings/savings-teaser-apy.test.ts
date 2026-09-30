@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { RegionId } from "@/config/regions";
+import { resolveProductOffering, type ProductOffering } from "@/shared/operator-settings/products";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { summarizeSavingsPortfolio } from "./portfolio-summary";
@@ -42,11 +43,13 @@ function scenario({
   rates,
   stale = false,
   regionId = "GLOBAL",
+  offering = resolveProductOffering({ kind: "deployment" }),
 }: {
   balances: readonly [string, string];
   rates: readonly [number | null, number | null];
   stale?: boolean;
   regionId?: RegionId;
+  offering?: ProductOffering;
 }) {
   const candidates = [candidate(VAULT_A, rates[0]), candidate(VAULT_B, rates[1])];
   const metadata = {
@@ -70,7 +73,7 @@ function scenario({
     nowMs: NOW,
   });
   return {
-    label: savingsTeaserApyLabel({ summary, candidates, metadata, nowMs: NOW, regionId }),
+    label: savingsTeaserApyLabel({ summary, offering, candidates, metadata, nowMs: NOW, regionId }),
     summary,
   };
 }
@@ -124,6 +127,19 @@ describe("savings teaser APY", () => {
     }
   });
 
+  test("hides the unfunded public offer when Save is exit-only but keeps funded APY", () => {
+    const offering = resolveProductOffering({
+      kind: "saved",
+      value: {
+        products: { save: "exit-only", borrow: "on", invest: "on", send: "on" },
+        vaults: {},
+        markets: {},
+      },
+    });
+    expect(scenario({ balances: ["0", "0"], rates: [0.04, 0.06], offering }).label).toBeNull();
+    expect(scenario({ balances: ["100000000", "300000000"], rates: [0.04, 0.06], offering }).label).toBe("5.50% APY");
+  });
+
   test("keeps numeric stale public offers, including zero, but omits unknown rates", () => {
     const stale = scenario({ balances: ["0", "0"], rates: [0.04, 0.06], stale: true });
     expect(stale.label).toBe("Up to 6.00% APY");
@@ -145,6 +161,7 @@ describe("savings teaser APY", () => {
     expect(savingsTeaserApyLabel({
       regionId: "GLOBAL",
       summary: null,
+      offering: resolveProductOffering({ kind: "deployment" }),
       candidates: metadata.candidates,
       metadata,
       nowMs: NOW,
