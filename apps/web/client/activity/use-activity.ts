@@ -138,6 +138,25 @@ function waitForActivityRetry(delayMs: number, signal: AbortSignal): Promise<voi
   });
 }
 
+function retainFreshCards(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  cached: Query | undefined,
+  dataUpdateCount: number | undefined,
+  page: ActivityPage,
+  signal: AbortSignal,
+) {
+  if (signal.aborted || page.cards === undefined) return;
+  const query = queryClient.getQueryCache().find({ queryKey, exact: true });
+  if (!query || query !== cached || query.state.dataUpdateCount !== dataUpdateCount) return;
+  const data = queryClient.getQueryData<InfiniteData<ActivityPage>>(queryKey);
+  const [first, ...rest] = data?.pages ?? [];
+  if (!data || !first || !data.pages.some((known) => known.onchainStatus !== "unavailable")) return;
+  queryClient.setQueryData<InfiniteData<ActivityPage>>(queryKey, {
+    ...data, pages: [{ ...first, cards: page.cards }, ...rest],
+  }, { updatedAt: query.state.dataUpdatedAt });
+}
+
 function activityQueryOptions(input: {
   session: VerifiedAccountSession | null;
   ownerKey: string;
@@ -181,15 +200,25 @@ function activityQueryOptions(input: {
       if (pageParam) {
         page = await readPage();
       } else {
+        let retained: { page: ActivityPage; cached: Query | undefined; dataUpdateCount: number | undefined } | undefined;
         for (let attempt = 0; ; attempt += 1) {
+          const cached = queryClient.getQueryCache().find({ queryKey, exact: true });
+          const dataUpdateCount = cached?.state.dataUpdateCount;
           const result = await readPage().then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
           if (!result.ok) {
-            if (signal.aborted || !isTransientActivityFailure(result.error) || attempt === activityFirstPageRetryDelaysMs.length) throw result.error;
+            if (signal.aborted || !isTransientActivityFailure(result.error) || attempt === activityFirstPageRetryDelaysMs.length) {
+              if (retained) retainFreshCards(queryClient, queryKey, retained.cached, retained.dataUpdateCount, retained.page, signal);
+              throw result.error;
+            }
           } else {
             page = result.value;
             if (page.onchainStatus !== "unavailable") break;
+            retained = { page, cached, dataUpdateCount };
             if (attempt === activityFirstPageRetryDelaysMs.length) {
-              if (hasHealthyHistory) throw new Error("Activity onchain history is unavailable.");
+              if (hasHealthyHistory) {
+                retainFreshCards(queryClient, queryKey, cached, dataUpdateCount, page, signal);
+                throw new Error("Activity onchain history is unavailable.");
+              }
               break;
             }
           }

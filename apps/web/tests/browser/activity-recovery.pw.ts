@@ -8,8 +8,9 @@ const wallet = sessionBody.smartAccount.address;
 const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const warning = "Some activity is unavailable";
 const merchant = "Fixture Coffee";
+const freshMerchant = "Fixture Bakery";
 
-function activityResponse(url: URL, partial: boolean) {
+function activityResponse(url: URL, partial: boolean, freshCard = false) {
   const to = url.searchParams.get("to")!;
   const currency = url.searchParams.get("currency") ?? "USD";
   return {
@@ -50,7 +51,18 @@ function activityResponse(url: URL, partial: boolean) {
       declineReasonCode: null,
       createdAt: new Date(Date.parse(to) - 30 * 60_000).toISOString(),
       updatedAt: new Date(Date.parse(to) - 30 * 60_000).toISOString(),
-    }] },
+    }, ...(freshCard ? [{
+      id: "ipi_fixturerecovery2",
+      kind: "transaction",
+      amountMinor: "725",
+      currency: "USD",
+      merchantName: freshMerchant,
+      merchantCategory: null,
+      status: "completed",
+      declineReasonCode: null,
+      createdAt: new Date(Date.parse(to) - 10 * 60_000).toISOString(),
+      updatedAt: new Date(Date.parse(to) - 10 * 60_000).toISOString(),
+    }] : [])] },
     nextCursor: null,
     source: partial ? null : {
       provider: "cdp-sql",
@@ -86,21 +98,53 @@ async function setup(page: Page) {
   return { feed, rows: feed.getByRole("button", { name: /^(Received|Sent) .*USDC$/ }) };
 }
 
-test("background revalidation keeps loaded rows when onchain history is briefly unavailable", async ({ page }) => {
+test("background revalidation keeps loaded rows and shows fresh card purchases when onchain history is briefly unavailable", async ({ page }) => {
   const { feed, rows } = await setup(page);
   let reads = 0;
   await page.route("**/api/activity*", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
     reads++;
-    return json(route, activityResponse(url, reads > 1));
+    return json(route, activityResponse(url, reads > 1, reads > 1));
   });
   await page.goto("/home");
   await expect(rows).toHaveCount(3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
   await page.clock.fastForward(11_000);
   await requestBackgroundRevalidation(page, () => reads, 1);
   await page.clock.runFor(2_500);
   await expect(rows).toHaveCount(3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("a partial revalidation keeps its fresh card purchases when the remaining retries fail", async ({ page }) => {
+  const { feed, rows } = await setup(page);
+  let reads = 0;
+  await page.route("**/api/activity*", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    reads++;
+    if (reads === 1) return json(route, activityResponse(url, false));
+    if (reads === 2) return json(route, activityResponse(url, true, true));
+    return route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { code: "ACTIVITY_UPSTREAM", message: "Recent Base activity could not be loaded." } }),
+    });
+  });
+  await page.goto("/home");
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
+  await page.clock.fastForward(11_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(() => reads).toBeGreaterThan(1);
+  await expect.poll(async () => {
+    await page.clock.runFor(1_000);
+    return reads;
+  }, { timeout: 15_000 }).toBeGreaterThanOrEqual(4);
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
