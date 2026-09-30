@@ -29,6 +29,7 @@ import {
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
+import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
 import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
 import { MethodShimmerRow } from "./method-skeleton";
 import { ReceiveQr } from "./receive-qr";
@@ -468,7 +469,7 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
 function supportedRegionalAsset(
   currency: FiatCurrencyCode | null,
 ): DirectPortfolioAsset | null {
-  if (!currency || currency === "USD") return null;
+  if (!currency || !receiveSupportedCashCurrencies.some((supported) => supported === currency)) return null;
   const configured = verifiedLocalCashAssets as Partial<
     Record<FiatCurrencyCode, DirectPortfolioAsset>
   >;

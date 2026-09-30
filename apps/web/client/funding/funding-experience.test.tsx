@@ -7,6 +7,8 @@ import { useState } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
 import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
 import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
@@ -599,8 +601,36 @@ describe("FundingExperience", () => {
     const supportedAssets = page().getByRole("region", {
       name: "Supported receive assets on Base",
     });
+    expect(verifiedLocalCashAssets.BRL.symbol).toBe("wBRL");
     expect(supportedAssets.textContent).toContain("USDC");
     expect(supportedAssets.textContent).not.toContain("wBRL");
+  });
+
+  test.each([
+    ["DE", "EURC"],
+    ["ID", "IDRX"],
+  ] as const)("presents admitted %s receive asset %s", async (regionId, symbol) => {
+    await act(async () => {
+      render(
+        <FundingExperienceForWallet
+          wallet={verifiedWallet()}
+          navigateToRedirect={() => {}}
+          initialStep="receive"
+          regionId={regionId}
+        />,
+      );
+    });
+    const supportedAssets = page().getByRole("region", {
+      name: "Supported receive assets on Base",
+    });
+    expect(supportedAssets.textContent).toContain("USDC");
+    expect(supportedAssets.textContent).toContain(symbol);
+  });
+
+  test("admits only receive currencies with verified display identities", () => {
+    for (const currency of receiveSupportedCashCurrencies) {
+      expect(Object.hasOwn(verifiedLocalCashAssets, currency)).toBe(true);
+    }
   });
 
   test("keeps provider bindings visible and disabled until a failed open-order read is retried", async () => {
