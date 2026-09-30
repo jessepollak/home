@@ -26,8 +26,8 @@ import {
 } from "./select";
 
 describe("balance selectors", () => {
-  test("selects only positive ready registry transfer assets with base units", () => {
-    const snapshot = buildBalancesSnapshotFixture({
+  test.each([
+    { name: "omits zero, vault, and catalog holdings", snapshot: buildBalancesSnapshotFixture({
       registry: {
         usdc: { balance: ready("0") },
         cbbtc: { balance: ready("100000") },
@@ -35,12 +35,27 @@ describe("balance selectors", () => {
         "morpho-steakhouse-usdc": { balance: ready("1"), underlyingBalance: ready("5") },
       },
       catalog: balancesSnapshotFixture.holdings.filter((holding) => holding.source === "catalog"),
-    });
-
-    expect(selectSendable(snapshot)).toEqual([
+    }), expected: [
       { ...getTransferAsset("eth")!, balanceBaseUnits: "1" },
       { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "100000" },
-    ]);
+    ] },
+    { name: "includes positive ready registry assets in snapshot order", snapshot: buildBalancesSnapshotFixture({
+      registry: { usdc: { balance: ready("12340000") }, cbbtc: { balance: ready("100000") }, eth: { balance: ready("10000000000000000") } },
+    }), expected: [
+      { ...getTransferAsset("eth")!, balanceBaseUnits: "10000000000000000" },
+      { ...getTransferAsset("usdc")!, balanceBaseUnits: "12340000" },
+      { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "100000" },
+    ] },
+    { name: "omits unavailable assets alongside zero, vault, and catalog holdings", snapshot: buildBalancesSnapshotFixture({
+      registry: {
+        usdc: { balance: ready("0") },
+        cbbtc: { balance: unavailableBalance },
+        "morpho-steakhouse-usdc": { balance: ready("1"), underlyingBalance: ready("1") },
+      },
+      catalog: [catalogHolding(FIXTURE_CATALOG.priced, "1", priced("USD", "1"))],
+    }), expected: [] },
+  ])("$name", ({ snapshot, expected }) => {
+    expect(selectSendable(snapshot)).toEqual([...expected]);
   });
 
   test("shapes vault positions and preserves unavailable underlying balances", () => {

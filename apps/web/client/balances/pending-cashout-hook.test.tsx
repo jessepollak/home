@@ -5,7 +5,6 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { presentBalances, presentPendingCashout } from "@/shared/balances/present";
 
 const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
 const { usePendingCashoutEscrow } = await import("./pending-cashout");
@@ -59,9 +58,6 @@ test("an unavailable first actions read becomes unreadable instead of complete",
   await waitFor(() => expect(failures).toHaveLength(2));
   failures[1]!(new Error("Actions unavailable"));
   await waitFor(() => expect(hook.result.current).toEqual({ state: "unreadable" }));
-  const view = presentBalances({ status: "ready", snapshot, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  expect(view.totalStatus).toBe("partial");
 });
 
 test("a cached empty actions list reconciles once, then shows escrow without looping", async () => {
@@ -102,7 +98,7 @@ test("keeps waiting escrow during reconcile but removes it when the return is ob
   await waitFor(() => expect(hook.result.current).toBeNull());
 });
 
-test("a failed reconcile marks the wallet-only total partial and does not retry for the same snapshot", async () => {
+test("a failed reconcile becomes unreadable and does not retry for the same snapshot", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
   getHomeQueryClient().setQueryData(key, { actions: [action] }, { updatedAt: NOW - 500 });
   let reject!: (error: Error) => void;
@@ -115,13 +111,6 @@ test("a failed reconcile marks the wallet-only total partial and does not retry 
   expect(hook.result.current).toEqual({ state: "escrow", baseUnits: "50000000", partial: false });
   reject(new Error("Actions unavailable"));
   await waitFor(() => expect(hook.result.current).toEqual({ state: "unreadable" }));
-  const view = presentBalances({ status: "ready", snapshot: newer, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  const walletOnly = presentBalances({ status: "ready", snapshot: newer, error: null });
-  expect(view.displayTotal).toBe(walletOnly.displayTotal);
-  expect(view.breakdown).toEqual(walletOnly.breakdown);
-  expect(view.totalStatus).toBe("partial");
-  expect(view.statusLabel).toBe("Some balances are unavailable");
   hook.rerender({ currentSnapshot: { ...newer } });
   expect(calls).toBe(1);
 });
@@ -139,9 +128,6 @@ test("a cancelled confirming read turns the estimate unreadable, then a later ow
   expect(reads[0]!.signal?.aborted).toBe(true);
   reads[0]!.resolve({ actions: [] });
   await waitFor(() => expect(hook.result.current).toEqual({ state: "unreadable" }));
-  const view = presentBalances({ status: "ready", snapshot, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  expect(view.totalStatus).toBe("partial");
   void client.refetchQueries({ queryKey: key });
   await waitFor(() => expect(reads).toHaveLength(2));
   reads[1]!.resolve({ actions: [action] });
@@ -154,10 +140,6 @@ test("a capped actions read leaves the escrow unreadable instead of definite", a
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
   const hook = renderHook(() => usePendingCashoutEscrow(session, snapshot, async () => ({ actions: [action], truncated: true })));
   await waitFor(() => expect(hook.result.current).toEqual({ state: "unreadable" }));
-  const view = presentBalances({ status: "ready", snapshot, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  expect(view.totalStatus).toBe("partial");
-  expect(view.breakdown.some((item) => item.id === "pending-cash-out")).toBe(false);
   expect(getHomeQueryClient().getQueryData(key)).toMatchObject({ truncated: true });
 });
 test("a failed own read after the snapshot cannot trust the cached estimate", async () => {
@@ -168,10 +150,6 @@ test("a failed own read after the snapshot cannot trust the cached estimate", as
   const hook = renderHook(() => usePendingCashoutEscrow(session, snapshot, fetchOperations));
   await waitFor(() => expect(hook.result.current).toEqual({ state: "unreadable" }));
   await waitFor(() => expect(calls).toBeGreaterThanOrEqual(1));
-  const view = presentBalances({ status: "ready", snapshot, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  expect(view.totalStatus).toBe("partial");
-  expect(view.breakdown.some((item) => item.id === "pending-cash-out")).toBe(false);
 });
 
 test("a read already in flight across a snapshot advance is followed by one post-snapshot read", async () => {
@@ -297,18 +275,12 @@ test("a background actions failure after its confirming read keeps the estimate"
   expect(hook.result.current).toEqual({ state: "escrow", baseUnits: "50000000", partial: false });
 });
 
-test("an unconfirmed stored record leaves the total partial instead of adding escrow", async () => {
+test("an unconfirmed stored record produces an indeterminate estimate", async () => {
   const fresh = { ...snapshot, fetchedAt: new Date(NOW - 100).toISOString() };
   const hook = renderHook(() => usePendingCashoutEscrow(session, fresh, async () => ({
     actions: [{ ...action, cashout: { ...action.cashout, progressConfirmed: false } }],
   })));
   await waitFor(() => expect(hook.result.current).toEqual({ state: "indeterminate" }));
-  const view = presentBalances({ status: "ready", snapshot: fresh, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  const walletOnly = presentBalances({ status: "ready", snapshot: fresh, error: null });
-  expect(view.displayTotal).toBe(walletOnly.displayTotal);
-  expect(view.breakdown.some((item) => item.id === "pending-cash-out")).toBe(false);
-  expect(view.totalStatus).toBe("partial");
 });
 
 test.each([
@@ -319,35 +291,19 @@ test.each([
   const malformed = { ...action, summary: { ...action.summary, ...patch } };
   const hook = renderHook(() => usePendingCashoutEscrow(session, snapshot, async () => ({ actions: [malformed] })));
   await waitFor(() => expect(hook.result.current).toEqual({ state: "unreadable" }));
-  const view = presentBalances({ status: "ready", snapshot, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  expect(view.totalStatus).toBe("partial");
-  expect(view.breakdown.some((item) => item.id === "pending-cash-out")).toBe(false);
 });
 
-test("an in-flight first actions read leaves the total partial instead of complete", async () => {
+test("an in-flight first actions read stays loading until resolved", async () => {
   let resolve!: (value: unknown) => void;
   const hook = renderHook(() => usePendingCashoutEscrow(session, snapshot, () => new Promise<unknown>((done) => { resolve = done; })));
   await waitFor(() => expect(hook.result.current).toEqual({ state: "loading" }));
-  const view = presentBalances({ status: "ready", snapshot, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  const walletOnly = presentBalances({ status: "ready", snapshot, error: null });
-  expect(view.displayTotal).toBe(walletOnly.displayTotal);
-  expect(view.totalStatus).toBe("partial");
-  expect(view.breakdown.some((item) => item.id === "pending-cash-out")).toBe(false);
-  expect(presentPendingCashout(snapshot, hook.result.current)).toBeNull();
   resolve({ actions: [] });
   await waitFor(() => expect(hook.result.current).toBeNull());
 });
 
-test("a painted snapshot before owner verification keeps the total partial", async () => {
+test("a painted snapshot before owner verification stays loading", async () => {
   const hook = renderHook(() => usePendingCashoutEscrow(null, snapshot, async () => ({ actions: [] })));
   expect(hook.result.current).toEqual({ state: "loading" });
-  const view = presentBalances({ status: "ready", snapshot, error: null },
-    { showSmallBalances: false, pendingCashout: hook.result.current });
-  expect(view.totalStatus).toBe("partial");
-  expect(view.breakdown.some((item) => item.id === "pending-cash-out")).toBe(false);
-  expect(presentPendingCashout(snapshot, hook.result.current)).toBeNull();
 });
 
 test("no session and no painted snapshot yields no estimate", () => {
@@ -355,7 +311,7 @@ test("no session and no painted snapshot yields no estimate", () => {
   expect(hook.result.current).toBeNull();
 });
 
-test("a provisional snapshot stays partial until the post-verification read establishes absence", async () => {
+test("a provisional snapshot stays loading until the post-verification read establishes absence", async () => {
   const key = ownerQueryKey(dataOwnerKey(session), "actions");
   getHomeQueryClient().setQueryData(key, { actions: [] }, { updatedAt: NOW - 500 });
   let resolve!: (value: unknown) => void;

@@ -5,7 +5,6 @@ import { act, cleanup, render } from "@testing-library/react";
 import { MountedShellPanel } from "@/client/home/panel-shared";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
-import { estimateSavingsGrowthBaseUnits } from "./estimated-growth";
 import { createSavingsGrowthAnchor, useEstimatedSavingsGrowth, type SavingsGrowthAnchor, type SavingsGrowthAuthority } from "./use-estimated-growth";
 
 let hidden = false;
@@ -128,11 +127,11 @@ describe("Save estimated-growth owner", () => {
     expect(now).toHaveBeenCalledTimes(1);
     void act(() => jest.advanceTimersByTime(0));
     expect(now).toHaveBeenCalledTimes(2);
-    expect(view.container.textContent).toBe(estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString());
+    expect(view.container.textContent).toBe("1000000362671982829");
     wall += 60_000;
     void act(() => jest.advanceTimersByTime(250));
     expect(now).toHaveBeenCalledTimes(3);
-    expect(view.container.textContent).toBe(estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString());
+    expect(view.container.textContent).toBe("1000000544008023567");
   });
 
   test("closes a queued callback race while hidden and expires to B0 on resume", () => {
@@ -160,15 +159,11 @@ describe("Save estimated-growth owner", () => {
     const view = render(<Harness value={value} now={() => wall} />);
 
     void act(() => jest.advanceTimersByTime(250));
-    expect(view.container.textContent).toBe(
-      estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString(),
-    );
+    expect(view.container.textContent).toBe("1000000181335974973");
 
     wall += 60_000;
     void act(() => jest.advanceTimersByTime(250));
-    expect(view.container.textContent).toBe(
-      estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString(),
-    );
+    expect(view.container.textContent).toBe("1000000362671982829");
   });
 
   test("reconciles higher and lower identities synchronously without a stale frame", () => {
@@ -227,7 +222,7 @@ describe("Save estimated-growth owner", () => {
       expect(now.mock.calls.length, entry.name).toBe(entry.samples);
       expect(view.container.textContent, entry.name).toBe(
         entry.displayed === "estimate"
-          ? estimateSavingsGrowthBaseUnits(entry.value.estimate!, wall).toString()
+          ? "1000000181335974973"
           : amount.toString(),
       );
       view.unmount();
@@ -243,7 +238,7 @@ describe("Save estimated-growth owner", () => {
     const view = render(<Harness value={value} now={now} />);
 
     void act(() => jest.advanceTimersByTime(250));
-    const grown = estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString();
+    const grown = "1000000181335974973";
     expect(view.container.textContent).toBe(grown);
 
     act(() => setReducedMotion(true));
@@ -258,7 +253,7 @@ describe("Save estimated-growth owner", () => {
     expect(view.container.textContent).toBe(amount.toString());
     void act(() => jest.advanceTimersByTime(250));
     expect(now).toHaveBeenCalledTimes(2);
-    const resumed = estimateSavingsGrowthBaseUnits(value.estimate!, wall).toString();
+    const resumed = "1000000362671982829";
     expect(view.container.textContent).toBe(resumed);
     expect(resumed).not.toBe(grown);
   });

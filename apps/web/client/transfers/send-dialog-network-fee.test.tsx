@@ -111,7 +111,7 @@ test("send shows the exact unfunded prepare message", async () => {
   expect((await page().findByRole("alert")).textContent).toBe("Add USDC to cover the network fee.");
 });
 
-test("send shows the unavailable prepare message instead of an invalid recipient", async () => {
+test("send shows the unavailable prepare message for a valid recipient", async () => {
   renderSend(async () => { throw Object.assign(new Error("unavailable"), { status: 502, code: "NETWORK_FEE_UNAVAILABLE", serverMessage: "The network fee could not be checked. Try again." }); });
   fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
   await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
