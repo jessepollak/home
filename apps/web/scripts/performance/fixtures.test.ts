@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { isAddress } from "viem";
 import { BORROW_MARKETS } from "../../shared/borrowing/config";
 import { parseBorrowOverview } from "../../shared/borrowing/contract";
 import { parseMarketPricesResponse } from "../../shared/invest/contracts/market-prices";
@@ -13,7 +14,8 @@ test("performance market-prices fixture passes the client contract", () => {
 });
 
 test("performance borrow fixture covers every configured market as an unavailable read", () => {
-  const owner = sessionBody.smartAccount.address as `0x${string}`;
+  const owner = sessionBody.smartAccount.address;
+  if (!isAddress(owner)) throw new Error("fixture session owner is not an address");
   const parsed = parseBorrowOverview(performanceBorrowOverview, owner);
   expect(BORROW_MARKETS.length).toBeGreaterThan(1);
   expect(parsed?.opportunities).toHaveLength(BORROW_MARKETS.length);

@@ -26,24 +26,25 @@ for (const host of ["main", "document"] as const) {
       ? "body { margin: 0; overflow: hidden } main { height: 100vh; overflow-y: auto }"
       : "body { margin: 0 } main { overflow-y: visible }";
     await page.setContent(`${viewportMeta}<style>${style}</style>${activityMarkup(rows(300, 40, true))}`);
-    await page.evaluate(() => { (window as typeof window & { __perfHistory: number }).__perfHistory = 0; });
+    await page.evaluate(() => { Reflect.set(window, "__perfHistory", 0); });
     const position = { x: 195, y: 422 };
     expect(await page.evaluate(feedScrollHost, position)).toMatchObject({ host });
     await page.evaluate((selected) => {
-      const node = selected === "main" ? document.querySelector<HTMLElement>("main[data-app-main-authenticated]")! : document.scrollingElement!;
+      const node = selected === "main" ? document.querySelector<HTMLElement>("main[data-app-main-authenticated]") : document.scrollingElement;
+      if (!node) throw new Error(`missing ${selected} scroll host`);
       node.scrollTop = 200;
-      const w = window as typeof window & { __maxScroll: number };
-      w.__maxScroll = 0;
-      const record = () => { w.__maxScroll = Math.max(w.__maxScroll, node.scrollTop); };
+      let max = 0;
+      Reflect.set(window, "__maxScroll", max);
+      const record = () => { max = Math.max(max, node.scrollTop); Reflect.set(window, "__maxScroll", max); };
       if (selected === "main") node.addEventListener("scroll", record);
       else window.addEventListener("scroll", record);
     }, host);
-    const session = { page, cdp, cpu: { requested: 4, applied: 1 } } as Session;
+    const session: Session = { page, context, cdp, cpu: { requested: 4, applied: 1 } };
     await setCpuRate(session, 4);
     const result = await fling(session);
     const observed = await page.evaluate((selected) => ({
-      max: (window as typeof window & { __maxScroll: number }).__maxScroll,
-      top: selected === "main" ? document.querySelector<HTMLElement>("main[data-app-main-authenticated]")!.scrollTop : window.scrollY,
+      max: Number(Reflect.get(window, "__maxScroll")),
+      top: selected === "main" ? document.querySelector<HTMLElement>("main[data-app-main-authenticated]")?.scrollTop ?? Number.NaN : window.scrollY,
       documentTop: window.scrollY,
     }), host);
     expect(result.scrollHost).toBe(host);
@@ -61,17 +62,21 @@ test("fling rejects when a narrow scrollable main is outside the gesture and the
   expect(scroll.host).toBe("document");
   expect(scroll.height - scroll.viewport).toBeLessThanOrEqual(64);
   expect(await page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]")!;
-    return main.scrollHeight - main.clientHeight;
+    const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+    return main ? main.scrollHeight - main.clientHeight : Number.NaN;
   })).toBeGreaterThan(64);
-  const session = { page, cdp: await context.newCDPSession(page) } as Session;
+  const session: Session = { page, context, cdp: await context.newCDPSession(page), cpu: { requested: 1, applied: 1 } };
   await expect(fling(session)).rejects.toThrow("Fling selected non-scrollable document scroll host");
 });
 
 test("feed scroll host ignores a non-scrollable main and a main outside the gesture", async ({ page }) => {
   await page.setContent(`${viewportMeta}<style>body { margin: 0 } main { height: 200px; overflow-y: auto } li { height: 40px }</style><main data-app-main-authenticated><ul><li>One</li></ul></main>`);
   expect(await page.evaluate(feedScrollHost, { x: 195, y: 100 })).toMatchObject({ host: "document" });
-  await page.evaluate(() => { document.querySelector("ul")!.innerHTML = "<li>More</li>".repeat(100); });
+  await page.evaluate(() => {
+    const list = document.querySelector("ul");
+    if (!list) throw new Error("missing list");
+    list.innerHTML = "<li>More</li>".repeat(100);
+  });
   expect(await page.evaluate(feedScrollHost, { x: 195, y: 422 })).toMatchObject({ host: "document" });
   expect(await page.evaluate(feedScrollHost, { x: 195, y: 100 })).toMatchObject({ host: "main" });
 });
@@ -85,13 +90,14 @@ for (const host of ["main", "document"] as const) {
       : "body { margin: 0 } main { overflow-y: visible }";
     await page.setContent(`${viewportMeta}<style>${style}</style>${activityMarkup(rows(25, 48))}`);
     await page.evaluate((selected) => {
-      const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]")!;
-      const scroller = selected === "main" ? main : document.scrollingElement!;
+      const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+      const scroller = selected === "main" ? main : document.scrollingElement;
+      const list = document.querySelector("section ul");
+      if (!main || !scroller || !list) throw new Error("missing feed fixture");
       const target = selected === "main" ? main : window;
       let next = 2;
       target.addEventListener("scroll", () => {
         if (next > 3 || scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 5) return;
-        const list = document.querySelector("section ul")!;
         for (let i = 0; i < 25; i++) {
           const row = document.createElement("li");
           row.style.height = "48px";
@@ -104,15 +110,16 @@ for (const host of ["main", "document"] as const) {
           end.textContent = "End of activity";
           list.after(end);
         }
-        void (window as typeof window & { feedPageLoaded: (number: number) => Promise<void> }).feedPageLoaded(next++);
+        const notify: unknown = Reflect.get(window, "feedPageLoaded");
+        if (typeof notify === "function") void notify(next++);
       });
     }, host);
-    const session = { page, cdp: await context.newCDPSession(page), cpu: { requested: 4, applied: 1 } } as Session;
+    const session: Session = { page, context, cdp: await context.newCDPSession(page), cpu: { requested: 4, applied: 1 } };
     await fillFeed(session, 75, () => loaded.length === 2);
     expect(loaded).toEqual([2, 3]);
     expect(await page.locator('section[aria-label="Activity"] ul li').count()).toBe(75);
     expect(await page.locator('section[aria-label="Activity"] [role="status"]').isVisible()).toBe(true);
-    const scroll = await page.evaluate(() => ({ main: document.querySelector<HTMLElement>("main")!.scrollTop, document: window.scrollY }));
+    const scroll = await page.evaluate(() => ({ main: document.querySelector<HTMLElement>("main")?.scrollTop ?? Number.NaN, document: window.scrollY }));
     expect(scroll[host]).toBeGreaterThan(0);
     expect(scroll[host === "main" ? "document" : "main"]).toBe(0);
     expect(session.cpu.applied).toBe(4);

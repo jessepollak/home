@@ -5,8 +5,9 @@ const floatingNavigationOffset = 12;
 
 async function shellGeometry(page: Page) {
   return page.evaluate(() => {
-    const header = document.querySelector<HTMLElement>("header")!;
-    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)')!;
+    const header = document.querySelector<HTMLElement>("header");
+    const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
+    if (!header || !nav) throw new Error("shell header or navigation is missing");
     return {
       scrollY: window.scrollY,
       documentHeight: document.documentElement.scrollHeight,

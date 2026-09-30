@@ -403,9 +403,9 @@ test("compacts 5×10 navigation sessions with ordered legs, rounded intervals an
   expect(baselineMismatches(comparison, mainScroll)).toContain("fling.scrollHost");
   expect(baselineMismatches(comparison, { ...comparison, fling: { ...fling, flings: fling.flings.map(({ scrollHost: _host, ...row }) => row) } }))
     .toContain("fling.scrollHost: missing or mixed in baseline");
-  expect(baselineMismatches(comparison, { ...mainScroll, fling: { ...fling, flings: [fling.flings[0]!, mainScroll.fling.flings[1]!] } }))
+  expect(baselineMismatches(comparison, { ...mainScroll, fling: { ...fling, flings: [...fling.flings.slice(0, 1), ...mainScroll.fling.flings.slice(1, 2)] } }))
     .toContain("fling.scrollHost: missing or mixed in baseline");
-  expect(baselineMismatches(mainScroll, { ...comparison, fling: { ...fling, flings: [fling.flings[0]!, mainScroll.fling.flings[1]!] } }))
+  expect(baselineMismatches(mainScroll, { ...comparison, fling: { ...fling, flings: [...fling.flings.slice(0, 1), ...mainScroll.fling.flings.slice(1, 2)] } }))
     .toContain("fling.scrollHost: missing or mixed in baseline");
   expect(baselineMismatches(mainScroll, comparison)).toContain("fling.scrollHost");
   expect(navigationMarkdown(comparison, previousResults)).toContain("| Group | Baseline p95 ms");

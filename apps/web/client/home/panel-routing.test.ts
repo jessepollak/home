@@ -79,7 +79,11 @@ afterEach(() => cleanup());
 
 describe("activity return owner boundary", () => {
   test("clears a remembered detail after an owner change and keeps it through a same-owner revalidation", () => {
-    const item = { id: "detail" } as unknown as ActivityDetailReturn["item"];
+    const item: ActivityDetailReturn["item"] = {
+      id: "detail", family: "onchain-transfer", status: "confirmed", timestamp: "2026-09-23T12:00:00.000Z",
+      dateLabel: "Today", title: "Received", amount: "+$200.00", direction: "in",
+      detail: { family: "onchain-transfer", counterpartyLabel: "From", counterparty: "alex.base.eth", network: "Base" },
+    };
     let stored: ActivityDetailReturn | null = {
       ownerKey: "A", panel: "activity", path: "/activity", item, opening: false, suspended: false,
     };

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { activityOrdersFixture, marketPricesFixture } from "./feature-map/fixtures";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { isRecord } from "../../shared/guards";
 import { borrowOverviewBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 
@@ -262,11 +263,11 @@ test("closing a deep-linked Borrow market reuses the overview history entry", as
   const overview = borrowOverviewBody();
   const available = overview.opportunities.flatMap((entry) => entry.availability.status === "available" ? [entry.availability] : []);
   const target = available[0];
-  expect(target).toBeTruthy();
-  const marketId = target!.snapshot.market.id;
+  if (!target) throw new Error("borrow fixture has no available market");
+  const marketId = target.snapshot.market.id;
   await page.route(/\/api\/borrow/, (route) => {
     const pathname = new URL(route.request().url()).pathname;
-    return json(route, pathname === "/api/borrow" ? overview : target!.snapshot);
+    return json(route, pathname === "/api/borrow" ? overview : target.snapshot);
   });
   await page.goto(`/borrow/${marketId}`);
   const dialog = page.getByRole("dialog", { name: "Borrow" });
@@ -280,7 +281,7 @@ test("closing a deep-linked Borrow market reuses the overview history entry", as
 });
 
 test("browser Back between pages records one history navigation sample", async ({ page }) => {
-  const reports: { kind?: string; route?: string; from?: string; trigger?: string }[] = [];
+  const reports: Record<string, unknown>[] = [];
   await page.addInitScript(() => {
     let seed = 1;
     Math.random = () => { seed = (seed * 9301 + 49297) % 233280; return (seed / 233280) * 0.2; };
@@ -288,7 +289,8 @@ test("browser Back between pages records one history navigation sample", async (
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.route((url) => url.pathname === "/api/client-performance", async (route) => {
-    reports.push(route.request().postDataJSON() as (typeof reports)[number]);
+    const report: unknown = route.request().postDataJSON();
+    if (isRecord(report)) reports.push(report);
     await route.fulfill({ status: 204, body: "" });
   });
   await page.goto("/home");
@@ -298,5 +300,5 @@ test("browser Back between pages records one history navigation sample", async (
   await page.goBack();
   await expect(page).toHaveURL(/\/home$/);
   await expect.poll(() => reports.filter((report) => report.kind === "home-navigation")
-    .map(({ route, from, trigger }) => `${from}>${route}:${trigger}`)).toEqual(["/home>/cash:in-app", "/cash>/home:history"]);
+    .map(({ route, from, trigger }) => `${String(from)}>${String(route)}:${String(trigger)}`)).toEqual(["/home>/cash:in-app", "/cash>/home:history"]);
 });

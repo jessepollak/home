@@ -184,6 +184,6 @@ describe("shell location", () => {
       expect(readShellHistoryOrigin()).toBe("/home");
     } finally {
       if (original) Object.defineProperty(globalThis, "window", original);
-      else delete (globalThis as { window?: unknown }).window;
+      else Reflect.deleteProperty(globalThis, "window");
     }
   });

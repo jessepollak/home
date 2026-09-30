@@ -65,16 +65,23 @@ async function firstVisibleRowKey(page: Page): Promise<string | null> {
   });
 }
 
+function historyReplaceCount(page: Page) {
+  return page.evaluate(() => {
+    const writes: unknown = Reflect.get(window, "__shellHistoryWrites");
+    return typeof writes === "object" && writes !== null ? Number(Reflect.get(writes, "replace")) : Number.NaN;
+  });
+}
+
 test("a long Activity fling keeps the feed bounded without a history write per frame", async ({ page, context }) => {
   await setupLongActivity(page);
   const cdp = await context.newCDPSession(page);
-  const before = await page.evaluate(() => (window as typeof window & { __shellHistoryWrites: { replace: number; push: number } }).__shellHistoryWrites.replace);
+  const before = await historyReplaceCount(page);
   const position = { x: 200, y: 400, gestureSourceType: "mouse" as const, speed: 4000 };
   await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: -4000 });
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
   await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: 4000 });
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(1);
-  const after = await page.evaluate(() => (window as typeof window & { __shellHistoryWrites: { replace: number; push: number } }).__shellHistoryWrites.replace);
+  const after = await historyReplaceCount(page);
   expect(after - before).toBeLessThanOrEqual(5);
 });
 
@@ -146,7 +153,10 @@ test("Back restores the same Activity row after newer activity is prepended", as
   })));
   const refreshButton = page.getByLabel("Refresh Home");
   await refreshButton.waitFor({ state: "attached", timeout: 15_000 });
-  await refreshButton.evaluate((element) => (element as HTMLButtonElement).click());
+  await refreshButton.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Refresh Home is not an element");
+    element.click();
+  });
   await expect(page.locator('li[data-row-key="home-action:22222222-2222-4222-8222-000000000001"]')).toBeVisible({ timeout: 15_000 });
 
   await page.goBack();
@@ -160,17 +170,25 @@ test("closing a flow overlay on a scrolled page keeps the document offset", asyn
   await expect(page).toHaveURL(/\/home$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(1_000);
   await scrollToMiddle(page);
-  const savedOffset = () => page.evaluate(() => Number((window.history.state as Record<string, unknown> | null)?.__homeShellScrollY ?? 0));
+  const savedOffset = () => page.evaluate(() => {
+    const state: unknown = window.history.state;
+    return Number(typeof state === "object" && state !== null ? Reflect.get(state, "__homeShellScrollY") ?? 0 : 0);
+  });
   await expect.poll(() => savedOffset()).toBeGreaterThan(500);
   const target = await savedOffset();
   await page.evaluate(() => {
     const calls: Array<[number, number]> = [];
-    (window as typeof window & { __shellScrollToCalls?: Array<[number, number]> }).__shellScrollToCalls = calls;
+    Reflect.set(window, "__shellScrollToCalls", calls);
     const original = window.scrollTo.bind(window);
-    window.scrollTo = ((x: number | ScrollToOptions = 0, y: number = 0) => {
-      if (typeof x === "number") calls.push([x, y]);
-      return original(x as number, y);
-    }) as typeof window.scrollTo;
+    function recordingScrollTo(options?: ScrollToOptions): void;
+    function recordingScrollTo(x: number, y: number): void;
+    function recordingScrollTo(x?: number | ScrollToOptions, y = 0) {
+      if (typeof x === "number") {
+        calls.push([x, y]);
+        original(x, y);
+      } else original(x);
+    }
+    window.scrollTo = recordingScrollTo;
   });
   const opened = await page.evaluate(() => {
     const trigger = [...document.querySelectorAll<HTMLButtonElement>("[data-action-trigger]")]
@@ -185,8 +203,15 @@ test("closing a flow overlay on a scrolled page keeps the document offset", asyn
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(/\/home$/);
   await expect.poll(() => page.evaluate((expected) => Math.abs(window.scrollY - expected), target)).toBeLessThanOrEqual(64);
-  const topJumps = await page.evaluate(() =>
-    (window as typeof window & { __shellScrollToCalls?: Array<[number, number]> }).__shellScrollToCalls!
-      .filter(([x, y]) => x === 0 && y === 0));
+  const topJumps = await page.evaluate(() => {
+    const recorded: unknown = Reflect.get(window, "__shellScrollToCalls");
+    if (!Array.isArray(recorded)) return null;
+    const calls: unknown[] = recorded;
+    return calls.filter((call) => {
+      if (!Array.isArray(call)) return false;
+      const pair: unknown[] = call;
+      return pair[0] === 0 && pair[1] === 0;
+    });
+  });
   expect(topJumps).toEqual([]);
 });

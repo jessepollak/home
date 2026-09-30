@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import type { ActivityLedgerItem } from "./activity-ledger";
 import { Activity, createRef, type ComponentProps } from "react";
 
@@ -25,6 +25,12 @@ afterEach(() => {
   if (originalResizeObserver) Object.defineProperty(globalThis, "ResizeObserver", originalResizeObserver);
   else Reflect.deleteProperty(globalThis, "ResizeObserver");
 });
+
+function requiredElement<K extends keyof HTMLElementTagNameMap>(root: ParentNode, tag: K): HTMLElementTagNameMap[K] {
+  const node = root.querySelector(tag);
+  if (!node) throw new Error(`missing <${tag}>`);
+  return node;
+}
 
 function mockHeights(rowHeight: (index: number) => number = () => 64) {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
@@ -425,11 +431,10 @@ test("remeasures a far jump but skips redundant measurements during a fling", ()
   const view = render(<main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section>
     <VirtualActivityList {...props} ref={handle} id="recent-list" items={rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted />
   </section></main>);
-  const main = view.container.querySelector("main")!;
-  const ul = view.container.querySelector("ul")!;
+  const main = requiredElement(view.container, "main");
+  const ul = requiredElement(view.container, "ul");
   Object.defineProperty(main, "clientHeight", { configurable: true, value: 800 });
-  const query = mock(ul.querySelectorAll.bind(ul));
-  ul.querySelectorAll = query as typeof ul.querySelectorAll;
+  const query = spyOn(ul, "querySelectorAll");
   main.scrollTop = 1000;
   fireEvent.scroll(main);
   expect(query).toHaveBeenCalledWith("li[data-index]");
@@ -437,10 +442,10 @@ test("remeasures a far jump but skips redundant measurements during a fling", ()
   main.scrollTop = 2200;
   fireEvent.scroll(main);
   expect(query).not.toHaveBeenCalledWith("li[data-index]");
-  main.scrollTo = ((options: ScrollToOptions) => {
+  Object.defineProperty(main, "scrollTo", { configurable: true, value: (options: ScrollToOptions) => {
     main.scrollTop = options.top ?? 0;
     fireEvent.scroll(main);
-  }) as typeof main.scrollTo;
+  } });
   act(() => expect(handle.current?.restore("onchain-transfer:row-170")).toBe(true));
   expect(query).toHaveBeenCalledWith("li[data-index]");
 });
@@ -453,12 +458,11 @@ test("a no-op jump does not remeasure rows on the next fling scroll", () => {
   const view = render(<main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section>
     <VirtualActivityList {...props} ref={handle} id="recent-list" items={rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted />
   </section></main>);
-  const main = view.container.querySelector("main")!;
-  const ul = view.container.querySelector("ul")!;
+  const main = requiredElement(view.container, "main");
+  const ul = requiredElement(view.container, "ul");
   Object.defineProperty(main, "clientHeight", { configurable: true, value: 800 });
   Object.defineProperty(main, "scrollHeight", { configurable: true, value: 300 * 64 });
-  const query = mock(ul.querySelectorAll.bind(ul));
-  ul.querySelectorAll = query as typeof ul.querySelectorAll;
+  const query = spyOn(ul, "querySelectorAll");
   main.scrollTop = 1040;
   fireEvent.scroll(main);
   expect(query).toHaveBeenCalledWith("li[data-index]");
@@ -466,7 +470,7 @@ test("a no-op jump does not remeasure rows on the next fling scroll", () => {
   const scrollTo = mock((options: ScrollToOptions) => {
     expect(options.top).toBe(1040);
   });
-  main.scrollTo = scrollTo as typeof main.scrollTo;
+  Object.defineProperty(main, "scrollTo", { configurable: true, value: scrollTo });
   act(() => expect(handle.current?.restore("onchain-transfer:row-22")).toBe(true));
   expect(scrollTo).toHaveBeenCalled();
   query.mockClear();

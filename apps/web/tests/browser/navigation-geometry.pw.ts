@@ -109,7 +109,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1024, height: 600
     if (viewport.height >= 640) {
       expect(beforeMoney!.width / beforeActivity!.width).toBeGreaterThan(1.4);
       expect(beforeMoney!.width / beforeActivity!.width).toBeLessThan(1.6);
-      expect(beforeMoney!.height).toBeGreaterThan(0);
+      expect(beforeMoney?.height).toBeGreaterThan(0);
     }
     await page.evaluate(() => window.scrollTo(0, 200));
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThanOrEqual(190);
