@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { onlineManager } from "@tanstack/react-query";
+import { focusManager, onlineManager } from "@tanstack/react-query";
 import { clearOwnerQueryBoundary, createHomeQueryClient, dehydrateOwnerQueries, ownerQueryKey } from "./query-client";
 import { invalidateMutationScopes, ownerMutation } from "./mutation-options";
 import { readQuoteDraft } from "@/shared/funding/contracts/quotes";
@@ -123,8 +123,10 @@ test("malformed or missing mutation metadata is ignored", async () => {
   client.clear();
 });
 
-test("an offline POST runs and fails immediately instead of pausing, and owner persistence never stores mutations", async () => {
+async function exerciseOfflineMutation(afterAssertions?: () => void) {
   const client = createHomeQueryClient();
+  const wasOnline = onlineManager.isOnline();
+  let pausedCompletion: Promise<string> | undefined;
   onlineManager.setOnline(false);
   try {
     const request = mutation(client, ownerMutation({
@@ -134,13 +136,48 @@ test("an offline POST runs and fails immediately instead of pausing, and owner p
     await expect(request.execute("private-token")).rejects.toThrow("offline");
     expect(request.state.isPaused).toBe(false);
     const paused = client.getMutationCache().build(client, { networkMode: "online", mutationFn: async (token: string) => token });
-    void paused.execute("private-token").catch(() => undefined);
+    pausedCompletion = paused.execute("private-token");
     await Promise.resolve();
     expect(paused.state.isPaused).toBe(true);
     expect(JSON.stringify(dehydrateOwnerQueries(client, "owner-a"))).not.toContain("private-token");
+    afterAssertions?.();
   } finally {
-    onlineManager.setOnline(true);
-    client.clear();
+    const focused = spyOn(focusManager, "isFocused").mockReturnValue(true);
+    try {
+      onlineManager.setOnline(true);
+      await client.resumePausedMutations();
+      if (pausedCompletion) await pausedCompletion;
+    } finally {
+      focused.mockRestore();
+      onlineManager.setOnline(wasOnline);
+      client.clear();
+    }
+  }
+}
+
+test("an offline POST runs and fails immediately instead of pausing, and owner persistence never stores mutations", () => exerciseOfflineMutation());
+
+test("offline cleanup preserves document-driven focus after success or an assertion failure", async () => {
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const testDocument = { visibilityState: "hidden" };
+  const wasOnline = onlineManager.isOnline();
+  Object.defineProperty(globalThis, "document", { configurable: true, value: testDocument });
+  try {
+    expect(focusManager.isFocused()).toBe(false);
+    await exerciseOfflineMutation();
+    expect(focusManager.isFocused()).toBe(false);
+    expect(onlineManager.isOnline()).toBe(wasOnline);
+    testDocument.visibilityState = "visible";
+    expect(focusManager.isFocused()).toBe(true);
+    testDocument.visibilityState = "hidden";
+    await expect(exerciseOfflineMutation(() => { throw new Error("assertion failed"); })).rejects.toThrow("assertion failed");
+    expect(focusManager.isFocused()).toBe(false);
+    expect(onlineManager.isOnline()).toBe(wasOnline);
+    testDocument.visibilityState = "visible";
+    expect(focusManager.isFocused()).toBe(true);
+  } finally {
+    if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+    else Reflect.deleteProperty(globalThis, "document");
   }
 });
 
