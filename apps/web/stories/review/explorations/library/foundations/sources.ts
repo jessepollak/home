@@ -23,5 +23,3 @@ export const componentSourceSet = sourceSet(componentModules());
 export const globalsSource = globalsCss;
 
 export const componentSources: SourceFile[] = componentSourceSet.files;
-
-export const ownedSources = componentSources.filter((file) => file.path.startsWith("components/ui/"));

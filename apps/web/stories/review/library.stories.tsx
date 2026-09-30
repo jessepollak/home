@@ -232,9 +232,13 @@ export const Foundations: Story = {
     await expect(within(surface).getByRole("heading", { name: "Motion" })).toBeVisible();
     await expect(surface).toHaveAttribute("data-foundation-theme", "dark");
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/motion");
-    const drawerDesktop = within(surface).getByRole("row", { name: /drawer \(lg\) · transform, opacity, top, max-height/ });
-    await expect(drawerDesktop).toHaveTextContent("180 ms");
-    await expect(drawerDesktop).toHaveTextContent("cubic-bezier(0.22, 1, 0.36, 1)");
+    const duration = within(surface).getByRole("row", { name: /^duration-180 / });
+    await expect(duration).toHaveTextContent("0.18s");
+    await expect(duration).toHaveTextContent("components/ui/drawer.tsx");
+    const easing = within(surface).getByRole("row", { name: /^ease-\[cubic-bezier\(0.22,1,0.36,1\)\]/ });
+    await expect(easing).toHaveTextContent("cubic-bezier(0.22, 1, 0.36, 1)");
+    await expect(within(surface).getByRole("heading", { name: /^Tokens/ })).toBeVisible();
+    await userEvent.click(within(surface).getAllByRole("button", { name: /^Play / })[0]);
 
     await userEvent.click(within(foundations).getByRole("option", { name: /^Type, / }));
     const leading = within(surface).getByText("leading-none").closest("li")!;

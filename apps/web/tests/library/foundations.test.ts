@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { classOperands } from "../../stories/review/explorations/library/foundations/class-operands";
+import { readMotionReference } from "../../stories/review/explorations/library/foundations/motion-values";
 import { measureColor, measurementSummary } from "../../stories/review/explorations/library/foundations/color-measurements";
 import { probeThemes, readThemeValues, toRgba, utilityValues } from "../../stories/review/explorations/library/foundations/probe";
 import { sourceSet } from "../../stories/review/explorations/library/foundations/sources";
@@ -154,43 +156,52 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
     expect(spacingUsage(files, ["hairline"]).map((entry) => entry.step)).toEqual(["px", "1.5", "2", "hairline"]);
   });
 
-  test("reads transitions without reduced-motion or immediate overrides", () => {
-    const { uses, press } = motionUsage(files);
-    expect(uses).toContainEqual({ component: "sheet", properties: "transform, opacity", duration: 350,
-      easing: "cubic-bezier(0.22,1,0.36,1)", variant: "" });
-    expect(uses).toContainEqual({ component: "sheet", properties: "transform, opacity", duration: 180, easing: "cubic-bezier(0.22,1,0.36,1)", variant: "lg" });
-    expect(uses.some((use) => use.duration === 0)).toBe(false);
-    expect(uses).toContainEqual({ component: "sheet", properties: "transform", duration: 500, easing: "cubic-bezier(0.22,1,0.36,1)", variant: "" });
-    expect(uses).toContainEqual({ component: "sheet", properties: "opacity", duration: 250, easing: "ease", variant: "" });
-    expect(press).toEqual([{ component: "sheet", variant: "active", scale: 0.97 }]);
+  test("lists independent motion utilities, including arbitrary and reduced-motion values", () => {
+    const { uses } = motionUsage(files);
+    expect(uses.map(({ utility }) => utility)).toEqual([
+      "[transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_250ms]",
+      "duration-0", "duration-350", "duration-180", "ease-[cubic-bezier(0.22,1,0.36,1)]", "transition-[transform,opacity]",
+    ].sort((left, right) => left.localeCompare(right)));
+    expect(uses.find(({ utility }) => utility === "duration-0")?.count).toBe(2);
   });
 
-  test("inherits drawer desktop easing and resolves composed transition properties", () => {
-    const source = `<div className={cn(
-      "transition-[transform,height,max-height,opacity,filter,bottom] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]",
-      variant === "money" && "lg:transition-[transform,opacity,top,max-height] lg:duration-180"
-    )} />`;
-    const { uses } = motionUsage([{ path: "components/ui/drawer.tsx", source }]);
-    expect(uses).toContainEqual({ component: "drawer", properties: "transform, opacity, top, max-height", duration: 180,
-      easing: "cubic-bezier(0.22,1,0.36,1)", variant: "lg" });
-    expect(uses.filter((use) => use.variant === "" && use.properties === "default")).toEqual([]);
-  });
-
-  test("counts nested class helpers once and separate identical usages twice", () => {
-    const source = '<button className={cn("active:scale-[0.97]")} /><button className={cn("active:scale-[0.97]")} />';
-    expect(motionUsage([{ path: "button.tsx", source }]).press).toEqual([
-      { component: "button", variant: "active", scale: 0.97 },
-      { component: "button", variant: "active", scale: 0.97 },
-    ]);
-  });
-
-  test("ignores non-class strings and keeps missing or dynamic timings unresolved", () => {
+  test("ignores conditions, comparisons, metadata, keys and non-class strings", () => {
+    const source = `<div className={state === "transition" ? "text-sm" : "text-lg"} />
+      <div className={cn(state === "duration-999" && "duration-150", { "transition": true })} />
+      element.style.removeProperty("transition");
+      const variants = cva("text-sm", { variants: { "duration-888": { "ease-in": "duration-200" } },
+        defaultVariants: { size: "transition" }, compoundVariants: [{ size: "transition", class: "ease-out" }] });`;
+    expect(classOperands(source)).toEqual(["text-sm", "text-lg", "duration-150", "text-sm", "duration-200", "ease-out"]);
+    expect(motionUsage([{ path: "example.tsx", source }]).uses.map(({ utility }) => utility))
+      .toEqual(["duration-150", "duration-200", "ease-out"]);
     expect(motionUsage([{ path: "refresh.tsx", source: 'element.style.removeProperty("transition")' }]).uses).toEqual([]);
-    const { uses } = motionUsage([{ path: "unknown.tsx", source: '<div className={cn("transition-opacity", "md:duration-[var(--time)]")} />' }]);
-    expect(uses).toEqual([
-      { component: "unknown", properties: "opacity", duration: null, easing: null, variant: "" },
-      { component: "unknown", properties: "opacity", duration: null, easing: null, variant: "md" },
-    ]);
+    expect(motionUsage([{ path: "example.tsx", source: '<div className={state === "transition" ? "text-sm" : "text-lg"} />' }]).uses).toEqual([]);
+  });
+
+  test("counts cva alternatives separately without reconstructing a merged timing", () => {
+    const source = `const styles = cva("transition-opacity", { variants: { size: { small: "duration-100", large: "duration-200" } },
+      compoundVariants: [{ size: "small", className: "ease-in" }] });`;
+    expect(motionUsage([{ path: "button.tsx", source }]).uses.map(({ utility, count }) => ({ utility, count })))
+      .toEqual([{ utility: "duration-100", count: 1 }, { utility: "duration-200", count: 1 }, { utility: "ease-in", count: 1 },
+        { utility: "transition-opacity", count: 1 }]);
+  });
+
+  test("counts nested helpers once, separate identical operands twice and files once", () => {
+    const source = '<button className={cn(clsx("duration-150"))} /><button className={cn("duration-150")} />';
+    expect(motionUsage([{ path: "button.tsx", source }, { path: "other.tsx", source: 'clsx("duration-150")' }]).uses)
+      .toEqual([{ utility: "duration-150", count: 3, files: ["button.tsx", "other.tsx"], classes: ["duration-150"] }]);
+  });
+
+  test("does not chase utilities constructed inside a class-return helper", () => {
+    const source = 'function labelClass() { return "delay-[80ms] duration-[100ms]"; } <div className={labelClass()} />';
+    expect(motionUsage([{ path: "navigation.tsx", source }]).uses).toEqual([]);
+  });
+
+  test("reads only result operands in nested ternaries, logical expressions, arrays and templates", () => {
+    expect(classOperands('<div className={cn(state === "transition" ? ready ? "duration-100" : "duration-200" : "delay-75", enabled && "ease-out", fallback || "transition-none", ["delay-0"])} />'))
+      .toEqual(["duration-100", "duration-200", "delay-75", "ease-out", "transition-none", "delay-0"]);
+    expect(classOperands('<div className={`text-sm ${state === "transition" ? "duration-100" : "duration-200"}`} />'))
+      .toEqual(["text-sm ", "duration-100", "duration-200", ""]);
   });
 
   test("parses cubic-bezier and keyword easings", () => {
@@ -224,6 +235,44 @@ describe("measurement availability and discovered scales", () => {
       expect(measurementSummary([result])).toBe("no contrast checks measured; 1 unmeasured tokens");
     }
     expect(measureColor(token, values, () => { throw new Error("reader failed"); }).status).toBe("unavailable");
+  });
+
+  test("preserves the authored registry and pair judgment when primary resolves invalid or missing", () => {
+    const valid = (value: string) => ["white", "black"].includes(value);
+    const authored = ":root { --card: white; --muted: white; --primary: black; --primary-foreground: white; }";
+    const baseline = colorTokens(authored, valid);
+    for (const primary of ["invalid", ""]) {
+      const theme = { card: "white", muted: "white", primary, "primary-foreground": "white" };
+      const registry = colorTokens(authored, valid, [theme, theme]);
+      expect(registry).toEqual(baseline);
+      expect(registry.find(({ name }) => name === "primary-foreground")?.rule)
+        .toEqual({ use: "text", min: 4.5, against: { pair: "primary" } });
+      const results = registry.map((entry) => measureColor(entry, theme, convert));
+      expect(results.filter(({ status }) => status === "unavailable")).toHaveLength(2);
+      expect(measurementSummary(results)).toBe("no contrast checks measured; 2 unmeasured tokens");
+    }
+  });
+
+  test("does not mistake length expressions with variables for authored colors", () => {
+    const registry = colorTokens(":root { --color: #fff; --offset: calc(var(--space) + 1rem); --inset: max(var(--space),1px); }",
+      (value) => value === "#fff" || value.includes("var("), [{ offset: "calc(1px + 1rem)", inset: "max(1px,1px)" }]);
+    expect(registry.map(({ name }) => name)).toEqual(["color"]);
+  });
+
+  test("keeps color-like unresolved declarations and discovers a color resolved only in dark", () => {
+    const registry = colorTokens(":root { --alias: var(--missing); --new: invalid; --size: 2px; --pattern: linear-gradient(red,blue); } .dark { --new: white; }",
+      (value) => value === "white", [{}, { new: "white" }]);
+    expect(registry.map(({ name }) => name)).toEqual(["alias", "new", "pattern"]);
+    expect(registry.find(({ name }) => name === "pattern")?.pattern).toBe(true);
+  });
+
+  test("cleans up motion probes on inaccessible CSSOM", () => {
+    let removed = false;
+    const element = { style: {}, remove: () => { removed = true; } };
+    const owner = { createElement: () => element, body: { append: () => undefined },
+      styleSheets: [{ get cssRules() { throw new Error("Access denied"); } }] } as unknown as Document;
+    expect(readMotionReference([], owner)).toBeNull();
+    expect(removed).toBe(true);
   });
 
   test("reports CSSOM denial and reader exceptions as a whole-probe failure", () => {

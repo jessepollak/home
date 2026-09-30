@@ -176,7 +176,7 @@
 .scaleTable th[scope="row"] {
   font-weight: 400;
 }
-.scaleTable code, .tile code, .chipList code, .stackRow code, .easing code, .sheetFacts code {
+.scaleTable code, .tile code, .chipList code, .stackRow code, .easing code {
   font-family: var(--font-mono);
   font-size: 12.5px;
 }
@@ -303,7 +303,7 @@
 }
 .easing code {
   display: block;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .spacingTable thead th:nth-child(1) {
   width: 24%;
@@ -314,14 +314,17 @@
 .spacingTable thead th:nth-child(3) {
   width: auto;
 }
-.motionTable thead th:nth-child(1) {
-  width: 13%;
-}
-.motionTable thead th:nth-child(2) {
-  width: 33%;
+.motionTable thead th:nth-child(1), .motionTable thead th:nth-child(2) {
+  width: 32%;
 }
 .motionTable thead th:nth-child(3) {
-  width: 26%;
+  width: 36%;
+}
+.easingTable thead th:first-child {
+  width: 60%;
+}
+.motionTable code, .usedBy, .stackRow code {
+  overflow-wrap: anywhere;
 }
 .usedBy {
   color: var(--foundation-subtle);
@@ -333,10 +336,6 @@
   width: 40px;
   height: 56px;
   overflow: visible;
-}
-.curve[data-large] {
-  width: 96px;
-  height: 112px;
 }
 .curveGuide {
   fill: none;
@@ -376,49 +375,8 @@
 .track[data-played] .puck {
   translate: calc(100cqw - 20px) 0;
 }
-.sheetCard {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(200px, 280px);
-  align-items: center;
-  gap: 28px;
-  padding: 20px 24px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-}
-.sheetFacts {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.sheetValue {
-  font-size: 22px;
-  font-weight: 600;
-  line-height: 28px;
-  font-variant-numeric: tabular-nums;
-}
-.pressDemo {
-  height: 36px;
-  margin-bottom: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--foreground);
-  font: inherit;
-  font-weight: 500;
-  transition: scale 150ms var(--ease-out, ease-out);
-}
-.pressDemo:active {
-  scale: var(--press-scale, none);
-}
-.pressDemo:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
 @media (prefers-reduced-motion: reduce) {
-  .puck, .pressDemo {
+  .puck {
     transition: none;
-  }
-  .pressDemo:active {
-    scale: none;
   }
 }

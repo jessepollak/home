@@ -78,15 +78,20 @@ export function contrastRule(name: string, family: ColorFamily, pattern: boolean
   return { use: "illustration" };
 }
 
-export function colorTokens(css: string, isColor = (value: string) => typeof CSS !== "undefined" && CSS.supports("color", value), resolved?: Record<string, string>): ColorToken[] {
+export function colorTokens(css: string, isColor = (value: string) => typeof CSS !== "undefined" && CSS.supports("color", value), resolved: Record<string, string> | Record<string, string>[] = []): ColorToken[] {
   const root = blockDeclarations(css, ":root");
-  const dark = new Set(blockDeclarations(css, ".dark").map((declaration) => declaration.name));
-  const colors = root.filter(({ name, value }) => isColor(resolved?.[name] ?? value) || PATTERN_VALUE.test(value));
-  const names = new Set(colors.map((declaration) => declaration.name));
-  const tokens = colors.map(({ name, value }) => {
+  const dark = blockDeclarations(css, ".dark");
+  const declarations = [...root, ...dark];
+  const themes = Array.isArray(resolved) ? resolved : [resolved];
+  const colors = [...new Map(declarations.filter(({ name, value }) =>
+    /^(?:#|(?:oklch|oklab|rgb|rgba|hsl|hsla|hwb|lab|lch|color|color-mix|var)\()/i.test(value) ||
+    (!value.includes("var(") && isColor(value)) || themes.some((values) => isColor(values[name] ?? "")) || PATTERN_VALUE.test(value))
+    .map((declaration) => [declaration.name, declaration])).values()];
+  const names = new Set(declarations.map((declaration) => declaration.name));
+  const tokens = colors.map(({ name }) => {
     const family = colorFamily(name);
-    const pattern = PATTERN_VALUE.test(value);
-    return { name, family, pattern, rule: contrastRule(name, family, pattern, names), rootOnly: !dark.has(name) };
+    const pattern = declarations.some((entry) => entry.name === name && PATTERN_VALUE.test(entry.value));
+    return { name, family, pattern, rule: contrastRule(name, family, pattern, names), rootOnly: !dark.some((entry) => entry.name === name) };
   });
   const rank = (family: string) => {
     const index = FAMILY_ORDER.indexOf(family);
