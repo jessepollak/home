@@ -293,7 +293,7 @@ describe("Cash L2", () => {
     await waitFor(() => expect(historyReads).toBeGreaterThan(0));
     fireEvent.click(within(detail).getByRole("button", { name: "Save" }));
     const deposit = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(deposit).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     const stale = within(deposit).getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(stale.disabled).toBe(true);
     fireEvent.click(stale);
@@ -329,7 +329,7 @@ describe("Cash L2", () => {
     fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Save" }));
     const deposit = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(deposit).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     act(() => { releases.splice(0).forEach((release) => release()); });
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
@@ -358,7 +358,7 @@ describe("Cash L2", () => {
     fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Save" }));
     const deposit = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(deposit).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     act(() => { otherTabDeposit = true; });
     await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(dataOwnerKey(session), "actions") }); });
@@ -409,7 +409,7 @@ describe("Cash L2", () => {
     fireEvent.click(await within(page().getByRole("region", { name: "Currencies" })).findByRole("button", { name: /^US dollar/ }));
     fireEvent.click(await page().findByRole("button", { name: "Save" }));
     const deposit = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(deposit).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(deposit).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().queryByRole("button", { name: /Deposit \$/ })).toBeNull();
@@ -470,7 +470,7 @@ describe("Cash L2", () => {
       onPrepare={async () => preparedDeposit()}
       onExecute={async (action) => ({ id: action.id, status: "submitted" })} />);
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(dialog).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     await page().findByRole("heading", { name: "Depositing $1.00 to Save" });
@@ -508,7 +508,7 @@ describe("Cash L2", () => {
   test("routes an inbound withdrawal to the sole funded vault", async () => {
     cached();
     render(<Route initialFlow="save-withdraw" snapshot={single} />);
-    expect(within(await page().findByRole("dialog", { name: "Withdraw" })).getByText("$800.00 available")).toBeTruthy();
+    expect(await within(await page().findByRole("dialog", { name: "Withdraw" })).findByText("$800.00 available")).toBeTruthy();
   });
   test("a routed withdrawal closes once when its selected shares become unreadable", async () => {
     cached();
@@ -566,7 +566,7 @@ describe("Cash L2", () => {
   test("a routed withdrawal opens the configured held vault during a rate failure", async () => {
     render(<Route initialFlow="save-withdraw" snapshot={single} fetchVaults={async () => { throw new Error("Rates unavailable"); }} />);
     const dialog = await page().findByRole("dialog", { name: "Withdraw" });
-    expect(within(dialog).getByText("$800.00 available")).toBeTruthy();
+    expect(await within(dialog).findByText("$800.00 available")).toBeTruthy();
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(preparedInputs).toEqual([{ kind: "withdraw", vaultAddress: GAUNTLET, amountBaseUnits: "1000000" }]));
@@ -575,7 +575,7 @@ describe("Cash L2", () => {
   test("a routed withdrawal opens a configured held vault missing from metadata", async () => {
     cached({ ...metadata, candidates: [metadata.candidates[1]!] });
     render(<Route initialFlow="save-withdraw" snapshot={single} />);
-    expect(within(await page().findByRole("dialog", { name: "Withdraw" })).getByText("$800.00 available")).toBeTruthy();
+    expect(await within(await page().findByRole("dialog", { name: "Withdraw" })).findByText("$800.00 available")).toBeTruthy();
   });
   test("two held vaults clear the routed withdrawal during a rate failure and leave the list", async () => {
     render(<Route initialFlow="save-withdraw" snapshot={held} fetchVaults={async () => { throw new Error("Rates unavailable"); }} />);
@@ -657,14 +657,14 @@ describe("Cash L2", () => {
     expect(executions).toBe(0);
     fireEvent.click(within(options).getByRole("button", { name: /Steakhouse USDC/, description: "Deposit to Steakhouse USDC" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    expect(within(dialog).getByText("Steakhouse USDC · 3.85% APY")).toBeTruthy();
+    expect(await within(dialog).findByText("Steakhouse USDC · 3.85% APY")).toBeTruthy();
     expect(preparedInputs).toEqual([]);
     expect(executions).toBe(0);
     fireEvent.click(within(dialog).getByRole("button", { name: "Back" }));
     const returned = await page().findByRole("dialog", { name: "Choose where to save" });
     fireEvent.click(within(returned).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const amountDialog = await page().findByRole("dialog", { name: "Deposit" });
-    expect((within(amountDialog).getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect((await within(amountDialog).findByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
     fireEvent.click(within(amountDialog).getByRole("button", { name: "Close deposit dialog" }));
     await waitFor(() => expect(Boolean(page().queryByRole("dialog"))).toBe(false));
     await waitFor(() => expect(document.activeElement === page().getByRole("button", { name: "Start saving" })).toBe(true));
@@ -692,7 +692,7 @@ describe("Cash L2", () => {
     const picker = await page().findByRole("dialog", { name: "Choose where to save" });
     fireEvent.click(within(picker).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const amount = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(amount).getByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
+    fireEvent.change(await within(amount).findByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
     view.rerender(<Surface snapshot={single} />);
     expect(within(page().getByRole("dialog", { name: "Deposit" })).getByRole("textbox", { name: "Amount" })).toHaveProperty("value", "2");
     expect(page().queryByRole("dialog", { name: "Choose where to save" })).toBeNull();
@@ -707,7 +707,7 @@ describe("Cash L2", () => {
     expect(within(options).getByText("4.10% APY at last update")).toBeTruthy();
     fireEvent.click(within(options).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    expect(within(dialog).getByText("Gauntlet USDC Prime · 4.10% APY at last update")).toBeTruthy();
+    expect(await within(dialog).findByText("Gauntlet USDC Prime · 4.10% APY at last update")).toBeTruthy();
   });
   test("an open deposit destination follows refreshed vault metadata instead of the rate it opened with", async () => {
     cached();
@@ -715,7 +715,7 @@ describe("Cash L2", () => {
     fireEvent.click(page().getByRole("button", { name: "Start saving" }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    expect(within(dialog).getByText("Gauntlet USDC Prime · 4.10% APY")).toBeTruthy();
+    expect(await within(dialog).findByText("Gauntlet USDC Prime · 4.10% APY")).toBeTruthy();
     act(() => cached({ ...metadata, candidates: [vault(GAUNTLET, "Gauntlet USDC Prime", 0.037), metadata.candidates[1]!] }));
     await waitFor(() => expect(within(dialog).getByText("Gauntlet USDC Prime · 3.70% APY")).toBeTruthy());
     act(() => cached({ ...metadata, candidates: [metadata.candidates[1]!] }));
@@ -955,7 +955,7 @@ describe("Cash L2", () => {
     expect(routeCalls).toEqual(["clear:replace", "push:save-deposit"]);
     await act(async () => history.resolve({ actions: [] }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    expect(within(dialog).getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(await within(dialog).findByRole("textbox", { name: "Amount" })).toBeTruthy();
     expect(preparedInputs).toEqual([]);
   });
   test("a routed first deposit needs a newer history read before it can confirm", async () => {
@@ -1221,7 +1221,7 @@ describe("Cash L2", () => {
     fireEvent.click(page().getByRole("button", { name: "Start saving" }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const amount = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.click(within(amount).getByRole("button", { name: "Back" }));
+    fireEvent.click(await within(amount).findByRole("button", { name: "Back" }));
     await page().findByRole("dialog", { name: "Choose where to save" });
     expect(preparedInputs).toEqual([]);
   });
@@ -1415,7 +1415,7 @@ describe("Cash L2", () => {
     fireEvent.click(page().getByRole("button", { name: "Start saving" }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(dialog).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     await waitFor(() => expect(within(page().getByLabelText("Savings balance")).getByText("$1.00")).toBeTruthy());
@@ -1440,7 +1440,7 @@ describe("Cash L2", () => {
     fireEvent.click(opener);
     fireEvent.click(within(await page().findByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(dialog).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     return view;
@@ -1475,7 +1475,7 @@ describe("Cash L2", () => {
     fireEvent.click(page().getByRole("button", { name: "Start saving" }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(dialog).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     await waitFor(() => expect(within(page().getByLabelText("Savings balance")).getByText("$1.00")).toBeTruthy());
@@ -1846,7 +1846,7 @@ describe("Cash L2", () => {
     fireEvent.click(await page().findByRole("button", { name: "Start saving" }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(dialog).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     fireEvent.click(await page().findByRole("button", { name: "Done" }));
@@ -1869,7 +1869,7 @@ describe("Cash L2", () => {
     fireEvent.click(await page().findByRole("button", { name: "Start saving" }));
     fireEvent.click(within(await page().findByRole("dialog", { name: "Choose where to save" })).getByRole("button", { name: /Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
     const dialog = await page().findByRole("dialog", { name: "Deposit" });
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.change(await within(dialog).findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     fireEvent.click(await page().findByRole("button", { name: "Done" }));
@@ -1882,7 +1882,7 @@ describe("Cash L2", () => {
     expect(await page().findByRole("button", { name: "Start saving" })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Browser Forward", hidden: true }));
     const amount = await page().findByRole("dialog", { name: "Deposit" });
-    expect(within(amount).getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(await within(amount).findByRole("textbox", { name: "Amount" })).toBeTruthy();
     expect(page().queryByText("Pending")).toBeNull();
     expect(preparedInputs).toEqual([]);
   });
