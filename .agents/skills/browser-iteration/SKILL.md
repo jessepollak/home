@@ -11,7 +11,7 @@ metadata:
 
 # Browser iteration for Home
 
-[`docs/browser-validation.md`](../../../docs/browser-validation.md) is normative: follow [Verify a change](../../../docs/browser-validation.md#verify-a-change) for diff-to-**Owned paths** mapping, required rungs, before/after fixture runs, and PR evidence or named blockers. Use `bun run ab --` for the repository-pinned agent-browser v0.38.1; it refuses a missing or mismatched binary and never downloads one. There is no surface verify CLI. Before running a browser command load `bun run ab -- skills get core`. Playwright remains the only committed automated browser regression layer.
+[`docs/browser-validation.md`](../../../docs/browser-validation.md) is normative: follow [Verify a change](../../../docs/browser-validation.md#verify-a-change) for diff-to-**Owned paths** mapping, required rungs, before/after fixture runs, and PR evidence or named blockers. Use `bun run ab --` for the repository-pinned agent-browser v0.38.1; it refuses a missing or mismatched binary and never downloads one, so never substitute `bunx agent-browser`, which resolves a different published CLI (0.21.4 observed) without `skills` or `doctor`. Install only when `doctor` finds no Chrome; behind TLS interception, `SSL_CERT_FILE` (Bun) and `NODE_EXTRA_CA_CERTS` (Node) pointed at the interception CA bundle unblock dependency installs, while the CLI's own browser download validates against bundled roots and needs a Chrome installed by the operating system instead ([details](../../../docs/browser-validation.md#pinned-browser-and-sessions)). There is no surface verify CLI. Before running a browser command load `bun run ab -- skills get core`. Playwright remains the only committed automated browser regression layer.
 
 ## Choose and start
 
