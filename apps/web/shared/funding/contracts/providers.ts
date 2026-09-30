@@ -18,6 +18,7 @@ export type FundingOnrampBinding = FundingBindingBase & {
   paymentMethods: ReadonlyArray<{ id: string; label: string }>;
   quotes: boolean;
   customerSetup: { hosted: true } | null;
+  resumeOnly?: boolean;
 };
 
 export type FundingOfframpBinding = FundingBindingBase & {
@@ -52,6 +53,13 @@ export function assertFundingProvidersResponse(
   }
 }
 
+export function readFundingProvidersResponse(value: unknown, direction: FundingBinding["direction"]): ReadonlyArray<FundingBinding> | null {
+  if (!isRecord(value) || value.version !== FUNDING_PROVIDERS_VERSION || value.direction !== direction ||
+    !Array.isArray(value.providers) || !value.providers.every((item: unknown) => isRecord(item) && item.direction === direction)) return null;
+  const bindings = readProviderBindings(value);
+  return bindings.length === value.providers.length ? bindings : null;
+}
+
 export function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
   if (!isRecord(value) || !Array.isArray(value.providers)) return [];
   const parsed: FundingBinding[] = [];
@@ -59,7 +67,8 @@ export function readProviderBindings(value: unknown): ReadonlyArray<FundingBindi
     if (!isBaseBinding(item) || !Array.isArray(item.paymentMethods)) continue;
     const direction = item.direction === undefined ? "onramp" : item.direction;
     if (direction === "onramp") {
-      if (typeof item.quotes !== "boolean" || !(item.customerSetup === undefined || item.customerSetup === null || isCustomerSetup(item.customerSetup))) continue;
+      if (typeof item.quotes !== "boolean" || !(item.customerSetup === undefined || item.customerSetup === null || isCustomerSetup(item.customerSetup)) ||
+        !(item.resumeOnly === undefined || typeof item.resumeOnly === "boolean")) continue;
       const paymentMethods = item.paymentMethods.filter(isPaymentMethod);
       if (paymentMethods.length !== item.paymentMethods.length) continue;
       parsed.push({
@@ -67,6 +76,7 @@ export function readProviderBindings(value: unknown): ReadonlyArray<FundingBindi
         assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
         currency: item.currency, direction, paymentMethods, quotes: item.quotes,
         customerSetup: (item.customerSetup ?? null) as FundingOnrampBinding["customerSetup"],
+        resumeOnly: item.resumeOnly === true,
       });
     } else if (direction === "offramp") {
       const paymentMethods = item.paymentMethods.filter(isOfframpPaymentMethod);

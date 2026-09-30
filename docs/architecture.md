@@ -165,7 +165,7 @@ Marks: `shell:paint`, `session:verified`, `balances:painted` (fires on `ready` o
 
 ## Fork and contribution contract
 
-A fork changes `apps/web/config/*`, public assets, and plugins under the seams — never the core. It provisions its own Vercel project, Neon database, and accounts for the providers it enables (CDP is optional); it never points at another operator's database or provider project. Upgrades flow through typed config validation and additive migrations. Contributions land as one directory per plugin with its README and conformance test. Process: [operating manual](operating-manual.md).
+Catalog in code, selection in settings. A fork changes `apps/web/config/*`, public assets, and plugins under the seams — never the core. Code holds the verified catalog: providers and their bindings, regions, and assets. Operator settings on the typed settings store only narrow that catalog, one domain at a time; they never add entries. For money in and out, credentials in the environment mean a corridor is *connected*, and the operator's saved setting means it is *offered* ([operator checklist](operator-checklist.md#money-in-and-out)). A saved settings row wins; with no row, behaviour is derived from the environment and code without writing anything. Settings gate new entries only; exits and in-flight orders never read them. A fork provisions its own Vercel project, Neon database, and accounts for the providers it enables (CDP is optional); it never points at another operator's database or provider project. Upgrades flow through typed config validation and additive migrations. Contributions land as one directory per plugin with its README and conformance test. Process: [operating manual](operating-manual.md).
 
 ## Non-goals
 

@@ -14,6 +14,7 @@ import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
 import { cardAllowanceSetEnabled, readCardAllowanceRegistry } from "@/server/cards/allowance/config";
 import { readCardJourneyConfig } from "@/server/cards/bridge/journey-config";
 import { checkCardAllowanceEligibility, CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
+import type { FundingDirection } from "@/shared/funding/provider-contract";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { actionConfirmedEvent } from "@/server/operator-events/events";
 import { deferCustomerRecord } from "@/server/customers/resolve";
@@ -32,6 +33,7 @@ import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-type
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
+import { isCashoutCorridorOffered } from "@/server/funding/offering";
 import {
   applyCoinbaseBatchGasHeadroom,
   encodeCoinbaseExecuteBatch,
@@ -159,6 +161,7 @@ export function createConfirmActionHandler(dependencies: {
   regionOffered?: (region: string) => Promise<boolean>;
   cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
   cardAllowanceEligible?: typeof checkCardAllowanceEligibility;
+  corridorOffered?: (providerId: string, region: string, direction: FundingDirection, signal: AbortSignal) => Promise<boolean>;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
     const startedAt = Date.now();
@@ -206,10 +209,16 @@ export function createConfirmActionHandler(dependencies: {
 
     if (!draft.confirmed_at && draft.kind === "cash-out") {
       const metadata = draft.summary.metadata;
-      const region = metadata?.product === "cashout" && metadata.operation === "deposit" ? cashoutMetadataRegion(metadata) : null;
+      const deposit = metadata?.product === "cashout" && metadata.operation === "deposit" ? metadata : null;
+      const region = deposit ? cashoutMetadataRegion(deposit) : null;
       const offered = region === null ? null : await (dependencies.regionOffered ?? isRegionOffered)(region).catch(() => null);
       if (offered === null) return fail(CONFIRM_CASHOUT_ERRORS["settings-unavailable"].code, "Cash out is unavailable right now. Try again shortly.", CONFIRM_CASHOUT_ERRORS["settings-unavailable"].status);
       if (!offered) return fail(CONFIRM_CASHOUT_ERRORS.unavailable.code, "Cash out isn't available in your region.", CONFIRM_CASHOUT_ERRORS.unavailable.status);
+      if (deposit && region !== null) {
+        const corridorOffered = await (dependencies.corridorOffered ?? isCashoutCorridorOffered)(deposit.providerId, region, "offramp", request.signal).catch(() => null);
+        if (corridorOffered === null) return fail(CONFIRM_CASHOUT_ERRORS["settings-unavailable"].code, "Cash out is unavailable right now. Try again shortly.", CONFIRM_CASHOUT_ERRORS["settings-unavailable"].status);
+        if (!corridorOffered) return fail(CONFIRM_CASHOUT_ERRORS.unavailable.code, "This cash-out option is no longer offered.", CONFIRM_CASHOUT_ERRORS.unavailable.status);
+      }
     }
 
     let calls = draftCalls;

@@ -10,6 +10,7 @@ import { borrowMarket } from "./borrow-market";
 import { cards } from "./cards";
 import { cardSpending } from "./card-spending";
 import { fundingOpenOrder } from "./funding-open-order";
+import { fundingOpenOrderByProvider } from "./funding-open-order-by-provider";
 import { fundingOrder } from "./funding-order";
 import { fundingOrderIsolated } from "./funding-order-isolated";
 import { fundingProviderCustomers } from "./funding-provider-customers";
@@ -39,6 +40,7 @@ export const queryScopes = {
   cards,
   "card-spending": cardSpending,
   "funding-open-order": fundingOpenOrder,
+  "funding-open-order-by-provider": fundingOpenOrderByProvider,
   "funding-order": fundingOrder,
   "funding-order-isolated": fundingOrderIsolated,
   "funding-provider-customers": fundingProviderCustomers,

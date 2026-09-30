@@ -49,6 +49,32 @@ describe("MemoryFundingOrderStore contract", () => {
     expect(second.order.id).not.toBe(first.order.id);
   });
 
+  test("lists every open order by recency for only its owner and finds an older provider's order", async () => {
+    const store = new MemoryFundingOrderStore();
+    const newer = { ...base, id: "22222222-2222-4222-8222-222222222222", providerId: "coinbase", intentDigest: "newer", createdAt: "2026-09-13T00:00:00.000Z" };
+    const otherMethod = { ...base, id: "33333333-3333-4333-8333-333333333333", paymentMethod: "bank", intentDigest: "other-method", createdAt: "2026-09-12T01:00:00.000Z" };
+    await store.reserve(base);
+    await store.reserve(otherMethod);
+    await store.reserve(newer);
+    expect((await store.listOpen(owner, "ID")).map((order) => order.id)).toEqual([newer.id, otherMethod.id, base.id]);
+    expect((await store.listOpen(other, "ID"))).toEqual([]);
+    expect((await store.listOpen(owner, "US"))).toEqual([]);
+    expect((await store.getOpenForProvider(owner, "ID", "idrx"))?.id).toBe(otherMethod.id);
+    expect((await store.getOpenForProvider(owner, "ID", "idrx", "qris"))?.id).toBe(base.id);
+    expect((await store.getOpenForProvider(owner, "ID", "idrx", "bank"))?.id).toBe(otherMethod.id);
+    expect((await store.getOpenForProvider(owner, "ID", "coinbase"))?.id).toBe(newer.id);
+    expect(await store.getOpenForProvider(owner, "ID", "idrx", "card")).toBeNull();
+    expect(await store.getOpenForProvider(other, "ID", "idrx", "qris")).toBeNull();
+    expect(await store.getOpenForProvider(owner, "ID", "missing")).toBeNull();
+    const otherAsset = { ...base, id: "44444444-4444-4444-8444-444444444444", assetId: "base:usdc", intentDigest: "other-asset", createdAt: "2026-09-14T00:00:00.000Z" };
+    await store.reserve(otherAsset);
+    expect((await store.getOpenForProvider(owner, "ID", "idrx", "qris"))?.id).toBe(otherAsset.id);
+    expect((await store.getOpenForProvider(owner, "ID", "idrx", "qris", base.assetId))?.id).toBe(base.id);
+    expect((await store.getOpenForProvider(owner, "ID", "idrx", "qris", otherAsset.assetId))?.id).toBe(otherAsset.id);
+    expect((await store.getOpenForProvider(owner, "ID", "idrx", undefined, otherAsset.assetId))?.id).toBe(otherAsset.id);
+    expect(await store.getOpenForProvider(owner, "ID", "idrx", "bank", otherAsset.assetId)).toBeNull();
+  });
+
   test("finds an owner-region ambiguous order even when a newer open order exists", async () => {
     const store = new MemoryFundingOrderStore();
     await store.reserve(base);

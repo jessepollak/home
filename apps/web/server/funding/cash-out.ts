@@ -13,7 +13,8 @@ import { moneyActionOwner } from "@/server/money-actions/session";
 import { createProviderContext, environmentAvailable, resolveFundingMode, type FundingMode } from "@/server/funding/core/provider-context";
 import { canonicalizeCashPayee } from "@/shared/funding/cash-payee";
 import { cashoutArrivalSeconds, parseCashoutQuote } from "@/shared/funding/cash-out-quote";
-import { getFundingProvider } from "@/server/funding/providers";
+import { getFundingProvider, fundingProviders } from "@/server/funding/providers";
+import { readFundingOffering, resolveFundingOffering } from "@/server/funding/offering";
 import { assertPeerDepositCall } from "@/server/funding/providers/peer/offramp";
 import { UNKNOWN_WINDOW_MS } from "@/server/funding/cash-out-window";
 import { isRegionOffered } from "@/server/operator-settings/regions";
@@ -42,6 +43,7 @@ type WithdrawInput = {
 
 export type CashoutPreparationDependencies = {
   env?: Readonly<Record<string, string | undefined>>;
+  readOffering?: () => Promise<Pick<ReturnType<typeof resolveFundingOffering>, "source" | "isSelected" | "isOffered">>;
   store?: Pick<ActionsStore, "list" | "hasUnsettledCashout" | "cashoutOrders">;
   now?: () => Date;
   readAllowance?: (owner: `0x${string}`, spender: `0x${string}`, signal?: AbortSignal) => Promise<bigint>;
@@ -81,6 +83,19 @@ export async function prepareCashoutAction(
   const regionOffered = await (dependencies.regionOffered ?? isRegionOffered)(binding.region).catch(() => null);
   if (regionOffered === null) throw new CashoutPreparationError("settings-unavailable", "Cash out is unavailable right now. Try again shortly.");
   if (!regionOffered) unavailable();
+  try {
+    const offering = await (dependencies.readOffering ?? (dependencies.env
+      ? () => Promise.resolve(resolveFundingOffering({ providers: fundingProviders, env, entry: {
+          domain: "funding", settings: { value: { corridors: [] }, revision: 0, source: "default", updatedAt: null, updatedBy: null },
+        } }))
+      : readFundingOffering))();
+    if (!offering.isOffered(provider.manifest.id, binding.region, "offramp")) {
+      throw new CashoutPreparationError("unavailable", "This cash-out option is no longer offered.");
+    }
+  } catch (error) {
+    if (error instanceof CashoutPreparationError) throw error;
+    unavailable();
+  }
   const sandbox = resolveFundingMode(provider.manifest, "offramp", env) === "sandbox";
   const canonicalHandle = canonicalizeCashPayee(input.platform, input.payoutHandle);
   if (!canonicalHandle) throw new CashoutPreparationError("invalid-input", "Enter a valid payout destination.");
@@ -202,11 +217,7 @@ export async function prepareCashoutWithdrawAction(
   const currentMode = resolveFundingMode(provider.manifest, "offramp", env);
   const mode = modeForDeposit(provider.manifest, input.depositId) ?? currentMode;
   const sandbox = mode === "sandbox";
-  const recoveryEnv = {
-    ...env,
-    ...Object.fromEntries(binding.directions.offramp!.env.filter((name) => name.endsWith("_ENABLED")).map((name) => [name, "1"])),
-  };
-  const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "offramp", paymentMethodId: method.id, env: recoveryEnv, sandbox });
+  const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "offramp", paymentMethodId: method.id, env, sandbox });
   const order = await provider.offramp.readOrder({ owner: session.smartAccount.address, depositId: input.depositId }, ctx);
   if (!order.nextActions.includes("withdraw")) throw new CashoutPreparationError("not-withdrawable", "This cash-out cannot be withdrawn yet.");
   const prepared = await provider.offramp.prepareWithdraw({ owner: session.smartAccount.address, depositId: input.depositId }, ctx);

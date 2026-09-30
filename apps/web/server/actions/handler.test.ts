@@ -8,6 +8,7 @@ import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/s
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
+import { createCashoutCorridorOfferingReader } from "@/server/funding/offering";
 import { createCardAllowanceEligibility } from "@/server/cards/allowance/prepare";
 
 function parseLog(line: string): unknown {
@@ -836,6 +837,7 @@ describe("actions HTTP handlers", () => {
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered: async () => true,
+      corridorOffered: async () => true,
       store: {
         get: async () => draft,
         confirm: async (_owner, _id, confirmedCalls) => {
@@ -885,6 +887,7 @@ describe("actions HTTP handlers", () => {
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered: async () => true,
+      corridorOffered: async () => true,
       store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
     });
     const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
@@ -894,14 +897,68 @@ describe("actions HTTP handlers", () => {
     expect(parseConfirmActionErrorResponse(body)).toBeNull();
   });
 
-  test("confirm never rechecks the region for withdrawals or already-confirmed cash-outs", async () => {
+  test("confirm rechecks the corridor offering and refuses one paused after prepare", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: async (providerId, region, direction) => {
+        expect([providerId, region, direction]).toEqual(["peer", "US", "offramp"]);
+        return false;
+      },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(502);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_UNAVAILABLE", message: "This cash-out option is no longer offered." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm fails closed when the corridor settings are unavailable", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: async () => { throw new Error("settings unavailable"); },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm bounds a stalled corridor settings read and refuses the cash-out", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: createCashoutCorridorOfferingReader({ read: async () => new Promise<never>(() => {}), deadlineMs: 25 }),
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm never rechecks the region or corridor for withdrawals or already-confirmed cash-outs", async () => {
     let regionChecks = 0;
+    let corridorChecks = 0;
     const regionOffered = async () => { regionChecks += 1; return true; };
+    const corridorOffered = async () => { corridorChecks += 1; return true; };
     const withdraw = cashoutConfirmRow("cash-out-withdraw");
     const withdrawHandler = createConfirmActionHandler({
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered,
+      corridorOffered,
       store: { get: async () => withdraw, confirm: async (_owner, _id, calls) => ({ ...withdraw, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
     });
     expect((await withdrawHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
@@ -911,10 +968,12 @@ describe("actions HTTP handlers", () => {
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered,
+      corridorOffered,
       store: { get: async () => confirmed, confirm: async () => null },
     });
     expect((await confirmedHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
     expect(regionChecks).toBe(0);
+    expect(corridorChecks).toBe(0);
   });
 
   test("confirm fails closed for a cash-out without persisted region metadata", async () => {

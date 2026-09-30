@@ -20,16 +20,25 @@ export function describeFundingOfframpAdapter(options: {
   };
 }): void {
   describe(`funding offramp adapter conformance · ${options.provider.manifest.id}:${options.paymentMethodId}`, () => {
-    test("requires the exact directional binding environment before adapter code runs", () => {
+    test("requires exactly the declared directional credentials before adapter code runs", () => {
+      const binding = options.provider.manifest.bindings.find((candidate) =>
+        candidate.region === options.region && candidate.directions.offramp);
+      const declared = binding?.directions.offramp?.env ?? [];
       let outbound = 0;
-      expect(() => createProviderContext({
+      const create = (env: Readonly<Record<string, string>>) => createProviderContext({
         manifest: options.provider.manifest,
         region: options.region,
         direction: "offramp",
         paymentMethodId: options.paymentMethodId,
-        env: {},
+        env,
         fetchImplementation: (async () => { outbound += 1; return new Response(); }) as unknown as typeof fetch,
-      })).toThrow(FundingProviderConfigurationError);
+      });
+      if (declared.length === 0) {
+        expect(() => create({})).not.toThrow();
+      } else {
+        expect(() => create({})).toThrow(FundingProviderConfigurationError);
+        if (declared.length > 1) expect(() => create(Object.fromEntries(declared.slice(1).map((name) => [name, "1"])))).toThrow(FundingProviderConfigurationError);
+      }
       expect(outbound).toBe(0);
     });
 

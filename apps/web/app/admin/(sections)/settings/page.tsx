@@ -1,7 +1,10 @@
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { InvestPane } from "@/client/admin/invest-pane";
 import { RegionsPane } from "@/client/admin/regions-pane";
 import { FeeSettingsForm, type FeeSettingsState } from "@/client/operator/fee-settings-form";
 import { FeeSettingsUnavailable } from "@/client/operator/fee-settings-unavailable";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { getSqlExecutor } from "@/server/db/sql";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import { readOperatorPageDecision } from "@/server/operator/page";
@@ -48,6 +51,17 @@ export default async function SettingsPage() {
   const fees = await readFeeSettings();
   return (
     <OperatorSection address={address} heading="Settings">
+      <ul className="grid gap-3">
+        <li>
+          <Item variant="outline" render={<Link href="/admin/settings/funding" />}>
+            <ItemContent className="min-w-0">
+              <ItemTitle>Money in and out</ItemTitle>
+              <ItemDescription>Choose which providers customers can use to add money and cash out.</ItemDescription>
+            </ItemContent>
+            <ItemActions><ChevronRight className="size-4 rtl:-scale-x-100" aria-hidden="true" /></ItemActions>
+          </Item>
+        </li>
+      </ul>
       {regionEntry ? <RegionsPane key={address} initialEntry={regionEntry} operator={address} /> : <OperatorEmpty>{database ? "Region settings are unavailable. Try again shortly." : "Region settings need a database. Home is offering its built-in regions."}</OperatorEmpty>}
       {investEntry ? <InvestPane key={address} initialEntry={investEntry} operator={address} /> : <OperatorEmpty>{database ? "Invest settings are unavailable. Try again shortly." : "Invest settings need a database. Home is showing its full catalog."}</OperatorEmpty>}
       {fees ? <FeeSettingsForm key={address} operator={address} initial={fees} /> : <FeeSettingsUnavailable />}

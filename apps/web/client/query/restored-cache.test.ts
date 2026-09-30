@@ -78,6 +78,7 @@ const validEntries = [
   { scope: "funding-open-order", data: { order: fundingOrder } },
   { scope: "funding-order", data: fundingOrder, parts: [fundingOrder.id] },
   { scope: "funding-provider-customers", data: { customers: [] }, parts: ["US"] },
+  { scope: "funding-open-order-by-provider", data: { order: { ...fundingOrder, region: "US", paymentMethod: "bank_transfer" } }, parts: ["US", "provider-1", "bank_transfer", 1] },
   { scope: "funding-providers", data: { providers: [] }, parts: ["US"] },
   { scope: "stock-trade-eligibility", data: { version: 1, buy: "eligible", sell: "eligible" } },
   { scope: "trade-availability", data: { version: 2, status: "unavailable", reason: "asset-unsupported" } },
@@ -87,7 +88,7 @@ describe("restored owner cache scope guards", () => {
   test("every persisted owner scope rejects malformed containers", () => {
     const ownerScopes = Object.entries(queryScopes).filter(([, policy]) =>
       policy.audience === "owner" && policy.persistence === "owner");
-    expect(ownerScopes).toHaveLength(10);
+    expect(ownerScopes).toHaveLength(11);
     for (const [scope, policy] of ownerScopes) {
       if (policy.audience !== "owner" || policy.persistence !== "owner") continue;
       expect(typeof policy.validateRestored).toBe("function");
@@ -229,6 +230,18 @@ describe("restored owner cache scope guards", () => {
     const customer = { providerId: "provider-1", region: "AR", state: "verified", verificationStartedAt: null, updatedAt: "2026-09-15T12:00:00.000Z" };
     expect(queryScopes["funding-provider-customers"].validateRestored({ customers: [customer] }, { ownerKey, queryKey: [ownerKey, "funding-provider-customers", "US"] })).toBeNull();
     expect(queryScopes["funding-provider-customers"].validateRestored({ customers: [customer] }, { ownerKey, queryKey: [ownerKey, "funding-provider-customers", "AR"] })?.data).toEqual({ customers: [customer] });
+  });
+
+  test("binds a restored per-provider open order to its provider, region and payment methods", () => {
+    const policy = queryScopes["funding-open-order-by-provider"];
+    const entry = { ownerKey, queryKey: [ownerKey, "funding-open-order-by-provider", "US", "provider-1", "bank_transfer,card", 1] };
+    const order = { ...fundingOrder, region: "US", paymentMethod: "card" };
+    expect(policy.validateRestored({ order }, entry)?.data).toEqual({ order });
+    expect(policy.validateRestored({ order: null }, entry)?.data).toEqual({ order: null });
+    expect(policy.validateRestored({ order: { ...order, providerId: "provider-2" } }, entry)).toBeNull();
+    expect(policy.validateRestored({ order: { ...order, region: "AR" } }, entry)).toBeNull();
+    expect(policy.validateRestored({ order: { ...order, paymentMethod: "cash" } }, entry)).toBeNull();
+    expect(policy.validateRestored({ order: { ...order, fees: "bad" } }, entry)).toBeNull();
   });
 
   test("accepts the borrow overview and market snapshot the live reads store", () => {

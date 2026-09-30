@@ -6,6 +6,7 @@ import { SendDialog } from "@/client/transfers/send-dialog";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { formatAddress } from "@/shared/formatting";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
@@ -35,7 +36,7 @@ function SendRecipientJourney({ mode }: { mode: Mode }) {
   const fetchAccountResource = useCallback<AccountWalletClient["fetchAccountResource"]>(async (url) => {
       if (url.startsWith("/api/funding/providers")) {
         if (mode === "providers-error") throw new Error("Providers unavailable");
-        return { version: 2, direction: "offramp", providers: [] };
+        return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
       }
       if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
       if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: mode === "recent" ? recent : [] };
