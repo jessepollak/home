@@ -182,6 +182,16 @@
     {
       "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "excludeFiles": [
+        "client/account/owner-keys.ts",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/owner-identity-helper": "error" }
+    },
+    {
+      "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
         "components/ui/**", "client/money-modal/**",
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",

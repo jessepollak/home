@@ -21,16 +21,15 @@ import {
 import { useAuthenticatedTransport } from "./cdp-authenticated-transport";
 import { useMoneyActionExecution } from "./cdp-money-action-execution";
 import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, writeAccountProviderHint, writeCdpRestoreMarker } from "./cdp-wallet-provider-capabilities";
-import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
+import { dataOwnerKey, nativeBaseOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
 import { finishHomeAuthRestore, sendHomeAuthSignOut } from "@/client/observability/auth-performance";
-import { nativeOwnerKey } from "./native-base-session-client";
 import { ACCOUNT_RESTORE_STAGE_TIMEOUT_MS, AccountRestoreStageTimeoutError, runAccountRestoreStage } from "./restore-stage";
 import { readEmailRequestAnsweredHint, useEmailRequestFlow, type SignInEmailFollowUp } from "./email-request-flow";
 
 function renderSeedSdkOwnerKey(seed: AccountRenderSeed): string {
   return seed.source === "home-session"
-    ? nativeOwnerKey(seed.session)
+    ? nativeBaseOwnerKey(seed.session)
     : seed.session.user.subject;
 }
 const subscribeToClientMount = () => () => {};

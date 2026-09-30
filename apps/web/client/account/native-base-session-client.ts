@@ -125,10 +125,3 @@ export async function clearNativeBaseSession(
   }
   if (!response.ok) throw new Error("Native Base sign-out failed.");
 }
-
-export function nativeOwnerKey(session: VerifiedAccountSession): string {
-  if (session.accountProvider !== "base-account" || !session.smartAccount) {
-    throw new Error("Native Base authentication failed.");
-  }
-  return `${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.smartAccount.chainId}`;
-}
