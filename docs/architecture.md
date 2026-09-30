@@ -79,6 +79,8 @@ Funding already has the full plugin shape: one provider directory, one registrat
 
 ## Data model
 
+Growing-data queries use selective indexed access and bounded work; add appropriate missing indexes with the query and verify the actual plan. [SQL performance](sql-performance.md) defines plan evidence, provider query bounds, justified scan exceptions, and migration rollout requirements.
+
 | Table | Kind | Why it exists |
 |---|---|---|
 | `customers` | record | the Home person, status, first and last seen times, optional country and invite attribution |
