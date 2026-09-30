@@ -20,12 +20,13 @@ export const afterActionScopes = [
   "balances",
   "activity",
   "borrow",
+  "borrow-market",
   "actions",
   tradeAvailabilityScope,
   "activity-orders",
 ] as const satisfies readonly OwnerQueryScope[];
 
-export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
+export const indexedScopes = ["activity", "borrow", "borrow-market", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
 
 const activityWindowQuantumMs = 60_000;
 const activityWindowAdvancers = new WeakMap<object, Map<string, Set<() => Promise<void>>>>();

@@ -143,6 +143,16 @@ describe("Borrow overview and management", () => {
     expect(body.getAllByText(/APR/)).toBeTruthy();
   });
 
+  test("overview seeds the market scope without creating legacy detail entries", async () => {
+    const snapshot = detail();
+    const client = getHomeQueryClient();
+    const owner = dataOwnerKey(session());
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} />);
+    await waitFor(() => expect(client.getQueryData<BorrowMarketSnapshot>(ownerQueryKey(owner, "borrow-market", BORROW_MARKET_ID)))
+      .toMatchObject({ walletAddress: OWNER, market: { id: BORROW_MARKET_ID }, position: snapshot.position }));
+    expect(client.getQueryData(ownerQueryKey(owner, "borrow", "detail", BORROW_MARKET_ID))).toBeUndefined();
+  });
+
   test("renders wide debt and held opening capacity as dollars, preserving collateral units and inert rows", async () => {
     const { BorrowOverview } = await import("./borrow-overview");
     const loan = detail({ position: { ...detail().position, debtAssetsRaw: "123456780000", borrowSharesRaw: "123456780000" } });
@@ -618,6 +628,23 @@ describe("Borrow overview and management", () => {
   }, 30_000);
 });
 describe("Borrow direct market", () => {
+  test("revalidates cached market detail on mount, remount, and invalidation", async () => {
+    const client = getHomeQueryClient();
+    const marketKey = ownerQueryKey(dataOwnerKey(session()), "borrow-market", BORROW_MARKET_ID);
+    client.setQueryData(marketKey, detail());
+    let reads = 0;
+    const fetchAccountResource = async () => detail({ source: { ...detail().source, blockNumber: `${100 + ++reads}` } });
+    const flow = <BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID} fetchAccountResource={fetchAccountResource} />;
+    const first = render(flow);
+    await waitFor(() => expect(client.getQueryData<BorrowMarketSnapshot>(marketKey)?.source.blockNumber).toBe("101"));
+    first.unmount();
+    render(flow);
+    await waitFor(() => expect(client.getQueryData<BorrowMarketSnapshot>(marketKey)?.source.blockNumber).toBe("102"));
+    await act(async () => { await client.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey(session()), "borrow-market") }); });
+    expect(reads).toBe(3);
+    expect(client.getQueryData<BorrowMarketSnapshot>(marketKey)?.source.blockNumber).toBe("103");
+  });
+
   test("keeps the configured market route on the direct money dialog", async () => {
     let closed = 0;
     render(<BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID}

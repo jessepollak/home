@@ -5,9 +5,10 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ResourceFailureKind } from "@/client/account/resource-failure";
 import { recentActionsQuery, recentActionsStatus, retryRecentActions } from "./recent-actions-query";
 
+const address = "0x1111111111111111111111111111111111111111" as const;
 const session: VerifiedAccountSession = {
   user: { subject: "subject" },
-  smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
+  smartAccount: { address, chainId: 8453 },
   accountProvider: "cdp-embedded",
 };
 const failure = (reason: ConstructorParameters<typeof TransferExecutionError>[0], kind: ResourceFailureKind, status?: number) =>
@@ -29,8 +30,9 @@ describe("recent actions recovery", () => {
       receivedSignal = signal;
       return { actions: [null, { id: "malformed-item" }] };
     } });
-    expect(await client.fetchQuery(valid)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
-    expect(client.getQueryData<unknown>(valid.queryKey)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
+    const payload = await client.fetchQuery(valid);
+    expect(payload).toEqual({ operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
+    expect(client.getQueryData<unknown>(valid.queryKey)).toEqual(payload);
     expect(receivedSignal).toBeInstanceOf(AbortSignal);
     client.clear();
   });
@@ -69,7 +71,7 @@ describe("recent actions recovery", () => {
 
   test("caches parsed operations and owned unparsed savings-deposit stubs under one actions key", async () => {
     const client = createHomeQueryClient();
-    const owner = { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider };
+    const owner = { subject: session.user.subject, address, chainId: 8453, accountProvider: session.accountProvider };
     const vaultAddress = "0x2222222222222222222222222222222222222222";
     const parsedDeposit = {
       id: "parsed", kind: "savings-deposit", status: "pending", owner,
@@ -99,6 +101,19 @@ describe("recent actions recovery", () => {
     ]);
     expect(client.getQueryData<unknown>(ownerQueryKey("owner", "actions"))).toEqual(payload);
     expect(client.getQueryCache().getAll()).toHaveLength(1);
+    client.clear();
+  });
+
+  test("shares truncation and owner-scoped incomplete cash-out flags in the parsed cache", async () => {
+    const client = createHomeQueryClient();
+    const owner = { subject: session.user.subject, address, chainId: 8453, accountProvider: session.accountProvider };
+    const malformed = { id: "cashout", kind: "cash-out", owner, summary: null };
+    const options = recentActionsQuery({ owner: "owner", session, fetchOperations: async () => ({ actions: [malformed], truncated: true }) });
+    expect(await client.fetchQuery(options)).toMatchObject({ operations: [], truncated: true, incomplete: true });
+    const foreign = recentActionsQuery({ owner: "owner", session, fetchOperations: async () => ({
+      actions: [{ ...malformed, owner: { ...owner, subject: "foreign" } }],
+    }) });
+    expect(await client.fetchQuery({ ...foreign, staleTime: 0 })).toMatchObject({ operations: [], truncated: false, incomplete: false });
     client.clear();
   });
 

@@ -71,7 +71,9 @@ test("accepts all summary fields and legitimate nullable order fields", () => {
 test.each([
   ["provider quote id and fee certainty", { providerQuoteId: "provider-quote", feesKnown: true }, false],
   ["non-string provider quote id", { providerQuoteId: null }, true],
+  ["undefined provider quote id", { providerQuoteId: undefined }, true],
   ["non-boolean fee certainty", { feesKnown: "true" }, true],
+  ["undefined fee certainty", { feesKnown: undefined }, true],
   ["missing atomic token amount", { tokenAmountAtomic: undefined }, true],
   ["missing expiry", { expiresAt: null }, true],
   ["non-string quote fee currency", { fees: [{ label: "Provider", amount: "0.01", currency: 1 }] }, true],
@@ -98,6 +100,7 @@ test.each([
   ["atomic amount object", { expectedTokenAmountAtomic: { value: "100" } }],
   ["non-atomic amount", { expectedTokenAmountAtomic: "1.5" }],
   ["fees not an array", { fees: null }],
+  ["string fees", { fees: "oops" }],
   ["null fee", { fees: [null] }],
   ["partial fee", { fees: [{ label: "Provider", amount: "0.01" }] }],
   ["fee amount", { fees: [{ label: "Provider", amount: {}, currency: "ARS" }] }],
@@ -111,6 +114,6 @@ test.each([
   expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, ...override } }, "AR")).toThrow("Invalid funding open order response");
 });
 
-test.each(["region", "assetId", "paymentMethod", "quote", "quoteToken", "sandbox", "expectedTokenAmountAtomic", "fees", "expiresAt", "transactionHash", "createdAt", "updatedAt"])('rejects explicitly undefined %s in cached data', (field) => {
-  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, [field]: undefined } }, "AR")).toThrow("Invalid funding open order response");
+test.each(["region", "assetId", "paymentMethod", "quote", "quoteToken", "sandbox", "expectedTokenAmountAtomic", "fees", "expiresAt", "transactionHash", "createdAt", "updatedAt"])('accepts explicitly undefined optional %s in an in-process order', (field) => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, [field]: undefined } }, "AR")).not.toThrow();
 });
