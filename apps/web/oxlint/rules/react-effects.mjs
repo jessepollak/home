@@ -128,7 +128,7 @@ export const noDeferredEffectSetstate = {
     type: "problem",
     schema: [],
     messages: {
-      rejected: "Do not defer effect state updates; derive the value during render, move the transition to an event handler, adjust state during render, or use a useSyncExternalStore clock.",
+      rejected: "Do not defer effect state updates; derive the value during render, move the transition to an event handler, adjust state during render, or use a useSyncExternalStore clock. A render-phase adjustment in a server-rendered client component must be gated on a client-mount snapshot, useSyncExternalStore(subscribe, () => true, () => false), or it runs during hydration and mismatches the server tree.",
     },
   },
   create(context) {
