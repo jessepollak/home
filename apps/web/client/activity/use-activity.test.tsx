@@ -1,7 +1,7 @@
 import "../account/dom-test-harness";
 
-import { getHomeQueryClient } from "@/client/query/query-client";
-import { afterEach, describe, expect, test } from "bun:test";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { afterEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActivityPage, ActivityTransfer, FetchActivity } from "./types";
 import {
@@ -10,11 +10,15 @@ import {
 } from "@/shared/activity/contract";
 import type { RegionId } from "@/config/regions";
 import { computeActivityValuationAmount } from "@/shared/activity/valuation";
+import { ResourceFailure } from "@/client/account/resource-failure";
+import { activityWindowScope } from "@/client/query/after-action";
+import { initialActivityWindowEnd } from "@/client/query/after-action";
+import type { InfiniteData } from "@tanstack/react-query";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
 );
-const { useActivity } = await import("./use-activity");
+const { useActivity, activityOwnerKey, activityFirstPageRetryDelaysMs, refreshLatestActivity } = await import("./use-activity");
 
 const WALLET_A = "0x1111111111111111111111111111111111111111" as const;
 const WALLET_B = "0x2222222222222222222222222222222222222222" as const;
@@ -65,6 +69,11 @@ function transfer(
     valuation: { status: "unpriced", currency: "USD", reason: "quote-unavailable" },
   };
 }
+const cardPurchase = {
+  id: "ipi_synthetic", kind: "transaction" as const, amountMinor: "1234", currency: "USD",
+  merchantName: "Synthetic Cafe", merchantCategory: null, status: "completed" as const,
+  declineReasonCode: null, createdAt: "2026-09-07T12:00:00.000Z", updatedAt: "2026-09-07T12:00:00.000Z",
+} satisfies NonNullable<ActivityPage["cards"]>["rows"][number];
 
 function page(
   query: string,
@@ -93,6 +102,11 @@ function page(
       fetchedAt: to,
     },
   };
+}
+
+function partialPage(query: string, wallet: typeof WALLET_A | typeof WALLET_B, rows: NonNullable<ActivityPage["cards"]>["rows"] = []): ActivityResponse {
+  return { ...page(query, wallet, [], null), source: null, onchainStatus: "unavailable",
+    cards: { status: "ready", rows } };
 }
 
 function priced(row: ActivityTransfer): ActivityTransfer {
@@ -145,6 +159,8 @@ function HookHarness({
           <output data-testid={`${testId}valuations`}>
             {activity.page.transfers.map((item) => item.valuation.status).join(",")}
           </output>
+          <output data-testid={`${testId}onchain-status`}>{activity.page.onchainStatus ?? "healthy"}</output>
+          <output data-testid={`${testId}card-ids`}>{activity.page.cards?.rows.map((row) => row.id).join(",") ?? ""}</output>
           <button type="button" onClick={activity.retry}>refetch</button>
           <output data-testid="loading-more">
             {String(activity.loadingMore)}
@@ -167,6 +183,7 @@ function HookHarness({
 }
 
 afterEach(() => {
+  jest.useRealTimers();
   cleanup();
   getHomeQueryClient().clear();
 });
@@ -437,9 +454,10 @@ describe("useActivity pagination", () => {
   test("keeps the retry backoff when the sentinel leaves and returns during the wait", async () => {
     const queries: string[] = [];
     const requestedAt: number[] = [];
+    const started = performance.now();
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
-      requestedAt.push(Date.now());
+      requestedAt.push(performance.now() - started);
       if (queries.length === 1) return page(query, WALLET_A, [transfer(query, WALLET_A, "event-30", "30")], "cursor-1");
       if (queries.length === 2) throw new Error("transient later page failure");
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
@@ -910,4 +928,330 @@ test("waits for a continuation fetch to settle before spending a retry", async (
   expect(queries).toHaveLength(2);
   await scheduler.fire(15_000);
   await waitFor(() => expect(cursors(queries)).toEqual([null, "cursor-1", null, "cursor-1"]));
+});
+
+function recoveryWindow(owner: VerifiedAccountSession, prior: "healthy" | "partial" = "healthy") {
+  const queryClient = getHomeQueryClient();
+  const ownerKey = activityOwnerKey(owner);
+  const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+  const windowEnd = initialActivityWindowEnd();
+  const query = `to=${encodeURIComponent(windowEnd)}&currency=USD`;
+  const current = prior === "partial" ? partialPage(query, owner.smartAccount!.address as typeof WALLET_A | typeof WALLET_B)
+    : page(query, owner.smartAccount!.address as typeof WALLET_A | typeof WALLET_B, [], null);
+  queryClient.setQueryData(windowKey, windowEnd);
+  queryClient.setQueryData(ownerQueryKey(ownerKey, "activity", windowEnd, "USD"),
+    { pages: [current], pageParams: [null] } satisfies InfiniteData<ActivityPage>);
+  return { queryClient, ownerKey, windowKey, windowEnd };
+}
+
+async function flushRecovery() {
+  for (let index = 0; index < 12; index++) await Promise.resolve();
+}
+async function flushMountedRecovery() {
+  await act(async () => {
+    await flushRecovery();
+    jest.advanceTimersByTime(1);
+    await flushRecovery();
+  });
+}
+
+
+async function advanceFirstPageRetry(delayMs: number) {
+  jest.advanceTimersByTime(delayMs);
+  for (let index = 0; index < 12; index++) await Promise.resolve();
+}
+
+describe("mounted first-page recovery with an empty cache", () => {
+  test.each(["ACTIVITY_UNAUTHORIZED", "ACTIVITY_INVALID_RESPONSE", "ACTIVITY_NOT_CONFIGURED"] as const)("does not retry transport HTTP 502 with wire code %s", async (code) => {
+    jest.useFakeTimers();
+    getHomeQueryClient().clear();
+    let calls = 0;
+    const fetchActivity: FetchActivity = async () => {
+      calls++;
+      throw Object.assign(new ResourceFailure("http", undefined, 502), { code });
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("error");
+    await act(async () => { await advanceFirstPageRetry(2_000); });
+    expect(calls).toBe(1);
+  });
+
+  test.each(["ACTIVITY_UPSTREAM", "ACTIVITY_TIMEOUT"] as const)("retries transport HTTP 502 with wire code %s", async (code) => {
+    jest.useFakeTimers();
+    getHomeQueryClient().clear();
+    let calls = 0;
+    const fetchActivity: FetchActivity = async () => {
+      calls++;
+      throw Object.assign(new ResourceFailure("http", undefined, 502), { code });
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    expect(calls).toBe(1);
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    expect(calls).toBe(3);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("error");
+  });
+
+  test("cold start exhausted transient failures show an error after three requests", async () => {
+    jest.useFakeTimers();
+    getHomeQueryClient().clear();
+    let calls = 0;
+    const fetchActivity: FetchActivity = async () => { calls++; throw new ResourceFailure("network"); };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("loading");
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    expect(calls).toBe(3);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("error");
+  });
+
+  test("cold start exhausted partial responses show card rows and unavailable onchain status", async () => {
+    jest.useFakeTimers();
+    getHomeQueryClient().clear();
+    let calls = 0;
+    const fetchActivity: FetchActivity = async (query) => { calls++; return partialPage(query, WALLET_A, [cardPurchase]); };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("loading");
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    expect(calls).toBe(3);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("onchain-status").textContent).toBe("unavailable");
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+  });
+
+  test("manual retry retains mounted healthy transfers when three partial responses follow", async () => {
+    jest.useFakeTimers();
+    getHomeQueryClient().clear();
+    let calls = 0;
+    const fetchActivity: FetchActivity = async (query) => {
+      calls++;
+      return calls === 1 ? page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null)
+        : partialPage(query, WALLET_A, [cardPurchase]);
+    };
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    expect(calls).toBe(4);
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("card-ids").textContent).toBe("");
+  });
+});
+
+describe("first-page onchain recovery", () => {
+  test("retries transient first-page failures after 500 ms and recovers without a partial warning", async () => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:00.000Z") });
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner, "partial");
+    const calls: number[] = [];
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (query) => {
+        calls.push(Date.now());
+        if (calls.length === 1) throw new ResourceFailure("network");
+        return page(query, WALLET_A, [transfer(query, WALLET_A, "recovered", "30")], null);
+      }, isCurrent: () => true, onPrefetchKey: () => {} });
+    await flushRecovery();
+    expect(calls).toHaveLength(1);
+    await advanceFirstPageRetry(499);
+    expect(calls).toHaveLength(1);
+    await advanceFirstPageRetry(1);
+    await pending;
+    expect(calls).toHaveLength(2);
+    expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(500);
+    const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
+    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"));
+    expect(next?.pages[0]?.transfers[0]?.logId).toBe("recovered");
+    expect(next?.pages[0]?.onchainStatus).toBeUndefined();
+  });
+
+  for (const status of [429, 503]) test(`exhausts two transient first-page retries for HTTP ${status} and preserves the original error`, async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner, "partial");
+    let calls = 0;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async () => { calls++; throw new ResourceFailure("http", "provider unavailable", status); },
+      isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+    await flushRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) await advanceFirstPageRetry(delay);
+    const error = await pending;
+    expect(error).toBeInstanceOf(ResourceFailure);
+    expect((error as ResourceFailure).status).toBe(status);
+    expect(calls).toBe(3);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+  });
+
+  test("retries an initial partial and replaces it with healthy history", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner, "partial");
+    let calls = 0;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (query) => ++calls === 1 ? partialPage(query, WALLET_A)
+        : page(query, WALLET_A, [transfer(query, WALLET_A, "restored", "30")], null),
+      isCurrent: () => true, onPrefetchKey: () => {} });
+    await flushRecovery();
+    await advanceFirstPageRetry(500);
+    await pending;
+    expect(calls).toBe(2);
+    const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBeUndefined();
+  });
+
+  test("after two retries a partial first page remains available when there is no healthy history", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner, "partial");
+    let calls = 0;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (query) => { calls++; return partialPage(query, WALLET_A); },
+      isCurrent: () => true, onPrefetchKey: () => {} });
+    await flushRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) await advanceFirstPageRetry(delay);
+    await pending;
+    const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
+    expect(calls).toBe(3);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBe("unavailable");
+  });
+
+  test.each(["parse", "http-400", "session", "access"] as const)("does not retry a %s first-page failure", async (failure) => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    let calls = 0;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async () => {
+        calls++;
+        if (failure === "parse") return { invalid: true };
+        throw failure === "http-400" ? new ResourceFailure("http", "bad request", 400) : new ResourceFailure(failure);
+      }, isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+    await flushRecovery();
+    await advanceFirstPageRetry(2_000);
+    expect(await pending).toBeInstanceOf(Error);
+    expect(calls).toBe(1);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+  });
+
+  test("healthy history is retained when a partial background refresh exhausts retries", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    let calls = 0;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (query) => { calls++; return partialPage(query, WALLET_A); },
+      isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+    await flushRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) await advanceFirstPageRetry(delay);
+    expect((await pending as Error).message).toBe("Activity onchain history is unavailable.");
+    expect(calls).toBe(3);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD"))?.pages[0]?.onchainStatus).toBeUndefined();
+  });
+
+  test("abort during the retry delay stops further first-page requests", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    let calls = 0;
+    let signal: AbortSignal | undefined;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (_query, currentSignal) => { calls++; signal = currentSignal; throw new ResourceFailure("network"); },
+      isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+    await flushRecovery();
+    expect(calls).toBe(1);
+    await scope.queryClient.cancelQueries({ queryKey: [scope.ownerKey, "activity"] });
+    await advanceFirstPageRetry(2_000);
+    await pending;
+    expect(signal?.aborted).toBe(true);
+    expect(calls).toBe(1);
+  });
+  test("healthy history stays intact after exhausted transient background failures", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    current.pages[0]!.transfers = [transfer(`to=${encodeURIComponent(scope.windowEnd)}&currency=USD`, WALLET_A, "kept", "30")];
+    let calls = 0;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async () => { calls++; throw new ResourceFailure("network"); },
+      isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+    await flushRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) await advanceFirstPageRetry(delay);
+    expect(await pending).toBeInstanceOf(ResourceFailure);
+    expect(calls).toBe(3);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)?.pages[0]?.transfers[0]?.logId).toBe("kept");
+  });
+
+  test("a healthy manual refresh replaces partial history", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner, "partial");
+    await refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (query) => page(query, WALLET_A, [transfer(query, WALLET_A, "recovered", "30")], null),
+      isCurrent: () => true, onPrefetchKey: () => {} });
+    const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
+    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"));
+    expect(next?.pages[0]?.transfers[0]?.logId).toBe("recovered");
+    expect(next?.pages[0]?.onchainStatus).toBeUndefined();
+  });
+
+  test("healthy history for another owner never suppresses a partial first page", async () => {
+    jest.useFakeTimers();
+    recoveryWindow(session("subject-a", WALLET_A));
+    const owner = session("subject-b", WALLET_B);
+    const scope = recoveryWindow(owner, "partial");
+    let calls = 0;
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (query) => { calls++; return partialPage(query, WALLET_B); },
+      isCurrent: () => true, onPrefetchKey: () => {} });
+    await flushRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) await advanceFirstPageRetry(delay);
+    await pending;
+    const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
+    expect(calls).toBe(3);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBe("unavailable");
+  });
+
+  test("a cursor-page failure never uses the first-page retry budget", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
+    scope.queryClient.setQueryData(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD"), {
+      pages: [page(query, WALLET_A, [transfer(query, WALLET_A, "newer", "30")], "cursor-1"),
+        page(query, WALLET_A, [transfer(query, WALLET_A, "older", "20")], null)],
+      pageParams: [null, "cursor-1"],
+    } satisfies InfiniteData<ActivityPage>);
+    const queries: string[] = [];
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (request) => {
+        queries.push(request);
+        if (new URLSearchParams(request).has("cursor")) throw new ResourceFailure("http", "bad request", 400);
+        return page(request, WALLET_A, [transfer(request, WALLET_A, "newer", "30")], "cursor-1");
+      }, isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+    await flushRecovery();
+    expect(await pending).toBeInstanceOf(ResourceFailure);
+    expect(cursors(queries)).toEqual([null, "cursor-1"]);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+  });
 });

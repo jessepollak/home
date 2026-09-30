@@ -139,7 +139,9 @@ async function prepare(
     assertStockTradePrepareAllowed({ params, request });
     const { draft, pending, callGasLimit } = await (dependencies.prepareTrade ?? prepareTradeAction)({ session, request, params, signal });
     const withFee = await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request, callGasLimit });
-    return issueMoneyAction(session, withFee, { pending: { ...pending, swapCallIndex: withFee.calls.length - 1 } });
+    const sellTransfer = withFee.metadata?.product === "trade" && withFee.metadata.direction === "sell" &&
+      withFee.metadata.operatorFee?.collectedBy === "in-batch-transfer";
+    return issueMoneyAction(session, withFee, { pending: { ...pending, swapCallIndex: withFee.calls.length - (sellTransfer ? 2 : 1) } });
   }
   throw new TypeError("Unsupported action kind.");
 }

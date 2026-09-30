@@ -34,6 +34,7 @@ import {
   isClientHistoryEntry,
   legacyShellRedirectHref,
   parseShellLocation,
+  readClientHistoryFlag,
   readClientScrollTop,
   readShellAccountParam,
   replaceClientScrollTop,
@@ -69,11 +70,12 @@ import {
   clampHomeScrollTop,
   homeBalancesRestoreScope,
   useBalancesRevealWindow,
+  useBalancesPresentation,
 } from "./balances-panel";
 import { ActivityPage } from "./activity-panel";
 import { CashPanel, InvestPanel, InvestmentsPanel } from "./feature-panels";
 import { HomePanel } from "./home-panel";
-import { MountedShellPanel } from "./panel-shared";
+import { EmptyPanel, MountedShellPanel } from "./panel-shared";
 import type { HomeExperienceProps, HomeAssetBalancesPresentation, InvestmentsContentProps } from "./home-types";
 import {
   HomeShellRoutingProvider,
@@ -116,16 +118,13 @@ function PanelChromeSync({ onChrome }: { onChrome: (chrome: NestedAppChrome | nu
 const loadingAssetBalances: HomeAssetBalancesPresentation = {
   status: "loading",
   displayTotal: null,
-  groups: [],
   breakdown: [],
   summary: null,
-  rows: [],
-  hiddenRows: [],
-  hiddenCount: 0,
 };
 
 const panelStartupRoutes: Record<ShellPanelId, HomeInteractionRoute> = {
   home: "/home",
+  card: "/card",
   balances: "/balances",
   activity: "/activity",
   cash: "/cash",
@@ -146,6 +145,8 @@ export function DashboardShell(props: DashboardShellProps) {
 
 function DashboardShellBody({
   investContent,
+  cardContent,
+  cardsEnabled = false,
   cashContent,
   investmentsContent,
   initialAccountOpen = false,
@@ -157,7 +158,8 @@ function DashboardShellBody({
   interruption = null,
   interruptionAnnouncement = null,
   onRetryInterruption,
-  presentAssetBalances,
+  balancesState,
+  pendingCashout,
   sendAvailability = [],
   canOpenAssetDetail = () => false,
   assetMarkResolution,
@@ -239,12 +241,12 @@ function DashboardShellBody({
   const [borrowMarketOpenedInApp, setBorrowMarketOpenedInApp] = useState(false);
   const [cashSavingsOpenedInApp, setCashSavingsOpenedInApp] = useState(() =>
     typeof window !== "undefined" && initialUrlIntent.location.cashView === "savings" &&
-    window.history.state?.__cashSavingsOpenedInApp === true,
+    readClientHistoryFlag("cashSavingsOpenedInApp"),
   );
   const cashSavingsFocusReturnRef = useRef(false);
   const [investmentsHoldingOpenedInApp, setInvestmentsHoldingOpenedInApp] = useState(() =>
     typeof window !== "undefined" && initialUrlIntent.location.holding != null &&
-    window.history.state?.__investmentsHoldingOpenedInApp === true,
+    readClientHistoryFlag("investmentsHoldingOpenedInApp"),
   );
   const holdingFocusReturnRef = useRef<{ key: AssetKey; scrollIntoView: boolean } | null>(null);
   const investChrome = useOptionalAppChrome();
@@ -388,7 +390,7 @@ function DashboardShellBody({
       window.location.origin,
     );
     if (!options.normalizeInbound && options.mode !== "push" && window.location.pathname === "/cash/savings" &&
-      window.history.state?.__cashSavingsFlowPushed === true &&
+      readClientHistoryFlag("cashSavingsFlowPushed") &&
       (urlIntent.flow === "save-deposit" || urlIntent.flow === "save-withdraw")) {
       backClientHistory();
       return;
@@ -430,11 +432,11 @@ function DashboardShellBody({
         intent.panel === cashPanelId && intent.location.cashView === null;
       setCashSavingsOpenedInApp(intent.panel === cashPanelId &&
         intent.location.cashView === "savings" &&
-        window.history.state?.__cashSavingsOpenedInApp === true);
+        readClientHistoryFlag("cashSavingsOpenedInApp"));
       holdingFocusReturnRef.current = urlIntent.location.holding && intent.panel === investmentsPanelId && !intent.location.holding
         ? { key: urlIntent.location.holding, scrollIntoView: false } : null;
       setInvestmentsHoldingOpenedInApp(intent.panel === investmentsPanelId &&
-        intent.location.holding != null && window.history.state?.__investmentsHoldingOpenedInApp === true);
+        intent.location.holding != null && readClientHistoryFlag("investmentsHoldingOpenedInApp"));
       applyUrlState(intent);
       setPopRevision((revision) => revision + 1);
       if (intent.panel === balancesPanelId &&
@@ -497,10 +499,17 @@ function DashboardShellBody({
   const showAllAssetBalances = showSmallBalances || revealSmallBalances;
   const paintedAssetBalances = useMemo(
     () => mayPaintBalances
-      ? (presentAssetBalances?.(showAllAssetBalances) ?? assetBalances ?? loadingAssetBalances)
+      ? (assetBalances ?? loadingAssetBalances)
       : loadingAssetBalances,
-    [assetBalances, mayPaintBalances, presentAssetBalances, showAllAssetBalances],
+    [assetBalances, mayPaintBalances],
   );
+  const paintedBalancesList = useBalancesPresentation({
+    state: balancesState,
+    active: mayPaintBalances && activeNavigation === balancesPanelId && !isAccountSettingsOpen,
+    showSmallBalances: showAllAssetBalances,
+    pendingCashout,
+    fallback: balancesState ? undefined : assetBalances,
+  });
   const balancesRevalidating = balancesRevalidatingProp ?? paintedAssetBalances.revalidating === true;
   useEffect(() => {
     if (mayPaintBalances && paintedAssetBalances.status === "ready") {
@@ -517,12 +526,13 @@ function DashboardShellBody({
   });
   const balancesReveal = useBalancesRevealWindow(
     balancesScope,
-    paintedAssetBalances.rows,
+    paintedBalancesList.rows,
     balancesRevealReset,
   );
+  const { groups: balancesGroups, rows: balancesRows } = paintedBalancesList;
   const balancesAnchorKey = useMemo(
-    () => balancesAnchorTopologyKey(paintedAssetBalances),
-    [paintedAssetBalances],
+    () => balancesAnchorTopologyKey({ groups: balancesGroups, rows: balancesRows }),
+    [balancesGroups, balancesRows],
   );
   const previousNavigationRef = useRef(activeNavigation);
 
@@ -978,6 +988,7 @@ function DashboardShellBody({
         {!isSignedOut ? (
           <PrimaryNavigation
             layout="rail"
+            cardsEnabled={cardsEnabled}
             activeNavigation={activeNavigation}
             onNavigate={navigateTo}
             isAccountSettingsOpen={isAccountSettingsOpen}
@@ -1122,7 +1133,7 @@ function DashboardShellBody({
                   <MountedShellPanel active={activeNavigation === balancesPanelId} className={shellDesktopContentClassName}>
                     <BalancesPage
                       active={activeNavigation === balancesPanelId}
-                      assetBalances={paintedAssetBalances}
+                      assetBalances={paintedBalancesList}
                       showSmallBalances={showSmallBalances}
                       revealSmallBalances={revealSmallBalances}
                       onRevealSmallBalancesChange={setRevealSmallBalances}
@@ -1181,6 +1192,11 @@ function DashboardShellBody({
                     </AppChromeProvider>
                   </MountedShellPanel>
                 ) : null}
+                {cardsEnabled && mountedPanels.has("card") ? (
+                  <MountedShellPanel active={activeNavigation === "card"} className={shellDesktopContentClassName}>
+                    {cardContent ?? <EmptyPanel label="Card" />}
+                  </MountedShellPanel>
+                ) : null}
                 {mountedPanels.has("invest") ? (
                   <MountedShellPanel active={activeNavigation === "invest"} className={shellDesktopContentClassName}>
                     <InvestPanel regionId={regionId} content={investContent} />
@@ -1193,7 +1209,7 @@ function DashboardShellBody({
         </div>
       </main>
       {!isSignedOut ? (
-        <PrimaryNavigation activeNavigation={activeNavigation} onNavigate={navigateTo} />
+        <PrimaryNavigation activeNavigation={activeNavigation} onNavigate={navigateTo} cardsEnabled={cardsEnabled} />
       ) : null}
       {isVerified ? (
         <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />

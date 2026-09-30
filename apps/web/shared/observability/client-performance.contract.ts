@@ -3,6 +3,7 @@ export const HOME_STARTUP_VERSION = 1 as const;
 export const HOME_STARTUP_ROUTES = [
   "/",
   "/home",
+  "/card",
   "/balances",
   "/activity",
   "/cash",
@@ -11,7 +12,7 @@ export const HOME_STARTUP_ROUTES = [
   "/invest",
 ] as const;
 export const HOME_INTERACTION_ROUTES = [
-  "/home", "/balances", "/activity", "/cash", "/borrow", "/investments", "/invest",
+  "/home", "/card", "/balances", "/activity", "/cash", "/borrow", "/investments", "/invest",
 ] as const;
 export const HOME_PANEL_CACHE_STATES = ["retained", "first-visit"] as const;
 export const HOME_DEVICE_CLASSES = [
@@ -108,6 +109,10 @@ export type HomeNavigationReport = {
   device: HomeDeviceClass;
   engine?: HomeEngine;
   durationMs: number;
+  dispatchDelayMs?: number;
+  inputToPaintMs?: number;
+  cachePersistMs?: number;
+  contentState?: "loading" | "ready" | "unavailable";
 };
 
 export type HomeScrollReport = {
@@ -131,7 +136,7 @@ export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport 
 const navigationRequiredKeys = new Set([
   "version", "kind", "route", "from", "trigger", "cache", "device", "durationMs",
 ]);
-const navigationAllowedKeys = new Set([...navigationRequiredKeys, "engine"]);
+const navigationAllowedKeys = new Set([...navigationRequiredKeys, "engine", "dispatchDelayMs", "inputToPaintMs", "cachePersistMs", "contentState"]);
 const scrollRequiredKeys = new Set([
   "version", "kind", "route", "cache", "device", "durationMs", "frameCount", "slowFrameCount", "maxFrameMs",
 ]);
@@ -241,8 +246,23 @@ function parseHomeNavigationReport(record: Record<string, unknown>): HomeNavigat
     !hasValidEngine(record)) return null;
   const durationMs = normalizeDuration(record.durationMs, 10, 10_000);
   if (durationMs === null) return null;
+  const timings: Partial<Pick<HomeNavigationReport, "dispatchDelayMs" | "inputToPaintMs" | "cachePersistMs">> = {};
+  for (const key of ["dispatchDelayMs", "inputToPaintMs", "cachePersistMs"] as const) {
+    if (!Object.hasOwn(record, key)) continue;
+    const value = normalizeDuration(record[key], 10, 30_000);
+    if (value === null) return null;
+    timings[key] = value;
+  }
+  if ((timings.dispatchDelayMs === undefined) !== (timings.inputToPaintMs === undefined) ||
+    (timings.dispatchDelayMs !== undefined && timings.inputToPaintMs !== undefined && (record.trigger !== "in-app" ||
+      timings.dispatchDelayMs > timings.inputToPaintMs || timings.inputToPaintMs < durationMs))) return null;
+  if (Object.hasOwn(record, "contentState") && record.contentState !== "loading" &&
+    record.contentState !== "ready" && record.contentState !== "unavailable") return null;
   return { version: 1, kind: "home-navigation", route: record.route, from: record.from,
     trigger: record.trigger, cache: record.cache, device: record.device,
+    ...timings,
+    ...(record.contentState === "loading" || record.contentState === "ready" || record.contentState === "unavailable"
+      ? { contentState: record.contentState } : {}),
     ...(Object.hasOwn(record, "engine") ? { engine: record.engine as HomeEngine } : {}), durationMs };
 }
 

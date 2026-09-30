@@ -1,15 +1,16 @@
 import "./dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { VerifiedAccountSession } from "./session-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { BALANCES_VERSION } from "@/shared/balances/types";
+import { dataOwnerKey } from "./owner-keys";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
-const { useEffect } = await import("react");
+const { Suspense, startTransition, useEffect, useLayoutEffect, useState } = await import("react");
 const { useAccountWallet } = await import("./cdp-client");
 const { AccountWalletSessionOwner } = await import("./cdp-session-lifecycle");
 const { connectWithBaseProvider, restoreWithBaseProvider } = await import("./base-account-connector");
@@ -420,6 +421,326 @@ describe("owner generation fence", () => {
 
     finishSignOut();
     await act(async () => { await signOutPromise; });
+  });
+
+  for (const { name, changes } of [
+    {
+      name: "keeps initialization failure unavailable when the SDK owner disappears",
+      changes: { isSignedIn: false, ownerKey: null, initializationError: "provider-unavailable" },
+    },
+    {
+      name: "keeps initialization failure unavailable with an unchanged owner",
+      changes: { initializationError: "provider-unavailable" },
+    },
+    {
+      name: "keeps initialization failure unavailable with a new SDK owner",
+      changes: { ownerKey: OWNER_B, initializationError: "provider-unavailable" },
+    },
+    {
+      name: "keeps initialization failure unavailable with a new SDK owner and provisional session",
+      changes: {
+        ownerKey: OWNER_B,
+        initializationError: "provider-unavailable",
+        provisionalSession: session("base-account", "subject-b", ADDRESS_B),
+      },
+    },
+  ] satisfies Array<{ name: string; changes: Partial<AccountWalletSdkBoundary> }>) {
+    test(name, async () => {
+      const sessionFetch = async () => Response.json(session("cdp-embedded"));
+      const owner = (boundary: AccountWalletSdkBoundary) => (
+        <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+          <ClientProbe />
+        </AccountWalletSessionOwner>
+      );
+      const view = render(owner(sdk()));
+      await waitFor(() => expect(currentClient().status).toBe("verified"));
+      expect(currentClient().session).toEqual(session("cdp-embedded"));
+
+      act(() => { view.rerender(owner(sdk(changes))); });
+      await waitFor(() => expect(currentClient().status).toBe("unavailable"));
+      expect(currentClient().session).toBeNull();
+      expect(currentClient().verification).toBeNull();
+      expect(currentClient().message).toBe("Account verification is unavailable.");
+    });
+  }
+
+  test("an initialization error fences in-flight validation for the same provisional owner", async () => {
+    const pending: Array<{ resolve: (response: Response) => void; signal: AbortSignal }> = [];
+    const sessionFetch = async (_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve) => {
+      if (!init?.signal) throw new Error("Validation request must have an abort signal.");
+      pending.push({ resolve, signal: init.signal });
+    });
+    let passiveCleanupRan = false;
+    const commitObservations: Array<{ status: string | null; aborted: boolean; passiveCleanupRan: boolean }> = [];
+    function PendingClientProbe() {
+      const { status } = useAccountWallet();
+      useEffect(() => {
+        if (status !== "validating") return;
+        return () => { passiveCleanupRan = true; };
+      }, [status]);
+      return <ClientProbe />;
+    }
+    function CommitProbe({ error }: { error: AccountWalletSdkBoundary["initializationError"] }) {
+      useLayoutEffect(() => {
+        if (!error) return;
+        commitObservations.push({
+          status: document.querySelector('[data-testid="status"]')?.textContent ?? null,
+          aborted: pending[0]!.signal.aborted,
+          passiveCleanupRan,
+        });
+      }, [error]);
+      return null;
+    }
+    const owner = (boundary: AccountWalletSdkBoundary) => (
+      <>
+        <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+          <PendingClientProbe />
+        </AccountWalletSessionOwner>
+        <CommitProbe error={boundary.initializationError} />
+      </>
+    );
+    const provisionalSession = session("cdp-embedded");
+    const view = render(owner(sdk({ provisionalSession })));
+    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(currentClient().status).toBe("validating");
+    expect(currentClient().verification).toBe("provisional");
+
+    act(() => { view.rerender(owner(sdk({ provisionalSession, initializationError: "provider-unavailable" }))); });
+    expect(commitObservations).toEqual([{ status: "unavailable", aborted: true, passiveCleanupRan: false }]);
+    expect(pending[0]!.signal.aborted).toBe(true);
+    expect(currentClient().status).toBe("unavailable");
+    expect(currentClient().session).toBeNull();
+    expect(currentClient().verification).toBeNull();
+
+    await act(async () => { pending[0]!.resolve(Response.json(provisionalSession)); });
+    expect(currentClient().status).toBe("unavailable");
+    expect(currentClient().session).toBeNull();
+    expect(currentClient().verification).toBeNull();
+    expect(currentClient().message).toBe("Account verification is unavailable.");
+
+    act(() => { view.rerender(owner(sdk({ provisionalSession, initializationError: "provider-unavailable" }))); });
+    expect(pending).toHaveLength(1);
+    expect(currentClient().status).toBe("unavailable");
+
+    act(() => { view.rerender(owner(sdk({ provisionalSession }))); });
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(currentClient().status).toBe("validating");
+    expect(pending[1]!.signal.aborted).toBe(false);
+    await act(async () => { pending[1]!.resolve(Response.json(provisionalSession)); });
+    expect(currentClient().status).toBe("verified");
+    expect(currentClient().verification).toBe("server");
+    expect(currentClient().message).toBeNull();
+  });
+
+  test("pre-initialization error preserves the seed and fences it on settlement", () => {
+    const seededSession = session("cdp-embedded");
+    const queryClient = getHomeQueryClient();
+    const queryKey = ownerQueryKey(dataOwnerKey(seededSession), "balances", "US");
+    const seededBalances = { version: BALANCES_VERSION, holdings: [] };
+    queryClient.setQueryData(queryKey, seededBalances);
+    const cacheAtInitializedCommit: unknown[] = [];
+    let tokenReads = 0;
+    let sessionReads = 0;
+    function CommitProbe({ isInitialized }: { isInitialized: boolean }) {
+      useLayoutEffect(() => {
+        if (isInitialized) cacheAtInitializedCommit.push(queryClient.getQueryData(queryKey));
+      }, [isInitialized]);
+      return null;
+    }
+    const owner = (isInitialized: boolean) => (
+      <>
+        <AccountWalletSessionOwner
+          sdk={sdk({
+            isInitialized,
+            initializationError: "provider-unavailable",
+            isSignedIn: true,
+            ownerKey: seededSession.user.subject,
+            provisionalSession: seededSession,
+            getAccessToken: async () => { tokenReads += 1; return "fixture-token"; },
+          })}
+          renderSeed={{ session: seededSession, source: "cdp-hint" }}
+          sessionFetch={async () => { sessionReads += 1; return Response.json(seededSession); }}
+        >
+          <ClientProbe />
+        </AccountWalletSessionOwner>
+        <CommitProbe isInitialized={isInitialized} />
+      </>
+    );
+    const view = render(owner(false));
+    expect(currentClient()).toMatchObject({
+      isInitialized: false, status: "restoring", verification: "provisional", session: seededSession,
+    });
+    expect(queryClient.getQueryData<typeof seededBalances>(queryKey)).toEqual(seededBalances);
+    expect({ tokenReads, sessionReads }).toEqual({ tokenReads: 0, sessionReads: 0 });
+
+    act(() => { view.rerender(owner(true)); });
+    expect(cacheAtInitializedCommit).toEqual([undefined]);
+    expect(currentClient()).toMatchObject({
+      isInitialized: true, status: "unavailable", verification: null, session: null,
+    });
+    expect(queryClient.getQueryData(queryKey)).toBeUndefined();
+    expect({ tokenReads, sessionReads }).toEqual({ tokenReads: 0, sessionReads: 0 });
+  });
+
+  test("an abandoned initialization error render preserves the live validation", async () => {
+    const pending: Array<{ resolve: (response: Response) => void; signal: AbortSignal }> = [];
+    const sessionFetch = async (_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve) => {
+      if (!init?.signal) throw new Error("Validation request must have an abort signal.");
+      pending.push({ resolve, signal: init.signal });
+    });
+    const provisionalSession = session("cdp-embedded");
+    const suspended = new Promise<void>(() => {});
+    const suspendedRender = mock(() => {});
+    let setError!: (value: boolean) => void;
+    function SuspendOnError({ error }: { error: boolean }) {
+      if (error) {
+        suspendedRender();
+        throw suspended;
+      }
+      return <ClientProbe />;
+    }
+    function Harness() {
+      const [error, updateError] = useState(false);
+      useLayoutEffect(() => { setError = updateError; }, [updateError]);
+      return (
+        <Suspense fallback={<output>Suspended</output>}>
+          <AccountWalletSessionOwner
+            sdk={sdk({ provisionalSession, ...(error ? { initializationError: "provider-unavailable" } as const : {}) })}
+            sessionFetch={sessionFetch}
+          >
+            <SuspendOnError error={error} />
+          </AccountWalletSessionOwner>
+        </Suspense>
+      );
+    }
+    render(<Harness />);
+    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(currentClient().status).toBe("validating");
+
+    await act(async () => { startTransition(() => { setError(true); }); });
+    expect(suspendedRender).toHaveBeenCalled();
+    expect(currentClient().status).toBe("validating");
+    expect(pending[0]!.signal.aborted).toBe(false);
+
+    act(() => { setError(false); });
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.signal.aborted).toBe(false);
+    await act(async () => { pending[0]!.resolve(Response.json(provisionalSession)); });
+    expect(currentClient().status).toBe("verified");
+    expect(currentClient().verification).toBe("server");
+  });
+
+  test("clearing an initialization error validates the owner and verifies it", async () => {
+    let finishValidation!: (response: Response) => void;
+    const sessionFetch = async () => new Promise<Response>((resolve) => { finishValidation = resolve; });
+    const owner = (boundary: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+        <ClientProbe />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(sdk({ initializationError: "provider-unavailable" })));
+    await waitFor(() => expect(currentClient().status).toBe("unavailable"));
+
+    act(() => { view.rerender(owner(sdk())); });
+    await waitFor(() => expect(currentClient().status).toBe("validating"));
+    await waitFor(() => expect(finishValidation).toBeDefined());
+    expect(currentClient().status).toBe("validating");
+
+    await act(async () => { finishValidation(Response.json(session("cdp-embedded"))); });
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    expect(currentClient().session).toEqual(session("cdp-embedded"));
+  });
+
+  test("validates a new SDK owner without an initialization error", async () => {
+    let finishValidation!: (response: Response) => void;
+    let fetches = 0;
+    const sessionFetch = async () => new Promise<Response>((resolve) => {
+      fetches += 1;
+      finishValidation = resolve;
+    });
+    const owner = (boundary: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+        <ClientProbe />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(sdk()));
+    await waitFor(() => expect(finishValidation).toBeDefined());
+    await act(async () => { finishValidation(Response.json(session("cdp-embedded"))); });
+    expect(currentClient().status).toBe("verified");
+
+    act(() => { view.rerender(owner(sdk({ ownerKey: OWNER_B }))); });
+    expect(currentClient().status).toBe("validating");
+    expect(currentClient().session).toBeNull();
+    await waitFor(() => expect(fetches).toBe(2));
+    await act(async () => { finishValidation(Response.json(session("cdp-embedded", "subject-b", ADDRESS_B))); });
+    expect(currentClient().status).toBe("verified");
+  });
+
+  test("signs out when the SDK owner disappears without an initialization error", async () => {
+    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const owner = (boundary: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+        <ClientProbe />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(sdk()));
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+
+    act(() => { view.rerender(owner(sdk({ isSignedIn: false, ownerKey: null }))); });
+    expect(currentClient().status).toBe("signed-out");
+    expect(currentClient().session).toBeNull();
+  });
+
+  test("a failed sign-out returns to signed-out when the SDK owner disappears", async () => {
+    const failedSignOut = async () => { throw new Error("cleanup failed"); };
+    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const owner = (boundary: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+        <ClientProbe />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(sdk({ signOut: failedSignOut })));
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+
+    await act(async () => {
+      await expect(currentClient().signOut()).rejects.toThrow("Account sign-out did not finish.");
+    });
+    expect(currentClient().status).toBe("signout-error");
+    expect(currentClient().message).toBe("Sign-out did not finish. Retry sign out.");
+
+    act(() => { view.rerender(owner(sdk({ isSignedIn: false, ownerKey: null, signOut: failedSignOut }))); });
+    await waitFor(() => expect(currentClient().status).toBe("signed-out"));
+    expect(currentClient().session).toBeNull();
+    expect(currentClient().verification).toBeNull();
+  });
+
+  test("keeps signing out when the SDK drops its owner before cleanup settles", async () => {
+    let finishSignOut!: () => void;
+    const signOutPending = new Promise<void>((resolve) => { finishSignOut = resolve; });
+    let signInRequests = 0;
+    const overrides = {
+      signOut: () => signOutPending,
+      signInWithEmail: async () => { signInRequests += 1; return { flowId: "email-flow" }; },
+    };
+    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const owner = (boundary: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+        <ClientProbe />
+      </AccountWalletSessionOwner>
+    );
+    const view = render(owner(sdk(overrides)));
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+
+    let signOutPromise!: Promise<void>;
+    act(() => { signOutPromise = currentClient().signOut(); });
+    expect(currentClient().status).toBe("signing-out");
+    act(() => { view.rerender(owner(sdk({ ...overrides, isSignedIn: false, ownerKey: null }))); });
+    expect(currentClient().status).toBe("signing-out");
+    await expect(currentClient().requestEmailCode("person@example.com")).rejects.toThrow("Sign-out is still finishing.");
+    expect(signInRequests).toBe(0);
+
+    await act(async () => { finishSignOut(); await signOutPromise; });
+    expect(currentClient().status).toBe("signed-out");
   });
 
   test("cancels post-action freshness before an owner switch can recreate old-owner queries", async () => {

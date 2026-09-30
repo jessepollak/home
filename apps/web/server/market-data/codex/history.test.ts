@@ -4,8 +4,6 @@ import { CodexMarketDataError } from "./client";
 import { CODEX_GRAPHQL_ENDPOINT } from "./config";
 import {
   CODEX_BARS_QUERY,
-  CODEX_HISTORY_MAX_IN_FLIGHT,
-  CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION,
   createCodexMarketHistoryReader,
   MARKET_HISTORY_WINDOWS,
 } from "./history";
@@ -215,7 +213,6 @@ describe("Codex market history reader", () => {
     const second = reader("cbbtc", "1W");
     const overflow = await reader("cbbtc", "1M");
 
-    expect(CODEX_HISTORY_MAX_IN_FLIGHT).toBe(8);
     expect(calls).toBe(2);
     expect(overflow).toMatchObject({
       assetId: "cbbtc",
@@ -254,12 +251,12 @@ describe("Codex market history reader", () => {
     const sameKey = reader("cbbtc", "1D", { speculative: true });
     const second = reader("cbbtc", "1W", { speculative: true });
     const declined = await reader("cbbtc", "1M", { speculative: true });
-    expect(CODEX_HISTORY_SPECULATIVE_CAPACITY_FRACTION).toBe(0.5);
     expect(calls).toBe(2);
     expect(declined).toMatchObject({ status: "unavailable", unavailableReason: "overloaded" });
 
     const activeThird = reader("cbbtc", "1M");
     const activeFourth = reader("cbbtc", "3M");
+    await Promise.resolve();
     expect(calls).toBe(4);
     expect(await reader("cbbtc", "1Y")).toMatchObject({ status: "unavailable", unavailableReason: "overloaded" });
     const pendingSameKey = reader("cbbtc", "1D", { speculative: true });
@@ -327,5 +324,42 @@ describe("Codex market history reader", () => {
     });
 
     await expect(reader("cbbtc", "1W")).rejects.toBeInstanceOf(CodexMarketDataError);
+  });
+
+  test("times out an unresponsive history request with the history error class", async () => {
+    let aborted = false;
+    const reader = createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      timeoutMs: 10,
+      fetchImpl: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      }),
+    });
+    const error = await reader("cbbtc", "1D").then(() => null, (reason: unknown) => reason);
+    expect(aborted).toBe(true);
+    expect(error).toBeInstanceOf(CodexMarketDataError);
+    expect((error as Error).message).toBe("Codex market history timed out.");
+  });
+
+  test.each([
+    ["HTTP error", () => new Response("unavailable", { status: 503 }), "Codex market history returned HTTP 503."],
+    ["GraphQL error", () => Response.json({ errors: [{ message: "unavailable" }], data: null }), "Codex market history returned an error."],
+    ["missing data", () => Response.json({ data: null }), "Codex market history returned no data."],
+    ["oversized declared length", () => new Response("{}", { headers: { "content-length": "4000001" } }), "Codex market history request failed."],
+    ["oversized body", () => Response.json({ data: { getBars: { t: [], c: [], s: "no_data" } }, pad: "x".repeat(4_000_000) }), "Codex market history request failed."],
+    ["malformed bars", () => rawBarsResponse({ s: "ok", t: [1757332800], c: [] }), "Codex market history returned malformed bars."],
+  ] as const)("preserves %s wording and class", async (_case, response, message) => {
+    const reader = createCodexMarketHistoryReader({
+      apiKey: "fixture-key",
+      now,
+      fetchImpl: async () => response(),
+    });
+    const error = await reader("cbbtc", "1D").then(() => null, (reason: unknown) => reason);
+    expect(error).toBeInstanceOf(CodexMarketDataError);
+    expect((error as Error).message).toBe(message);
   });
 });

@@ -1,10 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBalances } from "@/client/balances";
+import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
-import { presentBalances } from "@/shared/balances/present";
+import { presentHomeBalances } from "@/shared/balances/present";
 import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey } from "@/shared/balances/types";
 import { ALL_REGIONS_OFFER, presentedRegionId, type CountryCode, type RegionOffer } from "@/config/regions";
@@ -21,6 +24,8 @@ import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availa
 import { useShowSmallBalances } from "./use-show-small-balances";
 import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
 
+const LazyCardExperience = dynamic(() => import("@/client/cards/card-experience").then((module) => module.AuthenticatedCardExperience));
+
 const preferenceReadRetryDelays = [500, 1500] as const;
 
 export function PortfolioHomeExperience({
@@ -30,6 +35,7 @@ export function PortfolioHomeExperience({
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
   investVisibility,
+  cardsEnabled = false,
 }: {
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
@@ -37,6 +43,7 @@ export function PortfolioHomeExperience({
   initialSearch?: string;
   accountPreference: CountryPreferenceSeed | null;
   investVisibility?: InvestSettings;
+  cardsEnabled?: boolean;
 }) {
   const account = useAccountWallet();
   const discover = useInvestDiscover();
@@ -162,15 +169,26 @@ export function PortfolioHomeExperience({
       (fetchedPreference?.status === "settled" && fetchedPreference.regionId !== null &&
         presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit",
   });
+  const pendingCashout = usePendingCashoutEscrow(accountReady ? account.session : null, balances.snapshot,
+    (signal) => account.fetchAccountResource("/api/actions", { signal }));
   const interruptionStatus = useInterruption(
     balances.observation,
     account.status === "verified" && account.verification === "server" && !suppressBalances,
     balances.retry,
   );
-  const presentAssetBalances = useCallback(
-    (showSmallBalances: boolean) => presentBalances(balances, { showSmallBalances }),
-    [balances],
-  );
+  const balanceStatus = balances.status;
+  const snapshot = balances.snapshot;
+  const revalidating = balances.revalidating;
+  const homeBalances = useMemo(() => presentHomeBalances(
+    balanceStatus === "ready" && snapshot
+      ? { status: balanceStatus, snapshot, error: null }
+      : balanceStatus === "error"
+        ? { status: balanceStatus, snapshot: null, error: "balances-unavailable" }
+        : { status: balanceStatus === "unavailable" ? "unavailable" : "loading", snapshot: null, error: null },
+    { pendingCashout },
+  ), [balanceStatus, snapshot, pendingCashout]);
+  const assetBalances = useMemo(() => revalidating
+    ? { ...homeBalances, revalidating } : homeBalances, [homeBalances, revalidating]);
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
     [balances.snapshot],
@@ -190,6 +208,8 @@ export function PortfolioHomeExperience({
       regionReady={regionReady}
       initialPanel={initialLocation.panel}
       initialLocation={initialLocation}
+      cardsEnabled={cardsEnabled}
+      cardContent={cardsEnabled ? <LazyCardExperience /> : undefined}
       investContent={
         <PricedInvestExperienceWithDiscover
           discover={discover}
@@ -198,7 +218,7 @@ export function PortfolioHomeExperience({
         />
       }
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
-      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} />}
+      cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       investmentsContent={(props) => <InvestmentsExperience {...props} balances={balances} discover={discover} />}
       applyInboundUrlIntent
@@ -207,7 +227,9 @@ export function PortfolioHomeExperience({
       interruption={interruptionStatus.interruption}
       interruptionAnnouncement={interruptionStatus.announcement}
       onRetryInterruption={interruptionStatus.retry}
-      presentAssetBalances={presentAssetBalances}
+      assetBalances={assetBalances}
+      balancesState={balances}
+      pendingCashout={pendingCashout}
       sendAvailability={sendAvailability}
       canOpenAssetDetail={canOpenAssetDetail}
       assetMarkResolution={assetMarkResolution}

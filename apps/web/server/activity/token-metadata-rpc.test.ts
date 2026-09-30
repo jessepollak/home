@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import {
   decodeFunctionData,
   encodeFunctionResult,
@@ -7,7 +7,6 @@ import {
 import { multicallAbi } from "@/server/balances/abi";
 import {
   ACTIVITY_TOKEN_RPC_BATCH_MAX,
-  ACTIVITY_TOKEN_RPC_TIMEOUT_MS,
   createActivityTokenRpcResolver,
   decodeActivityTokenMetadataMulticall,
 } from "./token-metadata-rpc";
@@ -78,10 +77,6 @@ function metadataResponse(): Hex {
 }
 
 describe("Activity token metadata RPC fallback", () => {
-  test("uses the bounded Activity RPC timeout contract", () => {
-    expect(ACTIVITY_TOKEN_RPC_TIMEOUT_MS).toBe(3_000);
-  });
-
   test("decodes ABI string and bytes32 symbols and classifies decimals reverts", () => {
     const result = decodeActivityTokenMetadataMulticall(
       aggregate([
@@ -235,6 +230,39 @@ describe("Activity token metadata RPC fallback", () => {
     controller.abort();
     await expect(pending).rejects.toThrow("aborted");
     expect(observedAborted).toBe(true);
+  });
+
+  test("abandons a hung read within the bounded default RPC deadline", async () => {
+    jest.useFakeTimers();
+    try {
+      let requestStarted = false;
+      let requestSignal: AbortSignal | undefined;
+      const resolver = createActivityTokenRpcResolver({
+        rpc: {
+          async assertBaseChain() {},
+          request(_method, _params, signal) {
+            requestSignal = signal;
+            requestStarted = true;
+            return new Promise<never>((_resolve, reject) => {
+              signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+            });
+          },
+        },
+      });
+      const pending = resolver([A]);
+      for (let tick = 0; tick < 32 && !requestStarted; tick += 1) await Promise.resolve();
+      expect(requestStarted).toBeTrue();
+      jest.advanceTimersByTime(1);
+      expect(requestSignal?.aborted).toBeFalse();
+      jest.advanceTimersByTime(10_000);
+      expect(requestSignal?.aborted).toBeTrue();
+      let failure: Error | undefined;
+      void pending.catch((error: Error) => { failure = error; });
+      for (let tick = 0; tick < 32 && failure === undefined; tick += 1) await Promise.resolve();
+      expect(failure?.message).toBe("aborted");
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("hits exactly at TTL and refetches one millisecond later", async () => {

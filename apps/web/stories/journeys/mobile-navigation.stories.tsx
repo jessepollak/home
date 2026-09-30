@@ -93,9 +93,10 @@ type Props = {
   rtl: boolean;
   reducedMotion: boolean;
   actionToast: boolean;
+  cards: boolean;
 };
 
-function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balances, rtl, reducedMotion, actionToast }: Props) {
+function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balances, rtl, reducedMotion, actionToast, cards }: Props) {
   const [panel, setPanel] = useState<ShellPanelId>(initialPanel === "account" ? "home" : initialPanel);
   const [cashView, setCashView] = useState<"cash" | "savings">("cash");
   const [accountOpen, setAccountOpen] = useState(initialPanel === "account");
@@ -137,13 +138,14 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
               revealSmallBalances={false} onRevealSmallBalancesChange={noop} isChecking={false}
               revealedCount={presentation.rows.length} onRevealMore={noop} />
               : panel === "invest" ? <InvestHub stockMarket={markets(stockAssets)} cryptoMarket={markets(cryptoAssets)} memeMarket={markets([])} onSeeAll={noop} onOpenAsset={noop} />
+              : panel === "card" ? <HomeSectionHeading id="card-preview-title">Card</HomeSectionHeading>
                 : panel === "investments" ? <AccountWalletClientProvider client={createInvestmentsStoryWalletClient(snapshot)}><InvestmentsExperience holding={null} onOpenHolding={noop} onCloseHolding={noop}
                     balances={{ status: "ready", snapshot, retry: async () => undefined }} discover={{ memeAssets: [], memeMarket: { status: "unavailable" }, assetMarkResolution: {} }} /></AccountWalletClientProvider>
                   : <CashExperience view={cashView} onOpenSavings={() => setCashView("savings")} session={session} snapshot={snapshot} balanceStatus="ready"
-                    onAddMoney={noop} fetchVaults={fetchVaults} now={now} prepareMoneyAction={unsupportedAction} executeMoneyAction={unsupportedAction} />}
+                    onAddMoney={noop} fetchVaults={fetchVaults} now={now} fetchAccountResource={async (path) => path.includes("/api/trades?") ? { version: 2, status: "unavailable", reason: "asset-unsupported" } : { version: 1, usdcReserveBaseUnits: "20000" }} prepareMoneyAction={unsupportedAction} executeMoneyAction={unsupportedAction} />}
         </div>
       </main>
-      <PrimaryNavigation activeNavigation={panel} onNavigate={navigate} labels={longLabels ? { home: "Portfolio home overview", invest: "Investments & markets" } : undefined} />
+      <PrimaryNavigation activeNavigation={panel} onNavigate={navigate} cardsEnabled={cards} labels={longLabels ? { home: "Portfolio home overview", invest: "Investments & markets" } : undefined} />
     </>
   );
   const shell = <div dir={rtl ? "rtl" : "ltr"} className="relative flex h-svh max-h-svh min-w-0 flex-col overflow-hidden bg-muted sm:h-dvh"
@@ -174,7 +176,7 @@ function MotionSwitchShell(props: Props) {
 const meta = {
   id: "journeys-mobile-navigation", title: "Journeys/Mobile navigation", component: PreviewShell,
   args: { initialPanel: "home", homeIndicator: false, fallback: false, longLabels: false,
-    balances: "funded", rtl: false, reducedMotion: false, actionToast: false },
+    balances: "funded", rtl: false, reducedMotion: false, actionToast: false, cards: false },
   parameters: { layout: "fullscreen", a11y: { test: "todo" }, viewport: { viewports: {
     mobile390: { name: "Mobile (390 × 844)", styles: { width: "390px", height: "844px" } },
     tablet1023: { name: "Tablet (1023 × 768)", styles: { width: "1023px", height: "768px" } },
@@ -184,12 +186,12 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-async function verifyNav(canvasElement: HTMLElement, selected: "Home" | "Invest") {
+async function verifyNav(canvasElement: HTMLElement, selected: "Home" | "Card" | "Invest") {
   const nav = within(canvasElement).getByRole("navigation", { name: "Main navigation" });
   await expect(within(nav).getByRole("button", { name: selected })).toHaveAttribute("aria-current", "page");
   return nav;
 }
-async function verifySelectionGeometry(nav: HTMLElement, selected: "Home" | "Invest") {
+async function verifySelectionGeometry(nav: HTMLElement, selected: "Home" | "Card" | "Invest") {
   const button = within(nav).getByRole("button", { name: selected });
   await expect(button).toHaveAttribute("aria-current", "page");
   await waitFor(() => expect(nav.querySelector('[data-navigation-lens="ready"]')).toBeInTheDocument());
@@ -306,7 +308,7 @@ async function verifyRapidTabs(canvasElement: HTMLElement) {
 }
 async function openMoneySheet(canvasElement: HTMLElement) {
   const cash = within(canvasElement).getByRole("main");
-  await userEvent.click(await within(cash).findByRole("button", { name: /^US dollar/ }));
+  await userEvent.click(await within(await within(cash).findByRole("region", { name: "Savings" })).findByRole("button", { name: /^US dollar/ }));
   const savingsRegion = within(cash).getByRole("region", { name: "Your savings" });
   await waitFor(() => expect(savingsRegion).not.toHaveAttribute("aria-busy"));
   await waitFor(() => expect(within(savingsRegion).queryAllByText("Loading rate")).toHaveLength(0));
@@ -461,6 +463,53 @@ export const PressAndDrag: Story = { play: async ({ canvasElement }) => {
   await userEvent.keyboard("{Enter}");
   await expect(home).toHaveAttribute("aria-current", "page");
   await verifySelectionGeometry(nav, "Home");
+} };
+function lensHovered(nav: HTMLElement) {
+  const tabs = [...nav.querySelectorAll<HTMLElement>('[data-navigation-lens-layer="unselected"] svg + span')].map((label) => label.parentElement!);
+  return tabs.flatMap((tab, index) => tab.hasAttribute("data-hovered") ? [index] : []);
+}
+export const ThreeTabs: Story = { args: { cards: true }, play: async ({ canvasElement }) => {
+  const nav = await verifyNav(canvasElement, "Home");
+  await verifySelectionGeometry(nav, "Home");
+  const [home, card, invest] = (["Home", "Card", "Invest"] as const).map((name) => within(nav).getByRole("button", { name }));
+  const lens = nav.querySelector<HTMLElement>('[data-navigation-lens="ready"]')!;
+  for (const [tab, index] of [[card!, 1], [invest!, 2]] as const) {
+    await userEvent.hover(tab);
+    await waitFor(() => expect(lensHovered(nav)).toEqual([index]));
+    await userEvent.unhover(tab);
+    await waitFor(() => expect(lensHovered(nav)).toEqual([]));
+  }
+  await userEvent.hover(home!);
+  await expect(lensHovered(nav)).toEqual([]);
+  await userEvent.unhover(home!);
+
+  touch("pointerdown", invest!, centerOf(invest!));
+  await expect(nav).toHaveAttribute("data-lens-pressed");
+  await verifyLensOver(lens, invest!, true);
+  touch("pointercancel", invest!, centerOf(invest!));
+  await verifyLensOver(lens, home!, false);
+  await expect(home).toHaveAttribute("aria-current", "page");
+
+  touch("pointerdown", home!, centerOf(home!));
+  touch("pointermove", home!, centerOf(card!));
+  await verifyLensOver(lens, card!, true);
+  touch("pointermove", home!, centerOf(invest!));
+  await verifyLensOver(lens, invest!, true);
+  touch("pointerup", home!, centerOf(invest!));
+  await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));
+  await verifySelectionGeometry(nav, "Invest");
+
+  touch("pointerdown", invest!, centerOf(invest!));
+  touch("pointermove", invest!, centerOf(card!));
+  await verifyLensOver(lens, card!, true);
+  touch("pointerup", invest!, centerOf(card!));
+  await waitFor(() => expect(card).toHaveAttribute("aria-current", "page"));
+  await verifySelectionGeometry(nav, "Card");
+  await userEvent.hover(home!);
+  await waitFor(() => expect(lensHovered(nav)).toEqual([0]));
+  await userEvent.hover(card!);
+  await waitFor(() => expect(lensHovered(nav)).toEqual([]));
+  await userEvent.unhover(card!);
 } };
 export const ScrollDuringDrag: Story = { play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");

@@ -1,0 +1,21 @@
+/** Lightweight display-classification source; invest-asset-symbols.test.ts enforces parity with every configured stock and crypto asset. */
+export const configuredMajorTokenSymbols: readonly string[] = [
+  "AAPLC",
+  "AMZNC",
+  "CBADA",
+  "CBBTC",
+  "CBDOGE",
+  "CBHYPE",
+  "CBLTC",
+  "CBMEGA",
+  "CBXRP",
+  "CBZEC",
+  "GOOGLC",
+  "METAC",
+  "MSFTC",
+  "MSTRC",
+  "NVDAC",
+  "SNDKC",
+  "SPCXC",
+  "TSLAC",
+];

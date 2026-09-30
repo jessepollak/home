@@ -8,6 +8,23 @@ const scroll = { version: 1, kind: "home-scroll", route: "/invest", cache: "reta
   slowFrameCount: 8, maxFrameMs: 67 } as const;
 
 describe("closed interaction reports", () => {
+  test("accepts bounded optional tap attribution without changing older reports", () => {
+    expect(parseClientPerformanceReport({ ...navigation, dispatchDelayMs: 603, inputToPaintMs: 627,
+      cachePersistMs: 514, contentState: "ready" })).toEqual({ ...navigation, durationMs: 10,
+      dispatchDelayMs: 600, inputToPaintMs: 630, cachePersistMs: 510, contentState: "ready" });
+    expect(parseClientPerformanceReport({ ...navigation, dispatchDelayMs: 40_000, inputToPaintMs: 50_000,
+      cachePersistMs: 90_000 })).toMatchObject({ dispatchDelayMs: 30_000, inputToPaintMs: 30_000, cachePersistMs: 30_000 });
+  });
+  test("rejects incomplete or malformed attribution and private readiness labels", () => {
+    for (const extra of [
+      { dispatchDelayMs: 10 }, { inputToPaintMs: 20 },
+      { dispatchDelayMs: 100, inputToPaintMs: 20 },
+      { dispatchDelayMs: 0, inputToPaintMs: 0 },
+      { dispatchDelayMs: 10, inputToPaintMs: 20, trigger: "history" },
+      { dispatchDelayMs: Infinity, inputToPaintMs: 30 },
+      { cachePersistMs: "100" }, { cachePersistMs: NaN }, { contentState: "private-owner" },
+    ]) expect(parseClientPerformanceReport({ ...navigation, ...extra })).toBeNull();
+  });
   test("navigation rounds and caps durations", () => {
     expect(parseClientPerformanceReport(navigation)).toEqual({ ...navigation, durationMs: 10 });
     expect(parseClientPerformanceReport({ ...navigation, durationMs: 50_000 })).toMatchObject({ durationMs: 10_000 });

@@ -50,7 +50,7 @@ export function ShellHeader({
 }) {
   const dashboardTitle = isAccountSettingsOpen
     ? "Account"
-    : nestedChromeTitle ?? (activeNavigation === "invest" ? "Invest" : "Home");
+    : nestedChromeTitle ?? (activeNavigation === "invest" ? "Invest" : activeNavigation === "card" ? "Card" : "Home");
   const hasNestedChrome = !isAccountSettingsOpen && nestedChromeTitle !== null;
   const checking = account.status === "restoring" || account.status === "validating";
   const signedIn = account.status === "verified" || (account.status === "unavailable" && account.isSignedIn);

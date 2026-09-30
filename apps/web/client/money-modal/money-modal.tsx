@@ -73,10 +73,10 @@ function acceptsHandoffHeight(popup: HTMLElement) {
   return popup.hasAttribute("data-open") && !popup.hasAttribute("data-ending-style") && !keyboardOpen(popup);
 }
 
-function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number) {
+function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number, measuredHeight?: number) {
   cancelAnimation(track.animation);
   track.animation = undefined;
-  const to = popup.offsetHeight;
+  const to = measuredHeight ?? popup.offsetHeight;
   track.last = to;
   if (from <= 0 || Math.abs(to - from) < 1 || typeof popup.animate !== "function" || prefersReducedMotion()) return;
   const animation = popup.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING });
@@ -127,13 +127,19 @@ function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carrie
     if (!host) return;
     const popup = host.closest<HTMLElement>("[data-slot=drawer-popup]");
     const track = height.current;
-    const observer = !popup || typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+    const observer = !popup || typeof ResizeObserver === "undefined" ? null : new ResizeObserver((entries) => {
       if (track.animation) return;
+      const box = entries[0]?.borderBoxSize;
+      const measuredHeight = (Array.isArray(box) ? box[0] : box)?.blockSize ?? popup.offsetHeight;
+      if (!previous.current || track.last === 0) {
+        track.last = measuredHeight;
+        return;
+      }
       const maxHeight = getComputedStyle(popup).maxHeight;
-      const clampChanged = maxHeight !== track.maxHeight;
+      const clampChanged = track.maxHeight !== "" && maxHeight !== track.maxHeight;
       track.maxHeight = maxHeight;
-      if (!previous.current || clampChanged || !popupSettled(popup)) track.last = popup.offsetHeight;
-      else easePopupHeight(popup, track, track.last);
+      if (clampChanged || !popupSettled(popup)) track.last = measuredHeight;
+      else easePopupHeight(popup, track, track.last, measuredHeight);
     });
     if (popup) observer?.observe(popup);
     const onFocusIn = (event: FocusEvent) => {
@@ -160,7 +166,6 @@ function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carrie
       const from = carriedHeight();
       stepFocusTarget(next, true).focus({ preventScroll: true });
       if (popup && from > 0 && acceptsHandoffHeight(popup)) easePopupHeight(popup, track, from);
-      else if (popup) track.last = popup.offsetHeight;
       return;
     }
     if (prior.step === next.step) {

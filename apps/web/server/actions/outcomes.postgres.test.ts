@@ -1,7 +1,7 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { isRecord } from "@/shared/guards";
 
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { createHmac, randomUUID } from "node:crypto";
 import { createCdpWebhookHandler } from "@/server/balances/webhook";
@@ -80,6 +80,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
       await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
+      await transaction.unsafe(await readMigrationSql("021_cashout_provider_progress.sql"));
       await transaction.unsafe(await readMigrationSql("016_action_receipt_observations.sql"));
       for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
         await transaction.unsafe(await readMigrationSql(file));
@@ -88,7 +89,12 @@ describePostgres("write-once action outcomes with real handlers", () => {
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
   });
-  beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
+  beforeEach(async () => {
+    const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
+    setSystemTime(clock.rows[0]!.instant);
+    await sql.query("TRUNCATE actions CASCADE");
+  });
+  afterEach(() => setSystemTime());
   afterAll(async () => {
     setObservabilityLogWriterForTests();
     await sql?.dispose?.();

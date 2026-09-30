@@ -1,0 +1,7 @@
+[
+  { "pattern": "components/ui/button-group.tsx!", "reason": "Review-board exploration only; remove after a product screen imports ButtonGroup." },
+  { "pattern": "components/ui/dialog.tsx!", "reason": "Review-board exploration only; remove after a product screen imports Dialog." },
+  { "pattern": "components/ui/kbd.tsx!", "reason": "Review-board exploration only; remove after a product screen imports Kbd." },
+  { "pattern": "components/ui/progress.tsx!", "reason": "#951: awaiting a product consumer with a real step count." },
+  { "pattern": "shared/balances/fixtures.ts", "reason": "Shared balance fixtures for tests and stories; no production consumer." }
+]

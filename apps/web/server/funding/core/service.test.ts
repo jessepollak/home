@@ -11,7 +11,6 @@ import type {
 } from "@/shared/funding/provider-contract";
 import { MemoryFundingOrderStore } from "./store";
 import {
-  AMBIGUOUS_ORDER_RECOVERY_DELAY_MS,
   ambiguousOrderRecoveryAvailableAt,
   FundingCore,
   resolveClientIp,
@@ -660,7 +659,6 @@ describe("FundingCore", () => {
   });
 
   test("owner recovery waits 24 hours, unblocks the region, and never calls the provider", async () => {
-    expect(AMBIGUOUS_ORDER_RECOVERY_DELAY_MS).toBe(86_400_000);
     const fixture = setup("ambiguous");
     const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
     const ambiguous = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");

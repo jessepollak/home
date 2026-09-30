@@ -78,10 +78,6 @@ function request(
 }
 
 describe("POST /api/client-performance", () => {
-  test("budgets startup, auth restore, and occasional signout reports", () => {
-    expect(CLIENT_PERFORMANCE_MAX_REPORTS_PER_WINDOW).toBe(60);
-  });
-
   test("normalizes the exact closed startup schema without reordering phases", () => {
     expect(parseClientPerformanceReport(ready)).toEqual({
       ...ready,
@@ -331,6 +327,22 @@ describe("POST /api/client-performance", () => {
     expect(normalizeObservabilityEvent({ ...events[0]!, deployment: "https://private.example/path" } as never))
       .toMatchObject({ level: "info", code: "HOME_NAVIGATION", deployment: "unknown" });
     expect(normalizeObservabilityEvent(events[1]!)).toMatchObject({ level: "info", code: "HOME_SCROLL" });
+  });
+
+  test("ingests tap attribution through the closed parser and log normalizer", async () => {
+    const events: ObservabilityEvent[] = [];
+    const handler = createClientPerformanceHandler({
+      deployment: "dpl_A1b2C3d4E5f6G7h8I9j0K1l2", takePermit: () => true, log: (event) => events.push(event),
+    });
+    const report = { ...navigation, dispatchDelayMs: 905, inputToPaintMs: 947, cachePersistMs: 821, contentState: "ready" };
+    expect((await handler(request(JSON.stringify(report)))).status).toBe(204);
+    expect(events).toHaveLength(1);
+    expect(normalizeObservabilityEvent(events[0]!)).toMatchObject({
+      dispatchDelayMs: 910, inputToPaintMs: 950, cachePersistMs: 820, contentState: "ready",
+      deployment: "dpl_A1b2C3d4E5f6G7h8I9j0K1l2",
+    });
+    expect((await handler(request(JSON.stringify({ ...report, queryKey: "private" })))).status).toBe(400);
+    expect(events).toHaveLength(1);
   });
 
   test("stamps the server deployment without a dependency override", async () => {

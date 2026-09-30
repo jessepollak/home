@@ -2,6 +2,8 @@ import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive }
 import { selectCollateralHoldings, selectMoneyGroups } from "./select";
 import type { AssetKey, BalancesSnapshot, BorrowCollateralHolding, ExactDecimal, Holding } from "./types";
 
+const investmentNameCollator = new Intl.Collator("en", { sensitivity: "base" });
+
 export type OwnedInvestment = {
   key: AssetKey;
   holding: Holding;
@@ -42,7 +44,7 @@ export function selectOwnedInvestments(snapshot: BalancesSnapshot): OwnedInvestm
       const difference = right.numerator * left.denominator - left.numerator * right.denominator;
       if (difference !== BigInt(0)) return difference > BigInt(0) ? 1 : -1;
     } else if (a.amount || b.amount) return a.amount ? -1 : 1;
-    const nameOrder = (a.holding.name || a.holding.symbol).localeCompare(b.holding.name || b.holding.symbol, "en", { sensitivity: "base" });
+    const nameOrder = investmentNameCollator.compare(a.holding.name || a.holding.symbol, b.holding.name || b.holding.symbol);
     return nameOrder || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
   });
 }

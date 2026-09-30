@@ -13,7 +13,7 @@ const active = keyring(1);
 const secret = randomBytes(32).toString("base64url");
 function row(id: string, key = active): WebhookSubscriptionRecord {
   const binding = { subscriptionId: id, target: "https://home.example/api/webhooks/cdp", eventType: "wallet_activity" };
-  return { ...binding, createdAt: new Date().toISOString(), credential: { kind: "envelope", envelope: sealSecret(key, secret, webhookSecretAad(binding)), keyVersion: key.version } };
+  return { ...binding, createdAt: "2026-09-28T12:00:00.000Z", credential: { kind: "envelope", envelope: sealSecret(key, secret, webhookSecretAad(binding)), keyVersion: key.version } };
 }
 
 describe("balance webhook secret opening", () => {

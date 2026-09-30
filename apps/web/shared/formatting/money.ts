@@ -1,3 +1,4 @@
+import { configuredMajorTokenSymbols } from "@/config/invest-asset-symbols";
 import {
   presentationRegions,
   type FiatCurrencyCode,
@@ -282,9 +283,9 @@ type FiatAmountOptions = {
 
 const majorSymbols = new Set([
   "ADA", "BTC", "CBADA", "CBBTC", "CBDOGE", "CBETH", "CBLTC", "CBSOL",
-  "CBXRP", "DOGE", "ETH", "LTC", "SOL", "WETH", "XRP", "AAPLC", "GOOGLC",
-  "METAC", "NVDAC",
+  "CBXRP", "DOGE", "ETH", "LTC", "SOL", "WETH", "XRP",
 ]);
+const configuredMajorSymbolsSet = new Set(configuredMajorTokenSymbols);
 const stableSymbols = new Set(["DAI", "EURC", "IDRX", "USDBC", "USDC", "USDT"]);
 
 export function presentationAssetClass(
@@ -296,7 +297,7 @@ export function presentationAssetClass(
   if (input.category === "stock" || input.category === "crypto") return "major";
   const symbol = input.symbol?.trim().toUpperCase() ?? "";
   if (stableSymbols.has(symbol)) return "stable";
-  if (majorSymbols.has(symbol)) return "major";
+  if (majorSymbols.has(symbol) || configuredMajorSymbolsSet.has(symbol)) return "major";
   return "meme";
 }
 
@@ -496,14 +497,15 @@ export function formatFiatAmount(
   return applySign(label, result.negative, options.sign);
 }
 
-export function formatUsdStablecoinAmount(
+export function formatExactPresentationCashAmount(
   balanceBaseUnits: AtomicAmount,
-  decimals = 6,
+  decimals: number,
+  currency: string,
   regionId: RegionId = "GLOBAL",
 ): string {
   try {
     const atoms = parseUnsignedAtomicAmount(balanceBaseUnits);
-    return formatFiatAmount(atoms, decimals, "USD", {
+    return formatFiatAmount(atoms, decimals, currency, {
       fractionDigits: decimals,
       minimumFractionDigits: Math.min(2, decimals),
       regionId,
@@ -511,6 +513,14 @@ export function formatUsdStablecoinAmount(
   } catch {
     return "—";
   }
+}
+
+export function formatUsdStablecoinAmount(
+  balanceBaseUnits: AtomicAmount,
+  decimals = 6,
+  regionId: RegionId = "GLOBAL",
+): string {
+  return formatExactPresentationCashAmount(balanceBaseUnits, decimals, "USD", regionId);
 }
 
 export function formatPresentationPercentage(
@@ -579,14 +589,6 @@ export function formatOracleUsd(
     fractionDigits: 2,
     regionId,
   });
-}
-
-/** @public exercised by shared/formatting/money.test.ts */
-export function formatUsdPrice(
-  value: DecimalInput,
-  regionId: RegionId = "GLOBAL",
-): string | null {
-  return formatPresentationPrice(value, "USD", regionId);
 }
 
 export function formatPresentationPrice(

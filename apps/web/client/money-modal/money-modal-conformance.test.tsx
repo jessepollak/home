@@ -10,6 +10,7 @@ const { MoneyModal, MoneyModalStep } = await import("./money-modal");
 const animateDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
 const matchMediaDescriptor = Object.getOwnPropertyDescriptor(window, "matchMedia");
 const heightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+const resizeObserverDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
 
 type RecordedAnimation = {
   target: HTMLElement;
@@ -37,6 +38,20 @@ function animationHarness(reduced: boolean, heights = JOURNEY_HEIGHTS) {
       reads.set(step, count + 1);
       const sequence = heights[step] ?? [0];
       return sequence[Math.min(count, sequence.length - 1)]!;
+    },
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        queueMicrotask(() => {
+          const step = target.querySelector("[data-money-step]")?.getAttribute("data-money-step") ?? "";
+          const blockSize = heights[step]?.[0] ?? 0;
+          this.callback([{ target, borderBoxSize: [{ blockSize }] } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver);
+        });
+      }
+      disconnect() {}
     },
   });
   Object.defineProperty(HTMLElement.prototype, "animate", {
@@ -71,6 +86,7 @@ afterEach(async () => {
     ["animate", animateDescriptor, HTMLElement.prototype],
     ["matchMedia", matchMediaDescriptor, window],
     ["offsetHeight", heightDescriptor, HTMLElement.prototype],
+    ["ResizeObserver", resizeObserverDescriptor, globalThis],
   ] as const) {
     if (descriptor) Object.defineProperty(target, name, descriptor);
     else Reflect.deleteProperty(target, name);
@@ -86,6 +102,7 @@ test("rapid transitions cancel prior step and height animations, retarget the sh
   const animations = animationHarness(false);
   render(<Journey />);
   const popup = document.querySelector<HTMLElement>("[data-slot=drawer-popup]")!;
+  await act(async () => {});
   for (let index = 0; index < 3; index++) {
     await act(async () => fireEvent.click(page().getByRole("button", { name: "Continue" })));
     expect(page().getAllByRole("dialog")).toHaveLength(1);
@@ -110,6 +127,7 @@ test("content that grows after a step change keeps easing the sheet from its set
   const animations = animationHarness(false, { ...JOURNEY_HEIGHTS, review: [180, 260] });
   render(<Journey />);
   const popup = document.querySelector<HTMLElement>("[data-slot=drawer-popup]")!;
+  await act(async () => {});
   await act(async () => fireEvent.click(page().getByRole("button", { name: "Continue" })));
   const first = animations.find(({ target }) => target === popup)!;
   first.animation.onfinish?.(new Event("finish") as AnimationPlaybackEvent);

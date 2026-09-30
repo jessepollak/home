@@ -60,7 +60,7 @@ Jesse applies exactly one label, `factory`, meaning start. The factory owns thre
 1. Jesse adds `factory` to an issue to mean **start working on this**.
 2. The factory removes `factory`, applies `factory:working`, and posts a run-start notice.
 3. Implementation runs use a branch named `agent/<issue>` and commits authored by the bot account `jessepollakj`.
-4. For work that changes the repository, the factory opens a normal pull request. Implementation PRs end with `Closes #<issue>`, so merging closes the issue; `design(...)` proposals and `product(...)` follow-ups end with `Refs #<issue>`, and Jesse decides when the issue is done. A `product(...)` research run instead posts its result as an issue comment.
+4. For work that changes the repository, the factory opens a normal pull request. Implementation PRs end with `Closes #<issue>`, so merging closes the issue; an operator PR with no issue states `No issue: <reason>` instead. `design(...)` proposals and `product(...)` follow-ups end with `Refs #<issue>`: the factory closes a design issue when its proposal merges, linking any adoption follow-up, and closes a product issue only after Jesse's reply has been turned into filed leaves. A `product(...)` research run instead posts its result as an issue comment. When a run finds the issue already fixed on main, the factory closes it with the fixing commit as evidence.
 5. The factory swaps `factory:working` for `factory:needs-jesse` for every handoff that is not a green PR: research comment posted, question or blocker, visual proof still missing, checks red after the repair budget, no change produced, or stopped after repeated failure.
 6. The factory opens each PR as a draft and marks it ready for review only when it hands off: when required checks are green it applies `factory:review`, marks the PR ready, and requests Jesse's review; a `factory:needs-jesse` handoff on a PR also marks it ready. Each new run returns the PR to draft, and an automatic red-CI repair keeps it there. Because `main` requires code-owner review, GitHub requests Jesse's review whenever a PR leaves draft and keeps that request, so an open non-draft factory PR is Jesse's turn and a draft is still the factory's.
 
@@ -128,7 +128,7 @@ PR hygiene, enforced by the dead-code gate:
 - A replacement change deletes the replaced component, hook, or module in the same PR rather than shipping an unused alias, re-export, or shim.
 - `bun run --cwd apps/web knip` passes (it runs in `bun check` and as the CI **Dead code (knip)** step).
 - A new deliberately public export carries a one-line `/** @public <reason> */` JSDoc; that tag is the only sanctioned way to keep an export the gate would otherwise flag.
-- Design-lane non-production code stays inside a `*.stories.*` file or under `**/explorations/**` ([design explorations](design-explorations/README.md)). Files deferred to #686 (home/activity surfaces) and #687 (funding/transfers surfaces) are listed in `apps/web/knip.json` `ignore` with those issue references.
+- Design-lane non-production code stays inside a `*.stories.*` file or under `**/explorations/**` ([design explorations](design-explorations/README.md)). Production modules never import or re-export it, and no new Knip exemption may hide a module only stories or explorations use ([gates](gates.md)). Files deferred to #686 (home/activity surfaces) and #687 (funding/transfers surfaces) are listed in `apps/web/knip.json` `ignore` with those issue references.
 
 ## Money and authentication invariants
 

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
@@ -54,6 +54,7 @@ describePostgres("cash-out lockout eligibility", () => {
       await transaction.unsafe(await readMigrationSql("012_action_outcomes.sql"));
       await transaction.unsafe(await readMigrationSql("013_action_call_commitment.sql"));
       await transaction.unsafe(await readMigrationSql("014_cashout_orders.sql"));
+      await transaction.unsafe(await readMigrationSql("021_cashout_provider_progress.sql"));
       for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
         await transaction.unsafe(await readMigrationSql(file));
       }
@@ -61,7 +62,12 @@ describePostgres("cash-out lockout eligibility", () => {
     sql = createPostgresSqlExecutor(connectionString!, { schema });
     store = new ActionsStore(sql);
   });
-  beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
+  beforeEach(async () => {
+    const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
+    setSystemTime(clock.rows[0]!.instant);
+    await sql.query("TRUNCATE actions CASCADE");
+  });
+  afterEach(() => setSystemTime());
   afterAll(async () => {
     await sql?.dispose?.();
     await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

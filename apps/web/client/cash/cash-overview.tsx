@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { PiggyBank, Plus, RotateCw } from "lucide-react";
+import { useMemo, useRef } from "react";
+import { ArrowLeftRight, CircleAlertIcon, Eye, Percent, PiggyBank, Plus, RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import {
@@ -28,12 +28,17 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
-import { presentBalances, presentMoneyGroups } from "@/shared/balances/present";
+import { FeatureIntro } from "@/components/ui/feature-intro";
+import { Alert, AlertDescription, AlertIcon } from "@/components/ui/alert";
+import { presentCashSelection, presentCashTotal, presentPendingCashout } from "@/shared/balances/present";
 import {
   selectBalanceTotals,
+  selectCash,
   selectVaultPositions,
 } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
+import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
+import { cashConversionCurrencies, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import {
   formatPresentationFiat,
   formatPresentationPercentage,
@@ -46,9 +51,12 @@ import {
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 import { savingsRateLabel } from "./savings-management";
+import { verifiedEmptySavings } from "./verified-empty-savings";
+import type { SavingsPortfolioSummary } from "@/client/savings/portfolio-summary";
 
 export type CashOverviewProps = {
   snapshot: BalancesSnapshot | null;
+  pendingCashout?: PendingCashoutEstimate;
   balanceStatus?: "ready" | "loading" | "failed";
   metadata: MorphoVaultsResult | null;
   vaultStatus?: "ready" | "loading" | "failed";
@@ -59,13 +67,27 @@ export type CashOverviewProps = {
   onOpenSavings: () => void;
   onAddMoney: () => void;
   onAddMoneyIntent?: () => void;
+  actionsAvailable?: boolean;
+  onConvert?: (opener: HTMLElement) => void;
+  onConvertIntent?: () => void;
+  onOpenCurrency?: (code: CashConversionCurrencyCode, opener: HTMLElement) => void;
+  onCurrencyIntent?: () => void;
   onRetryBalances?: () => void;
 };
 
 export type SavingsDetailProps = Omit<
   CashOverviewProps,
-  "onOpenSavings" | "onAddMoney" | "rateLabel"
+  "onOpenSavings" | "rateLabel"
 > & {
+  balanceStale?: boolean;
+  summary?: SavingsPortfolioSummary | null;
+  pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
+  pendingActionsLoading?: boolean;
+  pendingActionsError?: boolean;
+  depositEntryBlocked?: boolean;
+  onRetryActions?: () => void;
+  depositFailed?: boolean;
+  onStartSaving: () => void;
   onDepositVault: (candidate: MorphoVaultCandidate) => void;
   onManageVault: (address: string) => void;
   onRetryVaults: () => void;
@@ -132,14 +154,15 @@ type CashHoldingRow = {
   isFiat: boolean;
   usdValue: string | null;
   usdUnavailable: boolean;
+  holding: boolean;
 };
 
-function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
-  return presentMoneyGroups(snapshot)
-    .find((group) => group.id === "cash")!
-    .rows.map((row) => {
+/** @public Shared Cash row presentation for the currency detail */
+export function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
+  return selectCash(snapshot).map((entry) => {
+      const row = presentCashSelection(entry, snapshot);
       const currency = row.mark.kind === "flag" ? row.mark.currency : "USD";
-      const holding = snapshot.holdings.find((entry) => entry.key === row.key);
+      const holding = entry.kind === "holding" ? entry.holding : null;
       if (!holding)
         return {
           key: row.key,
@@ -150,6 +173,7 @@ function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
           isFiat: true,
           usdValue: null,
           usdUnavailable: false,
+          holding: false,
         };
       const cashValue =
         holding.balance.status === "ready" &&
@@ -166,6 +190,7 @@ function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
       return {
         key: row.key,
         name: row.name,
+        holding: true,
         symbol: holding.symbol,
         currency,
         value: cashValue
@@ -332,7 +357,6 @@ function SavingsVaultRow({
   rateLoading: boolean;
   nowMs: number;
   onActivate?: (opener: HTMLElement) => void;
-  onIntent?: () => void;
   activateLabel?: string;
 }) {
   const { held, partial, amount } = vaultHolding(vault);
@@ -372,6 +396,7 @@ function SavingsVaultRow({
 
 export function CashOverview({
   snapshot,
+  pendingCashout = null,
   balanceStatus = "ready",
   metadata,
   vaultStatus = "ready",
@@ -382,19 +407,22 @@ export function CashOverview({
   onOpenSavings,
   onAddMoney,
   onAddMoneyIntent,
+  actionsAvailable = true,
+  onConvert,
+  onConvertIntent,
+  onOpenCurrency,
+  onCurrencyIntent,
   onRetryBalances,
 }: CashOverviewProps) {
   const loading = balanceStatus === "loading";
   const failed = balanceStatus === "failed";
   const activeSnapshot = failed ? null : snapshot;
+  const pendingValue = activeSnapshot ? presentPendingCashout(activeSnapshot, pendingCashout) : null;
   const summary = useMemo(() => activeSnapshot
-    ? presentBalances({
-        status: "ready",
-        snapshot: activeSnapshot,
-        error: null,
-      }).summary?.cash
+    ? presentCashTotal(activeSnapshot)
     : null, [activeSnapshot]);
   const rows = useMemo(() => activeSnapshot ? cashHoldings(activeSnapshot) : [], [activeSnapshot]);
+  const conversionsByCode = useMemo(() => new Map<string, CashConversionCurrency>(cashConversionCurrencies.map((currency) => [currency.code, currency])), []);
   const { holdings, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
@@ -486,6 +514,13 @@ export function CashOverview({
                     unavailableValue()
                   )}
                 </div>
+                {pendingValue ? (
+                  <p className="flex items-baseline gap-1 text-sm text-muted-foreground tabular-nums" data-pending-cash-out>
+                    <span>Pending cash-out</span>
+                    <span aria-hidden="true">·</span>
+                    {pendingValue.value ? <MoneyTicker value={pendingValue.value} align="start" reserveDigits={false} /> : unavailableValue()}
+                  </p>
+                ) : null}
                 {!failed &&
                 (empty
                   ? vaultStatus !== "loading" && bestRate !== null
@@ -540,15 +575,17 @@ export function CashOverview({
           Try again
         </Button>
       ) : null) : (
-        <Button
-          size="lg"
-          className="h-11 w-full"
-          {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})}
-          onClick={onAddMoney}
-        >
-          <Plus aria-hidden="true" />
-          Add money
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button size="lg" className="h-11 w-full" {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})} onClick={onAddMoney}>
+            <Plus aria-hidden="true" />
+            Add money
+          </Button>
+          {onConvert ? <Button size="lg" variant="outline" className="h-11 w-full" disabled={loading || !actionsAvailable}
+            {...(onConvertIntent ? moneySheetIntent(onConvertIntent) : {})} onClick={(event) => onConvert(event.currentTarget)}>
+            <ArrowLeftRight aria-hidden="true" />
+            Convert
+          </Button> : null}
+        </div>
       )}
       {!failed && (!empty || vaultStatus === "failed") ? (
         <>
@@ -571,8 +608,10 @@ export function CashOverview({
                     </>
                   ) : (
                     <ul className="list-none p-0">
-                      {rows.map((row) => (
-                        <BalanceRow
+                      {rows.map((row) => {
+                        const conversion = row.holding ? conversionsByCode.get(row.currency) : undefined;
+                        const openConversion = onOpenCurrency && conversion ? (opener: HTMLElement) => onOpenCurrency(conversion.code, opener) : undefined;
+                        return <BalanceRow
                           key={row.key}
                           icon={
                             <CurrencyMark
@@ -595,7 +634,7 @@ export function CashOverview({
                                 row.value
                               )
                             ) : (
-                              unavailableValue()
+                              "Unavailable"
                             )
                           }
                           valueTone={
@@ -606,9 +645,12 @@ export function CashOverview({
                               ? unavailableValue()
                               : row.usdValue
                           }
-                          chevron={false}
-                        />
-                      ))}
+                          onActivate={openConversion}
+                          activateLabel={conversion ? `Open ${row.name}` : undefined}
+                          onIntent={onOpenCurrency && row.holding ? onCurrencyIntent : undefined}
+                          chevron={Boolean(openConversion)}
+                        />;
+                      })}
                     </ul>
                   )}
                 </CardContent>
@@ -690,8 +732,17 @@ export function SavingsDetail({
   onManageVault,
   onRetryVaults,
   onRetryBalances,
+  onStartSaving,
   growthAuthority = null,
   actionsAvailable = true,
+  balanceStale = false,
+  summary = null,
+  pendingDeposits = [],
+  pendingActionsLoading = false,
+  pendingActionsError = false,
+  depositEntryBlocked = false,
+  onRetryActions,
+  depositFailed = false,
 }: SavingsDetailProps) {
   const balanceFailed = balanceStatus === "failed";
   const activeSnapshot = balanceFailed ? null : snapshot;
@@ -720,12 +771,35 @@ export function SavingsDetail({
           (held || unreadable)
       )
   );
+  const best = candidates.find(
+    (candidate) =>
+      bestRate !== null &&
+      getSavingsRateState(candidate, {
+        metadataFetchedAt: metadata?.source.fetchedAt,
+        metadataStale: metadata?.stale,
+        nowMs,
+      }).value === bestRate
+  );
+  const bestRateStatus = best ? getSavingsRateState(best, {
+    metadataFetchedAt: metadata?.source.fetchedAt,
+    metadataStale: metadata?.stale,
+    nowMs,
+  }).status : "unavailable";
+  const verifiedEmpty = verifiedEmptySavings({
+    balanceStatus, snapshot, balanceStale, vaultStatus, summary, shownCount: shown.length,
+  });
+  const pendingEmpty = pendingDeposits.length > 0 && verifiedEmpty;
+  const pendingTotal = pendingDeposits.reduce((sum, deposit) => sum + BigInt(deposit.amountBaseUnits), BigInt(0));
+  const actionHistoryUnresolved = pendingActionsError && verifiedEmpty && !pendingEmpty;
+  const firstUse = verifiedEmpty && !pendingEmpty && !pendingActionsLoading && !actionHistoryUnresolved;
   const depositUnavailable =
     !actionsAvailable ||
     balanceStatus === "failed" ||
     activeSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       .status !== "ready" ||
-    vaultStatus !== "ready";
+    vaultStatus !== "ready" ||
+    depositEntryBlocked;
+  const startSavingRef = useRef<HTMLButtonElement>(null);
   const recovery = (
     <Empty>
       <EmptyHeader>
@@ -747,7 +821,7 @@ export function SavingsDetail({
   );
   return (
     <div className="space-y-4">
-      <Card
+      {(!verifiedEmpty || pendingEmpty) ? <Card
         variant="flush"
         aria-label={balanceFailed ? "Balance unavailable" : "Savings balance"}
         aria-busy={balanceStatus === "loading" || undefined}
@@ -778,7 +852,8 @@ export function SavingsDetail({
                     align="start"
                     reserveDigits={false}
                     value={
-                      partial || growth === BigInt(0)
+                      pendingEmpty ? formatUsdStablecoinAmount(pendingTotal.toString())
+                      : partial || growth === BigInt(0)
                         ? formatUsdStablecoinAmount(total.toString())
                         : formatPresentationFiat(
                             { atoms: (total + growth).toString(), scale: 6 },
@@ -791,6 +866,7 @@ export function SavingsDetail({
                 )}
               </div>
             )}
+            {pendingEmpty ? <p className="text-sm text-muted-foreground">Pending</p> : null}
             {partial && !balanceFailed ? (
               <p
                 id="savings-balance-partial"
@@ -808,7 +884,7 @@ export function SavingsDetail({
                 </p>
               )
             ) : null}
-            {!balanceFailed &&
+            {!pendingEmpty && !balanceFailed &&
             vaultStatus === "ready" &&
             total === BigInt(0) &&
             !partial &&
@@ -824,14 +900,58 @@ export function SavingsDetail({
             </p>
           ) : null}
         </CardContent>
-      </Card>
+      </Card> : null}
+      {pendingActionsLoading && verifiedEmpty && !pendingEmpty ? (
+        <Card aria-busy="true"><CardContent><Skeleton className="h-24 w-full" /><span className="sr-only">Loading savings</span></CardContent></Card>
+      ) : actionHistoryUnresolved ? (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>Couldn&apos;t check your deposits</EmptyTitle>
+            <EmptyDescription>Check your connection.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button
+              variant="outline"
+              size="lg"
+              className="h-11"
+              onClick={onRetryActions}
+              disabled={!onRetryActions}
+            >
+              <RotateCw aria-hidden="true" />
+              Try again
+            </Button>
+          </EmptyContent>
+        </Empty>
+      ) : firstUse ? (
+        <>
+          {depositFailed ? <Alert variant="destructive" role="alert"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>Your deposit didn&apos;t go through. Try again.</AlertDescription></Alert> : null}
+          <FeatureIntro
+            size="compact"
+            illustration="savings"
+            headline="Earn on your savings"
+            description="Rates can change and aren't guaranteed."
+            benefits={[
+              { icon: Percent, text: bestRate === null || bestRateStatus === "unavailable" ? "Rates are shown before you save"
+                : bestRateStatus === "stale" ? `Up to ${formatPresentationPercentage(bestRate)} APY at last update`
+                : `Up to ${formatPresentationPercentage(bestRate)} APY` },
+              { icon: Eye, text: "Review the rate before you confirm" },
+            ]}
+            primary={{ label: "Start saving", ref: startSavingRef, onClick: onStartSaving }}
+            availability={
+              !actionsAvailable ? { kind: "unavailable", reason: "Savings isn't available for this account." }
+              : !best ? { kind: "unavailable", reason: "Savings options aren't available right now.", recovery: { label: "Try again", onClick: onRetryVaults } }
+              : undefined
+            }
+          />
+        </>
+      ) : null}
       {balanceFailed && onRetryBalances ? (
         <Button variant="outline" size="lg" className="h-11 w-full" onClick={onRetryBalances}>
           <RotateCw aria-hidden="true" />
           Try again
         </Button>
       ) : null}
-      {shown.length ? (
+      {shown.length || pendingEmpty ? (
         <section
           id="your-savings"
           aria-labelledby="your-savings-heading"
@@ -856,6 +976,11 @@ export function SavingsDetail({
                     activateLabel={actionsAvailable ? `Manage ${vault.name}` : undefined}
                   />
                 ))}
+                {pendingEmpty ? pendingDeposits.map((deposit) => (
+                  <BalanceRow key={deposit.vaultAddress} icon={<GlyphMark size="sm"><PiggyBank className="size-4" /></GlyphMark>}
+                    iconTone="mark" label={deposit.vaultName} context="Pending"
+                    value={<MoneyTicker animated={false} value={formatUsdStablecoinAmount(deposit.amountBaseUnits)} />} chevron={false} />
+                )) : null}
               </ul>
               {vaultStatus === "failed" ? recovery : null}
             </CardContent>
@@ -868,6 +993,7 @@ export function SavingsDetail({
       ) : null}
       {!balanceFailed &&
       vaultStatus !== "failed" &&
+      !verifiedEmpty &&
       (vaultStatus === "loading" || other.length) ? (
         <section
           aria-labelledby="more-savings-heading"
@@ -875,9 +1001,7 @@ export function SavingsDetail({
         >
           <Card>
             <CardHeader>
-              <HomeSectionHeading id="more-savings-heading">
-                More ways to save
-              </HomeSectionHeading>
+              <HomeSectionHeading id="more-savings-heading">More ways to save</HomeSectionHeading>
             </CardHeader>
             <CardContent inset="list">
               {!other.length ? (

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { RegionId } from "../../config/regions";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 import { scrollableBalancesSnapshot } from "./fixtures/balances";
+import { FIXED_NOW } from "./fixtures/fixed-time";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
 
@@ -110,17 +111,17 @@ async function waitForSettledPersistedBalances(page: Page) {
 }
 
 async function markPersistedQueriesStale(page: Page) {
-  await page.evaluate(() => {
+  await page.evaluate((fixedNow) => {
     const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
     if (!key) throw new Error("Persisted owner cache is missing");
     const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
       clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
     };
     for (const query of persisted.clientState?.queries ?? []) {
-      if (query.state) query.state.dataUpdatedAt = Date.now() - 60_000;
+      if (query.state) query.state.dataUpdatedAt = fixedNow - 60_000;
     }
     localStorage.setItem(key, JSON.stringify(persisted));
-  });
+  }, FIXED_NOW);
 }
 
 test("cold balances request and paint finish before delayed session verification", async ({ page }) => {
@@ -164,7 +165,8 @@ test("cold Home balance value paints before delayed verification without a persi
     const captureBalance = () => {
       if (witness.coldBalanceValueMs !== undefined) return;
       if (document.querySelector('[aria-label="Total balance"]')?.textContent?.includes("$91.55")) {
-        witness.coldBalanceValueMs = performance.now();
+        performance.mark("cold-balance:value");
+        witness.coldBalanceValueMs = performance.getEntriesByName("cold-balance:value", "mark")[0]!.startTime;
       }
     };
     new MutationObserver(captureBalance).observe(document, { subtree: true, childList: true, characterData: true });
@@ -293,7 +295,10 @@ test("cached Home balances paint before delayed verification and revalidation, t
     await balanceResponse;
     expect(balancesResponded).toBe(true);
     expect(sessionResponded).toBe(false);
-    const balanceResponseMs = await page.evaluate(() => performance.now());
+    const balanceResponseMs = await page.evaluate(() => {
+      performance.mark("balances:response");
+      return performance.getEntriesByName("balances:response", "mark")[0]!.startTime;
+    });
     fixtures.releaseSession();
     await expect.poll(() => page.evaluate(() =>
       performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? 0,
@@ -320,7 +325,8 @@ test("cached Home balances paint before delayed verification and revalidation, t
       });
       witness.balanceReturn = { busy: wasBusy(), observer };
       observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["aria-busy", "aria-label", "hidden"] });
-      return performance.now();
+      performance.mark("balances:return-start");
+      return performance.getEntriesByName("balances:return-start", "mark")[0]!.startTime;
     });
     await page.getByRole("button", { name: "Home", exact: true }).first().click();
     await expect(page).toHaveURL(/\/home$/);

@@ -1,10 +1,13 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import * as configModule from "@/server/cards/bridge/config";
 import * as storeModule from "@/server/cards/store";
 import * as sqlModule from "@/server/db/sql";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { POST } from "./route";
+
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+afterEach(() => setSystemTime());
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const config = configModule.readBridgeConfig({ BRIDGE_ENABLED: "1", BRIDGE_MODE: "sandbox", BRIDGE_STRIPE_API_VERSION: "2026-08-27.basil", BRIDGE_WEBHOOK_PUBLIC_KEY: publicKey.export({ format: "pem", type: "spki" }).toString(),
@@ -14,6 +17,7 @@ const request = (body: string, signature?: string) => new Request("https://home.
   headers: signature ? { "x-webhook-signature": signature } : {} });
 
 test("Bridge route https://apidocs.bridge.xyz/platform/additional-information/webhooks/signature: disabled 202, transient 503", async () => {
+  setSystemTime(NOW);
   const read = spyOn(configModule, "readBridgeConfig").mockReturnValue(null);
   const logs: string[] = [];
   setObservabilityLogWriterForTests((line) => { logs.push(line); });
@@ -25,8 +29,8 @@ test("Bridge route https://apidocs.bridge.xyz/platform/additional-information/we
     expect(await (await POST(request("{}"))).json()).toEqual({ accepted: false });
     read.mockReturnValue(config);
     const body = JSON.stringify({ api_version: "v0", event_id: "wh_route_fixture", event_category: "customer", event_type: "customer.updated", event_object_id: "customer_fixture",
-      event_created_at: new Date().toISOString(), event_object: { id: "customer_fixture", name: "PRIVATE" } });
-    const timestamp = Date.now();
+      event_created_at: NOW.toISOString(), event_object: { id: "customer_fixture", name: "PRIVATE" } });
+    const timestamp = NOW.getTime();
     const digest = createHash("sha256").update(`${timestamp}.`).update(body).digest();
     const signature = `t=${timestamp},v0=${sign("RSA-SHA256", digest, privateKey).toString("base64")}`;
     let fails = true;

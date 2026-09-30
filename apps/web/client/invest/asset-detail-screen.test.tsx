@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { investAssets } from "@/config/invest-assets";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
@@ -10,8 +10,10 @@ const { AssetDetailScreen } = await import("./asset-detail-screen");
 const { ChartLoadFallback } = await import("./chart-load-fallback");
 const originalFetch = window.fetch;
 const asset = investAssets.find((item) => item.id === "cbbtc")!;
+const NOW = Date.parse("2026-09-25T12:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 
-afterEach(() => { cleanup(); getHomeQueryClient().clear(); window.fetch = originalFetch; });
+afterEach(() => { cleanup(); getHomeQueryClient().clear(); window.fetch = originalFetch; setSystemTime(); });
 
 test("asset details show an accessible chart loading state before the chart resolves", async () => {
   window.fetch = (async () => Response.json({ version: 1, provider: "codex", assetId: asset.id,
@@ -27,7 +29,7 @@ test("asset details show an accessible chart loading state before the chart reso
 
 test("a stock header keeps the reference price while the DEX chart change stays in the chart caption", async () => {
   const stock = investAssets.find((item) => item.id === "nvdac")!;
-  const now = Date.now();
+  const now = NOW;
   window.fetch = (async (input: RequestInfo | URL) => {
     const range = new URL(String(input), "http://localhost").searchParams.get("range") ?? "1W";
     return Response.json({ version: 1, provider: "codex", assetId: stock.id, range, currency: "USD",

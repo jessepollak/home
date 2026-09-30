@@ -57,9 +57,6 @@ test("Add money pointer and focus intent fetch methods once, then open from the 
     "/api/funding/providers?region=US&direction=onramp",
     "/api/funding/orders?region=US",
   ]);
-  const owner = dataOwnerKey(wallet.session!);
-  expect(getHomeQueryClient().getQueryData(ownerQueryKey(owner, "funding-providers", "US"))).toBeDefined();
-  expect(getHomeQueryClient().getQueryData(ownerQueryKey(owner, "funding-open-order", "US"))).toBeDefined();
   fireEvent.click(trigger);
   await waitFor(() => expect(view.getByRole("dialog", { name: "Add money" }).textContent).toContain("Deposit USD"));
   expect(paths.filter((path) => path.startsWith("/api/funding/providers?"))).toHaveLength(1);

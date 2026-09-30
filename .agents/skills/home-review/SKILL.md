@@ -26,7 +26,7 @@ Request or assemble the following before starting. Mark missing inputs as unveri
 
 ## Pass trigger and focus
 
-Count added plus deleted non-generated diff lines. If the total is **over 400**, or any changed path is under `apps/web/server/{actions,money-actions,funding,auth,customers,access}/`, `apps/web/app/api/`, or a migrations directory, run three independent focused passes on the same frozen head; otherwise run one combined pass covering all three focuses. After a fix, review the new head and rerun affected focuses; deduplicate findings by path and trigger.
+Count added plus deleted non-generated diff lines. If any changed path is under `apps/web/server/{actions,money-actions,funding,auth,customers,access}/`, `apps/web/app/api/`, or a migrations directory, or the diff constructs, signs, or broadcasts transactions or touches sign-in/session code, run three independent focused passes on the same frozen head. Otherwise, run separate state and contract passes when the total is **over 400**, or one combined pass covering all three focuses for smaller diffs. After a fix, review the new head and rerun affected focuses; deduplicate findings by path and trigger.
 
 - **State pass:** lifecycle, async, caching, concurrency, owner scope, failure and partial states, and their UI/persisted effects.
 - **Contract pass:** API routes, parsers, error codes, access policy, migrations, cross-file and documentation pairs, dead-code/design boundaries, and test policy. A new wire error code, response field or parser is a contract change even when no route file changes: trace it to every route that returns it. Apply `AGENTS.md` as rules, not background.

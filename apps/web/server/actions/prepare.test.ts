@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { SavingsActionError } from "@/server/savings/prepare";
 import { makePaymasterApproval, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
@@ -9,6 +9,8 @@ import { TradePreparationError } from "./kinds/trade/permit2";
 import { createPrepareActionHandler } from "./prepare";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
+const NOW = new Date("2026-09-28T12:00:00.000Z");
+beforeEach(() => setSystemTime(NOW));
 
 function request(kind = "savings-deposit") {
   return new Request("https://home.test/api/actions/prepare", {
@@ -39,7 +41,7 @@ function savingsDraft(operation: "deposit" | "withdraw"): MoneyActionDraft {
       { assetId: "vault", symbol: "vault shares", decimals: 18, amountBaseUnits: "1000000000000000000", direction: deposit ? "receive" : "spend", estimated: true },
     ],
     warnings: ["The wallet shows the Base network fee."],
-    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    expiresAt: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
     metadata: {
       product: "savings",
       operation,
@@ -66,7 +68,7 @@ function authorized() {
   });
 }
 
-afterEach(() => setActionsStoreForTests(null));
+afterEach(() => { setActionsStoreForTests(null); setSystemTime(); });
 
 describe("prepare action handler", () => {
   test("refuses a stock buy before quoting even when params claim another country", async () => {
@@ -105,6 +107,16 @@ describe("prepare action handler", () => {
     },
   );
 
+  test("does not issue a trade when the fee policy cannot be read", async () => {
+    let inserts = 0;
+    setActionsStoreForTests({ insert: async () => { inserts++; } } as unknown as ActionsStore);
+    const handler = createPrepareActionHandler({ authorize: async () => authorized(),
+      prepareTrade: async () => { throw new TradePreparationError("provider-unavailable"); } });
+    const response = await handler(request("trade"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: "TRADE_UNAVAILABLE" } });
+    expect(inserts).toBe(0);
+  });
   test("returns a trade quote failure from the prepare handler", async () => {
     let quotes = 0;
     const handler = createPrepareActionHandler({

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
@@ -35,6 +35,7 @@ describePostgres("actions schema and store", () => {
     const outcomesMigration = await readMigrationSql("012_action_outcomes.sql");
     const callCommitmentMigration = await readMigrationSql("013_action_call_commitment.sql");
     const cashoutMigration = await readMigrationSql("014_cashout_orders.sql");
+    const providerProgressMigration = await readMigrationSql("021_cashout_provider_progress.sql");
     const observationsMigration = await readMigrationSql("016_action_receipt_observations.sql");
     await admin.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
     await admin.unsafe(`CREATE SCHEMA ${TEST_SCHEMA}`);
@@ -50,15 +51,21 @@ describePostgres("actions schema and store", () => {
       await transaction.unsafe(cashoutMigration);
       await transaction.unsafe(observationsMigration);
       await transaction.unsafe(observationsMigration);
+      await transaction.unsafe(providerProgressMigration);
       for (const file of ["002_funding_provider_seam.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
         await transaction.unsafe(await readMigrationSql(file));
       }
-      await transaction.unsafe("INSERT INTO schema_migrations (name) VALUES ($1), ($2), ($3), ($4), ($5)", ["db/001_actions.sql", "db/012_action_outcomes.sql", "db/013_action_call_commitment.sql", "db/014_cashout_orders.sql", "db/016_action_receipt_observations.sql"]);
+      await transaction.unsafe("INSERT INTO schema_migrations (name) VALUES ($1), ($2), ($3), ($4), ($5), ($6)", ["db/001_actions.sql", "db/012_action_outcomes.sql", "db/013_action_call_commitment.sql", "db/014_cashout_orders.sql", "db/016_action_receipt_observations.sql", "db/021_cashout_provider_progress.sql"]);
     });
     sql = createPostgresSqlExecutor(connectionString!, { schema: TEST_SCHEMA });
     store = new ActionsStore(sql);
   });
-  beforeEach(async () => { await sql.query("TRUNCATE actions CASCADE"); });
+  beforeEach(async () => {
+    const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
+    setSystemTime(clock.rows[0]!.instant);
+    await sql.query("TRUNCATE actions CASCADE");
+  });
+  afterEach(() => setSystemTime());
   afterAll(async () => {
     await sql?.dispose?.();
     await admin?.unsafe(`DROP SCHEMA IF EXISTS ${TEST_SCHEMA} CASCADE`);
@@ -193,12 +200,16 @@ describePostgres("actions schema and store", () => {
     const older = randomUUID();
     const newer = randomUUID();
     const reviewedOnly = randomUUID();
+    const trade = randomUUID();
     const other = randomUUID();
     for (const [id, actionOwner] of [[older, owner], [newer, owner], [reviewedOnly, owner], [other, otherOwner]] as const) {
       await store.insert({ id, owner: actionOwner, kind: "send", summary, pending: { calls }, createdAt: "2020-01-01T00:00:00.000Z" });
       await store.confirm(actionOwner, id);
     }
     await store.recordHandle(owner, older, { providerHandle: `0x${"11".repeat(32)}` });
+    await store.insert({ id: trade, owner, kind: "trade", summary, pending: { calls }, createdAt: "2020-01-01T00:00:00.000Z" });
+    await store.confirm(owner, trade);
+    await store.recordHandle(owner, trade, { providerHandle: `0x${"44".repeat(32)}` });
     await store.recordHandle(owner, newer, { transactionHash: `0x${"22".repeat(32)}` });
     await store.recordHandle(otherOwner, other, { providerHandle: `0x${"33".repeat(32)}` });
     await sql.query("UPDATE actions SET confirmed_at = CASE id WHEN $1 THEN $3::timestamptz WHEN $2 THEN $4::timestamptz ELSE $5::timestamptz END", [
@@ -253,13 +264,39 @@ describePostgres("actions schema and store", () => {
     expect((await store.linkCashoutDeposit(owner, id, "deposit_7"))?.deposit_id).toBe("deposit_7");
     expect(await store.linkCashoutDeposit(owner, id, "deposit_8")).toBeNull();
     const progress = { state: "returned" as const, filledAtomic: "500000", returnedAtomic: "1500000", remainingAtomic: "0", withdrawable: false, settled: true };
-    expect(await store.updateCashoutProgress(otherOwner, id, progress)).toBeNull();
-    expect((await store.updateCashoutProgress(owner, id, progress))?.settled_at).not.toBeNull();
+    expect(await store.updateCashoutProgress(otherOwner, id, progress, "2026-09-12T12:00:00.000Z", null)).toBeNull();
+    expect((await store.updateCashoutProgress(owner, id, progress, "2026-09-12T12:00:00.000Z", null, "deposit_7"))?.settled_at).not.toBeNull();
     expect(await store.hasUnsettledCashout(owner, { amountBaseUnits: "2000000", platform: "cashapp", currency: "USD", canonicalHandle: "alice" })).toBe(false);
-    expect(await store.updateCashoutProgress(owner, id, { ...progress, state: "unknown" })).toBeNull();
+    expect(await store.updateCashoutProgress(owner, id, { ...progress, state: "unknown" }, "2026-09-12T12:01:00.000Z", null, "deposit_7")).toBeNull();
     expect((await store.cashoutOrders(owner, [id]))[0]?.state).toBe("returned");
   });
 
+
+  test("rejects an out-of-order provider observation before it overwrites progress", async () => {
+    const id = randomUUID();
+    await store.insert({ id, owner, kind: "cash-out", summary: cashoutSummary, pending: { calls }, createdAt: new Date().toISOString() });
+    await store.confirm(owner, id);
+    await store.ensureCashoutOrder(owner, (await store.get(owner, id))!);
+    const newer = { state: "awaiting-buyer" as const, filledAtomic: "1500000", returnedAtomic: "0", remainingAtomic: "500000", withdrawable: true, settled: false };
+    const older = { state: "awaiting-buyer" as const, filledAtomic: "0", returnedAtomic: "0", remainingAtomic: "2000000", withdrawable: true, settled: false };
+    expect((await store.updateCashoutProgress(owner, id, newer, "2026-09-12T12:10:00.000Z", null))?.remaining_atomic).toBe("500000");
+    expect(await store.updateCashoutProgress(owner, id, older, "2026-09-12T12:00:00.000Z", null)).toBeNull();
+    expect((await store.cashoutOrders(owner, [id]))[0]?.remaining_atomic).toBe("500000");
+    expect(await store.updateCashoutProgress(owner, id, older, "2026-09-12T12:10:00.000Z", null)).toBeNull();
+    const local = { ...newer, returnedAtomic: "100000", remainingAtomic: "400000" };
+    expect(await store.updateCashoutProgress(owner, id, local, null, "2026-09-12T12:10:00.000Z", null, "2020-01-01T00:00:00.000Z")).toBeNull();
+    const revision = new Date((await store.cashoutOrders(owner, [id]))[0]!.updated_at).toISOString();
+    expect((await store.updateCashoutProgress(owner, id, local, null, "2026-09-12T12:10:00.000Z", null, revision))?.remaining_atomic).toBe("400000");
+    expect((await store.cashoutOrders(owner, [id]))[0]?.provider_updated_at).not.toBeNull();
+    expect(await store.updateCashoutProgress(owner, id, newer, "2026-09-12T12:00:00.000Z", null)).toBeNull();
+    expect((await store.updateCashoutProgress(owner, id, older, "2026-09-12T12:20:00.000Z", null))?.remaining_atomic).toBe("2000000");
+    expect(await store.updateCashoutProgress(owner, id, newer, "2026-09-12T12:25:00.000Z", null, null, "2020-01-01T00:00:00.000Z")).toBeNull();
+    const unlinkedRevision = new Date((await store.cashoutOrders(owner, [id]))[0]!.updated_at).toISOString();
+    expect((await store.updateCashoutProgress(owner, id, newer, "2026-09-12T12:25:00.000Z", null, null, unlinkedRevision))?.remaining_atomic).toBe("500000");
+    expect((await store.linkCashoutDeposit(owner, id, "deposit_link"))?.provider_updated_at).toBeNull();
+    expect(await store.updateCashoutProgress(owner, id, newer, "2026-09-12T12:30:00.000Z", null, null)).toBeNull();
+    expect((await store.updateCashoutProgress(owner, id, newer, "2026-09-12T12:30:00.000Z", null, "deposit_link"))?.remaining_atomic).toBe("500000");
+  });
   test("extends cash-out and withdrawal visibility to 30 days and keeps unsettled older deposits", async () => {
     const recent = randomUUID();
     const old = randomUUID();
@@ -273,7 +310,7 @@ describePostgres("actions schema and store", () => {
     await sql.query("UPDATE actions SET confirmed_at = now() - interval '10 days' WHERE id = ANY($1::uuid[])", [[recent, withdrawal, send]]);
     await sql.query("UPDATE actions SET confirmed_at = now() - interval '60 days' WHERE id = $1", [old]);
     expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([recent, withdrawal, old].sort());
-    await store.updateCashoutProgress(owner, old, { state: "delivered", filledAtomic: "2000000", returnedAtomic: "0", remainingAtomic: "0", withdrawable: false, settled: true });
+    await store.updateCashoutProgress(owner, old, { state: "delivered", filledAtomic: "2000000", returnedAtomic: "0", remainingAtomic: "0", withdrawable: false, settled: true }, "2026-09-12T12:02:00.000Z", null);
     expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([recent, withdrawal].sort());
   });
 });

@@ -1,25 +1,17 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { countAssertions, evaluateAssertionBudget, isProductionTypeScript, repositoryFiles, shrinkBudget } from "../type-assertions.mjs";
+import { assertionDebtReport, assertionExceptions, changedProductionTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
 
-const budget = JSON.parse(readFileSync(new URL("../type-assertions-baseline.json", import.meta.url), "utf8"));
-const files = repositoryFiles();
-const clean = { increases: [], stale: [], invalid: [] };
-
-const fixture = { path: "apps/web/shared/ratchet-fixture.ts", content: "export function status(value: { status: unknown }) { return value.status as string; }" };
-const fixtureFiles = [...files, fixture];
-const fixtureBudget = { ...budget, files: { ...budget.files, [fixture.path]: { assertion: 1 } } };
-
-function seeded(file, content) {
-  return fixtureFiles.map((entry) => entry.path === file ? { path: file, content } : entry);
-}
-
-test("production tree exactly matches the shrinking baseline", () => {
-  assert.ok(files.length > 0);
-  assert.deepEqual(evaluateAssertionBudget({ files, budget }), clean);
-});
+const file = "apps/web/shared/ratchet-fixture.ts";
+const original = "export const value = input as string;";
+const exception = { path: file, kind: "assertion", count: 1, reason: "Reviewed boundary conversion" };
+const clean = { increases: [], notes: [], invalid: [] };
+const change = (content, baseContent = original, path = file, basePath = path) => ({ path, content, basePath, baseContent });
+const evaluate = (changed, exceptions = [], baseExceptions = []) => evaluateAssertionDelta({ changed, exceptions, baseExceptions });
 
 test("counts only syntactic assertions, not const assertions or guards", () => {
   for (const [source, kind, expected] of [
@@ -68,49 +60,197 @@ test("scope follows the production TypeScript override", () => {
   for (const file of ["apps/web/app/a.test.ts", "apps/web/components/a.stories.tsx", "apps/web/server/tests/a.ts", "apps/web/client/testing/a.ts", "apps/web/shared/explorations/a.ts", "apps/web/client/account/dom-test-harness.ts", "apps/web/client/smoke-fixture-provider.tsx", "apps/web/oxlint/rules/a.ts", "apps/web/scripts/a.ts", "apps/web/stories/a.tsx", "apps/web/app/a.js"]) assert.equal(isProductionTypeScript(file), false, file);
 });
 
-test("the baseline rejects seeded increases of every kind", () => {
-  const existing = fixture;
-  for (const suffix of ["\nconst unchecked = 1 as unknown;", "\nconst forced = value!;", "\n// eslint-disable-next-line x\n", "\nparseJsonColumn<Row>(source);", "\nconst read = parseJsonColumn;\nconst again = read;\n(again)<Row>(source);"]) {
-    const result = evaluateAssertionBudget({ files: seeded(existing.path, existing.content + suffix), budget: fixtureBudget });
-    assert.equal(result.increases.length, 1, suffix);
-    assert.deepEqual(result.invalid, []);
+test("unchanged counts and identical content are clean", () => {
+  assert.deepEqual(evaluate([change(original)]), clean);
+  assert.deepEqual(evaluate([change("export const value = input as string;\nconst safe = 1;")]), clean);
+});
+
+test("added assertions of each kind fail only for that kind and file", () => {
+  for (const [kind, suffix] of [
+    ["assertion", "\nconst cast = input as unknown;"],
+    ["nonNull", "\nconst forced = input!;"],
+    ["suppression", "\n// eslint-disable-next-line x\n"],
+    ["genericParse", "\nparseJsonColumn<Row>(source);"],
+  ]) {
+    const { increases, notes, invalid } = evaluate([change(original + suffix)]);
+    const before = kind === "assertion" ? 1 : 0;
+    const actual = before + 1;
+    assert.deepEqual(increases, [`${file}: ${kind} ${actual} > ${before}; narrow the new use with a runtime guard or add a reviewed exception with a reason`]);
+    assert.deepEqual(notes, []);
+    assert.deepEqual(invalid, []);
   }
-  const newFile = { path: "apps/web/shared/ratchet-new.ts", content: "class RatchetNew { name!: string }" };
-  assert.equal(evaluateAssertionBudget({ files: [...files, newFile], budget }).increases.length, 1);
-  assert.deepEqual(evaluateAssertionBudget({ files: [...files, { path: newFile.path, content: "if (typeof value === 'string') use(value);" }], budget }), clean);
 });
 
-test("removing a cast is stale until shrink, and shrink never raises a baseline", () => {
-  assert.deepEqual(evaluateAssertionBudget({ files: fixtureFiles, budget: fixtureBudget }), clean);
-  const guarded = { path: fixture.path, content: "export function status(value: { status: unknown }) { return typeof value.status === 'string' ? value.status : undefined; }" };
-  const smaller = [...files, guarded];
-  const result = evaluateAssertionBudget({ files: smaller, budget: fixtureBudget });
+test("new files start from zero debt", () => {
+  const newFile = "apps/web/client/new-ratchet.ts";
+  assert.equal(evaluate([{ ...change("const cast = input as string;", original, newFile), baseContent: undefined }]).increases.length, 1);
+  assert.deepEqual(evaluate([{ ...change("const safe = input;", original, newFile), baseContent: undefined }]), clean);
+});
+
+test("renames carry the source file's base debt", () => {
+  assert.deepEqual(evaluate([change(original, original, "apps/web/client/renamed.ts", file)]), clean);
+});
+
+test("a rename parses its base content as the destination does", () => {
+  const content = "const value = <number>input;";
+  assert.deepEqual(evaluate([change(content, content, "apps/web/client/target.ts", "apps/web/client/source.tsx")]), clean);
+});
+
+test("a transferred exception does not grant new debt for a renamed path", () => {
+  const renamed = "apps/web/client/renamed.ts";
+  const moved = [change(original + "\nconst cast = input as unknown;", original, renamed, file)];
+  assert.deepEqual(evaluate(moved, [{ ...exception, path: renamed }], [exception]).increases, [
+    `${renamed}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+  ]);
+});
+
+test("reviewed exceptions cover only newly granted debt", () => {
+  const added = [change(original + "\nconst cast = input as unknown;")];
+  assert.deepEqual(evaluate(added, [exception]), clean);
+  assert.deepEqual(evaluate(added, [exception], [exception]).increases, [
+    `${file}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+  ]);
+});
+
+test("oversized and unused exceptions are non-failing notes", () => {
+  for (const content of [original, original + "\nconst cast = input as unknown;"]) {
+    const result = evaluate([change(content)], [{ ...exception, count: 2 }]);
+    assert.deepEqual(result.increases, []);
+    assert.deepEqual(result.invalid, []);
+    assert.deepEqual(result.notes, [`${file}: assertion exception allows 2 but this change adds ${content === original ? 0 : 1}; remove or narrow it`]);
+  }
+});
+
+test("duplicate exceptions sum for one path and kind", () => {
+  const added = [change(original + "\nconst one = input as unknown;\nconst two = input as string;")];
+  assert.deepEqual(evaluate(added, [exception, exception]), clean);
+});
+
+test("malformed exceptions are invalid findings", () => {
+  const malformed = [
+    { ...exception, path: "apps/web/client/example.test.ts" },
+    { ...exception, kind: "unknown" },
+    { ...exception, count: 0 },
+    { ...exception, count: -1 },
+    { ...exception, reason: " " },
+    { path: file, kind: "assertion", count: 1 },
+    null,
+  ];
+  const result = evaluate([], malformed);
   assert.deepEqual(result.increases, []);
-  assert.equal(result.stale.length, 1);
-  const shrunk = shrinkBudget({ files: smaller, budget: fixtureBudget });
-  assert.deepEqual(evaluateAssertionBudget({ files: smaller, budget: shrunk }), clean);
-  assert.equal(shrunk.files[fixture.path], undefined);
-  const raised = [...files, { path: fixture.path, content: `${fixture.content}\nconst unchecked = 1 as unknown;` }];
-  assert.equal(shrinkBudget({ files: raised, budget: fixtureBudget }).files[fixture.path].assertion, 1);
-  assert.equal(evaluateAssertionBudget({ files: raised, budget: shrinkBudget({ files: raised, budget: fixtureBudget }) }).increases.length, 1);
+  assert.deepEqual(result.notes, []);
+  assert.equal(result.invalid.length, malformed.length);
+  assert.ok(result.invalid.every((message) => message.includes("invalid") && message.includes("exception")));
 });
 
-test("a reviewed exception offsets only its kind; invalid and missing entries fail", () => {
-  const existing = fixture;
-  const path = existing.path;
-  const seededFiles = seeded(path, existing.content + "\nconst unchecked = 1 as unknown;");
-  const exception = { path, kind: "assertion", count: 1, reason: "Narrow runtime boundary needs this conversion" };
-  assert.deepEqual(evaluateAssertionBudget({ files: seededFiles, budget: { ...fixtureBudget, exceptions: [exception] } }), clean);
-  assert.equal(evaluateAssertionBudget({ files: seededFiles, budget: { ...fixtureBudget, exceptions: [{ ...exception, reason: " " }] } }).invalid.length, 1);
-  assert.ok(evaluateAssertionBudget({ files: fixtureFiles, budget: { ...fixtureBudget, exceptions: [exception] } }).stale.length > 0);
-  assert.ok(evaluateAssertionBudget({ files: fixtureFiles, budget: { ...fixtureBudget, exceptions: [{ ...exception, count: 1000 }] } }).invalid.some((message) => message.includes("exceeds current count")));
-  const broken = { files: { ...fixtureBudget.files, [path]: { ...fixtureBudget.files[path], nonNull: 0, madeUp: 1 }, "apps/web/app/missing.ts": { assertion: 1 }, "apps/web/client/empty.ts": {} }, exceptions: [exception, exception, { ...exception, kind: "unknown", count: -1 }] };
-  const findings = evaluateAssertionBudget({ files: fixtureFiles, budget: broken });
-  assert.ok(findings.invalid.length >= 5);
-  assert.ok(findings.stale.some((message) => message.includes("missing.ts")));
-  assert.ok(findings.invalid.some((message) => message.includes("duplicate")));
-  const malformed = evaluateAssertionBudget({ files: fixtureFiles, budget: { ...fixtureBudget, exceptions: [null, { ...exception, path: "apps/web/app/gone.ts" }] } });
-  assert.ok(malformed.invalid.some((message) => message.includes("invalid")));
-  assert.ok(malformed.stale.some((message) => message.includes("gone.ts")));
-  assert.deepEqual(shrinkBudget({ files, budget }).exceptions, []);
+test("unchanged paths cannot produce increases", () => {
+  assert.deepEqual(evaluate([], [exception]).increases, []);
+  assert.deepEqual(evaluate([change(original)]).increases, []);
+});
+
+test("the changed set follows renames, additions, moves, and untracked files", () => {
+  const root = fileURLToPath(new URL("../../..", import.meta.url));
+  const kept = "apps/web/client/account/basename-profile.ts";
+  const renamed = "apps/web/client/account/cdp-sdk-provider.tsx";
+  const source = "apps/web/client/account/session-client.ts";
+  const moved = "apps/web/client/account/native-base-bridge.tsx";
+  const movedFrom = "apps/web/client/account/moved-from.ts";
+  const added = "apps/web/client/account/resource-failure.ts";
+  const baseContent = "const probe = value as string;";
+  const movedContent = "const moved = value as string;";
+  const blob = "b".repeat(40);
+  const runner = (args) => {
+    if (args[0] === "diff") return `M\t${kept}\nD\t${movedFrom}\nR100\t${source}\t${renamed}\nM\tapps/web/client/account/basename-profile.test.ts\n`;
+    if (args[0] === "ls-files") return `${moved}\0${added}\0apps/web/client/account/native-base-bridge.test.tsx\0`;
+    if (args[0] === "rev-parse") return String(args.at(-1)) === `origin/main:${movedFrom}` ? blob : "";
+    if (args[0] === "hash-object") return [kept, moved, added].includes(String(args.at(-1))) ? blob : "";
+    if (args[0] === "cat-file") {
+      if ([moved, added].some((file) => String(args.at(-1)).endsWith(file))) throw new Error("absent at the base revision");
+      return "present";
+    }
+    if (args[0] === "show") return String(args.at(-1)).endsWith(movedFrom) ? movedContent : baseContent;
+    throw new Error(`unexpected git call: ${args.join(" ")}`);
+  };
+  const changed = changedProductionTypeScript({ base: "origin/main", cwd: root, gitRunner: runner });
+  assert.deepEqual(changed.map(({ path, basePath, baseContent: content }) => [path, basePath, content === undefined ? null : content]), [
+    [kept, kept, baseContent],
+    [renamed, source, baseContent],
+    [moved, movedFrom, movedContent],
+    [added, added, null],
+  ]);
+});
+
+test("a production path that comes from an excluded source starts from zero", () => {
+  const root = fileURLToPath(new URL("../../..", import.meta.url));
+  const excluded = "apps/web/client/account/legacy.test.ts";
+  const target = "apps/web/client/account/cdp-sdk-provider.tsx";
+  const blob = "c".repeat(40);
+  const runner = (args) => {
+    if (args[0] === "diff") return `D\t${excluded}\n`;
+    if (args[0] === "ls-files") return `${target}\0`;
+    if (args[0] === "rev-parse") return String(args.at(-1)) === `origin/main:${excluded}` ? blob : "";
+    if (args[0] === "hash-object") return String(args.at(-1)) === target ? blob : "";
+    if (args[0] === "cat-file") throw new Error("absent at the base revision");
+    throw new Error(`unexpected git call: ${args.join(" ")}`);
+  };
+  const changed = changedProductionTypeScript({ base: "origin/main", cwd: root, gitRunner: runner });
+  assert.deepEqual(changed.map(({ path, basePath, baseContent }) => [path, basePath, baseContent === undefined ? null : baseContent]), [[target, target, null]]);
+
+test("a rewritten rename keeps its source's counts", () => {
+  const root = fileURLToPath(new URL("../../..", import.meta.url));
+  const source = "apps/web/client/account/session-client.ts";
+  const destination = "apps/web/client/account/native-base-bridge.tsx";
+  const baseContent = "const kept = value as string;";
+  const runner = (args) => {
+    if (args[0] === "diff") return `R51\t${source}\t${destination}\n`;
+    if (args[0] === "ls-files") return "";
+    if (args[0] === "cat-file") return "present";
+    if (args[0] === "show") return baseContent;
+    throw new Error(`unexpected git call: ${args.join(" ")}`);
+  };
+  const changed = changedProductionTypeScript({ base: "origin/main", cwd: root, gitRunner: runner });
+  assert.deepEqual(changed.map(({ path, basePath, baseContent: content }) => [path, basePath, content]), [[destination, source, baseContent]]);
+});
+});
+
+test("base resolution verifies commits and fetches unresolved branches", () => {
+  const calls = [];
+  const sha = "a".repeat(40);
+  const runner = (args) => {
+    calls.push(args.join(" "));
+    if (args[0] === "rev-parse" && args.at(-1) === "origin/topic" && calls.filter((call) => call.includes("origin/topic")).length === 1) throw new Error("not fetched");
+    if (args[0] === "rev-parse" && args.at(-1) === `${sha}^{commit}`) return sha;
+    if (args[0] === "rev-parse" && String(args.at(-1)).startsWith("0".repeat(40))) throw new Error("unresolvable");
+    return "ok";
+  };
+  assert.equal(resolveBaseRevision({ base: sha, gitRunner: runner }), sha);
+  assert.throws(() => resolveBaseRevision({ base: "0".repeat(40), gitRunner: runner }), /could not resolve base revision 0{40}; fetch more history or set BASE_REF/u);
+  assert.equal(resolveBaseRevision({ base: "topic", gitRunner: runner }), "origin/topic");
+  assert.ok(calls.includes("fetch --no-tags --depth=200 origin topic"));
+  assert.throws(() => resolveBaseRevision({ base: "missing", gitRunner: () => { throw new Error("unavailable"); } }), /could not resolve base ref origin\/missing; fetch it or set BASE_REF/u);
+  assert.throws(() => resolveBaseRevision({ base: sha, gitRunner: () => { throw new Error("unavailable"); } }), /could not resolve base revision a{40}; fetch more history or set BASE_REF/u);
+  assert.equal(mergeBaseRevision({ revision: "origin/topic", gitRunner: () => "abc1234\n" }), "abc1234");
+  assert.equal(mergeBaseRevision({ revision: "origin/topic", gitRunner: (args) => { if (args[1] === "--is-ancestor") return ""; throw new Error("unavailable"); } }), "origin/topic");
+  assert.throws(() => mergeBaseRevision({ revision: "origin/topic", gitRunner: () => { throw new Error("unavailable"); } }), /could not determine the merge base of origin\/topic and HEAD/u);
+});
+
+test("production TypeScript does not add assertion debt relative to the base revision", () => {
+  const { result } = assertionDebtReport();
+  assert.deepEqual(result.increases, []);
+  assert.deepEqual(result.invalid, []);
+});
+
+test("the report command prints the current debt inventory as JSON", () => {
+  const root = fileURLToPath(new URL("../../..", import.meta.url));
+  const report = JSON.parse(execFileSync("node", ["scripts/gates/type-assertions.mjs", "--report"], { cwd: root, encoding: "utf8" }));
+  const declared = JSON.parse(readFileSync(new URL("../type-assertions-exceptions.json", import.meta.url), "utf8")).exceptions;
+  assert.deepEqual(report.exceptions, declared);
+  assert.ok(Object.keys(report.files).length > 0);
+  for (const [path, counts] of Object.entries(report.files)) {
+    assert.ok(isProductionTypeScript(path), path);
+    for (const [kind, count] of Object.entries(counts)) {
+      assert.ok(["assertion", "nonNull", "suppression", "genericParse"].includes(kind), `${path}: ${kind}`);
+      assert.ok(Number.isSafeInteger(count) && count > 0, `${path}: ${kind} ${count}`);
+    }
+  }
 });

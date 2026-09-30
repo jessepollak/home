@@ -1,10 +1,67 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { relative, resolve } from "node:path";
 import { checkAccount, liveLogin, loadVerificationEnv } from "./live-login";
+import { privateVerificationPath } from "./verification-paths";
 
+const repoRoot = resolve(import.meta.dir, "../..");
 const directories: string[] = [];
 afterEach(() => { for (const path of directories.splice(0)) Bun.spawnSync(["rm", "-rf", path]); });
+
+test("default private paths resolve outside the repository and sibling paths are allowed", () => {
+  const directory = privateVerificationPath(resolve(homedir(), ".home-verify"));
+  expect(relative(repoRoot, directory).startsWith("..")).toBe(true);
+  expect(privateVerificationPath(`${repoRoot}-sibling/live.env`)).toBe(`${repoRoot}-sibling/live.env`);
+});
+
+test("refuses env files rooted in the checkout, including relative overrides", async () => {
+  for (const home of [repoRoot, resolve(repoRoot, "apps/web")]) {
+    await expect(loadVerificationEnv({}, home)).rejects.toThrow("Private verification files must live outside the repository.");
+  }
+  await expect(loadVerificationEnv({ HOME_VERIFY_ENV_FILE: ".home-verify/live.env" })).rejects.toThrow("Private verification files must live outside the repository.");
+});
+
+test("refuses a symlinked home pointing into the checkout", async () => {
+  const directory = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-linked-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(directory);
+  const home = resolve(directory, "linked-home");
+  expect(Bun.spawnSync(["ln", "-s", repoRoot, home]).exitCode).toBe(0);
+  await expect(loadVerificationEnv({}, home)).rejects.toThrow("Private verification files must live outside the repository.");
+});
+
+test("refuses in-repo state before touching the directory or launching a browser", async () => {
+  const home = resolve(repoRoot, "apps/web");
+  const directory = resolve(home, ".home-verify");
+  const existed = Bun.spawnSync(["test", "-d", directory]).exitCode === 0;
+  const calls: string[][] = [];
+  const command = (args: string[]) => { calls.push(args); return ""; };
+  await expect(liveLogin(["--base-url", "https://example.com"], {
+    home, command, getOtp: async () => "123456",
+    env: {
+      HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com", HOME_ACCESS_PASSWORD: "gate", HOME_VERIFY_GMAIL_CREDENTIALS: resolve(tmpdir(), "gmail.json"),
+      HOME_VERIFY_OTP_SENDER: "sender@example.com", HOME_VERIFY_CASHOUT_HANDLE: "$pinned",
+      HOME_VERIFY_ACCOUNT_ADDRESS: "0x000000000000000000000000000000000000b07a", HOME_VERIFY_PRODUCTION_URL: "https://example.com",
+    },
+  })).rejects.toThrow("Private verification files must live outside the repository.");
+  expect(calls).toEqual([]);
+  if (!existed) expect(Bun.spawnSync(["test", "-d", directory]).exitCode).not.toBe(0);
+});
+
+test("refuses in-repo Gmail credentials before creating state or launching a browser", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-gmail-guard-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  const calls: string[][] = [];
+  const command = (args: string[]) => { calls.push(args); return ""; };
+  await expect(liveLogin(["--base-url", "https://example.com"], {
+    home, command, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com", HOME_VERIFY_GMAIL_CREDENTIALS: resolve(repoRoot, "gmail.json") },
+  })).rejects.toThrow("Private verification files must live outside the repository.");
+  expect(calls).toEqual([]);
+  expect(Bun.spawnSync(["test", "-e", resolve(home, ".home-verify")]).exitCode).not.toBe(0);
+});
+
+test("git ignores nested private verification directories", () => {
+  expect(Bun.spawnSync(["git", "check-ignore", "-q", "apps/web/.home-verify/live.env"], { cwd: repoRoot }).exitCode).toBe(0);
+});
 
 async function login(gated: boolean) {
   const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-login-test-XXXXXX")]).stdout.toString().trim();

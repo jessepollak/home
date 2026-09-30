@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
 import type { HomeInteractionRoute, HomePanelCacheState } from "@/shared/observability/client-performance.contract";
-import { discardHomeScroll, noteHomeScroll, noteHomeScrollIntent } from "./interaction-performance";
+import { discardHomeScroll, noteHomeNavigationInput, noteHomeScroll, noteHomeScrollIntent } from "./interaction-performance";
 
 const scrollKeys = new Set(["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "]);
 
@@ -18,11 +18,13 @@ export function useHomeScrollPerformance(
     };
     const scroll = () => noteHomeScroll({ route, cache });
     element.addEventListener("scroll", scroll, { passive: true });
+    element.addEventListener("click", noteHomeNavigationInput, { capture: true, passive: true });
     element.addEventListener("wheel", intent, { passive: true });
     element.addEventListener("touchmove", intent, { passive: true });
     element.addEventListener("keydown", keydown, { passive: true });
     return () => {
       element.removeEventListener("scroll", scroll);
+      element.removeEventListener("click", noteHomeNavigationInput, true);
       element.removeEventListener("wheel", intent);
       element.removeEventListener("touchmove", intent);
       element.removeEventListener("keydown", keydown);

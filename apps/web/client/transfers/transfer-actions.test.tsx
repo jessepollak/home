@@ -42,6 +42,7 @@ afterEach(() => {
 });
 
 test("changing Send owner drops the sheet immediately and reopens without the previous draft", async () => {
+  (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = false;
   const frames = new Map<number, FrameRequestCallback>();
   let nextFrame = 0;
   window.requestAnimationFrame = (callback) => { const id = ++nextFrame; frames.set(id, callback); return id; };
@@ -50,7 +51,7 @@ test("changing Send owner drops the sheet immediately and reopens without the pr
     await act(async () => {
       const callbacks = [...frames.values()];
       frames.clear();
-      callbacks.forEach((callback) => callback(performance.now()));
+      callbacks.forEach((callback) => callback(100_000));
       await Promise.resolve();
     });
   }

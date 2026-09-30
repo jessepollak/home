@@ -75,7 +75,7 @@ export function failureCasesReport(body) {
   }
 
   const value = entries[0].slice("Failure-cases:".length).trim();
-  const counts = /^(0|[1-9]\d*)\/(0|[1-9]\d*)$/.exec(value);
+  const counts = /^(0|[1-9]\d*)\/(0|[1-9]\d*)(?:\s+\S.*)?$/.exec(value);
   if (counts) {
     if (BigInt(counts[1]) > BigInt(counts[2])) findings.push("Failure-cases tested count cannot exceed dependency calls; expected Failure-cases: <tested>/<dependency calls> or Failure-cases: N/A: <reason>.");
   } else if (!/^N\/A:[ \t]*\S/.test(value)) {

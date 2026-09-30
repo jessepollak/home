@@ -385,10 +385,15 @@ describe("balance observations", () => {
     expect(fixture.enumerations()).toBe(1);
   });
 
-  test("a stale mark causes a full re-observe", async () => {
-    const fixture = setup({});
-    await fixture.store.putObservation(observation());
-    await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
+  test.each([
+    { name: "stale mark", stored: observation(), now: "2026-09-13T12:00:30.000Z", markStale: true },
+    { name: "unavailable catalog", stored: observation({ coverage: { registry: "complete", catalog: "unavailable" } }), now: "2026-09-13T12:00:30.000Z", markStale: false },
+    { name: "partial registry", stored: observation({ coverage: { registry: "partial", catalog: "complete" } }), now: "2026-09-13T12:00:30.000Z", markStale: false },
+    { name: "120-second backstop", stored: observation(), now: "2026-09-13T12:02:01.000Z", markStale: false },
+  ])("$name serves stale and schedules a full re-observe", async ({ stored, now, markStale }) => {
+    const fixture = setup({ now });
+    await fixture.store.putObservation(stored);
+    if (markStale) await fixture.store.markStale(8453, owner, new Date("2026-09-13T12:00:20.000Z"));
     const snapshot = await fixture.service(owner, "US");
     expect(snapshot.stale).toBeTrue();
     expect(fixture.reads()).toBe(0);
@@ -409,34 +414,6 @@ describe("balance observations", () => {
     expect(fixture.enumerations()).toBe(0);
     await fixture.flush();
     expect(fixture.reads()).toBe(2);
-    expect(fixture.enumerations()).toBe(1);
-  });
-
-  test("degraded catalog coverage forces a full re-observe", async () => {
-    const fixture = setup({});
-    await fixture.store.putObservation({
-      ...observation(),
-      coverage: { registry: "complete", catalog: "unavailable" },
-    });
-    const snapshot = await fixture.service(owner, "US");
-    expect(snapshot.stale).toBeTrue();
-    expect(fixture.enumerations()).toBe(0);
-    await fixture.flush();
-    expect(fixture.enumerations()).toBe(1);
-  });
-
-  test("partial registry coverage is served stale and revalidated in the background", async () => {
-    const fixture = setup({});
-    await fixture.store.putObservation({
-      ...observation(),
-      coverage: { registry: "partial", catalog: "complete" },
-    });
-    const snapshot = await fixture.service(owner, "US");
-    expect(snapshot.stale).toBeTrue();
-    expect(fixture.reads()).toBe(0);
-    expect(fixture.enumerations()).toBe(0);
-    await fixture.flush();
-    expect(fixture.reads()).toBe(1);
     expect(fixture.enumerations()).toBe(1);
   });
 
@@ -611,17 +588,6 @@ describe("balance observations", () => {
     expect(fixture.borrowReads()).toBe(1);
     expect(fixture.enumerations()).toBe(0);
     expect(fixture.borrowPins()).toEqual([read("11").block]);
-  });
-
-  test("the 120 second backstop causes a full re-observe", async () => {
-    const fixture = setup({ now: "2026-09-13T12:02:01.000Z" });
-    await fixture.store.putObservation(observation());
-    const snapshot = await fixture.service(owner, "US");
-    expect(snapshot.stale).toBeTrue();
-    expect(fixture.reads()).toBe(0);
-    await fixture.flush();
-    expect(fixture.reads()).toBe(1);
-    expect(fixture.enumerations()).toBe(1);
   });
 
   test("failed required re-observe serves the prior row stale with unchanged coverage", async () => {

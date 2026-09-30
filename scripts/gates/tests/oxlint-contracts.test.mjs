@@ -57,6 +57,38 @@ const fixtures = {
   "components/explorations/tagged.stories.tsx": 'const meta = { id: "tagged", tags: ["exploration"] }; export default meta;',
   "stories/journeys/ordinary.stories.tsx": 'const meta = { id: "ordinary" }; export default meta;',
   "client/storybook.tsx": 'import x from "@storybook/test"; export { x }; export * from "msw"; const a = import(`storybook`); const b = require("msw/browser"); export { a, b };',
+  "components/barrel.ts": 'export * from "./explorations/ledger"; export { Row } from "@/client/explorations/row"; import x from "../client/explorations/x"; const a = import(`@/components/explorations/a`); const b = require("./explorations/b"); export { x, a, b };',
+  "client/exploration-template.ts": 'const a = import(`./explorations/${name}`); const b = require(`@/client/explorations/${name}`); void a; void b;',
+  "client/exploration-template-clean.ts": 'const a = import(`${kind}/row`); void a;',
+  "client/exploration-assertions.ts": 'const a = import("./explorations/foo" as unknown as string); const b = import("./explorations/foo" satisfies string); const c = require(("./explorations/bar"!)); void a; void b; void c;',
+  "client/exploration-angle-assertion.ts": 'const x = import(<string>"./explorations/row"); void x;',
+  "proxy.ts": 'import "./client/explorations/probe";',
+  "proxy.js": 'import "./client/explorations/probe";',
+  "instrumentation.js": 'import "./client/explorations/probe";',
+  "next.config.mjs": 'import "./client/explorations/probe";',
+  "client/exploration-concatenated.ts": 'const a = import("./explorations/" + "x"); const b = require("@/client/" + "explorations/x"); const c = import(`./explorations/${name}`); void a; void b; void c;',
+  "client/exploration-concatenated-dynamic.ts": 'const a = import("./explorations/" + name); const b = require("@/client/explorations/" + name); const c = import(name + "/explorations/row"); const d = require(name + "/explorations/row"); void a; void b; void c; void d;',
+  "client/exploration-concatenated-clean.ts": 'const a = import(dir + "/row"); const b = import("./explor" + "ationNotes"); const c = import(`${kind}/row`); const d = import("./explor" + name); void a; void b; void c; void d;',
+  "client/exploration-split-template.ts": 'const a = import(`./explor${"ations"}/${name}`); const b = import(`./x/${name}/explorations/${thing}`); const c = import(`./explor${"ationNotes"}/${name}`); void a; void b; void c;',
+  "client/exploration-cross-boundary.ts": 'const a = import("./explor" + `ations/${name}`); const b = import(`./${`explorations/${name}`}`); void a; void b;',
+  "client/exploration-cross-boundary-clean.ts": 'const a = import("./explor" + `ationNotes/${name}`); void a;',
+  "client/exploration-conditional.ts": 'const a = import(flag ? "./explorations/a" : "./live"); const b = require(value || "./explorations/a"); void a; void b;',
+  "client/exploration-conditional-clean.ts": 'const a = import(flag ? "./live" : "./other"); const b = require(value || "./other"); void a; void b;',
+  "client/exploration-conditional-concat.ts": 'const a = import("./explor" + (flag ? "ations/a" : "ationNotes/a")); void a;',
+  "client/exploration-unknown-segment-clean.ts": 'const suffix = flag ? "x" : "y"; const a = import("./explor" + suffix + "ations/row"); void a;',
+  "client/exploration-overflow.ts": 'const a = import("./explorations/" + (f1 ? "" : "") + (f2 ? "" : "") + (f3 ? "" : "") + (f4 ? "" : "") + (f5 ? "" : "") + (f6 ? "" : "") + (f7 ? "" : "")); void a;',
+  "client/exploration-overflow-merge.ts": 'const a = import("./explo" + (f1 ? "" : g1) + (f2 ? "" : g2) + (f3 ? "" : g3) + (f4 ? "" : g4) + (f5 ? "" : g5) + (f6 ? "" : g6) + (f7 ? "" : g7) + "rations/row"); void a;',
+  "client/exploration-mutually-exclusive-clean.ts": 'const a = import("./" + (flag ? "explor" : "ations") + (f1 ? "" : "") + (f2 ? "" : "") + (f3 ? "" : "") + (f4 ? "" : "") + (f5 ? "" : "") + (f6 ? "" : "") + (f7 ? "" : "") + "/row"); void a;',
+  "client/exploration-fixture.stories.fixture.ts": 'import { Row } from "./explorations/row"; export { Row };',
+  "app/exploration-leak.ts": 'export { Row } from "@/app/explorations/row";',
+  "server/exploration-leak.ts": 'import "server-only"; export * from "./explorations/ledger";',
+  "shared/exploration-leak.ts": 'export * from "./explorations/ledger";',
+  "client/explorations/inside.ts": 'import row from "@/client/explorations/row"; export { row };',
+  "client/explorations/nested.ts": 'import row from "../explorations/row"; export { row };',
+  "client/exploration-import.stories.tsx": 'import row from "./explorations/row"; export { row };',
+  "client/exploration-import.test.ts": 'import row from "./explorations/row"; export { row };',
+  "client/exploration-names.ts": 'import notes from "@/client/exploration-notes"; import helper from "./explorationsHelper"; export { notes, helper };',
+  "client/exploration-type-query.ts": 'export type Row = typeof import("./explorations/row").Row; export type Ledger = import("@/client/explorations/ledger").Ledger;',
   "config/storybook.ts": 'export { setupWorker } from "msw/browser";',
   "types/storybook.d.ts": 'import type { Meta } from "@storybook/nextjs-vite"; export type M = Meta;',
   "client/layers.ts": 'import a from "@/server/a"; export { b } from "../server/b"; const c = import(`@/server/c`); const d = require(`../server/d`); export { a, c, d };',
@@ -103,6 +135,8 @@ const fixtures = {
   "client/policy.ts": 'export const policy = "frame-ancestors none"; export const readHeader = () => "frame-ancestors none";',
   "client/policy.test.ts": 'import { expect, test } from "bun:test"; import { policy } from "./policy"; test("x", () => { expect(readHeader()).toBe(policy); });',
   "client/policy-clean.test.ts": 'import { expect, test } from "bun:test"; import { policy, readHeader } from "./policy"; test("x", () => { expect(readHeader()).toBe("frame-ancestors none"); expect(policy).toBe("frame-ancestors none"); });',
+  "client/constant-pin.test.ts": 'import { expect, test } from "bun:test"; import { TUNING_LIMIT } from "./limits"; test("x", () => { expect(TUNING_LIMIT).toBe(10); });',
+  "client/constant-pin-clean.test.ts": 'import { expect, test } from "bun:test"; import { BASE_CHAIN_ID, readLimit } from "./limits"; test("x", () => { expect(BASE_CHAIN_ID).toBe(8453); expect(readLimit()).toBe(10); });',
 
   "client/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
   "components/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
@@ -172,6 +206,8 @@ const fixtures = {
   "storybook-static/ignored.ts": 'const x: any = 1;'
 };
 
+assert.ok(Object.keys(fixtures).length > 0, "Oxlint contract fixtures must not be empty");
+
 for (const [relativePath, contents] of Object.entries(fixtures)) {
   const destination = path.join(mirror, relativePath);
   await mkdir(path.dirname(destination), { recursive: true });
@@ -184,6 +220,7 @@ assert.equal(run.signal, null, run.stderr);
 assert.equal(run.status, 1, "violating mirror must fail");
 const output = JSON.parse(run.stdout);
 const diagnostics = output.diagnostics;
+assert.ok(diagnostics.length > 0, "violating mirror must produce diagnostics");
 
 const debug = spawnSync(binary, ["-c", ".oxlintrc.jsonc", "--disable-nested-config", "--debug", "files", "."], { cwd: mirror, encoding: "utf8" });
 assert.equal(debug.status, 0, debug.stderr);
@@ -191,6 +228,7 @@ const listedFiles = new Set(`${debug.stdout}\n${debug.stderr}`
   .split(/\r?\n/)
   .map((line) => line.trim().replace(/^\.\//, ""))
   .filter(Boolean));
+assert.ok(listedFiles.size > 0, "Oxlint must list parsed files");
 const ignoredFixturePattern = /^(?:node_modules|\.next|storybook-static)\//;
 
 function hits(file, code) {
@@ -205,6 +243,24 @@ function assertClean(file) {
 
 const contracts = [
   ["workshop imports cover static, export, dynamic, template, and require", () => { assertHits("client/storybook.tsx", "home(no-storybook-imports)", 4); assertHits("config/storybook.ts", "home(no-storybook-imports)"); assertHits("types/storybook.d.ts", "home(no-storybook-imports)"); }],
+  ["exploration imports block production barrels and app, server, shared modules", () => { assertHits("components/barrel.ts", "home(no-exploration-imports)", 5); for (const file of ["app/exploration-leak.ts", "server/exploration-leak.ts", "shared/exploration-leak.ts"]) assertHits(file, "home(no-exploration-imports)"); }],
+  ["type-query references from production modules are blocked", () => assertHits("client/exploration-type-query.ts", "home(no-exploration-imports)", 2)],
+  ["interpolated exploration specifiers block knowable path segments", () => { assertHits("client/exploration-template.ts", "home(no-exploration-imports)", 2); assertHits("client/exploration-template-clean.ts", "home(no-exploration-imports)", 0); }],
+  ["TypeScript assertion wrappers around exploration specifiers are checked", () => assertHits("client/exploration-assertions.ts", "home(no-exploration-imports)", 3)],
+  ["angle-bracket assertions are checked", () => assertHits("client/exploration-angle-assertion.ts", "home(no-exploration-imports)")],
+  ["root JS entry points and TS proxy are covered", () => { for (const file of ["proxy.ts", "proxy.js", "instrumentation.js", "next.config.mjs"]) assertHits(file, "home(no-exploration-imports)"); }],
+  ["concatenated and interpolated exploration imports reject only known exploration paths", () => { assertHits("client/exploration-concatenated.ts", "home(no-exploration-imports)", 3); assertHits("client/exploration-concatenated-clean.ts", "home(no-exploration-imports)", 0); }],
+  ["non-static concatenation checks known segments on both sides", () => assertHits("client/exploration-concatenated-dynamic.ts", "home(no-exploration-imports)", 4)],
+  ["split static template fragments still reveal knowable exploration segments", () => { assertHits("client/exploration-split-template.ts", "home(no-exploration-imports)", 2); }],
+  ["cross-boundary known runs still reveal knowable exploration segments", () => { assertHits("client/exploration-cross-boundary.ts", "home(no-exploration-imports)", 2); assertHits("client/exploration-cross-boundary-clean.ts", "home(no-exploration-imports)", 0); }],
+  ["conditional and logical specifiers are traversed", () => { assertHits("client/exploration-conditional.ts", "home(no-exploration-imports)", 2); assertHits("client/exploration-conditional-clean.ts", "home(no-exploration-imports)", 0); }],
+  ["branch alternatives inside a concatenation are traversed", () => assertHits("client/exploration-conditional-concat.ts", "home(no-exploration-imports)", 1)],
+  ["an unknown segment splits known runs so a false positive cannot form", () => assertHits("client/exploration-unknown-segment-clean.ts", "home(no-exploration-imports)", 0)],
+  ["an overflowing alternative product still flags a known exploration segment", () => assertHits("client/exploration-overflow.ts", "home(no-exploration-imports)", 1)],
+  ["an overflowing product still flags a path split across a late branch", () => assertHits("client/exploration-overflow-merge.ts", "home(no-exploration-imports)", 1)],
+  ["mutually exclusive branches are not joined into a false positive", () => assertHits("client/exploration-mutually-exclusive-clean.ts", "home(no-exploration-imports)", 0)],
+  ["story fixtures are design-lane and stay clean", () => assertClean("client/exploration-fixture.stories.fixture.ts")],
+  ["exploration files, stories, tests, and similarly named paths stay clean", () => { for (const file of ["client/explorations/inside.ts", "client/explorations/nested.ts", "client/exploration-import.stories.tsx", "client/exploration-import.test.ts", "client/exploration-names.ts"]) assertHits(file, "home(no-exploration-imports)", 0); }],
   ["client layer aliases and relative paths are fenced", () => assertHits("client/layers.ts", "home(no-client-server-imports)", 4)],
   ["server layer aliases and relative paths are fenced", () => assertHits("server/layers.ts", "home(no-server-client-imports)", 3)],
   ["shared stays runtime agnostic", () => assertHits("shared/layers.ts", "home(no-shared-runtime-imports)", 4)],
@@ -224,6 +280,7 @@ const contracts = [
   ["product comments are rejected in all five layers while documented exceptions and tests stay clean", () => { for (const file of ["app/comment.mjs", "client/comment.ts", "components/comment.jsx", "server/comment.ts", "shared/comment.tsx"]) assertHits(file, "home(no-comments)"); assertClean("shared/comment-clean.ts"); assertClean("client/comment-clean.test.ts"); assertClean("client/comment-clean.stories.tsx"); }],
   ["silent catches fail while typed recovery values pass in every covered layer", () => { assertHits("app/silent-catch.ts", "home(no-silent-catch)"); assertHits("client/silent-catch.ts", "home(no-silent-catch)"); assertHits("server/silent-catch.ts", "home(no-silent-catch)"); assertClean("app/handled-catch.ts"); assertClean("client/handled-catch.ts"); }],
   ["self-referential expectations fail while independent assertions pass", () => { assertHits("client/policy.test.ts", "home(no-self-referential-expectation)"); assertClean("client/policy-clean.test.ts"); }],
+  ["imported constant pins are rejected while identity and behavioral assertions pass", () => { assertHits("client/constant-pin.test.ts", "home(no-constant-pin)"); assertClean("client/constant-pin-clean.test.ts"); }],
   ["exploration stories require a default-meta tag only in exploration paths", () => { assertHits("stories/explorations/untagged.stories.tsx", "home(exploration-story-tag)"); assertHits("client/explorations/untagged.stories.tsx", "home(exploration-story-tag)"); assertClean("components/explorations/tagged.stories.tsx"); assertClean("stories/journeys/ordinary.stories.tsx"); }],
 
   ["instrumentation helpers are isolated unless their boundary is intrinsically safe", () => { assertHits("server/instrumentation-unsafe.ts", "home(isolate-instrumentation-calls)"); assertClean("server/instrumentation-safe.ts"); }],
@@ -266,16 +323,21 @@ const contracts = [
   ["type-aware SDK boundary accepts typed and parsed values", () => { assertClean("server/cdp/sdk-typed-clean.ts"); assertClean("server/cdp/sdk-boundary-clean.ts"); }],
 ];
 
+assert.ok(contracts.length > 0, "Oxlint contracts must not be empty");
 for (const [name, assertion] of contracts) test(name, assertion);
 
 test("every intended fixture is present in Oxlint's parsed debug file list", () => {
-  for (const relativePath of Object.keys(fixtures).filter((file) => !ignoredFixturePattern.test(file))) {
+  const intended = Object.keys(fixtures).filter((file) => !ignoredFixturePattern.test(file));
+  assert.ok(intended.length > 0, "intended fixtures must not be empty");
+  for (const relativePath of intended) {
     assert.ok(listedFiles.has(relativePath), `${relativePath} must appear in Oxlint's debug file list`);
   }
 });
 
 test("configured generated paths are absent from Oxlint's parsed debug file list", () => {
-  for (const relativePath of Object.keys(fixtures).filter((file) => ignoredFixturePattern.test(file))) {
+  const ignored = Object.keys(fixtures).filter((file) => ignoredFixturePattern.test(file));
+  assert.ok(ignored.length > 0, "ignored fixtures must not be empty");
+  for (const relativePath of ignored) {
     assert.ok(!listedFiles.has(relativePath), `${relativePath} must stay ignored`);
   }
 });

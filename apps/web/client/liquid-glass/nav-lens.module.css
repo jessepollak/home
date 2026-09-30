@@ -4,7 +4,11 @@
   transition: transform var(--lens-travel) var(--lens-travel-ease);
 }
 
-.slide { width: calc((100% - .5rem) / 2); }
+.slide { width: calc((100% - .5rem) / var(--navigation-items, 2)); }
+
+.track { grid-template-columns: repeat(var(--navigation-items, 2), minmax(0, 1fr)); }
+
+.selectedTrack { width: calc(var(--navigation-items, 2) * 100%); }
 
 :global(nav)[data-lens-pressed] :is(.slide, .track) {
   --lens-travel: 300ms;
@@ -20,7 +24,7 @@
 
 .cutout {
   inset-block: -12px;
-  inset-inline: -100%;
+  inset-inline: calc(-100% * (var(--navigation-items, 2) - 1));
 }
 
 .hole, .clip {
@@ -52,12 +56,12 @@
 
 .cutoutTrack, .magnifier {
   inset-block: 12px;
-  inset-inline-start: calc(100% / 3);
+  inset-inline-start: calc(100% * (var(--navigation-items, 2) - 1) / (2 * var(--navigation-items, 2) - 1));
 }
 
-.cutoutTrack { width: calc(200% / 3); }
+.cutoutTrack { width: calc(100% * var(--navigation-items, 2) / (2 * var(--navigation-items, 2) - 1)); }
 
-.magnifier { width: calc(100% / 3); }
+.magnifier { width: calc(100% / (2 * var(--navigation-items, 2) - 1)); }
 
 .body, .magnifier {
   border-radius: 9999px;
@@ -149,8 +153,7 @@
 .still :is(.stretch, .counter) { animation: none; }
 
 @media (hover: hover) {
-  :global(nav):has(> button:nth-of-type(1):not([aria-current="page"]):hover) .unselected:nth-child(1) :is(.icon, .label),
-  :global(nav):has(> button:nth-of-type(2):not([aria-current="page"]):hover) .unselected:nth-child(2) :is(.icon, .label) { color: var(--foreground); }
+  .unselected[data-hovered] :is(.icon, .label) { color: var(--foreground); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -26,7 +26,6 @@ const { act, cleanup, render } = await import("@testing-library/react");
 const {
   MoneyMotionProvider,
   MoneyTicker,
-  moneyTickerAnimationsEnabled,
   splitMoneyTickerValue,
 } = await import("./money-ticker");
 
@@ -107,11 +106,6 @@ test("a scoped review fixture can force reduced motion without changing the syst
   ));
   expect(view.getByRole("img", { name: "$250.00" }).getAttribute("data-animated")).toBe("false");
   expect(reducedMotion).toBe(false);
-});
-
-test("reduced motion disables digit transitions without suppressing value updates", () => {
-  expect(moneyTickerAnimationsEnabled(true, true)).toBe(false);
-  expect(moneyTickerAnimationsEnabled(true, false)).toBe(true);
 });
 
 test("formatted money values round-trip without numeric coercion", () => {

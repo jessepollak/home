@@ -18,12 +18,8 @@ function overview(items: MoneyBreakdownItem[], accountKey: string | null, activi
         status: "ready",
         displayTotal: "$10.00",
         totalStatus: "complete",
-        groups: [],
         breakdown: items,
         summary: null,
-        rows: [],
-        hiddenRows: [],
-        hiddenCount: 0,
       }}
       accountKey={accountKey}
       actions={null}

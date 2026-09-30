@@ -110,6 +110,7 @@ export const SERVER_EVENT_KINDS = [
   "balances-signal",
   "balances-valuation",
   "operator-registry",
+  "upstream-call",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
   "failed",
@@ -171,6 +172,19 @@ export const FUNDING_ORDER_CODES = [
 ] as const;
 export type ServerEventKind = (typeof SERVER_EVENT_KINDS)[number];
 export type ServerEventOutcome = (typeof SERVER_EVENT_OUTCOMES)[number];
+export const UPSTREAM_CALL_CODES = [
+  "UPSTREAM_OK",
+  "UPSTREAM_ABORTED",
+  "UPSTREAM_TIMEOUT",
+  "UPSTREAM_TRANSPORT",
+  "UPSTREAM_HTTP_3XX",
+  "UPSTREAM_HTTP_4XX",
+  "UPSTREAM_HTTP_5XX",
+  "UPSTREAM_OVERSIZED",
+  "UPSTREAM_INVALID_RESPONSE",
+] as const;
+export type UpstreamCallCode = (typeof UPSTREAM_CALL_CODES)[number];
+export type UpstreamCallOutcome = "ok" | "skipped" | "unavailable" | "invalid";
 
 export type ObservabilityEvent =
   | HomeStartupReport
@@ -201,6 +215,11 @@ export type ObservabilityEvent =
       durationMs?: number;
     }
   | {
+      kind: "balances-contract";
+      route: "/api/balances";
+      reason: "invalid-snapshot";
+    }
+  | {
       kind: "balances-read";
       route: "/api/balances";
       outcome: BalancesReadOutcome;
@@ -225,7 +244,18 @@ export type ObservabilityEvent =
       valuation: ActivityReadValuation;
     }
   | {
-      kind: ServerEventKind;
+      kind: "upstream-call";
+      route: string;
+      code: UpstreamCallCode;
+      outcome: UpstreamCallOutcome;
+      provider?: string;
+      "http.request.method": string;
+      "http.response.status_code"?: number;
+      "error.type"?: string;
+      durationMs: number;
+    }
+  | {
+      kind: Exclude<ServerEventKind, "upstream-call">;
       route: string;
       code: string;
       outcome: ServerEventOutcome;
@@ -268,6 +298,10 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         engine?: HomeNavigationReport["engine"];
         deployment: string;
         durationMs: number;
+        dispatchDelayMs?: number;
+        inputToPaintMs?: number;
+        cachePersistMs?: number;
+        contentState?: HomeNavigationReport["contentState"];
       }
     | {
         level: "info";
@@ -345,6 +379,12 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         durationMs: number;
       }
     | {
+        level: "error";
+        kind: "balances-contract";
+        code: "BALANCES_CONTRACT";
+        reason: "invalid-snapshot";
+      }
+    | {
         level: "error" | "info";
         kind: "balances-read";
         code: "BALANCES_READ";
@@ -372,7 +412,18 @@ export type ObservabilityLogLine = ObservabilityLogBase &
       }
     | {
         level: "error" | "info";
-        kind: ServerEventKind;
+        kind: "upstream-call";
+        code: UpstreamCallCode;
+        outcome: UpstreamCallOutcome;
+        provider?: string;
+        "http.request.method": string;
+        "http.response.status_code"?: number;
+        "error.type"?: string;
+        durationMs: number;
+      }
+    | {
+        level: "error" | "info";
+        kind: Exclude<ServerEventKind, "upstream-call">;
         code: string;
         outcome: ServerEventOutcome;
         provider?: string;
@@ -382,6 +433,11 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         durationMs: number;
       }
   );
+
+function sanitizeDeployment(value: unknown): string {
+  if (typeof value !== "string") return "unknown";
+  return /^dpl_[A-Za-z0-9]{1,60}$/.test(value) ? value : sanitizeIdentifier(value, "unknown");
+}
 
 function sanitizeMethod(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -436,9 +492,15 @@ export function normalizeObservabilityEvent(
       cache: event.cache,
       device: event.device,
       ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
-      deployment: typeof event.deployment === "string"
-        ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
+      deployment: sanitizeDeployment(event.deployment),
       durationMs: boundedInteger(event.durationMs, 10_000),
+      ...(event.dispatchDelayMs === undefined || event.inputToPaintMs === undefined ? {} : {
+        dispatchDelayMs: boundedInteger(event.dispatchDelayMs, 30_000),
+        inputToPaintMs: boundedInteger(event.inputToPaintMs, 30_000),
+      }),
+      ...(event.cachePersistMs === undefined ? {} : { cachePersistMs: boundedInteger(event.cachePersistMs, 30_000) }),
+      ...(event.contentState === "ready" || event.contentState === "loading" || event.contentState === "unavailable"
+        ? { contentState: event.contentState } : {}),
     };
   }
 
@@ -454,8 +516,7 @@ export function normalizeObservabilityEvent(
       cache: event.cache,
       device: event.device,
       ...(HOME_ENGINES.some((engine) => engine === event.engine) ? { engine: event.engine } : {}),
-      deployment: typeof event.deployment === "string"
-        ? sanitizeIdentifier(event.deployment, "unknown") : "unknown",
+      deployment: sanitizeDeployment(event.deployment),
       durationMs: boundedInteger(event.durationMs, 30_000),
       frameCount,
       slowFrameCount: Math.min(frameCount, boundedInteger(event.slowFrameCount, 10_000)),
@@ -580,6 +641,33 @@ export function normalizeObservabilityEvent(
     };
   }
 
+  if (event.kind === "upstream-call") {
+    const outcome: UpstreamCallOutcome =
+      event.outcome === "ok" || event.outcome === "skipped" || event.outcome === "invalid"
+        ? event.outcome : "unavailable";
+    const method = event["http.request.method"];
+    const status = event["http.response.status_code"];
+    const errorType = event["error.type"];
+    const provider = typeof event.provider === "string" && event.provider
+      ? sanitizeIdentifier(event.provider, "unknown").slice(0, 64)
+      : undefined;
+    return {
+      ...base,
+      level: outcome === "ok" || outcome === "skipped" ? "info" : "error",
+      kind: event.kind,
+      code: allowedValue(event.code, UPSTREAM_CALL_CODES, outcome === "ok" ? "UPSTREAM_OK" : "UPSTREAM_TRANSPORT"),
+      outcome,
+      ...(provider ? { provider } : {}),
+      "http.request.method": typeof method === "string" && /^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)$/.test(method)
+        ? method : "_OTHER",
+      ...(typeof status === "number" && Number.isSafeInteger(status) && status >= 100 && status <= 599
+        ? { "http.response.status_code": status } : {}),
+      ...(typeof errorType === "string" && /^(?:aborted|timeout|transport|oversized|invalid_response|[1-5][0-9]{2})$/.test(errorType)
+        ? { "error.type": errorType } : {}),
+      durationMs: boundedInteger(event.durationMs, 30_000),
+    };
+  }
+
   if (isServerEvent(event)) {
     const outcome = allowedValue(event.outcome, SERVER_EVENT_OUTCOMES, "failed");
     const code = event.kind === "funding-order"
@@ -612,6 +700,16 @@ export function normalizeObservabilityEvent(
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
+    };
+  }
+
+  if (event.kind === "balances-contract") {
+    return {
+      ...base,
+      level: "error",
+      kind: event.kind,
+      code: "BALANCES_CONTRACT",
+      reason: "invalid-snapshot",
     };
   }
 

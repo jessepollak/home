@@ -11,10 +11,14 @@ import { BalanceRow } from "@/components/finance-rows";
 import { investAssets } from "@/config/invest-assets";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import type { MarketDataState } from "@/shared/invest/invest-market";
+import { pinClock } from "@/tests/helpers/pin-clock";
+
+const TIME = "2026-09-28T12:00:00.000Z";
+const NOW = Date.parse(TIME);
 
 const asset = investAssets.find((item) => item.id === "cbbtc")!;
 const market: MarketDataState = { status: "ready", snapshots: [{ assetId: asset.id,
-  displayPrice: "$122391.18", asOf: new Date().toISOString(), sourceLabel: "Codex", changeLabel: "+4.1%",
+  displayPrice: "$122391.18", asOf: TIME, sourceLabel: "Codex", changeLabel: "+4.1%",
 }] };
 const session = { user: { subject: "synthetic-invest-journey" },
   smartAccount: { address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const },
@@ -36,7 +40,7 @@ function Journey({ entry }: { entry: "discover" | "holding" }) {
       return { ...snapshot, holdings: snapshot.holdings.map((holding) => holding.id === asset.id
         ? { ...holding, balance: { status: "ready" as const, baseUnits: "1234000" },
           value: { status: "priced" as const, currency: "USD" as const,
-            amount: { atoms: "151030", scale: 2 }, asOf: new Date().toISOString() } }
+            amount: { atoms: "151030", scale: 2 }, asOf: TIME } }
         : holding) };
     },
   };
@@ -59,7 +63,7 @@ function Journey({ entry }: { entry: "discover" | "holding" }) {
 const meta = {
   id: "journeys-invest-asset-detail", title: "Journeys/Invest asset detail", component: Journey,
   args: { entry: "discover" },
-  beforeEach: () => { getHomeQueryClient().clear(); return () => getHomeQueryClient().clear(); },
+  beforeEach: () => { getHomeQueryClient().clear(); const restoreClock = pinClock(TIME); return () => { getHomeQueryClient().clear(); restoreClock(); }; },
   parameters: { layout: "fullscreen", a11y: { test: "error" }, viewport: { defaultViewport: "mobile" },
     msw: { handlers: [
       http.get("/api/market-prices/history", ({ request }) => {
@@ -68,7 +72,7 @@ const meta = {
         const durations: Record<string, number> = { "1D": 86400000, "1W": 604800000, "1M": 2592000000,
           "3M": 7776000000, "1Y": 31536000000 };
         const duration = durations[range] ?? durations["1W"]!;
-        const end = Date.now() - 60000;
+        const end = NOW - 60000;
         return HttpResponse.json({ version: 1, provider: "codex", assetId: asset.id, range,
           currency: "USD", fetchedAt: new Date(end).toISOString(), status: "ready",
           points: Array.from({ length: 32 }, (_, index) => ({
@@ -77,7 +81,7 @@ const meta = {
           })) });
       }),
       http.get("/api/market-prices/stats", () => HttpResponse.json({ version: 1, provider: "codex",
-        assetId: asset.id, currency: "USD", fetchedAt: new Date().toISOString(), status: "ready",
+        assetId: asset.id, currency: "USD", fetchedAt: TIME, status: "ready",
         stats: { marketCapUsd: { atoms: "2410000000000", scale: 0 },
           volume24hUsd: { atoms: "38200000000", scale: 0 } },
       })),

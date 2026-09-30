@@ -3,6 +3,7 @@ import {
   MONEY_CHANGE_COLOR_TOKENS,
   formatBasisPoints,
   formatChartPrice,
+  formatExactPresentationCashAmount,
   formatExactPresentationTokenAmount,
   formatFiatAmount,
   formatHealthFactor,
@@ -18,7 +19,6 @@ import {
   formatTokenAmount,
   formatTrimmedChartPrice,
   formatUnsignedTokenAmount,
-  formatUsdPrice,
   formatUsdStablecoinAmount,
   formatWadPercent,
   moneyChangeTone,
@@ -337,21 +337,38 @@ describe("presentation money formatting", () => {
     expect(() => formatOracleUsd("-1", { loanDecimals: 6, collateralDecimals: 8 })).toThrow(TypeError);
   });
 
+  test("formats exact cash amounts in the currency's own decimals", () => {
+    const cases: Array<[string, number, string, string]> = [
+      ["0", 6, "USD", "$0.00"],
+      ["1", 6, "USD", "$0.000001"],
+      ["1000000", 6, "USD", "$1.00"],
+      ["1234567", 6, "USD", "$1.234567"],
+      ["1230000", 6, "USD", "$1.23"],
+      ["1980123", 6, "EUR", "€1.980123"],
+      ["1", 2, "EUR", "€0.01"],
+      ["-1", 6, "USD", "—"],
+      ["not-raw", 6, "USD", "—"],
+    ];
+    for (const [atoms, decimals, currency, expected] of cases) {
+      expect(formatExactPresentationCashAmount(atoms, decimals, currency)).toBe(expected);
+    }
+  });
+
   test("keeps ordinary and tiny market prices exact within display bounds", () => {
-    expect(formatUsdPrice("231.708792875")).toBe("$231.71");
-    expect(formatUsdPrice("12345678901234567890.1")).toBe(
+    expect(formatPresentationPrice("231.708792875")).toBe("$231.71");
+    expect(formatPresentationPrice("12345678901234567890.1")).toBe(
       "$12,345,678,901,234,567,890.10",
     );
-    expect(formatUsdPrice("0.000123456789")).toBe("$0.0001235");
-    expect(formatUsdPrice("1e-7")).toBe("$0.0000001");
-    expect(formatUsdPrice("0.000000001")).toBe("<$0.00000001");
+    expect(formatPresentationPrice("0.000123456789")).toBe("$0.0001235");
+    expect(formatPresentationPrice("1e-7")).toBe("$0.0000001");
+    expect(formatPresentationPrice("0.000000001")).toBe("<$0.00000001");
     expect(formatPresentationPrice("231.708792875", "BRL", "BR")).toBe(
       "R$\u00A0231,71",
     );
     expect(formatChartPrice("0.0123456")).toBe("$0.012346");
     expect(formatChartPrice("1.234e-7")).toBe("$0.0000001234");
-    expect(formatUsdPrice("not-a-price")).toBeNull();
-    expect(formatUsdPrice(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(formatPresentationPrice("not-a-price")).toBeNull();
+    expect(formatPresentationPrice(Number.POSITIVE_INFINITY)).toBeNull();
   });
 
   test("scales exact prices and rejects invalid factors", () => {

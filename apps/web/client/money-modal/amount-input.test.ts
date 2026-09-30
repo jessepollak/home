@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   decimalSeparatorForLocale,
   isPositiveDecimalAmount,
-  MAX_AMOUNT_WHOLE_DIGITS,
   normalizeTypedAmount,
   parsePastedAmount,
 } from "./amount-input";
@@ -39,7 +38,6 @@ describe("normalizeTypedAmount", () => {
   });
 
   test("caps whole digits after collapsing leading zeros", () => {
-    expect(MAX_AMOUNT_WHOLE_DIGITS).toBe(12);
     expect(normalizeTypedAmount("123456789012", 2)).toEqual({ ok: true, value: "123456789012" });
     expect(normalizeTypedAmount("1234567890123", 2)).toEqual({ ok: false });
     expect(normalizeTypedAmount("000123456789012.3", 2)).toEqual({ ok: true, value: "123456789012.3" });

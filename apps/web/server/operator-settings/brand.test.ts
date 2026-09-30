@@ -21,7 +21,7 @@ const entry = (settings: typeof value | typeof BRAND_DEFAULTS, source: "default"
 });
 const get = () => new Request("https://home.test/api/admin/settings/brand");
 const put = (settings: unknown = value, origin = "https://home.test") => new Request("https://home.test/api/admin/settings/brand", {
-  method: "PUT", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 0, value: settings }),
+  method: "PUT", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 0, value: settings, operator: actor }),
 });
 async function check(response: Response, status: number) {
   expect(response.status).toBe(status);
@@ -49,7 +49,7 @@ describe("brand resolver", () => {
     const failed = await resolveBrand({ store: () => ({ read: async () => { throw new Error("query failed"); } }) });
     const corrupt = await resolveBrand({ store: () => ({ read: async () => entry({ ...value, primaryColor: "invalid" }) }) });
     const newerVersion = await resolveBrand({ store: () => new OperatorSettingsStore({
-      query: async <T>() => ({ rows: [{ domain: "brand", schema_version: 2, value, revision: "1", updated_at: new Date(), updated_by: actor } as unknown as T], rowCount: 1 }),
+      query: async <T>() => ({ rows: [{ domain: "brand", schema_version: 2, value, revision: "1", updated_at: new Date("2026-09-28T12:00:00.000Z"), updated_by: actor } as unknown as T], rowCount: 1 }),
       transaction: async () => { throw new Error("must not write"); },
     }) });
     const priorUrl = process.env.DATABASE_URL;
@@ -83,7 +83,7 @@ test("brand handlers read and write for the operator with private responses", as
   expect((await brandResponse(await handlers.PUT(put(), context))).settings).toMatchObject({ value, revision: 1, source: "stored" });
   expect((await brandResponse(await handlers.GET(get(), context))).settings).toMatchObject({ value, revision: 1, source: "stored" });
   expect(writes).toBe(1);
-  expect(brandSettingsPutRequest(0, value)).toEqual({ version: 1, expectedRevision: 0, value });
+  expect(brandSettingsPutRequest(0, value, actor)).toEqual({ version: 1, expectedRevision: 0, value, operator: actor });
 });
 
 test("brand handlers reject unauthorized and invalid requests without writes", async () => {

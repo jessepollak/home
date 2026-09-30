@@ -1,5 +1,5 @@
 import { readJson } from "@/tests/helpers/read-json";
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
 import { issueInviteCookie } from "@/server/invites/cookie";
 import { inviteVerifiedCookies, verifiedInviteCode } from "@/server/invites/consumption";
@@ -22,6 +22,8 @@ const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const OTHER_ADDRESS = "0x2222222222222222222222222222222222222222" as const;
 const ORIGIN = "http://127.0.0.1:3103";
 const START = new Date("2026-09-12T12:00:00.000Z");
+beforeEach(() => setSystemTime(START));
+afterEach(() => setSystemTime());
 const NONCE = "a".repeat(48);
 
 function post(
@@ -105,7 +107,7 @@ describe("native Base authentication handlers", () => {
     const original = process.env.HOME_SESSION_SECRET;
     process.env.HOME_SESSION_SECRET = SECRET;
     const issued = await challenge(handlers().nonce);
-    const invite = issueInviteCookie(post("/api/auth/base/verify", {}), "abcdefghjk", new Date(), SECRET)!;
+    const invite = issueInviteCookie(post("/api/auth/base/verify", {}), "abcdefghjk", START, SECRET)!;
     let seen: string | null = null;
     const verify = createNativeBaseVerifyHandler({
       sessionSecret: SECRET, now: () => START, verify: async () => true,

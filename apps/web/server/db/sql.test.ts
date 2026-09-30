@@ -1,4 +1,5 @@
 import { describe, expect, jest, spyOn, test } from "bun:test";
+import { Pool } from "pg";
 import { createPostgresSqlExecutor } from "./sql";
 
 type QueryCall = { text: string; values: unknown[] };
@@ -464,6 +465,44 @@ describe("PostgreSQL executor", () => {
     controller.abort(new Error("deadline"));
     await expect(sql.query("SELECT 1", [], { signal: controller.signal })).rejects.toThrow("deadline");
     expect(connects).toBe(0);
+  });
+
+  test("hands the pool it opens to the platform lifecycle hook with the configured limits", async () => {
+    const attached: unknown[] = [];
+    const sql = createPostgresSqlExecutor("postgresql://127.0.0.1:1/home", {
+      attachPool: (pool) => { attached.push(pool); },
+    });
+
+    await expect(sql.query("SELECT 1")).rejects.toThrow();
+    expect(attached).toHaveLength(1);
+    expect(attached[0]).toBeInstanceOf(Pool);
+    expect((attached[0] as Pool).options).toMatchObject({
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+    });
+    await sql.dispose?.();
+  });
+
+  test("keeps a pool usable when the platform hook finds no Fluid runtime", async () => {
+    const sql = createPostgresSqlExecutor("postgresql://127.0.0.1:1/home");
+
+    await expect(sql.query("SELECT 1")).rejects.toThrow(/ECONNREFUSED|connect/i);
+    await sql.dispose?.();
+  });
+
+  test("attaches each pool an executor opens when a process holds several executors", async () => {
+    const attached: unknown[] = [];
+    const record = (pool: unknown) => { attached.push(pool); };
+    const first = createPostgresSqlExecutor("postgresql://127.0.0.1:1/home", { attachPool: record });
+    const second = createPostgresSqlExecutor("postgresql://127.0.0.1:1/home", { attachPool: record });
+
+    await expect(first.query("SELECT 1")).rejects.toThrow();
+    await expect(second.query("SELECT 1")).rejects.toThrow();
+    expect(attached).toHaveLength(2);
+    expect(new Set(attached).size).toBe(2);
+    await first.dispose?.();
+    await second.dispose?.();
   });
 });
 

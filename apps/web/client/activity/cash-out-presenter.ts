@@ -103,6 +103,6 @@ export function presentCashout(
               : "Checking status";
   const inProgress = stage === "waiting" || stage === "paying" || stage === "returning" || stage === "checking";
   const refreshing = inProgress || progress?.settledAt === null && stage !== "failed";
-  const cancellable = stage === "waiting" && progress?.withdrawable === true && Boolean(progress.depositId) && BigInt(remaining) > BigInt(0) && !withdrawUnsettled;
+  const cancellable = stage === "waiting" && progress?.withdrawable === true && Boolean(progress.depositId) && /^\d+$/.test(remaining) && BigInt(remaining) > BigInt(0) && !withdrawUnsettled;
   return { stage, label, status, app, total, paid, returned, remaining, decimals, inProgress, refreshing, cancellable, metadata };
 }

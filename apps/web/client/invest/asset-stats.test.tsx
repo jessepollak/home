@@ -8,7 +8,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 const { cleanup, render, waitFor } = await import("@testing-library/react");
 const { AssetStats, formatStatUsd } = await import("./asset-stats");
 const originalFetch = window.fetch;
-const now = Date.now();
+const now = Date.parse("2026-09-25T12:00:00.000Z");
 const clock = { value: now, read: () => now, refresh: () => {} };
 const bitcoin = investAssets.find((asset) => asset.id === "cbbtc")!;
 const degen = investAssets.find((asset) => asset.id === "degen")!;

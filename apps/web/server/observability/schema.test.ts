@@ -2,6 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("normalizes boundary parse failures without source metadata or sensitive payload", () => {
+    const line = normalizeObservabilityEvent({
+      kind: "balances-contract",
+      route: "/api/balances",
+      reason: "private-reason",
+      source: "configured-base-rpc",
+      stage: "inventory",
+      owner: "private-address",
+      snapshot: { totals: "private-amount" },
+    } as never);
+    expect(line).toEqual({
+      schema: "home.observability.v2",
+      route: "/api/balances",
+      level: "error",
+      kind: "balances-contract",
+      code: "BALANCES_CONTRACT",
+      reason: "invalid-snapshot",
+    });
+    expect(JSON.stringify(line)).not.toMatch(/private-|configured-base-rpc|inventory/);
+  });
+
   test("preserves the staged Address History activity source", () => {
     expect(normalizeObservabilityEvent({
       kind: "activity-read",
@@ -144,6 +165,15 @@ describe("observability schema", () => {
       durationMs: 30_000, frameCount: 3, slowFrameCount: 3, maxFrameMs: 5_000,
       longFrameCount: 1_000, longFrameMs: 30_000, deployment: "deploy-42",
     });
+  });
+  test("retains only closed tap attribution and real server deployment IDs", () => {
+    expect(normalizeObservabilityEvent({
+      version: 1, kind: "home-navigation", route: "/investments", from: "/home", trigger: "in-app",
+      cache: "first-visit", device: "mobile-low", durationMs: 30,
+      dispatchDelayMs: 900, inputToPaintMs: 930, cachePersistMs: 800, contentState: "ready",
+      deployment: "dpl_A1b2C3d4E5f6G7h8I9j0K1l2",
+    })).toMatchObject({ dispatchDelayMs: 900, inputToPaintMs: 930, cachePersistMs: 800,
+      contentState: "ready", deployment: "dpl_A1b2C3d4E5f6G7h8I9j0K1l2" });
   });
 
   test("keeps only the closed engine dimension on interaction logs", () => {
@@ -395,6 +425,75 @@ describe("observability schema", () => {
     }
     expect(normalizeObservabilityEvent({ kind: "funding-order", route: "/api/funding/orders", code: "USER_TOKEN_PRIVATE", outcome: "unavailable", durationMs: 0 }).code).toBe("ORDER_UNAVAILABLE");
   });
+
+  test.each([
+    ["success", "UPSTREAM_OK", "ok", "POST", 200, undefined, "info"],
+    ["timeout", "UPSTREAM_TIMEOUT", "unavailable", "GET", undefined, "timeout", "error"],
+    ["invalid", "UPSTREAM_INVALID_RESPONSE", "invalid", "GET", 200, "invalid_response", "error"],
+    ["HTTP 503", "UPSTREAM_HTTP_5XX", "unavailable", "GET", 503, "503", "error"],
+  ] as const)("normalizes %s upstream call", (_label, code, outcome, method, status, errorType, level) => {
+    const line = normalizeObservabilityEvent({
+      kind: "upstream-call", route: "/api/funding/orders", code, outcome,
+      "http.request.method": method,
+      ...(status === undefined ? {} : { "http.response.status_code": status }),
+      ...(errorType === undefined ? {} : { "error.type": errorType }),
+      durationMs: 31_000,
+    });
+    expect(line).toEqual({
+      schema: "home.observability.v2", kind: "upstream-call", route: "/api/funding/orders",
+      code, outcome, level, "http.request.method": method,
+      ...(status === undefined ? {} : { "http.response.status_code": status }),
+      ...(errorType === undefined ? {} : { "error.type": errorType }),
+      durationMs: 30_000,
+    });
+  });
+
+  test("drops upstream private fields and scrubs route, method, provider and error type", () => {
+    const line = normalizeObservabilityEvent({
+      kind: "upstream-call", route: "/api/funding/orders/:private-secret?token=private-query",
+      code: "UPSTREAM_TRANSPORT", outcome: "unavailable", provider: "private-provider@secret",
+      "http.request.method": "GET /v1?private-token", "error.type": "POST private-secret",
+      "http.response.status_code": 200, durationMs: 2,
+      ["author" + "ization"]: "private-auth", url: "https://example.test/?token=private-query",
+      headers: { token: "private-header" }, body: "private-body", token: "private-token",
+    } as never);
+    expect(line).toMatchObject({
+      route: "/api/funding/orders/:redacted", provider: "unknown",
+      "http.request.method": "_OTHER", code: "UPSTREAM_TRANSPORT",
+    });
+    expect(Object.hasOwn(line, "error.type")).toBe(false);
+    expect(Object.keys(line).sort()).toEqual([
+      "schema", "level", "kind", "route", "code", "outcome", "provider",
+      "http.request.method", "http.response.status_code", "durationMs",
+    ].sort());
+    expect(JSON.stringify(line)).not.toContain("private-");
+  });
+
+  test.each([
+    ["ok", "UPSTREAM_OK"],
+    ["unavailable", "UPSTREAM_TRANSPORT"],
+  ] as const)("falls back to closed upstream code for %s", (outcome, code) => {
+    const line = normalizeObservabilityEvent({
+      kind: "upstream-call", route: "/api/funding/orders", code: "PRIVATE_CODE", outcome,
+      "http.request.method": "POST private-token", "http.response.status_code": 600,
+      "error.type": "private-error", durationMs: -2,
+    } as never);
+    expect(line).toMatchObject({ code, "http.request.method": "_OTHER", durationMs: 0 });
+    expect(Object.hasOwn(line, "http.response.status_code")).toBe(false);
+    expect(Object.hasOwn(line, "error.type")).toBe(false);
+  });
+
+  test.each([99, 599, 100.5, Number.NaN, Number.MAX_SAFE_INTEGER, "200"])(
+    "keeps upstream HTTP status only for safe 100..599 integers (%s)", (status) => {
+      const line = normalizeObservabilityEvent({
+        kind: "upstream-call", route: "/api/funding/orders", code: "UPSTREAM_HTTP_5XX",
+        outcome: "unavailable", "http.request.method": "GET",
+        "http.response.status_code": status, durationMs: 0,
+      } as never);
+      if (status === 599) expect(line).toMatchObject({ "http.response.status_code": 599 });
+      else expect(Object.hasOwn(line, "http.response.status_code")).toBe(false);
+    },
+  );
 
   test.each([
     ["UPSTREAM_ABORTED", "skipped", "info"],

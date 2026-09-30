@@ -15,6 +15,7 @@ import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list
 import { ACTIVITY_VALUATION_AMOUNT_SCALE } from "@/shared/activity/valuation";
 import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive } from "@/shared/balances/math";
 import type { ActionKind, MoneyActionAmount } from "@/shared/money-actions/types";
+import { cashConversionPair } from "@/shared/trading/cash-conversion";
 import { formatValuationAmount, presentActivityTransferRow } from "./activity-presenter";
 import { activityOperationTime, matchesActivityAmountTransfer, type ActivityFeedItem } from "./activity-feed";
 import { groupActivityFeed, transferRunTotals } from "./activity-groups";
@@ -27,6 +28,7 @@ import { cashoutMoney, cashoutOrderAction, presentCashout, type CashoutStage } f
 import { cashoutQuoteFromLegacy, formatCashoutArrival } from "@/shared/funding/cash-out-quote";
 import { formatCashoutReceive } from "@/shared/funding/cash-out-quote-format";
 import type { CashoutMoneyActionMetadata } from "@/shared/money-actions/types";
+import { SERVICE_FEE_LABEL, serviceFeeValue } from "@/client/trading/service-fee";
 import type { CardPurchase } from "@/shared/cards/transactions-contract";
 
 const directAssets = getDirectPortfolioAssets();
@@ -142,6 +144,16 @@ function kindLabel(kind: ActionKind): string {
 function operationTitle(operation: RecentMoneyActionOperation): string {
   const metadata = operation.action.metadata;
   if (operation.action.kind !== "trade" || metadata?.product !== "trade") return operation.action.title;
+  const conversion = cashConversionPair(metadata);
+  if (conversion) {
+    const pair = `${conversion.from.code} to ${conversion.to.code}`;
+    switch (operation.status) {
+      case "confirmed": return `Converted ${pair}`;
+      case "pending": return `Converting ${pair}`;
+      case "failed": return `Convert ${pair} failed`;
+      case "unknown": return `Convert ${pair}`;
+    }
+  }
   const buy = metadata.direction === "buy";
   switch (operation.status) {
     case "confirmed": return `${buy ? "Bought" : "Sold"} ${metadata.assetName}`;
@@ -159,6 +171,8 @@ function amountLabel(operation: RecentMoneyActionOperation, amount: MoneyActionA
 function operationLabel(operation: RecentMoneyActionOperation): string {
   const metadata = operation.action.metadata;
   if (operation.action.kind === "trade" && metadata?.product === "trade") {
+    const conversion = cashConversionPair(metadata);
+    if (conversion) return `Convert ${conversion.from.code} to ${conversion.to.code}`;
     return `${metadata.direction === "buy" ? "Buy" : "Sell"} ${metadata.assetName}`;
   }
   const borrow = metadata?.product === "borrow" ? metadata.operation : null;
@@ -238,6 +252,9 @@ function actionItem(operation: RecentMoneyActionOperation, transfers: readonly A
     }
   }
   facts.push(...secondaryAmountFacts(operation, options));
+  if (metadata?.product === "trade" && metadata.operatorFee) {
+    facts.push({ label: SERVICE_FEE_LABEL, value: serviceFeeValue(metadata.operatorFee, options.regionId) });
+  }
   const mark = primary && presentPortfolioAssetMark({
     assetKey: portfolioAssetKeyById.get(primary.assetId.toLowerCase()) ?? primary.assetId,
     name: primary.symbol,

@@ -35,13 +35,14 @@ export function readSavingsPreparedReview(
     ? "savings-deposit"
     : "savings-withdraw";
   if (action.kind !== expectedKind || !readIso(action.expiresAt)) return null;
+  const amounts = action.amounts.filter((amount) => Boolean(amount) && typeof amount === "object");
 
-  const usdc = action.amounts.find((amount) =>
+  const usdc = amounts.find((amount) =>
     amount.symbol === "USDC" &&
     amount.decimals === 6 &&
     amount.direction === (metadata.operation === "deposit" ? "spend" : "receive")
   );
-  const shares = action.amounts.find((amount) =>
+  const shares = amounts.find((amount) =>
     amount.symbol === "vault shares" &&
     amount.estimated === true &&
     amount.direction === (metadata.operation === "deposit" ? "receive" : "spend")
@@ -49,6 +50,8 @@ export function readSavingsPreparedReview(
   if (
     !usdc ||
     !shares ||
+    typeof usdc.amountBaseUnits !== "string" ||
+    typeof shares.amountBaseUnits !== "string" ||
     !integer.test(usdc.amountBaseUnits) ||
     usdc.amountBaseUnits === "0" ||
     shares.amountBaseUnits !== metadata.previewSharesBaseUnits ||

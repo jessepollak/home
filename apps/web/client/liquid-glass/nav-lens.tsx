@@ -18,7 +18,7 @@ type LensImages = { displacement: string; specular: string; scale: number; margi
 type LensFilter = LensImages & LensSize & { id: string };
 type RimImages = { displacement: string; core: string; scale: number };
 type RimFilter = RimImages & LensSize & { id: string };
-type LensTrackProps = Pick<NavLensProps, "items" | "target"> & { className: string; tone: keyof typeof navigationTabTone };
+type LensTrackProps = Pick<NavLensProps, "items" | "target"> & { className: string; tone: keyof typeof navigationTabTone; hovered?: number | null };
 
 const BEZEL = 10;
 const THICKNESS = 10;
@@ -103,11 +103,11 @@ function buildRim(size: LensSize): RimImages | null {
   return rimCache.set(key, { displacement, core, scale: maps.scale });
 }
 
-function buildHole(size: LensSize, scaleX: number, scaleY: number, cut: boolean) {
-  const key = `${sizeKey(size)}x${scaleX}x${scaleY}x${cut}`;
+function buildHole(size: LensSize, span: number, scaleX: number, scaleY: number, cut: boolean) {
+  const key = `${sizeKey(size)}x${span}x${scaleX}x${scaleY}x${cut}`;
   const cached = holeCache.get(key);
   if (cached) return cached;
-  const width = size.width * 3;
+  const width = size.width * span;
   const height = size.height + HOLE_PAD * 2;
   const holeWidth = size.width * scaleX + HOLE_MARGIN * 2;
   const holeHeight = Math.min(height, size.height * scaleY + HOLE_MARGIN * 2);
@@ -124,12 +124,13 @@ function readRatio() {
   return Math.max(1, Math.min(2, window.devicePixelRatio || 1));
 }
 
-function LensTrack({ items, target, className, tone }: LensTrackProps) {
+function LensTrack({ items, target, className, tone, hovered = null }: LensTrackProps) {
   const colors = navigationTabTone[tone];
   return (
-    <span className={`${styles.track} ${className} grid grid-cols-2`} style={{ transform: `translateX(${target * -50}%)` }}>
-      {items.map(({ id, label, Icon }) => (
-        <span key={id} className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} ${navigationTabContentClassName} px-2`}>
+    <span className={`${styles.track} ${className} grid`} style={{ transform: `translateX(${target * -100 / items.length}%)` }}>
+      {items.map(({ id, label, Icon }, index) => (
+        <span key={id} data-hovered={index === hovered ? "" : undefined}
+          className={`${styles.tab} ${tone === "unselected" ? styles.unselected : ""} ${navigationTabContentClassName} px-2`}>
           <Icon className={`${styles.icon} ${navigationTabIconClassName} ${colors.icon}`} aria-hidden="true" />
           <span className={`${styles.label} ${navigationTabLabelClassName} ${colors.label}`}>{label}</span>
         </span>
@@ -187,6 +188,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
   const placed = useRef(target);
   const retarget = useRef<(next: number) => void>(null);
   const [override, setOverride] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
   const floorRef = useRef<HTMLElement | null>(null);
   const baseId = `nav-lens-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const [rimEnabled] = useState(readRimEnabled);
@@ -203,16 +205,31 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     const images = floorSize ? buildRim(floorSize) : null;
     return floorSize && images ? { ...images, ...floorSize, id: `${baseId}-rim-${sizeKey(floorSize)}` } : null;
   }, [floorSize, baseId]);
+  const span = items.length * 2 - 1;
   const masks = useMemo<LensStyle | null>(() => size ? {
-    "--lens-hole": buildHole(size, 1, 1, true),
-    "--lens-hole-lifted": buildHole(size, LIFT_X, LIFT_Y, true),
-    "--lens-clip": buildHole(size, 1, 1, false),
-    "--lens-clip-lifted": buildHole(size, LIFT_X, LIFT_Y, false),
-  } : null, [size]);
+    "--lens-hole": buildHole(size, span, 1, 1, true),
+    "--lens-hole-lifted": buildHole(size, span, LIFT_X, LIFT_Y, true),
+    "--lens-clip": buildHole(size, span, 1, 1, false),
+    "--lens-clip-lifted": buildHole(size, span, LIFT_X, LIFT_Y, false),
+  } : null, [size, span]);
 
   useLayoutEffect(() => {
     retarget.current?.(target);
   }, [target]);
+
+  useLayoutEffect(() => {
+    const nav = windowRef.current?.parentElement;
+    if (!nav) return;
+    const over = (event: PointerEvent) => {
+      const tab = event.target instanceof Element ? event.target.closest("button") : null;
+      setHovered(tab && tab.parentElement === nav ? Array.from(nav.querySelectorAll(":scope > button")).indexOf(tab) : null);
+    };
+    const leave = () => setHovered(null);
+    const off = new AbortController();
+    nav.addEventListener("pointerover", over, { passive: true, signal: off.signal });
+    nav.addEventListener("pointerleave", leave, { passive: true, signal: off.signal });
+    return () => off.abort();
+  }, []);
 
   useLayoutEffect(() => {
     const nav = windowRef.current?.parentElement;
@@ -413,7 +430,8 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
         {ready ? (
           <span className={`${styles.cutout} ${styles.hole} ${styles.stretch} absolute`} style={masks ?? undefined}>
             <span ref={counterRef} className={`${styles.counter} absolute inset-0`}>
-              <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected" />
+              <LensTrack items={items} target={place} className={`${styles.cutoutTrack} absolute`} tone="unselected"
+                hovered={hovered === Math.abs(target) ? null : hovered} />
             </span>
           </span>
         ) : null}
@@ -487,7 +505,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
           <span className={`${styles.cutout} ${styles.clip} absolute`} style={masks ?? undefined}>
             <span className={`${styles.magnifier} absolute`}>
               <span className={`${styles.refraction} absolute inset-0`} style={filter ? { filter: `url(#${filter.id})` } : undefined}>
-                <LensTrack items={items} target={place} className="absolute inset-y-0 start-0 w-[200%]" tone="selected" />
+                <LensTrack items={items} target={place} className={`${styles.selectedTrack} absolute inset-y-0 start-0`} tone="selected" />
               </span>
             </span>
           </span>

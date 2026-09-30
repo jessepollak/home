@@ -6,7 +6,8 @@ import { createConfirmActionHandler, createDeclineActionHandler, createGetAction
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
+import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
+import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 
 function parseLog(line: string): unknown {
   const parsed: unknown = JSON.parse(line);
@@ -666,6 +667,37 @@ describe("actions HTTP handlers", () => {
     };
   }
 
+  test.each(ACTION_KINDS.filter((kind) => kind !== "trade"))("confirm %s returns calls accepted by the shared parser", async (kind) => {
+    const transfer: MoneyActionCall = { to: ADDRESS, data: "0x", value: "123" };
+    const approval: MoneyActionCall = {
+      to: ADDRESS,
+      data: `0x095ea7b3${"0".repeat(24)}${ADDRESS.slice(2)}${"0".repeat(63)}1`,
+      value: "0",
+      approval: { assetId: "usdc", spender: ADDRESS },
+    };
+    const calls = kind === "send" ? [transfer] : [CALL, approval];
+    const draft: ActionRow = {
+      ...(kind === "cash-out" || kind === "cash-out-withdraw" ? cashoutConfirmRow(kind) : row),
+      kind,
+      pending: { calls },
+    };
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      store: {
+        get: async () => draft,
+        confirm: async (_owner, _id, confirmedCalls) => {
+          expect(confirmedCalls).toEqual(calls);
+          return { ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: confirmedCalls ?? [] } };
+        },
+      },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    expect(parseConfirmActionResponse(await readJson(response))?.calls).toEqual(calls);
+  });
+
   test("confirm rechecks the persisted cash-out region and refuses a removed region", async () => {
     let confirms = 0;
     const draft = cashoutConfirmRow("cash-out");
@@ -1202,6 +1234,24 @@ describe("actions HTTP handlers", () => {
     });
   });
 
+  test("list exposes a settled action's receipt block time", async () => {
+    const candidate = confirmedBaseRow({ outcome: "succeeded", settled_at: blockTimestamp });
+    const handler = createListActionsHandler({
+      authorize: authorize("owner-a", "base-account"),
+      now: () => new Date("2026-09-12T12:10:00.000Z"),
+      store: { list: async () => [candidate], recordHandle: async () => null, recordOutcome: recorded },
+    });
+
+    const body = await (await handler(baseRequest("/api/actions"))).json() as { actions: Array<{ settledAt?: string }> };
+    expect(body.actions[0]?.settledAt).toBe(blockTimestamp);
+    const [parsed] = parseRecentMoneyActions(body, {
+      user: { subject: "owner-a" },
+      smartAccount: { address: ADDRESS, chainId: 8453 },
+      accountProvider: "base-account",
+    });
+    expect(parsed?.action.id).toBe(candidate.id);
+    expect(parsed?.settledAt).toBe(blockTimestamp);
+  });
   test("list leaves pending handle resolutions unrecorded", async () => {
     const candidate = confirmedBaseRow();
     let recordCalls = 0;
@@ -1261,25 +1311,11 @@ describe("actions HTTP handlers", () => {
     expect(body[0]?.transactionHash).toBeUndefined();
   });
 
-  test("list tolerates a recordHandle conflict and presents the stored row", async () => {
-    setObservabilityLogWriterForTests(() => undefined);
-    const candidate = confirmedBaseRow();
-    const handler = createListActionsHandler({
-      authorize: authorize("owner-a", "base-account"),
-      now: () => new Date("2026-09-12T12:10:00.000Z"),
-      store: { list: async () => [candidate], recordHandle: async () => null, recordOutcome: recorded },
-      resolveHandle: async () => ({ status: "complete", transactionHash: HASH }),
-    });
-
-    const response = await handler(baseRequest("/api/actions"));
-    const body = await readActions(response);
-
-    expect(response.status).toBe(200);
-    expect(body[0]).toMatchObject({ status: "pending" });
-    expect(body[0]?.transactionHash).toBeUndefined();
-  });
-
-  test("list tolerates a throwing recordHandle and presents the stored row", async () => {
+  test.each([
+    ["recordHandle conflict", "conflict"],
+    ["recordHandle error", "store-error"],
+    ["resolver error", "resolver-error"],
+  ] as const)("list presents the stored row after a %s", async (_name, failure) => {
     const writes: string[] = [];
     setObservabilityLogWriterForTests((line) => writes.push(line));
     const candidate = confirmedBaseRow();
@@ -1288,10 +1324,16 @@ describe("actions HTTP handlers", () => {
       now: () => new Date("2026-09-12T12:10:00.000Z"),
       store: {
         list: async () => [candidate],
-        recordHandle: async () => { throw new Error("database unavailable"); },
+        recordHandle: async () => {
+          if (failure === "store-error") throw new Error("database unavailable");
+          return null;
+        },
         recordOutcome: recorded,
       },
-      resolveHandle: async () => ({ status: "complete", transactionHash: HASH }),
+      resolveHandle: async () => {
+        if (failure === "resolver-error") throw new Error("provider failed");
+        return { status: "complete" as const, transactionHash: HASH };
+      },
     });
 
     const response = await handler(baseRequest("/api/actions"));
@@ -1300,11 +1342,11 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(body[0]).toMatchObject({ id: candidate.id, status: "pending" });
     expect(body[0]?.transactionHash).toBeUndefined();
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
-      kind: "action-reconcile",
-      outcome: "unavailable",
-      level: "info",
-    });
+    if (failure !== "conflict") {
+      expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+        kind: "action-reconcile", outcome: "unavailable", level: "info",
+      });
+    }
   });
 
   test("list reconciles at most five candidates per request and rotates the window across polls", async () => {
@@ -1380,27 +1422,6 @@ describe("actions HTTP handlers", () => {
     expect(receiptHashes).toEqual([HASH]);
   });
 
-  test("list survives a throwing resolver", async () => {
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
-    const candidate = confirmedBaseRow();
-    const handler = createListActionsHandler({
-      authorize: authorize("owner-a", "base-account"),
-      now: () => new Date("2026-09-12T12:10:00.000Z"),
-      store: { list: async () => [candidate], recordHandle: async () => null, recordOutcome: recorded },
-      resolveHandle: async () => { throw new Error("provider failed"); },
-    });
-
-    const response = await handler(baseRequest("/api/actions"));
-
-    expect(response.status).toBe(200);
-    expect((await readActions(response))[0]).toMatchObject({ id: candidate.id, status: "pending" });
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
-      kind: "action-reconcile",
-      outcome: "unavailable",
-      level: "info",
-    });
-  });
 
   test("GET reconciles one eligible candidate", async () => {
     setObservabilityLogWriterForTests(() => undefined);

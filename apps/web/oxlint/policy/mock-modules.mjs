@@ -9,4 +9,5 @@ export const allowedMockModules = new Map([
     "@base-org/account",
   ])],
   ["client/funding/funding-actions.test.tsx", new Set(["next/navigation"])],
+  ["client/cards/card-reveal.test.tsx", new Set(["@stripe/stripe-js/pure"])],
 ]);

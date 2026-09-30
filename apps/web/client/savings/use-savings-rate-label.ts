@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { useBalances } from "@/client/balances";
+import { useNow } from "@/client/time/use-now";
 import type { RegionId } from "@/config/regions";
 import {
   BASE_USDC_ADDRESS,
@@ -38,33 +39,15 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true): str
     enabled: account.verification === "server" && regionReady,
   });
   const positions = balances.snapshot ? selectVaultPositions(balances.snapshot) : null;
-  const [rateNowMs, setRateNowMs] = useState(() => Date.now());
-
   const metadataQuery = useSavingsVaults();
-  const metadataFetchedAt = metadataQuery.data?.source.fetchedAt ?? null;
-  useEffect(() => {
-    if (!metadataFetchedAt) return;
-    let active = true;
-    queueMicrotask(() => {
-      if (active) setRateNowMs(Date.now());
-    });
-    return () => {
-      active = false;
-    };
-  }, [metadataFetchedAt]);
-
-  useEffect(() => {
-    const metadata = metadataQuery.data;
-    if (!metadata) return;
-    const expiresAt = nextSavingsRateExpiryAt(
-      metadata.candidates,
-      metadata.source.fetchedAt,
-      rateNowMs,
-    );
-    if (expiresAt === null || expiresAt <= rateNowMs) return;
-    const timeout = window.setTimeout(() => setRateNowMs(Date.now()), expiresAt - rateNowMs);
-    return () => window.clearTimeout(timeout);
-  }, [metadataQuery.data, rateNowMs]);
+  const metadata = metadataQuery.data;
+  const nextDeadline = useCallback(
+    (nowMs: number) => metadata
+      ? nextSavingsRateExpiryAt(metadata.candidates, metadata.source.fetchedAt, nowMs)
+      : null,
+    [metadata],
+  );
+  const rateNowMs = useNow(metadata?.source.fetchedAt ?? null, nextDeadline);
 
   const summary = useMemo(() => {
     if (!metadataQuery.data || !positions) return null;

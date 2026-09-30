@@ -1,8 +1,10 @@
 import "../account/dom-test-harness";
 
-import { getHomeQueryClient, HomeQueryClientProvider } from "@/client/query/query-client";
-import { focusManager } from "@tanstack/react-query";
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { getHomeQueryClient, HomeQueryClientProvider, createHomeQueryClient, ownerQueryCachePrefix, restoreOwnerQueries } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { defaultScheduler, dehydrate, focusManager, notifyManager } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { holdClock, pinClock } from "@/tests/helpers/pin-clock";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_CONTRACT_VERSION,
@@ -42,6 +44,12 @@ function ActivityPanel({
 }
 
 const waitedFor = { timeout: 5_000 };
+const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+let restoreClock: () => void;
+beforeEach(() => {
+  jest.useRealTimers();
+  restoreClock = pinClock("2026-09-28T12:00:00.000Z");
+});
 
 class ControlledIntersectionObserver implements IntersectionObserver {
   static instances: ControlledIntersectionObserver[] = [];
@@ -98,7 +106,7 @@ class ControlledIntersectionObserver implements IntersectionObserver {
           isIntersecting,
           rootBounds: null,
           target: this.target,
-          time: performance.now(),
+          time: 0,
         },
       ],
       this,
@@ -233,8 +241,12 @@ async function waitForSentinel() {
 }
 
 afterEach(() => {
+  jest.useRealTimers();
+  notifyManager.setScheduler(defaultScheduler);
+  restoreClock();
   cleanup();
   getHomeQueryClient().clear();
+  window.localStorage.clear();
   focusManager.setFocused(undefined);
   ControlledIntersectionObserver.instances = [];
   Object.defineProperty(globalThis, "IntersectionObserver", {
@@ -379,6 +391,10 @@ describe("ConnectedActivityPanel", () => {
   });
 
   test("a hidden refetch failure becomes actionable once the tolerance passes on a focused tab", async () => {
+    restoreClock();
+    const clock = holdClock("2026-09-28T12:00:00.000Z");
+    restoreClock = clock.restore;
+    notifyManager.setScheduler((callback) => queueMicrotask(callback));
     const owner = session("subject-a", WALLET_A);
     let calls = 0;
     const view = render(<ActivityPanel session={owner}
@@ -390,29 +406,27 @@ describe("ConnectedActivityPanel", () => {
       }} />);
     await waitFor(() => expect(view.getByText("Recorded send")).toBeTruthy());
     const { activityOwnerKey } = await import("./use-activity");
-    jest.useFakeTimers();
-    try {
-      await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: [activityOwnerKey(owner), "actions"] }); });
-      expect(calls).toBe(2);
-      expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
-      await act(async () => { jest.advanceTimersByTime(119_000); });
-      expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
-      expect(view.queryByRole("button", { name: "Retry recorded actions" })).toBeNull();
-      await act(async () => { jest.advanceTimersByTime(1_500); });
-      expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy();
-      expect(view.getByRole("button", { name: "Retry recorded actions" })).toBeTruthy();
-      expect(view.getByText("Recorded send")).toBeTruthy();
-      expect(calls).toBe(2);
-    } finally {
-      jest.useRealTimers();
-    }
+    await waitFor(() => expect(getHomeQueryClient().isFetching()).toBe(0));
+    clock.set(NOW + 119_000);
+    await act(async () => {
+      await getHomeQueryClient().invalidateQueries({ queryKey: [activityOwnerKey(owner), "actions"] });
+    });
+    expect(calls).toBe(2);
+    expect(view.queryByText(/Recorded Home actions are unavailable/)).toBeNull();
+    expect(view.queryByRole("button", { name: "Retry recorded actions" })).toBeNull();
+    expect(view.getByText("Recorded send")).toBeTruthy();
+    clock.set(NOW + 120_001);
+    await waitFor(() => expect(view.getByRole("button", { name: "Retry recorded actions" })).toBeTruthy(), waitedFor);
+    expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy();
+    expect(view.getByText("Recorded send")).toBeTruthy();
+    expect(calls).toBe(2);
   });
 
   test("restored action rows older than the tolerance still report a sustained failure", async () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
     getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], { actions: [actionFor(owner, "Restored send")] }, {
-      updatedAt: Date.now() - 10 * 60_000,
+      updatedAt: NOW - 10 * 60_000,
     });
     let calls = 0;
     const view = render(<ActivityPanel session={owner}
@@ -424,10 +438,35 @@ describe("ConnectedActivityPanel", () => {
     expect(view.getByText("Received")).toBeTruthy();
   });
 
+  test("hand-edited persisted activity and actions are discarded and refetched", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = dataOwnerKey(owner);
+    const source = createHomeQueryClient();
+    const activityKey = [ownerKey, "activity", new Date(NOW).toISOString(), "USD"];
+    const actionsKey = [ownerKey, "actions"];
+    source.setQueryData(activityKey, { pages: [{ transfers: [{}] }], pageParams: [null] });
+    source.setQueryData(actionsKey, { actions: [null] });
+    const queries = dehydrate(source).queries;
+    window.localStorage.setItem(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
+      timestamp: NOW, buster: "home-query-v3", clientState: { mutations: [], queries },
+    }));
+    expect(restoreOwnerQueries(getHomeQueryClient(), window.localStorage, ownerKey)).toBe(false);
+    expect(getHomeQueryClient().getQueryData(activityKey)).toBeUndefined();
+    expect(getHomeQueryClient().getQueryData(actionsKey)).toBeUndefined();
+    let activityCalls = 0;
+    let actionsCalls = 0;
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async () => { activityCalls += 1; throw new Error("onchain unavailable"); }}
+      fetchOperations={async () => { actionsCalls += 1; throw actionFailure(401); }} />);
+    await waitFor(() => expect(view.getByText("Activity is temporarily unavailable.")).toBeTruthy(), { timeout: 2_000 });
+    expect(activityCalls).toBeGreaterThan(0);
+    expect(actionsCalls).toBeGreaterThan(0);
+  });
+
   test("a malformed actions value restored from an earlier cache recovers instead of crashing", async () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
-    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: Date.now() - 60_000 });
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: NOW - 60_000 });
     let calls = 0;
     const view = render(<ActivityPanel session={owner}
       fetchActivity={async (query) => pageFor(query, WALLET_A)}

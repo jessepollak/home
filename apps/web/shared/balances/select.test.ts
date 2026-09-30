@@ -8,12 +8,13 @@ import {
   catalogHolding,
   FIXTURE_BORROW_MARKET_ID,
   FIXTURE_CATALOG,
+  FIXTURE_WALLET_TOKEN,
   priced,
   ready,
   unavailableBalance,
+  walletHolding,
 } from "./fixtures";
 import {
-  selectAssetCount,
   selectBalanceBaseUnits,
   selectBalanceTotals,
   selectBorrowPositions,
@@ -25,8 +26,8 @@ import {
 } from "./select";
 
 describe("balance selectors", () => {
-  test("selects only positive ready registry transfer assets with base units", () => {
-    const snapshot = buildBalancesSnapshotFixture({
+  test.each([
+    { name: "omits zero, vault, and catalog holdings", snapshot: buildBalancesSnapshotFixture({
       registry: {
         usdc: { balance: ready("0") },
         cbbtc: { balance: ready("100000") },
@@ -34,12 +35,27 @@ describe("balance selectors", () => {
         "morpho-steakhouse-usdc": { balance: ready("1"), underlyingBalance: ready("5") },
       },
       catalog: balancesSnapshotFixture.holdings.filter((holding) => holding.source === "catalog"),
-    });
-
-    expect(selectSendable(snapshot)).toEqual([
+    }), expected: [
       { ...getTransferAsset("eth")!, balanceBaseUnits: "1" },
       { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "100000" },
-    ]);
+    ] },
+    { name: "includes positive ready registry assets in snapshot order", snapshot: buildBalancesSnapshotFixture({
+      registry: { usdc: { balance: ready("12340000") }, cbbtc: { balance: ready("100000") }, eth: { balance: ready("10000000000000000") } },
+    }), expected: [
+      { ...getTransferAsset("eth")!, balanceBaseUnits: "10000000000000000" },
+      { ...getTransferAsset("usdc")!, balanceBaseUnits: "12340000" },
+      { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "100000" },
+    ] },
+    { name: "omits unavailable assets alongside zero, vault, and catalog holdings", snapshot: buildBalancesSnapshotFixture({
+      registry: {
+        usdc: { balance: ready("0") },
+        cbbtc: { balance: unavailableBalance },
+        "morpho-steakhouse-usdc": { balance: ready("1"), underlyingBalance: ready("1") },
+      },
+      catalog: [catalogHolding(FIXTURE_CATALOG.priced, "1", priced("USD", "1"))],
+    }), expected: [] },
+  ])("$name", ({ snapshot, expected }) => {
+    expect(selectSendable(snapshot)).toEqual([...expected]);
   });
 
   test("shapes vault positions and preserves unavailable underlying balances", () => {
@@ -78,6 +94,35 @@ describe("balance selectors", () => {
       .toEqual(["usdc", "eurc", "idrx"]);
     expect(selectCash(de).map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key))
       .toEqual([verifiedLocalCashAssets.EUR.id, "usdc", "idrx"]);
+  });
+
+  test("lists named unreadable extra cash but not zero or unnamed unreadable holdings", () => {
+    const base = buildBalancesSnapshotFixture({
+      region: "US",
+      registry: { usdc: { balance: ready("1000000") }, eurc: { balance: unavailableBalance }, idrx: { balance: ready("0") } },
+      coverage: { catalog: "incomplete" },
+    });
+    const unnamed = { ...base.holdings.find((holding) => holding.id === "idrx")!, name: " ", symbol: " ", balance: unavailableBalance };
+    const snapshot = { ...base, holdings: [...base.holdings.filter((holding) => holding.id !== "idrx"), unnamed] };
+    expect(selectCash(snapshot).map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key)).toEqual(["usdc", "eurc"]);
+    expect(selectMoneyGroups(snapshot).cash).toHaveLength(2);
+    expect(selectMoneyGroups(snapshot).investments).toHaveLength(0);
+    expect(selectCash(base).some((entry) => entry.kind === "holding" && entry.holding.id === "idrx")).toBe(false);
+  });
+  test("lists named unreadable investments but not unreadable unnamed or known-zero holdings", () => {
+    const unread = walletHolding(FIXTURE_WALLET_TOKEN, "1", { status: "unavailable" });
+    const unnamed = { ...unread, id: "unnamed", key: "unnamed" as typeof unread.key, name: " ", symbol: " ", balance: unavailableBalance };
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: { eth: { balance: ready("1") }, cbbtc: { balance: unavailableBalance }, nvdac: { balance: ready("0") } },
+      catalog: [{ ...unread, balance: unavailableBalance }, unnamed],
+      coverage: { catalog: "incomplete" },
+    });
+    expect(selectMoneyGroups(snapshot).investments.map((holding) => holding.id)).toEqual(["eth", "cbbtc", unread.id]);
+    expect(selectMoneyGroups(snapshot).cash).toHaveLength(1);
+    expect(selectMoneyGroups(snapshot).investments).toHaveLength(3);
+    const symbolOnly = walletHolding({ ...FIXTURE_WALLET_TOKEN, name: "  ", symbol: "DISC" }, "1", { status: "unavailable" });
+    const symbolSnapshot = buildBalancesSnapshotFixture({ catalog: [{ ...symbolOnly, balance: unavailableBalance }] });
+    expect(selectMoneyGroups(symbolSnapshot).investments.map((holding) => holding.key)).toEqual([symbolOnly.key]);
   });
 
   test("adds an unsupported local placeholder ahead of USDC", () => {
@@ -141,7 +186,7 @@ describe("balance selectors", () => {
     expect(groups.investments.at(-1)?.value.status).toBe("unpriced");
   });
 
-  test("counts displayed cash and positive assets without vault shares or unavailable rows", () => {
+  test("counts displayed cash and positive or unreadable named assets without vault shares", () => {
     const snapshot = buildBalancesSnapshotFixture({
       registry: {
         usdc: { balance: ready("0") },
@@ -152,7 +197,8 @@ describe("balance selectors", () => {
       catalog: [catalogHolding(FIXTURE_CATALOG.priced, "1", priced("USD", "1"))],
     });
 
-    expect(selectAssetCount(snapshot)).toBe(3);
+    expect(selectMoneyGroups(snapshot).cash).toHaveLength(1);
+    expect(selectMoneyGroups(snapshot).investments).toHaveLength(3);
   });
 
   test("returns null for unavailable and preserves successful zero", () => {

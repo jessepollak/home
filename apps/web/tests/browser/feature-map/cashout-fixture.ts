@@ -4,7 +4,7 @@ const now = "2026-09-15T12:00:00.000Z";
 const expiry = "2099-01-01T00:00:00.000Z";
 export const cashoutFixtureDepositId = "fixture-escrow-1";
 export const cashoutFixtureProgress = {
-  version: 1, providerId: "peer", region: "US", depositId: cashoutFixtureDepositId,
+  version: 1, providerId: "peer", region: "US", depositId: cashoutFixtureDepositId, progressConfirmed: true,
   state: "awaiting-buyer", platform: "cashapp", platformLabel: "Cash App", amountAtomic: "50000000",
   filledAtomic: "0", returnedAtomic: "0", remainingAtomic: "50000000",
   withdrawable: true, withdrawing: false, etaSeconds: 3600, settledAt: null, updatedAt: now,

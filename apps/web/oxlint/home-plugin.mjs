@@ -3,6 +3,7 @@ import {
   noBrowserSdkImports,
   noClassicZodImports,
   noClientServerImports,
+  noExplorationImports,
   noRelativeLocationAssignment,
   noServerClientImports,
   noSharedRuntimeImports,
@@ -15,6 +16,7 @@ import { noRawButtons, noRawFields } from "./rules/raw-elements.mjs";
 import { noRestyle } from "./rules/no-restyle.mjs";
 import {
   noComputedStyleInComponentTests,
+  noConstantPin,
   exactMockModules,
   noPresentationClassReads,
   noRequestOnlyPlaywright,
@@ -39,11 +41,14 @@ import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
 import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives, noTransientMoneyCopy, noUnownedLoading } from "./rules/money-modal.mjs";
 import { explorationStoryTag } from "./rules/exploration-story-tag.mjs";
+import { noDeferredEffectSetstate } from "./rules/react-effects.mjs";
+import { noFullPortfolioPresentation } from "./rules/portfolio-presentation.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
   rules: {
     "no-storybook-imports": noStorybookImports,
+    "no-exploration-imports": noExplorationImports,
     "no-client-server-imports": noClientServerImports,
     "no-server-client-imports": noServerClientImports,
     "no-shared-runtime-imports": noSharedRuntimeImports,
@@ -65,6 +70,7 @@ const homePlugin = {
     "no-presentation-class-reads": noPresentationClassReads,
     "no-computed-style-in-component-tests": noComputedStyleInComponentTests,
     "no-self-referential-expectation": noSelfReferentialExpectation,
+    "no-constant-pin": noConstantPin,
     "exact-mock-modules": exactMockModules,
     "no-chained-type-assertions": noChainedTypeAssertions,
     "no-reflect-indirection": noReflectIndirection,
@@ -87,6 +93,8 @@ const homePlugin = {
     "no-unowned-loading": noUnownedLoading,
     "no-transient-money-copy": noTransientMoneyCopy,
     "exploration-story-tag": explorationStoryTag,
+    "no-deferred-effect-setstate": noDeferredEffectSetstate,
+    "no-full-portfolio-presentation": noFullPortfolioPresentation,
   },
 };
 

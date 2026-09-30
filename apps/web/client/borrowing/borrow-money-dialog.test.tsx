@@ -28,7 +28,7 @@ const action: PreparedMoneyAction = {
   kind: "borrow", title: "Borrow USDC", calls: [], warnings: [],
   amounts: [{ assetId: snapshot.market.loanToken.id, symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "receive" }],
   metadata: { product: "borrow", operation: "borrow", marketId: snapshot.market.id, loanAsset: { id: snapshot.market.loanToken.id, symbol: "USDC" }, collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: snapshot.source.blockHash, blockTimestamp: "1788897600" } },
-  createdAt: new Date().toISOString(), expiresAt: "2099-01-01T00:00:00.000Z",
+  createdAt: "2026-09-25T12:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z",
 };
 const key = ownerQueryKey(dataOwnerKey(session), "actions");
 const row = { id: action.id, owner: action.owner, status: "pending" };

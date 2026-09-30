@@ -1,10 +1,9 @@
 import "@/client/account/dom-test-harness";
 
-import { afterAll, afterEach, describe, expect, jest, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, spyOn, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityPage, ActivityTransfer } from "@/shared/activity/types";
 import type { UseActivityResult } from "./use-activity";
-import { formatPresentationDate, formatPresentationDateRange } from "@/shared/formatting";
 import { activityOrdersFixture } from "@/tests/browser/feature-map/fixtures";
 
 const financeRows = await import("@/components/finance-rows");
@@ -16,6 +15,8 @@ const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const noop = () => undefined;
+const NOW = Date.parse("2026-09-15T13:00:00.000Z");
+beforeEach(() => setSystemTime(new Date(NOW)));
 
 function transfer(id: string, minute: number): ActivityTransfer {
   return {
@@ -151,6 +152,7 @@ function mockRowHeight() {
   });
 }
 afterEach(() => {
+  setSystemTime();
   jest.useRealTimers();
   cleanup();
   delete (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED;
@@ -288,21 +290,19 @@ describe("combined Activity panel", () => {
   test("summarizes the covered date range compactly and the full range for assistive technology", () => {
     const newest = transfer("new", 5);
     const oldest = { ...transfer("old", 4), blockTimestamp: "2026-09-14T12:04:00.000Z" };
-    const short = formatPresentationDateRange(oldest.blockTimestamp, newest.blockTimestamp, { style: "activity-date" });
-    const full = formatPresentationDateRange(oldest.blockTimestamp, newest.blockTimestamp, { style: "activity-full" });
     const view = render(<ActivityPanelView activity={ready([newest, oldest])} />);
     const summary = view.getByRole("button", { description: "2 Received USDC transfers" });
     expect(summary.textContent).toContain(`Received ×2`);
-    expect(summary.textContent).toContain(short);
-    expect(summary.textContent).toContain(full);
-    expect(summary.querySelector("[title]")?.getAttribute("title")).toBe(full);
+    expect(summary.textContent).toContain("Sep 14 – 15");
+    const fullRange = summary.querySelector("[title]")?.getAttribute("title") ?? "";
+    expect(fullRange).toMatch(/^Sep 14, 2026, \d{1,2}:\d{2} [AP]M – Sep 15, 2026, \d{1,2}:\d{2} [AP]M$/);
+    expect(summary.textContent).toContain(fullRange);
 
     const sameDay = { ...oldest, blockTimestamp: "2026-09-15T12:05:01.000Z" };
     view.rerender(<ActivityPanelView activity={ready([sameDay, newest])} />);
     const sameDaySummary = view.getByRole("button", { description: "2 Received USDC transfers" });
-    const day = formatPresentationDate(newest.blockTimestamp, { style: "activity-date" });
-    expect(sameDaySummary.textContent).toContain(day);
-    expect(sameDaySummary.textContent).not.toContain(`${day} –`);
+    expect(sameDaySummary.textContent).toContain("Sep 15");
+    expect(sameDaySummary.textContent).not.toContain("Sep 15 –");
   });
 
   test("groups priced incoming runs in Home and Activity, reveals original details, and retains the continuation sentinel", async () => {
@@ -1068,8 +1068,8 @@ describe("combined Activity panel", () => {
     const view = render(<ActivityPanelView activity={activity} orders={[{ ...ambiguous, clearableAt: null }]} regionId="US" />);
     fireEvent.click(view.getByRole("button", { description: "View Add money details" }));
     const dialog = await view.findByRole("dialog", { name: "Add money" });
-    jest.useFakeTimers();
-    const orders = [{ ...ambiguous, clearableAt: new Date(Date.now() + 3_000).toISOString() }];
+    jest.useFakeTimers({ now: NOW });
+    const orders = [{ ...ambiguous, clearableAt: new Date(NOW + 3_000).toISOString() }];
     view.rerender(<ActivityPanelView activity={activity} orders={orders} regionId="US" />);
     expect(within(dialog).getByText(/You can clear it after/)).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Clear order" })).toBeNull();

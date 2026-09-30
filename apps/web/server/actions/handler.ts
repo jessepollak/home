@@ -7,7 +7,7 @@ import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actio
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
-import type { ActionListItem, ListActionsResponse } from "@/shared/actions/contracts/list";
+import { RECENT_ACTIONS_LIMIT, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
@@ -27,7 +27,7 @@ import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
-import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow } from "@/server/funding/cash-out-progress";
+import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
 import {
   applyCoinbaseBatchGasHeadroom,
   encodeCoinbaseExecuteBatch,
@@ -164,6 +164,10 @@ export function createConfirmActionHandler(dependencies: {
     }
     if (!replay && Date.parse(draft.summary.expiresAt) <= (dependencies.now?.() ?? new Date()).getTime()) {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
+    }
+    const tradeMetadata = draft.summary.metadata;
+    if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade" && tradeMetadata.operatorFee?.recipient.toLowerCase() === owner.address.toLowerCase()) {
+      return fail("ACTION_EXPIRED", "This trade's fee destination is your own account. Prepare the trade again.", 410);
     }
 
     if (!draft.confirmed_at && draft.kind === "cash-out") {
@@ -442,22 +446,28 @@ export function createListActionsHandler(dependencies: {
         return {
           ...await presentAction(row, owner, receipt, now),
           ...(record ? { cashout: presentCashoutProgress(record,
-            record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now)) } : {}),
+            record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now), row) } : {}),
         };
       }));
-      return privateJson({ actions } satisfies ListActionsResponse, 200);
+      const truncated = observed.length === RECENT_ACTIONS_LIMIT &&
+        (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
+      return privateJson({ actions, ...(truncated ? { truncated: true } : {}) } satisfies ListActionsResponse, 200);
     } finally {
       refreshDeadline.dispose();
     }
   };
 }
 
-export function presentCashoutProgress(record: CashoutOrderRow, withdrawing: boolean): CashoutProgress {
+export function presentCashoutProgress(record: RefreshedCashoutOrder | CashoutOrderRow, withdrawing: boolean, row?: ActionRow): CashoutProgress {
   return {
     version: 1,
     providerId: record.provider_id,
     region: record.region,
     depositId: record.deposit_id,
+    ...(row?.outcome === "succeeded" && row.observed_receipt_outcome === "succeeded" && row.observed_receipt_block_number != null &&
+      row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase()
+      ? { depositBlockNumber: row.observed_receipt_block_number } : {}),
+    progressConfirmed: "progressConfirmed" in record && record.progressConfirmed === true,
     state: record.state,
     platform: record.platform,
     platformLabel: record.platform_label,
@@ -480,6 +490,7 @@ export async function presentAction(
   now = new Date(),
 ) {
   const confirmedAt = iso(row.confirmed_at) ?? iso(row.created_at)!;
+  const settledAt = iso(row.settled_at);
   return {
     id: row.id,
     provider: row.provider,
@@ -496,6 +507,7 @@ export async function presentAction(
     createdAt: iso(row.created_at)!,
     confirmedAt,
     ...(iso(row.handle_recorded_at) ? { submittedAt: iso(row.handle_recorded_at)! } : {}),
+    ...(settledAt ? { settledAt } : {}),
     ...(row.provider_handle ? { providerHandle: row.provider_handle } : {}),
     ...(row.transaction_hash ? { transactionHash: row.transaction_hash.toLowerCase() } : {}),
     owner: {

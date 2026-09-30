@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { publicResource } from "@/client/query/public-resource";
 import { browserHomeQueryClient, publicQueryKey, useHomeInfiniteQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { publicInfiniteQuery } from "@/client/query/query-options";
 import {
   isInvestSearchAddressQuery,
   investSearchSearchParams,
@@ -22,6 +23,31 @@ function scheduleTimeout(callback: () => void, milliseconds: number): () => void
   return () => clearTimeout(timer);
 }
 
+export function investSearchOptions({
+  endpoint = "/api/invest/search",
+  fetchImpl = fetch,
+  active,
+  enabled,
+}: { endpoint?: string; fetchImpl?: FetchLike; active: string; enabled: boolean }) {
+  return publicInfiniteQuery<InvestSearchPage, number>({
+    scope: "invest-search", key: [endpoint, active],
+    enabled,
+    initialPageParam: 0,
+    gcTime: 300_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+    queryFn: async ({ pageParam, signal }) => {
+      const params = investSearchSearchParams({ query: active, offset: pageParam });
+      const page = parseInvestSearchResponse(await publicResource(`${endpoint}?${params}`, { signal, fetchImpl }));
+      if (!page || page.query !== active || page.offset !== pageParam) {
+        throw new Error("Invalid search response");
+      }
+      return page;
+    },
+    getNextPageParam: (page) => page.nextOffset ?? undefined,
+  });
+}
+
 export function useInvestSearch(
   input: string,
   composing = false,
@@ -36,24 +62,9 @@ export function useInvestSearch(
 
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const queryKey = useMemo(() => publicQueryKey("invest-search", endpoint, active), [endpoint, active]);
-  const query = useHomeInfiniteQuery({
-    queryKey,
-    enabled: active.length > 0 && !composing && normalized === active,
-    initialPageParam: 0,
-    staleTime: 60_000,
-    gcTime: 300_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    queryFn: async ({ pageParam, signal }) => {
-      const params = investSearchSearchParams({ query: active, offset: pageParam });
-      const page = parseInvestSearchResponse(await publicResource(`${endpoint}?${params}`, { signal, fetchImpl }));
-      if (!page || page.query !== active || page.offset !== pageParam) {
-        throw new Error("Invalid search response");
-      }
-      return page;
-    },
-    getNextPageParam: (page) => page.nextOffset ?? undefined,
-  });
+  const query = useHomeInfiniteQuery(investSearchOptions({
+    endpoint, fetchImpl, active, enabled: active.length > 0 && !composing && normalized === active,
+  }));
   useEffect(() => {
     if (normalized === active || !active) return;
     void queryClient.cancelQueries({ queryKey, exact: true });

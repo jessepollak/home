@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { encodeFunctionData, erc20Abi } from "viem";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
@@ -8,7 +9,8 @@ const account = "0x1111111111111111111111111111111111111111" as const;
 const session = { user: { subject: "fee-test" }, smartAccount: { address: account, chainId: 8453 }, accountProvider: "cdp-embedded" } as VerifiedAccountSession;
 const swap = { to: "0x2222222222222222222222222222222222222222" as const, data: "0x1234" as const, value: "0" };
 const permitApproval = { ...swap, approval: { assetId: "usdc", spender: swap.to } };
-const draft: MoneyActionDraft = { kind: "trade", title: "Buy Bitcoin", calls: [permitApproval, swap], amounts: [], warnings: [], expiresAt: new Date(Date.now() + 600_000).toISOString() };
+const operatorTransfer = { to: BASE_USDC_ADDRESS, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [account, BigInt(10_000)] }), value: "0" };
+const draft: MoneyActionDraft = { kind: "trade", title: "Buy Bitcoin", calls: [permitApproval, swap], amounts: [], warnings: [], expiresAt: "2026-09-28T12:10:00.000Z" };
 
 function service(usdc: bigint, eth = BigInt(0)) {
   let estimates = 0;
@@ -40,6 +42,17 @@ describe("trade gas bounds", () => {
     expect(result.calls[0]?.approval?.spender).toBe(BASE_USDC_PAYMASTER_ADDRESS);
     expect(quotedGas()).toBe(BigInt(270_000));
     expect(estimates()).toBe(0);
+  });
+  test("USDC and ETH quotes both cover the operator transfer in the atomic batch", async () => {
+    const withTransfer = { ...draft, calls: [operatorTransfer, ...draft.calls] };
+    const { fee, quotedGas } = service(BigInt(1_000_000));
+    expect((await fee.applyNetworkFee(session, withTransfer, { callGasLimit: BigInt(100_000) })).calls).toHaveLength(4);
+    expect(quotedGas()).toBe(BigInt(348_000));
+    const ethCost = BigInt(850_000) * BigInt(3_000_000_000);
+    expect((await service(BigInt(0), ethCost).fee.applyNetworkFee(session, withTransfer, { callGasLimit: BigInt(100_000) })).networkFee)
+      .toEqual({ payment: "native" });
+    await expect(service(BigInt(0), ethCost - BigInt(1)).fee.applyNetworkFee(session, withTransfer, { callGasLimit: BigInt(100_000) }))
+      .rejects.toThrow();
   });
   test("native fallback covers Permit2 approval but not an absent fee approval", async () => {
     const threshold = BigInt(210_000 + 450_000 + 120_000) * BigInt(3_000_000_000);
