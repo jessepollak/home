@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { acquireGmailOtpLock, defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
@@ -21,6 +21,35 @@ const verificationKeys = [
   "HOME_VERIFY_ACCOUNT_EMAIL", "HOME_ACCESS_PASSWORD", "HOME_VERIFY_GMAIL_CREDENTIALS",
   "HOME_VERIFY_OTP_SENDER", "HOME_VERIFY_CASHOUT_HANDLE", "HOME_VERIFY_ACCOUNT_ADDRESS", "HOME_VERIFY_PRODUCTION_URL",
 ] as const;
+
+const generatedStateName = /^home-live-\d+-[a-f0-9]{32}\.state\.json$/;
+const generatedStateAgeMs = 24 * 60 * 60_000;
+
+async function removeOldGeneratedStates(directory: string, now: number): Promise<void> {
+  for (const name of await readdir(directory)) {
+    if (!generatedStateName.test(name)) continue;
+    const statePath = resolve(directory, name);
+    const markerPath = `${statePath}.generated`;
+    let state;
+    let marker;
+    try {
+      state = await lstat(statePath);
+      marker = await lstat(markerPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new Error("Could not inspect old live-login state files.");
+    }
+    if (!state.isFile() || state.isSymbolicLink() || state.uid !== process.getuid?.()
+      || !marker.isFile() || marker.isSymbolicLink() || marker.uid !== process.getuid?.()
+      || (marker.mode & 0o077) !== 0 || now - state.mtimeMs < generatedStateAgeMs) continue;
+    try {
+      await unlink(statePath);
+      await unlink(markerPath);
+    } catch {
+      throw new Error("Could not remove old live-login state files.");
+    }
+  }
+}
 
 export async function loadVerificationEnv(env: Record<string, string | undefined> = process.env, home = homedir()): Promise<Record<string, string | undefined>> {
   const configured = { ...env };
@@ -103,8 +132,12 @@ function option(args: string[], flag: string): string | undefined {
 export async function liveLogin(args: string[], options: LoginOptions = {}): Promise<string> {
   const env = await loadVerificationEnv(options.env ?? process.env, options.home);
   const email = verifyAccountEmail(env);
-  const name = option(args, "--session") ?? `home-live-${process.pid}-${randomUUID().replaceAll("-", "")}`;
+  const explicitSession = option(args, "--session");
+  const name = explicitSession ?? `home-live-${process.pid}-${randomUUID().replaceAll("-", "")}`;
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) throw new Error("--session must be a short alphanumeric name (hyphens and underscores allowed).");
+  if (explicitSession !== undefined && generatedStateName.test(`${name}.state.json`)) {
+    throw new Error("--session cannot use the reserved generated-default name pattern.");
+  }
   const base = option(args, "--base-url") ?? env.HOME_VERIFY_PRODUCTION_URL;
   if (!base) throw new Error("Specify --base-url <deployed-url> or set HOME_VERIFY_PRODUCTION_URL.");
   let url: URL;
@@ -119,8 +152,11 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
     throw new Error("Verification directory must be owned by the current user and not a symlink.");
   }
   await chmod(directory, 0o700);
+  await removeOldGeneratedStates(directory, (options.now ?? Date.now)());
   try {
-    if ((await lstat(path)).isSymbolicLink()) throw new Error("Refusing a symlink state path.");
+    const existing = await lstat(path);
+    if (existing.isSymbolicLink()) throw new Error("Refusing a symlink state path.");
+    if (explicitSession === undefined) throw new Error("Generated live-login state path already exists.");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
@@ -153,6 +189,10 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
       fillSecret("Verification code", code, command);
       command(["find", "role", "button", "click", "--name", "Verify and continue", "--exact"]);
       command(["wait", "--fn", "Boolean(document.querySelector('[data-app-main-authenticated]'))"]);
+      if (explicitSession === undefined) {
+        const marker = await open(`${path}.generated`, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        await marker.close();
+      }
       command(["state", "save", path]);
       await chmod(path, 0o600);
       return path;

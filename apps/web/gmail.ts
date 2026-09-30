@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { chmod, lstat, mkdir, open, readFile, rename, rmdir, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { homedir, hostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { privateVerificationPath } from "./verification-paths";
@@ -9,11 +9,12 @@ export const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonl
 export const defaultOtpSender = "no-reply@info.coinbase.com";
 
 const otpLockStaleMs = 8 * 60_000;
+const otpLockUnownedGraceMs = 30_000;
 const otpLockWaitMs = 4 * 60_000;
 const otpLockRetryMs = 1000;
 
 type OtpLockOwner = { pid: number; host: string; startedAt: number; token: string };
-type OtpLockOptions = { now?: () => number; sleep?: (milliseconds: number) => Promise<void> };
+type OtpLockOptions = { now?: () => number; sleep?: (milliseconds: number) => Promise<void>; writeMetadata?: (path: string, owner: OtpLockOwner) => Promise<void> };
 
 async function lockDirectoryInfo(path: string) {
   const info = await lstat(path);
@@ -24,28 +25,34 @@ async function lockDirectoryInfo(path: string) {
 }
 
 async function lockOwner(path: string): Promise<OtpLockOwner | null> {
-  let file;
   try {
-    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const info = await file.stat();
-    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
-      throw new Error("Live-login lock metadata must be a private, current-user-owned regular file.");
+    const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const info = await file.stat();
+      if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
+        throw new Error("Live-login lock metadata must be a private, current-user-owned regular file.");
+      }
+      const owner = JSON.parse(await file.readFile("utf8")) as Partial<OtpLockOwner> | null;
+      if (owner && Number.isSafeInteger(owner.pid) && (owner.pid ?? 0) > 0 && typeof owner.host === "string"
+        && Number.isFinite(owner.startedAt) && typeof owner.token === "string") return owner as OtpLockOwner;
+      return null;
+    } finally {
+      await file.close();
     }
-    const owner = JSON.parse(await file.readFile("utf8")) as Partial<OtpLockOwner> | null;
-    if (owner && Number.isSafeInteger(owner.pid) && (owner.pid ?? 0) > 0 && typeof owner.host === "string"
-      && Number.isFinite(owner.startedAt) && typeof owner.token === "string") return owner as OtpLockOwner;
-    return null;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return null;
-    throw error;
-  } finally {
-    await file?.close();
+    throw new Error("Live-login lock metadata must be a private, current-user-owned regular file.");
   }
 }
 
 function pidIsDead(pid: number): boolean {
   try { process.kill(pid, 0); return false; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
+}
+
+async function writeLockMetadata(path: string, owner: OtpLockOwner): Promise<void> {
+  const file = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try { await file.writeFile(JSON.stringify(owner)); } finally { await file.close(); }
 }
 
 export async function acquireGmailOtpLock(directory: string, options: OtpLockOptions = {}): Promise<() => Promise<void>> {
@@ -59,10 +66,10 @@ export async function acquireGmailOtpLock(directory: string, options: OtpLockOpt
   while (true) {
     try {
       await mkdir(path, { mode: 0o700 });
-      const info = await lockDirectoryInfo(path);
+      let info;
       try {
-        const file = await open(metadata, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-        try { await file.writeFile(JSON.stringify(owner)); } finally { await file.close(); }
+        info = await lockDirectoryInfo(path);
+        await (options.writeMetadata ?? writeLockMetadata)(metadata, owner);
       } catch (error) {
         await rm(path, { recursive: true, force: true });
         throw error;
@@ -80,8 +87,14 @@ export async function acquireGmailOtpLock(directory: string, options: OtpLockOpt
         clearInterval(heartbeat);
         try {
           if ((await lockDirectoryInfo(path)).ino !== info.ino || (await lockOwner(metadata))?.token !== owner.token) return;
-          await unlink(metadata);
-          await rmdir(path);
+          const released = `${path}.${randomUUID()}.released`;
+          try { await rename(path, released); }
+          catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+            throw error;
+          }
+          if ((await lockDirectoryInfo(released)).ino !== info.ino) throw new Error("Live-login lock changed during release; retry login.");
+          await rm(released, { recursive: true });
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
@@ -96,7 +109,8 @@ export async function acquireGmailOtpLock(directory: string, options: OtpLockOpt
       throw error;
     }
     const heldBy = await lockOwner(metadata);
-    if (now() - info.mtimeMs >= otpLockStaleMs || (heldBy?.host === hostname() && pidIsDead(heldBy.pid))) {
+    if (now() - info.mtimeMs >= otpLockStaleMs || (!heldBy && now() - info.mtimeMs >= otpLockUnownedGraceMs)
+      || (heldBy?.host === hostname() && pidIsDead(heldBy.pid))) {
       const current = await lockDirectoryInfo(path).catch((error: NodeJS.ErrnoException) => {
         if (error.code === "ENOENT") return null;
         throw error;

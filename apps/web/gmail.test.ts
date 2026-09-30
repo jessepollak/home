@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+// oxlint-disable-next-line home/no-source-reads -- Lock fixtures use only system-temp scratch files.
+import { mkdir, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { acquireGmailOtpLock, callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailCredentialsPath, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, readGmailCredentials, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
@@ -63,6 +65,53 @@ describe("Gmail OTP lock", () => {
       await release();
     } finally { Bun.spawnSync(["rm", "-rf", directory]); }
   });
+  test("recovers missing or invalid metadata after a short grace without waiting for the stale lease", async () => {
+    const { directory, path, metadata } = await lockFixture();
+    try {
+      await mkdir(path, { mode: 0o700 });
+      const now = lockNow;
+      let time = now;
+      await utimes(path, new Date(now - 20_000), new Date(now - 20_000));
+      let waits = 0;
+      const release = await acquireGmailOtpLock(directory, {
+        now: () => time,
+        sleep: async (milliseconds) => { time += milliseconds; waits++; },
+      });
+      expect(waits).toBe(10);
+      await release();
+      await mkdir(path, { mode: 0o700 });
+      await writeFile(metadata, "invalid metadata", { mode: 0o600 });
+      await utimes(path, new Date(now - 31_000), new Date(now - 31_000));
+      const recovered = await acquireGmailOtpLock(directory, { now: () => now, sleep: async () => { throw new Error("should not wait"); } });
+      await recovered();
+    } finally { Bun.spawnSync(["rm", "-rf", directory]); }
+  });
+
+  test("removes the lock directory when writing new owner metadata fails", async () => {
+    const { directory, path } = await lockFixture();
+    try {
+      await expect(acquireGmailOtpLock(directory, {
+        writeMetadata: async (metadata) => {
+          await writeFile(metadata, "partial", { mode: 0o600 });
+          throw new Error("metadata write failed");
+        },
+      })).rejects.toThrow("metadata write failed");
+      expect(Bun.spawnSync(["test", "-e", path]).exitCode).not.toBe(0);
+    } finally { Bun.spawnSync(["rm", "-rf", directory]); }
+  });
+
+  test("a stale holder cannot release a replacement lock", async () => {
+    const { directory, path, metadata } = await lockFixture();
+    try {
+      const staleRelease = await acquireGmailOtpLock(directory);
+      await utimes(path, new Date(0), new Date(0));
+      const currentRelease = await acquireGmailOtpLock(directory, { sleep: async () => { throw new Error("should not wait"); } });
+      await staleRelease();
+      expect(Bun.spawnSync(["test", "-f", metadata]).exitCode).toBe(0);
+      await currentRelease();
+      expect(Bun.spawnSync(["test", "-e", path]).exitCode).not.toBe(0);
+    } finally { Bun.spawnSync(["rm", "-rf", directory]); }
+  });
 
   test("bounds the wait for a living holder without real sleeps", async () => {
     const { directory, path, metadata } = await lockFixture();
@@ -92,6 +141,12 @@ describe("Gmail OTP lock", () => {
       expect(Bun.spawnSync(["chmod", "700", path]).exitCode).toBe(0);
       expect(Bun.spawnSync(["chmod", "644", metadata]).exitCode).toBe(0);
       await expect(acquireGmailOtpLock(directory)).rejects.toThrow("metadata must be a private");
+      await unlink(metadata);
+      await symlink(resolve(directory, "target"), metadata);
+      const error = await acquireGmailOtpLock(directory).catch((caught: Error) => caught);
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe("Live-login lock metadata must be a private, current-user-owned regular file.");
+      expect(String(error)).not.toContain(directory);
     } finally { Bun.spawnSync(["rm", "-rf", directory]); }
   });
 });
