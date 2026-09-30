@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -207,6 +207,13 @@ test("a base allowlist without testFiles is a note, not a finding", () => {
   assert.deepEqual(result.notes, ["Base allowlist unavailable or invalid: Allowlist must have exactly the arrays tests, files, and testFiles."]);
 });
 
+test("an unavailable current allowlist produces no comparison notes", () => {
+  const base = { ...empty, tests: [{ file, test: "slow", maxSeconds: 8, reason: "previous measurement" }] };
+  const result = buildRuntimeReport(parseJunit(junit(testcase("slow", 4))), undefined, base);
+  assert.deepEqual(result.findings, ["Allowlist must have exactly the arrays tests, files, and testFiles."]);
+  assert.deepEqual(result.notes, []);
+});
+
 test("empty and malformed JUnit fail, including zero testcases", () => {
   for (const xml of ["", "<testsuites/>", "<testsuites><testsuite>", "<testsuites><testsuite></testsuites>", "<testsuites><testsuite><testcase name='x' time='bad'/></testsuite></testsuites>"]) {
     assert.throws(() => parseJunit(xml));
@@ -375,4 +382,57 @@ test("CLI reports an unresolvable base as a note without failing", (t) => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Base allowlist unavailable or invalid: Could not resolve origin\/main or local main/);
   assert.match(result.stdout, /No findings\./);
+});
+
+test("CLI compares a custom allowlist path against the same path at the base", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "test-runtime-custom-base-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const run = (command, args, cwd = dir) => {
+    const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return result;
+  };
+  const allowlist = join(dir, "custom", "allowlist.json");
+  const entry = (maxSeconds) => ({ ...empty, tests: [{ file, test: "slow", maxSeconds, reason: "measured slow test" }] });
+  run("git", ["init", "--quiet", "--initial-branch=main"]);
+  run("mkdir", ["custom"]);
+  writeFileSync(allowlist, JSON.stringify(entry(8)));
+  run("git", ["add", "custom/allowlist.json"]);
+  run("git", ["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "base"]);
+  writeFileSync(allowlist, JSON.stringify(entry(9)));
+  const junitFile = join(dir, "junit.xml");
+  writeFileSync(junitFile, junit(testcase("slow", 6)));
+  const cli = fileURLToPath(new URL("../test-runtime.mjs", import.meta.url));
+  const env = { ...process.env, BASE_REF: "main" };
+  for (const [cwd, allowlistArg] of [[dir, allowlist], [join(dir, "custom"), "allowlist.json"]]) {
+    const result = spawnSync(process.execPath, [cli, "--junit", junitFile, "--allowlist", allowlistArg], { cwd, encoding: "utf8", env });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout, /Raised tests allowlist ceiling: client\/example\.test\.ts > slow \(8 s → 9 s\)/);
+    assert.doesNotMatch(result.stdout, /Added tests allowlist entry|Base allowlist unavailable/);
+  }
+});
+
+test("CLI keeps the selected allowlist path when the working tree replaces it with a symlink", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "test-runtime-symlink-base-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const allowlist = join(dir, "custom", "allowlist.json");
+  const entry = (maxSeconds) => ({ ...empty, tests: [{ file, test: "slow", maxSeconds, reason: "measured slow test" }] });
+  const git = (args) => {
+    const result = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  };
+  git(["init", "--quiet", "--initial-branch=main"]);
+  mkdirSync(join(dir, "custom"));
+  writeFileSync(allowlist, JSON.stringify(entry(8)));
+  git(["add", "custom/allowlist.json"]);
+  git(["-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "base"]);
+  writeFileSync(join(dir, "custom", "target.json"), JSON.stringify(entry(9)));
+  rmSync(allowlist);
+  symlinkSync("target.json", allowlist);
+  const junitFile = join(dir, "junit.xml");
+  writeFileSync(junitFile, junit(testcase("slow", 6)));
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../test-runtime.mjs", import.meta.url)), "--junit", junitFile, "--allowlist", "custom/allowlist.json"], { cwd: dir, encoding: "utf8", env: { ...process.env, BASE_REF: "main" } });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Raised tests allowlist ceiling: client\/example\.test\.ts > slow \(8 s → 9 s\)/);
+  assert.doesNotMatch(result.stdout, /Added tests allowlist entry|Base allowlist unavailable/);
 });
