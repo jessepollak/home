@@ -36,6 +36,7 @@ import {
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { mutationOptions } from "@tanstack/react-query";
 import { ownerMutation } from "@/client/query/mutation-options";
@@ -261,7 +262,7 @@ export function FundingOrderFlow({
       ) {
         queryClient.setQueryData(
           ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
-          { order: next },
+          { version: FUNDING_OPEN_ORDER_VERSION, order: next },
         );
       }
     } catch (orderError) {

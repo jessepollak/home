@@ -53,6 +53,16 @@ function pendingSavings(operation: "deposit" | "withdraw") {
 }
 
 describe("pending action response parser", () => {
+  test("resumes a card allowance without a money amount and rejects missing metadata", () => {
+    const pending = pendingSavings("deposit");
+    const metadata = { product: "card", operation: "revoke-allowance", provider: "bridge", mode: "sandbox",
+      token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+      allowanceBaseUnits: "0", previousAllowanceBaseUnits: "25000000", maximumBaseUnits: null, source: { blockNumber: "100" } };
+    const card = { ...pending, kind: "card-allowance", summary: { ...pending.summary, amounts: [], metadata } };
+    expect(parsePendingActionResponse(card, ID, session)).toMatchObject({ kind: "card-allowance", amounts: [], metadata });
+    expect(parsePendingActionResponse({ ...card, summary: { ...card.summary, metadata: undefined } }, ID, session)).toBeNull();
+    expect(parsePendingActionResponse({ ...card, kind: "send" }, ID, session)).toBeNull();
+  });
   test("preserves optional cash-out deposit payee hash on reload", () => {
     const value = pendingSavings("deposit");
     const metadata = {

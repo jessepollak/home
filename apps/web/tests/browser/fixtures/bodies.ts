@@ -13,6 +13,7 @@ import {
   policyMaximumDebtAssets,
 } from "../../../shared/morpho-markets/math";
 import { BORROW_HEALTH_FLOOR_WAD } from "../../../shared/borrowing/config";
+import { FUNDING_PROVIDERS_VERSION } from "../../../shared/funding/contracts/providers";
 import { CARDS_CONTRACT_VERSION, type CardsResponse, type CardState } from "../../../shared/cards/contract";
 
 import { FIXED_NOW } from "./fixed-time";
@@ -24,7 +25,7 @@ export const sessionBody = {
 };
 
 export const actionsBody = { actions: [] };
-export const fundingProvidersBody = { providers: [] };
+export const fundingProvidersBody = { version: FUNDING_PROVIDERS_VERSION, direction: "onramp" as const, providers: [] };
 export const basenameProfileBody = { profile: null };
 
 export function cardsBody(state: CardState = "active", now = new Date(FIXED_NOW)): CardsResponse {

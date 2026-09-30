@@ -3,9 +3,10 @@ import "@/client/account/dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
-import { getHomeQueryClient } from "@/client/query/query-client";
+import { getHomeQueryClient, publicQueryKey } from "@/client/query/query-client";
+import { formatPresentationDate } from "@/shared/formatting";
 
-const { cleanup, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const { AssetStats, formatStatUsd } = await import("./asset-stats");
 const originalFetch = window.fetch;
 const now = Date.parse("2026-09-25T12:00:00.000Z");
@@ -111,6 +112,39 @@ describe("AssetStats", () => {
     }) as unknown as typeof fetch;
     const view = show(bitcoin);
     await waitFor(() => expect(view.getByRole("group", { name: /low \$80.*high \$120.*current \$120/ })).toBeTruthy());
+  });
+
+  test.each([
+    { name: "both ranges fail with an older daily close", failedRanges: ["1D", "1Y"], dayWarning: 48, yearWarning: 48 },
+    { name: "daily fails while yearly refreshes", failedRanges: ["1D"], dayWarning: 48, yearWarning: 48 },
+    { name: "yearly fails while daily refreshes", failedRanges: ["1Y"], dayWarning: null, yearWarning: 1 },
+  ])("cached closing-price rows retain the earliest failed contributing age when $name", async ({ failedRanges, dayWarning, yearWarning }) => {
+    mockFetch("error");
+    const fixture = window.fetch;
+    let refetching = false;
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      if (!url.pathname.endsWith("/history")) return fixture(input, init);
+      const range = url.searchParams.get("range");
+      const failures: readonly string[] = failedRanges;
+      if (refetching && failures.includes(range ?? "")) return Response.json({ invalid: true }, { status: 502 });
+      return Response.json({ version: 1, provider: "codex", assetId: "cbbtc", range, currency: "USD",
+        fetchedAt: new Date(now - (range === "1D" ? 48 : 1) * 3600000).toISOString(), status: "ready", points: [
+          { time: new Date(now - (range === "1D" ? 23 : 300 * 24) * 3600000).toISOString(), value: "100" },
+          { time: new Date(now - 60000).toISOString(), value: "120" },
+        ] });
+    }) as typeof fetch;
+    const view = show(bitcoin);
+    await waitFor(() => expect(view.getAllByRole("group", { name: /closing-price low/ })).toHaveLength(2));
+    refetching = true;
+    await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", "cbbtc") }); });
+    await waitFor(() => {
+      const [dayRow, yearRow] = view.getAllByRole("group", { name: /closing-price low/ });
+      if (dayWarning === null) expect(dayRow?.querySelector('[role="status"]')).toBeNull();
+      else expect(dayRow?.querySelector('[role="status"]')?.textContent).toContain(`Couldn't refresh history · last updated ${formatPresentationDate(now - dayWarning * 3600000, { regionId: "US", style: "date-time-zone" })}`);
+      expect(yearRow?.querySelector('[role="status"]')?.textContent).toContain(`Couldn't refresh history · last updated ${formatPresentationDate(now - yearWarning * 3600000, { regionId: "US", style: "date-time-zone" })}`);
+    });
+    expect(view.getAllByRole("group", { name: /closing-price low/ })).toHaveLength(2);
   });
 
   test("market tiles use the presentation region", async () => {

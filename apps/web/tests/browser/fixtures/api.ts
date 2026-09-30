@@ -5,6 +5,8 @@ import { FIXED_NOW, installFixedPageDate } from "./fixed-time";
 import { balancesSnapshot } from "./balances";
 import { savingsPrepareFixture } from "../feature-map/savings-fixture";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
+import { FUNDING_OPEN_ORDER_VERSION } from "../../../shared/funding/contracts/open-order";
+import { FUNDING_PROVIDERS_VERSION } from "../../../shared/funding/contracts/providers";
 import {
   actionsBody,
   basenameProfileBody,
@@ -247,14 +249,15 @@ export async function installApiFixtures(
       return json(route, { actions });
     }
     if (path === "/api/funding/providers") {
-      return json(route, url.searchParams.get("region") === "ID" ? {
+      return json(route, url.searchParams.get("region") === "ID" && url.searchParams.get("direction") !== "offramp" ? {
+        version: FUNDING_PROVIDERS_VERSION, direction: "onramp",
         providers: [{
-          providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx",
+          direction: "onramp", providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx",
           assetSymbol: "IDRX", assetDecimals: 2, currency: "IDR",
           paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }],
-          quotes: false, kyc: null,
+          quotes: false, customerSetup: null,
         }],
-      } : fundingProvidersBody);
+      } : url.searchParams.get("direction") === "offramp" ? { ...fundingProvidersBody, direction: "offramp" } : fundingProvidersBody);
     }
     if (path === "/api/funding/quotes") {
       return json(route, {
@@ -278,7 +281,7 @@ export async function installApiFixtures(
         },
       });
     }
-    if (path === "/api/funding/orders" && request.method() === "GET") return json(route, { order: null });
+    if (path === "/api/funding/orders" && request.method() === "GET") return json(route, { version: FUNDING_OPEN_ORDER_VERSION, order: null });
     if (path === `/api/funding/orders/${ACTION_ID}`) {
       fundingStatusReads += 1;
       return json(route, {

@@ -65,6 +65,7 @@ describe("recent actions recovery", () => {
   test("separates first load, healthy, recently loaded, and sustained failure states", () => {
     const base = { hasData: false, isPending: false, isError: false, dataUpdatedAt: 0, errorUpdatedAt: 0 };
     expect(recentActionsStatus({ ...base, isPending: true })).toBe("loading");
+    expect(recentActionsStatus(base)).toBe("ready");
     expect(recentActionsStatus({ ...base, hasData: true, dataUpdatedAt: 1_000 })).toBe("ready");
     expect(recentActionsStatus({ ...base, isError: true, errorUpdatedAt: 1_000 })).toBe("error");
     expect(recentActionsStatus({

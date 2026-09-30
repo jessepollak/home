@@ -7,24 +7,27 @@ import type { BridgeCustomer } from "./bridge/client";
 import type { StripeCard } from "./stripe/client";
 
 type Dependencies = {
-  store: { read(customerId: string, mode: CardMode): Promise<CardAccountLink | null> };
-  bridge: { readCustomer(id: string): Promise<BridgeCustomer> };
+  store: { read(customerId: string, mode: CardMode, signal?: AbortSignal): Promise<CardAccountLink | null> };
+  bridge: { readCustomer(id: string, signal?: AbortSignal): Promise<BridgeCustomer> };
   stripe: {
-    readCardholder(id: string): Promise<{ id: string; status: "active" | "inactive" | "blocked" }>;
-    readCard(id: string): Promise<StripeCard>;
+    readCardholder(id: string, signal?: AbortSignal): Promise<{ id: string; status: "active" | "inactive" | "blocked" }>;
+    readCard(id: string, signal?: AbortSignal): Promise<StripeCard>;
   };
   now?: () => Date;
 };
 
-export async function readCardState(customerId: string, mode: CardMode, dependencies: Dependencies): Promise<CardsResponse> {
+export async function readCardState(customerId: string, mode: CardMode, dependencies: Dependencies, signal?: AbortSignal): Promise<CardsResponse> {
   const fetchedAt = (dependencies.now?.() ?? new Date()).toISOString();
-  const account = await dependencies.store.read(customerId, mode);
+  signal?.throwIfAborted();
+  const account = await dependencies.store.read(customerId, mode, signal);
+  signal?.throwIfAborted();
   const reply = (state: CardState, bridge: CardsResponse["provenance"]["bridge"],
     stripe: CardsResponse["provenance"]["stripe"], cards: CardsResponse["cards"] = []): CardsResponse =>
     ({ version: CARDS_CONTRACT_VERSION, state, cards, provenance: { bridge, stripe, fetchedAt } });
   if (!account) return reply("not-enrolled", "not-requested", "not-requested");
   if (!account.bridgeCustomerId) return reply(account.cards.length ? "unavailable" : "verification-required", "not-requested", "not-requested");
-  const bridgeRead = await Promise.allSettled([dependencies.bridge.readCustomer(account.bridgeCustomerId)]);
+  const bridgeRead = await Promise.allSettled([dependencies.bridge.readCustomer(account.bridgeCustomerId, signal)]);
+  signal?.throwIfAborted();
   const bridgeResult = bridgeRead[0];
   const customer = bridgeResult.status === "fulfilled" ? bridgeResult.value : null;
   const bridge = customer ? "available" : "unavailable";
@@ -33,9 +36,10 @@ export async function readCardState(customerId: string, mode: CardMode, dependen
     return reply("unavailable", bridge, "not-requested");
   if (!cardholderId && account.cards.length) return reply("unavailable", bridge, "not-requested");
   const reads = await Promise.allSettled([
-    ...(cardholderId ? [dependencies.stripe.readCardholder(cardholderId)] : []),
-    ...account.cards.map((card) => dependencies.stripe.readCard(card.stripeCardId)),
+    ...(cardholderId ? [dependencies.stripe.readCardholder(cardholderId, signal)] : []),
+    ...account.cards.map((card) => dependencies.stripe.readCard(card.stripeCardId, signal)),
   ]);
+  signal?.throwIfAborted();
   const stripe = reads.length === 0 ? "not-requested" : reads.every((result) => result.status === "fulfilled") ? "available" : "unavailable";
   const holder = cardholderId && reads[0]?.status === "fulfilled" ? reads[0].value as { id: string; status: "active" | "inactive" | "blocked" } : null;
   const stripeCards = reads.slice(cardholderId ? 1 : 0).filter((result): result is PromiseFulfilledResult<StripeCard> => result.status === "fulfilled")

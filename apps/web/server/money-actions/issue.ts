@@ -6,7 +6,9 @@ import { encodeFunctionData, erc20Abi, hashTypedData } from "viem";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { decodeMoneyActionApproval } from "@/shared/money-actions/approval";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
-import type { CashoutMoneyActionMetadata, MoneyActionNetworkFee } from "@/shared/money-actions/types";
+import type { CardAllowanceMoneyActionMetadata, CashoutMoneyActionMetadata, MoneyActionNetworkFee } from "@/shared/money-actions/types";
+import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
+import { readCardAllowanceRegistry, readCardSpenderBlocklist, type CardAllowanceRegistry } from "@/server/cards/allowance/config";
 import {
   isActionKind,
   type MoneyActionAmount,
@@ -117,7 +119,8 @@ function normalizeDraft(draft: MoneyActionDraft, owner: `0x${string}`): MoneyAct
     draft.calls.length < 1 ||
     draft.calls.length > 8 ||
     !Array.isArray(draft.amounts) ||
-    draft.amounts.length < 1 ||
+    (draft.kind !== "card-allowance" && draft.amounts.length < 1) ||
+    (draft.kind === "card-allowance" && draft.amounts.length !== 0) ||
     draft.amounts.length > 16 ||
     !Array.isArray(draft.warnings) ||
     draft.warnings.length > 12 ||
@@ -151,9 +154,11 @@ function normalizeDraft(draft: MoneyActionDraft, owner: `0x${string}`): MoneyAct
   const metadata = draft.metadata === undefined
     ? undefined
     : normalizeMetadata(draft.metadata, draft.kind);
+  if ((draft.kind === "card-allowance") !== (metadata?.product === "card")) throw new MoneyActionIssueError("invalid-draft");
   const signing = draft.signing === undefined ? undefined : metadata?.product === "trade" ? parseTradeSigning(draft.signing, metadata, owner) : null;
   if ((draft.kind === "trade") !== Boolean(signing) || (draft.signing !== undefined && !signing)) throw new MoneyActionIssueError("invalid-draft");
-  assertExactApprovalCaps(calls, amounts, networkFee ?? undefined, metadata?.product === "trade" ? metadata : undefined);
+  if (metadata?.product === "card") assertCardAllowanceDraft(calls, amounts, metadata, networkFee ?? undefined, readAllowanceRegistry());
+  else assertExactApprovalCaps(calls, amounts, networkFee ?? undefined, metadata?.product === "trade" ? metadata : undefined, readCardSpenderBlocklist());
   if (metadata?.product === "trade") assertTradeDraft(calls, amounts, metadata, networkFee?.payment === "usdc", owner);
   return {
     kind: draft.kind,
@@ -180,6 +185,11 @@ function normalizeMetadata(
   value: MoneyActionMetadata,
   kind: MoneyActionDraft["kind"],
 ): MoneyActionMetadata {
+  if (value?.product === "card") {
+    const metadata = parseCardAllowanceMetadata(value);
+    if (kind !== "card-allowance" || !metadata) throw new MoneyActionIssueError("invalid-draft");
+    return metadata;
+  }
   if (value?.product === "cashout") {
     if (
       (value.operation !== "deposit" && value.operation !== "withdraw") ||
@@ -446,11 +456,38 @@ function assertTradeDraft(calls: MoneyActionCall[], amounts: MoneyActionAmount[]
     : approvals.length !== 0) throw new MoneyActionIssueError("invalid-draft");
 }
 
+function readAllowanceRegistry(): CardAllowanceRegistry | null {
+  try { return readCardAllowanceRegistry(); }
+  catch { throw new MoneyActionIssueError("invalid-draft"); }
+}
+
+
+function assertCardAllowanceDraft(
+  calls: MoneyActionCall[], amounts: MoneyActionAmount[], metadata: CardAllowanceMoneyActionMetadata,
+  networkFee: MoneyActionNetworkFee | undefined, registry: CardAllowanceRegistry | null,
+): void {
+  const set = metadata.operation === "set-allowance";
+  const spender = metadata.spender;
+  if (!registry || amounts.length !== 0 ||
+    (set ? registry.bridge.mode !== "production" || spender !== registry.current ||
+      metadata.maximumBaseUnits !== registry.maximumBaseUnits
+      : spender !== registry.current && !registry.retired.includes(spender))) throw new MoneyActionIssueError("invalid-draft");
+  const callIndex = networkFee?.payment === "usdc" ? 1 : 0;
+  const call = calls[callIndex];
+  const expected = encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, BigInt(metadata.allowanceBaseUnits)] }).toLowerCase();
+  if (calls.length !== callIndex + 1 || !call || call.to !== BASE_USDC_ADDRESS.toLowerCase() ||
+    metadata.token !== BASE_USDC_ADDRESS.toLowerCase() || call.data !== expected || call.value !== "0" ||
+    call.approval?.assetId !== "usdc" || call.approval.spender !== spender ||
+    decodeMoneyActionApproval(call)?.spender !== spender) throw new MoneyActionIssueError("invalid-draft");
+  if (callIndex === 1) assertExactApprovalCaps(calls.slice(0, 1), amounts, networkFee, undefined, readCardSpenderBlocklist());
+}
+
 function assertExactApprovalCaps(
   calls: MoneyActionCall[],
   amounts: MoneyActionAmount[],
   networkFee?: MoneyActionNetworkFee,
   trade?: TradeMoneyActionMetadata,
+  blockedSpenders: ReadonlySet<`0x${string}`> = new Set(),
 ): void {
   for (const [index, call] of calls.entries()) {
     if (!call.data.startsWith("0x095ea7b3")) {
@@ -465,6 +502,7 @@ function assertExactApprovalCaps(
     ) {
       throw new MoneyActionIssueError("invalid-draft");
     }
+    if (blockedSpenders.has(approval.spender)) throw new MoneyActionIssueError("invalid-draft");
     if (approval.token === BASE_USDC_ADDRESS.toLowerCase() && approval.spender === BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() && (index !== 0 || networkFee?.payment !== "usdc")) throw new MoneyActionIssueError("invalid-draft");
     if (approval.amountBaseUnits === "0") {
       const next = calls[index + 1];
