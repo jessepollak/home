@@ -25,6 +25,7 @@ export function AccountProviderForRoute({
   baseAccountEnabled?: boolean;
   smokeFixture?: boolean;
   renderSeed?: AccountRenderSeed | null;
+  hideWhileLoading?: boolean;
   children: ReactNode;
 }) {
   if (isAccessRoute(pathname)) {
@@ -45,6 +46,7 @@ export function AccountRouteProvider({
   baseAccountEnabled?: boolean;
   smokeFixture?: boolean;
   renderSeed?: AccountRenderSeed | null;
+  hideWhileLoading?: boolean;
   children: ReactNode;
 }) {
   return (

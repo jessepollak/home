@@ -9,6 +9,7 @@ export type PullToRefreshPhase = "idle" | "pulling" | "armed" | "refreshing" | "
 
 type PullToRefreshOptions = {
   scrollRef: RefObject<HTMLElement | null>;
+  scrollElement?: "document";
   contentRef: RefObject<HTMLElement | null>;
   enabled: boolean;
   refreshing: boolean;
@@ -31,7 +32,7 @@ function blockedTarget(target: EventTarget | null, owner: HTMLElement): boolean 
   return false;
 }
 
-export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, onRefresh, threshold = 68, maxPull = 120 }: PullToRefreshOptions): { phase: PullToRefreshPhase; indicatorRef: RefObject<HTMLDivElement | null>; actionRef: RefObject<HTMLButtonElement | null> } {
+export function usePullToRefresh({ scrollRef, scrollElement, contentRef, enabled, refreshing, onRefresh, threshold = 68, maxPull = 120 }: PullToRefreshOptions): { phase: PullToRefreshPhase; indicatorRef: RefObject<HTMLDivElement | null>; actionRef: RefObject<HTMLButtonElement | null> } {
   const indicatorRef = useRef<HTMLDivElement>(null);
   const actionRef = useRef<HTMLButtonElement>(null);
   const [phase, setPhase] = useState<PullToRefreshPhase>("idle");
@@ -51,7 +52,7 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
   });
 
   useEffect(() => {
-    const scroll = scrollRef.current;
+    const scroll = scrollElement === "document" ? document.documentElement : scrollRef.current;
     const content = contentRef.current;
     const indicator = indicatorRef.current;
     const action = actionRef.current;
@@ -226,7 +227,7 @@ export function usePullToRefresh({ scrollRef, contentRef, enabled, refreshing, o
       transitionsRef.current = null;
       reset();
     };
-  }, [scrollRef, contentRef, enabled]);
+  }, [scrollRef, scrollElement, contentRef, enabled]);
 
   useEffect(() => {
     if (enabled && transitionsRef.current) {

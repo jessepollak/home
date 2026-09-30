@@ -195,9 +195,7 @@ export function InvestExperience({
   useLayoutEffect(() => {
     if (displayView.screen === "hub") {
       const scrollTop = historySearchState().scrollTop;
-      const host = hostRef.current?.closest("[data-app-main-authenticated]");
-      if (host instanceof HTMLElement) host.scrollTop = scrollTop;
-      else window.scrollTo(0, scrollTop);
+      window.scrollTo(0, scrollTop);
     } else resetHostScroll(hostRef.current);
   }, [currentViewKey, displayView.screen]);
 
@@ -232,8 +230,7 @@ export function InvestExperience({
   }, [appliedRootRevision, rootPanel]);
 
   const go = useCallback((next: InvestView) => {
-    const host = hostRef.current?.closest("[data-app-main-authenticated]");
-    const scrollTop = host instanceof HTMLElement ? host.scrollTop : window.scrollY;
+    const scrollTop = window.scrollY;
     window.history.replaceState({ ...window.history.state, [searchQueryKey]: query, [searchScrollKey]: scrollTop }, "");
     setView(next);
     setInAppChildDepth((depth) => depth + 1);

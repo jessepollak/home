@@ -6,8 +6,6 @@ import { FundingProviderConfigurationError } from "@/server/funding/core/provide
 import { emitServerEvent } from "@/server/observability/log";
 import { readJson } from "@/shared/http/read-json";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
   const authorized = await authorizeFundingRequest(request, authorizeFundingSession);

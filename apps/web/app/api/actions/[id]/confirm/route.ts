@@ -4,8 +4,6 @@ import { createConfirmActionHandler } from "@/server/actions/handler";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
 import { getBalanceWebhookSubscriptions } from "@/server/balances/webhook-subscriptions";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export const POST = createConfirmActionHandler({
   authorize: authorizeSession,

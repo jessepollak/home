@@ -25,6 +25,8 @@ async function readFeeSettings(): Promise<FeeSettingsState | null> {
   }
 }
 
+export const instant = false;
+
 export default async function SettingsPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);

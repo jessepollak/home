@@ -59,7 +59,7 @@ JSON reads at application boundaries use `readJson` from `apps/web/shared/http/r
 
 The production assignment/return override enforces this `unknown` seam: raw JSON may be held as `unknown`, but assigning or returning `any` as a trusted value fails lint. After `Array.isArray`, use an `unknown[]` local before destructuring, finding, mapping, or spreading boundary entries, then reuse the owning parser or existing field guards.
 
-Home history flags are read through `readClientHistoryFlag` from `apps/web/config/shell-location.ts`, which validates the `any`-typed `history.state` and returns a boolean for the closed set of known flag keys, so call sites never touch `history.state` directly; writes keep their existing keys.
+Home history flags are read through `readClientHistoryFlag` from `apps/web/config/shell-location.ts`, which validates the `any`-typed `history.state` and returns a boolean for the closed set of known flag keys, so call sites never touch `history.state` directly; writes keep their existing keys. The shell's in-app origin marker is read and written through `readShellHistoryOrigin` and `writeShellHistoryOrigin` in the same module.
 
 ### Focused follow-up coverage (issue #677)
 

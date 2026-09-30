@@ -305,7 +305,7 @@ test("mobile capsule floats above the browser-tab bottom while keeping content c
   await expect.poll(async () => navigation.evaluate((nav) =>
     Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(12);
   const main = page.locator("[data-app-main-authenticated]");
-  await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(async () => main.evaluate((element) => {
     const lastContent = element.lastElementChild;
     const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');

@@ -1,7 +1,6 @@
 import path from "node:path";
 
 const fullPresenters = new Set(["presentBalances"]);
-const listOwner = "client/home/balances-panel.tsx";
 
 function filenameWithinWeb(filename) {
   const normalized = String(filename ?? "").replaceAll("\\", "/");
@@ -41,7 +40,7 @@ function isPresenter(source, filename) {
 export const noFullPortfolioPresentation = {
   meta: {
     type: "problem", schema: [],
-    messages: { rejected: "Full portfolio presenters belong only to the active Balances list. Use named summary, cash or visible-row presenters; see docs/investments-performance.md." },
+    messages: { rejected: "Full portfolio presenters are not used by production surfaces; use the named summary, cash or visible-row presenters; see docs/investments-performance.md." },
   },
   create(context) {
     const filename = filenameWithinWeb(context.filename);
@@ -54,7 +53,7 @@ export const noFullPortfolioPresentation = {
           if (!["ImportSpecifier", "ExportSpecifier"].includes(specifier.type)) return false;
           const name = specifier.imported?.name ?? specifier.imported?.value ?? specifier.local?.name ?? specifier.local?.value;
           if (name === "default") return false;
-          return !fullPresenters.has(name) || node.type === "ImportDeclaration" && filename === listOwner;
+          return !fullPresenters.has(name);
         });
         if (allowed) return;
       }

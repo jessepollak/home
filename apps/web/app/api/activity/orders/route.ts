@@ -3,8 +3,6 @@ import { authorizeSession } from "@/server/auth/authorize";
 import { getActionsStore } from "@/server/actions/store";
 import { getFundingCore } from "@/server/funding/core/runtime";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const maxDuration = 15;
 
 export const GET = createActivityOrdersHandler({

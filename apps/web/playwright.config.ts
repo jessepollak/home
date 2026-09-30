@@ -97,7 +97,9 @@ export default defineConfig({
   // every attempt; a pass only on retry fails CI. Failed attempts keep trace + video.
   ...browserSmokeCiPolicy(Boolean(process.env.CI)),
   webServer: {
-    command: `bun run dev -- --port ${fixturePort}`,
+    ...(process.env.HOME_PLAYWRIGHT_PRODUCTION === "1"
+      ? { command: `bunx next build && bunx next start --hostname 127.0.0.1 --port ${fixturePort}`, timeout: 900_000 }
+      : { command: `bun run dev -- --port ${fixturePort}` }),
     url: fixtureBaseUrl,
     reuseExistingServer: false,
     env: {

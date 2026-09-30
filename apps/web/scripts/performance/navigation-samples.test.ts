@@ -69,7 +69,7 @@ test("reaps only the exact PID with its original browser profile", () => {
   expect(signaled).toEqual([42]);
 });
 test("requires complete, finite fling results with the requested repeat count", () => {
-  const row = { p95: 20, over33: 5, droppedPct: 2, blockingMs: 1, maxRows: 300, settledRows: 300, historyWrites: 1, frames: 3 };
+  const row = { p95: 20, over33: 5, droppedPct: 2, blockingMs: 1, maxRows: 300, settledRows: 300, historyWrites: 1, frames: 3, scrollHost: "document" };
   const valid = { flings: [row, row, row], timing: { p95: 20, over33: 5, droppedPct: 2, blockingMs: 1 }, browserVersion: "140" };
   expect(isFlingResult(valid, 3)).toBe(true);
   expect(isFlingResult({ ...valid, flings: [row, row] }, 3)).toBe(false);
@@ -85,6 +85,8 @@ test("requires complete, finite fling results with the requested repeat count", 
   expect(isFlingResult({ ...valid, timing: { ...valid.timing, blockingMs: NaN } }, 3)).toBe(false);
   expect(isFlingResult({ ...valid, timing: undefined }, 3)).toBe(false);
   expect(isFlingResult({ ...valid, browserVersion: "" }, 3)).toBe(false);
+  expect(isFlingResult({ ...valid, flings: [row, { ...row, scrollHost: "other" }, row] }, 3)).toBe(false);
+  expect(isFlingResult({ ...valid, flings: [row, { ...row, scrollHost: undefined }, row] }, 3)).toBe(false);
   expect(isFlingResult(undefined, 3)).toBe(false);
   for (const key of ["maxRows", "settledRows", "historyWrites"] as const) {
     const missing = { ...row };
@@ -123,12 +125,13 @@ test("patches exactly one navigation recorder cap guard and rejects drift", () =
   expect(() => patchNavigationCap(guard)).toThrow();
 });
 
-test("parses only valid navigation reports and rejects wrong routes or non-retained samples", () => {
+test("parses only valid navigation reports and rejects wrong routes or non-desktop samples", () => {
   expect(parseNavigationReport(report)).toEqual(report);
   expect(parseNavigationReport({ version: 1, kind: "home-scroll", route: "/cash", cache: "retained", device: "desktop-high", durationMs: 50, frameCount: 3, slowFrameCount: 1, maxFrameMs: 20 })).toBeNull();
   expect(() => parseNavigationReport({ ...report, durationMs: "bad" })).toThrow();
   expect(validateNavigationSample(report, { route: "/cash", from: "/home", trigger: "in-app" })).toEqual(report);
-  expect(() => validateNavigationSample({ ...report, cache: "first-visit" }, { route: "/cash", from: "/home", trigger: "in-app" })).toThrow();
+  expect(validateNavigationSample({ ...report, cache: "first-visit" }, { route: "/cash", from: "/home", trigger: "in-app" })).toEqual({ ...report, cache: "first-visit" });
+  expect(() => validateNavigationSample({ ...report, device: "mobile-high" }, { route: "/cash", from: "/home", trigger: "in-app" })).toThrow();
   expect(() => validateNavigationSample(report, { route: "/invest", from: "/home", trigger: "in-app" })).toThrow();
   expect(() => validateNavigationSample(report, { route: "/cash", from: "/invest", trigger: "in-app" })).toThrow();
   expect(() => validateNavigationSample(report, { route: "/cash", from: "/home", trigger: "history" })).toThrow();
@@ -157,7 +160,7 @@ test("pools p95 across sessions, separates history return from back-to, and comp
   expect(baselineDeltas(summary, baseline)["home-cash"]).toEqual({ baseline: 60, current: 70, delta: 10 });
   const currentFling = { timing: { p95: 27.199999999999818, over33: 5.56789, droppedPct: 1.2345, blockingMs: 2.66666 } };
   const baselineFling = { timing: { p95: 20, over33: 3, droppedPct: 2, blockingMs: 4 } };
-  const current = { version: 1, summary, fling: currentFling, environment: { appSha: "new", headless: true, webkit: "26", chromium: "140", platform: "darwin", cpu: "test cpu", cores: 16 },
+  const current = { version: 1, summary, fling: currentFling, environment: { appSha: "new", headless: true, webkit: "26", chromium: "140", platform: "darwin", cpu: "test cpu", cores: 16, fixtureClock: "system" },
     options: { skipBuild: false, rows: 300, flingRepeat: 3, headed: false, smoke: false }, label: "test" };
   const previous = { version: 1, summary: baseline, fling: baselineFling, environment: { ...current.environment, appSha: "old" }, options: current.options, label: "baseline" };
   expect(baselineMismatches(current, previous)).toEqual([]);
@@ -192,7 +195,7 @@ test("pools p95 across sessions, separates history return from back-to, and comp
 });
 
 const comparison = { version: 1, summary: summarizeNavigation(samples), fling: { timing: { p95: 27, over33: 4, droppedPct: 2, blockingMs: 1 } },
-  environment: { appSha: "new", headless: true, webkit: "26", chromium: "140", platform: "darwin", cpu: "test cpu", cores: 16 },
+  environment: { appSha: "new", headless: true, webkit: "26", chromium: "140", platform: "darwin", cpu: "test cpu", cores: 16, fixtureClock: "system" },
   options: { skipBuild: false, rows: 300, flingRepeat: 3, headed: false, smoke: false, sessions: 2, roundTrips: 10 }, label: "current" };
 
 test("matching baseline config permits comparison despite checkout, label, and sample-count differences", () => {
@@ -201,6 +204,30 @@ test("matching baseline config permits comparison despite checkout, label, and s
   expect(baselineMismatches(comparison, baseline)).toEqual([]);
   expect(navigationMarkdown(comparison, baseline)).toContain("| Group | Baseline p95 ms | Run p95 ms | Δ ms |");
   expect(navigationMarkdown(comparison, baseline)).not.toContain("Comparison suppressed");
+});
+
+test("fixture clock mode suppresses legacy, fixed-clock, and unknown baseline comparisons", () => {
+  const { fixtureClock: _clock, ...legacyEnvironment } = comparison.environment;
+  for (const [environment, reason] of [
+    [legacyEnvironment, "environment.fixtureClock: missing in baseline"],
+    [{ ...comparison.environment, fixtureClock: "date" }, "environment.fixtureClock"],
+    [{ ...comparison.environment, fixtureClock: "playwright" }, "environment.fixtureClock"],
+    [{ ...comparison.environment, fixtureClock: "unknown" }, "environment.fixtureClock: unknown in baseline"],
+  ] as const) {
+    const baseline = { ...comparison, environment };
+    expect(baselineMismatches(comparison, baseline)).toEqual([reason]);
+    const markdown = navigationMarkdown(comparison, baseline);
+    expect(markdown).toContain(`Comparison suppressed because configurations differ or baseline data is missing (${reason})`);
+    expect(markdown).not.toContain("| Group | Baseline p95 ms");
+    expect(markdown).not.toContain("| Fling median | Baseline");
+  }
+  expect(baselineMismatches(comparison, { ...comparison, environment: { ...comparison.environment, fixtureClock: "system" } })).toEqual([]);
+  const fixed = { ...comparison, environment: { ...comparison.environment, fixtureClock: "date" } };
+  expect(navigationMarkdown(fixed, fixed)).toContain("| Group | Baseline p95 ms | Run p95 ms | Δ ms |");
+  expect(baselineMismatches(fixed, fixed)).toEqual([]);
+  expect(baselineMismatches({ ...comparison, environment: { ...comparison.environment, fixtureClock: "unknown" } }, comparison)).toEqual(["environment.fixtureClock: unknown in current run"]);
+  expect(baselineMismatches(comparison, { ...comparison, environment: { ...comparison.environment, fixtureClock: "unknown" } })).toEqual(["environment.fixtureClock: unknown in baseline"]);
+  expect(baselineMismatches({ ...comparison, environment: legacyEnvironment }, comparison)).toEqual(["environment.fixtureClock: missing in current run"]);
 });
 
 test("skip-build on either side suppresses deltas, while two verified builds compare", () => {
@@ -342,14 +369,15 @@ test("compacts 5×10 navigation sessions with ordered legs, rounded intervals an
   }));
   const timing = { p95: 27.199999999999818, over33: 1.56789, droppedPct: 16.129032258, blockingMs: 0, detailOpen: 0 };
   const fling = { flings: Array.from({ length: 3 }, () => ({ p95: 27.199999999999818, over33: 1.56789, droppedPct: 16.129032258, blockingMs: 0,
-    maxRows: 30, settledRows: 21, historyWrites: 2, frames: 259 })), timing };
+    maxRows: 30, settledRows: 21, historyWrites: 2, frames: 259, scrollHost: "document" as const })), timing };
   const full = { version: 1, label: "test", startedAt: "2026-01-01T00:00:00Z", options: { sessions: 5, roundTrips: 10, skipBuild: false, rows: 300, flingRepeat: 3, headed: false, smoke: false },
-    environment: { appSha: "sha", webkit: "version", chromium: "version", headless: true, platform: "darwin", cpu: "test cpu", cores: 16 },
+    environment: { appSha: "sha", webkit: "version", chromium: "version", headless: true, platform: "darwin", cpu: "test cpu", cores: 16, fixtureClock: "system" },
     capPatched: true, summary: summarizeNavigation(sessions.flatMap((session) => session.samples)),
     sessions, fling };
   const compact = compactNavigationBaseline(full);
   expect(Object.keys(compact)).toEqual(["version", "label", "startedAt", "options", "environment", "capPatched", "summary", "sessions", "fling"]);
   expect(compact.options).toBe(full.options);
+  expect(compact.environment.fixtureClock).toBe("system");
   expect(compact.summary).toBe(full.summary);
   expect(Object.keys(compact.sessions[0]!)).toEqual(["session", "device", "rafIntervals", "durations"]);
   expect(compact.sessions[0]!.device).toBe("desktop-high");
@@ -363,7 +391,7 @@ test("compacts 5×10 navigation sessions with ordered legs, rounded intervals an
     "back:return": [51, 52, 53, 54, 55, 56, 57, 58, 59, 60],
   });
   expect(compact.fling.flings[0]).toEqual({ p95: 27.2, over33: 1.57, droppedPct: 16.13, blockingMs: 0,
-    maxRows: 30, settledRows: 21, historyWrites: 2, frames: 259 });
+    maxRows: 30, settledRows: 21, historyWrites: 2, frames: 259, scrollHost: "document" });
   expect(compact.fling.timing).toBe(timing);
   expect(JSON.stringify(compact, null, 2).length).toBeLessThan(30_000);
   const comparison = { version: 1, summary: full.summary, fling, environment: full.environment, options: full.options, label: full.label };
@@ -371,6 +399,15 @@ test("compacts 5×10 navigation sessions with ordered legs, rounded intervals an
   expect(navigationMarkdown(comparison, full)).toContain("| p95 ms | 27.2 | 27.2 | 0 |");
   const previousResults = { ...full, baselineComparable: false, baselineMismatches: ["options.rows"], baselineNote: "old run" };
   expect(baselineMismatches(comparison, previousResults)).toEqual([]);
+  const mainScroll = { ...comparison, fling: { ...fling, flings: fling.flings.map((row) => ({ ...row, scrollHost: "main" as const })) } };
+  expect(baselineMismatches(comparison, mainScroll)).toContain("fling.scrollHost");
+  expect(baselineMismatches(comparison, { ...comparison, fling: { ...fling, flings: fling.flings.map(({ scrollHost: _host, ...row }) => row) } }))
+    .toContain("fling.scrollHost: missing or mixed in baseline");
+  expect(baselineMismatches(comparison, { ...mainScroll, fling: { ...fling, flings: [...fling.flings.slice(0, 1), ...mainScroll.fling.flings.slice(1, 2)] } }))
+    .toContain("fling.scrollHost: missing or mixed in baseline");
+  expect(baselineMismatches(mainScroll, { ...comparison, fling: { ...fling, flings: [...fling.flings.slice(0, 1), ...mainScroll.fling.flings.slice(1, 2)] } }))
+    .toContain("fling.scrollHost: missing or mixed in baseline");
+  expect(baselineMismatches(mainScroll, comparison)).toContain("fling.scrollHost");
   expect(navigationMarkdown(comparison, previousResults)).toContain("| Group | Baseline p95 ms");
   expect(sessions[0]!.samples[0]!.roundTrip).toBe(10);
 });

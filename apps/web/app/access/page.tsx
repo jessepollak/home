@@ -7,7 +7,8 @@ import { readAccessConfig } from "@/server/access/config";
 import { readAccessToken } from "@/server/access/token";
 import { ACCESS_COOKIE_NAME, parseSafeAccessDestination } from "@/shared/access/contract";
 
-export const dynamic = "force-dynamic";
+
+export const instant = false;
 
 export default async function AccessPage({
   searchParams,

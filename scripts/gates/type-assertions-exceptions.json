@@ -1,6 +1,12 @@
 {
   "exceptions": [
     {
+      "path": "apps/web/client/home/portfolio-home-experience.tsx",
+      "kind": "suppression",
+      "count": 1,
+      "reason": "The shell invokes this third route-content callback as a function, not a component, exactly like the two neighbouring callbacks that already carry the reviewed inline suppression."
+    },
+    {
       "path": "apps/web/client/savings/savings-journey-step.tsx",
       "kind": "suppression",
       "count": 2,

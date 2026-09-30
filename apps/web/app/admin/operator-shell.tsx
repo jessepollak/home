@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { RailNavItem } from "@/components/ui/rail-nav";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { brand } from "@/config/brand";
 import { operatorNavigation } from "@/config/operator-navigation";
 
@@ -46,6 +47,7 @@ if (typeof window !== "undefined") {
   });
 }
 
+
 export function OperatorIdentity({ address }: { address: `0x${string}` }) {
   const setAddress = useContext(OperatorAddressContext);
 
@@ -56,12 +58,23 @@ export function OperatorIdentity({ address }: { address: `0x${string}` }) {
   return null;
 }
 
+
+function OperatorSectionLoading() {
+  return (
+    <div className="mx-auto grid w-full max-w-5xl gap-8" role="status" aria-label="Loading section">
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-32 w-full" />
+    </div>
+  );
+}
+
 export function OperatorShell({ address, children }: { address: `0x${string}`; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
   const restoring = useRef(historyRestorePending);
   const refreshObserved = useRef(false);
+  const refreshedOnMount = useRef(false);
   const [verifying, setVerifying] = useState(() => historyRestorePending);
   const [currentAddress, setAddress] = useState(address);
   const [lastPropAddress, setLastPropAddress] = useState(address);
@@ -74,6 +87,8 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
   const menuButton = useRef<HTMLButtonElement>(null);
   const previousPath = useRef(pathname);
   const menuNavigationPending = useRef(false);
+  const pendingHeadingFocus = useRef<string | null>(null);
+  const navRefreshing = useRef(false);
   const updateAddress = useCallback((nextAddress: `0x${string}`) => {
     if (!restoring.current) setAddress(nextAddress);
   }, []);
@@ -82,7 +97,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
     const onRestore = () => {
       restoring.current = true;
       setVerifying(true);
-      startRefresh(() => router.refresh());
+      if (window.location.pathname === pathname) startRefresh(() => router.refresh());
     };
     restoreListeners.add(onRestore);
     if (historyRestorePending) {
@@ -90,15 +105,27 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
       onRestore();
     }
     return () => { restoreListeners.delete(onRestore); };
+  }, [pathname, router, startRefresh]);
+  useLayoutEffect(() => {
+    if (refreshedOnMount.current) return;
+    refreshedOnMount.current = true;
+    if (restoring.current) return;
+    if (restoring.current) return;
+    setVerifying(true);
+    startRefresh(() => router.refresh());
   }, [router, startRefresh]);
 
   useEffect(() => {
     if (refreshing) {
       refreshObserved.current = true;
-    } else if (restoring.current && refreshObserved.current) {
-      refreshObserved.current = false;
+      return;
+    }
+    if (!refreshObserved.current) return;
+    refreshObserved.current = false;
+    navRefreshing.current = false;
+    setVerifying(false);
+    if (restoring.current) {
       restoring.current = false;
-      setVerifying(false);
       setAddress(address);
     }
   }, [address, refreshing]);
@@ -111,16 +138,26 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
     return () => media.removeEventListener("change", closeAtDesktop);
   }, [menuOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previousPath.current === pathname) return;
     previousPath.current = pathname;
+    navRefreshing.current = true;
+    setVerifying(true);
+    startRefresh(() => router.refresh());
     const focusTrigger = menuNavigationPending.current;
     menuNavigationPending.current = false;
     const trigger = menuButton.current;
     if (focusTrigger && trigger && trigger.offsetParent !== null) {
       trigger.focus();
+      pendingHeadingFocus.current = null;
       return;
     }
+    pendingHeadingFocus.current = pathname;
+  }, [pathname, router, startRefresh]);
+
+  useEffect(() => {
+    if (verifying || navRefreshing.current || pendingHeadingFocus.current !== pathname) return;
+    pendingHeadingFocus.current = null;
     const content = document.querySelector<HTMLElement>("[data-operator-content]");
     if (!content) return;
     const focusHeading = () => {
@@ -132,7 +169,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
     const observer = new MutationObserver(() => { if (focusHeading()) observer.disconnect(); });
     observer.observe(content, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [pathname]);
+  }, [pathname, verifying]);
 
   const restoreFocusTarget = () => {
     const button = menuButton.current;
@@ -177,7 +214,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
             </div>
           </DrawerContent>
         </Drawer>
-        <main data-operator-content className="min-w-0 flex-1 px-6 py-10 md:px-10">{children}</main>
+        <main data-operator-content className="min-w-0 flex-1 px-6 py-10 md:px-10">{verifying ? <OperatorSectionLoading /> : children}</main>
       </div>
     </OperatorAddressContext.Provider>
   );

@@ -12,7 +12,6 @@ export const SHELL_FLOW_PARAM = "flow";
 export const SHELL_ACTION_PARAM = "action";
 
 export type ShellAccount = "signin" | "settings";
-export type MoneyGroupId = "cash" | "investments";
 export type ShellFlow =
   | "send"
   | "add-money"
@@ -25,7 +24,6 @@ export type ShellLocation = {
   account: ShellAccount | null;
   shelf: string | null;
   asset: string | null;
-  group: MoneyGroupId | null;
   market: BorrowMarketId | null;
   cashView?: "savings" | null;
   holding?: AssetKey | null;
@@ -49,7 +47,6 @@ export type ShellSearchInput = URLSearchParams | Record<
 // never be parsed as asset ids. Kept as literals: `config/` may not import the
 // client discover module that owns the shelf catalog.
 const investCategories = new Set<string>(["stocks", "crypto", "memes"]);
-const moneyGroups = new Set<MoneyGroupId>(["cash", "investments"]);
 const shellFlows = new Set<ShellFlow>([
   "send",
   "add-money",
@@ -110,10 +107,6 @@ function parseAsset(value: string | undefined): string | null {
   return value && resolveMarketPriceAssetIdentity(value) ? value : null;
 }
 
-function parseMoneyGroup(value: string | undefined): MoneyGroupId | null {
-  return value && moneyGroups.has(value as MoneyGroupId) ? value as MoneyGroupId : null;
-}
-
 function parseBorrowMarket(value: string | undefined): BorrowMarketId | null {
   return (value && getBorrowMarketRef(value)?.marketId) || null;
 }
@@ -123,7 +116,7 @@ function parseShellFlow(value: string | undefined): ShellFlow | null {
 }
 
 function emptyLocation(panel: ShellPanelId): ShellLocation {
-  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null, holding: null };
+  return { panel, account: null, shelf: null, asset: null, market: null, cashView: null, holding: null };
 }
 
 /**
@@ -141,9 +134,6 @@ export function parseShellLocation(pathname: string): ShellLocation {
   if (second === undefined) return emptyLocation(first);
   // Reject extra path segments and malformed encodings to the canonical parent.
   if (extra.length > 0 || second === null) return emptyLocation(first);
-  if (first === "balances") {
-    return { ...emptyLocation("balances"), group: parseMoneyGroup(second) };
-  }
   if (first === "borrow") {
     return { ...emptyLocation("borrow"), market: parseBorrowMarket(second) };
   }
@@ -164,8 +154,13 @@ export function parseShellLocation(pathname: string): ShellLocation {
   return emptyLocation(first);
 }
 
+/** @public preserves the tested legacy Save overlay redirect contract. */
 export function legacyShellRedirectHref(pathname: string, search: ShellSearchInput): string | null {
   if (splitPathname(pathname)[0] !== "save") return null;
+  return shellOverlayRedirectHref("/cash/savings", search);
+}
+
+export function shellOverlayRedirectHref(path: string, search: ShellSearchInput): string {
   const overlay = parseShellOverlayIntent(search);
   const params = new URLSearchParams();
   if (overlay.flow) params.set(SHELL_FLOW_PARAM, overlay.flow);
@@ -173,7 +168,7 @@ export function legacyShellRedirectHref(pathname: string, search: ShellSearchInp
   if (overlay.actionId) params.set(SHELL_ACTION_PARAM, overlay.actionId);
   if (overlay.fundingReturn) params.set("return", overlay.fundingReturn);
   if (overlay.addMoney) params.set("add-money", "1");
-  return `/cash/savings${params.size ? `?${params}` : ""}`;
+  return `${path}${params.size ? `?${params}` : ""}`;
 }
 
 function parseHolding(segment: string): AssetKey | null {
@@ -231,7 +226,6 @@ export function parseInboundUrlIntent(
 export function shellHref(location: Partial<ShellLocation> = {}): string {
   const panel = location.panel ?? "home";
   let pathname = `/${panel}`;
-  if (panel === "balances" && location.group) pathname += `/${location.group}`;
   if (panel === "cash" && location.cashView === "savings") pathname += "/savings";
   if (panel === "borrow" && location.market) {
     const configuredMarket = getBorrowMarketRef(location.market);
@@ -314,20 +308,11 @@ export function homeHrefWithOverlays(search: ShellSearchInput): string {
   return query ? `/home?${query}` : "/home";
 }
 
-const SHELL_SCROLL_TOP_STATE_KEY = "__homeShellScrollTop";
-const SHELL_CLIENT_ENTRY_STATE_KEY = "__homeShellClientEntry";
-
-export type ShellHistoryFlag =
-  | "fundingFlowPushed"
-  | "cashSavingsFlowPushed"
-  | "cashSavingsOpenedInApp"
-  | "investmentsHoldingOpenedInApp";
+export type ShellHistoryFlag = "fundingFlowPushed" | "cashSavingsFlowPushed";
 
 const shellHistoryFlagKeys: Record<ShellHistoryFlag, string> = {
   fundingFlowPushed: "__homeFundingFlowPushed",
   cashSavingsFlowPushed: "__cashSavingsFlowPushed",
-  cashSavingsOpenedInApp: "__cashSavingsOpenedInApp",
-  investmentsHoldingOpenedInApp: "__investmentsHoldingOpenedInApp",
 };
 
 export function readClientHistoryFlag(
@@ -337,41 +322,29 @@ export function readClientHistoryFlag(
   return isRecord(state) && state[shellHistoryFlagKeys[flag]] === true;
 }
 
-const beforeClientUrlCommitListeners = new Set<() => void>();
-
-function historyStateWithScrollTop(state: unknown, scrollTop: number): Record<string, unknown> {
-  const current = isRecord(state) ? state : {};
-  return { ...current, [SHELL_SCROLL_TOP_STATE_KEY]: Math.max(0, scrollTop) };
-}
-
-export function readClientScrollTop(state: unknown = window.history.state): number | null {
-  if (!isRecord(state)) return null;
-  const value = state[SHELL_SCROLL_TOP_STATE_KEY];
-  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, value) : null;
-}
-
-export function isClientHistoryEntry(state: unknown = window.history.state): boolean {
-  return isRecord(state) && state[SHELL_CLIENT_ENTRY_STATE_KEY] === true;
-}
-
-export function replaceClientScrollTop(scrollTop: number): void {
-  if (typeof window === "undefined") return;
-  window.history.replaceState(historyStateWithScrollTop(window.history.state, scrollTop), "");
-}
-
-export function subscribeBeforeClientUrlCommit(listener: () => void): () => void {
-  beforeClientUrlCommitListeners.add(listener);
-  return () => beforeClientUrlCommitListeners.delete(listener);
-}
-
-function flushBeforeClientUrlCommit(): void {
-  for (const listener of beforeClientUrlCommitListeners) listener();
-}
-
 export function backClientHistory(): void {
   if (typeof window === "undefined") return;
-  flushBeforeClientUrlCommit();
   window.history.back();
+}
+
+const SHELL_ORIGIN_STATE_KEY = "__homeShellOrigin";
+
+/**
+ * The pathname this history entry was pushed from inside the app. Used to
+ * decide whether the shell Back control can reuse the existing entry instead
+ * of pushing a duplicate parent entry. Read from `history.state`, so it
+ * survives reload, Back and Forward.
+ */
+export function readShellHistoryOrigin(): string | null {
+  if (typeof window === "undefined") return null;
+  const state = window.history.state as Record<string, unknown> | null;
+  const value = state?.[SHELL_ORIGIN_STATE_KEY];
+  return typeof value === "string" && value.startsWith("/") ? value : null;
+}
+
+export function writeShellHistoryOrigin(origin: string): void {
+  if (typeof window === "undefined") return;
+  window.history.replaceState({ ...window.history.state, [SHELL_ORIGIN_STATE_KEY]: origin }, "");
 }
 
 export function commitClientUrl(
@@ -380,15 +353,13 @@ export function commitClientUrl(
   extraState?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
-  flushBeforeClientUrlCommit();
   if (mode === "replace") {
     window.history.replaceState(extraState
       ? { ...window.history.state, ...extraState }
       : window.history.state, "", href);
   } else {
     window.history.pushState({
-      ...historyStateWithScrollTop(window.history.state, 0),
-      [SHELL_CLIENT_ENTRY_STATE_KEY]: true,
+      ...window.history.state,
       ...extraState,
     }, "", href);
   }

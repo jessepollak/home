@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { NextRequest } from "next/server";
 import { INVITE_CODE_ALPHABET, invitePath, isInviteCode, parseInviteLinkResponse } from "@/shared/invites/contract";
 import { issueCdpRenderHint } from "@/server/auth/cdp-render-session";
 import { readRenderSession } from "@/server/auth/render-session";
@@ -165,6 +166,24 @@ describe("invite link API", () => {
     resolve: async () => ({ id: "customer", status, created: false, credentialId: "credential", walletId: null }),
     code: async () => code,
   });
+  test("authorizes a Next route request with the same method, URL and provider headers", async () => {
+    const original = new NextRequest("https://home.test/api/invites/link?source=account", {
+      headers: { cookie: "home-session=invalid", authorization: "Bearer token" },
+    });
+    const handler = createInviteLinkHandler({
+      authorize: async (input) => {
+        expect(input.url).toBe(original.url);
+        expect(input.method).toBe("GET");
+        expect(input.headers.get("cookie")).toBe("home-session=invalid");
+        expect(input.headers.get("authorization")).toBe("Bearer token");
+        expect(input.headers.get("x-home-account-provider")).toBe("base-account");
+        return Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401 });
+      },
+      available: () => true, resolve: async () => null, code: async () => code,
+    });
+    expect((await handler(original)).status).toBe(401);
+  });
+
   test("returns 401, 503, 403 or private versioned link", async () => {
     const unauthorized = createInviteLinkHandler({ authorize: async () => Response.json({ error: { code: "UNAUTHENTICATED" } }, { status: 401 }), available: () => true, resolve: async () => null, code: async () => code });
     expect((await unauthorized(request())).status).toBe(401);

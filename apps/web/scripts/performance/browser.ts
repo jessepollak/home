@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "../../tests/browser/fixtures/api";
 import { cpuThrottle, type GateId } from "./config";
+import { installPerformanceFixtures } from "./fixtures";
 
 export type CpuRate = { requested: number; applied: number };
 export type Session = { page: Page; context: BrowserContext; cdp: CDPSession; cpu: CpuRate };
@@ -25,6 +26,7 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
     await seedSignedInSession(page);
     // The harness measures the real page clock; navigation and modal gates install their own Playwright clock.
     await installApiFixtures(page, { clock: "system" });
+    await installPerformanceFixtures(page);
     await page.addInitScript((gate) => {
       const w = window as typeof window & { __perfHistory?: number; __perfLeakCycle?: () => void; __perfLeaks?: Element[] };
       w.__perfHistory = 0;
@@ -117,21 +119,39 @@ export async function withSession<T>(browser: Browser, seed: GateId | null, run:
 }
 
 export async function inlineFixtureMark(page: Page) {
-  const svg = await readFile(new URL("../../public/asset-marks/usdc.svg", import.meta.url));
-  const inline = `data:image/svg+xml;base64,${svg.toString("base64")}`;
-  await page.addInitScript((dataUrl) => {
+  // Route interception disables Chromium's HTTP cache for the measured page, so a
+  // remounted fixture image always starts a request even when the response is cacheable.
+  // Inline the fixed assets so the warm-request gate measures navigation, not fixture images.
+  const directories = ["asset-marks", "currency-flags"] as const;
+  const marks = Object.fromEntries((await Promise.all(directories.map(async (directory) => {
+    const root = join(__dirname, "../../public", directory);
+    return Promise.all((await readdir(root)).filter((name) => name.endsWith(".svg")).map(async (name) => {
+      const svg = await readFile(join(root, name));
+      return [`/${directory}/${name}`, `data:image/svg+xml;base64,${svg.toString("base64")}`] as const;
+    }));
+  }))).flat());
+  const external = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>').toString("base64")}`;
+  await page.addInitScript(({ marks, external }) => {
+    const inline = (value: string) => {
+      try {
+        const url = new URL(value, location.href);
+        if (url.hostname === "images.example.test" && url.protocol === "https:") return external;
+        if (url.origin === location.origin) return marks[url.pathname] ?? value;
+      } catch { /* Leave malformed image URLs unchanged. */ }
+      return value;
+    };
     const original = Element.prototype.setAttribute;
     Element.prototype.setAttribute = function (name, value) {
-      return original.call(this, name, this instanceof HTMLImageElement && name === "src" && value.endsWith("/asset-marks/usdc.svg") ? dataUrl : value);
+      return original.call(this, name, this instanceof HTMLImageElement && name === "src" ? inline(value) : value);
     };
     const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src")!;
     Object.defineProperty(HTMLImageElement.prototype, "src", {
       ...descriptor,
       set(this: HTMLImageElement, value: string) {
-        descriptor.set!.call(this, value.endsWith("/asset-marks/usdc.svg") ? dataUrl : value);
+        descriptor.set!.call(this, inline(value));
       },
     });
-  }, inline);
+  }, { marks, external });
 }
 
 export async function launch() { return chromium.launch({ headless: true, channel: "chromium" }); }

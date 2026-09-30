@@ -37,6 +37,7 @@ export type TransferActionsProps = {
   assetMarkResolution?: AssetMarkResolution;
   regionId?: RegionId;
   regionReady?: boolean;
+  showTrigger?: boolean;
 };
 
 type TransferWallet = Pick<
@@ -64,6 +65,7 @@ export function TransferActionsForWallet({
   assetMarkResolution,
   regionId = "US",
   regionReady = true,
+  showTrigger = true,
 }: TransferActionsProps & { wallet: TransferWallet }) {
   const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
@@ -113,7 +115,7 @@ export function TransferActionsForWallet({
   };
   const finishClose = () => {
     setSendOpen(false);
-    setModalOwner(null);
+    if (!routeOpen) setModalOwner(null);
   };
   const showReview = useCallback((actionId: string) => {
     if (routing) routing.setFlow("send", { actionId, mode: "replace" });
@@ -126,7 +128,7 @@ export function TransferActionsForWallet({
 
   return (
     <>
-      <Button
+      {showTrigger ? <Button
         data-action-trigger=""
         variant="outline"
         size="touch"
@@ -135,7 +137,7 @@ export function TransferActionsForWallet({
         onClick={openSend}
       >
         Send
-      </Button>
+      </Button> : null}
 
       <SendSheet
         key={regionId}
