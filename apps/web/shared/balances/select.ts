@@ -40,7 +40,7 @@ export function selectBalanceBaseUnits(snapshot: BalancesSnapshot, id: string): 
   return holding?.balance.status === "ready" ? holding.balance.baseUnits : null;
 }
 
-export function selectVaultPositions(snapshot: BalancesSnapshot): Array<{
+export function selectVaultPositions(snapshot: Pick<BalancesSnapshot, "holdings">): Array<{
   vaultAddress: string;
   position: { assetsRaw: string } | null;
 }> {

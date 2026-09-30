@@ -7,7 +7,7 @@ import {
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
-import { useBalances } from "@/client/balances";
+import { useBalancesData } from "@/client/balances";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { fetchRecentActions, recentActionsQueryOptions, refetchFailedRecentActions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
@@ -34,7 +34,7 @@ import { savingsTeaserApyLabel } from "@/client/savings/savings-teaser-apy";
 import { useSavingsVaults } from "@/client/savings/use-savings-vaults";
 import { useNow } from "@/client/time/use-now";
 import type { SavingsGrowthAuthority } from "@/client/savings/use-estimated-growth";
-import { selectVaultPositions } from "@/shared/balances/select";
+import { useVaultPositions } from "@/client/balances/vault-positions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import type { CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
@@ -359,10 +359,7 @@ export function CashExperience({
   const vaultView = queryViewState(query, { hasCachedData: metadata !== null });
   const vaultStatus = vaultView === "failed" ? "failed" : vaultView === "loading" ? "loading" : "ready";
   const liveSnapshot = balanceStatus === "failed" ? null : snapshot;
-  const positions = useMemo(
-    () => (liveSnapshot ? selectVaultPositions(liveSnapshot) : null),
-    [liveSnapshot]
-  );
+  const positions = useVaultPositions(liveSnapshot);
   const summary = useMemo(
     () =>
       metadata && positions
@@ -1069,7 +1066,7 @@ export function AuthenticatedCashExperience(props: {
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, region, account.fetchBalances, {
+  const balances = useBalancesData(balancesSession, region, account.fetchBalances, {
     held: !regionReady,
   });
   const snapshot = balances.snapshot;

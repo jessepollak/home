@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { VaultPositionsProvider } from "@/client/balances/vault-positions";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
@@ -203,6 +204,7 @@ export function PortfolioHomeExperience({
   }, [balances.snapshot]);
 
   return (
+    <VaultPositionsProvider snapshot={snapshot}>
     <DashboardShell
       region={region}
       regionReady={regionReady}
@@ -236,5 +238,6 @@ export function PortfolioHomeExperience({
       showSmallBalances={showSmallBalances}
       onShowSmallBalancesChange={setShowSmallBalances}
     />
+    </VaultPositionsProvider>
   );
 }
