@@ -232,6 +232,13 @@ export const Foundations: Story = {
     await expect(within(surface).getByRole("heading", { name: "Motion" })).toBeVisible();
     await expect(surface).toHaveAttribute("data-foundation-theme", "dark");
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/motion");
+    const drawerDesktop = within(surface).getByRole("row", { name: /drawer \(lg\) · transform, opacity, top, max-height/ });
+    await expect(drawerDesktop).toHaveTextContent("180 ms");
+    await expect(drawerDesktop).toHaveTextContent("cubic-bezier(0.22, 1, 0.36, 1)");
+
+    await userEvent.click(within(foundations).getByRole("option", { name: /^Type, / }));
+    const leading = within(surface).getByText("leading-none").closest("li")!;
+    await expect(leading).toHaveTextContent(/16px · \d+ uses/);
 
     await userEvent.click(canvas.getByRole("option", { name: "Badge, 1 story" }));
     await expect(await canvas.findByRole("main", { name: "Badge preview" })).toBeVisible();

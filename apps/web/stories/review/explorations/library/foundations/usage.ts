@@ -70,8 +70,40 @@ function componentName(path: string): string {
   return path.split("/").at(-1)!.replace(/\.tsx?$/, "");
 }
 
+function expressionEnd(source: string, start: number): number {
+  const closing: Record<string, string> = { "(": ")", "{": "}", "[": "]" };
+  const stack: string[] = [];
+  let quote = "";
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (quote) {
+      if (char === "\\") index += 1;
+      else if (char === quote) {
+        quote = "";
+        if (!stack.length) return index + 1;
+      }
+    } else if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (closing[char]) stack.push(closing[char]);
+    else if (char === stack.at(-1)) {
+      stack.pop();
+      if (!stack.length) return index + 1;
+    }
+  }
+  return source.length;
+}
+
 function classLiterals(source: string): string[] {
-  return [...source.matchAll(/(["'`])((?:(?!\1)[^\\\n]|\\.)*)\1/g)].map((match) => match[2]);
+  const groups: string[] = [];
+  let scannedUntil = 0;
+  const starts = /\bclassName\s*=\s*(?=[{"'`])|\b(?:cn|cva)\s*(?=\()/g;
+  for (const match of source.matchAll(starts)) {
+    if (match.index < scannedUntil) continue;
+    const start = match.index + match[0].length;
+    scannedUntil = expressionEnd(source, start);
+    const expression = source.slice(start, scannedUntil);
+    groups.push([...expression.matchAll(/(["'`])((?:(?!\1)[^\\]|\\.)*)\1/g)].map((literal) => literal[2]).join(" "));
+  }
+  return groups;
 }
 
 function tokens(literal: string): { variant: string; utility: string }[] {
@@ -131,26 +163,31 @@ export function motionUsage(files: SourceFile[]): { uses: MotionUse[]; press: Pr
           press.push({ component, variant: part.variant, scale: Number(scale[1]) });
         }
       }
-      const transition = parts.find((part) => /^transition(?:-|$)/.test(part.utility) && !REDUCED_VARIANT.test(part.variant) && part.utility !== "transition-none");
-      if (!transition) continue;
       const base = parts.filter((part) => !REDUCED_VARIANT.test(part.variant));
-      const durations = base.flatMap((part) => {
+      const transitions = base.filter((part) => /^transition(?:-|$)/.test(part.utility) && part.utility !== "transition-none");
+      if (!transitions.length) continue;
+      const durations = base.filter((part) => part.utility.startsWith("duration-")).map((part) => {
         const match = /^duration-(\d+)!?$/.exec(part.utility);
-        return match && !(Number(match[1]) === 0) ? [{ variant: part.variant, value: Number(match[1]) }] : [];
+        return { variant: part.variant, value: match ? Number(match[1]) : null };
       });
-      const easings = base.flatMap((part) => {
+      const easings = base.filter((part) => part.utility.startsWith("ease-")).map((part) => {
         const arbitraryEase = /^ease-\[(.+)\]!?$/.exec(part.utility);
-        if (arbitraryEase) return [{ variant: part.variant, value: arbitraryEase[1].replaceAll("_", " ") }];
         const stock = /^ease-(linear|in|out|in-out)!?$/.exec(part.utility);
-        return stock ? [{ variant: part.variant, value: `--ease-${stock[1]}` }] : [];
+        return { variant: part.variant, value: arbitraryEase ? arbitraryEase[1].replaceAll("_", " ")
+          : stock ? stock[1] === "linear" ? "linear" : `--ease-${stock[1]}` : null };
       });
-      const properties = /^transition-\[(.+)\]$/.exec(transition.utility)?.[1].replaceAll(",", ", ") ??
-        (transition.utility === "transition" ? "default" : transition.utility.slice("transition-".length));
-      const variants = new Set(["", ...durations.map((entry) => entry.variant), ...easings.map((entry) => entry.variant)]);
+      const variants = new Set([...transitions, ...durations, ...easings].map((entry) => entry.variant));
+      const inherited = <T extends { variant: string }>(entries: T[], variant: string): T | undefined =>
+        entries.filter((entry) => entry.variant === "" || entry.variant === variant || variant.startsWith(`${entry.variant}:`))
+          .sort((a, b) => b.variant.length - a.variant.length).at(0);
       for (const variant of variants) {
-        const duration = durations.find((entry) => entry.variant === variant) ?? (variant ? undefined : null);
-        const easing = easings.find((entry) => entry.variant === variant) ?? (variant ? undefined : null);
-        if (duration === undefined && easing === undefined) continue;
+        const transition = inherited(transitions, variant);
+        if (!transition) continue;
+        const duration = inherited(durations, variant);
+        const easing = inherited(easings, variant);
+        if (duration?.value === 0) continue;
+        const properties = /^transition-\[(.+)\]!?$/.exec(transition.utility)?.[1].replaceAll(",", ", ") ??
+          (transition.utility === "transition" ? "default" : transition.utility.slice("transition-".length));
         add({ component, properties, duration: duration?.value ?? null, easing: easing?.value ?? null, variant });
       }
     }

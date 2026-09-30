@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { CheckIcon, XIcon } from "lucide-react";
-import { contrastRatio, formatRatio, toHex, type Rgba } from "./contrast";
+import { formatRatio } from "./contrast";
+import { measureColor, measurementSummary, type ColorMeasurement } from "./color-measurements";
 import { foundations } from "./model";
-import { toRgba, type ThemeName, type ThemeValues } from "./probe";
-import type { ColorToken, ContrastRule } from "./tokens";
+import type { ThemeName, ThemeValues } from "./probe";
+import type { ContrastRule } from "./tokens";
 import styles from "./foundations.module.css";
 
 const THEMES: ThemeName[] = ["light", "dark"];
@@ -13,12 +14,6 @@ const FAMILY_LABEL: Record<string, string> = {
   balance: "Balance", payout: "Payout", globe: "Globe",
 };
 
-type Measured = {
-  value: string;
-  hex: string | null;
-  checks: { label: string; ratio: number }[];
-  verdict: "pass" | "fail" | null;
-};
 
 export function ruleLabel(rule: ContrastRule): string {
   if (rule.use === "text" || rule.use === "graphic") {
@@ -29,42 +24,26 @@ export function ruleLabel(rule: ContrastRule): string {
     illustration: "Illustration · reference only", pattern: "Pattern fill" }[rule.use];
 }
 
-function measure(token: ColorToken, values: Record<string, string>): Measured {
-  const value = values[token.name] ?? "";
-  const color = token.pattern ? null : toRgba(value);
-  const card = toRgba(values.card ?? "");
-  const page = toRgba(values.muted ?? "");
-  if (!color || !card || !page) return { value, hex: null, checks: [], verdict: null };
-  const checks = [{ label: "Card", ratio: contrastRatio(color, card) }, { label: "Page", ratio: contrastRatio(color, page) }];
-  const rule = token.rule;
-  if (rule.use !== "text" && rule.use !== "graphic") return { value, hex: toHex(color), checks, verdict: null };
-  let judged = checks;
-  if (rule.against !== "surfaces") {
-    const pair: Rgba | null = toRgba(values[rule.against.pair] ?? "");
-    judged = pair ? [{ label: `On --${rule.against.pair}`, ratio: contrastRatio(color, pair) }] : [];
-    checks.unshift(...judged);
-  }
-  const verdict = judged.length && judged.every((check) => check.ratio >= rule.min) ? "pass" : "fail";
-  return { value, hex: toHex(color), checks, verdict };
-}
 
 export function useColorMeasurements(snapshot: ThemeValues | null) {
   return useMemo(() => snapshot ? foundations.colors.map((token) => ({
     token,
-    light: measure(token, snapshot.light),
-    dark: measure(token, snapshot.dark),
+    light: measureColor(token, snapshot.light),
+    dark: measureColor(token, snapshot.dark),
   })) : null, [snapshot]);
 }
 
 export function ColorPage({ snapshot }: { snapshot: ThemeValues | null }) {
   const rows = useColorMeasurements(snapshot);
-  if (!rows) return <p className={styles.note} role="status">Reading theme values…</p>;
-  const failures = THEMES.map((theme) => ({ theme, names: rows.filter((row) => row[theme].verdict === "fail").map((row) => `--${row.token.name}`) }));
+  if (!rows) return <p className={styles.note} role="status">Theme measurements unavailable.</p>;
   const families = [...new Set(rows.map((row) => row.token.family))];
   return <>
     <p className={styles.summary}>
       {rows.length} tokens from <code>app/globals.css</code>. Text needs 4.5:1 and graphics 3:1 against the card and the page.{" "}
-      {failures.map(({ theme, names }) => `${THEME_LABEL[theme]}: ${names.length === 0 ? "all pass" : `${names.length} below threshold (${names.join(", ")})`}`).join(". ")}.
+      {THEMES.map((theme) => {
+        const failed = rows.filter((row) => row[theme].verdict === "fail").map((row) => `--${row.token.name}`);
+        return `${THEME_LABEL[theme]}: ${measurementSummary(rows.map((row) => row[theme]))}${failed.length ? ` (${failed.join(", ")})` : ""}`;
+      }).join(". ")}.
     </p>
     {families.map((family) => {
       const members = rows.filter((row) => row.token.family === family);
@@ -93,7 +72,7 @@ export function ColorPage({ snapshot }: { snapshot: ThemeValues | null }) {
   </>;
 }
 
-function SwatchCell({ theme, measured, surface }: { theme: ThemeName; measured: Measured; surface: Record<string, string> }) {
+function SwatchCell({ theme, measured, surface }: { theme: ThemeName; measured: ColorMeasurement; surface: Record<string, string> }) {
   return <td data-theme-cell={theme}><div className={styles.swatchCell}>
     <span className={styles.swatchPlate} style={{ background: surface.card, borderColor: surface.border }} aria-hidden="true">
       <span className={styles.swatch} style={{ background: measured.value }} />
@@ -104,6 +83,7 @@ function SwatchCell({ theme, measured, surface }: { theme: ThemeName; measured: 
         {measured.checks.map((check) => <span key={check.label}>{check.label} {formatRatio(check.ratio)}</span>)}
       </span>}
     </span>
+    {measured.status === "unavailable" && <span className={styles.meta}>Unavailable</span>}
     {measured.verdict && <span className={styles.verdict} data-verdict={measured.verdict}>
       {measured.verdict === "pass" ? <CheckIcon aria-hidden="true" /> : <XIcon aria-hidden="true" />}
       {measured.verdict === "pass" ? "Pass" : "Fail"}

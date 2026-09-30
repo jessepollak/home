@@ -1,4 +1,5 @@
-import { componentSources, globalsSource, ownedSources } from "./sources";
+import { componentSourceSet, componentSources, globalsSource, ownedSources } from "./sources";
+import { rootProperties } from "./probe";
 import { blockDeclarations, colorTokens, themeScale } from "./tokens";
 import { motionUsage, radiusUsage, spacingUsage, typeUsage, type MotionUse } from "./usage";
 
@@ -8,7 +9,7 @@ export type Timing = { duration: number | null; easing: string | null; uses: Mot
 function timings(uses: MotionUse[]): Timing[] {
   const groups = new Map<string, Timing>();
   for (const use of uses) {
-    const key = `${use.duration ?? "default"}|${use.easing ?? "default"}`;
+    const key = `${use.duration ?? "unresolved"}|${use.easing ?? "unresolved"}`;
     const group = groups.get(key);
     if (group) group.uses.push(use);
     else groups.set(key, { duration: use.duration, easing: use.easing, uses: [use] });
@@ -20,7 +21,8 @@ const motion = motionUsage(ownedSources);
 const spacingNames = themeScale(globalsSource, "spacing").map((declaration) => declaration.name);
 
 export const foundations = {
-  colors: colorTokens(globalsSource),
+  colors: colorTokens(globalsSource, undefined, typeof document === "undefined" ? undefined
+    : rootProperties(blockDeclarations(globalsSource, ":root").map(({ name }) => name))),
   themeNames: [...new Set([...blockDeclarations(globalsSource, ":root"), ...blockDeclarations(globalsSource, ".dark")]
     .map((declaration) => declaration.name))],
   type: typeUsage(componentSources),
@@ -29,14 +31,15 @@ export const foundations = {
   motion: { timings: timings(motion.uses), press: motion.press, uses: motion.uses },
   scanned: componentSources.length,
   owned: ownedSources.length,
+  sourcesAvailable: componentSourceSet.status === "available",
 };
 
 export const foundationPages: { id: FoundationId; name: string; kind: string }[] = [
   { id: "foundations/color", name: "Color", kind: `${foundations.colors.length} tokens` },
-  { id: "foundations/type", name: "Type", kind: `${foundations.type.sizes.length} sizes` },
+  { id: "foundations/type", name: "Type", kind: foundations.sourcesAvailable ? `${foundations.type.sizes.length} sizes` : "Sources unavailable" },
   { id: "foundations/radius-spacing", name: "Radius & spacing",
-    kind: `${foundations.radius.usage.length + foundations.spacing.usage.length} steps` },
-  { id: "foundations/motion", name: "Motion", kind: `${foundations.motion.timings.length} timings` },
+    kind: foundations.sourcesAvailable ? `${foundations.radius.usage.length + foundations.spacing.usage.length} steps` : "Sources unavailable" },
+  { id: "foundations/motion", name: "Motion", kind: foundations.sourcesAvailable ? `${foundations.motion.timings.length} timings` : "Sources unavailable" },
 ];
 
 export function isFoundation(id: string | undefined): id is FoundationId {

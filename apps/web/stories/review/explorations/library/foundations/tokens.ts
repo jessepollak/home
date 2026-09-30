@@ -11,7 +11,6 @@ export type ColorToken = { name: string; family: ColorFamily; rule: ContrastRule
 const TEXT_MIN = 4.5;
 const GRAPHIC_MIN = 3;
 const FAMILY_ORDER = ["surface", "text", "primary", "status", "market", "balance", "payout"];
-const COLOR_VALUE = /^(?:#[0-9a-f]{3,8}\b|(?:oklch|oklab|lch|lab|rgba?|hsla?|hwb|color|color-mix)\(|var\(--)/i;
 const PATTERN_VALUE = /gradient\(/i;
 
 export function topLevelBlocks(css: string): CssBlock[] {
@@ -65,7 +64,7 @@ export function colorFamily(name: string): ColorFamily {
 export function contrastRule(name: string, family: ColorFamily, pattern: boolean, names: Set<string>): ContrastRule {
   if (pattern) return { use: "pattern" };
   const pair = name.endsWith("-foreground") ? name.slice(0, -"-foreground".length) : null;
-  if (pair && names.has(pair) && (family === "payout" || family === "primary")) {
+  if (pair && names.has(pair)) {
     return { use: "text", min: TEXT_MIN, against: { pair } };
   }
   if (family === "surface") return { use: "surface" };
@@ -79,10 +78,10 @@ export function contrastRule(name: string, family: ColorFamily, pattern: boolean
   return { use: "illustration" };
 }
 
-export function colorTokens(css: string): ColorToken[] {
+export function colorTokens(css: string, isColor = (value: string) => typeof CSS !== "undefined" && CSS.supports("color", value), resolved?: Record<string, string>): ColorToken[] {
   const root = blockDeclarations(css, ":root");
   const dark = new Set(blockDeclarations(css, ".dark").map((declaration) => declaration.name));
-  const colors = root.filter(({ value }) => COLOR_VALUE.test(value) || PATTERN_VALUE.test(value));
+  const colors = root.filter(({ name, value }) => isColor(resolved?.[name] ?? value) || PATTERN_VALUE.test(value));
   const names = new Set(colors.map((declaration) => declaration.name));
   const tokens = colors.map(({ name, value }) => {
     const family = colorFamily(name);
@@ -101,4 +100,14 @@ export function colorTokens(css: string): ColorToken[] {
 export function themeScale(css: string, prefix: string): Declaration[] {
   return blockDeclarations(css, "@theme inline").filter((declaration) => declaration.name.startsWith(`${prefix}-`))
     .map((declaration) => ({ name: declaration.name.slice(prefix.length + 1), value: declaration.value }));
+}
+
+const RADIUS_ORDER = ["xs", "sm", "md", "lg", "xl", "2xl", "3xl", "4xl", "full"];
+
+export function radiusSteps(declared: string[], used: string[]): string[] {
+  const rank = (step: string) => {
+    const index = RADIUS_ORDER.indexOf(step);
+    return index < 0 ? RADIUS_ORDER.length : index;
+  };
+  return [...new Set([...declared, ...used])].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }

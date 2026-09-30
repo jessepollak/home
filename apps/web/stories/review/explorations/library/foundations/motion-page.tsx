@@ -17,22 +17,19 @@ function useReducedMotion(): boolean {
   return useSyncExternalStore(subscribe, () => matchMedia(REDUCED).matches, () => false);
 }
 
-type Resolved = { duration: number; durationSource: string; easing: string; easingSource: string };
+type Resolved = { duration: number | null; durationSource: string; easing: string; easingSource: string };
 
 function useResolver() {
   return useMemo(() => {
-    const names = ["default-transition-duration", "default-transition-timing-function", "ease-in", "ease-out", "ease-in-out"];
+    const names = ["ease-in", "ease-out", "ease-in-out"];
     const computed = rootProperties(names);
-    const defaultDuration = Number.parseFloat(computed["default-transition-duration"]) *
-      (computed["default-transition-duration"].endsWith("ms") ? 1 : 1000);
     return (timing: Pick<Timing, "duration" | "easing">): Resolved => {
       const stock = timing.easing ? /^--(ease-[\w-]+)$/.exec(timing.easing) : null;
       return {
-        duration: timing.duration ?? defaultDuration,
-        durationSource: timing.duration === null ? "Tailwind default" : `duration-${timing.duration}`,
-        easing: timing.easing === null ? computed["default-transition-timing-function"]
-          : stock ? computed[stock[1]] : timing.easing,
-        easingSource: timing.easing === null ? "Tailwind default" : stock ? stock[1] : "arbitrary",
+        duration: timing.duration,
+        durationSource: timing.duration === null ? "Unresolved" : `duration-${timing.duration}`,
+        easing: stock ? computed[stock[1]] || "unresolved" : timing.easing ?? "unresolved",
+        easingSource: timing.easing === null || (stock && !computed[stock[1]]) ? "Unresolved" : stock ? stock[1] : "arbitrary",
       };
     };
   }, []);
@@ -56,6 +53,7 @@ function Curve({ easing, large }: { easing: string; large?: boolean }) {
 
 function Demo({ label, resolved }: { label: string; resolved: Resolved }) {
   const [played, setPlayed] = useState(false);
+  if (resolved.duration === null || resolved.easing === "unresolved") return <span className={styles.meta}>Unresolved</span>;
   return <div className={styles.demo}>
     <span className={styles.track} data-played={played || undefined} aria-hidden="true">
       <span className={styles.puck} style={{ transitionDuration: `${resolved.duration}ms`, transitionTimingFunction: resolved.easing }} />
@@ -100,7 +98,7 @@ export function MotionPage() {
             const resolved = resolve(timing);
             const key = `${timing.duration}-${timing.easing}`;
             return <tr key={key}>
-              <th scope="row" className={styles.numeric}>{resolved.duration} ms
+              <th scope="row" className={styles.numeric}>{resolved.duration === null ? "Unresolved" : `${resolved.duration} ms`}
                 <span className={styles.meta}>{resolved.durationSource}</span></th>
               <td><span className={styles.easing}><Curve easing={resolved.easing} />
                 <span><code>{formatEasing(resolved.easing)}</code><span className={styles.meta}>{resolved.easingSource}</span></span></span></td>

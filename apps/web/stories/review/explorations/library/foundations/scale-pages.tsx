@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { foundations } from "./model";
-import { measure, rootProperties } from "./probe";
+import { measure, rootProperties, utilityValues } from "./probe";
+import { radiusSteps } from "./tokens";
 import styles from "./foundations.module.css";
 
 const SPECIMEN = "Send $25.00 to Alex";
@@ -26,6 +27,12 @@ export function TypePage() {
       ...trackings.map(({ step }) => `tracking-${step}`),
     ];
     const computed = rootProperties(names);
+    const utilityGroups = [
+      [weights.map(({ step }) => `font-${step}`), "fontWeight"],
+      [leadings.map(({ step }) => `leading-${step}`), "lineHeight"],
+      [trackings.map(({ step }) => `tracking-${step}`), "letterSpacing"],
+    ] as const;
+    const utilities = Object.assign({}, ...utilityGroups.map(([names, property]) => utilityValues(names, property))) as Record<string, string>;
     const fontSizes = measure(Object.fromEntries(sizes.map(({ step }) => [step, `var(--text-${step})`])), "fontSize");
     const lineHeights = Object.fromEntries(sizes.map(({ step }) => {
       const probe = document.createElement("div");
@@ -36,7 +43,7 @@ export function TypePage() {
       probe.remove();
       return [step, value];
     }));
-    return { computed, fontSizes, lineHeights };
+    return { computed, utilities, fontSizes, lineHeights };
   }, [sizes, weights, leadings, trackings]);
   return <>
     <p className={styles.summary}>
@@ -80,7 +87,7 @@ export function TypePage() {
         {weights.map(({ step, count }) => <li key={step} className={styles.tile}>
           <span className={styles.tileSpecimen} style={{ fontWeight: `var(--font-weight-${step})` }}>Aa</span>
           <code>font-{step}</code>
-          <span className={styles.meta}>{data.computed[`font-weight-${step}`]} · {uses(count)}</span>
+          <span className={styles.meta}>{data.computed[`font-weight-${step}`] || data.utilities[`font-${step}`]} · {uses(count)}</span>
         </li>)}
       </ul>
     </section>
@@ -88,9 +95,9 @@ export function TypePage() {
       <h3 id="type-rhythm" className={styles.sectionTitle}>Line height and tracking overrides</h3>
       <ul className={styles.chipList}>
         {leadings.map(({ step, count }) => <li key={step}><code>leading-{step}</code>
-          <span className={styles.meta}>{data.computed[`leading-${step}`]} · {uses(count)}</span></li>)}
+          <span className={styles.meta}>{data.computed[`leading-${step}`] || data.utilities[`leading-${step}`]} · {uses(count)}</span></li>)}
         {trackings.map(({ step, count }) => <li key={step}><code>tracking-{step}</code>
-          <span className={styles.meta}>{data.computed[`tracking-${step}`]} · {uses(count)}</span></li>)}
+          <span className={styles.meta}>{data.computed[`tracking-${step}`] || data.utilities[`tracking-${step}`]} · {uses(count)}</span></li>)}
       </ul>
     </section>
     <section className={styles.section} aria-labelledby="type-numerals">
@@ -112,7 +119,6 @@ export function TypePage() {
   </>;
 }
 
-const RADIUS_ORDER = ["xs", "sm", "md", "lg", "xl", "2xl", "3xl", "4xl", "full"];
 
 export function RadiusSpacingPage() {
   const { scale, usage } = foundations.radius;
@@ -120,7 +126,7 @@ export function RadiusSpacingPage() {
   const data = useMemo(() => {
     const defined = new Map(scale.map((declaration) => [declaration.name, declaration.value]));
     const counts = new Map(usage.map((entry) => [entry.step, entry.count]));
-    const steps = RADIUS_ORDER.filter((step) => defined.has(step) || counts.has(step)).map((step) => ({
+    const steps = radiusSteps([...defined.keys()], [...counts.keys()]).map((step) => ({
       step,
       source: step === "full" ? "calc(infinity * 1px)" : defined.get(step) ?? `var(--radius-${step})`,
       owned: defined.has(step),

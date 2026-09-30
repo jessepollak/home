@@ -4,23 +4,31 @@ export type ThemeName = "light" | "dark";
 export type ThemeValues = Record<ThemeName, Record<string, string>>;
 
 function sheetText(sheet: CSSStyleSheet): string {
+  return Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
+}
+
+export type ThemeProbe = { status: "measured"; values: ThemeValues } | { status: "unavailable" };
+
+export function probeThemes(names: string[], reader = readThemeValues): ThemeProbe {
   try {
-    return Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
+    return { status: "measured", values: reader(names) };
   } catch {
-    return "";
+    return { status: "unavailable" };
   }
 }
 
-export function readThemeValues(names: string[]): ThemeValues {
-  const frame = document.createElement("iframe");
+export function readThemeValues(names: string[], owner: Document = document): ThemeValues {
+  const css = Array.from(owner.styleSheets, sheetText).join("\n");
+  if (!css.trim()) throw new Error("Theme stylesheets unavailable");
+  const frame = owner.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
   frame.tabIndex = -1;
   Object.assign(frame.style, { position: "fixed", width: "0", height: "0", border: "0", visibility: "hidden" });
-  document.body.append(frame);
+  owner.body.append(frame);
   try {
     const doc = frame.contentDocument!;
     const style = doc.createElement("style");
-    style.textContent = Array.from(document.styleSheets, sheetText).join("\n");
+    style.textContent = css;
     doc.head.append(style);
     const read = (theme: ThemeName) => {
       doc.documentElement.classList.toggle("dark", theme === "dark");
@@ -35,10 +43,15 @@ export function readThemeValues(names: string[]): ThemeValues {
 
 let context: CanvasRenderingContext2D | null = null;
 
-export function toRgba(value: string): Rgba | null {
-  if (!value || !CSS.supports("color", value)) return null;
+function canvasContext() {
   context ??= Object.assign(document.createElement("canvas"), { width: 1, height: 1 })
     .getContext("2d", { willReadFrequently: true });
+  return context;
+}
+
+export function toRgba(value: string, valid = (color: string) => CSS.supports("color", color), getContext = canvasContext): Rgba | null {
+  if (!value || !valid(value)) return null;
+  const context = getContext();
   if (!context) return null;
   context.clearRect(0, 0, 1, 1);
   context.fillStyle = value;
@@ -57,6 +70,20 @@ export function measure(values: Record<string, string>, property: "width" | "fon
       probe.style[property] = value;
       const computed = getComputedStyle(probe)[property];
       return [key, probe.style[property] ? Number.parseFloat(computed) : Number.NaN];
+    }));
+  } finally {
+    probe.remove();
+  }
+}
+
+export function utilityValues(names: string[], property: "fontWeight" | "lineHeight" | "letterSpacing" | "fontFamily", owner: Document = document) {
+  const probe = owner.createElement("div");
+  Object.assign(probe.style, { position: "absolute", visibility: "hidden", fontSize: "16px" });
+  owner.body.append(probe);
+  try {
+    return Object.fromEntries(names.map((name) => {
+      probe.className = name;
+      return [name, owner.defaultView!.getComputedStyle(probe)[property] || "unavailable"];
     }));
   } finally {
     probe.remove();
