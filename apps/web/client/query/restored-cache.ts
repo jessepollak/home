@@ -120,6 +120,21 @@ export function trustRestoredFundingOpenOrder(data: unknown, entry: RestoredQuer
   return region === undefined || region === entry.queryKey[2] ? { data } : null;
 }
 
+export function trustRestoredFundingOpenOrderByProvider(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
+  const region = entry.queryKey[2];
+  const providerId = entry.queryKey[3];
+  const methodIds = entry.queryKey[4];
+  if (!isRecord(data) || typeof region !== "string" || typeof providerId !== "string" || typeof methodIds !== "string") return null;
+  if (data.order === null) return { data };
+  if (!isRecord(data.order) || !isTrustedFundingOrderSummary(data.order)) return null;
+  const { providerId: orderProviderId, region: orderRegion, paymentMethod } = data.order;
+  const methods = methodIds === "" ? [] : methodIds.split(",");
+  return orderProviderId === providerId && (orderRegion === undefined || orderRegion === region) &&
+    (paymentMethod === undefined || typeof paymentMethod === "string" && methods.includes(paymentMethod))
+    ? { data }
+    : null;
+}
+
 export function trustRestoredFundingOrder(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   return isTrustedFundingOrderSummary(data) && isFundingOrderSummary(data) && data.id === entry.queryKey[2] ? { data } : null;
 }

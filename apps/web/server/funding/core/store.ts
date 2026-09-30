@@ -55,6 +55,8 @@ export interface FundingOrderStore {
   listOwned(owner: FundingOrderOwner, limit: number): Promise<FundingOrder[]>;
   getByIntent(owner: FundingOrderOwner, intentDigest: string): Promise<FundingOrder | null>;
   getOpen(owner: FundingOrderOwner, region: string): Promise<FundingOrder | null>;
+  listOpen(owner: FundingOrderOwner, region: string): Promise<ReadonlyArray<FundingOrder>>;
+  getOpenForProvider(owner: FundingOrderOwner, region: string, providerId: string, paymentMethod?: string, assetId?: string): Promise<FundingOrder | null>;
   getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string): Promise<FundingOrder | null>;
   getByProviderOrderId(providerId: string, providerOrderId: string): Promise<FundingOrder | null>;
   completeDispatch(id: string, input: {
@@ -143,9 +145,20 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
   }
 
   async getOpen(owner: FundingOrderOwner, region: string) {
-    return cloneOrNull([...this.orders.values()]
+    return (await this.listOpen(owner, region))[0] ?? null;
+  }
+
+  async listOpen(owner: FundingOrderOwner, region: string): Promise<ReadonlyArray<FundingOrder>> {
+    return [...this.orders.values()]
       .filter((order) => sameOwner(order.owner, owner) && order.region === region && isOpenFundingOrder(order))
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]);
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map(clone);
+  }
+
+  async getOpenForProvider(owner: FundingOrderOwner, region: string, providerId: string, paymentMethod?: string, assetId?: string) {
+    return (await this.listOpen(owner, region)).find((order) => order.providerId === providerId &&
+      (paymentMethod === undefined || order.paymentMethod === paymentMethod) &&
+      (assetId === undefined || order.assetId === assetId)) ?? null;
   }
 
   async getDispatchAmbiguous(owner: FundingOrderOwner, region: string, providerId: string) {

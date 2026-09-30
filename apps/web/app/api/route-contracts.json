@@ -88,6 +88,7 @@
       "shared/actions/contracts/prepare.ts",
       "shared/cards/transactions-contract.ts",
       "shared/fees/contract.ts",
+      "shared/funding/contracts/errors.ts",
       "shared/funding/contracts/order.ts",
       "shared/funding/provider-contract.ts"
     ],

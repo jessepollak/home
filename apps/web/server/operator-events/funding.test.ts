@@ -69,8 +69,22 @@ describe("funding order operator capture", () => {
     events.length = 0;
     await store.getOwned(reservation.id, owner);
     await store.getOpen(owner, reservation.region);
+    expect((await store.listOpen(owner, reservation.region)).map((order) => order.id)).toEqual([reservation.id]);
+    expect((await store.getOpenForProvider(owner, reservation.region, reservation.providerId, reservation.paymentMethod))?.id).toBe(reservation.id);
+    expect(await store.getOpenForProvider(owner, reservation.region, reservation.providerId, "other-method")).toBeNull();
+    expect(await store.getOpenForProvider({ ...owner, subject: "someone-else" }, reservation.region, reservation.providerId, reservation.paymentMethod)).toBeNull();
     await store.getByIntent(owner, reservation.intentDigest);
     expect(events).toEqual([]);
+  });
+
+  test("the wrapped store forwards the provider and asset scope", async () => {
+    const store = orders();
+    const other = { ...reservation, id: "22222222-2222-4222-8222-222222222222", assetId: "base:usdc", intentDigest: "other-digest", createdAt: "2026-09-13T00:00:00.000Z" };
+    await store.reserve(reservation);
+    await store.reserve(other);
+    expect((await store.getOpenForProvider(owner, reservation.region, reservation.providerId, reservation.paymentMethod))?.id).toBe(other.id);
+    expect((await store.getOpenForProvider(owner, reservation.region, reservation.providerId, reservation.paymentMethod, reservation.assetId))?.id).toBe(reservation.id);
+    expect(await store.getOpenForProvider(owner, reservation.region, reservation.providerId, reservation.paymentMethod, "base:wars")).toBeNull();
   });
 
   test("a throwing recorder preserves the returned order", async () => {

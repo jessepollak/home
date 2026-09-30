@@ -249,7 +249,8 @@ export async function installApiFixtures(
       return json(route, { actions });
     }
     if (path === "/api/funding/providers") {
-      return json(route, url.searchParams.get("region") === "ID" && url.searchParams.get("direction") !== "offramp" ? {
+      const direction = url.searchParams.get("direction") ?? "onramp";
+      return json(route, url.searchParams.get("region") === "ID" && direction !== "offramp" ? {
         version: FUNDING_PROVIDERS_VERSION, direction: "onramp",
         providers: [{
           direction: "onramp", providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx",
@@ -257,7 +258,7 @@ export async function installApiFixtures(
           paymentMethods: [{ id: "bank-va-mandiri", label: "Bank transfer · Mandiri" }],
           quotes: false, customerSetup: null,
         }],
-      } : url.searchParams.get("direction") === "offramp" ? { ...fundingProvidersBody, direction: "offramp" } : fundingProvidersBody);
+      } : direction === "offramp" ? { ...fundingProvidersBody, direction: "offramp" } : fundingProvidersBody);
     }
     if (path === "/api/funding/quotes") {
       return json(route, {

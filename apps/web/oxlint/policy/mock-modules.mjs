@@ -11,4 +11,10 @@ export const allowedMockModules = new Map([
   ])],
   ["client/funding/funding-actions.test.tsx", new Set(["next/navigation"])],
   ["client/cards/card-reveal.test.tsx", new Set(["@stripe/stripe-js/pure"])],
+  ["client/admin/funding-settings.test.tsx", new Set(["next/navigation"])],
+  ["app/admin/(sections)/settings/funding/page.test.tsx", new Set([
+    "@/server/operator/page",
+    "@/server/funding/offering",
+    "next/navigation",
+  ])],
 ]);

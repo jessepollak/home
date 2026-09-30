@@ -27,12 +27,44 @@ function fixture(): FundingProvider {
   };
 }
 
+function onrampDirection(provider: FundingProvider) {
+  const direction = provider.manifest.bindings[0]?.directions.onramp;
+  if (!direction) throw new Error("fixture provider must declare an onramp direction");
+  return direction;
+}
+
 describe("funding provider registry validation", () => {
   test("accepts a directional provider and rejects a missing port", () => {
     expect(() => validateFundingProviders([fixture()])).not.toThrow();
     const invalid = fixture();
     invalid.onramp = undefined;
     expect(() => validateFundingProviders([invalid])).toThrow("manifest and port must be declared together");
+  });
+
+  test("provider ids must match the funding settings grammar", () => {
+    for (const id of ["a", `a${"b".repeat(31)}`, "provider-2"]) {
+      const valid = fixture();
+      valid.manifest.id = id;
+      expect(() => validateFundingProviders([valid])).not.toThrow();
+    }
+    for (const id of ["", "2provider", "Provider", "provider_id", `a${"b".repeat(32)}`]) {
+      const invalid = fixture();
+      invalid.manifest.id = id;
+      expect(() => validateFundingProviders([invalid])).toThrow("Funding provider id");
+    }
+  });
+
+  test("payment method ids must match the funding order route grammar", () => {
+    for (const id of ["bank_transfer", "apple-pay", "qris"]) {
+      const valid = fixture();
+      onrampDirection(valid).paymentMethods = [{ id, label: "Method" }];
+      expect(() => validateFundingProviders([valid])).not.toThrow();
+    }
+    for (const id of ["", "bank.transfer", "2bank", "BANK", `a${"b".repeat(32)}`]) {
+      const invalid = fixture();
+      onrampDirection(invalid).paymentMethods = [{ id, label: "Method" }];
+      expect(() => validateFundingProviders([invalid])).toThrow("payment method ids must be valid");
+    }
   });
 
   test("validates provider-direction mode environment declarations", () => {
@@ -54,6 +86,17 @@ describe("funding provider registry validation", () => {
     duplicateB.manifest.id = "fixture-two";
     duplicateB.manifest.onramp = { ...duplicateB.manifest.onramp!, sandbox: true, modeEnv: "SHARED_MODE" };
     expect(() => validateFundingProviders([duplicateA, duplicateB])).toThrow("invalid or duplicated");
+  });
+
+  test("accepts a separate legacy offering switch and rejects invalid or credential names", () => {
+    const valid = fixture();
+    onrampDirection(valid).legacyOfferedEnv = "FIXTURE_OFFERED";
+    expect(() => validateFundingProviders([valid])).not.toThrow();
+    for (const legacyOfferedEnv of ["fixture-offered", "FIXTURE_KEY"]) {
+      const invalid = fixture();
+      onrampDirection(invalid).legacyOfferedEnv = legacyOfferedEnv;
+      expect(() => validateFundingProviders([invalid])).toThrow("legacy offering environment name");
+    }
   });
 
   test("accepts positive onramp minimum decimals and rejects zero or invalid values", () => {

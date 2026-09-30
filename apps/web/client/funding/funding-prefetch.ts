@@ -5,7 +5,7 @@ import { isServerVerified } from "@/client/account/cdp-client";
 import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import { ownerQueryKey, ownerQueryMeta } from "@/client/query/query-client";
 import { assertFundingProvidersResponse } from "@/shared/funding/contracts/providers";
-import { assertFundingOpenOrderResponse } from "@/shared/funding/contracts/open-order";
+import { assertFundingOpenOrderResponse, fundingOpenOrderPath } from "@/shared/funding/contracts/open-order";
 import { assertFundingProviderCustomersResponse } from "@/shared/funding/contracts/provider-customers";
 
 type FundingWallet = Pick<AccountWalletClient, "ownerKey" | "status" | "verification" | "session" | "fetchAccountResource">;
@@ -31,7 +31,7 @@ export function fundingOpenOrderOptions(owner: string | null, region: RegionId, 
   return queryOptions({
     queryKey: owner ? ownerQueryKey(owner, "funding-open-order", region) : ["unauthenticated", "funding-open-order-disabled", region],
     queryFn: async ({ signal }) => {
-      const response = await fetchResource(`/api/funding/orders?region=${encodeURIComponent(region)}`, { signal });
+      const response = await fetchResource(fundingOpenOrderPath({ region }), { signal });
       assertFundingOpenOrderResponse(response, region);
       return response;
     },
@@ -56,7 +56,6 @@ export function fundingProviderCustomersOptions(owner: string | null, region: Re
     meta: owner ? ownerQueryMeta(owner, "owner") : undefined,
   });
 }
-
 export function prefetchAddMoneyMethods(wallet: FundingWallet, region: RegionId, regionReady: boolean, queryClient: QueryClient) {
   const session = isServerVerified(wallet) ? wallet.session : null;
   if (!uiBoundary(wallet) || !session?.smartAccount?.address || !regionReady || region === "GLOBAL") return;

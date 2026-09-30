@@ -6,6 +6,7 @@ import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
+import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { MoneyModal } from "@/client/money-modal";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
@@ -79,6 +80,29 @@ test("selecting a payment method does not request a quote until Review quote", a
   expect(page().queryByRole("radiogroup", { name: "Payment method" })).toBeNull();
 });
 
+test("a paused corridor shows the server message for quote errors only", async () => {
+  renderFlow(async () => { throw Object.assign(new Error("paused"), { code: "CORRIDOR_NOT_OFFERED", serverMessage: "Ripio is no longer offered here." }); });
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
+  fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+  await page().findByText("Ripio is no longer offered here.");
+});
+
+test("a pre-pause quote shows the server message on order confirmation", async () => {
+  renderFlow(async (path) => {
+    if (path === "/api/funding/quotes") return {
+      version: FUNDING_QUOTE_VERSION,
+      quoteToken: "signed-token",
+      quote: { fiatAmount: "100", tokenAmountAtomic: "100000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+    };
+    throw Object.assign(new Error("paused"), { code: "CORRIDOR_NOT_OFFERED", serverMessage: "Ripio is no longer offered here." });
+  });
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "100" } });
+  fireEvent.click(page().getByRole("button", { name: "Review quote" }));
+  await page().findByRole("heading", { name: "Review quote" });
+  fireEvent.click(page().getByRole("button", { name: "Confirm deposit" }));
+  await page().findByText("Ripio is no longer offered here.");
+});
+
 test.each([
   ["confirming a funding order invalidates", "confirm", true],
   ["a failed confirm does not invalidate", "confirm", false],
@@ -121,6 +145,9 @@ test.each([
   if (trigger === "resolve" && succeeds) await page().findByText("Order cleared");
   if (succeeds) await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
   else expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
+  if (trigger === "confirm" && succeeds) {
+    expect(client.getQueryData<{ version: number; order: typeof order }>(ownerQueryKey(ownerKey, "funding-open-order", binding.region))).toEqual({ version: FUNDING_OPEN_ORDER_VERSION, order });
+  }
 });
 
 test("a verification response without a hand-off still shows the returned blocked setup state", async () => {

@@ -40,6 +40,7 @@ import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-orde
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { mutationOptions } from "@tanstack/react-query";
 import { ownerMutation } from "@/client/query/mutation-options";
+import { readFundingFailure } from "@/shared/funding/contracts/errors";
 import {
   readQuoteDraft,
   type QuoteDraft,
@@ -128,8 +129,11 @@ export function FundingOrderFlow({
   }));
   const resolveMutation = useHomeMutation(ownerMutation({
     owner: queryOwnerKey ?? null,
-    invalidates: [
+    invalidates: () => [
       { scope: "funding-open-order", key: [binding.region], refetchType: "all" },
+      ...(binding.direction === "onramp" && binding.resumeOnly
+        ? [{ scope: "funding-open-order-by-provider" as const, key: [binding.region, binding.providerId], refetchType: "all" as const }]
+        : []),
       { scope: "activity-orders" },
     ],
     mutationFn: async (id: string) => {
@@ -208,7 +212,7 @@ export function FundingOrderFlow({
   }, [currentOrder, onOpenRedirect]);
 
   async function requestQuote() {
-    if (busy || draft || !method || !positiveDecimal(amount)) return;
+    if ((binding.direction === "onramp" && binding.resumeOnly) || busy || draft || !method || !positiveDecimal(amount)) return;
     setBusy(true);
     setError(null);
     try {
@@ -350,7 +354,7 @@ export function FundingOrderFlow({
     );
   }
 
-  const quoteDisabled = busy || !positiveDecimal(amount);
+  const quoteDisabled = (binding.direction === "onramp" && binding.resumeOnly === true) || busy || !positiveDecimal(amount);
   const amountAssetProps = {
     assetId: binding.currency.toLocaleLowerCase(),
     assetLabel: binding.currency,
@@ -963,9 +967,11 @@ function stateCopy(state: string, sandbox = false) {
   };
 }
 function confirmOrderErrorCopy(error: unknown): string {
-  const code = typeof error === "object" && error !== null && "code" in error
-    ? error.code
-    : null;
+  const failure = readFundingFailure(error);
+  const code = failure?.code;
+  if (code === "CORRIDOR_NOT_OFFERED" && failure?.message) {
+    return failure.message;
+  }
   if (code === "AMBIGUOUS_ORDER_OPEN") {
     return "Home is still waiting on an earlier deposit. Close and reopen Add money, then continue it; no new provider request was created.";
   }
@@ -976,13 +982,11 @@ function confirmOrderErrorCopy(error: unknown): string {
 }
 
 function quoteErrorCopy(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    if ((error.code === "QUOTE_BELOW_MINIMUM" || error.code === "QUOTE_DECLINED") &&
-      "serverMessage" in error && typeof error.serverMessage === "string" && error.serverMessage.length <= 200) {
-      return error.serverMessage;
-    }
-    if (error.code === "QUOTE_UNAVAILABLE") return "Quotes are unavailable right now. Try again shortly.";
+  const failure = readFundingFailure(error);
+  if ((failure?.code === "QUOTE_BELOW_MINIMUM" || failure?.code === "QUOTE_DECLINED" || failure?.code === "CORRIDOR_NOT_OFFERED") && failure.message) {
+    return failure.message;
   }
+  if (failure?.code === "QUOTE_UNAVAILABLE") return "Quotes are unavailable right now. Try again shortly.";
   return "This quote could not be created. Try again.";
 }
 

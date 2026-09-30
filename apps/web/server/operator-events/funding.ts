@@ -39,6 +39,8 @@ export function withFundingOrderEvents(store: FundingOrderStore, record: Recorde
     listOwned: (owner, limit) => store.listOwned(owner, limit),
     getByIntent: (owner, intentDigest) => store.getByIntent(owner, intentDigest),
     getOpen: (owner, region) => store.getOpen(owner, region),
+    listOpen: (owner, region) => store.listOpen(owner, region),
+    getOpenForProvider: (owner, region, providerId, paymentMethod, assetId) => store.getOpenForProvider(owner, region, providerId, paymentMethod, assetId),
     getDispatchAmbiguous: (owner, region, providerId) => store.getDispatchAmbiguous(owner, region, providerId),
     getByProviderOrderId: (providerId, providerOrderId) => store.getByProviderOrderId(providerId, providerOrderId),
     completeDispatch: async (id, input) => finalized(await store.completeDispatch(id, input)),
