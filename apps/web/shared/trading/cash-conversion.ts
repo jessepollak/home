@@ -1,18 +1,22 @@
 import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { requireAddress } from "@/shared/chain/hex";
 import type { TradeDirection, TradeMoneyActionMetadata } from "./contract";
 
 const assets = [canonicalUsdcAsset, ...Object.values(verifiedLocalCashAssets)] as const;
 
 /** @public Cash conversion inventory for embedding the trade flow */
-export const cashConversionCurrencies = assets.map((asset) => ({
-  code: asset.cashCurrency,
-  name: asset.name,
-  symbol: asset.symbol,
-  decimals: asset.decimals,
-  address: asset.contractAddress,
-  portfolioAssetId: asset.id,
-  tradeAssetId: asset.cashCurrency === "USD" ? "usdc" : `base:${asset.contractAddress.toLowerCase()}`,
-}));
+export const cashConversionCurrencies = assets.map((asset) => {
+  const address = requireAddress(asset.contractAddress);
+  return {
+    code: asset.cashCurrency,
+    name: asset.name,
+    symbol: asset.symbol,
+    decimals: asset.decimals,
+    address,
+    portfolioAssetId: asset.id,
+    tradeAssetId: asset.cashCurrency === "USD" ? "usdc" : `base:${address}`,
+  };
+});
 
 export type CashConversionCurrency = (typeof cashConversionCurrencies)[number];
 export type CashConversionCurrencyCode = CashConversionCurrency["code"];
@@ -41,7 +45,7 @@ export function cashConversionTrade(from: CashConversionCurrencyCode, to: CashCo
 export function cashConversionPair(metadata: TradeMoneyActionMetadata): { from: CashConversionCurrency; to: CashConversionCurrency } | null {
   if (metadata.network.chainId !== 8453 || metadata.network.name !== "Base") return null;
   const match = (asset: TradeMoneyActionMetadata["fromAsset"]) => cashConversionCurrencies.find((currency) =>
-    currency.address.toLowerCase() === asset.address.toLowerCase() && currency.decimals === asset.decimals);
+    currency.address === asset.address && currency.decimals === asset.decimals);
   const from = match(metadata.fromAsset);
   const to = match(metadata.toAsset);
   const trade = from && to ? cashConversionTrade(from.code, to.code) : null;

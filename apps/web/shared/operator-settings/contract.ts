@@ -1,3 +1,4 @@
+import { parseAddress, type Address } from "@/shared/chain/hex";
 import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings } from "@/shared/fees/contract";
 import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
@@ -51,6 +52,7 @@ export type SettingsEntry<T = unknown> = {
 export type SettingsResponse = SettingsEntry & { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION };
 export type AllSettingsResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; domains: SettingsEntry[] };
 export type PutSettingsRequest = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; expectedRevision: number; value: unknown; operator: `0x${string}` };
+export type ParsedPutSettingsRequest = Omit<PutSettingsRequest, "operator"> & { operator: Address };
 export type AuditEntry = {
   id: string; occurredAt: string; actor: `0x${string}`;
 } & (
@@ -58,14 +60,17 @@ export type AuditEntry = {
   | { action: "customer.read"; target: { kind: "customer"; id: string }; purpose: string }
 );
 export type AuditListResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; entries: AuditEntry[]; nextCursor: string | null };
+export type ParsedAuditEntry = AuditEntry & { actor: Address };
+export type ParsedAuditListResponse = Omit<AuditListResponse, "entries"> & { entries: ParsedAuditEntry[] };
 export type OperatorSettingsErrorCode = "UNAUTHENTICATED" | "OPERATOR_FORBIDDEN" | "NOT_FOUND" | "INVALID_REQUEST" | "SETTINGS_CONFLICT" | "OPERATOR_CHANGED" | "CROSS_ORIGIN" | "SETTINGS_UNAVAILABLE";
 export type OperatorSettingsErrorResponse = { error: { code: OperatorSettingsErrorCode }; current?: SettingsResponse };
 
-export function parsePutSettingsRequest(value: unknown): PutSettingsRequest | null {
+export function parsePutSettingsRequest(value: unknown): ParsedPutSettingsRequest | null {
   if (!isObject(value) || !exactKeys(value, ["version", "expectedRevision", "value", "operator"])) return null;
   if (value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 0) return null;
-  if (typeof value.operator !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(value.operator)) return null;
-  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value, operator: value.operator.toLowerCase() as `0x${string}` };
+  const operator = parseAddress(value.operator);
+  if (!operator) return null;
+  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value, operator };
 }
 
 /** @public parses settings list responses for future administrator clients */
@@ -77,17 +82,21 @@ export function parseAllSettingsResponse(value: unknown): AllSettingsResponse | 
 }
 
 /** @public parses administrator audit responses for future clients */
-export function parseAuditListResponse(value: unknown): AuditListResponse | null {
+export function parseAuditListResponse(value: unknown): ParsedAuditListResponse | null {
   if (!isObject(value) || value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Array.isArray(value.entries) || !(value.nextCursor === null || validCursor(value.nextCursor))) return null;
+  const entries: ParsedAuditEntry[] = [];
   for (const entry of value.entries) {
-    if (!isObject(entry) || !validCursor(entry.id) || typeof entry.occurredAt !== "string" || !Number.isFinite(Date.parse(entry.occurredAt)) || !isAddress(entry.actor) || !isObject(entry.target) || typeof entry.target.id !== "string") return null;
+    if (!isObject(entry)) return null;
+    const actor = parseAddress(entry.actor);
+    if (!actor || !validCursor(entry.id) || typeof entry.occurredAt !== "string" || !Number.isFinite(Date.parse(entry.occurredAt)) || !isObject(entry.target) || typeof entry.target.id !== "string") return null;
     if (entry.action === "settings.update") {
       if (entry.target.kind !== "settings" || !("before" in entry) || !("after" in entry)) return null;
     } else if (entry.action === "customer.read") {
       if (entry.target.kind !== "customer" || typeof entry.purpose !== "string") return null;
     } else return null;
+    entries.push({ ...entry, actor } as ParsedAuditEntry);
   }
-  return value as AuditListResponse;
+  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, entries, nextCursor: value.nextCursor };
 }
 
 /** @public parses administrator settings errors for future clients */
@@ -107,7 +116,4 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 function exactKeys(value: Record<string, unknown>, keys: string[]): boolean {
   return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
-}
-function isAddress(value: unknown): value is `0x${string}` {
-  return typeof value === "string" && /^0x[0-9a-f]{40}$/.test(value);
 }

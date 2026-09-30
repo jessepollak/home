@@ -43,6 +43,11 @@ describe("normalizeResolvedRecipientAddress", () => {
       .toBe("0x2211d1D0020DAEA8039E46Cf1367962070d77DA9");
   });
 
+  test("accepts a mixed-case address that is not checksummed and returns its checksum", () => {
+    expect(normalizeResolvedRecipientAddress("0x2211D1d0020DAEA8039E46CF1367962070D77DA9"))
+      .toBe("0x2211d1D0020DAEA8039E46Cf1367962070d77DA9");
+  });
+
   test.each([
     "0x0000000000000000000000000000000000000000",
     "0x1234",

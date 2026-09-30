@@ -1,19 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import { getAddress } from "viem";
 import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { OPERATOR_FEE_TOKEN } from "@/shared/fees/contract";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseTradeMetadata, parseTradeSigning, tradeRateLabel } from "./review";
-import type { Address } from "./server-types";
+import { parseAddress, type Address } from "@/shared/chain/hex";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
 const CBBTC = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf";
 const session: VerifiedAccountSession = { user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" };
 const metadata = {
   product: "trade", provider: "cdp-swaps", direction: "buy", network: { name: "Base", chainId: 8453 },
-  fromAsset: { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toUpperCase().replace("0X", "0x") },
-  toAsset: { id: "cbbtc", symbol: "cbBTC", decimals: 8, address: CBBTC.toUpperCase().replace("0X", "0x") },
+  fromAsset: { id: "usdc", symbol: "USDC", decimals: 6, address: getAddress(BASE_USDC_ADDRESS) },
+  toAsset: { id: "cbbtc", symbol: "cbBTC", decimals: 8, address: getAddress(CBBTC) },
   fromAmountBaseUnits: "1000000", expectedToAmountBaseUnits: "1000", minimumToAmountBaseUnits: "990",
   slippageBps: 100, fees: [{ kind: "protocol", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "100" }],
   approval: "permit2-exact", quoteBlockNumber: "100", quotedAt: "2026-09-25T12:00:00.000Z", permitDeadline: "1790338500", executionDeadline: "1790338400",
@@ -35,7 +36,7 @@ const summary = { title: "Buy Bitcoin", amounts: [], warnings: [], expiresAt: "2
 
 describe("trade review parsers", () => {
   test("normalizes validated trade metadata and signing addresses", () => {
-    expect(parseTradeMetadata(metadata)?.fromAsset.address).toBe(BASE_USDC_ADDRESS.toLowerCase() as Address);
+    expect(parseTradeMetadata(metadata)?.fromAsset.address).toBe(parseAddress(BASE_USDC_ADDRESS)!);
     const reviewed = parseTradeMetadata(metadata)!;
     expect(parseTradeSigning(signing, reviewed, OWNER)).toMatchObject({ signer: "cdp-embedded", evmAccount: OWNER });
   });
@@ -107,7 +108,7 @@ describe("trade rate label", () => {
   const token = { id: "base:0x2222222222222222222222222222222222222222", symbol: "TINY", address: "0x2222222222222222222222222222222222222222" as Address };
   const rate = (decimals: number, usdcUnits: string, tokenUnits: string, direction: "buy" | "sell" = "buy") => {
     const traded = { ...token, decimals };
-    const cash = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
+    const cash = { id: "usdc", symbol: "USDC", decimals: 6, address: parseAddress(BASE_USDC_ADDRESS)! };
     const parsed = parseTradeMetadata(direction === "buy"
       ? { ...metadata, direction, fromAsset: cash, toAsset: traded, fromAmountBaseUnits: usdcUnits, expectedToAmountBaseUnits: tokenUnits, minimumToAmountBaseUnits: "1", assetId: token.id, assetName: "Tiny" }
       : { ...metadata, direction, fromAsset: traded, toAsset: cash, fromAmountBaseUnits: tokenUnits, expectedToAmountBaseUnits: usdcUnits, minimumToAmountBaseUnits: "1", assetId: token.id, assetName: "Tiny" });
@@ -124,4 +125,16 @@ describe("trade rate label", () => {
   ] as const)("%i decimals, %s USDC atoms for %s token atoms (%s)", (decimals, usdcUnits, tokenUnits, direction, expected) => {
     expect(rate(decimals, usdcUnits, tokenUnits, direction)).toBe(expected);
   });
+});
+
+test("trade metadata rejects invalid mixed-case checksum and signing hash width", () => {
+  const valid = getAddress("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf");
+  expect(String(parseTradeMetadata({ ...metadata, toAsset: { ...metadata.toAsset, address: valid } })?.toAsset.address)).toBe(valid.toLowerCase());
+  expect(parseTradeMetadata({ ...metadata, toAsset: { ...metadata.toAsset, address: valid.replace("B", "b") } })).toBeNull();
+  const reviewed = parseTradeMetadata(metadata)!;
+  const embedded = parseTradeSigning({ ...signing, evmAccount: valid, typedData: { ...signing.typedData, message: { hash: `0x${"Ab".repeat(32)}` } } }, reviewed, OWNER);
+  expect(String(embedded?.signer === "cdp-embedded" ? embedded.evmAccount : null)).toBe(valid.toLowerCase());
+  expect(String(embedded?.signer === "cdp-embedded" ? embedded.typedData.message.hash : null)).toBe(`0x${"ab".repeat(32)}`);
+  expect(parseTradeSigning({ ...signing, evmAccount: valid.replace("B", "b") }, reviewed, OWNER)).toBeNull();
+  expect(parseTradeSigning({ ...signing, typedData: { ...signing.typedData, message: { hash: "0xabc" } } }, reviewed, OWNER)).toBeNull();
 });

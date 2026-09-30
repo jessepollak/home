@@ -30,10 +30,16 @@ describe("borrow operation contract", () => {
     ["withdraw-collateral", { amountBaseUnits: "1" }],
     ["close-position", { maximumRepayBaseUnits: "2" }],
   ] as const)("parses the bounded %s intent shape", (operation, amounts) => {
-    expect(parseBorrowActionIntent({ marketId, operation, ...amounts })).toEqual({
+    expect(JSON.parse(JSON.stringify(parseBorrowActionIntent({ marketId, operation, ...amounts })))).toEqual({
       marketId,
       operation: operation as BorrowOperation,
       ...amounts,
     });
   });
+});
+
+test("borrow intents canonicalize any-case market hashes and reject malformed ones", () => {
+  const input = { marketId: `0x${"Ab".repeat(32)}`, operation: "borrow", amountBaseUnits: "1" };
+  expect(String(parseBorrowActionIntent(input)?.marketId)).toBe(`0x${"ab".repeat(32)}`);
+  for (const marketId of ["0x1234", `0x${"zz".repeat(32)}`]) expect(parseBorrowActionIntent({ ...input, marketId })).toBeNull();
 });

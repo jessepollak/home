@@ -1,3 +1,4 @@
+import { parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { ActionKind, MoneyActionDraft } from "@/shared/money-actions/types";
 import type { BorrowMarketId } from "./config";
 
@@ -18,6 +19,8 @@ export type BorrowActionIntent = {
   maximumRepayBaseUnits?: string;
 };
 
+export type ParsedBorrowActionIntent = BorrowActionIntent & { marketId: Hash32 };
+
 export type BorrowPreviewSummary = {
   operation: BorrowOperation;
   title: string;
@@ -36,15 +39,16 @@ export type BorrowActionPreparation = {
   draft: MoneyActionDraft;
   summary: Omit<BorrowPreviewSummary, "execution" | "disabledReason">;
   fullySimulated: boolean;
-  simulationBlockHash: `0x${string}`;
+  simulationBlockHash: Hash32;
   simulationBlockNumber: string;
   simulationBlockTimestamp: string;
   simulationGap: string | null;
 };
 
-export function parseBorrowActionIntent(value: unknown): BorrowActionIntent | null {
-  if (!isRecord(value) || typeof value.marketId !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(value.marketId) ||
-    !isBorrowOperation(value.operation)) return null;
+export function parseBorrowActionIntent(value: unknown): ParsedBorrowActionIntent | null {
+  if (!isRecord(value)) return null;
+  const marketId = parseHash32(value.marketId);
+  if (!marketId || !isBorrowOperation(value.operation)) return null;
   const allowed = new Set(["marketId", "operation", "amountBaseUnits", "collateralAmountBaseUnits", "maximumRepayBaseUnits"]);
   if (Object.keys(value).some((key) => !allowed.has(key))) return null;
   for (const field of ["amountBaseUnits", "collateralAmountBaseUnits", "maximumRepayBaseUnits"] as const) {
@@ -60,7 +64,7 @@ export function parseBorrowActionIntent(value: unknown): BorrowActionIntent | nu
       : hasAmount && !hasCollateral && !hasMaximum;
   if (!validShape) return null;
   return {
-    marketId: value.marketId.toLowerCase() as BorrowMarketId,
+    marketId,
     operation: value.operation,
     ...(hasAmount ? { amountBaseUnits: value.amountBaseUnits as string } : {}),
     ...(hasCollateral ? { collateralAmountBaseUnits: value.collateralAmountBaseUnits as string } : {}),

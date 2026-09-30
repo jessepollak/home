@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import "@/client/account/dom-test-harness";
 
 import { afterAll, afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, spyOn, test } from "bun:test";
@@ -49,7 +50,7 @@ function operation(id: string, minute: number, transactionHash?: `0x${string}`):
     status: "confirmed",
     createdAt: updatedAt,
     updatedAt,
-    ...(transactionHash ? { transactionHash } : {}),
+    ...(transactionHash ? { transactionHash: parseHash32(transactionHash)! } : {}),
   };
 }
 
@@ -1055,7 +1056,7 @@ describe("combined Activity panel", () => {
     view.rerender(<ActivityPanelView activity={ready([indexed])} operations={[confirmed]} />);
     expect(view.queryByRole("heading", { name: "Pending" })).toBeNull();
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(2);
-    const matched = { ...confirmed, transactionHash: indexed.transactionHash };
+    const matched = { ...confirmed, transactionHash: parseHash32(indexed.transactionHash)! };
     view.rerender(<ActivityPanelView activity={ready([indexed])} operations={[matched]} />);
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
     expect(view.queryByText("Received")).toBeNull();

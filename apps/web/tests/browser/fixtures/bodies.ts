@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../../config/portfolio-assets";
 import { investAssets } from "../../../config/invest-assets";
 import { buyRouteForToken } from "../../../shared/trading/assets";
@@ -47,7 +48,7 @@ export function tradeAvailabilityBody(assetId: string) {
     : { version: 2, status: "unavailable", reason: "asset-unsupported" };
 }
 
-const BORROW_BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
+const BORROW_BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`)!;
 const BORROW_FETCHED_AT = "2026-09-13T12:00:00.000Z";
 const BORROW_ORACLE_PRICES = [
   "843242900000000000000000000000000000000",

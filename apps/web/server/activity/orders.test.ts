@@ -58,6 +58,13 @@ describe("activity order presenters", () => {
     expect(JSON.stringify(presented)).not.toContain("secret-");
   });
 
+  test("canonicalizes a mixed-case stored receipt hash and drops a malformed one", () => {
+    expect(String(presentFundingOrder({ ...funding, transactionHash: `0x${"Ab".repeat(32)}` }, now, false)?.transactionHash)).toBe(`0x${"ab".repeat(32)}`);
+    for (const hash of ["0x1234", `0x${"zz".repeat(32)}`] as const) {
+      expect(presentFundingOrder({ ...funding, transactionHash: hash }, now, false)).toBeNull();
+    }
+  });
+
   test("maps every cash-out state and returned-funds branches", () => {
     const cases: Array<[CashoutOrderRow["state"], ActivityOrderStatus]> = [
       ["submitted", "waiting-provider"], ["awaiting-buyer", "waiting-provider"], ["matched", "waiting-provider"],

@@ -1,5 +1,6 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { parseAddress } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
@@ -39,7 +40,7 @@ function tradeRow(provider: "base-account" | "cdp-embedded", expiresAt: string):
     summary: { title: "Buy Bitcoin", amounts: [], warnings: [], expiresAt,
       networkFee: { payment: "usdc", token: BASE_USDC_ADDRESS, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "100000", decimals: 6 } },
     pending: { calls: [feeCall, approval, swap], permitHash: HASH, signingTypedData: typed,
-      signerAddress: SIGNER.address.toLowerCase() as `0x${string}`, signerOwnerIndex: 0, signerDeployed: true, swapCallIndex: 2 },
+      signerAddress: parseAddress(SIGNER.address)!, signerOwnerIndex: 0, signerDeployed: true, swapCallIndex: 2 },
     created_at: "2026-09-25T12:00:00.000Z", confirmed_at: null, provider_handle: null, transaction_hash: null,
     handle_recorded_at: null, declined_reported_at: null, dispatch_attempt: 0, outcome: null, outcome_source: null,
     settled_at: null, outcome_recorded_at: null,
@@ -224,7 +225,7 @@ describe("trade confirmation", () => {
   });
   test("reload returns the verified trade signing request", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
-    row.summary.signing = { signer: "cdp-embedded", evmAccount: SIGNER.address.toLowerCase() as `0x${string}`, typedData: typed };
+    row.summary.signing = { signer: "cdp-embedded", evmAccount: parseAddress(SIGNER.address)!, typedData: typed };
     const handler = createGetActionHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
       store: { get: async () => row, recordHandle: async () => null, recordOutcome: async () => ({ row: null, written: false, conflict: false }) },

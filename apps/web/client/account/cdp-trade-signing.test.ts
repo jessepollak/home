@@ -1,3 +1,4 @@
+import { parseAddress } from "@/shared/chain/hex";
 import "./dom-test-harness";
 
 import { describe, expect, test } from "bun:test";
@@ -18,7 +19,7 @@ const { useMoneyActionExecution } = await import("./cdp-money-action-execution")
 
 const id = "11111111-1111-4111-8111-111111111111";
 const smartAccount = "0x1111111111111111111111111111111111111111" as const;
-const evmAccount = "0x2222222222222222222222222222222222222222" as const;
+const evmAccount = parseAddress("0x2222222222222222222222222222222222222222")!;
 const signature = `0x${"ab".repeat(65)}` as `0x${string}`;
 const operationHash = `0x${"cd".repeat(32)}` as `0x${string}`;
 const calls = [{ to: evmAccount, data: "0x1234" as const, value: "0" }];

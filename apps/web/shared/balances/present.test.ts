@@ -55,11 +55,11 @@ describe("focused investment presentation", () => {
 
 function validatedPresentationSnapshot(options: BalancesFixtureOptions): BalancesSnapshot {
   const snapshot = buildBalancesSnapshotFixture(options);
-  expect(parseBalancesSnapshot(snapshot, {
+  expect(JSON.parse(JSON.stringify(parseBalancesSnapshot(snapshot, {
     subject: "cdp:test",
     smartAccountAddress: snapshot.owner.address,
     chainId: snapshot.owner.chainId,
-  }, snapshot.region)).toEqual(snapshot);
+  }, snapshot.region)))).toEqual(snapshot);
   return snapshot;
 }
 

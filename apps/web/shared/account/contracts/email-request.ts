@@ -1,3 +1,5 @@
+import { parseAddress, type Address } from "@/shared/chain/hex";
+
 export const EMAIL_REQUEST_VERSION = 1 as const;
 
 export const EMAIL_REQUEST_ERROR_CODES = ["EMAIL_REQUEST_UNSUPPORTED", "EMAIL_REQUEST_UNAVAILABLE", "EMAIL_REQUEST_INVALID"] as const;
@@ -15,11 +17,11 @@ export function parseEmailRequestErrorResponse(value: unknown): EmailRequestErro
 export type EmailRequestChannel = "sign_in" | "share_step";
 export type EmailRequestReadResponse = { version: 1; asked: boolean };
 export type EmailRequestWrite =
-  | { version: 1; kind: "sign_in_capability"; address: string; result: "ignored" | "refused"; walletCode?: number; walletMessage?: string }
-  | { version: 1; kind: "asked"; address: string; channel: "share_step" }
-  | { version: 1; kind: "answer"; address: string; channel: EmailRequestChannel; answer: "not_now" | "declined" | "failed"; walletCode?: number; walletMessage?: string }
-  | { version: 1; kind: "email"; address: string; channel: EmailRequestChannel; email: string; bundleId?: string };
-export type EmailRequestClaimWrite = { version: 1; kind: "claim"; address: string; channel: "share_step" };
+  | { version: 1; kind: "sign_in_capability"; address: Address; result: "ignored" | "refused"; walletCode?: number; walletMessage?: string }
+  | { version: 1; kind: "asked"; address: Address; channel: "share_step" }
+  | { version: 1; kind: "answer"; address: Address; channel: EmailRequestChannel; answer: "not_now" | "declined" | "failed"; walletCode?: number; walletMessage?: string }
+  | { version: 1; kind: "email"; address: Address; channel: EmailRequestChannel; email: string; bundleId?: string };
+export type EmailRequestClaimWrite = { version: 1; kind: "claim"; address: Address; channel: "share_step" };
 export type EmailRequestAnyWrite = EmailRequestWrite | EmailRequestClaimWrite;
 export type EmailRequestWriteResponse = { version: 1; asked: boolean };
 export type EmailRequestClaimResponse = { version: 1; claimed: boolean };
@@ -30,8 +32,8 @@ export function normalizeReportedEmail(value: unknown): string | null {
   return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
-function normalizeAddress(value: unknown): string | null {
-  return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value) ? value.toLowerCase() : null;
+function normalizeAddress(value: unknown): Address | null {
+  return parseAddress(value);
 }
 
 export function isWalletCode(value: unknown): value is number {

@@ -1,10 +1,13 @@
 import { getAddress } from "viem";
+import { parseAddress, requireAddress } from "@/shared/chain/hex";
 
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
+const zeroAddress = requireAddress("0x0000000000000000000000000000000000000000");
 
 export function normalizeResolvedRecipientAddress(value: unknown): `0x${string}` | null {
   if (typeof value !== "string") return null;
   const candidate = value.trim();
-  if (!addressPattern.test(candidate) || /^0x0{40}$/i.test(candidate)) return null;
-  return getAddress(candidate.toLowerCase());
+  if (!candidate.startsWith("0x")) return null;
+  const parsed = parseAddress(candidate.toLowerCase());
+  if (!parsed || parsed === zeroAddress) return null;
+  return getAddress(parsed);
 }

@@ -1,4 +1,5 @@
 import { readJson } from "@/tests/helpers/read-json";
+import { parseAddress } from "@/shared/chain/hex";
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { createSiweMessage } from "viem/siwe";
 import { issueInviteCookie } from "@/server/invites/cookie";
@@ -478,7 +479,7 @@ describe("verified Base capture", () => {
     });
     const response = await rejecting(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie));
     expect(response.status).toBe(200);
-    expect(parseNativeBaseSession(await readJson(response))?.smartAccount.address).toBe(ADDRESS);
+    expect(parseNativeBaseSession(await readJson(response))?.smartAccount.address).toBe(parseAddress(ADDRESS)!);
     expect(response.headers.getSetCookie()).toContain("home_invite=; Path=/; Max-Age=0");
   });
 
@@ -488,6 +489,6 @@ describe("verified Base capture", () => {
     const issued = await challenge(createNativeBaseNonceHandler(deps));
     const response = await createNativeBaseVerifyHandler(deps)(post("/api/auth/base/verify", verifyBody(issued.message), issued.cookie));
     expect(response.status).toBe(200);
-    expect(parseNativeBaseSession(await readJson(response))?.smartAccount.address).toBe(ADDRESS);
+    expect(parseNativeBaseSession(await readJson(response))?.smartAccount.address).toBe(parseAddress(ADDRESS)!);
   });
 });

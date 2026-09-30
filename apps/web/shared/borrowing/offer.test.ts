@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import type { BorrowMarketSnapshot, BorrowOverviewOpportunity } from "./contract";
 import { leadingBorrowOffer } from "./offer";
@@ -5,7 +6,7 @@ import { leadingBorrowOffer } from "./offer";
 const source = {
   provider: "Base JSON-RPC",
   blockNumber: "1",
-  blockHash: `0x${"a".repeat(64)}`,
+  blockHash: parseHash32(`0x${"a".repeat(64)}`)!,
   blockTimestamp: "2026-09-23T12:00:00.000Z",
   fetchedAt: "2026-09-23T12:00:00.000Z",
 } as const;

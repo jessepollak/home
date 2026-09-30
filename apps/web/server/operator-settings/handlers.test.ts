@@ -53,7 +53,7 @@ describe("support contract", () => {
   test("PUT contract rejects unknown keys, invalid versions, and negative revisions", () => {
     expect(parsePutSettingsRequest({ version: 1, expectedRevision: 0, value })).toBeNull();
     for (const input of [{ version: 1, expectedRevision: -1, value, operator: X }, { version: 1, expectedRevision: 0, value, operator: X, extra: 1 }, { version: 2, expectedRevision: 0, value, operator: X }, { version: 1, expectedRevision: 0, operator: X }]) expect(parsePutSettingsRequest(input)).toBeNull();
-    expect(parsePutSettingsRequest({ version: 1, expectedRevision: 0, value, operator: "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa" })).toEqual({ version: 1, expectedRevision: 0, value, operator: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+    expect(String(parsePutSettingsRequest({ version: 1, expectedRevision: 0, value, operator: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" })?.operator)).toBe("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
     for (const operator of [null, "0x1234", `0x${"g".repeat(40)}`, `0X${"a".repeat(40)}`]) expect(parsePutSettingsRequest({ version: 1, expectedRevision: 0, value, operator })).toBeNull();
   });
   test("future-client response parsers accept typed responses", () => {

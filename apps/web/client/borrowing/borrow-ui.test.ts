@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
@@ -35,7 +36,7 @@ function snapshot(debtAssetsRaw = "1000000"): BorrowMarketSnapshot {
       rank: 1,
     },
     eligibility: { mode: "enabled", newRisk: true, reason: null },
-    source: { provider: "Base JSON-RPC", blockNumber: "100", blockHash: `0x${"ab".repeat(32)}`, blockTimestamp: "1788897600", fetchedAt: "2026-09-13T12:00:00.000Z" },
+    source: { provider: "Base JSON-RPC", blockNumber: "100", blockHash: parseHash32(`0x${"ab".repeat(32)}`)!, blockTimestamp: "1788897600", fetchedAt: "2026-09-13T12:00:00.000Z" },
     state: { oraclePriceRaw: "1", borrowRatePerSecondWad: "1", borrowAprWad: "1", totalSupplyAssetsRaw: "1", totalBorrowAssetsRaw: "1", totalBorrowSharesRaw: "1", liquidityAssetsRaw: "1", lastUpdateTimestamp: "1" },
     wallet: { collateralBalanceRaw: "200", loanBalanceRaw: "300", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
     position: { collateralRaw: "100", borrowSharesRaw: debtAssetsRaw === "0" ? "0" : "1", debtAssetsRaw, rawBorrowCapacityAssetsRaw: "5", borrowCapacityAssetsRaw: "4", rawWithdrawableCollateralRaw: "3", withdrawableCollateralRaw: "2", healthFactorWad: debtAssetsRaw === "0" ? null : "1600000000000000000", liquidationPriceRaw: debtAssetsRaw === "0" ? null : "1" },
