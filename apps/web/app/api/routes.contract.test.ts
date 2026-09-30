@@ -53,7 +53,6 @@ describe("API route composition", () => {
 
   test("keeps every public route dynamic and Node-only", async () => {
     for (const path of publicRoutes) {
-      if (path === "savings/vaults/route.ts") continue; // pre-existing: static vault catalog
       const route = await loadRoute(path);
       expect(route.runtime, path).toBe("nodejs");
       expect(route.dynamic, path).toBe("force-dynamic");
