@@ -72,7 +72,7 @@
       "react/no-array-index-key": 1
     },
     "apps/web/client/money-modal/money-modal.tsx": {
-      "home/no-silent-catch": 2
+      "home/no-silent-catch": 1
     },
     "apps/web/client/observability/client-reporter.test.ts": {
       "home/no-self-referential-expectation": 1
@@ -130,35 +130,20 @@
     "apps/web/instrumentation.ts": {
       "home/no-silent-catch": 2
     },
-    "apps/web/server/activity/handler.ts": {
-      "home/no-silent-catch": 2
-    },
     "apps/web/server/activity/token-metadata-rpc.test.ts": {
       "home/no-self-referential-expectation": 2
     },
     "apps/web/server/auth/cdp-render-session.test.ts": {
       "home/no-self-referential-expectation": 2
     },
-    "apps/web/server/balances/coalesce.ts": {
-      "home/no-silent-catch": 2
-    },
     "apps/web/server/balances/enumerate-cdp.test.ts": {
       "home/no-self-referential-expectation": 2
     },
-    "apps/web/server/balances/enumerate.ts": {
-      "home/no-silent-catch": 1
-    },
     "apps/web/server/balances/handler.ts": {
-      "home/no-silent-catch": 2
+      "home/no-silent-catch": 1
     },
     "apps/web/server/balances/price.ts": {
       "home/no-silent-catch": 3
-    },
-    "apps/web/server/balances/read.ts": {
-      "home/no-silent-catch": 1
-    },
-    "apps/web/server/balances/webhook-subscriptions.ts": {
-      "home/no-silent-catch": 1
     },
     "apps/web/server/cards/stripe/transactions.test.ts": {
       "home/no-real-waits": 1
