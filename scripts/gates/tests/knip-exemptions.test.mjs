@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { evaluateKnipExemptions, readKnipExemptionInput } from "../knip-exemptions.mjs";
 import { designLane, ts } from "../knip-source.mjs";
 
 const file = (path, content = "") => ({ path, content });
-const fixture = (config, files, baseline = []) => evaluateKnipExemptions({ config, files, baseline, configPaths: ["knip.json"] });
+const fixture = (config, files, baseline = [], budgetMs) => evaluateKnipExemptions({ config, files, baseline, configPaths: ["knip.json"], budgetMs });
 const clean = { unlisted: [], stale: [], invalid: [], unknownKeys: [], extraConfigs: [] };
 
 test("repository exemptions match their reasoned baseline", () => {
@@ -25,6 +26,18 @@ test("a story-only production entry is unlisted with its importer", () => {
     file("components/ui/foo.stories.tsx", 'import { Foo } from "./foo"; void Foo'),
   ]);
   assert.deepEqual(result.unlisted, [{ pattern: "components/ui/foo.tsx!", matches: [{ path: "components/ui/foo.tsx", importers: ["components/ui/foo.stories.tsx"] }] }]);
+});
+
+test("a quoted literal ignore still reports its story-used production match", () => {
+  const pattern = 'components/"ui"/*.tsx';
+  const result = fixture({ entry: [], ignore: [pattern] }, [
+    file("components/ui/candidate.tsx", "export const Candidate = 1"),
+    file("components/ui/candidate.stories.tsx", 'import { Candidate } from "./candidate"; void Candidate'),
+  ]);
+  assert.deepEqual(result, {
+    ...clean,
+    unlisted: [{ pattern, matches: [{ path: "components/ui/candidate.tsx", importers: ["components/ui/candidate.stories.tsx"] }] }],
+  });
 });
 
 test("a story's concatenated dynamic import makes its component exemption unlisted", () => {
@@ -366,4 +379,146 @@ test("a logical require in a story still registers the exemption", () => {
     file("components/ui/candidate.stories.tsx", 'void require(value || "./candidate")'),
   ]);
   assert.deepEqual(result.unlisted, [{ pattern: "components/ui/candidate.tsx!", matches: [{ path: "components/ui/candidate.tsx", importers: ["components/ui/candidate.stories.tsx"] }] }]);
+});
+
+test("a star-heavy exemption exhausts its budget without stalling the gate", { timeout: 5000 }, () => {
+  const basename = "a".repeat(39) + "c";
+  const files = [
+    file(`components/ui/${basename}.tsx`, "export const Row = 1"),
+    file(`components/ui/${basename}.stories.tsx`, `import { Row } from "./${basename}"; void Row`),
+  ];
+  assert.deepEqual(fixture('{"entry":["components/ui/*.tsx!"],"ignore":[]}', files).unlisted, [{
+    pattern: "components/ui/*.tsx!",
+    matches: [{ path: `components/ui/${basename}.tsx`, importers: [`components/ui/${basename}.stories.tsx`] }],
+  }]);
+  for (const pattern of [
+    "components/ui/*a*a*a*a*a*a*a*a*a*a*b.tsx",
+    "components/ui/a*a*a*a*a*a*a*a*a*a*a*b.tsx",
+    "components/ui/?*a*a*a*a*a*a*a*a*a*a*b.tsx",
+  ]) {
+    const start = performance.now();
+    const result = fixture({ entry: [`${pattern}!`], ignore: [] }, files, [], 1000);
+    assert.ok(performance.now() - start < 3000, pattern);
+    assert.deepEqual(result, {
+      ...clean,
+      invalid: [`knip.json: pattern "${pattern}" exceeded the 1000 ms pattern evaluation budget`],
+    }, pattern);
+  }
+});
+
+test("degenerate ignore syntax is reported even without source paths", () => {
+  const result = fixture('{"entry":[],"ignore":["[z-a]","a{b"]}', []);
+  assert.deepEqual(result.invalid.length, 2);
+  assert.match(result.invalid[0], /^knip\.json: pattern "\[z-a\]" cannot be compiled: /);
+  assert.match(result.invalid[1], /^knip\.json: pattern "a\{b" cannot be compiled: /);
+  assert.deepEqual(result.unlisted, []);
+  assert.deepEqual(result.stale, []);
+});
+
+test("refused entry and ignore negations are reported once and skipped", () => {
+  const glob = "components/ui/[z-a].tsx";
+  const result = fixture({
+    entry: ["components/ui/*.tsx!", `!${glob}!`],
+    ignore: ["components/ui/**", `!${glob}`, "!components/ui/kept.tsx"],
+  }, [
+    file("components/ui/row.tsx", "export const Row = 1"),
+    file("components/ui/row.stories.tsx", 'import "./row"'),
+    file("components/ui/kept.tsx", "export const Kept = 1"),
+    file("components/ui/kept.stories.tsx", 'import "./kept"'),
+  ]);
+  assert.equal(result.invalid.length, 1);
+  assert.match(result.invalid[0], /^knip\.json: pattern "components\/ui\/\[z-a\]\.tsx" cannot be compiled: /);
+  assert.deepEqual(result.stale, []);
+  assert.deepEqual(result.unlisted, [
+    { pattern: "components/ui/**", matches: [{ path: "components/ui/row.tsx", importers: ["components/ui/row.stories.tsx"] }] },
+    { pattern: "components/ui/*.tsx!", matches: [
+      { path: "components/ui/kept.tsx", importers: ["components/ui/kept.stories.tsx"] },
+      { path: "components/ui/row.tsx", importers: ["components/ui/row.stories.tsx"] },
+    ] },
+  ].sort((a, b) => a.pattern.localeCompare(b.pattern)));
+});
+
+test("five-run patterns are evaluated normally and star-heavy ones are reported", { timeout: 5000 }, () => {
+  const files = [
+    file("components/ui/aaab.tsx", "export const Row = 1"),
+    file("components/ui/aaab.stories.tsx", 'import "./aaab"'),
+  ];
+  const result = fixture({
+    entry: ["components/ui/*a*a*a*b*.tsx!"],
+    ignore: [],
+  }, files, [], 5000);
+  assert.deepEqual(result, {
+    ...clean,
+    unlisted: [{
+      pattern: "components/ui/*a*a*a*b*.tsx!",
+      matches: [{ path: "components/ui/aaab.tsx", importers: ["components/ui/aaab.stories.tsx"] }],
+    }],
+  });
+  const basename = "a".repeat(39) + "c";
+  const pathological = "components/ui/*a*a*a*a*a*a*a*a*a*a*b.tsx";
+  const limited = fixture({ entry: [], ignore: [pathological] }, [
+    file(`components/ui/${basename}.tsx`),
+    file(`components/ui/${basename}.stories.tsx`, `import "./${basename}"`),
+  ], [], 1000);
+  assert.deepEqual(limited, {
+    ...clean,
+    invalid: [`knip.json: pattern "${pathological}" exceeded the 1000 ms pattern evaluation budget`],
+  });
+});
+
+test("literalized extglobs and unsupported brace ranges report invalid exemptions", () => {
+  for (const syntax of ["+(a|aa)", "*(a|aa)", "+(ab|)", "+(*(ab))", "+(a|*)", "{10..12}", "{a..z..2}"]) {
+    const pattern = `components/ui/${syntax}.tsx`;
+    const result = fixture({ entry: [], ignore: [pattern] }, [
+      file("components/ui/a.tsx"), file("components/ui/a.stories.tsx", 'import "./a"'),
+    ]);
+    assert.equal(result.invalid.length, 1, syntax);
+    assert.ok(result.invalid[0].startsWith(`knip.json: pattern ${JSON.stringify(pattern)} cannot be interpreted: `), syntax);
+    assert.deepEqual(result.unlisted, []);
+    assert.deepEqual(result.stale, []);
+    assert.equal(fixture({ entry: [], ignore: [pattern] }, []).invalid.length, 1, syntax);
+  }
+});
+
+test("quoted suffix ranges are invalid with no paths and with wrong runtime matches", () => {
+  for (const [syntax, basename] of [['{10..12}"x"', "1"], ['{a..z..2}"x"', "2"]]) {
+    const pattern = `components/ui/${syntax}.tsx`;
+    for (const files of [[], [
+      file(`components/ui/${basename}.tsx`),
+      file(`components/ui/${basename}.stories.tsx`, `import "./${basename}"`),
+    ]]) {
+      const result = fixture({ entry: [], ignore: [pattern] }, files);
+      assert.deepEqual(result, {
+        ...clean,
+        invalid: [`knip.json: pattern ${JSON.stringify(pattern)} cannot be interpreted: brace ranges require single-character endpoints and no step`],
+      });
+    }
+  }
+});
+
+test("interpreted extglobs and single-character ranges remain matched and unreported", () => {
+  for (const [syntax, basename] of [["@(a|b)", "a"], ["!(a)", "b"], ["+(a)", "a"], ["*(a)", "a"], ["+(*(a))", "aaa"], ["+(*(a)|*(b))", "abba"], ["{1..3}", "2"], ["{a..z}", "b"]]) {
+    const pattern = `components/ui/${syntax}.tsx`;
+    const result = fixture({ entry: [], ignore: [pattern] }, [
+      file(`components/ui/${basename}.tsx`), file(`components/ui/${basename}.stories.tsx`, `import "./${basename}"`),
+    ]);
+    assert.deepEqual(result.invalid, [], syntax);
+    assert.equal(result.unlisted.length, 1, syntax);
+    assert.equal(result.unlisted[0].matches[0].path, `components/ui/${basename}.tsx`, syntax);
+    assert.deepEqual(fixture({ entry: [], ignore: [pattern] }, [
+      file(`components/ui/${basename}.tsx`), file(`components/ui/${basename}.stories.tsx`, `import "./${basename}"`),
+    ], [{ pattern, reason: "story-only" }]), clean, syntax);
+  }
+});
+
+test("an exact literal with an unbalanced brace preserves its reasoned baseline", () => {
+  const pattern = "components/ui/a{b.tsx";
+  const config = { entry: [`${pattern}!`], ignore: [] };
+  const baseline = [{ pattern: `${pattern}!`, reason: "story-only" }];
+  const files = [file(pattern), file("components/ui/a{b.stories.tsx", 'import "./a{b"')];
+  assert.deepEqual(fixture(config, files, baseline), clean);
+  assert.equal(fixture(config, []).invalid.length, 1);
+  const absent = fixture(config, [file("components/ui/a.tsx"), file("components/ui/a.stories.tsx", 'import "./a"')], baseline);
+  assert.equal(absent.invalid.length, 1);
+  assert.deepEqual(absent.stale, [`${pattern}!`]);
 });

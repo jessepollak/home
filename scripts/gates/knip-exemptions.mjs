@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { explorationOnlyPaths, importGraph, knipGlob, readWebSources, ts, webRoot } from "./knip-source.mjs";
+import { evaluateKnipGlobs, knipGlobBudgetMs } from "./knip-glob.mjs";
+import { explorationOnlyPaths, importGraph, readWebSources, ts, webRoot } from "./knip-source.mjs";
 
 const allowedKeys = new Set(["$schema", "ignoreExportsUsedInFile", "vitest", "entry", "ignore"]);
 const configNames = /^(?:knip(?:\.config)?\.[cm]?[jt]sx?|knip\.jsonc?|\.knip\.jsonc?)$/;
 
-export function evaluateKnipExemptions({ config, baseline, files, packageJson = {}, configPaths = [] }) {
+export function evaluateKnipExemptions({ config, baseline, files, packageJson = {}, configPaths = [], budgetMs = knipGlobBudgetMs }) {
   const parsed = typeof config === "string" ? ts.parseConfigFileTextToJson("knip.json", config) : { config };
   const invalid = [];
   if (parsed.error || !parsed.config || typeof parsed.config !== "object" || Array.isArray(parsed.config)) invalid.push("knip.json: invalid JSONC");
@@ -30,29 +31,44 @@ export function evaluateKnipExemptions({ config, baseline, files, packageJson = 
     }
     if (typeof entry?.pattern === "string") seen.add(entry.pattern);
   }
+  const effectiveGlobs = new Set([
+    ...entryExemptions.map((pattern) => pattern.slice(0, -1)),
+    ...entryNegations,
+    ...ignorePatterns.filter((pattern) => typeof pattern === "string" && !pattern.startsWith("!")).map((pattern) => pattern.replace(/!$/, "")),
+    ...ignoreNegations,
+  ]);
+  const refused = new Set();
   const { importers } = importGraph(files);
   const explorationOnly = explorationOnlyPaths(files, importers);
+  const candidatePaths = files.filter((file) => explorationOnly.has(file.path)).map((file) => file.path);
+  const { matches, failures, error } = evaluateKnipGlobs([...effectiveGlobs], candidatePaths, { budgetMs });
+  if (error) invalid.push(`knip.json: pattern evaluation failed: ${error}`);
+  for (const [glob, reason] of failures) {
+    refused.add(glob);
+    invalid.push(`knip.json: pattern ${JSON.stringify(glob)} ${reason}`);
+  }
+  const safeEntryNegations = entryNegations.filter((pattern) => !refused.has(pattern));
+  const safeIgnoreNegations = ignoreNegations.filter((pattern) => !refused.has(pattern));
   const flagged = new Map();
   function collectMatches(pattern, negations) {
     const glob = pattern.replace(/!$/, "");
-    const matches = [];
-    for (const file of files) {
-      if (!explorationOnly.has(file.path) || !knipGlob(file.path, glob)) continue;
-      if (negations.some((negative) => knipGlob(file.path, negative))) continue;
-      const users = [...(importers.get(file.path) ?? [])].sort();
-      matches.push({ path: file.path, importers: users });
+    const collected = [];
+    for (const file of matches.get(glob) ?? []) {
+      if (negations.some((negative) => matches.get(negative)?.has(file))) continue;
+      const users = [...(importers.get(file) ?? [])].sort();
+      collected.push({ path: file, importers: users });
     }
-    matches.sort((a, b) => a.path.localeCompare(b.path));
-    return matches;
+    collected.sort((a, b) => a.path.localeCompare(b.path));
+    return collected;
   }
   for (const pattern of entryExemptions) {
-    if (typeof pattern !== "string") continue;
-    const matches = collectMatches(pattern, entryNegations);
+    if (refused.has(pattern.slice(0, -1))) continue;
+    const matches = collectMatches(pattern, safeEntryNegations);
     if (matches.length) flagged.set(pattern, matches);
   }
   for (const pattern of ignorePatterns) {
-    if (typeof pattern !== "string" || pattern.startsWith("!")) continue;
-    const matches = collectMatches(pattern, ignoreNegations);
+    if (typeof pattern !== "string" || pattern.startsWith("!") || refused.has(pattern.replace(/!$/, ""))) continue;
+    const matches = collectMatches(pattern, safeIgnoreNegations);
     if (matches.length) flagged.set(pattern, matches);
   }
   return {
