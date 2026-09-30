@@ -28,6 +28,10 @@ function asWindowVirtualizer(instance: Virtualizer<HTMLElement, HTMLLIElement>):
   return checked as Virtualizer<Window, HTMLLIElement>;
 }
 
+const viewportRect = () => typeof window === "undefined"
+  ? { width: 1024, height: 800 }
+  : { width: window.innerWidth, height: window.innerHeight };
+
 export type ActivityListHandle = { restore: (key: string) => boolean };
 
 function scrollHost(list: HTMLUListElement | null): HTMLElement | Window | null {
@@ -78,6 +82,7 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   const anchor = useRef<Anchor | null>(null);
   const pendingCorrection = useRef<Anchor | null>(null);
   const retainedHeight = useRef(0);
+  const [initialRect] = useState(viewportRect);
   const indexByKey = useMemo(() => new Map(renderedItems.map((item, index) => [keyFor(item), index])), [renderedItems]);
   const focusedIndex = focusedKey === null ? null : indexByKey.get(focusedKey) ?? null;
   const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
@@ -95,7 +100,7 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
     overscan: 8,
     getItemKey: (index) => keyFor(renderedItems[index]!),
     scrollMargin: margin,
-    initialRect: { width: typeof window === "undefined" ? 1024 : window.innerWidth, height: typeof window === "undefined" ? 800 : window.innerHeight },
+    initialRect,
     initialOffset: () => typeof window === "undefined" ? 0 : host instanceof HTMLElement ? host.scrollTop : host === window ? window.scrollY : 0,
     rangeExtractor,
     observeElementRect: (instance, callback) => {
