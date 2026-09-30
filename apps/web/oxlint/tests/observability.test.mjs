@@ -1,41 +1,9 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
-import { afterAll, describe, expect, it } from "bun:test";
-import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "bun:test";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
-const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-observability-"));
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-
-afterAll(() => rm(mirror, { recursive: true, force: true }));
-
-let fixtureIndex = 0;
-async function lint(rule, code, options) {
-  fixtureIndex += 1;
-  const fixture = `fixture-${fixtureIndex}.ts`;
-  const config = `.oxlintrc-${fixtureIndex}.json`;
-  await writeFile(path.join(mirror, fixture), code);
-  await writeFile(path.join(mirror, config), JSON.stringify({
-    plugins: [],
-    categories: { correctness: "off" },
-    jsPlugins: ["./oxlint/home-plugin.mjs"],
-    rules: { [`home/${rule}`]: options ? ["error", options] : "error" },
-  }));
-  const result = spawnSync(
-    path.join(appsWebDir, "node_modules", ".bin", "oxlint"),
-    ["-c", config, "--disable-nested-config", "-f", "json", fixture],
-    { cwd: mirror, encoding: "utf8" },
-  );
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  return JSON.parse(result.stdout).diagnostics.filter((diagnostic) =>
-    diagnostic.code === `home(${rule})`);
-}
+const { lint } = await createOxlintWorkspace("home-oxlint-observability-");
 
 describe("no-silent-catch", () => {
   const options = {
@@ -48,15 +16,19 @@ describe("no-silent-catch", () => {
   };
 
   it("rejects empty, comment-only, and bare-return catches", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       try { run(); } catch {}
       try { run(); } catch { /* intentionally empty */ }
       function read() { try { run(); } catch { return; } }
-    `, options)).toHaveLength(3);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(3);
+  }, budgetMs);
 
   it("accepts throws, explicit return values, reporting, recovery state, and promise settlement", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { emitServerEvent } from "@/server/observability/log";
       function a() { try { run(); } catch (error) { throw error; } }
       function b() { try { run(); } catch { return { ok: false }; } }
@@ -66,11 +38,14 @@ describe("no-silent-catch", () => {
       try { run(); } catch { setError("failed"); }
       try { run(); } catch { dispatch({ type: "failed" }); }
       try { run(); } catch (error) { reject(error); }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts any non-undefined outer recovery value when it is read after the catch", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       let status = "ready";
       let count = 1;
       let details = { ready: true };
@@ -78,37 +53,48 @@ describe("no-silent-catch", () => {
       try { run(); } catch { count = 0; }
       try { run(); } catch { details = {}; }
       consume(status, count, details);
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts a retained pre-initialized fallback assigned by the try", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       let details = { code: null };
       try { details = readDetails(); } catch {}
       consume(details);
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects undefined fallbacks, undefined reassignment, and late declarations", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       let typed = undefined as { code: null } | undefined;
       try { typed = readDetails(); } catch {}
       consume(typed);
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       let overwritten = { code: null };
       try { overwritten = undefined; overwritten = readDetails(); } catch {}
       consume(overwritten);
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture3: `
       try { hoisted = readDetails(); } catch {}
       if (condition) { var hoisted = { code: null }; }
       consume(hoisted);
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects missing or undefined initializers and pre-initialized bindings not read after the try", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       let missing;
       try { missing = readDetails(); } catch {}
       consume(missing);
@@ -117,43 +103,55 @@ describe("no-silent-catch", () => {
       consume(undefinedFallback);
       let unread = { code: null };
       try { unread = readDetails(); } catch {}
-    `, options)).toHaveLength(3);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(3);
+  }, budgetMs);
 
   it("rejects type-asserted undefined initializers and assignments", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       let assertedFallback = <undefined>undefined;
       try { assertedFallback = readDetails(); } catch {}
       consume(assertedFallback);
       let asserted = "ready";
       try { run(); } catch { asserted = <undefined>undefined; }
       consume(asserted);
-    `, options)).toHaveLength(2);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("accepts primitive and empty-literal returns", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       function zero() { try { run(); } catch { return 0; } }
       function blank() { try { run(); } catch { return ""; } }
       function no() { try { run(); } catch { return false; } }
       function object() { try { run(); } catch { return {}; } }
       function array() { try { run(); } catch { return []; } }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects outer assignments of undefined or values that are never read", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       let result = "ready";
       try { run(); } catch { result = undefined; }
       consume(result);
       let unread = "ready";
       try { run(); } catch { unread = "failed"; }
       unread = "replaced";
-    `, options)).toHaveLength(2);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("rejects discards and dispositions that do not dominate the catch body", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { void error; }
       try { run(); } catch (error) { error; }
@@ -165,11 +163,14 @@ describe("no-silent-catch", () => {
       try { run(); } catch { if (condition) status = "failed"; }
       consume(status);
       try { run(); } catch (error) { if (condition) emitServerEvent(error); }
-    `, options)).toHaveLength(6);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(6);
+  }, budgetMs);
 
   it("accepts dispositions that cover every catch path", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       function complete(condition) {
         try { run(); } catch {
           if (condition) return { ok: false };
@@ -185,11 +186,14 @@ describe("no-silent-catch", () => {
       let status = "ready";
       try { run(); } catch { if (condition) status = "failed"; else status = "idle"; }
       consume(status);
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts failures disposed by same-file helpers that throw or report", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { emitServerEvent } from "@/server/observability/log";
       function unsupported(): never { throw new Error("unsupported"); }
       function unavailable(cause: unknown): never { throw new Error(String(cause)); }
@@ -198,30 +202,39 @@ describe("no-silent-catch", () => {
       try { run(); } catch (error) { unavailable(error); }
       try { run(); } catch (error) { if (error instanceof Error) throw error; unavailable(error); }
       try { run(); } catch { observeStoreFailure("failed"); }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects a no-op binding that shares a name with a throwing same-file helper", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       function recordFailure(): never { throw new Error("failed"); }
       function handle(createNoop: () => () => void): void {
         const recordFailure = createNoop();
         try { run(); } catch { recordFailure(); }
       }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects same-file helpers that only return values or fall through", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       function ignore(): null { return null; }
       function noop(): void { }
       try { run(); } catch { ignore(); }
       try { run(); } catch { noop(); }
-    `, options)).toHaveLength(2);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("accepts a nested retry that assigns state or returns on every path", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       let state;
       try { run(); } catch {
         try { state = read(); } catch { throw new Error("retry failed"); }
@@ -232,19 +245,25 @@ describe("no-silent-catch", () => {
           try { return parseFallback(data); } catch { return null; }
         }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects a nested try whose handler falls through", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       try { run(); } catch {
         try { risky(); } catch { }
       }
-    `, options)).toHaveLength(2);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("accepts a finalizer that always throws and rejects cleanup-only or conditional finalizers", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       async function validate(existingConnection: unknown, connection: { disconnect(): Promise<void> }, generation: number, fence: { assertCurrent(g: number): void }) {
         try { fence.assertCurrent(generation); } catch (error) {
           if (!existingConnection) {
@@ -258,94 +277,126 @@ describe("no-silent-catch", () => {
           try { risky(); } finally { throw error; }
         }
       }
-    `, options)).toHaveLength(0);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       try { run(); } catch {
         try { risky(); } finally { cleanup(); }
       }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture3: `
       try { run(); } catch (error) {
         try { risky(); } finally { if (condition) throw error; }
       }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(1);
+  }, budgetMs);
 
   it("accepts reporting and helper calls behind a TypeScript-wrapped callee", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { reportClientError } from "@/client/observability/client-reporter";
       try { run(); } catch (error) { (reportClientError as (caught: unknown) => void)(error); }
       run().catch((error) => { (reportClientError as (caught: unknown) => void)(error); });
       function dispose(error: unknown): never { throw error; }
       try { run(); } catch (error) { (dispose as (caught: unknown) => never)(error); }
       run().catch((error) => { (dispose as (caught: unknown) => never)(error); });
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts collection cleanup and void-wrapped reporting calls", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { reportClientError } from "@/client/observability/client-reporter";
       try { run(); } catch { pending.delete(key); }
       try { run(); } catch (error) { void reportClientError(error); }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects a local declaration shadowing an approved reporting helper", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       function observeSafely(x: unknown): void {}
       try { run(); } catch (error) { observeSafely(error); }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects an alias of a non-approved reporting export", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { buildClientErrorReport as reportClientError } from "@/client/observability/client-reporter";
       try { run(); } catch (error) { reportClientError(error); }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects a parameter shadowing a throwing same-file helper", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       function observeSafely(x: unknown): never { throw x; }
       function handle(observeSafely: (x: unknown) => void): void {
         try { run(); } catch (error) { observeSafely(error); }
       }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("accepts a throwing same-file helper shadowing a same-name no-op helper", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       function reportFailure(): void {}
       function handle(): void {
         function reportFailure(): never { throw new Error("failed"); }
         try { run(); } catch { reportFailure(); }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts approved aliases wrapping an injected telemetry sink", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely as reportTelemetry } from "@/server/observability/log";
       function reportSafely(log: (error: unknown) => void, error: unknown): void { reportTelemetry(() => log(error)); }
       function handle() { try { run(); } catch (error) { reportSafely(log, error); } }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects an object method named like an approved reporting helper", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       try { run(); } catch (error) { sink.observeSafely(error); }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects a reporting helper imported from an unapproved module", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "./local-sink";
       try { run(); } catch (error) { observeSafely(error); }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("accepts a directly imported wrapper around a real noncritical telemetry sink", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => emitServerEvent("failure", { code: String(error) })); }
       function reportSafely(log: (event: object) => unknown) { observeSafely(() => log({ outcome: "unavailable" })); }
@@ -360,11 +411,14 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { reportAsserted(log); }
         try { run(); } catch (error) { reportNested(log); }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts returned conditional, sequence and helper telemetry writes", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       function reportConditional(log: (error: unknown) => Promise<void>, condition: boolean) { observeSafely(() => (condition ? log(error) : log(error))); }
       function reportSequence(log: (error: unknown) => Promise<void>, work: () => void) { observeSafely(() => (work(), log(error))); }
@@ -378,11 +432,13 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { reportNullish(log); }
         try { run(); } catch (error) { reportHelper(log); }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects telemetry sinks whose injected parameter is reassigned", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const diagnostics = (await lint({ fixture1: `
       import { observeSafely } from "@/server/observability/log";
       function reassigned(log: (error: unknown) => void) {
         observeSafely(() => { log = () => {}; return log(error); });
@@ -398,13 +454,14 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { conditional(log, flag); }
         try { run(); } catch (error) { defaulted(log); }
       }
-    `, options);
+    ` }, { rule: "no-silent-catch", options })).fixture1;
     expect(diagnostics).toHaveLength(3);
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-  });
+  }, budgetMs);
 
   it("accepts a finalizer that always reports and rejects non-disposing finalizers", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() {
@@ -424,8 +481,8 @@ describe("no-silent-catch", () => {
           observeSafely(async () => { try { await risky(); } finally { await emitServerEvent("x", { code: String(error) }); } });
         }
       }
-    `, options)).toHaveLength(0);
-    const diagnostics = await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       function handle() {
         try { run(); } catch (error) {
@@ -438,31 +495,39 @@ describe("no-silent-catch", () => {
           try { risky(); } finally { cleanup(); }
         }
       }
-    `, options);
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(0);
+    const diagnostics = results.fixture2;
     expect(diagnostics).toHaveLength(3);
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-  });
+  }, budgetMs);
 
   it("rejects generator rejection callbacks and yielding arms", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { reportClientError } from "@/client/observability/client-reporter";
       function* handle() {
         try { run(); } catch (error) { try { yield 1; } finally { reportClientError(error); } }
       }
       run().catch(function* (error) { try { risky(); } finally { reportClientError(error); } });
       run().then(ok, function* (error) { try { risky(); } finally { reportClientError(error); } });
-    `, options);
-    expect(diagnostics).toHaveLength(3);
-    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() { try { run(); } catch (error) { try { risky(); } finally { reportClientError(error); } } }
       run().catch((error) => { try { risky(); } finally { reportClientError(error); } });
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options });
+    const diagnostics = results.fixture1;
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects a finalizer that declares a resource before reporting", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function report(error: unknown) {
@@ -475,10 +540,8 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { report(error); }
         try { run(); } catch (error) { reportSync(error); }
       }
-    `, options);
-    expect(diagnostics).toHaveLength(2);
-    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function report(error: unknown) {
@@ -496,11 +559,17 @@ describe("no-silent-catch", () => {
           });
         }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options });
+    const diagnostics = results.fixture1;
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects generator dispositions that never report", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function* reporting() { reportClientError("failed"); }
@@ -510,19 +579,23 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { try { risky(); } finally { observeSafely(function* () { return reportClientError(error); }); } }
         try { run(); } catch (error) { try { risky(); } finally { observeSafely(async function* () { return reportClientError(error); }); } }
       }
-    `, options);
-    expect(diagnostics).toHaveLength(3);
-    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { reportClientError } from "@/client/observability/client-reporter";
       function* reporting() { reportClientError("failed"); }
       function plainReporting() { reportClientError("failed"); }
       function handle() { try { run(); } catch (error) { try { risky(); } finally { plainReporting(); } } }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options });
+    const diagnostics = results.fixture1;
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
 
   it("applies the abrupt-completion guard to concise bodies", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       const conciseHelper = (error: unknown) => reportClientError(class { static { throw error; } });
@@ -530,10 +603,8 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { try { risky(); } finally { observeSafely(() => reportClientError(class { static { throw error; } })); } }
         try { run(); } catch (error) { try { risky(); } finally { conciseHelper(error); } }
       }
-    `, options);
-    expect(diagnostics).toHaveLength(2);
-    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { observeSafely } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       const conciseHelper = (error: unknown) => reportClientError(error);
@@ -541,11 +612,16 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { try { risky(); } finally { observeSafely(() => reportClientError(error)); } }
         try { run(); } catch (error) { try { risky(); } finally { conciseHelper(error); } }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options });
+    const diagnostics = results.fixture1;
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects a finalizer whose report a conditional jump can skip", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const diagnostics = (await lint({ fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() {
@@ -559,13 +635,13 @@ describe("no-silent-catch", () => {
           try { risky(); } finally { outer: do { if (flag) break outer; reportClientError(error); } while (false); }
         }
       }
-    `, options);
+    ` }, { rule: "no-silent-catch", options })).fixture1;
     expect(diagnostics).toHaveLength(3);
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-  });
+  }, budgetMs);
 
   it("rejects a finalizer whose report an unsupported exit can skip", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const diagnostics = (await lint({ fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() {
@@ -582,13 +658,14 @@ describe("no-silent-catch", () => {
           observeSafely(async () => { try { risky(); } finally { while (condition) { if (flag) return; } await emitServerEvent("x", {}); } });
         }
       }
-    `, options);
+    ` }, { rule: "no-silent-catch", options })).fixture1;
     expect(diagnostics).toHaveLength(4);
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-  });
+  }, budgetMs);
 
   it("rejects a finalizer whose report a yield can skip", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { reportClientError } from "@/client/observability/client-reporter";
       function* first() {
         try { run(); } catch (error) {
@@ -600,17 +677,21 @@ describe("no-silent-catch", () => {
           try { risky(); } finally { const pending = yield; reportClientError(pending); }
         }
       }
-    `, options);
-    expect(diagnostics).toHaveLength(2);
-    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { reportClientError } from "@/client/observability/client-reporter";
       function* third() { try { run(); } catch (error) { try { risky(); } finally { reportClientError(error); } } }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options });
+    const diagnostics = results.fixture1;
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects a finalizer whose report an executed class body can skip", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() {
@@ -624,10 +705,8 @@ describe("no-silent-catch", () => {
           try { risky(); } finally { (class { static { throw error; } }); reportClientError(error); }
         }
       }
-    `, options);
-    expect(diagnostics).toHaveLength(3);
-    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() {
         try { run(); } catch (error) {
@@ -637,11 +716,16 @@ describe("no-silent-catch", () => {
           try { risky(); } finally { const f = () => class { static { throw error; } }; reportClientError(error); }
         }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options });
+    const diagnostics = results.fixture1;
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
 
   it("documents the loop-local jump bound", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const diagnostics = (await lint({ fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() {
@@ -652,13 +736,13 @@ describe("no-silent-catch", () => {
           try { risky(); } finally { do { reportClientError(error); } while (false); }
         }
       }
-    `, options);
+    ` }, { rule: "no-silent-catch", options })).fixture1;
     expect(diagnostics).toHaveLength(1);
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-  });
+  }, budgetMs);
 
   it("accepts a nested finalizer that reports on every path", async () => {
-    expect(await lint("no-silent-catch", `
+    expect((await lint({ fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { reportClientError } from "@/client/observability/client-reporter";
       function handle() {
@@ -677,8 +761,8 @@ describe("no-silent-catch", () => {
           reportClientError(error);
         });
       }
-    `, options)).toHaveLength(0);
-  });
+    ` }, { rule: "no-silent-catch", options })).fixture1).toHaveLength(0);
+  }, budgetMs);
 
   for (const { name, body, expected } of [
     {
@@ -823,17 +907,21 @@ describe("no-silent-catch", () => {
     },
   ]) {
     it(name, async () => {
-      expect(await lint("no-silent-catch", `
+      const results = await lint({
+        fixture1: `
         import { observeSafely, emitServerEvent } from "@/server/observability/log";
         async function report(cleanup: Promise<void>) {
           try { run(); } catch (error) { observeSafely(async () => { ${body} }); } finally { await cleanup; }
         }
-      `, options)).toHaveLength(expected);
-    });
+      `,
+      }, { rule: "no-silent-catch", options: options });
+      expect(results.fixture1).toHaveLength(expected);
+    }, budgetMs);
   }
 
   it("rejects a returned telemetry write discarded by a same-scope using declaration", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       function report(log: (error: unknown) => Promise<unknown>) {
         observeSafely(async () => { try { risky(); } finally { using r = resource; return log(error); } });
@@ -845,67 +933,84 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { report(log); }
         try { run(); } catch (error) { reportAsync(log); }
       }
-    `, options);
-    expect(diagnostics).toHaveLength(2);
-    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { observeSafely } from "@/server/observability/log";
       function report(log: (error: unknown) => Promise<unknown>) {
         observeSafely(async () => { try { risky(); } finally { using r = resource; return await log(error); } });
       }
       function handle() { try { run(); } catch (error) { report(log); } }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options });
+    const diagnostics = results.fixture1;
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects discarded telemetry sink calls inside observeSafely callbacks", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { emitServerEvent("x", { code: String(error) }); }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture2: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { void emitServerEvent("x", { code: String(error) }); }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture3: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { if (condition) emitServerEvent("x", { code: String(error) }); else return emitServerEvent("x", { code: String(error) }); }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture4: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { emitServerEvent("x", {}); }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture5: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { const pending = emitServerEvent("x", { code: String(error) }); }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture6: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { condition ? emitServerEvent("x", { code: String(error) }) : emitServerEvent("x", { code: String(error) }); }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture7: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { queue.push(emitServerEvent("x", { code: String(error) })); }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture8: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { return [emitServerEvent("x", { code: String(error) })]; }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture9: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(async () => { await [emitServerEvent("x", { code: String(error) })]; }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture10: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { if (emitServerEvent("x", { code: String(error) })) { work(); } }); }
-    `, options)).toHaveLength(1);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture11: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { observeSafely(() => { function helper() { return emitServerEvent("x", { code: String(error) }); } helper(); }); }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(1);
+    expect(results.fixture4).toHaveLength(1);
+    expect(results.fixture5).toHaveLength(1);
+    expect(results.fixture6).toHaveLength(1);
+    expect(results.fixture7).toHaveLength(1);
+    expect(results.fixture8).toHaveLength(1);
+    expect(results.fixture9).toHaveLength(1);
+    expect(results.fixture10).toHaveLength(1);
+    expect(results.fixture11).toHaveLength(1);
+  }, budgetMs);
 
   it("accepts approved reporting imports and a directly injected sink in telemetry callbacks", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely, emitServerEvent as emit, writeObservabilityEvent } from "@/server/observability/log";
       import { reportClientError as send } from "@/client/observability/client-reporter";
       function reportSafely(sink: (failure: unknown) => void, error: unknown): void { observeSafely(() => sink(error)); }
@@ -915,11 +1020,14 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { observeSafely(() => writeObservabilityEvent({ code: String(error) })); }
         try { run(); } catch (error) { observeSafely(() => send({ name: "Failure", message: String(error), route: "/" })); }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects wrappers whose callbacks return or discard a failure without reporting it", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely as reportTelemetry, emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { reportTelemetry(() => error); }
       try { run(); } catch (error) { reportTelemetry(() => { void error; }); }
@@ -931,21 +1039,27 @@ describe("no-silent-catch", () => {
       consume(status);
       try { run(); } catch (error) { reportTelemetry(() => { try { work(); } finally { throw error; } }); }
       try { run(); } catch (error) { reportTelemetry(() => { if (condition) emitServerEvent("x", { code: String(error) }); }); }
-    `, options)).toHaveLength(8);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(8);
+  }, budgetMs);
 
   it("accepts an injected sink declared by a delegation wrapper reached from a catch", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       function reportSubscriptionFailureSafely(log: (reason: string) => void, reason: string): void { observeSafely(() => log(reason)); }
       async function ensureAddressSubscribed(address: string) {
         try { await ensure(address); } catch (error) { reportSubscriptionFailureSafely(logFailure, error instanceof Error ? error.message : "subscription-failed"); }
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects an injected callback used as a sink outside a delegation wrapper", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       async function handle(load: () => Promise<void>, persistFailure: (error: unknown) => Promise<void>) {
         try { await load(); } catch (error) { observeSafely(() => persistFailure(error)); }
@@ -953,19 +1067,25 @@ describe("no-silent-catch", () => {
       function handleOther(log: (event: object) => unknown) {
         try { run(); } catch { observeSafely(() => log({ outcome: "unavailable" })); }
       }
-    `, options)).toHaveLength(2);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("rejects a delegation wrapper whose body does other work", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       function reportSafely(log: (reason: string) => void, reason: string): void { setup(); observeSafely(() => log(reason)); }
       function handle() { try { run(); } catch (error) { reportSafely(log, String(error)); } }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects a delegation wrapper that hides the telemetry call behind other work", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       function reportSequence(log: (error: unknown) => void, error: unknown): void { (setup(), observeSafely(() => log(error))); }
       const makeHandler = (persistence: (error: unknown) => void) => () => {
@@ -974,28 +1094,37 @@ describe("no-silent-catch", () => {
       function handle() {
         try { run(); } catch (error) { reportSequence(log, error); }
       }
-    `, options)).toHaveLength(2);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("rejects an injected sink behind an inline rejection handler", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       function handle(load: () => Promise<void>, persistFailure: (error: unknown) => Promise<void>) {
         return load().catch((error) => { observeSafely(() => persistFailure(error)); });
       }
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("accepts a concise arrow delegation wrapper", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely } from "@/server/observability/log";
       const reportConcise = (log: (error: unknown) => void, error: unknown) => observeSafely(() => log(error));
       function handle() { try { run(); } catch (error) { reportConcise(log, error); } }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects a local no-op sink and inauthentic wrapper imports", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely as approved } from "@/server/observability/log";
       import { observeSafely as foreign } from "./local-sink";
       import { buildClientErrorReport as disguised } from "@/client/observability/client-reporter";
@@ -1008,11 +1137,14 @@ describe("no-silent-catch", () => {
         try { run(); } catch (error) { observeSafely(() => log(error)); }
       }
       try { run(); } catch (error) { approved(() => noop(error)); }
-    `, options)).toHaveLength(5);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(5);
+  }, budgetMs);
 
   it("rejects builders, arbitrary imports, aliases, and callback-local parameters as telemetry sinks", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
       import { buildClientErrorReport as build } from "@/client/observability/client-reporter";
       import { sendReport } from "./unknown-reporter";
@@ -1028,11 +1160,14 @@ describe("no-silent-catch", () => {
         try { run(); } catch { observeSafely(() => emitServerEvent()); }
         try { run(); } catch (error) { observeSafely((callbackSink: (error: unknown) => void) => observeSafely(() => callbackSink(error))); }
       }
-    `, options)).toHaveLength(7);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(7);
+  }, budgetMs);
 
   it("rejects empty and non-disposing inline promise rejection handlers", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       run().catch(() => {});
       run().catch(function () {});
       run().catch(() => { /* intentionally empty */ });
@@ -1047,14 +1182,17 @@ describe("no-silent-catch", () => {
       run()[\`catch\`](() => {});
       run()["catch"]((error) => { console.log(error); });
       run()["catch"]?.(() => {});
-    `, options);
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    const diagnostics = results.fixture1;
     expect(diagnostics).toHaveLength(14);
     expect(diagnostics.filter((diagnostic) => diagnostic.message === messages.empty)).toHaveLength(10);
     expect(diagnostics.filter((diagnostic) => diagnostic.message === messages.silent)).toHaveLength(4);
-  });
+  }, budgetMs);
 
   it("rejects TypeScript-wrapped empty and non-disposing inline rejection handlers", async () => {
-    const diagnostics = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       run().catch((() => {}) as (error: unknown) => void);
       run().catch((() => {}) satisfies (error: unknown) => void);
       run().catch((() => {})!);
@@ -1062,94 +1200,118 @@ describe("no-silent-catch", () => {
       run().then(ok, (() => {}) as (error: unknown) => void);
       run().catch(((error) => { console.log(error); }) as (error: unknown) => void);
       run()["catch"]((() => {}) as (error: unknown) => void);
-    `, options);
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    const diagnostics = results.fixture1;
     expect(diagnostics).toHaveLength(7);
     expect(diagnostics.filter((diagnostic) => diagnostic.message === messages.empty)).toHaveLength(6);
     expect(diagnostics.filter((diagnostic) => diagnostic.message === messages.silent)).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("leaves dynamic rejection method keys unclassified", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       run()[method](() => {});
       run()[\`cat\${suffix}\`](() => {});
       run()["cat" + "ch"](() => {});
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts TypeScript-wrapped inline rejection dispositions", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       run().catch((() => []) as (error: unknown) => unknown);
       run().catch(((error) => { throw error; }) as (error: unknown) => never);
       run().catch((() => undefined) as (error: unknown) => undefined);
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("preserves cleanup exemptions through TypeScript-wrapped receivers", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       (reader.cancel() as Promise<void>).catch(() => {});
       (iterator.return?.() as Promise<void>).catch(() => {});
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("preserves retained-fallback parity through TypeScript-wrapped success callbacks and calls", async () => {
-    const before = await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       async function read() {
         let details = fallback;
         await load().then(((value) => { details = value; }) as (value: string) => void).catch(() => {});
         return details;
       }
-    `, options);
-    expect(before).toHaveLength(0);
-    const after = await lint("no-silent-catch", `
+    `,
+      fixture2: `
       async function read() {
         await load().then(((value) => { details = value; }) as (value: string) => void).catch(() => {});
         if (condition) { var details = fallback; }
         return details;
       }
-    `, options);
-    expect(after).toHaveLength(1);
-    expect(after[0].message).toBe(messages.empty);
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture3: `
       async function read() {
         let details = fallback;
         await (run().then(((value) => { details = value; }) as (value: string) => void) as Promise<void>).catch(() => {});
         return details;
       }
-    `, options)).toHaveLength(0);
-
-    expect(await lint("no-silent-catch", `
+    `,
+      fixture4: `
       async function read() {
         let details = fallback;
         await (run()["then"](((value) => { details = value; }) as (value: string) => void) as Promise<void>).catch(() => {});
         return details;
       }
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    const before = results.fixture1;
+    expect(before).toHaveLength(0);
+    const after = results.fixture2;
+    expect(after).toHaveLength(1);
+    expect(after[0].message).toBe(messages.empty);
+    expect(results.fixture3).toHaveLength(0);
+
+    expect(results.fixture4).toHaveLength(0);
+  }, budgetMs);
 
   it("keeps neighbouring promise rejection classifications unchanged", async () => {
-    for (const code of [
+    const codes = [
       "run().then(ok).catch(() => {});",
       "run().catch(() => {}).then(ok);",
       "run().catch?.(() => {});",
-    ]) {
-      const diagnostics = await lint("no-silent-catch", code, options);
+    ];
+    const found = await lint({
+      ...Object.fromEntries(codes.map((code, index) => [`neighbour${index}`, code])),
+      named: `
+      run().catch(handler);
+      other().catch(handler);
+    `,
+      inline: `
+      run().catch(() => {});
+      other().catch(() => {});
+    `,
+    }, { rule: "no-silent-catch", options });
+    for (const code of codes) {
+      const diagnostics = found[`neighbour${codes.indexOf(code)}`];
       expect(diagnostics).toHaveLength(1);
       expect(diagnostics[0].message).toBe(messages.empty);
     }
-    expect(await lint("no-silent-catch", `
-      run().catch(handler);
-      other().catch(handler);
-    `, options)).toHaveLength(0);
-    const inline = await lint("no-silent-catch", `
-      run().catch(() => {});
-      other().catch(() => {});
-    `, options);
+    expect(found.named).toHaveLength(0);
+    const inline = found.inline;
     expect(inline).toHaveLength(2);
     expect(inline.filter((diagnostic) => diagnostic.message === messages.empty)).toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("accepts explicit promise fallbacks, throws, reporting, recovery, and named handlers", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       import { reportClientError } from "@/client/observability/client-reporter";
       run().catch(() => []);
       run().catch(() => null);
@@ -1165,11 +1327,14 @@ describe("no-silent-catch", () => {
       let status = "ready";
       run().catch(() => { status = "failed"; });
       consume(status);
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("exempts iterator and stream cancellation cleanup", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       reader.cancel().catch(() => {});
       reader["cancel"]().catch(() => {});
       request.body.cancel().catch(() => undefined);
@@ -1177,19 +1342,24 @@ describe("no-silent-catch", () => {
       pendingReader.cancel().catch(() => {});
       iterator.return?.().catch(() => {});
       iterator.return?.().then(ok, () => {});
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("reports cleanup-named methods on receivers that are not streams or iterators", async () => {
-    expect(await lint("no-silent-catch", `
+    const results = await lint({
+      fixture1: `
       payment.cancel().catch(() => {});
       payment["cancel"]().catch(() => {});
       animations.step.cancel().catch((error) => {});
-    `, options)).toHaveLength(3);
-  });
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(3);
+  }, budgetMs);
 
   it("applies the same block disposition policy to try catches and promise rejections", async () => {
-    for (const [body, expected, messageId] of [
+    const cases = [
       ["", 1, "empty"],
       ["return;", 1, "silent"],
       ["return [];", 0, null],
@@ -1197,11 +1367,14 @@ describe("no-silent-catch", () => {
       ["reportClientError(error);", 0, null],
       ["setError('failed');", 0, null],
       ["console.log(error);", 1, "silent"],
-    ]) {
-      const catchDiagnostics = await lint("no-silent-catch",
-        `import { reportClientError } from "@/client/observability/client-reporter"; async function read() { try { return await run(); } catch (error) { ${body} } }`, options);
-      const promiseDiagnostics = await lint("no-silent-catch",
-        `import { reportClientError } from "@/client/observability/client-reporter"; async function read() { return await run().catch((error) => { ${body} }); }`, options);
+    ];
+    const found = await lint(Object.fromEntries(cases.flatMap(([body], index) => [
+      [`catch${index}`, `import { reportClientError } from "@/client/observability/client-reporter"; async function read() { try { return await run(); } catch (error) { ${body} } }`],
+      [`promise${index}`, `import { reportClientError } from "@/client/observability/client-reporter"; async function read() { return await run().catch((error) => { ${body} }); }`],
+    ])), { rule: "no-silent-catch", options });
+    for (const [index, [, expected, messageId]] of cases.entries()) {
+      const catchDiagnostics = found[`catch${index}`];
+      const promiseDiagnostics = found[`promise${index}`];
       expect(catchDiagnostics).toHaveLength(expected);
       expect(promiseDiagnostics).toHaveLength(catchDiagnostics.length);
       if (messageId) {
@@ -1209,35 +1382,44 @@ describe("no-silent-catch", () => {
         expect(promiseDiagnostics[0].message).toBe(messages[messageId]);
       }
     }
-  });
+  }, budgetMs);
 
   it("keeps retained pre-initialized fallback parity across try and inline promise handlers", async () => {
-    for (const { initializer, assignments, readAfter, expected } of [
+    const cases = [
       { initializer: "{ code: null }", assignments: "details = value;", readAfter: true, expected: 0 },
       { initializer: "undefined", assignments: "details = value;", readAfter: true, expected: 1 },
       { initializer: "{ code: null }", assignments: "details = value;", readAfter: false, expected: 1 },
       { initializer: "{ code: null }", assignments: "details = undefined; details = value;", readAfter: true, expected: 1 },
-    ]) {
+    ];
+    const fixtures = {};
+    for (const [index, { initializer, assignments, readAfter }] of cases.entries()) {
       const ending = readAfter ? "return details;" : "return null;";
-      const tryDiagnostics = await lint("no-silent-catch", `
+      fixtures[`try${index}`] = `
         async function read() {
           let details = ${initializer};
           try { ${assignments.replaceAll("value", "await load()")} } catch {}
           ${ending}
         }
-      `, options);
-      expect(tryDiagnostics).toHaveLength(expected);
-      for (const promise of [
+      `;
+      for (const [promiseIndex, promise] of [
         `await load().then((value) => { ${assignments} }).catch(() => {});`,
         `await load().then((value) => { ${assignments} }, () => {});`,
-      ]) {
-        const promiseDiagnostics = await lint("no-silent-catch", `
+      ].entries()) {
+        fixtures[`promise${index}-${promiseIndex}`] = `
           async function read() {
             let details = ${initializer};
             ${promise}
             ${ending}
           }
-        `, options);
+        `;
+      }
+    }
+    const found = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [index, { expected }] of cases.entries()) {
+      const tryDiagnostics = found[`try${index}`];
+      expect(tryDiagnostics).toHaveLength(expected);
+      for (const promiseIndex of [0, 1]) {
+        const promiseDiagnostics = found[`promise${index}-${promiseIndex}`];
         expect(promiseDiagnostics).toHaveLength(expected);
         if (expected) {
           expect(tryDiagnostics[0].message).toBe(messages.empty);
@@ -1245,57 +1427,73 @@ describe("no-silent-catch", () => {
         }
       }
     }
-  });
+  }, budgetMs);
 
   it("requires the fallback declaration before the protected call and accepts concise success bodies", async () => {
-    for (const promise of [
+    const promises = [
       "await load().then((value) => details = value).catch(() => {});",
       "await load().then((value) => details = value, () => {});",
-    ]) {
-      expect(await lint("no-silent-catch", `
+    ];
+    const fixtures = {};
+    for (const [index, promise] of promises.entries()) {
+      fixtures[`before${index}`] = `
         async function read() {
           let details = { code: null };
           ${promise}
           return details;
         }
-      `, options)).toHaveLength(0);
-      expect(await lint("no-silent-catch", `
+      `;
+      fixtures[`after${index}`] = `
         async function read() {
           ${promise}
           if (condition) { var details = { code: null }; }
           return details;
         }
-      `, options)).toHaveLength(1);
+      `;
     }
-  });
+    const found = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const index of promises.keys()) {
+      expect(found[`before${index}`]).toHaveLength(0);
+      expect(found[`after${index}`]).toHaveLength(1);
+    }
+  }, budgetMs);
 });
 
 describe("isolate-instrumentation-calls", () => {
   const options = { safeHelpers: ["emitServerEvent"] };
 
   it("accepts configured intrinsically safe helpers and isolated unsafe helpers", async () => {
-    expect(await lint("isolate-instrumentation-calls", `
+    const results = await lint({
+      fixture1: `
       import { emitServerEvent, reportClientError } from "@/server/observability/log";
       emitServerEvent(event);
       try { await reportClientError(event); } catch {}
       void reportClientError(event).catch(handleFailure);
       void reportClientError(event)["catch"](handleFailure);
-    `, options)).toHaveLength(0);
-  });
+    `,
+    }, { rule: "isolate-instrumentation-calls", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("rejects unsafe imported instrumentation calls that can escape", async () => {
-    expect(await lint("isolate-instrumentation-calls", `
+    const results = await lint({
+      fixture1: `
       import { reportClientError } from "@/server/observability/log";
       reportClientError(event);
       try { reportClientError(event); } catch {}
-    `, options)).toHaveLength(2);
-  });
+    `,
+    }, { rule: "isolate-instrumentation-calls", options: options });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("requires startup reports inside try blocks to be awaited", async () => {
-    expect(await lint("isolate-instrumentation-calls", `
+    const results = await lint({
+      fixture1: `
       import { sendHomeStartupReport } from "@/client/observability/client-reporter";
       try { sendHomeStartupReport(report); } catch {}
       try { await sendHomeStartupReport(report); } catch {}
-    `, options)).toHaveLength(1);
-  });
+    `,
+    }, { rule: "isolate-instrumentation-calls", options: options });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 });

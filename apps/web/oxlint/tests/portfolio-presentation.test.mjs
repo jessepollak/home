@@ -1,32 +1,19 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
-import { afterAll, describe, expect, it } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, it } from "bun:test";
+import { readFile, writeFile } from "node:fs/promises";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-portfolio-lint-"));
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-await writeFile(path.join(mirror, ".oxlintrc.json"), JSON.stringify({
-  plugins: [], categories: { correctness: "off" },
-  jsPlugins: ["./oxlint/home-plugin.mjs"],
-  rules: { "home/no-full-portfolio-presentation": "error" },
-}));
+const { directory: mirror, lint: lintFixtures, lintWithConfig } = await createOxlintWorkspace("home-portfolio-lint-", {
+  rules: ["no-full-portfolio-presentation"],
+});
 await writeFile(path.join(mirror, ".production.jsonc"), await readFile(path.join(appsWebDir, ".oxlintrc.jsonc")));
-afterAll(() => rm(mirror, { recursive: true, force: true }));
 
-async function lint(code, file = "client/home/portfolio-home-experience.tsx", config = ".oxlintrc.json") {
-  await mkdir(path.dirname(path.join(mirror, file)), { recursive: true });
-  await writeFile(path.join(mirror, file), code);
-  const result = spawnSync(path.join(appsWebDir, "node_modules/.bin/oxlint"),
-    ["-c", config, "--disable-nested-config", "-f", "json", file], { cwd: mirror, encoding: "utf8" });
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  return JSON.parse(result.stdout).diagnostics.filter((item) => item.code === "home(no-full-portfolio-presentation)");
+async function lint(code, file = "client/home/portfolio-home-experience.tsx") {
+  return (await lintFixtures({ fixture: { code, path: file } })).fixture;
 }
 
 describe("home/no-full-portfolio-presentation", () => {
@@ -36,7 +23,7 @@ describe("home/no-full-portfolio-presentation", () => {
       import { presentBalances as relative } from "../../shared/balances/present.ts";
       import { presentBalances as grouped } from "@/shared/balances/../balances/present";
     `)).toHaveLength(3);
-  });
+  }, budgetMs);
 
   it("rejects exports so another module cannot launder the full API", async () => {
     expect(await lint(`
@@ -44,7 +31,7 @@ describe("home/no-full-portfolio-presentation", () => {
       export * from "./present";
       export * as presenters from "./present";
     `, "shared/balances/bridge.ts")).toHaveLength(3);
-  });
+  }, budgetMs);
 
   it("rejects opaque namespace, default, dynamic and require access", async () => {
     expect(await lint(`
@@ -55,7 +42,7 @@ describe("home/no-full-portfolio-presentation", () => {
       require("@/shared/balances/present");
       import legacy = require("@/shared/balances/present");
     `)).toHaveLength(6);
-  });
+  }, budgetMs);
 
   it("normalizes statically composed runtime module paths", async () => {
     expect(await lint(`
@@ -64,7 +51,7 @@ describe("home/no-full-portfolio-presentation", () => {
       require(\`../../shared/\${"balances"}/present.ts\`);
       void import(flag ? "@/shared/balances/present" : "./other");
     `)).toHaveLength(4);
-  });
+  }, budgetMs);
 
   it("allows named focused presenters and type-only contracts", async () => {
     expect(await lint(`
@@ -75,15 +62,20 @@ describe("home/no-full-portfolio-presentation", () => {
       export { presentCashTotal } from "@/shared/balances/present";
       export type * from "@/shared/balances/present";
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("allows only the exact list owner to import the full presenter, never re-export it", async () => {
     const source = 'import { presentBalances } from "@/shared/balances/present";';
-    expect(await lint(source, "client/home/balances-panel.tsx")).toHaveLength(0);
-    expect(await lint(source, "client/cash/balances-panel.tsx")).toHaveLength(1);
-    expect(await lint(source, "client/home/balances-panel-helper.tsx")).toHaveLength(1);
+    const found = await lintFixtures({
+      owner: { code: source, path: "client/home/balances-panel.tsx" },
+      cash: { code: source, path: "client/cash/balances-panel.tsx" },
+      helper: { code: source, path: "client/home/balances-panel-helper.tsx" },
+    });
+    expect(found.owner).toHaveLength(0);
+    expect(found.cash).toHaveLength(1);
+    expect(found.helper).toHaveLength(1);
     expect(await lint('export { presentBalances } from "@/shared/balances/present";', "client/home/balances-panel.tsx")).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("ignores identically named APIs from unrelated modules", async () => {
     expect(await lint(`
@@ -91,14 +83,22 @@ describe("home/no-full-portfolio-presentation", () => {
       import * as helpers from "@/shared/balances/select";
       const summary = input.presentBalances();
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("is enabled in production and excludes tests, stories and explorations in the real config", async () => {
     const code = 'import { presentBalances } from "@/shared/balances/present"; export const result = presentBalances(input);';
-    expect(await lint(code, "client/cash/cash-overview.tsx", ".production.jsonc")).toHaveLength(1);
-    expect(await lint(code, "shared/balances/bridge.ts", ".production.jsonc")).toHaveLength(1);
-    expect(await lint(code, "client/home/example.test.tsx", ".production.jsonc")).toHaveLength(0);
-    expect(await lint(code, "client/home/example.stories.tsx", ".production.jsonc")).toHaveLength(0);
-    expect(await lint(code, "client/home/explorations/example.tsx", ".production.jsonc")).toHaveLength(0);
-  });
+    const found = await lintWithConfig({
+      cash: { code, path: "client/cash/cash-overview.tsx" },
+      bridge: { code, path: "shared/balances/bridge.ts" },
+      test: { code, path: "client/home/example.test.tsx" },
+      story: { code, path: "client/home/example.stories.tsx" },
+      exploration: { code, path: "client/home/explorations/example.tsx" },
+    }, { config: ".production.jsonc" });
+    const diagnostics = (name) => found[name].filter((item) => item.code === "home(no-full-portfolio-presentation)");
+    expect(diagnostics("cash")).toHaveLength(1);
+    expect(diagnostics("bridge")).toHaveLength(1);
+    expect(diagnostics("test")).toHaveLength(0);
+    expect(diagnostics("story")).toHaveLength(0);
+    expect(diagnostics("exploration")).toHaveLength(0);
+  }, budgetMs);
 });
