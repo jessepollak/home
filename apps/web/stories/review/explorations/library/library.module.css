@@ -20,7 +20,7 @@
 .sidebarHeader {
   padding: 4px 10px 14px;
 }
-.sidebarHeader h1 {
+.sidebarHeader h2 {
   margin: 0;
   font-size: 15px;
   font-weight: 650;
@@ -31,6 +31,23 @@
   color: var(--library-subtle);
   font-size: 12px;
   line-height: 16px;
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.group[data-fill] {
+  flex: 1;
+  margin-top: 10px;
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .list {
   flex: 1;
@@ -81,6 +98,10 @@
   font-size: 12px;
   font-weight: 600;
   letter-spacing: .02em;
+}
+.tile svg {
+  width: 16px;
+  height: 16px;
 }
 .row[aria-selected="true"] .tile {
   background: var(--muted);

@@ -10,6 +10,8 @@ import type { ReviewBuild, StoryIndexEntry } from "../board/review-build";
 import { writeBoardUrl } from "../board/url-state";
 import { libraryCatalog, type LibraryCatalog } from "./catalog";
 import { propControls, storyArgs, type PropValue } from "./controls";
+import { FoundationsSurface } from "./foundations/foundations";
+import { isFoundation } from "./foundations/model";
 import { PropsBar } from "./props-bar";
 import { VariantSheet } from "./sheet";
 import { restoredFocus, toggleFocus } from "./sheet-state";
@@ -83,8 +85,10 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   frameSource: "story" | "blank";
 }) {
   const original = useMemo(() => readLibraryUrl(new URL(location.href)), []);
-  const linked = catalog.items.some((item) => item.id === original.component) ? original.component : undefined;
+  const linked = catalog.items.some((item) => item.id === original.component) || isFoundation(original.component)
+    ? original.component : undefined;
   const [selected, setSelected] = useState(linked ?? catalog.items[0].id);
+  const foundation = isFoundation(selected) ? selected : null;
   const [focus, setFocus] = useState<string | null>(linked ? original.story ?? null : null);
   const [overrides, setOverrides] = useState<Record<string, PropValue>>(linked && original.story ? original.props : {});
   const [picked, setPicked] = useState({ source: toolbarTheme, value: toolbarTheme });
@@ -121,8 +125,8 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   }, [build.revision, build.deployment]);
   useEffect(() => {
     history.replaceState(history.state, "", writeLibraryUrl(new URL(location.href),
-      { component: item.id, story: focused ?? undefined, props: focused ? overrides : {} }));
-  }, [item.id, focused, overrides]);
+      { component: foundation ?? item.id, story: foundation ? undefined : focused ?? undefined, props: !foundation && focused ? overrides : {} }));
+  }, [foundation, item.id, focused, overrides]);
   useEffect(() => {
     for (const neighbour of [catalog.items[position - 1], catalog.items[position + 1]]) {
       const path = neighbour && componentStories(index, neighbour.title)[0]?.importPath;
@@ -159,8 +163,8 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   });
   const count = entries.length === 1 ? "1 story" : `${entries.length} stories`;
   return <div className={styles.library} data-review-library="workspace">
-    <LibrarySidebar catalog={catalog} selected={item.id} onSelect={select} />
-    <main className={styles.surface} aria-label={`${item.name} preview`}>
+    <LibrarySidebar catalog={catalog} selected={foundation ?? item.id} onSelect={select} />
+    {foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <main className={styles.surface} aria-label={`${item.name} preview`}>
       <header className={styles.toolbar}>
         <div className={styles.pickers}>
           <span id="library-theme-label" className={styles.pickerLabel}>Theme</span>
@@ -186,7 +190,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
         <figcaption className={styles.caption}>{item.name} · {count} · {viewports.mobile.width} wide</figcaption>
       </figure>
       <AnnotateToggle annotating={annotating} onChange={setAnnotating} />
-    </main>
+    </main>}
   </div>;
 }
 

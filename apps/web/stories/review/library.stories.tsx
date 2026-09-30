@@ -219,3 +219,84 @@ export const RestoredPreview: Story = {
     await expect(reloaded.doc.documentElement).toHaveAttribute("data-theme", "dark");
   },
 };
+
+export const Foundations: Story = {
+  args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank" },
+  parameters: { a11y: { test: "error" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    const foundations = await canvas.findByRole("listbox", { name: "Foundations" });
+    const color = within(foundations).getByRole("option", { name: /^Color, \d+ tokens$/ });
+    await userEvent.click(color);
+    await expect(color).toHaveAttribute("aria-selected", "true");
+    const surface = await canvas.findByRole("main", { name: "Color foundations" });
+    await expect(canvas.queryByRole("main", { name: "Badge preview" })).not.toBeInTheDocument();
+    const primary = await within(surface).findByRole("row", { name: /--primary Text/ });
+    const [light, dark] = within(primary).getAllByRole("cell");
+    await expect(light).toHaveTextContent("#0052ff");
+    await expect(dark).toHaveTextContent("#578bfa");
+    await expect(light).toHaveTextContent(/Pass/);
+    const url = new URL(canvasElement.ownerDocument.location.href);
+    await expect(url.searchParams.get("component")).toBe("foundations/color");
+    await expect(url.searchParams.get("props")).toBeNull();
+
+    const theme = within(surface).getByRole("radiogroup", { name: "Theme" });
+    await expect(within(theme).getByRole("radio", { name: "Light" })).toBeChecked();
+    const lightCard = surface.style.getPropertyValue("--card");
+    await expect(lightCard).not.toBe("");
+    await userEvent.click(within(theme).getByRole("radio", { name: "Dark" }));
+    await expect(within(theme).getByRole("radio", { name: "Dark" })).toBeChecked();
+    await expect(surface).toHaveAttribute("data-foundation-theme", "dark");
+    await waitFor(() => expect(surface.style.getPropertyValue("--card")).not.toBe(lightCard));
+    await expect(surface).toHaveStyle({ colorScheme: "dark" });
+
+    await userEvent.click(within(foundations).getByRole("option", { name: /^Motion, / }));
+    await expect(within(surface).getByRole("heading", { name: "Motion" })).toBeVisible();
+    await expect(surface).toHaveAttribute("data-foundation-theme", "dark");
+    await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/motion");
+    const duration = within(surface).getByRole("row", { name: /^duration-180 / });
+    await expect(duration).toHaveTextContent("0.18s");
+    await expect(duration).toHaveTextContent("components/ui/drawer.tsx");
+    await expect(duration).toHaveTextContent(/\d+ occurrences/);
+    await expect(within(surface).getByText(/Utilities Tailwind generates from component source/)).toBeVisible();
+    const easing = within(surface).getByRole("row", { name: /^ease-\[cubic-bezier\(0.22,1,0.36,1\)\]/ });
+    await expect(easing).toHaveTextContent("cubic-bezier(0.22, 1, 0.36, 1)");
+    await expect(within(surface).getByRole("heading", { name: /^Tokens/ })).toBeVisible();
+    await userEvent.click(within(surface).getAllByRole("button", { name: /^Play / })[0]);
+
+    await userEvent.click(within(foundations).getByRole("option", { name: /^Type, / }));
+    const leading = within(surface).getByText("leading-none").closest("li")!;
+    await expect(leading).toHaveTextContent(/16px · \d+ occurrences/);
+    await userEvent.click(within(leading).getByText(/^Files \(/));
+    await expect(within(leading).getByText("components/ui/drawer.tsx")).toBeVisible();
+
+    await userEvent.click(canvas.getByRole("option", { name: "Badge, 1 story" }));
+    await expect(await canvas.findByRole("main", { name: "Badge preview" })).toBeVisible();
+    await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("ui-badge");
+  },
+};
+
+export const RestoredFoundation: Story = {
+  args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank" },
+  beforeEach: () => {
+    const original = location.href;
+    const url = new URL(original);
+    url.searchParams.set("component", "foundations/radius-spacing");
+    history.replaceState(history.state, "", url);
+    return () => history.replaceState(history.state, "", original);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    const surface = await canvas.findByRole("main", { name: "Radius & spacing foundations" });
+    await expect(within(surface).getByRole("heading", { name: "Radius & spacing", level: 2 })).toBeVisible();
+    await expect(canvas.getByRole("option", { name: /^Radius & spacing, / })).toHaveAttribute("aria-selected", "true");
+    await expect(within(surface).getByText("rounded-lg")).toBeVisible();
+    await expect(within(surface).getByText(/Utilities Tailwind generates from component source/)).toBeVisible();
+    await expect(within(surface).getByRole("columnheader", { name: "Occurrences / files" })).toBeVisible();
+    await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/radius-spacing");
+    const spacing = within(surface).getByRole("row", { name: /^1\.5 / });
+    await expect(within(spacing).getAllByRole("cell")[0]).toHaveTextContent(/^35Files/);
+    await userEvent.click(within(spacing).getByText(/^Files \(/));
+    await expect(within(spacing).getByText("components/ui/field.tsx")).toBeVisible();
+  },
+};

@@ -5,6 +5,9 @@ import type { ReviewBuild } from "@/stories/review/explorations/board/review-bui
 
 const { act, cleanup, render } = await import("@testing-library/react");
 const { LibraryView } = await import("@/stories/review/explorations/library/library");
+const { FoundationsSurface } = await import("@/stories/review/explorations/library/foundations/foundations");
+const { componentCandidateSet, loadCandidateSet } = await import("@/stories/review/explorations/library/foundations/sources");
+const { foundationPages } = await import("@/stories/review/explorations/library/foundations/model");
 const originalFetch = globalThis.fetch;
 const build: ReviewBuild = { revision: "fixture", deployment: "", branch: "", repo: null, pr: null, changedFiles: null };
 
@@ -48,4 +51,21 @@ test("unmounting the library aborts its pending index request", async () => {
   expect(signal?.aborted).toBe(true);
   await act(async () => { resolve(new Response(JSON.stringify({ entries: {} }))); });
   expect(view.container.textContent).toBe("");
+});
+
+test("an unavailable candidates payload maps to unavailable foundations rather than zero counts", async () => {
+  const snapshot = await loadCandidateSet(async () => ({
+    default: { status: "unavailable", reason: "Tailwind candidate scanner unavailable." },
+  }));
+  expect(snapshot).toEqual({ status: "unavailable", files: [] });
+  expect(componentCandidateSet).toEqual(snapshot);
+  const pages = foundationPages.filter(({ id }) => id !== "foundations/color");
+  expect(pages).toHaveLength(3);
+  for (const { id, kind } of pages) {
+    expect(kind).toBe("Counts unavailable");
+    const view = render(<FoundationsSurface page={id} theme="light" />);
+    expect(view.getByRole("status").textContent).toBe("Component sources unavailable. Candidate counts cannot be read.");
+    expect(view.queryByRole("table")).toBeNull();
+    cleanup();
+  }
 });
