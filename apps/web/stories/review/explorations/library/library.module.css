@@ -300,11 +300,18 @@
   color: var(--muted-foreground);
   font-size: 11px;
 }
-.caption {
+.caption, .viewportCaption {
   flex: none;
   color: var(--muted-foreground);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+.viewportCaption {
+  margin: 8px 20px 0;
+}
+.viewportCaption a {
+  color: inherit;
+  text-underline-offset: 3px;
 }
 .annotate {
   position: absolute;

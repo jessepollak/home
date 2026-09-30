@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { describe, expect, test } from "bun:test";
 import { componentModulePaths, frameReason, hasPinnedTheme, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import {
-  createFrameSlots, fittedFrameHeight, restoredFocus, toggleFocus,
+  createFrameSlots, declaredViewport, fittedFrameHeight, restoredFocus, scaledViewport, toggleFocus,
 } from "@/stories/review/explorations/library/sheet-state";
 import { readLibraryUrl, writeLibraryUrl } from "@/stories/review/explorations/library/url-state";
 
@@ -59,7 +59,7 @@ describe("section isolation rules", () => {
       import { Modal } from '@/client/money-modal';
       import type { Props } from './unused';
     `, "components/ui/drawer.stories.tsx")).toEqual([
-      "components/ui/drawer", "components/ui/button", "components/ui/dialog.tsx",
+      "components/ui/drawer", "components/ui/button", "components/ui/dialog.tsx", "components/ui/unused",
     ]);
   });
 
@@ -125,6 +125,54 @@ describe("frame fallback scheduling", () => {
     expect(fittedFrameHeight(2000, false)).toBe(844);
     expect(fittedFrameHeight(40, true)).toBe(844);
     expect(fittedFrameHeight(Number.NaN, false)).toBe(844);
+  });
+});
+
+describe("declared frame viewports", () => {
+  const viewports = {
+    money1440: { styles: { width: "1440px", height: "900px" } },
+    money1024: { styles: { width: "1024px", height: "768px" } },
+    phone: { styles: { width: "430px", height: "932px" } },
+  };
+
+  test("legacy defaultViewport resolves the desktop Drawer dimensions", () => {
+    expect(declaredViewport({ viewport: { viewports, defaultViewport: "money1440" } })).toEqual({ width: 1440, height: 900 });
+    expect(declaredViewport({ viewport: { viewports, defaultViewport: "money1024" } })).toEqual({ width: 1024, height: 768 });
+  });
+
+  test("global selection overrides parameters and supports modern options and rotation", () => {
+    const parameters = { viewport: { options: viewports, defaultViewport: "money1440" } };
+    expect(declaredViewport(parameters, { viewport: "money1024" })).toEqual({ width: 1024, height: 768 });
+    expect(declaredViewport(parameters, { viewport: { value: "money1024", isRotated: true } }))
+      .toEqual({ width: 768, height: 1024 });
+    expect(declaredViewport(parameters, { viewport: { value: "phone" } })).toBeUndefined();
+    expect(declaredViewport(parameters, { viewport: { value: "reset" } })).toBeUndefined();
+  });
+
+  test("phone-sized, absent, disabled and invalid declarations keep the default phone behavior", () => {
+    expect(declaredViewport({})).toBeUndefined();
+    expect(declaredViewport({ viewport: { viewports, defaultViewport: "phone" } })).toBeUndefined();
+    expect(declaredViewport({ viewport: { viewports, defaultViewport: "unknown" } })).toBeUndefined();
+    expect(declaredViewport({ viewport: { viewports, defaultViewport: "money1440", disable: true } })).toBeUndefined();
+    for (const styles of [
+      { width: "100%", height: "900px" }, { width: "1440px", height: "auto" },
+      { width: -1, height: 900 }, { width: 1440, height: 0 }, { width: Infinity, height: 900 },
+      { width: "767px", height: "900px" },
+    ]) expect(declaredViewport({ viewport: { options: { custom: { styles } }, defaultViewport: "custom" } })).toBeUndefined();
+    expect(declaredViewport({ viewport: { options: { custom: { styles: { width: 768, height: 600 } } }, defaultViewport: "custom" } }))
+      .toEqual({ width: 768, height: 600 });
+  });
+
+  test("scale math fits the available column without upscaling and reserves the exact scaled result", () => {
+    const desktop = { width: 1440, height: 900 };
+    const phoneColumn = scaledViewport(desktop, 390);
+    expect(phoneColumn.width).toBe(390);
+    expect(phoneColumn.height).toBeCloseTo(243.75);
+    expect(phoneColumn.scale).toBe(390 / 1440);
+    expect(scaledViewport(desktop, 720)).toEqual({ width: 720, height: 450, scale: 0.5 });
+    expect(scaledViewport(desktop, 2000)).toEqual({ width: 1440, height: 900, scale: 1 });
+    for (const available of [0, -1, Number.NaN, Infinity]) expect(scaledViewport(desktop, available)).toEqual(phoneColumn);
+    expect(scaledViewport({ width: 1024, height: 768 }, 390).height).toBeCloseTo(292.5);
   });
 });
 

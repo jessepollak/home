@@ -21,7 +21,7 @@ function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
   }
 }
 
-export function FrameSection({ target, theme, args, annotating, frameSource, viewport, onSettled, onRendered,
+export function FrameSection({ target, theme, args, annotating, frameSource, viewport, scale = 1, onSettled, onRendered,
   onActivate, onEscape, onExitAnnotate }: {
   target: FrameSectionTarget;
   theme: string;
@@ -29,6 +29,7 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   annotating: boolean;
   frameSource: "story" | "blank";
   viewport: { width: number; height: number };
+  scale?: number;
   onSettled: () => void;
   onRendered?: (frame: HTMLIFrameElement) => void;
   onActivate?: () => void;
@@ -210,7 +211,7 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     });
   }, [ready, args, item.story, fail]);
   const noop = useCallback(() => {}, []);
-  return <LiveFrame position={position} metric={metric} loaded active={!annotating} frameSource={frameSource}
+  return <LiveFrame position={position} metric={metric} loaded active={!annotating} frameSource={frameSource} scale={scale}
     frameRef={frame} onMark={mark} onFinish={finish} onCancel={cancel}
     onSelect={noop} onFit={noop} onInteract={onExitAnnotate} />;
 }

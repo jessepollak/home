@@ -42,3 +42,37 @@ export function fittedFrameHeight(content: number, portals: boolean): number {
   if (portals || !Number.isFinite(content)) return FRAME_MAX_HEIGHT;
   return Math.round(Math.min(FRAME_MAX_HEIGHT, Math.max(FRAME_MIN_HEIGHT, content + FRAME_PADDING)));
 }
+
+export type FrameViewport = { width: number; height: number };
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
+}
+
+function pixels(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string" || !/^\d+(?:\.\d+)?(?:px)?$/.test(value)) return Number.NaN;
+  return Number.parseFloat(value);
+}
+
+export function declaredViewport(parameters: Record<string, unknown>, globals: Record<string, unknown> = {}): FrameViewport | undefined {
+  const settings = record(parameters.viewport);
+  if (settings.disable === true) return undefined;
+  const global = globals.viewport;
+  const selection = typeof global === "string" ? global : record(global).value;
+  const name = selection ?? settings.defaultViewport;
+  if (typeof name !== "string") return undefined;
+  const options = { ...record(settings.viewports), ...record(settings.options) };
+  const styles = record(record(options[name]).styles);
+  const width = pixels(styles.width);
+  const height = pixels(styles.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return undefined;
+  const viewport = record(global).isRotated === true ? { width: height, height: width } : { width, height };
+  return viewport.width >= 768 ? viewport : undefined;
+}
+
+export function scaledViewport(viewport: FrameViewport, available: number): FrameViewport & { scale: number } {
+  const width = Number.isFinite(available) && available > 0 ? available : FRAME_WIDTH;
+  const scale = Math.min(1, width / viewport.width);
+  return { width: viewport.width * scale, height: viewport.height * scale, scale };
+}

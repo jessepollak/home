@@ -3,6 +3,7 @@ import type { ComponentType } from "react";
 import type { StoryIndexEntry } from "../board/review-build";
 import type { ArgType } from "./controls";
 import { frameReason, hasPinnedTheme, readPortalRule, type FrameReason, type PortalRule, type StoryAnnotations } from "./isolation";
+import { declaredViewport, type FrameViewport } from "./sheet-state";
 
 export type StoryModule = Record<string, unknown> & { default?: StoryAnnotations };
 
@@ -16,6 +17,7 @@ export type SheetStory = {
   frame: FrameReason | null;
   portals: boolean;
   themePinned: boolean;
+  viewport?: FrameViewport;
 };
 
 type Runtime = { composeStory: typeof ComposeStory; preview: Preview };
@@ -101,6 +103,7 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
     const match = exports.get(entry.id);
     if (!match) return [];
     const { story, annotation } = match;
+    const viewport = declaredViewport(story.parameters, story.globals);
     return [{
       id: entry.id,
       name: entry.name,
@@ -108,9 +111,10 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
       argTypes: story.argTypes as Record<string, ArgType>,
       initialArgs: story.args,
       layout: typeof story.parameters.layout === "string" ? story.parameters.layout : "padded",
-      frame: frameReason(meta, annotation, rule.portals, rule.sourceReadable),
+      frame: frameReason(meta, annotation, rule.portals, rule.sourceReadable) ?? (viewport ? "Declared viewport" : null),
       portals: rule.portals || !rule.sourceReadable,
       themePinned: hasPinnedTheme(meta, annotation),
+      viewport,
     }];
   });
   byTheme.set(key, stories);

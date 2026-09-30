@@ -8,7 +8,7 @@ export type StoryAnnotations = {
 };
 
 export type FrameReason = "Loaders" | "Network mocks" | "Setup hook" | "Play function" | "Pinned globals" |
-  "Opens an overlay" | "Portals outside the sheet" | "Couldn't read component source" | "Library override";
+  "Opens an overlay" | "Portals outside the sheet" | "Couldn't read component source" | "Library override" | "Declared viewport";
 
 function present(value: unknown): boolean {
   return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== null;
@@ -40,24 +40,8 @@ export function rendersPortal(source: string): boolean {
 
 export function componentModulePaths(source: string, storyPath: string): string[] {
   const paths = new Set<string>();
-  const tokens = (source.match(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[\w$]+|[^\s]/g) ?? [])
-    .filter((token) => !token.startsWith("//") && !token.startsWith("/*"));
-  let depth = 0;
-  for (let index = 0; index < tokens.length; index++) {
-    const token = tokens[index];
-    if (["{", "(", "["].includes(token)) depth++;
-    if (["}", ")", "]"].includes(token)) depth--;
-    if (depth !== 0 || !["import", "export"].includes(token) || tokens[index + 1] === "type") continue;
-    const next = tokens[index + 1];
-    if (token === "import" && ["(", "."].includes(next)) continue;
-    if (token === "export" && !["{", "*"].includes(next)) continue;
-    let literal = token === "import" && /^["']/.test(next) ? next : undefined;
-    for (let cursor = index + 1; !literal && cursor < tokens.length; cursor++) {
-      if ([";", "import", "export"].includes(tokens[cursor])) break;
-      if (tokens[cursor] === "from" && /^["']/.test(tokens[cursor + 1] ?? "")) literal = tokens[cursor + 1];
-    }
-    if (!literal) continue;
-    const specifier = literal.slice(1, -1);
+  for (const match of source.matchAll(/(?=\b(?:from|import)\s*(?:"([^"]*)"|'([^']*)')|\bimport\s*\(\s*(?:"([^"]*)"|'([^']*)')\s*\))/g)) {
+    const specifier = match.slice(1).find((value) => value !== undefined)!;
     const path = specifier.startsWith("@/") ? specifier.slice(2) : specifier.startsWith(".")
       ? `${storyPath.slice(0, storyPath.lastIndexOf("/"))}/${specifier}` : specifier;
     const parts: string[] = [];
@@ -80,15 +64,28 @@ export type PortalRule = { portals: boolean; sourceReadable: boolean };
 
 export async function readPortalRule(key: string, sources: Record<string, () => Promise<string>>): Promise<PortalRule> {
   try {
-    const source = await sources[key]();
-    const paths = componentModulePaths(source, key);
     const keys = Object.keys(sources);
-    const components = await Promise.all(paths.map((path) => {
-      const resolved = resolveComponentPath(`../../../../${path}`, keys);
-      if (!resolved) throw new Error("Missing component source");
-      return sources[resolved]();
-    }));
-    return { portals: components.some(rendersPortal), sourceReadable: true };
+    const pending = [key];
+    const visited = new Set<string>();
+    let portals = false;
+    while (pending.length) {
+      const current = pending.pop()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      const source = await sources[current]();
+      for (const match of source.matchAll(/\bimport\s*\(/g)) {
+        if (!/^\s*(?:"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')\s*\)/.test(source.slice(match.index + match[0].length))) {
+          throw new Error("Unsupported import expression");
+        }
+      }
+      portals ||= rendersPortal(source);
+      for (const path of componentModulePaths(source, current)) {
+        const resolved = resolveComponentPath(`../../../../${path}`, keys);
+        if (!resolved) throw new Error("Missing component source");
+        pending.push(resolved);
+      }
+    }
+    return { portals, sourceReadable: true };
   } catch {
     return { portals: false, sourceReadable: false };
   }

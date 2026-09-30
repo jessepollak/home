@@ -1,7 +1,8 @@
-import { Component, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { propControls, storyArgs } from "./controls";
 import { FrameSection } from "./preview";
-import { createFrameSlots, fittedFrameHeight, FRAME_MAX_HEIGHT, FRAME_MIN_HEIGHT, FRAME_WIDTH, type FrameSlots } from "./sheet-state";
+import { createFrameSlots, fittedFrameHeight, FRAME_MAX_HEIGHT, FRAME_MIN_HEIGHT, FRAME_WIDTH, scaledViewport, type FrameSlots } from "./sheet-state";
+import { storyCanvasUrl } from "../board/url-state";
 import type { SheetStory } from "./stories";
 import styles from "./library.module.css";
 
@@ -78,11 +79,24 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
   }, [slots, busy, story.id]);
   const fullHeight = story.portals || story.layout === "fullscreen";
   const [height, setHeight] = useState(FRAME_MIN_HEIGHT);
-  const viewport = useMemo(() => ({ width: FRAME_WIDTH, height: fullHeight ? FRAME_MAX_HEIGHT : height }), [fullHeight, height]);
+  const [available, setAvailable] = useState(FRAME_WIDTH);
+  const container = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = container.current;
+    if (!story.viewport || !node) return;
+    const measure = () => setAvailable(node.clientWidth || FRAME_WIDTH);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [story.viewport]);
+  const viewport = useMemo(() => story.viewport ?? { width: FRAME_WIDTH, height: fullHeight ? FRAME_MAX_HEIGHT : height },
+    [story.viewport, fullHeight, height]);
+  const fitted = scaledViewport(viewport, available);
   const target = useMemo(() => ({ story: story.id, component, label: story.name, changed }),
     [story.id, story.name, component, changed]);
   const measure = (frame: HTMLIFrameElement) => {
-    if (fullHeight) return;
+    if (fullHeight || story.viewport) return;
     try {
       const doc = frame.contentDocument;
       const content = doc?.getElementById("storybook-root");
@@ -92,14 +106,18 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
       setHeight(fittedFrameHeight(Number.NaN, true));
     }
   };
-  if (!granted) {
-    return <div className={styles.framePending} style={{ height: viewport.height }} role="status">
+  return <div ref={container}>
+    {!granted ? <div className={styles.framePending} style={{ height: fitted.height }} role="status">
       Queued {story.name}…
-    </div>;
-  }
-  return <FrameSection target={target} theme={theme} args={args} annotating={annotating}
-    frameSource={frameSource} viewport={viewport} onSettled={() => release.current?.()} onRendered={measure}
-    onActivate={onActivate} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />;
+    </div> : <FrameSection target={target} theme={theme} args={args} annotating={annotating}
+      frameSource={frameSource} viewport={viewport} scale={fitted.scale} onSettled={() => release.current?.()} onRendered={measure}
+      onActivate={onActivate} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />}
+    {story.viewport && <p className={styles.viewportCaption}>
+      <a href={storyCanvasUrl(story.id)} target="_blank" rel="noreferrer">
+        {viewport.width} × {viewport.height}{fitted.scale < 1 ? " · scaled" : ""}
+      </a>
+    </p>}
+  </div>;
 }
 
 export function VariantSheet({ root, component, changed, stories, hiddenThemes = 0, theme, focused, focusedArgs, annotating, frameSource,

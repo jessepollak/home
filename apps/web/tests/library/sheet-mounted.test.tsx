@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { frameReason, rendersPortal } from "@/stories/review/explorations/library/isolation";
+import { frameReason, readPortalRule, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import type { SheetStory } from "@/stories/review/explorations/library/stories";
 
 const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
@@ -200,6 +200,35 @@ test("JSX apostrophes do not let a portal escape into the Library document", () 
   expect(view.queryByText("Escaped overlay")).toBeNull();
   expect(document.body.textContent).not.toContain("Escaped overlay");
   expect(view.getByTitle("Fixture · apostrophe")).toBeTruthy();
+});
+
+test("raw story and lazy-import portal classification prevents parent-document escapes", async () => {
+  for (const source of ['const Content = lazy(() => import("./dialog"));', 'export const Default = { render: () => <Portal /> };']) {
+    const key = "../../../../components/ui/fixture.stories.tsx";
+    const rule = await readPortalRule(key, { [key]: async () => source,
+      "../../../../components/ui/dialog.tsx": async () => "<Primitive.Portal />" });
+    const entry = story("raw-portal", () => createPortal(<p>Escaped raw overlay</p>, document.body));
+    const view = sheet([{ ...entry, portals: rule.portals, frame: frameReason({}, {}, rule.portals, rule.sourceReadable) }]);
+    expect(document.body.textContent).not.toContain("Escaped raw overlay");
+    expect(view.getByTitle("Fixture · raw-portal")).toBeTruthy();
+    view.unmount();
+  }
+});
+
+test("desktop frames keep their declared dimensions and expose a standalone scaled caption link", () => {
+  const entry = { ...story("desktop", () => null, "", "Declared viewport"), viewport: { width: 1440, height: 900 } };
+  const view = sheet([entry]);
+  const iframe = view.getByTitle("Fixture · desktop") as HTMLIFrameElement;
+  expect(iframe.width).toBe("1440");
+  expect(iframe.height).toBe("900");
+  const link = view.getByRole("link", { name: "1440 × 900 · scaled" });
+  expect(link.getAttribute("href")).toContain("id=desktop");
+  expect(link.getAttribute("target")).toBe("_blank");
+  const child = preview(iframe, entry.id);
+  fireEvent.load(iframe);
+  for (let turn = 0; turn < 3; turn++) { tick(); tick(); child.complete(); }
+  tick();
+  expect(iframe.height).toBe("900");
 });
 
 test("hidden theme stories are disclosed once at the end of the sheet", () => {
