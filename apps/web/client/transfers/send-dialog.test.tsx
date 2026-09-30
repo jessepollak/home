@@ -276,6 +276,67 @@ describe("SendDialog review", () => {
   });
 });
 
+describe("SendDialog prepare boundary", () => {
+  const baseProps: ComponentProps<typeof SendDialog> = {
+    open: true, immediate: true, address: ACCOUNT, ownerBoundary: "owner-a",
+    availableAssets: [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }],
+    prepareMoneyAction: async () => resumedAction(), resumeMoneyAction: async () => resumedAction(),
+    executeMoneyAction: async () => ({ id: ACTION_ID, status: "submitted" }), onClose: () => {},
+  };
+
+  test("does not publish a send prepared for the previous owner and unlocks the sheet", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    const reviews: string[] = [];
+    const props = { ...baseProps, prepareMoneyAction: () => new Promise<PreparedMoneyAction>((resolve) => { release = resolve; }), onReview: (id: string) => reviews.push(id) };
+    const view = render(<SendDialog {...props} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
+    view.rerender(<SendDialog {...props} ownerBoundary="owner-b" />);
+    await act(async () => { release(resumedAction()); });
+    expect(reviews).toEqual([]);
+    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).not.toBe("true");
+  });
+
+  test("closing drops a pending send and reopening can prepare normally", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    const reviews: string[] = [];
+    let count = 0;
+    const props = { ...baseProps, prepareMoneyAction: () => ++count === 1 ? new Promise<PreparedMoneyAction>((resolve) => { release = resolve; }) : Promise.resolve(resumedAction()), onReview: (id: string) => reviews.push(id) };
+    const view = render(<SendDialog {...props} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    view.rerender(<SendDialog {...props} open={false} />);
+    await act(async () => { release(resumedAction()); });
+    expect(reviews).toEqual([]);
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    view.rerender(<SendDialog {...props} />);
+    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).not.toBe("true");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    expect(reviews).toEqual([ACTION_ID]);
+  });
+
+  test("does not resume a review after its owner changes", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    const props = { ...baseProps, resumeActionId: ACTION_ID, resumeMoneyAction: () => new Promise<PreparedMoneyAction>((resolve) => { release = resolve; }) };
+    const view = render(<SendDialog {...props} />);
+    view.rerender(<SendDialog {...props} ownerBoundary="owner-b" resumeActionId={null} />);
+    await act(async () => { release(resumedAction()); });
+    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
+  });
+});
+
 describe("SendDialog Peer cash-out", () => {
   test("waits for the settled region before discovering cash-out destinations", async () => {
     const requests: string[] = [];
@@ -452,6 +513,33 @@ describe("SendDialog Peer cash-out", () => {
     await act(async () => { release({ ...cashoutAction(), metadata: { ...cashoutAction().metadata!, canonicalHandle: "alice" } } as PreparedMoneyAction); });
     expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
     expect(page().getByRole("dialog", { name: "Confirm" })).toBeTruthy();
+  });
+
+  test("drops a pending cash-out review for a different owner", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    const reviews: string[] = [];
+    const props: ComponentProps<typeof SendDialog> = {
+      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "cashout-owner-a",
+      availableAssets: [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }],
+      fetchAccountResource: async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] },
+      prepareMoneyAction: () => new Promise((resolve) => { release = resolve; }),
+      resumeMoneyAction: async () => cashoutAction(), executeMoneyAction: async () => ({ id: ACTION_ID, status: "submitted" }),
+      onReview: (id) => { reviews.push(id); }, onClose: () => {},
+    };
+    const view = render(<SendDialog {...props} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: /Send to Cash App/ }));
+    fireEvent.click(page().getByRole("button", { name: "Cash App" }));
+    fireEvent.input(page().getByRole("textbox", { name: "Cash App cashtag" }), { target: { value: "$alice" } });
+    fireEvent.click(page().getByRole("button", { name: "Review" }));
+    expect(page().getByRole("button", { name: "Review" }).getAttribute("aria-busy")).toBe("true");
+    view.rerender(<SendDialog {...props} ownerBoundary="cashout-owner-b" />);
+    await act(async () => { release(cashoutAction()); });
+    expect(reviews).toEqual([]);
+    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    expect(page().getByRole("button", { name: "Review" }).getAttribute("aria-busy")).not.toBe("true");
   });
 
   test("a lone dollar sign cannot be reviewed", async () => {
@@ -726,6 +814,25 @@ describe("SendDialog cash-out requote", () => {
 
     await act(async () => { release(reviewed("33333333-3333-4333-8333-333333333333", "1.00")); });
     expect(await page().findByRole("button", { name: "Cash out $1.00" })).toBeTruthy();
+  });
+
+  test("does not publish a late requote after the owner changes", async () => {
+    let release!: (action: PreparedMoneyAction) => void;
+    const reviews: string[] = [];
+    const props: ComponentProps<typeof SendDialog> = {
+      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "requote-owner-a", resumeActionId: ACTION_ID,
+      resumeMoneyAction: async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z"),
+      prepareMoneyAction: () => new Promise((resolve) => { release = resolve; }),
+      executeMoneyAction: async (action) => ({ id: action.id, status: "submitted" }),
+      fetchAccountResource: async () => ({ version: 1, recipients: [] }), onReview: (id) => { reviews.push(id); }, onClose: () => {},
+    };
+    const view = render(<SendDialog {...props} />);
+    fireEvent.click(await page().findByRole("button", { name: "Get new quote" }));
+    view.rerender(<SendDialog {...props} ownerBoundary="requote-owner-b" resumeActionId={null} />);
+    await act(async () => { release(reviewed("33333333-3333-4333-8333-333333333333", "1.00")); });
+    expect(reviews).toEqual([]);
+    expect(page().queryByRole("button", { name: "Cash out $1.00" })).toBeNull();
+    expect(page().getByRole("button", { name: "Get new quote" }).getAttribute("aria-busy")).not.toBe("true");
   });
 
   test("a failed requote explains why and keeps a way back", async () => {

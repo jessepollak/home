@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { presentPortfolioAssetMark, type AssetMarkResolution } from "@/client/asset-mark/presentation";
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode, useMemo } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode, useMemo } from "react";
 import { CircleAlertIcon, ChevronRight } from "lucide-react";
 import { AddressField } from "@/components/address";
 import { FieldSeparator } from "@/components/ui/field";
@@ -146,6 +146,7 @@ export function SendDialog({
   const [submittedAt, setSubmittedAt] = useState<string | undefined>();
   const submittingRef = useRef(false);
   const prepareTokenRef = useRef(0);
+  const prepareBoundaryRef = useRef({ open, ownerBoundary });
   const handleInputRef = useRef<HTMLInputElement>(null);
   const focusHandleRef = useRef(false);
   const routing = useOptionalHomeShellRouting();
@@ -158,6 +159,14 @@ export function SendDialog({
   function invalidatePrepare() {
     prepareTokenRef.current += 1;
     setPreparing(false);
+  }
+  useLayoutEffect(() => {
+    if (prepareBoundaryRef.current.open === open && prepareBoundaryRef.current.ownerBoundary === ownerBoundary) return;
+    prepareBoundaryRef.current = { open, ownerBoundary };
+    invalidatePrepare();
+  }, [open, ownerBoundary]);
+  function isCurrentPrepare(token: number, startedOwner: string | null) {
+    return token === prepareTokenRef.current && prepareBoundaryRef.current.open && prepareBoundaryRef.current.ownerBoundary === startedOwner;
   }
   function changeAmount(value: string) {
     invalidatePrepare();
@@ -271,12 +280,14 @@ export function SendDialog({
   useEffect(() => {
     if (!open || !ownerBoundary || !regionReady || !resumeActionId || resumedActionRef.current === resumeActionId) return;
     resumedActionRef.current = resumeActionId;
+    const startedOwner = ownerBoundary;
+    const token = ++prepareTokenRef.current;
     let cancelled = false;
     let settled = false;
     setPreparing(true); setError(null);
     void resumeMoneyAction(resumeActionId).then((resumed) => {
       settled = true;
-      if (cancelled) return;
+      if (cancelled || !isCurrentPrepare(token, startedOwner)) return;
       setPreparing(false);
       if (resumed.kind === "send") {
         const nextRequest = transferRequestFromAction(resumed);
@@ -315,7 +326,7 @@ export function SendDialog({
       setAction(resumed); setStep("confirm");
     }).catch(() => {
       settled = true;
-      if (cancelled) return;
+      if (cancelled || !isCurrentPrepare(token, startedOwner)) return;
       setPreparing(false); setRequest(null); setCashout(null); setAction(null); setStep("amount"); onInvalidResume?.();
     });
     return () => {
@@ -377,6 +388,7 @@ export function SendDialog({
   async function prepareSend() {
     if (preparing) return;
     const token = ++prepareTokenRef.current;
+    const startedOwner = ownerBoundary;
     try {
       if (!address || !selectedAsset || !activeAssetId || !effectiveRecipient) throw new TransferExecutionError("unavailable");
       const next: TransferRequest = {
@@ -387,10 +399,11 @@ export function SendDialog({
       };
       assertTransferRequest(next); setPreparing(true); setError(null);
       const outcome = await prepareMoneyAction("send", next).then((prepared) => ({ prepared }), (failure: unknown) => ({ failure }));
-      if (token !== prepareTokenRef.current) return;
+      if (!isCurrentPrepare(token, startedOwner)) return;
       if ("failure" in outcome) throw outcome.failure;
       setRequest(next); setCashout(null); setPreparing(false); showPreparedReview(outcome.prepared);
     } catch (caught) {
+      if (!isCurrentPrepare(token, startedOwner)) return { failure: caught };
       setPreparing(false); setError(networkFeeErrorMessage(caught) ?? "Enter a valid Base address and positive amount, then try again."); setStep("destination");
     }
   }
@@ -398,6 +411,7 @@ export function SendDialog({
   async function prepareCashout() {
     if (!regionReady || preparing) return;
     const token = ++prepareTokenRef.current;
+    const startedOwner = ownerBoundary;
     try {
       if (!selectedAsset || !selectedOfframp || !selectedPlatform) throw new Error("invalid");
       const canonicalHandle = canonicalizeCashPayee(selectedPlatform.platform, payoutHandle);
@@ -409,10 +423,10 @@ export function SendDialog({
         amountBaseUnits, platform: selectedPlatform.platform, platformLabel: selectedPlatform.label, currency: selectedOfframp.currency,
         payoutHandle, canonicalHandle,
       });
-      if (token !== prepareTokenRef.current) return;
+      if (!isCurrentPrepare(token, startedOwner)) return;
       setCashout(next.cashout); setRequest(null); setPreparing(false); showPreparedReview(next.prepared);
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded cash-out preparations cannot overwrite the edited destination
-      if (token === prepareTokenRef.current) {
+      if (isCurrentPrepare(token, startedOwner)) {
         setPreparing(false); setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle");
       }
     }
@@ -438,17 +452,18 @@ export function SendDialog({
     if (!regionReady || preparing || cashout?.operation !== "deposit" || !cashout.canonicalHandle || !cashout.quote) return;
     const previous = { ...cashout, canonicalHandle: cashout.canonicalHandle, quote: cashout.quote };
     const token = ++prepareTokenRef.current;
+    const startedOwner = ownerBoundary;
     setPreparing(true); setError(null); setQuoteNotice(null);
     try {
       const next = await prepareCashoutReview({ ...previous, payoutHandle: previous.canonicalHandle });
-      if (token !== prepareTokenRef.current) return;
+      if (!isCurrentPrepare(token, startedOwner)) return;
       const receive = next.cashout.quote?.receive;
       const changed = !receive || receive.currency !== previous.quote.receive.currency || !sameDecimal(receive.amount, previous.quote.receive.amount);
       setCashout(next.cashout); setPreparing(false);
       setQuoteNotice(changed ? "The quote changed. Check what you receive before you cash out." : null);
       showPreparedReview(next.prepared);
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a superseded requote cannot overwrite a newer review
-      if (token === prepareTokenRef.current) {
+      if (isCurrentPrepare(token, startedOwner)) {
         setPreparing(false); setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("error");
       }
     }
