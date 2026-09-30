@@ -125,6 +125,9 @@ export function useBalances(
 
   const identity = ownerKey ? `${ownerKey}\u0000${region}` : null;
   const suppressedFailure = query.isError && query.error instanceof ProvisionalBalancesFailure;
+  const refreshError = query.isError && !suppressedFailure;
+  const presentedSnapshot = useMemo(() => query.data && refreshError
+    ? { ...query.data, stale: true as const } : query.data, [query.data, refreshError]);
   const held = options.held === true;
 
   useEffect(() => {
@@ -172,13 +175,10 @@ export function useBalances(
     if (held || query.isPending || (suppressedFailure && query.data === undefined)) {
       return { status: "loading", snapshot: null, error: null, retry, observation };
     }
-    if (query.data) {
-      const snapshot = query.isError && !suppressedFailure
-        ? { ...query.data, stale: true as const }
-        : query.data;
+    if (presentedSnapshot) {
       return {
         status: "ready",
-        snapshot,
+        snapshot: presentedSnapshot,
         error: null,
         retry,
         observation,
@@ -196,7 +196,7 @@ export function useBalances(
       };
     }
     return { status: "loading", snapshot: null, error: null, retry, observation };
-  }, [held, identity, options.paintCachedWhileHeld, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, query.isPlaceholderData, retry, suppressedFailure]);
+  }, [presentedSnapshot, held, identity, options.paintCachedWhileHeld, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, query.isPlaceholderData, retry, suppressedFailure]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {

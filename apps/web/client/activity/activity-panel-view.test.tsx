@@ -1131,3 +1131,18 @@ describe("combined Activity panel", () => {
     expect(within(view.getByRole("list")).getAllByRole("button", { description: /transaction details/ })).toHaveLength(3);
   });
 });
+
+test("pagination boundary work is reused until the transfer page changes", () => {
+  const row = transfer("memo-boundary", 5);
+  const timestamp = row.blockTimestamp;
+  let reads = 0;
+  Object.defineProperty(row, "blockTimestamp", { get: () => { reads += 1; return timestamp; } });
+  const rows = [row];
+  const view = render(<ActivityPanelView activity={ready(rows, "next-page")} />);
+  const initialReads = reads;
+  expect(initialReads).toBeGreaterThan(0);
+  view.rerender(<ActivityPanelView activity={ready(rows, "next-page", { loadingMore: true })} />);
+  expect(reads).toBe(initialReads);
+  view.rerender(<ActivityPanelView activity={ready([...rows, transfer("older", 1)], "older-page")} />);
+  expect(reads).toBeGreaterThan(initialReads);
+});

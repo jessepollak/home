@@ -358,11 +358,12 @@ export function CashExperience({
         nowMs: rateNowMs,
       })
     : null;
-  const growthAuthority: SavingsGrowthAuthority | null =
-    liveSnapshot && session
+  const growthOwner = session?.user.subject ?? null;
+  const growthAuthority = useMemo<SavingsGrowthAuthority | null>(() =>
+    liveSnapshot && growthOwner !== null
       ? {
           accountIdentity: `${
-            session.user.subject
+            growthOwner
           }:${liveSnapshot.owner.address.toLowerCase()}`,
           assetIdentity: `${BASE_USDC_ADDRESS.toLowerCase()}:8453:${BASE_USDC_DECIMALS}`,
           blockNumber: liveSnapshot.block.number,
@@ -372,7 +373,7 @@ export function CashExperience({
           registryCoverageComplete:
             liveSnapshot.coverage.registry === "complete",
         }
-      : null;
+      : null, [liveSnapshot, growthOwner, balanceStale]);
 
   const [localMode, setLocalMode] = useState<Mode | null>(null);
   const [targetSelection, setTargetSelection] = useState<{ owner: string; candidate: MorphoVaultCandidate } | null>(null);

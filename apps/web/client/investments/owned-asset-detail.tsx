@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { Lock, Wallet } from "lucide-react";
 import { useNestedAppChrome } from "@/components/app-chrome";
 import { compactFinancialValue } from "@/components/compact-financial-value";
@@ -32,7 +34,7 @@ export type OwnedAssetDetailProps = {
 };
 
 export function OwnedAssetDetail({ snapshot, balanceStatus, refreshFailed = false, onRetryBalances, assetKey, catalog, markets, assetMarkResolution, onBack }: OwnedAssetDetailProps) {
-  const row = snapshot ? selectOwnedInvestment(snapshot, assetKey) : null;
+  const row = useMemo(() => snapshot ? selectOwnedInvestment(snapshot, assetKey) : null, [snapshot, assetKey]);
   useNestedAppChrome({ title: row?.holding.name.trim() || row?.holding.symbol.trim() || "Asset details", backLabel: "Back", onBack });
   if (balanceStatus === "loading" && !snapshot) return <AssetDetailStatusScreen status="loading" onBack={onBack} />;
   if (!snapshot || !row) return <AssetDetailStatusScreen status="unavailable" onBack={onBack} />;

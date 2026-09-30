@@ -38,7 +38,7 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true): str
   const balances = useBalances(balancesSession, regionId, account.fetchBalances, {
     enabled: account.verification === "server" && regionReady,
   });
-  const positions = balances.snapshot ? selectVaultPositions(balances.snapshot) : null;
+  const positions = useMemo(() => balances.snapshot ? selectVaultPositions(balances.snapshot) : null, [balances.snapshot]);
   const metadataQuery = useSavingsVaults();
   const metadata = metadataQuery.data;
   const nextDeadline = useCallback(
