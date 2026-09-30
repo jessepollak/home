@@ -14,8 +14,9 @@ import { ResourceFailure } from "@/client/account/resource-failure";
 import { activityWindowScope, invalidateAfterAction, nextActivityWindowEnd } from "@/client/query/after-action";
 import { initialActivityWindowEnd } from "@/client/query/after-action";
 import { defaultScheduler, notifyManager, type InfiniteData } from "@tanstack/react-query";
+import { transfersReadiness } from "./activity-sources";
 
-const { act, cleanup, fireEvent, render, waitFor } = await import(
+const { act, cleanup, fireEvent, render, renderHook, waitFor } = await import(
   "@testing-library/react"
 );
 const { useActivity, activityOwnerKey, activityFirstPageRetryDelaysMs, activityLatestReadTimeoutMs, refreshLatestActivity, refreshActivityThroughController } = await import("./use-activity");
@@ -1454,6 +1455,43 @@ describe("after-action activity windows", () => {
     expect(queryClient.getQueryData<string>(windowKey)).toBe(new URLSearchParams(queries[1]).get("to")!);
     expect(view.getByTestId("ids").textContent).toBe("latest");
     expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(queries).toHaveLength(2);
+  });
+
+  test("reports transfers loading for a hook mounted during an in-flight latest-window read", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      return queries.length === 1 ? page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null) : latest.promise;
+    };
+    const current = renderHook(() => useActivity(owner, fetchActivity));
+    await flushMountedRecovery();
+    expect(current.result.current.status).toBe("ready");
+    expect(current.result.current.refreshing).toBe(false);
+    expect(transfersReadiness(current.result.current)).toBe("ready");
+    await act(async () => { await invalidateAfterAction(queryClient, activityOwnerKey(owner)); });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(2);
+    const mounted = renderHook(() => useActivity(owner, fetchActivity));
+    expect(current.result.current.refreshing).toBe(true);
+    expect(mounted.result.current.status).toBe("ready");
+    expect(mounted.result.current.refreshing).toBe(true);
+    expect(transfersReadiness(mounted.result.current)).toBe("loading");
+    await act(async () => {
+      latest.resolve(page(queries[1]!, WALLET_A, [
+        priced(transfer(queries[1]!, WALLET_A, "new", "40")),
+        priced(transfer(queries[1]!, WALLET_A, "kept", "30")),
+      ], null));
+      await latest.promise;
+    });
+    await flushMountedRecovery();
+    expect(current.result.current.refreshing).toBe(false);
+    expect(mounted.result.current.refreshing).toBe(false);
+    expect(transfersReadiness(mounted.result.current)).toBe("ready");
     expect(queries).toHaveLength(2);
   });
 

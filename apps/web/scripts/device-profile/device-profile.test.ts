@@ -5,7 +5,7 @@ import { activityPage, syntheticActivity } from "./synthetic-activity";
 import { parseHistoryResponse, MARKET_PRICE_RANGES } from "../../shared/invest/contracts/market-price-history";
 import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, proxyOptions } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
-import { artifactName, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, validResult, visibilityProblem, androidFamily, androidView, type Result, type TraceEvent } from "./model";
+import { artifactName, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, androidFamily, androidView, type Result, type TraceEvent } from "./model";
 
 test("synthetic generator keeps 25-transfer pagination and original deterministic row values", () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z"), data = syntheticActivity(300, anchor);
@@ -240,6 +240,20 @@ test("loaded activity rows prefer a positive setsize then the highest position t
   expect(settledPages(11, 10, 1)).toBe(0);
   expect(partialFeedComplete(0, 5)).toBe(false);
   expect(partialFeedComplete(1, 2)).toBe(true);
+  expect(feedComplete({ pending: [], end: true, partialSourceCount: 0, settled: 0 })).toBe(true);
+  expect(feedComplete({ pending: ["orders"], end: true, partialSourceCount: 0, settled: 5 })).toBe(false);
+  expect(feedComplete({ pending: [], end: false, partialSourceCount: 1, settled: 2 })).toBe(true);
+  expect(feedComplete({ pending: [], end: false, partialSourceCount: 0, settled: 5 })).toBe(false);
+});
+
+test("feed changes after the fill mark the measured run partial", () => {
+  expect(feedChangeMarker(20, 20)).toBeNull();
+  expect(feedChangeMarker(20, 24)).toBe("The measured activity feed changed during the run (20 to 24 rows)");
+});
+
+test("sources still loading when the run ends mark the measured run partial", () => {
+  expect(unsettledMarker([])).toBeNull();
+  expect(unsettledMarker(["orders"])).toBe("The activity feed was still loading when the run ended (orders)");
 });
 
 test("production all runs each fling once using the plan placeholder while the fixture matrix keeps 11 entries", () => {
