@@ -141,12 +141,14 @@ function worktreeBlobHash(file, cwd, gitRunner) {
 }
 
 export function changedProductionTypeScript({ base, cwd = root, gitRunner = runGit } = {}) {
-  const tracked = String(gitRunner(["diff", "--no-ext-diff", "--name-status", "-M", base, "--", "apps/web"], { cwd })).split("\n");
+  const tracked = String(gitRunner(["diff", "--no-ext-diff", "--name-status", "-z", "-M", base, "--", "apps/web"], { cwd })).split("\0");
   const changed = new Map();
   const deleted = new Map();
-  for (const line of tracked) {
-    if (!line) continue;
-    const [status, source, destination] = line.split("\t");
+  for (let index = 0; index < tracked.length;) {
+    const status = tracked[index++];
+    if (!status) continue;
+    const source = tracked[index++];
+    const destination = /^[RC]/u.test(status) ? tracked[index++] : undefined;
     if (status === "D") {
       if (isProductionTypeScript(source)) {
         const hash = baseBlobHash({ base, file: source, cwd, gitRunner });
@@ -197,7 +199,9 @@ export function evaluateAssertionDelta({ changed, exceptions, baseExceptions }) 
     const before = baseContent === undefined ? null : cachedCounts(file, baseContent);
     for (const kind of kinds) {
       const baseCount = before?.[kind] ?? 0;
-      const granted = Math.max(0, exceptionCount(exceptions, file, kind) - exceptionCount(baseExceptions, basePath, kind));
+      const inherited = exceptionCount(baseExceptions, basePath, kind)
+        + (basePath === file ? 0 : exceptionCount(baseExceptions, file, kind));
+      const granted = Math.max(0, exceptionCount(exceptions, file, kind) - inherited);
       const allowed = baseCount + granted;
       if (actual[kind] > allowed) increases.push(`${file}: ${kind} ${actual[kind]} > ${allowed}; narrow the new use with a runtime guard or add a reviewed exception with a reason`);
       if (granted > Math.max(0, actual[kind] - baseCount)) notes.push(`${file}: ${kind} exception allows ${granted} but this change adds ${Math.max(0, actual[kind] - baseCount)}; remove or narrow it`);
