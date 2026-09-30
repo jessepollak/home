@@ -213,5 +213,5 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   const noop = useCallback(() => {}, []);
   return <LiveFrame position={position} metric={metric} loaded active={!annotating} frameSource={frameSource} scale={scale}
     frameRef={frame} onMark={mark} onFinish={finish} onCancel={cancel}
-    onSelect={noop} onFit={noop} onInteract={onExitAnnotate} />;
+    onSelect={noop} onFit={onExitAnnotate} onInteract={onExitAnnotate} />;
 }

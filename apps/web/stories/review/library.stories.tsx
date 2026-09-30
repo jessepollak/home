@@ -167,6 +167,11 @@ export const Workspace: Story = {
     anchor.focus();
     await userEvent.keyboard("{Enter}");
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(annotate);
+    await expect(annotate).toHaveAttribute("aria-pressed", "true");
+    canvas.getByRole("button", { name: "Button · Sizes" }).focus();
+    await userEvent.keyboard(" ");
+    await expect(annotate).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(canvas.getByRole("button", { name: "Light" }));
     await waitFor(() => expect(themed.doc.documentElement).toHaveAttribute("data-theme", "light"));
   },

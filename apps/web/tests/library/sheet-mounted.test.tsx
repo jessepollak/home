@@ -289,3 +289,17 @@ for (const input of ["identity", "theme"]) {
     expect(view.getByText("Retried story")).toBeTruthy();
   });
 }
+
+test("Enter and Space on an annotation anchor exit annotation for document and framed sections", async () => {
+  const view = sheet([story("inline", () => null), story("frame", () => null, "<Portal />")]);
+  let exits = 0;
+  view.update({ annotating: true, onExitAnnotate: () => { exits++; } });
+  await flush();
+  for (const name of [/^Fixture · inline$/, /^Fixture · frame · /]) {
+    for (const key of ["Enter", " "]) {
+      const before = exits;
+      fireEvent.keyDown(view.getByRole("button", { name }), { key });
+      expect(exits).toBe(before + 1);
+    }
+  }
+});

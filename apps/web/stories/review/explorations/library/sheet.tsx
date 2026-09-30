@@ -202,7 +202,7 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
           </div>}
       {annotating && !reason && <div role="button" tabIndex={0} className={styles.sectionOverlay}
         aria-label={`${component} · ${story.name}`}
-        onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); onExitAnnotate(); } }} />}
+        onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onExitAnnotate(); } }} />}
     </section>;
   })}{hiddenThemes > 0 && <p className={styles.hiddenThemes}>
     {hiddenThemes} theme-pinned {hiddenThemes === 1 ? "story" : "stories"} hidden · use Theme
