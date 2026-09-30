@@ -49,6 +49,8 @@ Configure log-based monitors in the operator's log tooling (for example, a log d
 
 ## Balance latency policy
 
+Balance pricing indexes quotes by exact asset key once per response; holding, unit-price, Cash and Borrow valuation share that index. Bootstrap preserves the first usable fresh or stale provider quote for a repeated key and partitions deferred work with a set of bootstrapped keys. Stored price and FX reads still happen concurrently, and cached reads never wait for provider refresh. `balances-read.durationMs` optionally includes `pricing-index` and `pricing-compute` alongside `valuation-store` and the whole `price` phase. The new timings contain no identity, keys, holdings or amounts and are capped at 60 seconds. Older event producers may omit them.
+
 A fresh stored observation is served immediately even when it has an enumeration cursor. A hot row refreshes the registry only and preserves catalog rows and cursor. Explicit stale signals and the 120-second backstop resume full observation from the stored cursor and merge progress as before.
 
 CDP enumeration starts pages only inside a 2.5-second soft budget. A page that started while the budget was open may finish successfully after it closes. Each in-flight page, including retries, has a four-second hard ceiling. Successful rows and the advanced cursor are retained; unavailable enumeration preserves prior rows and cursor. This trades foreground catalog completion speed for predictable response latency without changing truthful coverage.

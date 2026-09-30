@@ -110,6 +110,15 @@ describe("observability schema", () => {
       },
     };
     expect(normalizeObservabilityEvent(event)).toMatchObject({ outcome: "revalidating", incomplete: event.incomplete });
+    expect(normalizeObservabilityEvent(event)).not.toHaveProperty("durationMs.pricing-compute");
+    expect(normalizeObservabilityEvent({
+      ...event,
+      durationMs: { ...event.durationMs, "pricing-index": 2.6, "pricing-compute": Infinity, owner: "private-owner" },
+    } as never)).toMatchObject({ durationMs: { "pricing-index": 3, "pricing-compute": 0 } });
+    expect(JSON.stringify(normalizeObservabilityEvent({
+      ...event,
+      durationMs: { ...event.durationMs, "pricing-index": -2, "pricing-compute": 90_000, owner: "private-owner" },
+    } as never))).not.toContain("private-owner");
     expect(normalizeObservabilityEvent({ ...event, outcome: "surprise" as never })).toMatchObject({ outcome: "error" });
     expect(normalizeObservabilityEvent({
       ...event,
