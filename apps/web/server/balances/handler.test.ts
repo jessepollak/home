@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { parseBalancesSnapshot } from "@/shared/balances/contract";
-import { balancesSnapshotFixture, buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { BalancesResponseError, parseBalancesSnapshot } from "@/shared/balances/contract";
+import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, priced, unavailableBalance } from "@/shared/balances/fixtures";
+import type { BalancesSession, BalancesSnapshot } from "@/shared/balances/types";
 import { createBalancesHandler } from "./handler";
 import { assembleBalancesSnapshot } from "./snapshot";
 
@@ -246,5 +247,79 @@ describe("balances handler", () => {
     expect(response.headers.get("pragma")).toBe("no-cache");
     expect(response.headers.get("vary"))
       .toBe("Authorization, X-Home-Account-Provider");
+  });
+
+  const session: BalancesSession = {
+    subject: "user-1", smartAccountAddress: verified.smartAccount.address, chainId: 8453,
+  };
+
+  async function servedSnapshot(fixture: BalancesSnapshot) {
+    const snapshot = assembleBalancesSnapshot({
+      owner: fixture.owner.address, region: fixture.region, holdings: fixture.holdings, borrow: fixture.borrow,
+      read: { block: fixture.block, observedAt: fixture.fetchedAt, holdings: [], coverage: fixture.coverage },
+    });
+    const handler = createBalancesHandler({
+      authorize: async () => verified, readBalances: async () => snapshot,
+    });
+    const response = await handler(new Request(`https://home.test/api/balances?region=${fixture.region}`));
+    expect(response.status).toBe(200);
+    const body: BalancesSnapshot = await response.json();
+    return { body, snapshot };
+  }
+
+  test.each([
+    ["complete", buildBalancesSnapshotFixture({ catalog: [] }), "complete"],
+    ["partial/unavailable", balancesSnapshotFixture, "partial"],
+    ["unavailable total", buildBalancesSnapshotFixture({
+      registry: { toshi: { balance: unavailableBalance, value: { status: "unavailable" } } },
+    }), "unavailable"],
+    ["GLOBAL no-quote-currency", buildBalancesSnapshotFixture({ region: "GLOBAL" }), "no-quote-currency"],
+    ["borrow position", buildBalancesSnapshotFixture({
+      borrow: { coverage: "complete", positions: [borrowPosition({
+        collateralBaseUnits: "100000", collateralValue: priced("USD", "10000"),
+        debtBaseUnits: "30010000", debtValue: priced("USD", "3001"),
+      })] },
+    }), "complete"],
+  ] as const)("round-trips real %s handler output through the wire contract", async (_name, fixture, totalStatus) => {
+    const { body, snapshot } = await servedSnapshot(fixture);
+    const parsed = parseBalancesSnapshot(body, session, fixture.region);
+    expect(snapshot.total.status).toBe(totalStatus);
+    expect(parsed.total.status).toBe(totalStatus);
+    expect(parsed).toEqual(snapshot);
+  });
+
+  test("rejects malformed mutations of real handler output after wire serialization", async () => {
+    const complete = (await servedSnapshot(buildBalancesSnapshotFixture({ catalog: [] }))).body;
+    const partial = (await servedSnapshot(balancesSnapshotFixture)).body;
+    const mutations: { name: string; original: BalancesSnapshot; change: (wire: BalancesSnapshot) => void; detail?: RegExp }[] = [
+      { name: "wrong version", original: complete, change: (wire) => { Object.assign(wire, { version: 0 }); } },
+      { name: "dropped registry holding", original: complete, change: (wire) => {
+        wire.holdings = wire.holdings.filter((h) => h.id !== "usdc");
+      } },
+      { name: "complete registry coverage with unavailable holding", original: partial, change: (wire) => {
+        wire.coverage.registry = "complete";
+      } },
+      { name: "unavailable balance retaining priced value", original: partial, change: (wire) => {
+        const holding = wire.holdings.find((h) => h.id === "eth");
+        if (!holding) throw new Error("Missing ETH fixture holding");
+        Object.assign(holding, { balance: { status: "unavailable", baseUnits: null } });
+      }, detail: /holdings\./ },
+      { name: "partial total without value", original: partial, change: (wire) => {
+        wire.total.value = null;
+      }, detail: /\btotal\b/ },
+      { name: "missing net sign", original: complete, change: (wire) => {
+        Reflect.deleteProperty(wire.totals.net, "negative");
+      } },
+      { name: "complete net with partial borrow coverage", original: complete, change: (wire) => {
+        wire.borrow.coverage = "partial";
+      } },
+    ];
+    for (const { name, original, change, detail } of mutations) {
+      const wire: BalancesSnapshot = JSON.parse(JSON.stringify(original));
+      change(wire);
+      const body = JSON.parse(JSON.stringify(wire));
+      expect(() => parseBalancesSnapshot(body, session, original.region), name).toThrow(BalancesResponseError);
+      if (detail) expect(() => parseBalancesSnapshot(body, session, original.region), name).toThrow(detail);
+    }
   });
 });

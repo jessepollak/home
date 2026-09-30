@@ -10,10 +10,10 @@ The rows are the merged-PR review threads whose first comment carries the P1 bad
 
 | Disposition | Meaning | Count |
 | --- | --- | --- |
-| fixed-later | The requested behavior holds on current `main`. | 19 |
+| fixed-later | The requested behavior holds on current `main`. | 20 |
 | vanished | The code or document no longer exists, or its replacement cannot reach the reported state. | 11 |
 | not-a-defect | The premise did not hold, the behavior is a recorded product decision, or the finding is a process or copy preference. | 4 |
-| live | The reported behavior still exists; each row has a reproduction or current code trace and a tracking issue or follow-up. | 14 |
+| live | The reported behavior still exists; each row has a reproduction or current code trace and a tracking issue or follow-up. | 13 |
 
 ## Ledger
 
@@ -58,7 +58,7 @@ Line references are to `main` at `e3e10e77`. Paths are relative to `apps/web/` u
 | F35 | #300 | Bound the secondary read during pool acquisition | vanished | `app/api/activity/route.ts:13-18` | The activity route no longer performs the secondary action read. |
 | F36 | #329 | Install the RAF hook before Motion is cached | vanished | `client/money-modal/money-modal.test.tsx:1-18` | The test has no animation-frame stub, and the modal no longer uses Motion's scheduler. |
 | F37 | #343 | Ship product docs with the authentication feature | not-a-defect | `docs/base-account.md:1-7`; `docs/operating-manual.md:144-146` | This was a past sequencing lapse; the current guide documents the current contract. |
-| F38 | #388 | Parse the balances snapshot before returning it | live | `server/balances/handler.ts:32-52`; `shared/balances/contract.ts:109-129` | The handler serializes the service result without the shared parser. A scratch test injecting another owner's or region's snapshot got 200 instead of 502. No real reader was shown to produce such a snapshot. Tracked by #1223. |
+| F38 | #388 | Parse the balances snapshot before returning it | fixed-later | `server/balances/handler.ts:63-82`; `shared/balances/contract.ts:262-293` | The handler parses the assembled snapshot with the shared contract against the verified session and the requested region before serializing it, and returns the same `BALANCES_UNAVAILABLE` 502 on rejection (#1567); `server/balances/handler.test.ts:102-144` covers another owner's and another region's snapshot. |
 | F39 | #388 | Bound catalog pricing within the route deadline | live | `server/balances/coalesce.ts:302`; `server/balances/price.ts:497-498` | `getBalancesSnapshot` discards its incoming signal, and pricing sends batches of 25 with concurrency 4 in unbounded waves, each batch bounded only by the 8-second provider timeout (`server/market-data/codex/config.ts:20`). Four concurrent batches are one wave covering 100 price inputs, so a later wave can run when more than 100 distinct inputs need fetching, and nothing bounds the phase as a whole: the read deadline covers only the RPC read (`server/balances/read.ts:81-93`), and an aborted request does not stop pricing. `server/balances/price.test.ts:164-189` proves concurrency only. Follow-up G. |
 | F40 | #445 | Refill pages after filtering non-token events | fixed-later | `client/activity/activity-panel.tsx:239-245,274-286`; `client/activity/use-activity.ts:372-433` | An empty filtered page that still has a cursor renders the continuation sentinel, which fetches further (#748, #1017). Test at `client/activity/activity-panel.test.tsx:673-730`. |
 | F41 | #497 | Persist retrospective findings on the issue board | not-a-defect | `.agents/skills/retro/SKILL.md:13-25` | The retro skill is review-only by design; issue intake follows the operating manual. |
@@ -82,4 +82,4 @@ Each live row has an existing tracking issue or one of these follow-ups, filed a
 - **F** — filed with this record under `ops(ci): budget Neon branch pruning on total project usage` (F07).
 - **G** — filed with this record under `fix(balances): bound balances pricing within the route deadline` (F39).
 - **H** — filed with this record under `fix(balances): bound Token Balances enumeration by one inventory deadline` (F30).
-- Existing: #1348 (F11) and #1223 (F38), whose acceptance requires handler output to pass the shared parser. #1181 converts the quote contract (F47); its scope does not yet name the quote error codes, so F47 stays open until that scope includes them.
+- Existing: #1348 (F11). #1181 converts the quote contract (F47); its scope does not yet name the quote error codes, so F47 stays open until that scope includes them.

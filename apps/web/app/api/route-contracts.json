@@ -74,7 +74,6 @@
       "actions/route.ts": ["shared/actions/contracts/list.ts"],
       "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
       "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-      "balances/route.ts": ["shared/balances/contract.ts"],
       "funding/orders/[id]/route.ts": ["shared/funding/contracts/order.ts"],
       "funding/orders/route.ts": ["shared/funding/contracts/order.ts"],
       "session/route.ts": ["shared/account/contracts/session.ts"]
@@ -87,7 +86,6 @@
       "shared/actions/contracts/handle.ts",
       "shared/actions/contracts/list.ts",
       "shared/actions/contracts/prepare.ts",
-      "shared/balances/contract.ts",
       "shared/cards/transactions-contract.ts",
       "shared/fees/contract.ts",
       "shared/funding/contracts/order.ts",
