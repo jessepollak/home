@@ -6,6 +6,7 @@ import type { ExactDecimal } from "@/shared/balances/types";
 import type { FetchLike } from "@/server/market-data/codex/execute";
 import { createBoundedCache } from "@/server/cache/bounded";
 import { createWriteOrder } from "@/server/cache/write-order";
+import { readJson } from "@/shared/http/read-json";
 
 export const COINBASE_DAILY_FX_ORIGIN = "https://api.coinbase.com" as const;
 export const ACTIVITY_FX_TIMEOUT_MS = 3_000;
@@ -141,7 +142,7 @@ async function fetchDailyRate({
       signal: controller.signal,
     });
     if (!response.ok) return null;
-    return readRate(await response.json(), request);
+    return readRate(await readJson(response), request);
   } catch (error) {
     void error;
     return null;

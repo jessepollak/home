@@ -9,6 +9,7 @@ import {
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { isHomeSessionConfigured } from "@/server/auth/native-base-session";
 import { createSessionHandler } from "@/server/cdp/session";
+import { readJson } from "@/shared/http/read-json";
 
 export type SessionAuthorizer = (
   request: Request,
@@ -34,7 +35,7 @@ export async function authorizeSession(
   let value: unknown = result;
   if (result instanceof Response) {
     try {
-      value = await result.json();
+      value = await readJson(result);
     } catch {
       value = null;
     }

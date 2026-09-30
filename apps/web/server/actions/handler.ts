@@ -41,6 +41,7 @@ import {
 import type { ActionHandleResolver } from "./reconcile";
 import { followActionUntilSettled, type FollowActionDeps } from "./follow-through";
 import { confirmedAtMs, getDefaultActionHandleResolver, isReconcileCandidate, reconcileRow, rotatingWindow, settleRow } from "./settle";
+import { readJson } from "@/shared/http/read-json";
 
 export type ActionAuthorizer = SessionAuthorizer;
 
@@ -213,7 +214,7 @@ export function createConfirmActionHandler(dependencies: {
 
     let calls = draftCalls;
     if (!replay && draft.kind === "trade") {
-      const body = await readJson(request);
+      const body = await readJson(request).catch(() => null);
       const signature: TradeConfirmRequest["signature"] | null = isRecord(body) && typeof body.signature === "string" && /^0x(?:[0-9a-fA-F]{2})+$/.test(body.signature)
         ? body.signature.toLowerCase() as `0x${string}`
         : null;
@@ -337,7 +338,7 @@ export function createHandleActionHandler(dependencies: {
       return privateError(code, message, status);
     };
     const { id } = await context.params;
-    const body = await readJson(request);
+    const body = await readJson(request).catch(() => null);
     if (!uuidPattern.test(id) || !isRecord(body)) return fail("INVALID_ACTION_HANDLE", "A valid action handle is required.", 400);
     const providerHandle = typeof body.providerHandle === "string" && /^[\x21-\x7e]{1,512}$/.test(body.providerHandle)
       ? body.providerHandle : undefined;
@@ -379,7 +380,7 @@ export function createDeclineActionHandler(dependencies: {
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
     if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
-    const body = parseDeclineActionRequest(await readJson(request));
+    const body = parseDeclineActionRequest(await readJson(request).catch(() => null));
     if (!body) {
       return privateError("INVALID_ACTION_DECLINE", "A valid versioned decline request is required.", 400);
     }
@@ -415,7 +416,7 @@ export function createRetryActionHandler(dependencies: {
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
     if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
-    const body = parseRetryActionRequest(await readJson(request));
+    const body = parseRetryActionRequest(await readJson(request).catch(() => null));
     if (!body) return privateError("INVALID_ACTION_RETRY", "A valid versioned retry request is required.", 400);
     const store = dependencies.store ?? getActionsStore();
     const row = await store.get(owner, id);
@@ -586,10 +587,6 @@ function createDeadline(parentSignal: AbortSignal, ms: number): {
 function iso(value: string | Date | null): string | null {
   if (!value) return null;
   return typeof value === "string" ? new Date(value).toISOString() : value.toISOString();
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  try { return await request.json(); } catch { return null; }
 }
 
 function replayableTradeCalls(row: ActionRow): MoneyActionCall[] | null {

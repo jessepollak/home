@@ -1,4 +1,4 @@
-export async function readJson(response: Response): Promise<unknown> {
-  const value: unknown = await response.json();
+export async function readJson(body: Request | Response): Promise<unknown> {
+  const value: unknown = await body.json();
   return value;
 }

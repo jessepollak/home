@@ -81,6 +81,7 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
   if (!session || !isRecord(data) || !Array.isArray(data.pageParams) || !Array.isArray(data.pages) ||
     data.pages.length === 0 || data.pages.length !== data.pageParams.length ||
     typeof windowEnd !== "string" || !isActivityValuationCurrency(currency) || !data.pages.every(isRecord)) return null;
+  const pageParams: unknown[] = data.pageParams;
   try {
     const pages = data.pages.map((page) =>
       parseActivityPage({ ...page, version: ACTIVITY_CONTRACT_VERSION }, session, windowEnd, currency));
@@ -88,7 +89,7 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
       !data.pageParams.every((param, index) =>
         index === 0 || (typeof pages[index - 1]?.nextCursor === "string" && param === pages[index - 1]?.nextCursor))) return null;
     mergeActivityPages(pages);
-    return { data: { pages, pageParams: [...data.pageParams] } };
+    return { data: { pages, pageParams: [...pageParams] } };
   } catch {
     return null;
   }
