@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
+import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -572,7 +573,7 @@ function SavingsResult({ action, submission, fetchAccountResource, amount, submi
   onViewActivity: () => void;
 }) {
   const { outcome } = useMoneyActionOutcome({ action, submission, fetchOperations: (signal) =>
-    fetchAccountResource ? fetchAccountResource("/api/actions", { signal }) : Promise.reject(new Error("Actions unavailable")) });
+    fetchAccountResource ? fetchAccountResource(recentActionsPath, { signal }) : Promise.reject(new Error("Actions unavailable")) });
   return <MoneyResult kind={action.kind as "savings-deposit" | "savings-withdraw"} outcome={outcome} amount={amount} submittedAt={submittedAt} />;
 }
 
@@ -585,7 +586,7 @@ function SavingsResultActions({ action, submission, fetchAccountResource, onDone
   onViewActivity: () => void;
 }) {
   const { outcome } = useMoneyActionOutcome({ action, submission, fetchOperations: (signal) =>
-    fetchAccountResource ? fetchAccountResource("/api/actions", { signal }) : Promise.reject(new Error("Actions unavailable")) });
+    fetchAccountResource ? fetchAccountResource(recentActionsPath, { signal }) : Promise.reject(new Error("Actions unavailable")) });
   return <MoneyResultFooter outcome={outcome} onDone={onDone} onTryAgain={onTryAgain} onViewActivity={onViewActivity} />;
 }
 

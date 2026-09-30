@@ -28,7 +28,12 @@ function BorrowDialogStory({ state }: { state: StoryState }) {
     prepareMoneyAction={async () => action}
     executeMoneyAction={async () => state === "submitting" ? new Promise(() => {}) : { id: action.id, status: "submitted" }}
     fetchAccountResource={async (path) => path === "/api/actions"
-      ? { actions: state === "pending" ? [] : [{ id: action.id, owner: action.owner, status: state }] }
+      ? { actions: state === "pending" ? [] : [{
+          id: action.id, owner: action.owner, provider: "cdp-embedded",
+          kind: action.kind, status: state,
+          createdAt: action.createdAt, confirmedAt: action.createdAt,
+          summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+        }] }
       : { version: 1, usdcReserveBaseUnits: null }}
   />;
 }

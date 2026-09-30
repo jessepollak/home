@@ -56,6 +56,9 @@ export type RecentMoneyActionOperation = {
   settledAt?: string;
 };
 
+export type UnparsedSavingsDeposit = { status: DerivedActionStatus | null; settledAt?: string; vaultAddress: string | null };
+export type RecentActionsPayload = { operations: RecentMoneyActionOperation[]; unparsedSavingsDeposits: UnparsedSavingsDeposit[] };
+
 class RecentActionsContractError extends Error {
   constructor() {
     super("Recent actions response is invalid.");
@@ -129,7 +132,8 @@ function sameOwner(owner: Record<string, unknown>, session: VerifiedAccountSessi
   if (account === null) return false;
   const ownerAddress = parseAddress(owner.address);
   return ownerAddress !== null && ownerAddress === parseAddress(account.address) &&
-    owner.subject === session.user.subject && owner.accountProvider === session.accountProvider;
+    owner.subject === session.user.subject && owner.accountProvider === session.accountProvider &&
+    owner.chainId === account.chainId;
 }
 
 
@@ -172,6 +176,25 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
     });
   }
   return parsed.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+export function parseRecentActionsPayload(value: unknown, session: VerifiedAccountSession): RecentActionsPayload {
+  const operations = parseRecentMoneyActions(value, session);
+  if (!isRecentActionsResponse(value)) return { operations, unparsedSavingsDeposits: [] };
+  const parsedIds = new Set(operations.filter((row) => row.action.kind === "savings-deposit").map((row) => row.action.id));
+  const unparsedSavingsDeposits: UnparsedSavingsDeposit[] = [];
+  for (const row of value.actions) {
+    if (!isRecord(row) || row.kind !== "savings-deposit" || !isRecord(row.owner) || !sameOwner(row.owner, session)) continue;
+    if (typeof row.id === "string" && parsedIds.has(row.id)) continue;
+    const metadata = isRecord(row.summary) ? row.summary.metadata : undefined;
+    unparsedSavingsDeposits.push({
+      status: isDerivedStatus(row.status) ? row.status : null,
+      ...(typeof row.settledAt === "string" ? { settledAt: row.settledAt } : {}),
+      vaultAddress: isRecord(metadata) && metadata.product === "savings" && metadata.operation === "deposit" && typeof metadata.vaultAddress === "string"
+        ? metadata.vaultAddress : null,
+    });
+  }
+  return { operations, unparsedSavingsDeposits };
 }
 
 function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {

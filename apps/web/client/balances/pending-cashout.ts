@@ -1,25 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { cashoutProgress, linkedCashoutWithdraw } from "@/client/activity/cash-out-presenter";
-import { fetchRecentActions, recentActionsQueryOptions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
-import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
-import { isRecentActionsResponse, parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import { refetchFailedRecentActions, retryRecentActions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
+import { useHomeQuery } from "@/client/query/query-client";
+import { ownerQuery } from "@/client/query/query-options";
+import { parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 
-const EMPTY_OPERATIONS: RecentMoneyActionOperation[] = [];
 const UNREADABLE_ESTIMATE = { state: "unreadable" } as const;
 const INDETERMINATE_ESTIMATE = { state: "indeterminate" } as const;
 const LOADING_ESTIMATE = { state: "loading" } as const;
 
-function useSelectActions(session: VerifiedAccountSession | null) {
-  return useCallback((value: unknown) => session?.smartAccount
-    ? { operations: parseRecentMoneyActions(value, session), truncated: readRecentActionsTruncated(value), incomplete: readRecentActionsIncomplete(value, session) }
-    : { operations: EMPTY_OPERATIONS, truncated: false, incomplete: false }, [session]);
-}
 
 export function selectPendingCashoutEscrow(operations: readonly RecentMoneyActionOperation[], snapshot: BalancesSnapshot): PendingCashoutEstimate {
   let remaining = BigInt(0);
@@ -55,7 +50,6 @@ export function usePendingCashoutEscrow(
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>,
 ): PendingCashoutEstimate {
   const ownerKey = session?.smartAccount ? dataOwnerKey(session) : null;
-  const selectActions = useSelectActions(session);
   const snapshotKey = ownerKey && snapshot && snapshot.owner.address.toLowerCase() === session?.smartAccount?.address.toLowerCase() &&
     snapshot.owner.chainId === session.smartAccount.chainId
     ? `${ownerKey}:${snapshot.fetchedAt}:${snapshot.block.number}` : null;
@@ -63,37 +57,53 @@ export function usePendingCashoutEscrow(
   const attemptedKey = useRef<string | null>(null);
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const [confirmedSnapshotKey, setConfirmedSnapshotKey] = useState<string | null>(null);
-  const query = useHomeQuery({
-    queryKey: ownerKey ? ownerQueryKey(ownerKey, "actions") : ["unauthenticated", "pending-cashout-disabled"],
-    enabled: ownerKey !== null,
-    ...recentActionsQueryOptions,
+  const queryOptions = ownerQuery<{
+    operations: RecentMoneyActionOperation[];
+    truncated: boolean;
+    incomplete: boolean;
+  }>({
+    owner: ownerKey,
+    scope: "actions",
+    key: ["pending-cashout"],
+    retry: retryRecentActions,
+    retryDelay: (attempt) => Math.min(500 * 3 ** attempt, 1_500),
+    refetchOnWindowFocus: refetchFailedRecentActions,
+    refetchOnReconnect: refetchFailedRecentActions,
+    queryFn: async ({ signal }) => {
+      if (!session) throw new Error("Actions are unavailable.");
+      const value = await fetchOperations(signal);
+      return {
+        operations: parseRecentMoneyActions(value, session),
+        truncated: readRecentActionsTruncated(value),
+        incomplete: readRecentActionsIncomplete(value, session),
+      };
+    },
     refetchInterval: (state) => {
-      if (typeof document === "undefined" || document.visibilityState !== "visible" || !session?.smartAccount ||
-        !isRecentActionsResponse(state.state.data)) return false;
-      const operations = parseRecentMoneyActions(state.state.data, session);
-      return operations.some((operation) => operation.action.kind === "cash-out" &&
+      if (typeof document === "undefined" || document.visibilityState !== "visible" || !session?.smartAccount) return false;
+      const operations = state.state.data?.operations;
+      return operations?.some((operation) => operation.action.kind === "cash-out" &&
         cashoutProgress(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
     },
-    meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: ({ signal }) => {
+  });
+  const readActions = queryOptions.queryFn;
+  const query = useHomeQuery({
+    ...queryOptions,
+    queryFn: typeof readActions === "function" ? async (context) => {
       const read = { key: snapshotKey, done: false };
       ownRead.current = read;
-      return fetchRecentActions(fetchOperations, signal).then(
-        (value) => {
-          if (ownRead.current === read && !signal.aborted) {
-            read.done = true;
-            setConfirmedSnapshotKey(read.key);
-            if (read.key !== null) setFailedKey((key) => key === read.key ? null : key);
-          }
-          return value;
-        },
-        (error: unknown) => {
-          if (ownRead.current === read) ownRead.current = null;
-          throw error;
-        },
-      );
-    },
-    select: selectActions,
+      try {
+        const parsed = await readActions(context);
+        if (ownRead.current === read && !context.signal.aborted) {
+          read.done = true;
+          setConfirmedSnapshotKey(read.key);
+          if (read.key !== null) setFailedKey((key) => key === read.key ? null : key);
+        }
+        return parsed;
+      } catch (error) {
+        if (ownRead.current === read) ownRead.current = null;
+        throw error;
+      }
+    } : readActions,
   });
   const { data, dataUpdatedAt, errorUpdatedAt, isPending, isError, isFetching, refetch } = query;
   const actionsStatus = useRecentActionsStatus({ hasData: data !== undefined, isPending, isError, dataUpdatedAt, errorUpdatedAt });

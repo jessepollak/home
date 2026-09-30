@@ -143,7 +143,13 @@ const ambiguousExecution: AccountWalletClient["executeMoneyAction"] = async () =
 };
 
 function storyActions(status: "pending" | "confirmed" | "failed"): AccountWalletClient["fetchAccountResource"] {
-  return async () => ({ actions: [{ id: "storybook-savings-deposit", status, owner: preparedAction("savings-deposit").owner }] });
+  const action = preparedAction("savings-deposit");
+  return async () => ({ actions: [{
+    id: action.id, owner: action.owner, provider: "cdp-embedded",
+    kind: action.kind, status,
+    createdAt: action.createdAt, confirmedAt: action.createdAt,
+    summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+  }] });
 }
 
 type DialogStorySurfaceProps = {

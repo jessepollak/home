@@ -201,8 +201,8 @@ test("a non-hash action handle invalidates activity orders alongside actions", a
   const actionsKey = ownerQueryKey(ownerKey, "actions");
   for (const body of [{}, { providerHandle: "provider-handle" }]) {
     const queryClient = createHomeQueryClient();
-    queryClient.setQueryData(activityOrdersKey, { orders: [] });
-    queryClient.setQueryData(actionsKey, { actions: [] });
+    queryClient.setQueryData(activityOrdersKey, []);
+    queryClient.setQueryData(actionsKey, []);
     await applyActionHandleEffects({
       path: `/api/actions/${ACTION_ID}/handle`,
       body,

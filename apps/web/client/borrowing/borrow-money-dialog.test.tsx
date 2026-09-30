@@ -11,6 +11,7 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 import { formatExactPresentationTokenAmount } from "@/shared/formatting";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
@@ -31,7 +32,10 @@ const action: PreparedMoneyAction = {
   createdAt: "2026-09-25T12:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z",
 };
 const key = ownerQueryKey(dataOwnerKey(session), "actions");
-const row = { id: action.id, owner: action.owner, status: "pending" };
+const row = { id: action.id, owner: action.owner, status: "pending", kind: action.kind,
+  createdAt: action.createdAt, confirmedAt: action.createdAt,
+  summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata } };
+const parsed = (rows: unknown[]) => parseRecentActionsPayload({ actions: rows }, session);
 
 function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {}, marketSnapshot = snapshot, operation = "borrow", regionId = "US" }: {
   regionId?: RegionId;
@@ -304,9 +308,9 @@ describe("Borrow action result", () => {
     expect(dialog.getByRole("button", { name: "View in Activity" })).toBeTruthy();
     expect(dialog.queryByRole("button", { name: "Back" })).toBeNull();
     expect(dialog.getByRole("button", { name: "Close Borrow action" }).hasAttribute("disabled")).toBe(false);
-    await act(async () => { getHomeQueryClient().setQueryData(key, { actions: [{ ...row, owner: { ...row.owner, subject: "another" }, status: "confirmed" }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(key, parsed([{ ...row, owner: { ...row.owner, subject: "another" }, status: "confirmed" }])); });
     expect(dialog.getByText("Borrowing 1 USDC")).toBeTruthy();
-    await act(async () => { getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "confirmed" }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "confirmed" }])); });
     expect(await dialog.findByText("Borrowed 1 USDC")).toBeTruthy();
     expect(dialog.queryByText("Confirming on Base")).toBeNull();
     expect(dialog.getByRole("button", { name: "Done" })).toBeTruthy();
@@ -318,7 +322,7 @@ describe("Borrow action result", () => {
     const { dialog, confirm } = await review(body);
     fireEvent.click(confirm);
     await dialog.findByText("Borrowing 1 USDC");
-    await act(async () => { getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "failed" }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "failed" }])); });
     expect(await dialog.findByText("Borrow didn't go through")).toBeTruthy();
     expect(dialog.getByText("Your Borrow position didn't change.")).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Try again" }));

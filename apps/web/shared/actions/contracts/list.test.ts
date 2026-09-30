@@ -2,6 +2,7 @@ import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
+import { MAX_MONEY_ACTION_AMOUNT_DECIMALS } from "@/shared/money-actions/types";
 
 const session: VerifiedAccountSession = {
   user: { subject: "subject-a" },
@@ -51,7 +52,22 @@ describe("recent Home action activity", () => {
   test("accepts only the full verified owner tuple", () => {
     expect(parseRecentMoneyActions({ actions: [row()] }, session)).toHaveLength(1);
     expect(parseRecentMoneyActions({ actions: [row("0x3333333333333333333333333333333333333333")] }, session)).toEqual([]);
+    expect(parseRecentMoneyActions({ actions: [{ ...row(), owner: { ...row().owner, chainId: 1 } }, row()] }, session)).toHaveLength(1);
+    expect(parseRecentMoneyActions({ actions: [{ ...row(), owner: { ...row().owner, chainId: undefined } }] }, session)).toEqual([]);
   });
+  test("rejects malformed amounts and warnings without dropping other valid rows", () => {
+    const valid = row();
+    const badAmount = { ...valid, summary: { ...valid.summary, amounts: [{ ...valid.summary.amounts[0], amountBaseUnits: "not-a-number" }] } };
+    const badWarnings = { ...valid, summary: { ...valid.summary, warnings: ["ok", null, 7] } };
+    expect(parseRecentMoneyActions({ actions: [badAmount, badWarnings, valid] }, session)).toHaveLength(1);
+  });
+  test("keeps issued amounts across the full decimal range and drops only amounts beyond it", () => {
+    const valid = row();
+    const withDecimals = (decimals: unknown) => ({ ...valid, kind: "trade", summary: { ...valid.summary, amounts: [{ ...valid.summary.amounts[0], decimals }] } });
+    expect(parseRecentMoneyActions({ actions: [withDecimals(21), withDecimals(36), withDecimals(MAX_MONEY_ACTION_AMOUNT_DECIMALS)] }, session)).toHaveLength(3);
+    expect(parseRecentMoneyActions({ actions: [withDecimals(MAX_MONEY_ACTION_AMOUNT_DECIMALS + 1), withDecimals(20.5), withDecimals(-1)] }, session)).toEqual([]);
+  });
+
 
   test("drops rows whose amount members are not atomic amounts", () => {
     const amount = row().summary.amounts[0];
@@ -202,6 +218,10 @@ describe("recent Home action activity", () => {
     expect(readRecentActionsIncomplete({ actions: [twentyDecimals] }, session)).toBe(false);
     const twentyOneDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 21, amountBaseUnits: "1", direction: "spend" }] } };
     expect(readRecentActionsIncomplete({ actions: [twentyOneDecimals] }, session)).toBe(true);
+    const maxDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: MAX_MONEY_ACTION_AMOUNT_DECIMALS, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [maxDecimals] }, session)).toBe(true);
+    const beyondBoundDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: MAX_MONEY_ACTION_AMOUNT_DECIMALS + 1, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [beyondBoundDecimals] }, session)).toBe(true);
     const withdrawMetadata = { product: "cashout", operation: "withdraw", providerId: "peer", providerName: "Peer", environment: "sandbox", platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "1", minConversionRate: "1", intentAmountRange: { min: "1", max: "2" }, estimateAsOf: "2026-09-14T12:00:00.000Z", escrow: "0x777777779d229cdF3110e9de47943791c26300Ef", depositId: "escrow-1" };
     const withdrawMissingMetadata = { ...row(), kind: "cash-out-withdraw", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1", direction: "receive" }] } };
     expect(readRecentActionsIncomplete({ actions: [withdrawMissingMetadata] }, session)).toBe(true);

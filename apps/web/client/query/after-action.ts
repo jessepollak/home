@@ -7,7 +7,8 @@ import {
   type BalanceSnapshot,
   type FreshUntilMovedClock,
 } from "./fresh-until-moved";
-import { ownerQueryKey, ownerQueryMeta } from "./query-client";
+import { ownerQueryKey } from "./query-client";
+import { ownerQuery } from "./query-options";
 import { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope, type OwnerQueryScope } from "./query-scopes";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types";
@@ -180,23 +181,26 @@ export async function startBalanceFreshness(input: {
         const region = balanceQuery.queryKey[2];
         if (typeof region !== "string") continue;
         const snapshot = await queryClient.fetchQuery({
-          queryKey: balanceQuery.queryKey,
-          staleTime: 0,
-          retry: false,
-          meta: ownerQueryMeta(dataOwnerKey, "owner"),
-          queryFn: async ({ signal }) => parseBalancesSnapshot(
-            await fetchVerifiedResource(
-              "/api/balances",
-              signal,
-              new URLSearchParams({ region }).toString(),
+          ...ownerQuery<BalancesSnapshot>({
+            owner: dataOwnerKey,
+            scope: "balances",
+            key: [region],
+            retry: false,
+            queryFn: async ({ signal }) => parseBalancesSnapshot(
+              await fetchVerifiedResource(
+                "/api/balances",
+                signal,
+                new URLSearchParams({ region }).toString(),
+              ),
+              {
+                subject: session.user.subject,
+                smartAccountAddress: session.smartAccount!.address,
+                chainId: 8453,
+              },
+              region as import("@/config/regions").RegionId,
             ),
-            {
-              subject: session.user.subject,
-              smartAccountAddress: session.smartAccount!.address,
-              chainId: 8453,
-            },
-            region as import("@/config/regions").RegionId,
-          ),
+          }),
+          staleTime: 0,
         });
         const found = selectAffectedBalances(snapshot, assetIds);
         for (const [key, value] of Object.entries(found)) {
