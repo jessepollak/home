@@ -313,13 +313,12 @@ function PendingInvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: I
   const [ready, setReady] = useState(true);
   useNestedAppChrome(holding ? { title: "Ethereum holding", backLabel: "Back", onBack: onCloseHolding } : null);
   if (holding) return <section aria-label="Holding detail">Selected {holding}</section>;
-  if (!ready) return <section aria-labelledby="investments-held-heading" aria-busy="true">
+  return <section aria-labelledby="investments-held-heading" aria-busy={!ready || undefined}>
     <h2 id="investments-held-heading">Your investments</h2>
-    <button onClick={() => setReady(true)}>Finish selection</button>
+    {ready ? <button onClick={() => { setReady(false); onOpenHolding(INVESTMENT_HOLDING); }}>
+      <span data-holding-key={INVESTMENT_HOLDING}>Ethereum row</span>
+    </button> : <button onClick={() => setReady(true)}>Finish selection</button>}
   </section>;
-  return <button onClick={() => { setReady(false); onOpenHolding(INVESTMENT_HOLDING); }}>
-    <span data-holding-key={INVESTMENT_HOLDING}>Ethereum row</span>
-  </button>;
 }
 
 function ActivityHoldingFixture({ holding, onCloseHolding }: InvestmentsContentProps) {

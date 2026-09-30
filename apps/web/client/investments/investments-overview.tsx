@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { noteHomeNavigationContent } from "@/client/observability/interaction-performance";
 import { RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
@@ -84,6 +84,16 @@ function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
 export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed = false, onRetryRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
   const loading = balanceStatus === "loading";
   const listLoading = loading || rowsPending;
+  const measureRows = useCallback((list: HTMLUListElement | null) => {
+    const container = list?.parentElement;
+    if (!list || !container) return;
+    const measure = () => container.style.setProperty("--investment-list-height", `${list.getBoundingClientRect().height}px`);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
   const failed = balanceStatus === "failed" && !snapshot;
   const active = loading || failed ? null : snapshot;
   useEffect(() => {
@@ -115,14 +125,16 @@ export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed
       </div>
       {failed ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}><RotateCw aria-hidden="true" />Try again</Button> : null}
     </CardContent></Card>
-    {listLoading || rowsFailed || rows.length > 0 ? <section aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
-      {rowsFailed ? <RefreshFailedNotice onRetry={onRetryRows ?? onRetryBalances} /> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
+    {listLoading || rowsFailed || rows.length > 0 ? <section key={active ? `${active.owner.address}:${active.region}` : "unavailable"} aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
+      <div style={{ minHeight: rowsPending ? "var(--investment-list-height, 0px)" : undefined }}>
+      {rowsFailed ? <RefreshFailedNotice onRetry={onRetryRows ?? onRetryBalances} /> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul ref={measureRows} className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
         const context = ownedQuantity(row, active!);
         const unreadable = ownedBalanceUnreadable(row);
         const value = row.amount ? amountLabel(row.amount, active!) : null;
         const reason = holdingValueContext(row.holding.value);
         return <BalanceRow key={row.key} icon={holdingMark(row.holding, presentHoldingMark(row.holding))} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name.trim() || row.holding.symbol.trim()}</span>} context={unreadable ? undefined : context} contextTitle={unreadable ? undefined : ownedQuantity(row, active!, true)} value={unreadable ? "Unavailable" : value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : unavailableValue()} valueTone={row.amount ? "default" : "muted"} valueContext={row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : unreadable || reason === "Value unavailable" ? undefined : reason} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name.trim() || row.holding.symbol.trim()}`} chevron />;
       })}</ul>{visibleCount < rows.length ? <><span role="status" className="sr-only">Showing {visibleCount} of {rows.length} investments</span><div ref={sentinel} aria-hidden="true" /></> : null}</>}
+      </div>
     </CardContent></Card></section> : null}
   </div>;
 }

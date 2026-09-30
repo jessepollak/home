@@ -79,3 +79,19 @@ test("owned detail reuses its selection on refresh status and replaces it with t
   view.rerender(<OwnedAssetDetail {...props} snapshot={replacement} />);
   expect(view.queryByRole("img", { name: "$1,234.00" })).toBeNull();
 });
+
+test("pending rows preserve their list section only within the same owner and region", () => {
+  const snapshot = buildBalancesSnapshotFixture();
+  const props = { snapshot, balanceStatus: "ready" as const, ownedRows: [], rowsPending: true,
+    visibleCount: 20, onVisibleCountChange: () => {}, onOpenAsset: () => {}, onRetryBalances: () => {} };
+  const view = render(<InvestmentsOverview {...props} />);
+  const initial = view.getByRole("region", { name: "Your investments" });
+  view.rerender(<InvestmentsOverview {...props} snapshot={{ ...snapshot, fetchedAt: "2026-09-30T00:00:00.000Z" }} />);
+  expect(view.getByRole("region", { name: "Your investments" })).toBe(initial);
+  const replacement = { ...snapshot, owner: { ...snapshot.owner, address: "0x9999999999999999999999999999999999999999" } };
+  view.rerender(<InvestmentsOverview {...props} snapshot={replacement} />);
+  const ownerSection = view.getByRole("region", { name: "Your investments" });
+  expect(ownerSection).not.toBe(initial);
+  view.rerender(<InvestmentsOverview {...props} snapshot={{ ...replacement, region: "MX" }} />);
+  expect(view.getByRole("region", { name: "Your investments" })).not.toBe(ownerSection);
+});

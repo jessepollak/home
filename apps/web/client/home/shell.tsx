@@ -217,6 +217,7 @@ function DashboardShellBody({
   const pendingBalancesRestoreRef = useRef(false);
   const balancesReturnScrollRef = useRef(0);
   const pendingHistoryScrollRestoreRef = useRef<number | null>(null);
+  const pendingHoldingRestoreCleanup = useRef<(() => void) | null>(null);
   const pendingShellScrollFrameRef = useRef<number | null>(null);
   const lastNonNullBalancesScopeRef = useRef<string | null>(null);
   const signedOutBoundaryClearedRef = useRef(false);
@@ -609,6 +610,11 @@ function DashboardShellBody({
     paintedAssetBalances.status,
   ]);
 
+  useEffect(() => () => {
+    pendingHoldingRestoreCleanup.current?.();
+    pendingHoldingRestoreCleanup.current = null;
+  }, [balancesScope, isAccountSettingsOpen]);
+
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;
     panelStageRef.current.focus({ preventScroll: true });
@@ -638,7 +644,12 @@ function DashboardShellBody({
           row?.scrollIntoView({ block: "center", behavior: "auto" });
         }
       });
-      return () => { stop(); cancelPendingShellScroll(); };
+      pendingHoldingRestoreCleanup.current = stop;
+      return () => {
+        stop();
+        if (pendingHoldingRestoreCleanup.current === stop) pendingHoldingRestoreCleanup.current = null;
+        cancelPendingShellScroll();
+      };
     }
     if (historyScrollTop !== null) {
       const restoreHistoryScroll = () => {
