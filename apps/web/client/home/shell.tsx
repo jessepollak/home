@@ -1,5 +1,6 @@
 "use client";
 
+import { restoreHoldingReturn } from "@/client/investments/restore-holding-return";
 import {
   useCallback,
   useEffect,
@@ -626,6 +627,19 @@ function DashboardShellBody({
     cancelPendingShellScroll();
     const historyScrollTop = pendingHistoryScrollRestoreRef.current;
     pendingHistoryScrollRestoreRef.current = null;
+    if (holdingReturn && !holdingRow && mainRef.current?.querySelector('[aria-labelledby="investments-held-heading"][aria-busy="true"]')) {
+      const main = mainRef.current;
+      previousNavigationRef.current = activeNavigation;
+      const stop = restoreHoldingReturn(main, holdingReturn.key, (row) => {
+        row?.closest("button")?.focus({ preventScroll: true });
+        if (historyScrollTop !== null) {
+          main.scrollTo({ top: clampHomeScrollTop(main, historyScrollTop), behavior: "auto" });
+        } else if (holdingReturn.scrollIntoView) {
+          row?.scrollIntoView({ block: "center", behavior: "auto" });
+        }
+      });
+      return () => { stop(); cancelPendingShellScroll(); };
+    }
     if (historyScrollTop !== null) {
       const restoreHistoryScroll = () => {
         mainRef.current?.scrollTo({

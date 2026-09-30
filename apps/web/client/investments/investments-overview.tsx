@@ -22,6 +22,9 @@ import { formatExactPresentationTokenAmount, formatFiatAmount, formatPresentatio
 export type InvestmentsOverviewProps = {
   snapshot: BalancesSnapshot | null;
   ownedRows?: OwnedInvestment[];
+  rowsPending?: boolean;
+  rowsFailed?: boolean;
+  onRetryRows?: () => void;
   balanceStatus: "ready" | "loading" | "failed";
   refreshFailed?: boolean;
   visibleCount: number;
@@ -78,12 +81,13 @@ function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
         : <CurrencyMark assetKey={holding.key} src={symbolMark?.imageUrl} symbol={symbolMark?.symbol} pending={symbolMark?.pending} size="sm" />;
 }
 
-export function InvestmentsOverview({ ownedRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
+export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed = false, onRetryRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
   const loading = balanceStatus === "loading";
+  const listLoading = loading || rowsPending;
   const failed = balanceStatus === "failed" && !snapshot;
   const active = loading || failed ? null : snapshot;
   useEffect(() => {
-    noteHomeNavigationContent("/investments", loading ? "loading" : failed || !active ? "unavailable" : "ready");
+    noteHomeNavigationContent("/investments", listLoading ? "loading" : failed || rowsFailed || !active ? "unavailable" : "ready");
   });
   const summary = useMemo(() => active ? presentInvestmentTotal(active) : null, [active]);
   const rows = useMemo(() => active ? ownedRows ?? selectOwnedInvestments(active) : [], [active, ownedRows]);
@@ -111,8 +115,8 @@ export function InvestmentsOverview({ ownedRows, snapshot, balanceStatus, refres
       </div>
       {failed ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}><RotateCw aria-hidden="true" />Try again</Button> : null}
     </CardContent></Card>
-    {loading || rows.length > 0 ? <section aria-labelledby="investments-held-heading" aria-busy={loading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
-      {loading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
+    {listLoading || rowsFailed || rows.length > 0 ? <section aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
+      {rowsFailed ? <RefreshFailedNotice onRetry={onRetryRows ?? onRetryBalances} /> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
         const context = ownedQuantity(row, active!);
         const unreadable = ownedBalanceUnreadable(row);
         const value = row.amount ? amountLabel(row.amount, active!) : null;
