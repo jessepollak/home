@@ -261,8 +261,9 @@ async function settledRow(canvasElement: HTMLElement, name: string) {
 async function openTray(canvasElement: HTMLElement, name: string) {
   await fireEvent.click(await settledRow(canvasElement, name));
   const body = within(canvasElement.ownerDocument.body);
-  await body.findByText("Saved", undefined, { timeout: 10_000 });
-  return within(body.getByRole("dialog", { name }));
+  const tray = within(await body.findByRole("dialog", { name }, { timeout: 10_000 }));
+  await waitFor(() => expect(tray.getByText("Saved")).toBeVisible());
+  return tray;
 }
 async function openAction(canvasElement: HTMLElement, name: string, action: "Deposit more" | "Withdraw") {
   const tray = await openTray(canvasElement, name);
