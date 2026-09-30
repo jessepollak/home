@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { preserveRowFocus } from "./preserve-row-focus";
 import { noteHomeNavigationContent } from "@/client/observability/interaction-performance";
 import { RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
@@ -84,15 +85,31 @@ function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
 export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed = false, onRetryRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
   const loading = balanceStatus === "loading";
   const listLoading = loading || rowsPending;
+  const pendingFocus = useRef<ReturnType<typeof preserveRowFocus>>(null);
+  useEffect(() => {
+    if (rowsFailed) {
+      pendingFocus.current?.cancel();
+      pendingFocus.current = null;
+    }
+  }, [rowsFailed]);
+  useEffect(() => () => {
+    pendingFocus.current?.cancel();
+    pendingFocus.current = null;
+  }, []);
   const measureRows = useCallback((list: HTMLUListElement | null) => {
     const container = list?.parentElement;
     if (!list || !container) return;
+    pendingFocus.current?.restore(list);
+    pendingFocus.current = null;
     const measure = () => container.style.setProperty("--investment-list-height", `${list.getBoundingClientRect().height}px`);
     measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(list);
-    return () => observer.disconnect();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(list);
+    return () => {
+      observer?.disconnect();
+      pendingFocus.current?.cancel();
+      pendingFocus.current = preserveRowFocus(list);
+    };
   }, []);
   const failed = balanceStatus === "failed" && !snapshot;
   const active = loading || failed ? null : snapshot;

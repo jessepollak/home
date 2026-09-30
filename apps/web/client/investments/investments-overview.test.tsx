@@ -95,3 +95,16 @@ test("pending rows preserve their list section only within the same owner and re
   view.rerender(<InvestmentsOverview {...props} snapshot={{ ...replacement, region: "MX" }} />);
   expect(view.getByRole("region", { name: "Your investments" })).not.toBe(ownerSection);
 });
+
+
+test("same-owner pending selection restores keyboard focus to the refreshed holding", () => {
+  const snapshot = buildBalancesSnapshotFixture({ catalog: [holdingAt("0x9999999999999999999999999999999999999999", "Focus asset", 18, "1000000000000000000")] });
+  const props = { snapshot, balanceStatus: "ready" as const, visibleCount: 20, onVisibleCountChange: () => {}, onOpenAsset: () => {}, onRetryBalances: () => {} };
+  const view = render(<InvestmentsOverview {...props} />);
+  view.getByRole("button", { description: "Open Focus asset" }).focus();
+  view.rerender(<InvestmentsOverview {...props} rowsPending ownedRows={[]} />);
+  expect(document.activeElement).toBe(document.body);
+  expect(view.queryByRole("button", { description: "Open Focus asset" })).toBeNull();
+  view.rerender(<InvestmentsOverview {...props} />);
+  expect(document.activeElement).toBe(view.getByRole("button", { description: "Open Focus asset" }));
+});
