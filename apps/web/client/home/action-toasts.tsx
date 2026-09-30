@@ -216,8 +216,10 @@ function parseToastActions(value: unknown): ToastAction[] {
 function actionToastMessage(action: ToastAction, status: "pending" | "confirmed", regionId: RegionId): ActionToastMessage | null {
   const metadata = action.summary.metadata;
   if (action.kind === "card-allowance" && metadata?.product === "card") {
-    if (metadata.operation === "set-allowance") return status === "pending" ? "Setting card spending limit" : "Card spending limit set";
-    return status === "pending" ? "Removing card spending permission" : "Card spending permission removed";
+    const message = metadata.operation === "set-allowance"
+      ? status === "pending" ? "Setting card spending limit" : "Card spending limit set"
+      : status === "pending" ? "Removing card spending permission" : "Card spending permission removed";
+    return { message, regionSensitive: false };
   }
   const trade = action.kind === "trade" && metadata?.product === "trade" ? metadata : null;
   if (trade) {
