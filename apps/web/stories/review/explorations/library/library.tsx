@@ -8,6 +8,8 @@ import type { ReviewBuild, StoryIndexEntry } from "../board/review-build";
 import { writeBoardUrl } from "../board/url-state";
 import { libraryCatalog, type LibraryCatalog } from "./catalog";
 import { propControls, storyArgs, type PropValue } from "./controls";
+import { FoundationsSurface } from "./foundations/foundations";
+import { isFoundation } from "./foundations/model";
 import { LibraryPreview, type PreparedPreview } from "./preview";
 import { PropsBar } from "./props-bar";
 import { LibrarySidebar } from "./sidebar";
@@ -73,7 +75,8 @@ function LibraryWorkspace({ catalog, build, theme, frameSource }: {
   frameSource: "story" | "blank";
 }) {
   const original = useMemo(() => readLibraryUrl(new URL(location.href)), []);
-  const linked = catalog.items.some((item) => item.id === original.component) ? original.component : undefined;
+  const linked = catalog.items.some((item) => item.id === original.component) || isFoundation(original.component)
+    ? original.component : undefined;
   const [selected, setSelected] = useState(linked ?? catalog.items[0].id);
   const [overrides, setOverrides] = useState<Record<string, PropValue>>(linked ? original.props : {});
   const [prepared, setPrepared] = useState<{ story: string; value: PreparedPreview } | null>(null);
@@ -93,7 +96,8 @@ function LibraryWorkspace({ catalog, build, theme, frameSource }: {
     history.replaceState(history.state, "", writeBoardUrl(new URL(location.href),
       { rev: build.revision, deployment: build.deployment || undefined }));
   }, [build.revision, build.deployment]);
-  useEffect(() => { updateUrl(item.id, overrides); }, [item.id, overrides, updateUrl]);
+  const foundation = isFoundation(selected) ? selected : null;
+  useEffect(() => { updateUrl(foundation ?? item.id, foundation ? {} : overrides); }, [foundation, item.id, overrides, updateUrl]);
   const select = (id: string) => {
     if (id === selected) return;
     setSelected(id);
@@ -108,8 +112,8 @@ function LibraryWorkspace({ catalog, build, theme, frameSource }: {
     return value === undefined || value === current?.initialArgs[name] ? rest : { ...rest, [name]: value };
   });
   return <div className={styles.library} data-review-library="workspace">
-    <LibrarySidebar catalog={catalog} selected={item.id} onSelect={select} />
-    <main className={styles.surface} aria-label={`${item.name} preview`}>
+    <LibrarySidebar catalog={catalog} selected={foundation ?? item.id} onSelect={select} />
+    {foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <main className={styles.surface} aria-label={`${item.name} preview`}>
       <PropsBar name={item.name} controls={controls} values={args ?? {}} onChange={change} />
       <div ref={setStage} className={styles.stage}>
         <figure className={styles.figure}>
@@ -121,7 +125,7 @@ function LibraryWorkspace({ catalog, build, theme, frameSource }: {
         </figure>
       </div>
       <AnnotateToggle annotating={annotating} onChange={setAnnotating} />
-    </main>
+    </main>}
   </div>;
 }
 
