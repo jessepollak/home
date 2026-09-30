@@ -35,7 +35,8 @@ export function sourceCandidates(source: string): string[] {
         token += char;
         depth = 1;
       } else flush();
-    } else if (/[\s"'`{}()\[\],;=<>+$?&|]/.test(char)) flush();
+    } else if ((char === "." && !(/\d/.test(source[index - 1] ?? "") && /\d/.test(source[index + 1] ?? ""))) ||
+      /[\s"'`{}()\[\],;=<>+$?&|]/.test(char)) flush();
     else token += char;
   }
   flush();

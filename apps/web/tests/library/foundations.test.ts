@@ -144,6 +144,7 @@ describe("Tailwind candidate usage", () => {
     "transition", "transition-opacity", "transition-none", "duration-100", "duration-150", "duration-200",
     "ease-in", "ease-out", "delay-75", "delay-0", "delay-[80ms]", "duration-[100ms]", "duration-[80ms]",
     "md:duration-200", "hover:ease-out", "motion-reduce:duration-[80ms]",
+    "p-0.5", "text-[1.5rem]", "duration-[1.5s]", "[transition:opacity_.2s]",
   ];
   const stylesheet = names.map((name) => `.${CSS.escape(name)} { transition-duration: 80ms; }`).join("\n");
   const scan = (files: SourceFile[], cssText = stylesheet) => {
@@ -222,6 +223,20 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
     const uses = motionUsage(scan([{ path: "variants.tsx", source: '"md:duration-200 hover:ease-out motion-reduce:duration-[80ms]"' }], cssText)).uses;
     expect(uses.map(({ utility }) => utility)).toEqual(["duration-[80ms]", "duration-200", "ease-out"]);
     expect(uses.find(({ utility }) => utility === "duration-200")?.classes).toEqual(["md:duration-200"]);
+  });
+
+  test("counts Tailwind candidates after property-access dot boundaries", () => {
+    const source = 'indicator.style.transition = "none"; node.style.transition; "transition"';
+    expect(motion(source)).toEqual([{ utility: "transition", count: 3, files: ["example.tsx"], classes: ["transition"] }]);
+  });
+
+  test("keeps decimal steps and arbitrary values intact across dot boundaries", () => {
+    const names = ["p-0.5", "text-[1.5rem]", "duration-[1.5s]", "[transition:opacity_.2s]"];
+    const files = scan([{ path: "decimals.tsx", source: `"${names.join(" ")}"` }]);
+    expect(files[0].candidates).toEqual(names);
+    expect(spacingUsage(files, [])).toEqual([{ step: "0.5", count: 1, files: ["decimals.tsx"] }]);
+    expect(typeUsage(files).arbitrarySizes).toEqual([{ step: "1.5rem", count: 1, files: ["decimals.tsx"] }]);
+    expect(motionUsage(files).uses.map(({ utility }) => utility)).toEqual(["[transition:opacity_.2s]", "duration-[1.5s]"]);
   });
 
   test("excludes absent rules, selector prefixes and class-looking attribute values", () => {
