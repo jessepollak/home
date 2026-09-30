@@ -24,18 +24,40 @@ for (const [name, xml, pattern] of [
 }
 
 test("baseline-shaped JUnit within every allowlisted ceiling passes", () => {
+  const allowlist = {
+    tests: [
+      { file, test: "Example > nested", maxSeconds: 20, reason: "measured slow test" },
+      { file, test: "top level", maxSeconds: 18, reason: "measured slow test" },
+      { file: "server/other.test.ts", test: "other", maxSeconds: 9, reason: "measured slow test" },
+    ],
+    files: [{ file, maxSeconds: 40, reason: "measured slow file" }],
+  };
   const groups = new Map();
-  for (const entry of checkedIn.tests) {
+  for (const entry of allowlist.tests) {
     const [describe, name] = entry.test.includes(" > ") ? entry.test.split(/ > (.*)/s).filter(Boolean) : [null, entry.test];
     const testXml = testcase(name, entry.maxSeconds - 2, entry.file);
     groups.set(entry.file, (groups.get(entry.file) ?? "") + (describe ? `<testsuite name="${escape(describe)}">${testXml}</testsuite>` : testXml));
   }
   const suites = [...groups].map(([path, cases]) => `<testsuite file="${escape(path)}" name="${escape(path)}" time="0">${cases}</testsuite>`).join("");
   const xml = `<testsuites tests="${countCases(suites)}">${suites}</testsuites>`;
-  const result = report(xml, checkedIn);
+  const result = report(xml, allowlist);
   assert.deepEqual(result.findings, []);
-  assert.equal(result.tests.length, checkedIn.tests.length);
+  assert.equal(result.tests.length, allowlist.tests.length);
   assert.equal(result.files.length, groups.size);
+});
+
+test("an empty allowlist passes reporter-shaped JUnit within the default ceilings", () => {
+  const second = "server/other.test.ts";
+  const groups = [
+    [file, `${testcase("first", 4)}${testcase("second", 3)}`],
+    [second, `${testcase("first", 4.5, second)}${testcase("second", 2.5, second)}`],
+  ];
+  const suites = groups.map(([path, cases]) => `<testsuite file="${escape(path)}" name="${escape(path)}" time="0">${cases}</testsuite>`).join("");
+  const xml = `<testsuites tests="${countCases(suites)}">${suites}</testsuites>`;
+  const result = report(xml, empty);
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.tests.length, 4);
+  assert.equal(result.files.length, 2);
 });
 
 test("an allowlisted test exceeding its ceiling fails", () => {
@@ -143,6 +165,7 @@ test("reporter-shaped JUnit builds IDs from nested suites, not the reversed clas
 
 test("checked-in allowlist validates cleanly and rejects invalid shapes, ordering, and default ceilings", () => {
   assert.deepEqual(validateAllowlist(checkedIn).findings, []);
+  assert.deepEqual(validateAllowlist(empty).findings, []);
   for (const invalid of [
     { ...empty, extra: 1 },
     { tests: [{ file, test: "x", maxSeconds: 5, reason: "measured slow test" }], files: [] },
