@@ -17,10 +17,22 @@ function ReviewBoardLink() {
     createElement("a", { href: `./iframe.html?id=${board}&viewMode=story` }, "Review board"));
 }
 
+function LibraryLink() {
+  const { index } = useStorybookState();
+  if (!index?.["review-library--library"]) return null;
+  return createElement(Button, { asChild: true, padding: "small", variant: "ghost", ariaLabel: false },
+    createElement("a", { href: "./iframe.html?id=review-library--library&viewMode=story" }, "Library"));
+}
+
 addons.register("home/review-board", () => {
   addons.add("home/review-board/link", {
     type: types.TOOL,
     title: "Review board",
     render: () => createElement(ReviewBoardLink),
+  });
+  addons.add("home/review-board/library", {
+    type: types.TOOL,
+    title: "Library",
+    render: () => createElement(LibraryLink),
   });
 });

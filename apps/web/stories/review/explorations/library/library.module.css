@@ -1,0 +1,206 @@
+.library {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  gap: 6px;
+  padding: 10px 10px 10px 0;
+  color: var(--foreground);
+  background: var(--muted);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 13px;
+  --library-subtle: color-mix(in oklab, var(--muted-foreground) 82%, var(--foreground));
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 6px 0 10px;
+}
+.sidebarHeader {
+  padding: 4px 10px 14px;
+}
+.sidebarHeader h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 20px;
+}
+.sidebarHeader p {
+  margin: 2px 0 0;
+  color: var(--library-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 2px 10px;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+.row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 12px;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 120ms ease-out;
+}
+@media (hover: hover) {
+  .row:hover {
+    background: color-mix(in oklab, var(--card) 55%, transparent);
+  }
+}
+.row[aria-selected="true"] {
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(0 0 0 / 5%);
+}
+.row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+}
+.tile {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.row[aria-selected="true"] .tile {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.rowText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.rowTitle, .rowKind {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rowTitle {
+  font-weight: 550;
+  line-height: 18px;
+}
+.rowKind {
+  color: var(--library-subtle);
+  font-size: 12px;
+  line-height: 16px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+}
+.dot[data-changed] {
+  background: var(--primary);
+}
+.surface {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--card);
+}
+.propsBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 24px;
+  min-height: 64px;
+  margin: 0;
+  padding: 14px 24px;
+  color: var(--muted-foreground);
+}
+.propField {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.propSelect, .propInput {
+  font-size: 13px;
+  color: var(--foreground);
+}
+.propSelect {
+  min-width: 112px;
+}
+.propInput {
+  width: 136px;
+}
+.stage {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  overflow: hidden;
+}
+.figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+}
+.device {
+  overflow: hidden;
+  border-radius: 28px;
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border), 0 18px 48px -20px rgb(0 0 0 / 22%);
+  transition: box-shadow 120ms ease-out;
+}
+.device[data-annotating] {
+  box-shadow: 0 0 0 2px var(--primary), 0 18px 48px -20px rgb(0 0 0 / 22%);
+}
+.caption {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.annotate {
+  position: absolute;
+  inset-inline-end: 20px;
+  inset-block-end: 20px;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 2px 10px -2px rgb(0 0 0 / 14%);
+}
+.annotate[data-agentation-open] {
+  inset-block-end: 76px;
+}
+.annotate[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+@media (prefers-reduced-motion: reduce) {
+  .row, .device {
+    transition: none;
+  }
+}
