@@ -109,7 +109,7 @@ test("an app tree missing a required package is incomplete", (t) => {
 
   const next = join(root, "apps/web/node_modules/next");
   mkdirSync(next, { recursive: true });
-  writeFileSync(join(next, "package.json"), "{}");
+  writeFileSync(join(next, "package.json"), JSON.stringify({ version: "16.1.0" }));
   assert.deepEqual(dependencyProblems(root), []);
 
   rmSync(join(root, "apps/web/node_modules/react"), { recursive: true, force: true });
@@ -143,7 +143,7 @@ test("a root-declared package never resolves from the app tree", (t) => {
   writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { "agent-browser": ["agent-browser@0.38.1"] } }));
   const appCopy = join(root, "apps/web/node_modules/agent-browser");
   mkdirSync(appCopy, { recursive: true });
-  writeFileSync(join(appCopy, "package.json"), "{}");
+  writeFileSync(join(appCopy, "package.json"), JSON.stringify({ version: "0.38.1" }));
   assert.deepEqual(
     dependencyProblems(root).map((problem) => problem.relative),
     ["node_modules/agent-browser"],
@@ -151,14 +151,14 @@ test("a root-declared package never resolves from the app tree", (t) => {
 
   const rootCopy = join(root, "node_modules/agent-browser");
   mkdirSync(rootCopy, { recursive: true });
-  writeFileSync(join(rootCopy, "package.json"), "{}");
+  writeFileSync(join(rootCopy, "package.json"), JSON.stringify({ version: "0.38.1" }));
   assert.deepEqual(dependencyProblems(root), []);
 });
 
 test("an app-declared package resolves from the hoisted root tree", (t) => {
   const root = scratch(t);
   mkdirSync(join(root, "node_modules/next"), { recursive: true });
-  writeFileSync(join(root, "node_modules/next/package.json"), "{}");
+  writeFileSync(join(root, "node_modules/next/package.json"), JSON.stringify({ version: "16.1.0" }));
   mkdirSync(join(root, "apps/web/node_modules"), { recursive: true });
   writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "1" } }));
   writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { next: ["next@16.1.0"] } }));
@@ -319,13 +319,56 @@ test("a lockfile that resolves none of the declared dependencies cannot verify v
   assert.deepEqual(dependencyProblems(root), []);
 });
 
-test("an installed package with no version is unknown, not stale", (t) => {
+test("an installed package whose version cannot be read is unverifiable", (t) => {
   const root = scratch(t);
   installedApp(root);
   writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "16.1.0" } }));
   writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { next: ["next@16.1.0"] } }));
   assert.deepEqual(dependencyProblems(root), []);
-  writeFileSync(join(root, "apps/web/node_modules/next/package.json"), "{}");
+  const manifest = join(root, "apps/web/node_modules/next/package.json");
+  const unverifiable = {
+    absolute: join(root, "apps/web/node_modules/next"),
+    relative: "apps/web/node_modules/next",
+    state: "unverifiable",
+  };
+  for (const content of ["{}", '{"version": 16}', '{"version": "16.1.0"', ""]) {
+    writeFileSync(manifest, content);
+    const problems = dependencyProblems(root);
+    assert.deepEqual(problems, [unverifiable], `manifest: ${content}`);
+    assert.equal(describeProblem(problems[0]), "unverifiable (its installed package.json has no readable version)");
+  }
+  writeFileSync(manifest, JSON.stringify({ version: "16.1.0" }));
+  assert.deepEqual(dependencyProblems(root), []);
+});
+
+test("an unverifiable package triggers an install and is refused if it stays unreadable", (t) => {
+  const root = scratch(t);
+  installedApp(root);
+  writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "16.1.0" } }));
+  writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { next: ["next@16.1.0"] } }));
+  const manifest = join(root, "apps/web/node_modules/next/package.json");
+  writeFileSync(manifest, "{}");
+  let installs = 0;
+  const repair = () => {
+    installs++;
+    setAppVersion(root, "next", "16.1.0");
+    return { status: 0 };
+  };
+  assert.equal(installDependencies(root, repair).state, "installed");
+  assert.equal(installs, 1);
+
+  writeFileSync(manifest, "{}");
+  const noop = () => ({ status: 0 });
+  assert.throws(() => installDependencies(root, noop), /apps\/web\/node_modules\/next is still not ready/);
+});
+
+test("a package the lockfile does not record needs no readable version", (t) => {
+  const root = scratch(t);
+  installedApp(root);
+  writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "16.1.0", oxlint: "1" } }));
+  const oxlint = join(root, "apps/web/node_modules/oxlint");
+  mkdirSync(oxlint, { recursive: true });
+  writeFileSync(join(oxlint, "package.json"), "{}");
   assert.deepEqual(dependencyProblems(root), []);
 });
 test("installDependencies unlinks stale trees then installs and verifies a real tree", (t) => {
