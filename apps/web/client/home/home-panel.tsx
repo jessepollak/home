@@ -92,8 +92,8 @@ export function HomePanel({
       variant="outline"
       size="touch"
       {...moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(wallet, regionId, regionReady, queryClient))}
-      onClick={() => {
-        restoreFundingPromptRef.current = routing.setFlow("add-money", { mode: "push" });
+      onClick={(event) => {
+        restoreFundingPromptRef.current = routing.setFlow("add-money", { mode: "push", opener: event.currentTarget });
       }}
     >
       <Plus className="size-4" aria-hidden="true" />

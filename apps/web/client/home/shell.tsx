@@ -233,7 +233,8 @@ function DashboardShellBody({
   const [urlReturnedFromProvider, setUrlReturnedFromProvider] = useState(returnedFromProvider);
   const [urlSendFlow, setUrlSendFlow] = useState(initialSendFlow);
   const [urlSendActionId, setUrlSendActionId] = useState<string | null>(initialSendActionId);
-  const [urlIntent, setUrlIntent] = useState<HomeInboundPanelState>(initialUrlIntent);
+  const [{ intent: urlIntent, opener: flowOpener }, setFlowState] = useState<{ intent: HomeInboundPanelState; opener: HTMLElement | null }>({ intent: initialUrlIntent, opener: null });
+  const [accountOpener, setAccountOpener] = useState<HTMLElement | null>(null);
   const [homeDetailsOpen, setHomeDetailsOpen] = useState(false);
   const [popRevision, setPopRevision] = useState(0);
   const [rootRequest, setRootRequest] = useState<{ panel: ShellPanelId; revision: number } | null>(null);
@@ -325,7 +326,7 @@ function DashboardShellBody({
     return subscribeShellScrollPersistence(main);
   }, []);
 
-  const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>) => {
+  const applyUrlState = useCallback((intent: ReturnType<typeof readHomeInboundPanelState>, opener: HTMLElement | null = null) => {
     appliedUrlIntentRef.current = true;
     const legacyHref = legacyShellRedirectHref(
       window.location.pathname,
@@ -345,11 +346,12 @@ function DashboardShellBody({
     setIsAccountSettingsOpen(intent.account === "settings");
     if (intent.account !== "settings") setSettingsOpenedInApp(false);
     setIsAccountOpen(intent.account === "signin");
+    if (intent.account === "signin") setAccountOpener(null);
     setUrlAddMoney(intent.addMoney);
     setUrlReturnedFromProvider(intent.returnedFromProvider);
     setUrlSendFlow(intent.sendFlow);
     setUrlSendActionId(intent.actionId);
-    setUrlIntent(intent);
+    setFlowState((current) => ({ intent, opener: intent.flow || intent.addMoney || intent.sendFlow ? opener : current.opener }));
   }, []);
 
   const currentUrlIntent = useCallback(() => readHomeInboundPanelState(
@@ -359,7 +361,7 @@ function DashboardShellBody({
 
   const setFlow = useCallback((
     flow: ShellFlow,
-    options: { actionId?: string | null; mode?: "push" | "replace" } = {},
+    options: { actionId?: string | null; mode?: "push" | "replace"; opener?: HTMLElement | null } = {},
   ) => {
     const href = flowHref(
       window.location.pathname,
@@ -376,7 +378,7 @@ function DashboardShellBody({
           (flow === "save-deposit" || flow === "save-withdraw"),
       }, "");
     }
-    applyUrlState(currentUrlIntent());
+    applyUrlState(currentUrlIntent(), options.opener ?? null);
     return pushed;
   }, [applyUrlState, currentUrlIntent]);
 
@@ -788,7 +790,7 @@ function DashboardShellBody({
         { __cashSavingsOpenedInApp: nextNavigation === cashPanelId && cashView === "savings",
           __cashSavingsFlowPushed: false,
           __investmentsHoldingOpenedInApp: nextNavigation === investmentsPanelId && holding !== null });
-      setUrlIntent(currentUrlIntent());
+      setFlowState({ intent: currentUrlIntent(), opener: null });
     }
   }
 
@@ -865,11 +867,12 @@ function DashboardShellBody({
     }));
   }
 
-  function openAccount() {
+  function openAccount(opener: HTMLButtonElement) {
     if (isVerified || (account.status === "unavailable" && account.isSignedIn)) {
       openAccountSettings();
       return;
     }
+    setAccountOpener(opener);
     setIsAccountOpen(true);
     if (readShellAccountParam(new URLSearchParams(window.location.search)) !== "signin") {
       commitClientUrl("/?account=signin");
@@ -970,6 +973,7 @@ function DashboardShellBody({
   }, []);
   const routingValue = useMemo(() => ({
     state: urlIntent,
+    flowOpener,
     popRevision,
     rootRequest,
     openPanel,
@@ -977,7 +981,7 @@ function DashboardShellBody({
     openAssetDetail,
     setFlow,
     clearFlow,
-  }), [canOpenAssetDetailRoute, clearFlow, openAssetDetail, openPanel, popRevision, rootRequest, setFlow, urlIntent]);
+  }), [canOpenAssetDetailRoute, clearFlow, flowOpener, openAssetDetail, openPanel, popRevision, rootRequest, setFlow, urlIntent]);
 
   return (
     <HomeShellRoutingProvider value={routingValue}>
@@ -1217,12 +1221,14 @@ function DashboardShellBody({
       {account.emailRequest ? (
         <EmailShareSheet
           open={account.emailRequest.pending}
+          opener={null}
           onShare={account.emailRequest.share}
           onNotNow={account.emailRequest.dismiss}
         />
       ) : null}
         <AccountSignInSheet
           open={isAccountOpen}
+          opener={accountOpener}
           onClose={closeAccount}
           onVerified={() => router.replace("/home")}
         />

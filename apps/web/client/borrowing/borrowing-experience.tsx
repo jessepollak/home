@@ -268,6 +268,7 @@ function BorrowDirectMarket({
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
           open={dialogOpen}
+          opener={null}
           onClose={() => setDialogOpen(false)}
           onClosed={onClose}
           assetMarkResolution={assetMarkResolution}

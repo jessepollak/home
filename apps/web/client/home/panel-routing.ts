@@ -23,6 +23,7 @@ export type HomeInboundPanelState = {
 
 export type HomeShellRouting = {
   state: HomeInboundPanelState;
+  flowOpener?: HTMLElement | null;
   popRevision: number;
   rootRequest: { panel: ShellPanelId; revision: number } | null;
   openPanel: (panel: ShellPanelId) => void;
@@ -30,7 +31,7 @@ export type HomeShellRouting = {
   openAssetDetail: (assetKey: string) => boolean;
   setFlow: (
     flow: ShellFlow,
-    options?: { actionId?: string | null; mode?: "push" | "replace" },
+    options?: { actionId?: string | null; mode?: "push" | "replace"; opener?: HTMLElement | null },
   ) => boolean;
   clearFlow: (options?: {
     mode?: "push" | "replace";

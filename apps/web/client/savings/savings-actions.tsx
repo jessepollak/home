@@ -62,6 +62,7 @@ export type SavingsActionMode = "deposit" | "withdraw";
 export type SavingsJourneyEntry = "management" | "amount";
 
 export type SavingsJourneyProps = {
+  opener?: HTMLElement | null;
   open: boolean;
   entry: SavingsJourneyEntry;
   management: SavingsManagement | null;
@@ -118,6 +119,7 @@ export function SavingsMoneyFlow({ depth = 0, onBack, onDone, ...props }: Saving
 
 function OwnerBoundSavingsJourney({
   open,
+  opener = null,
   entry,
   management,
   titleId = "savings-action-title",
@@ -547,6 +549,7 @@ function OwnerBoundSavingsJourney({
     <MoneyMotionProvider reducedMotion={motion === "reduced" ? true : undefined}>
       <MoneyModal
         open={open}
+        opener={opener}
         immediate={motion === "reduced"}
         labelledBy={titleId}
         pending={step === "pending" || preparing}

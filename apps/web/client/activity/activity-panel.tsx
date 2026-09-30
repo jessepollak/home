@@ -88,7 +88,7 @@ export function ActivityPanelView({
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
 }) {
-  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(null);
+  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [immediateClose, setImmediateClose] = useState(false);
   useEffect(() => {
@@ -124,7 +124,7 @@ export function ActivityPanelView({
     setImmediateClose(false);
     detailOpenerRef.current = opener;
     onDetailsChangeRef.current?.(true);
-    setSelection({ key: `${item.family}:${item.id}`, last: item });
+    setSelection({ key: `${item.family}:${item.id}`, last: item, opener });
     setDetailsOpen(true);
   }, []);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
@@ -193,7 +193,7 @@ export function ActivityPanelView({
     ? items.find((item) => `${item.family}:${item.id}` === selection.key) ?? selection.last
     : null;
   if (selection && selectedItem && selectedItem !== selection.last) {
-    setSelection({ key: selection.key, last: selectedItem });
+    setSelection({ ...selection, last: selectedItem });
   }
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null && activity.page.onchainStatus !== "unavailable";
   const plain = density === "feed";
@@ -311,6 +311,7 @@ export function ActivityPanelView({
       </ActivitySurface>
       <ActivityLedgerSheet
         open={detailsOpen}
+        opener={selection?.opener ?? null}
         immediate={immediateClose}
         item={selectedItem}
         canOpenAsset={canOpenAsset}

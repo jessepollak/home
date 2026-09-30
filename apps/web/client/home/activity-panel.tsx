@@ -189,7 +189,7 @@ export function ConnectedActivityPanel({
   };
   const onOrderAction = async (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => {
     if (kind === "resume" || kind === "complete-payment") {
-      if (order.kind === "funding" && order.resumable && order.region === regionId && routing?.setFlow("add-money", { mode: "push" })) {
+      if (order.kind === "funding" && order.resumable && order.region === regionId && routing?.setFlow("add-money", { mode: "push", opener: null })) {
         setReviewOpened((count) => count + 1);
       }
       return;

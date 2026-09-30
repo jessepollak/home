@@ -107,7 +107,7 @@ for (const [completePayment, label] of [[false, "Continue with Coinbase"], [true
     const { view, requests, flows } = setup({ completePayment });
     await openOrder(view, "25");
     fireEvent.click(await view.findByRole("button", { name: label }));
-    expect(flows).toEqual([{ flow: "add-money", options: { mode: "push" } }]);
+    expect(flows).toEqual([{ flow: "add-money", options: { mode: "push", opener: null } }]);
     expect(requests.every((request) => request.method === "GET")).toBe(true);
   });
 }

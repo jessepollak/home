@@ -4,6 +4,7 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Button } from "@/components/ui/button";
 import { SendDialog } from "@/client/transfers/send-dialog";
+import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 
@@ -11,6 +12,7 @@ const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 const journey = { prepares: [] as Array<{ kind: string; params: unknown }> };
+const SendSheet = deferSheet(() => Promise.resolve(SendDialog));
 
 type KeyboardViewport = VisualViewport & { height: number; offsetTop: number; scale: number; width: number };
 let keyboardViewport: KeyboardViewport;
@@ -51,6 +53,7 @@ function preparedAction(amountBaseUnits: string): PreparedMoneyAction {
 
 function SendKeyboardJourney() {
   const [open, setOpen] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const fetchAccountResource = useCallback<AccountWalletClient["fetchAccountResource"]>(async (url) => {
     if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
     if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
@@ -60,10 +63,11 @@ function SendKeyboardJourney() {
   }, []);
   return (
     <main className="flex min-h-dvh flex-col gap-4 p-4">
-      <Button size="touch" variant="outline" onClick={() => setOpen(true)}>Send</Button>
+      <Button size="touch" variant="outline" onClick={(event) => { setOpener(event.currentTarget); setOpen(true); }}>Send</Button>
       {Array.from({ length: 24 }, (_, index) => <p key={index} className="text-muted-foreground">Activity row {index + 1}</p>)}
-      <SendDialog
+      <SendSheet
         open={open}
+        opener={opener}
         address={ACCOUNT}
         ownerBoundary="storybook-send-keyboard"
         regionId="US"
