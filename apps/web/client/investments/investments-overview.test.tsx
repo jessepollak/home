@@ -88,7 +88,7 @@ test("pending rows preserve their list section only within the same owner and re
   const initial = view.getByRole("region", { name: "Your investments" });
   view.rerender(<InvestmentsOverview {...props} snapshot={{ ...snapshot, fetchedAt: "2026-09-30T00:00:00.000Z" }} />);
   expect(view.getByRole("region", { name: "Your investments" })).toBe(initial);
-  const replacement = { ...snapshot, owner: { ...snapshot.owner, address: "0x9999999999999999999999999999999999999999" } };
+  const replacement: typeof snapshot = { ...snapshot, owner: { ...snapshot.owner, address: "0x9999999999999999999999999999999999999999" } };
   view.rerender(<InvestmentsOverview {...props} snapshot={replacement} />);
   const ownerSection = view.getByRole("region", { name: "Your investments" });
   expect(ownerSection).not.toBe(initial);
