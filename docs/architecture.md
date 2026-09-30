@@ -176,7 +176,7 @@ A fiat or card ledger, KYC document storage, custom contracts, multichain routin
 - Provider outage: the provider's error is shown; balances show the last observation marked stale with its age.
 - Missed webhook: an active client sees an external transfer within the 120 s backstop plus CDP index lag; an idle client sees it on return.
 - Action failure modes: [actions.md](actions.md#failure-modes-we-accept).
-- Database query timeout: `timeoutMs` on the shared executor (`server/db/sql.ts`) bounds the whole operation, from pool acquisition through `COMMIT`, and cancels it by destroying that connection; a timed-out statement is ambiguous, so `timeoutMs` stays a read deadline and writers use `transaction()`.
+- Database query timeout: `timeoutMs` on the shared executor (`server/db/sql.ts`) bounds the whole operation, from pool acquisition through `COMMIT`, and cancels it by destroying that connection; a timed-out statement is ambiguous, so `timeoutMs` stays a read deadline and writers use `transaction()`, except the CDP webhook's best-effort markDirty invalidation, whose idempotent, monotonic UPDATE is safe either way: losing the mark only defers that address's re-read until a later webhook or ingest run.
 - Pool at suspension: each pool the server opens is attached to the platform lifecycle hook, which keeps the instance alive for one idle interval (the pool's 30-second timeout plus 100 ms, bounded by the remaining invocation deadline) after the most recent client release; the hook holds one idle wait per instance, so a later pool's attach supersedes an earlier pool's pending wait, whose idle connections then die with the instance — the same as running without the hook.
 
 ## Comment policy

@@ -395,7 +395,7 @@ export function presentCashSelection(entry: CashSelection, snapshot: BalancesSna
       group: "cash",
       name: entry.name,
       mark: { kind: "flag", currency: entry.currency },
-      primary: "Verification pending",
+      primary: entry.verificationStatus,
       secondary: null,
       tone: "muted",
     };

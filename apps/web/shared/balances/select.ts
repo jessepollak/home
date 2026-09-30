@@ -1,5 +1,5 @@
 import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
-import { presentationRegions, type FiatCurrencyCode } from "@/config/regions";
+import { presentationRegions, type CandidateVerificationStatus, type FiatCurrencyCode } from "@/config/regions";
 import { exactDecimalToFraction } from "@/shared/balances/math";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import type { TransferAsset } from "@/shared/transfers/types";
@@ -24,6 +24,7 @@ export type CashSelection =
       currency: FiatCurrencyCode;
       name: string;
       symbol: string;
+      verificationStatus: CandidateVerificationStatus;
     };
 
 export type MoneyGroups = {
@@ -99,6 +100,7 @@ export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
         currency,
         name: presentationRegions[snapshot.region].currency.name,
         symbol: candidate.symbol,
+        verificationStatus: candidate.verificationStatus,
       });
     }
   }
