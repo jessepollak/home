@@ -1,6 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
+import { deferred } from "@/tests/helpers/async";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
@@ -97,6 +98,10 @@ function resultRow(rowOwner: PreparedMoneyAction["owner"], status: "pending" | "
     createdAt: action.createdAt, confirmedAt: action.createdAt,
     summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt },
   };
+}
+function amountInput(element: HTMLElement): HTMLInputElement {
+  if (!(element instanceof HTMLInputElement)) throw new Error("Expected an Amount input");
+  return element;
 }
 async function typeAmount(value: string) {
   fireEvent.change(await page().findByRole("textbox", { name: "Amount" }), { target: { value } });
@@ -484,7 +489,7 @@ describe("SavingsJourney amount entry", () => {
     await page().findByText("journey closed");
     fireEvent.click(await page().findByRole("button", { name: "Reopen deposit dialog" }));
     await page().findByRole("dialog", { name: "Deposit" });
-    expect((await page().findByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(amountInput(await page().findByRole("textbox", { name: "Amount" })).value).toBe("");
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
   });
 
@@ -510,7 +515,7 @@ describe("SavingsJourney amount entry", () => {
     await page().findByText("journey closed");
     fireEvent.click(await page().findByRole("button", { name: "Reopen deposit dialog" }));
     await page().findByRole("dialog", { name: "Deposit" });
-    expect((await page().findByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(amountInput(await page().findByRole("textbox", { name: "Amount" })).value).toBe("");
     expect(page().queryByRole("heading", { name: "Depositing $1.00 to Save" })).toBeNull();
   });
 
@@ -936,16 +941,13 @@ function ManagementHarness({ prepareMoneyAction }: {
   });
 
   test("does not call onConfirmed when the dispatch settles after unmount", async () => {
-    let settleDispatch!: () => void;
-    const dispatch = new Promise<{ id: string; status: "submitted" }>((resolve) => {
-      settleDispatch = () => resolve({ id: "action-1", status: "submitted" });
-    });
+    const dispatch = deferred<Awaited<ReturnType<SavingsJourneyProps["executeMoneyAction"]>>>();
     let confirmed = 0;
     const view = render(
       <ReducedAmountJourney
         open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared("savings-deposit", "1000000")}
-        executeMoneyAction={() => dispatch as never}
+        executeMoneyAction={() => dispatch.promise}
         onConfirmed={() => { confirmed += 1; }}
         onClose={() => {}}
       />,
@@ -955,8 +957,8 @@ function ManagementHarness({ prepareMoneyAction }: {
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     view.unmount();
     await act(async () => {
-      settleDispatch();
-      await dispatch;
+      dispatch.resolve({ id: "action-1", status: "submitted" });
+      await dispatch.promise;
       await Promise.resolve();
     });
     expect(confirmed).toBe(0);
@@ -1347,11 +1349,11 @@ describe("SavingsMoneyFlow embedded in a MoneyModal", () => {
   });
 
   test("a mode change during preparation restarts the embedded amount step", async () => {
-    let releasePreparation!: (action: PreparedMoneyAction) => void;
+    const preparation = deferred<PreparedMoneyAction>();
     function Host({ mode }: { mode: "deposit" | "withdraw" }) {
       return <MoneyModal open immediate labelledBy="savings-action-title" onCancel={() => {}} onClose={() => {}}>
         <SavingsMoneyFlow depth={1} mode={mode} session={session} candidate={candidate}
-          prepareMoneyAction={() => new Promise<PreparedMoneyAction>((resolve) => { releasePreparation = resolve; })}
+          prepareMoneyAction={() => preparation.promise}
           executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />
       </MoneyModal>;
     }
@@ -1360,13 +1362,13 @@ describe("SavingsMoneyFlow embedded in a MoneyModal", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
     view.rerender(<Host mode="withdraw" />);
-    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(amountInput(page().getByRole("textbox", { name: "Amount" })).value).toBe("");
     expect(page().queryByRole("button", { name: "Withdraw $1.00" })).toBeNull();
     await act(async () => {
-      releasePreparation(prepared());
+      preparation.resolve(prepared());
       await Promise.resolve();
     });
-    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(amountInput(page().getByRole("textbox", { name: "Amount" })).value).toBe("");
     expect(page().queryByRole("button", { name: "Withdraw $1.00" })).toBeNull();
   });
 });
