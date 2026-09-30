@@ -17,6 +17,15 @@ function availableHolding(holding: Holding) {
   return holding.cashCurrency === null && holding.kind !== "vault-share" && !holding.collateral && holding.source !== "borrow";
 }
 
+function investmentAmount(holdings: Holding[]): ExactDecimal | null {
+  const values = [];
+  for (const holding of holdings) {
+    if (holding.balance.status !== "ready" || holding.value.status !== "priced") return null;
+    values.push(exactDecimalToFraction(holding.value.amount));
+  }
+  return roundFractionPreservingPositive(addFractions(values));
+}
+
 function ownedInvestments(snapshot: BalancesSnapshot, selectedKey?: AssetKey): OwnedInvestment[] {
   const wallet = selectInvestmentHoldings(snapshot).filter((holding) => selectedKey === undefined || holding.key === selectedKey);
   const rows = new Map<AssetKey, OwnedInvestment>();
@@ -35,9 +44,7 @@ function ownedInvestments(snapshot: BalancesSnapshot, selectedKey?: AssetKey): O
   }
   return [...rows.values()].map((row) => {
     const holdings = [...(row.wallet ? [row.wallet] : []), ...row.collateral];
-    return { ...row, amount: holdings.every((holding) => holding.balance.status === "ready" && holding.value.status === "priced")
-      ? roundFractionPreservingPositive(addFractions(holdings.map((holding) => exactDecimalToFraction((holding.value as Extract<Holding["value"], { status: "priced" }>).amount))))
-      : null };
+    return { ...row, amount: investmentAmount(holdings) };
   });
 }
 
@@ -74,15 +81,14 @@ export function* investmentSelection(snapshot: BalancesSnapshot): Generator<void
       else if (holding?.balance.status === "ready" && holding.balance.baseUnits === "0") row.availableZero = holding;
     }
     const holdings = [...(row.wallet ? [row.wallet] : []), ...row.collateral];
-    row.amount = holdings.every((holding) => holding.balance.status === "ready" && holding.value.status === "priced")
-      ? roundFractionPreservingPositive(addFractions(holdings.map((holding) => exactDecimalToFraction((holding.value as Extract<Holding["value"], { status: "priced" }>).amount))))
-      : null;
+    row.amount = investmentAmount(holdings);
     ordered.push({ row, fraction: row.amount ? exactDecimalToFraction(row.amount) : null });
     if (++work % 128 === 0) yield;
   }
   for (let start = 0; start < ordered.length; start += 128) {
     const chunk = ordered.slice(start, start + 128).sort(compareInvestments);
-    for (let index = 0; index < chunk.length; index++) ordered[start + index] = chunk[index]!;
+    let index = start;
+    for (const entry of chunk) ordered[index++] = entry;
     yield;
   }
   for (let width = 128; width < ordered.length; width *= 2) {
@@ -93,8 +99,15 @@ export function* investmentSelection(snapshot: BalancesSnapshot): Generator<void
       let left = start;
       let right = middle;
       while (left < middle || right < end) {
-        merged.push(right >= end || left < middle && compareInvestments(ordered[left]!, ordered[right]!) <= 0
-          ? ordered[left++]! : ordered[right++]!);
+        const leftRow = left < middle ? ordered[left] : undefined;
+        const rightRow = right < end ? ordered[right] : undefined;
+        if (leftRow && (!rightRow || compareInvestments(leftRow, rightRow) <= 0)) {
+          merged.push(leftRow);
+          left++;
+        } else if (rightRow) {
+          merged.push(rightRow);
+          right++;
+        } else throw new Error("Investment selection has an incomplete sort run.");
         if (++work % 128 === 0) yield;
       }
     }
