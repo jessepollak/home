@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { describe, expect, test } from "bun:test";
-import { escapesLibrary, frameReason } from "@/stories/review/explorations/library/isolation";
+import { componentModulePaths, frameReason, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import {
   createFrameSlots, fittedFrameHeight, restoredFocus, toggleFocus,
 } from "@/stories/review/explorations/library/sheet-state";
@@ -29,23 +29,42 @@ describe("section isolation rules", () => {
     expect(frameReason({ args: { open: true } }, { args: { open: false } })).toBeNull();
   });
 
-  test("only elements mounted outside the Library root count as escaping portals", () => {
-    const library = document.createElement("div");
-    const inside = document.createElement("div");
-    library.append(inside);
-    const storybook = Object.assign(document.createElement("div"), { id: "storybook-root" });
-    storybook.append(library);
-    document.body.append(storybook);
-    const portal = document.createElement("div");
-    document.body.append(portal);
-    expect(escapesLibrary(portal, library)).toBe(true);
-    expect(escapesLibrary(inside, library)).toBe(false);
-    expect(escapesLibrary(storybook, library)).toBe(false);
-    expect(escapesLibrary(Object.assign(document.createElement("div"), { id: "storybook-docs" }), library)).toBe(false);
-    expect(escapesLibrary(document.createElement("style"), library)).toBe(false);
-    expect(escapesLibrary(document.createTextNode("text"), library)).toBe(false);
-    storybook.remove();
-    portal.remove();
+  test("portal detection recognizes JSX wrappers, namespace portals and createPortal calls", () => {
+    for (const source of [
+      "const Content = () => <DialogPrimitive.Portal><Popup /></DialogPrimitive.Portal>",
+      "const Content = () => <DrawerPortal />",
+      "const Content = () => <Portal />",
+      "const Content = () => createPortal(children, document.body)",
+      "const Content = () => ReactDOM.createPortal(children, document.body)",
+    ]) expect(rendersPortal(source)).toBe(true);
+    for (const source of [
+      "const Content = () => <Button>Continue</Button>",
+      '// <Portal />\n/* createPortal(children, document.body) */',
+      'const label = "<Portal />"; const tooltip = `createPortal()`;',
+      "type Props = Primitive.Portal.Props; const Portal = 'placeholder'",
+    ]) expect(rendersPortal(source)).toBe(false);
+  });
+
+  test("story imports resolve relative and aliased UI modules without a component roster", () => {
+    expect(componentModulePaths(`
+      import { Drawer } from './drawer';
+      import { Button } from '@/components/ui/button';
+      import { Dialog } from '../ui/dialog.tsx';
+      import { Button as OtherButton } from './button';
+      import { Modal } from '@/client/money-modal';
+      import type { Props } from './unused';
+    `, "components/ui/drawer.stories.tsx")).toEqual([
+      "components/ui/drawer.tsx", "components/ui/button.tsx", "components/ui/dialog.tsx",
+    ]);
+  });
+
+  test("per-story render overrides win over portal detection but not existing isolation rules", () => {
+    expect(frameReason({}, {}, true)).toBe("Portals outside the sheet");
+    expect(frameReason({}, { parameters: { library: { render: "document" } } }, true)).toBeNull();
+    expect(frameReason({}, { parameters: { library: { render: "frame" } } })).toBe("Library override");
+    expect(frameReason({}, { parameters: { library: { render: "invalid" } } }, true)).toBe("Portals outside the sheet");
+    expect(frameReason({ parameters: { library: { render: "document" } } }, {}, true)).toBe("Portals outside the sheet");
+    expect(frameReason({}, { play: () => {}, parameters: { library: { render: "document" } } }, true)).toBe("Play function");
   });
 });
 

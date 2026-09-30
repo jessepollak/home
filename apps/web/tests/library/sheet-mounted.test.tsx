@@ -1,0 +1,201 @@
+import "@/client/account/dom-test-harness";
+
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { useEffect, useState } from "react";
+import { frameReason, rendersPortal } from "@/stories/review/explorations/library/isolation";
+import type { SheetStory } from "@/stories/review/explorations/library/stories";
+
+const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
+const { VariantSheet } = await import("@/stories/review/explorations/library/sheet");
+
+const originalRequest = globalThis.requestAnimationFrame;
+const originalCancel = globalThis.cancelAnimationFrame;
+let next = 0;
+const callbacks = new Map<number, FrameRequestCallback>();
+beforeEach(() => {
+  callbacks.clear();
+  globalThis.requestAnimationFrame = (callback) => { callbacks.set(++next, callback); return next; };
+  globalThis.cancelAnimationFrame = (id) => { callbacks.delete(id); };
+});
+afterEach(() => {
+  cleanup();
+  globalThis.requestAnimationFrame = originalRequest;
+  globalThis.cancelAnimationFrame = originalCancel;
+});
+const tick = () => act(() => {
+  for (const [id, callback] of [...callbacks]) { callbacks.delete(id); callback(0); }
+});
+const flush = () => act(async () => { await Promise.resolve(); });
+
+function story(id: string, Story: SheetStory["Story"], source = "", frame: SheetStory["frame"] = null): SheetStory {
+  const portals = rendersPortal(source);
+  return { id, name: id, Story, portals, frame: frame ?? frameReason({}, {}, portals),
+    argTypes: {}, initialArgs: {}, layout: "centered", pinnedTheme: undefined };
+}
+function sheet(stories: SheetStory[]) {
+  const props = { root: null, component: "Fixture", changed: false, stories, theme: "light", focused: null,
+    focusedArgs: null, annotating: false, frameSource: "blank" as const,
+    onToggle: (_id: string) => {}, onActivate: (_id: string) => {}, onEscape: () => {}, onExitAnnotate: () => {} };
+  const view = render(<VariantSheet {...props} />);
+  return { ...view, update: (patch: Partial<Parameters<typeof VariantSheet>[0]>) => {
+    Object.assign(props, patch);
+    view.rerender(<VariantSheet {...props} />);
+  } };
+}
+function preview(iframe: HTMLIFrameElement, id: string) {
+  const currentRender = { id, story: { id }, phase: "finished" };
+  let complete: (() => void) | undefined;
+  const update = () => { currentRender.phase = "loading"; complete = () => { currentRender.phase = "finished"; }; };
+  Object.defineProperty(iframe, "contentWindow", { configurable: true, value: {
+    __STORYBOOK_PREVIEW__: { currentRender, onUpdateGlobals: update, onUpdateArgs: update },
+  } });
+  return { complete: () => act(() => { complete?.(); complete = undefined; }) };
+}
+
+test("source-known portals never mount in the parent; unrelated nodes cannot frame plain neighbors", () => {
+  let portalMounts = 0;
+  const portal = story("portal", () => { portalMounts++; return null; }, "const Content = () => <Primitive.Portal />");
+  const plain = story("plain", () => <p>Plain neighbor</p>);
+  const view = sheet([portal, plain]);
+  expect(portalMounts).toBe(0);
+  expect(view.getByTitle("Fixture · portal")).toBeTruthy();
+  expect(view.getByText("Plain neighbor")).toBeTruthy();
+  const unrelated = document.createElement("div");
+  document.body.append(unrelated);
+  tick();
+  expect(view.container.querySelectorAll("iframe")).toHaveLength(1);
+  unrelated.remove();
+  view.update({ stories: [story("plain", () => { portalMounts++; return null; }, "createPortal(children, document.body)")], theme: "dark" });
+  expect(portalMounts).toBe(0);
+  expect(view.getByTitle("Fixture · plain")).toBeTruthy();
+});
+
+for (const portals of [true, false]) {
+  test(`${portals ? "portal" : "non-portal"} frames keep the correct viewport after restoration`, () => {
+    const entry = story("height", () => null, portals ? "<Portal />" : "", "Play function");
+    const view = sheet([entry]);
+    const iframe = view.getByTitle("Fixture · height") as HTMLIFrameElement;
+    if (portals) expect(iframe.height).toBe("844");
+    const doc = iframe.contentDocument!;
+    const content = doc.createElement("div");
+    content.id = "storybook-root";
+    Object.defineProperty(content, "scrollHeight", { value: 64 });
+    doc.body.append(content);
+    const wrapper = doc.createElement("div");
+    wrapper.setAttribute("data-base-ui-portal", "");
+    wrapper.getBoundingClientRect = () => ({ height: 0 }) as DOMRect;
+    const dialog = doc.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.style.position = "fixed";
+    wrapper.append(dialog);
+    doc.body.append(wrapper);
+    const child = preview(iframe, entry.id);
+    fireEvent.load(iframe);
+    for (let turn = 0; turn < 3; turn++) { tick(); tick(); child.complete(); }
+    tick();
+    expect(view.queryByText("Loading height…") === null).toBe(true);
+    expect(iframe.height).toBe(portals ? "844" : "160");
+    if (!portals) {
+      view.update({ stories: [{ ...entry, portals: true }] });
+      expect(iframe.height).toBe("844");
+    }
+  });
+}
+
+test("child pointer/focus activates and only unconsumed Escape clears focus", async () => {
+  const view = sheet([story("frame", () => null, "<Portal />")]);
+  const activated: string[] = [];
+  let escaped = 0;
+  view.update({ onActivate: (id) => activated.push(id), onEscape: () => { escaped++; } });
+  const iframe = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
+  fireEvent.load(iframe);
+  const doc = iframe.contentDocument!;
+  const control = doc.createElement("button");
+  doc.body.append(control);
+  fireEvent.pointerDown(control);
+  fireEvent.focusIn(control);
+  expect(activated).toEqual(["frame", "frame"]);
+  const consume = (event: KeyboardEvent) => { if (event.key === "Escape") event.preventDefault(); };
+  doc.addEventListener("keydown", consume);
+  fireEvent.keyDown(control, { key: "Escape" });
+  await flush();
+  expect(escaped).toBe(0);
+  doc.removeEventListener("keydown", consume);
+  fireEvent.keyDown(control, { key: "Enter" });
+  fireEvent.keyDown(control, { key: "Escape" });
+  await flush();
+  expect(escaped).toBe(1);
+  view.update({ annotating: true });
+  fireEvent.focusIn(control);
+  fireEvent.keyDown(control, { key: "Escape" });
+  await flush();
+  expect(activated).toHaveLength(2);
+  expect(escaped).toBe(1);
+});
+
+test("reload and unmount remove child listeners and fence pending Escape from the old generation", async () => {
+  const view = sheet([story("frame", () => null, "<Portal />")]);
+  let activated = 0;
+  let escaped = 0;
+  view.update({ onActivate: () => { activated++; }, onEscape: () => { escaped++; } });
+  const iframe = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
+  fireEvent.load(iframe);
+  const previous = iframe.contentDocument!;
+  fireEvent.keyDown(previous.body, { key: "Escape" });
+  const replacement = document.implementation.createHTMLDocument();
+  Object.defineProperty(replacement, "defaultView", { value: window });
+  Object.defineProperty(iframe, "contentDocument", { configurable: true, value: replacement });
+  fireEvent.load(iframe);
+  fireEvent.pointerDown(previous.body);
+  fireEvent.focusIn(previous.body);
+  await flush();
+  expect(activated).toBe(0);
+  expect(escaped).toBe(0);
+  fireEvent.pointerDown(replacement.body);
+  fireEvent.focusIn(replacement.body);
+  expect(activated).toBe(2);
+  fireEvent.keyDown(replacement.body, { key: "Escape" });
+  view.unmount();
+  fireEvent.pointerDown(replacement.body);
+  fireEvent.focusIn(replacement.body);
+  fireEvent.keyDown(replacement.body, { key: "Escape" });
+  await flush();
+  expect(activated).toBe(2);
+  expect(escaped).toBe(0);
+  expect(callbacks.size).toBe(0);
+});
+
+test("a failed section recovers on args changes without remounting a healthy section", () => {
+  let healthyMounts = 0;
+  function Fragile({ crash = false }: Record<string, unknown>) {
+    if (crash) throw new Error("Invalid crash args");
+    return <p>Recovered story</p>;
+  }
+  function Healthy() {
+    useEffect(() => { healthyMounts++; }, []);
+    const [count, setCount] = useState(0);
+    return <button onClick={() => setCount(count + 1)}>Count {count}</button>;
+  }
+  const view = sheet([story("fragile", Fragile), story("healthy", Healthy)]);
+  fireEvent.click(view.getByText("Count 0"));
+  view.update({ focused: "fragile", focusedArgs: { crash: true } });
+  expect(view.getByRole("alert").textContent).toBe("Invalid crash args");
+  view.update({ focusedArgs: { crash: false } });
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(view.getByText("Recovered story")).toBeTruthy();
+  expect(view.getByText("Count 1")).toBeTruthy();
+  expect(healthyMounts).toBe(1);
+});
+
+for (const input of ["identity", "theme"]) {
+  test(`a failed section retries when its ${input} changes`, () => {
+    let crash = true;
+    const Original = () => { if (crash) throw new Error("Render crash"); return <p>Retried story</p>; };
+    const view = sheet([story("retry", Original)]);
+    expect(view.getByRole("alert").textContent).toBe("Render crash");
+    crash = false;
+    view.update(input === "identity" ? { stories: [story("retry", () => <p>Retried story</p>)] } : { theme: "dark" });
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.getByText("Retried story")).toBeTruthy();
+  });
+}

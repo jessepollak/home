@@ -4,6 +4,7 @@ import { readReviewBuild, type ReviewBuild, type StoryIndexEntry } from "./explo
 import { LibraryView } from "./explorations/library/library";
 
 const build = readReviewBuild(import.meta.env);
+const INITIAL_MODULE_TIMEOUT = 20_000;
 
 const story = (id: string, title: string, name: string, importPath: string): StoryIndexEntry =>
   ({ id, title, name, importPath, type: "story" });
@@ -12,14 +13,14 @@ const fixtureEntries = [
   story("ui-button--default", "UI/Button", "Default", buttonStories),
   story("ui-button--variants", "UI/Button", "Variants", buttonStories),
   story("ui-button--sizes", "UI/Button", "Sizes", buttonStories),
+  story("ui-button--loading", "UI/Button", "Loading", buttonStories),
   story("ui-badge--default", "UI/Badge", "Default", "./components/ui/badge.stories.tsx"),
   story("ui-address-field--empty", "UI/Address Field", "Empty", "./components/address-field.stories.tsx"),
   story("review-boards--changes", "Review/Boards", "Changes", "./stories/review/review-boards.stories.tsx"),
 ];
 const indexOf = (entries: StoryIndexEntry[]) => Object.fromEntries(entries.map((entry) => [entry.id, entry]));
 const fixtureIndex = indexOf(fixtureEntries);
-const restoredIndex = indexOf([...fixtureEntries,
-  story("ui-button--loading", "UI/Button", "Loading", buttonStories)]);
+const restoredIndex = fixtureIndex;
 const fixtureBuild: ReviewBuild = {
   revision: "fixture", deployment: "", branch: "", repo: null, pr: null,
   changedFiles: ["apps/web/components/ui/button.tsx"],
@@ -110,13 +111,12 @@ export const Workspace: Story = {
   parameters: { a11y: { test: "error", context: { exclude: ["[data-library-story]"] } } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    const root = canvasElement.ownerDocument.documentElement;
     const list = await canvas.findByRole("listbox", { name: "Components" });
     await expect(canvas.getByText("1 change")).toBeVisible();
     const options = within(list).getAllByRole("option");
     await expect(options.map((option) => option.getAttribute("aria-label")))
-      .toEqual(["Badge, 1 story", "Button, 3 stories, changed in this build"]);
-    await expect(await canvas.findByRole("heading", { name: "Default" })).toBeVisible();
+      .toEqual(["Badge, 1 story", "Button, 4 stories, changed in this build"]);
+    await expect(await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
 
     options[0].focus();
     await userEvent.keyboard("{ArrowDown}");
@@ -128,8 +128,10 @@ export const Workspace: Story = {
     await expect(await canvas.findByRole("button", { name: "Destructive" })).toBeVisible();
     await expect(canvas.queryByRole("form")).not.toBeInTheDocument();
 
+    const themed = await installPreview(canvas, "Button · Loading", "ui-button--loading");
+    await waitFor(() => expect(canvas.queryByText("Loading Loading…")).not.toBeInTheDocument());
     await userEvent.click(canvas.getByRole("button", { name: "Dark" }));
-    await waitFor(() => expect(root).toHaveClass("dark"));
+    await waitFor(() => expect(themed.doc.documentElement).toHaveAttribute("data-theme", "dark"));
     await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
     await expect(await canvas.findByRole("button", { name: "Destructive" })).toBeVisible();
 
@@ -166,7 +168,7 @@ export const Workspace: Story = {
     await userEvent.keyboard("{Enter}");
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(canvas.getByRole("button", { name: "Light" }));
-    await waitFor(() => expect(root).not.toHaveClass("dark"));
+    await waitFor(() => expect(themed.doc.documentElement).toHaveAttribute("data-theme", "light"));
   },
 };
 
@@ -184,7 +186,7 @@ export const RestoredPreview: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const loading = "Loading Loading…";
-    await expect(await canvas.findByRole("heading", { name: "Loading Play function" })).toBeVisible();
+    await expect(await canvas.findByRole("heading", { name: "Loading Play function" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     await expect(section(canvas, "Loading")).toHaveAttribute("aria-pressed", "true");
     const first = await installPreview(canvas, "Button · Loading", "ui-button--loading", true);
     await waitFor(() => expect(first.updates).toEqual(["globals"]));

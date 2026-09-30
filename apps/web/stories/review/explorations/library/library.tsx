@@ -176,7 +176,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
           {stories ? <VariantSheet key={item.id} root={root} component={item.name} changed={item.changed}
             stories={stories} theme={theme} focused={focused} focusedArgs={args} annotating={annotating}
             frameSource={frameSource} onToggle={toggle} onActivate={activate}
-            onExitAnnotate={() => setAnnotating(false)} /> :
+            onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} /> :
             <p className={styles.sectionMessage} role={failed ? "alert" : "status"}>
               {failed ? `Couldn't load ${item.name}'s stories. Reload to try again.` : `Loading ${item.name}…`}
             </p>}

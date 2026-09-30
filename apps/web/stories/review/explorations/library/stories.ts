@@ -2,7 +2,7 @@ import type { composeStory as ComposeStory, Preview } from "@storybook/nextjs-vi
 import type { ComponentType } from "react";
 import type { StoryIndexEntry } from "../board/review-build";
 import type { ArgType } from "./controls";
-import { frameReason, type FrameReason, type StoryAnnotations } from "./isolation";
+import { componentModulePaths, frameReason, rendersPortal, type FrameReason, type StoryAnnotations } from "./isolation";
 
 export type StoryModule = Record<string, unknown> & { default?: StoryAnnotations };
 
@@ -14,6 +14,7 @@ export type SheetStory = {
   initialArgs: Record<string, unknown>;
   layout: string;
   frame: FrameReason | null;
+  portals: boolean;
   pinnedTheme: string | undefined;
 };
 
@@ -26,6 +27,21 @@ const modules = (() => {
     return {};
   }
 })();
+const sources = (() => {
+  try {
+    return import.meta.glob("../../../../components/ui/*.tsx", { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
+  } catch {
+    return {};
+  }
+})();
+const modulePortals = new WeakMap<StoryModule, boolean>();
+
+async function loadPortalRule(key: string): Promise<boolean> {
+  const source = await sources[key]();
+  const paths = componentModulePaths(source, `components/ui/${key.split("/").at(-1)}`);
+  const components = await Promise.all(paths.map((path) => sources[`../../../../${path}`]()));
+  return components.some(rendersPortal);
+}
 let runtime: Runtime | undefined;
 let runtimeRequest: Promise<Runtime> | undefined;
 
@@ -51,7 +67,10 @@ export function loadStoryModule(importPath: string): Promise<StoryModule> {
   const cached = pending.get(importPath);
   if (cached) return cached;
   const key = moduleKey(importPath);
-  const request = key ? Promise.all([modules[key](), loadRuntime()]).then(([module]) => module)
+  const request = key ? Promise.all([modules[key](), loadRuntime(), loadPortalRule(key)]).then(([module, , portals]) => {
+    modulePortals.set(module, portals);
+    return module;
+  })
     : Promise.reject(new Error(`No story module for ${importPath}`));
   const tracked = request.then((module) => {
     loaded.set(importPath, module);
@@ -92,7 +111,8 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
       argTypes: story.argTypes as Record<string, ArgType>,
       initialArgs: story.args,
       layout: typeof story.parameters.layout === "string" ? story.parameters.layout : "padded",
-      frame: frameReason(meta, annotation),
+      frame: frameReason(meta, annotation, modulePortals.get(module)),
+      portals: modulePortals.get(module) ?? false,
       pinnedTheme: typeof pinned === "string" ? pinned : undefined,
     }];
   });

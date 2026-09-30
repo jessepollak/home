@@ -22,7 +22,7 @@ function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
 }
 
 export function FrameSection({ target, theme, args, annotating, frameSource, viewport, onSettled, onRendered,
-  onExitAnnotate }: {
+  onActivate, onEscape, onExitAnnotate }: {
   target: FrameSectionTarget;
   theme: string;
   args: Record<string, unknown>;
@@ -31,6 +31,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   viewport: { width: number; height: number };
   onSettled: () => void;
   onRendered?: (frame: HTMLIFrameElement) => void;
+  onActivate?: () => void;
+  onEscape?: () => void;
   onExitAnnotate: () => void;
 }) {
   const item = useMemo(() => ({ id: target.story, story: target.story }), [target.story]);
@@ -45,6 +47,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   const animation = useRef<number | null>(null);
   const stopRender = useRef<(() => void) | null>(null);
   const stopDeadline = useRef<(() => void) | null>(null);
+  const stopInteractions = useRef<(() => void) | null>(null);
+  const interaction = useRef({ annotating, onActivate, onEscape });
   const themeRef = useRef(theme);
   const argsRef = useRef(args);
   const settled = useRef(onSettled);
@@ -54,6 +58,7 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     argsRef.current = args;
     settled.current = onSettled;
     rendered.current = onRendered;
+    interaction.current = { annotating, onActivate, onEscape };
   });
   useEffect(() => {
     if (metric.status === "rendered" && frame.current) rendered.current?.(frame.current);
@@ -78,6 +83,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     stopRender.current = null;
     stopDeadline.current?.();
     stopDeadline.current = null;
+    stopInteractions.current?.();
+    stopInteractions.current = null;
     preparing.current = false;
     applied.current = null;
     appliedTheme.current = null;
@@ -103,6 +110,32 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   }, [cancel, fail]);
   const mark = useCallback((_: string, patch: Partial<Metric>) => {
     if (patch.status === "loaded" && loads.current++ > 0) begin();
+    if (patch.status === "loaded") {
+      stopInteractions.current?.();
+      const doc = frame.current?.contentDocument;
+      if (doc) {
+        const load = generation.current;
+        const activate = () => {
+          if (generation.current === load && !interaction.current.annotating) interaction.current.onActivate?.();
+        };
+        const escape = (event: KeyboardEvent) => {
+          if (event.key !== "Escape") return;
+          queueMicrotask(() => {
+            if (generation.current === load && !interaction.current.annotating && !event.defaultPrevented) {
+              interaction.current.onEscape?.();
+            }
+          });
+        };
+        doc.addEventListener("pointerdown", activate, true);
+        doc.addEventListener("focusin", activate, true);
+        doc.addEventListener("keydown", escape);
+        stopInteractions.current = () => {
+          doc.removeEventListener("pointerdown", activate, true);
+          doc.removeEventListener("focusin", activate, true);
+          doc.removeEventListener("keydown", escape);
+        };
+      }
+    }
     if (patch.status !== "rendered") setMetric((current) => ({ ...current, ...patch }));
   }, [begin]);
   const finish = useCallback((_: string, status: "rendered" | "errored", error?: string) => {

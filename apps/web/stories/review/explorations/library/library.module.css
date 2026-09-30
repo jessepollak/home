@@ -269,12 +269,6 @@
   display: block;
   padding-inline: 0;
 }
-.sectionPending {
-  min-height: 56px;
-  margin-inline: 20px;
-  border-radius: 12px;
-  background: var(--muted);
-}
 .sectionOverlay {
   position: absolute;
   inset: 0;
