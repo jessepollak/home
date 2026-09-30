@@ -6,6 +6,7 @@ import { createPortal } from "react-dom";
 import { frameReason, readPortalRule, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import type { SheetStory } from "@/stories/review/explorations/library/stories";
 
+import { lexLibraryImports } from "../../.storybook/library-imports-plugin";
 const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
 const { VariantSheet } = await import("@/stories/review/explorations/library/sheet");
 
@@ -202,11 +203,21 @@ test("JSX apostrophes do not let a portal escape into the Library document", () 
   expect(view.getByTitle("Fixture · apostrophe")).toBeTruthy();
 });
 
-test("raw story and lazy-import portal classification prevents parent-document escapes", async () => {
-  for (const source of ['const Content = lazy(() => import("./dialog"));', 'export const Default = { render: () => <Portal /> };']) {
+test("raw story and lexed imports prevent parent-document portal escapes", async () => {
+  for (const source of [
+    'const Content = lazy(() => import("./dialog"));',
+    'import Dialog from /* c */ "./dialog";',
+    'import /* c */ "./dialog";',
+    'import Dialog from "\\u002e/dialog";',
+    'const Content = lazy(() => import("\\u002e/dialog"));',
+    'export const Default = { render: () => <Portal /> };',
+  ]) {
     const key = "../../../../components/ui/fixture.stories.tsx";
     const rule = await readPortalRule(key, { [key]: async () => source,
-      "../../../../components/ui/dialog.tsx": async () => "<Primitive.Portal />" });
+      "../../../../components/ui/dialog.tsx": async () => "<Primitive.Portal />" }, {
+      [key]: await lexLibraryImports(source, "fixture.stories.tsx"),
+      "../../../../components/ui/dialog.tsx": await lexLibraryImports("<Primitive.Portal />", "dialog.tsx"),
+    });
     const entry = story("raw-portal", () => createPortal(<p>Escaped raw overlay</p>, document.body));
     const view = sheet([{ ...entry, portals: rule.portals, frame: frameReason({}, {}, rule.portals, rule.sourceReadable) }]);
     expect(document.body.textContent).not.toContain("Escaped raw overlay");

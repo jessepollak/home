@@ -38,8 +38,13 @@ const sources = (() => {
 })();
 const modulePortals = new WeakMap<StoryModule, PortalRule>();
 
-function loadPortalRule(key: string): Promise<PortalRule> {
-  return readPortalRule(key, sources);
+async function loadPortalRule(key: string): Promise<PortalRule> {
+  try {
+    const { default: imports } = await import("virtual:library-imports");
+    return readPortalRule(key, sources, imports);
+  } catch {
+    return Promise.resolve({ portals: false, sourceReadable: false });
+  }
 }
 let runtime: Runtime | undefined;
 let runtimeRequest: Promise<Runtime> | undefined;

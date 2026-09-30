@@ -88,6 +88,7 @@
     "@vitest/browser-playwright": "4.1.11",
     "@vitest/runner": "4.1.11",
     "agentation": "3.0.2",
+    "es-module-lexer": "2.3.2",
     "knip": "6.37.0",
     "msw": "2.15.0",
     "msw-storybook-addon": "3.0.3",

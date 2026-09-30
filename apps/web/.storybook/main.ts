@@ -48,6 +48,7 @@ const config: StorybookConfig = {
     options: {},
   },
   staticDirs: ["../public", "./static"],
+  viteFinal: async (config) => ({ ...config, plugins: [...(config.plugins ?? []), (await import("./library-imports-plugin")).libraryImportsPlugin()] }),
   features,
   env: async (env) => ({ ...env, ...await buildEnv }),
   managerHead: async (head) => `${head}<script>window.__REVIEW_BUILD__ = ${

@@ -38,10 +38,14 @@ export function rendersPortal(source: string): boolean {
   return /\bPortal\b|[\w$]+Portal\b|createPortal/.test(source);
 }
 
-export function componentModulePaths(source: string, storyPath: string): string[] {
+export type ImportEntry = { specifiers: string[]; nonLiteralDynamic: boolean; lexFailure: boolean };
+export type LibraryImports = Record<string, ImportEntry>;
+
+export function componentModulePaths(specifiers: readonly string[], storyPath: string): string[] {
   const paths = new Set<string>();
-  for (const match of source.matchAll(/(?=\b(?:from|import)\s*(?:"([^"]*)"|'([^']*)')|\bimport\s*\(\s*(?:"([^"]*)"|'([^']*)')\s*\))/g)) {
-    const specifier = match.slice(1).find((value) => value !== undefined)!;
+  for (const specifier of specifiers) {
+    if (specifier.includes("?")) throw new Error("Unsupported import query");
+    if (/\.(?:css|json|svg|png|jpg|jpeg|webp|gif|avif)$/.test(specifier)) continue;
     const path = specifier.startsWith("@/") ? specifier.slice(2) : specifier.startsWith(".")
       ? `${storyPath.slice(0, storyPath.lastIndexOf("/"))}/${specifier}` : specifier;
     const parts: string[] = [];
@@ -56,13 +60,14 @@ export function componentModulePaths(source: string, storyPath: string): string[
 }
 
 export function resolveComponentPath(path: string, keys: readonly string[]): string | undefined {
+  if (/\.[^/]+$/.test(path) && !/\.(?:js|jsx|ts|tsx)$/.test(path)) return undefined;
   const base = path.replace(/\.(?:js|jsx|ts|tsx)$/, "");
   return [path, `${base}.tsx`, `${base}.ts`, `${base}/index.tsx`].find((candidate) => keys.includes(candidate));
 }
 
 export type PortalRule = { portals: boolean; sourceReadable: boolean };
 
-export async function readPortalRule(key: string, sources: Record<string, () => Promise<string>>): Promise<PortalRule> {
+export async function readPortalRule(key: string, sources: Record<string, () => Promise<string>>, imports: LibraryImports): Promise<PortalRule> {
   try {
     const keys = Object.keys(sources);
     const pending = [key];
@@ -72,14 +77,11 @@ export async function readPortalRule(key: string, sources: Record<string, () => 
       const current = pending.pop()!;
       if (visited.has(current)) continue;
       visited.add(current);
+      const entry = imports[current];
+      if (!entry || entry.lexFailure || entry.nonLiteralDynamic) throw new Error("Unreadable imports");
       const source = await sources[current]();
-      for (const match of source.matchAll(/\bimport\s*\(/g)) {
-        if (!/^\s*(?:"[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*')\s*\)/.test(source.slice(match.index + match[0].length))) {
-          throw new Error("Unsupported import expression");
-        }
-      }
       portals ||= rendersPortal(source);
-      for (const path of componentModulePaths(source, current)) {
+      for (const path of componentModulePaths(entry.specifiers, current)) {
         const resolved = resolveComponentPath(`../../../../${path}`, keys);
         if (!resolved) throw new Error("Missing component source");
         pending.push(resolved);

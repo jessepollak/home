@@ -51,15 +51,9 @@ describe("section isolation rules", () => {
   });
 
   test("story imports resolve relative and aliased UI modules without a component roster", () => {
-    expect(componentModulePaths(`
-      import { Drawer } from './drawer';
-      import { Button } from '@/components/ui/button';
-      import { Dialog } from '../ui/dialog.tsx';
-      import { Button as OtherButton } from './button';
-      import { Modal } from '@/client/money-modal';
-      import type { Props } from './unused';
-    `, "components/ui/drawer.stories.tsx")).toEqual([
-      "components/ui/drawer", "components/ui/button", "components/ui/dialog.tsx", "components/ui/unused",
+    expect(componentModulePaths(["./drawer", "@/components/ui/button", "../ui/dialog.tsx", "./button", "@/client/money-modal"],
+      "components/ui/drawer.stories.tsx")).toEqual([
+      "components/ui/drawer", "components/ui/button", "components/ui/dialog.tsx",
     ]);
   });
 
