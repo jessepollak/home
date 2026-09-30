@@ -1,6 +1,6 @@
 import type { PropValue } from "./controls";
 
-export type LibraryUrlState = { component?: string; story?: string; props: Record<string, PropValue> };
+export type LibraryUrlState = { component?: string; story?: string; props: Record<string, PropValue>; theme?: "light" | "dark" };
 
 function parseProps(input: string | null): Record<string, PropValue> {
   if (!input) return {};
@@ -15,10 +15,12 @@ function parseProps(input: string | null): Record<string, PropValue> {
 }
 
 export function readLibraryUrl(url: URL): LibraryUrlState {
+  const theme = url.searchParams.get("theme");
   return {
     component: url.searchParams.get("component") || undefined,
     story: url.searchParams.get("story") || undefined,
     props: parseProps(url.searchParams.get("props")),
+    theme: theme === "light" || theme === "dark" ? theme : undefined,
   };
 }
 
@@ -35,6 +37,10 @@ export function writeLibraryUrl(url: URL, update: Partial<LibraryUrlState>): URL
   if (update.props) {
     if (Object.keys(update.props).length) next.searchParams.set("props", JSON.stringify(update.props));
     else next.searchParams.delete("props");
+  }
+  if ("theme" in update) {
+    if (update.theme) next.searchParams.set("theme", update.theme);
+    else next.searchParams.delete("theme");
   }
   return next;
 }

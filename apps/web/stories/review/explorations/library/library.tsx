@@ -11,7 +11,7 @@ import { writeBoardUrl } from "../board/url-state";
 import { libraryCatalog, type LibraryCatalog } from "./catalog";
 import { propControls, storyArgs, type PropValue } from "./controls";
 import { FoundationsSurface } from "./foundations/foundations";
-import { isFoundation } from "./foundations/model";
+import { foundationPages, isFoundation } from "./foundations/model";
 import { PropsBar } from "./props-bar";
 import { VariantSheet } from "./sheet";
 import { restoredFocus, toggleFocus } from "./sheet-state";
@@ -91,7 +91,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   const foundation = isFoundation(selected) ? selected : null;
   const [focus, setFocus] = useState<string | null>(linked ? original.story ?? null : null);
   const [overrides, setOverrides] = useState<Record<string, PropValue>>(linked && original.story ? original.props : {});
-  const [picked, setPicked] = useState({ source: toolbarTheme, value: toolbarTheme });
+  const [picked, setPicked] = useState({ source: toolbarTheme, value: original.theme ?? toolbarTheme });
   const theme = picked.source === toolbarTheme ? picked.value : toolbarTheme;
   const [annotating, setAnnotating] = useState(false);
   const [root, setRoot] = useState<HTMLDivElement | null>(null);
@@ -125,8 +125,8 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   }, [build.revision, build.deployment]);
   useEffect(() => {
     history.replaceState(history.state, "", writeLibraryUrl(new URL(location.href),
-      { component: foundation ?? item.id, story: foundation ? undefined : focused ?? undefined, props: !foundation && focused ? overrides : {} }));
-  }, [foundation, item.id, focused, overrides]);
+      { component: foundation ?? item.id, story: foundation ? undefined : focused ?? undefined, props: !foundation && focused ? overrides : {}, theme: theme === "dark" ? "dark" : "light" }));
+  }, [foundation, item.id, focused, overrides, theme]);
   useEffect(() => {
     for (const neighbour of [catalog.items[position - 1], catalog.items[position + 1]]) {
       const path = neighbour && componentStories(index, neighbour.title)[0]?.importPath;
@@ -164,7 +164,8 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   const count = entries.length === 1 ? "1 story" : `${entries.length} stories`;
   return <div className={styles.library} data-review-library="workspace">
     <LibrarySidebar catalog={catalog} selected={foundation ?? item.id} onSelect={select} />
-    {foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <main className={styles.surface} aria-label={`${item.name} preview`}>
+    <main className={styles.surface} aria-label={foundation
+      ? `${foundationPages.find((page) => page.id === foundation)!.name} foundations` : `${item.name} preview`}>
       <header className={styles.toolbar}>
         <div className={styles.pickers}>
           <span id="library-theme-label" className={styles.pickerLabel}>Theme</span>
@@ -174,10 +175,10 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
             <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
           </ToggleGroup>
         </div>
-        {focusedStory && controls && args &&
+        {!foundation && focusedStory && controls && args &&
           <PropsBar name={`${item.name} · ${focusedStory.name}`} controls={controls} values={args} onChange={change} />}
       </header>
-      <figure className={styles.stage}>
+      {foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <figure className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
           {stories ? <VariantSheet key={item.id} root={root} component={item.name} changed={item.changed}
             stories={stories} theme={theme} focused={focused} focusedArgs={args} annotating={annotating}
@@ -188,9 +189,9 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
             </p>}
         </div>
         <figcaption className={styles.caption}>{item.name} · {count} · {viewports.mobile.width} wide</figcaption>
-      </figure>
-      <AnnotateToggle annotating={annotating} onChange={setAnnotating} />
-    </main>}
+      </figure>}
+      {!foundation && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
+    </main>
   </div>;
 }
 

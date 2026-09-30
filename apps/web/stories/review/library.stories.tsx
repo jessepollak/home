@@ -180,6 +180,7 @@ export const RestoredPreview: Story = {
     url.searchParams.set("component", "ui-button");
     url.searchParams.set("story", "ui-button--loading");
     url.searchParams.set("props", JSON.stringify({ children: "RESTORED" }));
+    url.searchParams.set("theme", "dark");
     history.replaceState(history.state, "", url);
     return () => history.replaceState(history.state, "", original);
   },
@@ -223,6 +224,13 @@ export const RestoredPreview: Story = {
 export const Foundations: Story = {
   args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank" },
   parameters: { a11y: { test: "error" } },
+  beforeEach: () => {
+    const original = location.href;
+    const url = new URL(original);
+    url.searchParams.set("theme", "light");
+    history.replaceState(history.state, "", url);
+    return () => history.replaceState(history.state, "", original);
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const foundations = await canvas.findByRole("listbox", { name: "Foundations" });
@@ -240,19 +248,17 @@ export const Foundations: Story = {
     await expect(url.searchParams.get("component")).toBe("foundations/color");
     await expect(url.searchParams.get("props")).toBeNull();
 
-    const theme = within(surface).getByRole("radiogroup", { name: "Theme" });
-    await expect(within(theme).getByRole("radio", { name: "Light" })).toBeChecked();
-    const lightCard = surface.style.getPropertyValue("--card");
-    await expect(lightCard).not.toBe("");
-    await userEvent.click(within(theme).getByRole("radio", { name: "Dark" }));
-    await expect(within(theme).getByRole("radio", { name: "Dark" })).toBeChecked();
-    await expect(surface).toHaveAttribute("data-foundation-theme", "dark");
-    await waitFor(() => expect(surface.style.getPropertyValue("--card")).not.toBe(lightCard));
-    await expect(surface).toHaveStyle({ colorScheme: "dark" });
+    const theme = within(surface).getByRole("group", { name: "Theme" });
+    await expect(within(theme).getAllByRole("button")).toHaveLength(2);
+    await expect(within(theme).getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(theme).getByRole("button", { name: "Dark" }));
+    await expect(within(theme).getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await expect(surface.querySelector("[data-foundation]")).toHaveAttribute("data-foundation-theme", "dark");
+    await expect(search(canvasElement).get("theme")).toBe("dark");
 
     await userEvent.click(within(foundations).getByRole("option", { name: /^Motion, / }));
     await expect(within(surface).getByRole("heading", { name: "Motion" })).toBeVisible();
-    await expect(surface).toHaveAttribute("data-foundation-theme", "dark");
+    await expect(surface.querySelector("[data-foundation]")).toHaveAttribute("data-foundation-theme", "dark");
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/motion");
     const duration = within(surface).getByRole("row", { name: /^duration-180 / });
     await expect(duration).toHaveTextContent("0.18s");
@@ -270,9 +276,19 @@ export const Foundations: Story = {
     await userEvent.click(within(leading).getByText(/^Files \(/));
     await expect(within(leading).getByText("components/ui/drawer.tsx")).toBeVisible();
 
-    await userEvent.click(canvas.getByRole("option", { name: "Badge, 1 story" }));
-    await expect(await canvas.findByRole("main", { name: "Badge preview" })).toBeVisible();
-    await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("ui-badge");
+    await userEvent.click(canvas.getByRole("option", { name: "Button, 4 stories, changed in this build" }));
+    await expect(await canvas.findByRole("main", { name: "Button preview" })).toBeVisible();
+    await expect(await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await expect(search(canvasElement).get("component")).toBe("ui-button");
+    await expect(search(canvasElement).get("theme")).toBe("dark");
+    await userEvent.click(color);
+    await expect(canvas.getByRole("main", { name: "Color foundations" })).toBeVisible();
+    await expect(surface.querySelector("[data-foundation]")).toHaveAttribute("data-foundation-theme", "dark");
+    await expect(canvas.getAllByRole("button", { name: "Dark" })).toHaveLength(1);
+    await userEvent.click(canvas.getByRole("button", { name: "Light" }));
+    await expect(surface.querySelector("[data-foundation]")).toHaveAttribute("data-foundation-theme", "light");
+    await expect(search(canvasElement).get("theme")).toBe("light");
   },
 };
 
@@ -282,12 +298,15 @@ export const RestoredFoundation: Story = {
     const original = location.href;
     const url = new URL(original);
     url.searchParams.set("component", "foundations/radius-spacing");
+    url.searchParams.set("theme", "dark");
     history.replaceState(history.state, "", url);
     return () => history.replaceState(history.state, "", original);
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const surface = await canvas.findByRole("main", { name: "Radius & spacing foundations" });
+    await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await expect(surface.querySelector("[data-foundation]")).toHaveAttribute("data-foundation-theme", "dark");
     await expect(within(surface).getByRole("heading", { name: "Radius & spacing", level: 2 })).toBeVisible();
     await expect(canvas.getByRole("option", { name: /^Radius & spacing, / })).toHaveAttribute("aria-selected", "true");
     await expect(within(surface).getByText("rounded-lg")).toBeVisible();

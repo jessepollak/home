@@ -99,6 +99,17 @@ describe("library links", () => {
     expect(writeLibraryUrl(updated, { props: {} }).searchParams.has("props")).toBe(false);
   });
 
+  test("keeps the theme when navigating between foundations and components", () => {
+    const color = writeLibraryUrl(new URL("https://example.test/iframe.html?id=review-library--library"),
+      { component: "foundations/color", theme: "dark" });
+    const button = writeLibraryUrl(color, { component: "ui-button", story: "ui-button--default" });
+    const restored = writeLibraryUrl(button, { component: "foundations/color", story: undefined });
+    expect(readLibraryUrl(restored).theme).toBe("dark");
+    expect(readLibraryUrl(writeLibraryUrl(restored, { theme: "light" })).theme).toBe("light");
+    expect(readLibraryUrl(new URL("https://example.test/?theme=system")).theme).toBeUndefined();
+    expect(writeLibraryUrl(restored, { theme: undefined }).searchParams.has("theme")).toBe(false);
+  });
+
   test("ignores malformed or non-primitive props", () => {
     expect(readLibraryUrl(new URL("https://example.test/?props=%7Bbad")).props).toEqual({});
     expect(readLibraryUrl(new URL(`https://example.test/?props=${encodeURIComponent('{"a":{"b":1},"c":"d"}')}`)).props)

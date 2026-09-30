@@ -90,9 +90,9 @@ export function TypePage() {
           </tr>)}
         </tbody>
       </table>
-      {arbitrarySizes.length > 0 && <p className={styles.note}>
-        Off-scale candidates: {arbitrarySizes.map((entry) => <span key={entry.step}><code>text-[{entry.step}]</code> · <Occurrences entry={entry} /></span>)}.
-      </p>}
+      {arbitrarySizes.length > 0 && <div className={styles.note}>
+        Off-scale candidates: {arbitrarySizes.map((entry) => <div key={entry.step}><code>text-[{entry.step}]</code> · <Occurrences entry={entry} /></div>)}.
+      </div>}
     </section>
     <section className={styles.section} aria-labelledby="type-weights">
       <h3 id="type-weights" className={styles.sectionTitle}>Weights</h3>

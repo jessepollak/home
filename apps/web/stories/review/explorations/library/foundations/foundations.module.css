@@ -1,9 +1,9 @@
 .surface {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
   color: var(--foreground);
   --foundation-subtle: color-mix(in oklab, var(--muted-foreground) 82%, var(--foreground));
-}
-.themeControl {
-  width: 184px;
 }
 .sheet {
   min-height: 0;
