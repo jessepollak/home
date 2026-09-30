@@ -54,16 +54,16 @@ export const WithUnpricedTokens: Story = {
   },
 };
 
-const unsupportedSnapshot = buildBalancesSnapshotFixture({ region: "BR", registry: {
-  usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+const unsupportedSnapshot = buildBalancesSnapshotFixture({ region: "MX", registry: {
+  usdc: { balance: ready("5000000"), value: priced("MXN", "2500"), cashValue: pricedCash("USD", "500") },
 } });
 
 export const UnsupportedLocalCurrency: Story = {
   args: { assetBalances: presentBalances({ status: "ready", snapshot: unsupportedSnapshot, error: null }) },
   play: async ({ canvasElement }) => {
     const cash = within(within(canvasElement).getByRole("region", { name: "Cash" }));
-    const real = cash.getByText("Brazilian real").closest("li")!;
-    await expect(within(real).getByRole("img", { name: "Verification pending" })).toBeVisible();
-    await expect(real.textContent).not.toMatch(/[0-9]|R\$/);
+    const peso = cash.getByText("Mexican peso").closest("li")!;
+    await expect(within(peso).getByRole("img", { name: "Verification pending" })).toBeVisible();
+    await expect(peso.textContent).not.toMatch(/[0-9]|\$/);
   },
 };
