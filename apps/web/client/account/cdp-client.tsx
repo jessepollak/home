@@ -6,9 +6,9 @@ import type {
   SendUserOperationOptions,
   SendUserOperationResult,
 } from "@coinbase/cdp-core";
+import dynamic from "next/dynamic";
 import {
   createContext,
-  lazy,
   Suspense,
   useContext,
   type ReactNode,
@@ -174,13 +174,10 @@ export type AccountSignOutPhase = {
 };
 
 const unconfiguredClient = createBlockedAccountWalletClient("unconfigured");
-const LazyCompositeAccountProvider = lazy(() => import("./composite-account-provider"));
-const LazyNativeBaseAccountBridge = lazy(() => import("./native-base-bridge"));
-const LazySmokeFixtureAccountProvider = lazy(() =>
-  import("./smoke-fixture-provider").then((module) => ({
-    default: module.SmokeFixtureAccountProvider,
-  })),
-);
+const LazyCompositeAccountProvider = dynamic(() => import("./composite-account-provider"));
+const LazyNativeBaseAccountBridge = dynamic(() => import("./native-base-bridge"));
+const LazySmokeFixtureAccountProvider = dynamic(() =>
+  import("./smoke-fixture-provider").then((module) => module.SmokeFixtureAccountProvider));
 
 export function AccountWalletClientProvider({
   client,
