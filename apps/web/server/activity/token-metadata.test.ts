@@ -13,6 +13,9 @@ const EURC = activityAssets.find((asset) => asset.id === "eurc")!;
 const VAULT = activityAssets.find((asset) => asset.id === "morpho-steakhouse-usdc")!;
 const ZORA = "0x1111111111166b7fe7bd91427724b487980afc69" as const;
 const UNKNOWN = "0x4444444444444444444444444444444444444444" as const;
+const DOCUMENTED_CODEX_DEADLINE_CEILING_MS = 3_000;
+const DOCUMENTED_ICON_WAIT_CEILING_MS = 750;
+const DEADLINE_TOLERANCE_MS = 25;
 
 function staticIcons(icons: Record<string, string | null>) {
   const state = { refreshes: 0 };
@@ -279,7 +282,7 @@ describe("Activity token metadata resolver", () => {
       jest.advanceTimersByTime(1);
       for (let tick = 0; tick < 32; tick += 1) await Promise.resolve();
       expect(settled).toBeFalse();
-      jest.advanceTimersByTime(10_000);
+      jest.advanceTimersByTime(DOCUMENTED_ICON_WAIT_CEILING_MS + DEADLINE_TOLERANCE_MS - 1);
       for (let tick = 0; tick < 32 && !settled; tick += 1) await Promise.resolve();
       expect(settled).toBeTrue();
       expect(iconUrl).toBeNull();
@@ -310,7 +313,7 @@ describe("Activity token metadata resolver", () => {
       expect(fetchStarted).toBeTrue();
       jest.advanceTimersByTime(1);
       expect(codexSignal?.aborted).toBeFalse();
-      jest.advanceTimersByTime(10_000);
+      jest.advanceTimersByTime(DOCUMENTED_CODEX_DEADLINE_CEILING_MS + DEADLINE_TOLERANCE_MS - 1);
       expect(codexSignal?.aborted).toBeTrue();
       let settled = false;
       let tokenSymbol: string | null | undefined;
