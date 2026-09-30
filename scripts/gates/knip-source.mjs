@@ -8,21 +8,6 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 const requireWeb = createRequire(path.join(root, "apps/web/package.json"));
 export const ts = requireWeb("typescript");
 const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
-const requireKnip = createRequire(requireWeb.resolve("knip"));
-const picomatch = requireKnip("picomatch");
-const knipMatchers = new Map();
-
-// Knip's IssueCollector matches entry and ignore patterns with Picomatch and
-// `dot: true`. Reuse that exact matcher so an exemption can never match nothing
-// because this gate implements a different glob dialect.
-export function knipGlob(file, pattern) {
-  let matcher = knipMatchers.get(pattern);
-  if (!matcher) {
-    matcher = picomatch(pattern, { dot: true });
-    knipMatchers.set(pattern, matcher);
-  }
-  return matcher(file);
-}
 
 export function readWebSources() {
   const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
