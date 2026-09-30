@@ -117,6 +117,7 @@ export function createActivityHandler(dependencies: {
         outcome: "failed",
         reason: "primary-source",
         source: "none",
+        ...sourceFailure(error),
         durationMs: elapsedMs(finishedAt, requestStartedAt),
         sourceDurationMs: 0,
         sourceAttemptCount: 0,
@@ -198,6 +199,7 @@ export function createActivityHandler(dependencies: {
           primaryFinishedAt ?? finishedAt,
           sourceStartedAt,
         ),
+        ...sourceFailure(error),
         sourceAttemptCount: 1,
         pageCount: 0,
         rowCount: 0,
@@ -215,6 +217,14 @@ export function createActivityHandler(dependencies: {
       }
       return activityReadError(error);
     }
+  };
+}
+
+function sourceFailure(error: unknown): Pick<ActivityReadObservation, "sourceError" | "upstreamStatus"> {
+  if (!(error instanceof ChainDataError)) return { sourceError: "unknown" };
+  return {
+    sourceError: error.code,
+    ...(error.status === null ? {} : { upstreamStatus: error.status }),
   };
 }
 

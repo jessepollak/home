@@ -1,5 +1,6 @@
 "use client";
 
+import { restoreHoldingReturn } from "@/client/investments/restore-holding-return";
 import {
   useCallback,
   useEffect,
@@ -216,6 +217,7 @@ function DashboardShellBody({
   const pendingBalancesRestoreRef = useRef(false);
   const balancesReturnScrollRef = useRef(0);
   const pendingHistoryScrollRestoreRef = useRef<number | null>(null);
+  const pendingHoldingRestoreCleanup = useRef<(() => void) | null>(null);
   const pendingShellScrollFrameRef = useRef<number | null>(null);
   const lastNonNullBalancesScopeRef = useRef<string | null>(null);
   const signedOutBoundaryClearedRef = useRef(false);
@@ -608,6 +610,11 @@ function DashboardShellBody({
     paintedAssetBalances.status,
   ]);
 
+  useEffect(() => () => {
+    pendingHoldingRestoreCleanup.current?.();
+    pendingHoldingRestoreCleanup.current = null;
+  }, [balancesScope, isAccountSettingsOpen]);
+
   useEffect(() => {
     if (navigationRequest === 0 || !panelStageRef.current) return;
     panelStageRef.current.focus({ preventScroll: true });
@@ -626,6 +633,24 @@ function DashboardShellBody({
     cancelPendingShellScroll();
     const historyScrollTop = pendingHistoryScrollRestoreRef.current;
     pendingHistoryScrollRestoreRef.current = null;
+    if (holdingReturn && !holdingRow && mainRef.current?.querySelector('[aria-labelledby="investments-held-heading"][aria-busy="true"]')) {
+      const main = mainRef.current;
+      previousNavigationRef.current = activeNavigation;
+      const stop = restoreHoldingReturn(main, holdingReturn.key, (row) => {
+        row?.closest("button")?.focus({ preventScroll: true });
+        if (historyScrollTop !== null) {
+          main.scrollTo({ top: clampHomeScrollTop(main, historyScrollTop), behavior: "auto" });
+        } else if (holdingReturn.scrollIntoView) {
+          row?.scrollIntoView({ block: "center", behavior: "auto" });
+        }
+      });
+      pendingHoldingRestoreCleanup.current = stop;
+      return () => {
+        stop();
+        if (pendingHoldingRestoreCleanup.current === stop) pendingHoldingRestoreCleanup.current = null;
+        cancelPendingShellScroll();
+      };
+    }
     if (historyScrollTop !== null) {
       const restoreHistoryScroll = () => {
         mainRef.current?.scrollTo({

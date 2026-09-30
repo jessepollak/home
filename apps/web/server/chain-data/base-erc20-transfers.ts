@@ -108,7 +108,11 @@ FROM (
     any(toString(parameters['from'])) AS from_address,
     any(toString(parameters['to'])) AS to_address,
     any(toString(parameters['value'])) AS amount_base_units,
-    sum(toInt8(action)) AS net_action
+    sum(toInt8(CASE toString(action)
+      WHEN 'added' THEN '1'
+      WHEN 'removed' THEN '-1'
+      ELSE toString(action)
+    END)) AS net_action
   FROM base.events
   WHERE event_signature = '${TRANSFER_SIGNATURE}'${assetClause}
     AND block_timestamp >= parseDateTime64BestEffort(${sqlString(request.from)})

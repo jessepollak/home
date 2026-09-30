@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { preserveRowFocus } from "./preserve-row-focus";
 import { noteHomeNavigationContent } from "@/client/observability/interaction-performance";
 import { RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
@@ -22,6 +23,9 @@ import { formatExactPresentationTokenAmount, formatFiatAmount, formatPresentatio
 export type InvestmentsOverviewProps = {
   snapshot: BalancesSnapshot | null;
   ownedRows?: OwnedInvestment[];
+  rowsPending?: boolean;
+  rowsFailed?: boolean;
+  onRetryRows?: () => void;
   balanceStatus: "ready" | "loading" | "failed";
   refreshFailed?: boolean;
   visibleCount: number;
@@ -78,12 +82,39 @@ function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
         : <CurrencyMark assetKey={holding.key} src={symbolMark?.imageUrl} symbol={symbolMark?.symbol} pending={symbolMark?.pending} size="sm" />;
 }
 
-export function InvestmentsOverview({ ownedRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
+export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed = false, onRetryRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
   const loading = balanceStatus === "loading";
+  const listLoading = loading || rowsPending;
+  const pendingFocus = useRef<ReturnType<typeof preserveRowFocus>>(null);
+  useEffect(() => {
+    if (rowsFailed) {
+      pendingFocus.current?.cancel();
+      pendingFocus.current = null;
+    }
+  }, [rowsFailed]);
+  useEffect(() => () => {
+    pendingFocus.current?.cancel();
+    pendingFocus.current = null;
+  }, []);
+  const measureRows = useCallback((list: HTMLUListElement | null) => {
+    const container = list?.parentElement;
+    if (!list || !container) return;
+    pendingFocus.current?.restore(list);
+    pendingFocus.current = null;
+    const measure = () => container.style.setProperty("--investment-list-height", `${list.getBoundingClientRect().height}px`);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(list);
+    return () => {
+      observer?.disconnect();
+      pendingFocus.current?.cancel();
+      pendingFocus.current = preserveRowFocus(list);
+    };
+  }, []);
   const failed = balanceStatus === "failed" && !snapshot;
   const active = loading || failed ? null : snapshot;
   useEffect(() => {
-    noteHomeNavigationContent("/investments", loading ? "loading" : failed || !active ? "unavailable" : "ready");
+    noteHomeNavigationContent("/investments", listLoading ? "loading" : failed || rowsFailed || !active ? "unavailable" : "ready");
   });
   const summary = useMemo(() => active ? presentInvestmentTotal(active) : null, [active]);
   const rows = useMemo(() => active ? ownedRows ?? selectOwnedInvestments(active) : [], [active, ownedRows]);
@@ -111,14 +142,16 @@ export function InvestmentsOverview({ ownedRows, snapshot, balanceStatus, refres
       </div>
       {failed ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}><RotateCw aria-hidden="true" />Try again</Button> : null}
     </CardContent></Card>
-    {loading || rows.length > 0 ? <section aria-labelledby="investments-held-heading" aria-busy={loading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
-      {loading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
+    {listLoading || rowsFailed || rows.length > 0 ? <section key={active ? `${active.owner.address}:${active.region}` : "unavailable"} aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
+      <div style={{ minHeight: rowsPending ? "var(--investment-list-height, 0px)" : undefined }}>
+      {rowsFailed ? <RefreshFailedNotice onRetry={onRetryRows ?? onRetryBalances} /> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul ref={measureRows} className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
         const context = ownedQuantity(row, active!);
         const unreadable = ownedBalanceUnreadable(row);
         const value = row.amount ? amountLabel(row.amount, active!) : null;
         const reason = holdingValueContext(row.holding.value);
         return <BalanceRow key={row.key} icon={holdingMark(row.holding, presentHoldingMark(row.holding))} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name.trim() || row.holding.symbol.trim()}</span>} context={unreadable ? undefined : context} contextTitle={unreadable ? undefined : ownedQuantity(row, active!, true)} value={unreadable ? "Unavailable" : value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : unavailableValue()} valueTone={row.amount ? "default" : "muted"} valueContext={row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : unreadable || reason === "Value unavailable" ? undefined : reason} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name.trim() || row.holding.symbol.trim()}`} chevron />;
       })}</ul>{visibleCount < rows.length ? <><span role="status" className="sr-only">Showing {visibleCount} of {rows.length} investments</span><div ref={sentinel} aria-hidden="true" /></> : null}</>}
+      </div>
     </CardContent></Card></section> : null}
   </div>;
 }

@@ -134,13 +134,14 @@ function investmentHoldings(snapshot: BalancesSnapshot, cash: CashSelection[]): 
   const selectedCashIds = new Set(
     cash.flatMap((entry) => entry.kind === "holding" ? [entry.holding.id] : []),
   );
-  return snapshot.holdings.filter((holding) =>
-    holding.kind !== "vault-share" &&
+  return snapshot.holdings.filter((holding) => !selectedCashIds.has(holding.id) && isInvestmentHolding(holding));
+}
+
+export function isInvestmentHolding(holding: Holding): boolean {
+  return holding.kind !== "vault-share" &&
     holding.cashCurrency === null &&
-    !selectedCashIds.has(holding.id) &&
     (holding.balance.status !== "ready" || holding.balance.baseUnits !== "0") &&
-    (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim())
-  );
+    (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim());
 }
 
 export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {
