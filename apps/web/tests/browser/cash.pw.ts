@@ -6,6 +6,7 @@ import { buildBalancesSnapshotFixture, ready, priced, pricedCash } from "../../s
 import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "../../shared/trading/cash-conversion";
 import { canonicalUsdcAsset, verifiedLocalCashAssets } from "../../config/portfolio-assets";
 import { preparedConversionFixture } from "./feature-map/conversion-fixture";
+import { deferred } from "../helpers/async";
 
 test("warm Cash and Home paint with deferred API reads and restore Home scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -152,10 +153,9 @@ for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] a
     await page.emulateMedia({ reducedMotion: "reduce" });
     await seedSignedInSession(page);
     await installApiFixtures(page);
-    let release!: () => void;
-    const deferred = new Promise<void>((resolve) => { release = resolve; });
+    const chunk = deferred<void>();
     const holdChunk = async (route: Route) => {
-      await deferred;
+      await chunk.promise;
       return route.continue();
     };
     await page.route("**/_next/static/chunks/*savings*.js", holdChunk);
@@ -165,14 +165,14 @@ for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] a
       await expect(dialog.getByText("Loading", { exact: true })).toBeVisible();
       await expect(dialog.getByRole("button", { name: `Close ${mode} dialog` })).toBeFocused();
       await expect(dialog.getByRole("textbox", { name: "Amount" })).toHaveCount(0);
-      release();
+      chunk.resolve();
       await expect(dialog.getByRole("textbox", { name: "Amount" })).toBeFocused();
       await expect(page.getByRole("dialog")).toHaveCount(1);
       await dialog.getByRole("button", { name: `Close ${mode} dialog` }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page).toHaveURL(/\/cash\/savings$/);
     } finally {
-      release();
+      chunk.resolve();
       await page.unroute("**/_next/static/chunks/*savings*.js", holdChunk);
     }
   });
@@ -183,10 +183,9 @@ for (const [dismissal, action, title] of [["Back", "Withdraw", "Withdraw"], ["Cl
     await page.emulateMedia({ reducedMotion: "reduce" });
     await seedSignedInSession(page);
     await installApiFixtures(page);
-    let release!: () => void;
-    const deferred = new Promise<void>((resolve) => { release = resolve; });
+    const chunk = deferred<void>();
     const holdChunk = async (route: Route) => {
-      await deferred;
+      await chunk.promise;
       return route.continue();
     };
     await page.route("**/_next/static/chunks/*savings*.js", holdChunk);
@@ -203,7 +202,7 @@ for (const [dismissal, action, title] of [["Back", "Withdraw", "Withdraw"], ["Cl
       const retained = dismissal === "Back" ? selected : opener;
       await expect(retained).toBeFocused();
       const chunkLoaded = page.waitForResponse((response) => response.url().includes("/_next/static/chunks/") && response.url().includes("savings") && response.ok());
-      release();
+      chunk.resolve();
       await chunkLoaded;
       await expect(retained).toBeFocused();
       await expect(page.getByRole("textbox", { name: "Amount" })).toHaveCount(0);
@@ -211,7 +210,7 @@ for (const [dismissal, action, title] of [["Back", "Withdraw", "Withdraw"], ["Cl
       if (dismissal === "Back") await tray.getByRole("button", { name: "Close Gauntlet USDC Prime details" }).click();
       await expect(opener).toBeFocused();
     } finally {
-      release();
+      chunk.resolve();
       await page.unroute("**/_next/static/chunks/*savings*.js", holdChunk);
     }
   });

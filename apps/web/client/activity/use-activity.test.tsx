@@ -1,7 +1,7 @@
 import "../account/dom-test-harness";
 
 import { clearOwnerQueryBoundary, getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActivityPage, ActivityTransfer, FetchActivity } from "./types";
 import {
@@ -1141,6 +1141,10 @@ describe("mounted first-page recovery with an empty cache", () => {
 });
 
 describe("after-action activity windows", () => {
+  beforeEach(() => {
+    notifyManager.setScheduler((callback) => queueMicrotask(callback));
+  });
+
   for (const requestKind of ["after-action", "pull"] as const) {
     test.each([0, 1, 2, 3, 4, 5, 6])(`services a ${requestKind} request after %s settling microtasks`, async (gap) => {
       jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });

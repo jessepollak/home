@@ -60,31 +60,31 @@ function deferred<T>() {
 type HarnessProps = {
   owner: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
-  reads: Record<"balances" | "actions" | "vaults" | "borrow", (signal: AbortSignal) => Promise<string>> & { cashout?: (signal: AbortSignal) => Promise<string> };
+  reads: Record<"balances" | "actions" | "vaults" | "borrow", (signal: AbortSignal) => Promise<string>> & { borrowMarket?: (signal: AbortSignal) => Promise<string> };
   capture: (hook: ReturnType<typeof useHomeRefresh>) => void;
   regionId?: RegionId;
   enabled?: boolean;
-  view?: "home" | "cashout";
+  manageActions?: boolean;
 };
 
-function Harness({ owner, fetchActivity, reads, capture, regionId = "GLOBAL", enabled = true, view = "home" }: HarnessProps) {
+function Harness({ owner, fetchActivity, reads, capture, regionId = "GLOBAL", enabled = true, manageActions = true }: HarnessProps) {
   const key = owner?.smartAccount ? dataOwnerKey(owner) : null;
   const activity = useActivity(owner, fetchActivity, regionId);
   const balances = useHomeQuery({ queryKey: ownerQueryKey(key ?? "unauthenticated", "balances", regionId),
     enabled: !!key, queryFn: ({ signal }) => reads.balances(signal) });
-  useHomeQuery({ queryKey: ownerQueryKey(key ?? "unauthenticated", "actions"),
-    enabled: !!key, queryFn: ({ signal }) => reads.actions(signal) });
   useHomeQuery({ queryKey: publicQueryKey("savings-vaults"), queryFn: ({ signal }) => reads.vaults(signal) });
   useHomeQuery({ queryKey: ownerQueryKey(key ?? "unauthenticated", "borrow", "overview"),
     enabled: !!key, queryFn: ({ signal }) => reads.borrow(signal) });
-  const refresh = useHomeRefresh({ session: owner, regionId, fetchActivity, enabled: enabled && view === "home" });
+  useHomeQuery({ queryKey: ownerQueryKey(key ?? "unauthenticated", "borrow-market", "market-1"),
+    enabled: !!key && !!reads.borrowMarket, queryFn: ({ signal }) => reads.borrowMarket ? reads.borrowMarket(signal) : Promise.reject(new Error("No market read")) });
+  const refresh = useHomeRefresh({ session: owner, regionId, fetchActivity, enabled });
   useEffect(() => capture(refresh));
   return <div>
     <output data-testid="refresh">{refresh.state.phase}</output>
     <output data-testid="activity">{activity.status === "ready" ? activity.page.transfers.map((row) => row.logId).join(",") : activity.status}</output>
     <output data-testid="cursor">{activity.status === "ready" ? activity.page.nextCursor ?? "end" : "missing"}</output>
     <output data-testid="balance">{balances.data ?? "missing"}</output>
-    {reads.cashout ? <CashoutHistoryProbe ownerKey={key} reads={reads} view={view} /> : null}
+    {manageActions ? <ActionsProbe ownerKey={key} read={reads.actions} /> : null}
     {activity.status === "ready" ? <>
       <button type="button" onClick={() => activity.setSentinelVisible(true)}>load more</button>
       <button type="button" onClick={() => activity.setSentinelVisible(false)}>stop loading</button>
@@ -92,25 +92,18 @@ function Harness({ owner, fetchActivity, reads, capture, regionId = "GLOBAL", en
   </div>;
 }
 
-function CashoutHistoryProbe({ ownerKey, reads, view }: {
-  ownerKey: string | null;
-  reads: HarnessProps["reads"];
-  view: HarnessProps["view"];
-}) {
-  const cashout = useHomeQuery({
-    queryKey: ownerQueryKey(ownerKey ?? "unauthenticated", "actions", "pending-cashout"),
-    enabled: view === "cashout" && !!ownerKey && !!reads.cashout,
-    queryFn: ({ signal }) => reads.cashout?.(signal!) ?? Promise.reject(new Error("Cash-out history unavailable")),
+function ActionsProbe({ ownerKey, read }: { ownerKey: string | null; read: HarnessProps["reads"]["actions"] }) {
+  const actions = useHomeQuery({
+    queryKey: ownerQueryKey(ownerKey ?? "unauthenticated", "actions"),
+    enabled: !!ownerKey,
+    queryFn: ({ signal }) => read(signal),
   });
-  return <>
-    <output data-testid="cashout">{cashout.data ?? "missing"}</output>
-    <output data-testid="cashout-status">{cashout.status}</output>
-  </>;
+  return <output data-testid="actions">{actions.data ?? actions.status}</output>;
 }
 
 function ForeignCashoutHistory({ owner, onRead }: { owner: VerifiedAccountSession; onRead: () => Promise<string> }) {
   const cashout = useHomeQuery({
-    queryKey: ownerQueryKey(dataOwnerKey(owner), "actions", "pending-cashout"),
+    queryKey: ownerQueryKey(dataOwnerKey(owner), "actions"),
     queryFn: onRead,
   });
   return <output data-testid="foreign-cashout">{cashout.data ?? "missing"}</output>;
@@ -245,10 +238,18 @@ describe("useHomeRefresh", () => {
     );
   });
 
-  test("refresh fetches every advertised scope", async () => {
+  test("refresh fetches every advertised scope without touching inactive or foreign market detail", async () => {
     const f = fixture();
-    const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
+    const client = getHomeQueryClient();
+    const inactiveKey = ownerQueryKey(f.key, "borrow-market", "market-2");
+    const foreignKey = ownerQueryKey(dataOwnerKey(session("subject-b", walletB)), "borrow-market", "market-1");
+    client.setQueryData(inactiveKey, "inactive-detail");
+    client.setQueryData(foreignKey, "foreign-detail");
+    let marketReads = 0;
+    const view = render(<Harness owner={f.owner} reads={{ ...f.reads, borrowMarket: async () => `detail-${++marketReads}` }}
+      fetchActivity={f.fetchActivity} capture={f.capture} />);
     await ready(view);
+    await waitFor(() => expect(marketReads).toBe(1));
     const fetchedScopes = new Set<unknown>();
     const unsubscribe = getHomeQueryClient().getQueryCache().subscribe((event) => {
       if (event.type === "updated" && event.action.type === "fetch") fetchedScopes.add(event.query.queryKey[1]);
@@ -259,6 +260,12 @@ describe("useHomeRefresh", () => {
       unsubscribe();
     }
     expect(fetchedScopes).toEqual(new Set(homeRefreshScopes));
+    expect(marketReads).toBe(2);
+    expect(client.getQueryData<string>(ownerQueryKey(f.key, "borrow-market", "market-1"))).toBe("detail-2");
+    expect(client.getQueryData<string>(inactiveKey)).toBe("inactive-detail");
+    expect(client.getQueryState(inactiveKey)?.isInvalidated).toBe(false);
+    expect(client.getQueryData<string>(foreignKey)).toBe("foreign-detail");
+    expect(client.getQueryState(foreignKey)?.isInvalidated).toBe(false);
   });
 
   test("a Home pull recovers an unreadable pending-cashout estimate", async () => {
@@ -279,7 +286,7 @@ describe("useHomeRefresh", () => {
       if (unavailable) throw new Error("Cash-out history unavailable");
       return { actions: [action] };
     };
-    const view = render(<><Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />
+    const view = render(<><Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} manageActions={false} />
       <PendingCashoutEstimateProbe owner={f.owner} snapshot={snapshot} fetchOperations={fetchOperations} /></>);
     await ready(view);
     await waitFor(() => expect(view.getByTestId("cashout-estimate").textContent).toBe('{"state":"unreadable"}'));
@@ -288,125 +295,61 @@ describe("useHomeRefresh", () => {
     await waitFor(() => expect(view.getByTestId("cashout-estimate").textContent).toBe('{"state":"escrow","baseUnits":"50000000","partial":false}'));
   });
 
-  test("Home pull marks cached pending-cashout history stale and the next pending-cashout entry reads fresh history", async () => {
+  test("Home pull refreshes the shared pending-cashout actions cache exactly once", async () => {
     const f = fixture();
-    const client = getHomeQueryClient();
-    const cashoutKey = ownerQueryKey(f.key, "actions", "pending-cashout");
-    let cashoutReads = 0;
-    const reads = { ...f.reads, cashout: async () => ++cashoutReads === 1 ? "funded-stale" : "funded-fresh" };
-    const home = <Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} />;
-    const cashout = <Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} view="cashout" />;
-    const view = render(home);
+    const key = ownerQueryKey(f.key, "actions");
+    const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
     await ready(view);
-    expect(cashoutReads).toBe(0);
-    view.rerender(cashout);
-    await waitFor(() => expect(view.getByTestId("cashout").textContent).toBe("funded-stale"));
-    expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(false);
-    view.rerender(home);
-    expect(client.getQueryState(cashoutKey)?.fetchStatus).toBe("idle");
+    await waitFor(() => expect(view.getByTestId("actions").textContent).toBe("actions-1"));
     await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
-    expect(cashoutReads).toBe(1);
-    expect(client.getQueryData<string>(cashoutKey)).toBe("funded-stale");
-    expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(true);
     expect(f.calls.actions).toBe(2);
-    view.rerender(cashout);
-    await waitFor(() => expect(view.getByTestId("cashout").textContent).toBe("funded-fresh"));
-    expect(client.getQueryData<string>(cashoutKey)).toBe("funded-fresh");
-    expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(false);
-    expect(cashoutReads).toBe(2);
+    expect(getHomeQueryClient().getQueryData<string>(key)).toBe("actions-2");
+    expect(getHomeQueryClient().getQueryState(key)?.isInvalidated).toBe(false);
   });
 
-  test("a Home pull supersedes an in-flight pending-cashout read so the next entry still reads fresh history", async () => {
+  test("a Home pull joins an active shared actions read instead of starting another", async () => {
     const f = fixture();
-    const client = getHomeQueryClient();
-    const cashoutKey = ownerQueryKey(f.key, "actions", "pending-cashout");
+    const key = ownerQueryKey(f.key, "actions");
     const inFlight = deferred<string>();
-    let cashoutReads = 0;
-    const reads = { ...f.reads, cashout: () => {
-      cashoutReads += 1;
-      if (cashoutReads === 1) return Promise.resolve("funded-stale");
-      if (cashoutReads === 2) return inFlight.promise;
-      return Promise.resolve("funded-fresh");
-    } };
-    const home = <Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} />;
-    const cashout = <Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} view="cashout" />;
-    const view = render(cashout);
+    const reads = { ...f.reads, actions: () => ++f.calls.actions === 1 ? Promise.resolve("funded-stale") : inFlight.promise };
+    const view = render(<Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
     await ready(view);
-    await waitFor(() => expect(view.getByTestId("cashout").textContent).toBe("funded-stale"));
-    act(() => { void client.refetchQueries({ queryKey: cashoutKey }); });
-    await waitFor(() => expect(cashoutReads).toBe(2));
-    view.rerender(home);
-    await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
-    await act(async () => { inFlight.resolve("funded-late"); });
-    expect(client.getQueryData<string>(cashoutKey)).toBe("funded-stale");
-    expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(true);
-    expect(client.getQueryState(cashoutKey)?.fetchStatus).toBe("idle");
-    view.rerender(cashout);
-    await waitFor(() => expect(view.getByTestId("cashout").textContent).toBe("funded-fresh"));
-    expect(cashoutReads).toBe(3);
+    act(() => { void getHomeQueryClient().refetchQueries({ queryKey: key }); });
+    await waitFor(() => expect(f.calls.actions).toBe(2));
+    let pull!: Promise<unknown>;
+    act(() => { pull = f.current().refresh(); });
+    expect(f.calls.actions).toBe(2);
+    await act(async () => { inFlight.resolve("funded-fresh"); expect(await pull).toEqual({ phase: "complete" }); });
+    expect(getHomeQueryClient().getQueryData<string>(key)).toBe("funded-fresh");
+    expect(f.calls.actions).toBe(2);
   });
 
-  test("a failed Home action refresh reports partial; failed pending-cashout re-entry keeps cached history and reports error", async () => {
+  test("a failed shared actions refresh reports partial and retains cached history", async () => {
     const f = fixture();
-    const client = getHomeQueryClient();
-    const cashoutKey = ownerQueryKey(f.key, "actions", "pending-cashout");
-    let cashoutReads = 0;
+    const key = ownerQueryKey(f.key, "actions");
     const reads = { ...f.reads, actions: async () => {
       if (++f.calls.actions > 1) throw new Error("Actions unavailable");
-      return "actions-1";
-    }, cashout: async () => {
-      if (++cashoutReads > 1) throw new Error("Cash-out history unavailable");
       return "funded-cached";
     } };
-    const home = <Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} />;
-    const cashout = <Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} view="cashout" />;
-    const view = render(home);
+    const view = render(<Harness owner={f.owner} reads={reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
     await ready(view);
-    view.rerender(cashout);
-    await waitFor(() => expect(view.getByTestId("cashout").textContent).toBe("funded-cached"));
-    view.rerender(home);
     await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "partial", failed: ["actions"] }); });
-    expect(view.getByTestId("refresh").textContent).toBe("partial");
-    expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(true);
-    expect(cashoutReads).toBe(1);
-    view.rerender(cashout);
-    await waitFor(() => expect(view.getByTestId("cashout-status").textContent).toBe("error"));
-    expect(view.getByTestId("cashout").textContent).toBe("funded-cached");
-    expect(client.getQueryData<string>(cashoutKey)).toBe("funded-cached");
-    expect(cashoutReads).toBe(2);
+    expect(getHomeQueryClient().getQueryState(key)?.status).toBe("error");
+    expect(getHomeQueryClient().getQueryData<string>(key)).toBe("funded-cached");
+    expect(f.calls.actions).toBe(2);
   });
 
-  test("an active pending-cashout history failure makes the Home action source partial, not complete", async () => {
-    const f = fixture();
-    const cashoutKey = ownerQueryKey(f.key, "actions", "pending-cashout");
-    let cashoutReads = 0;
-    const view = render(<><Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />
-      <ForeignCashoutHistory owner={f.owner} onRead={async () => {
-        if (++cashoutReads > 1) throw new Error("Cash-out history unavailable");
-        return "funded-cached";
-      }} /></>);
-    await ready(view);
-    await waitFor(() => expect(view.getByTestId("foreign-cashout").textContent).toBe("funded-cached"));
-    await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "partial", failed: ["actions"] }); });
-    expect(view.getByTestId("refresh").textContent).toBe("partial");
-    expect(getHomeQueryClient().getQueryState(cashoutKey)?.status).toBe("error");
-    expect(getHomeQueryClient().getQueryData<string>(cashoutKey)).toBe("funded-cached");
-    expect(cashoutReads).toBe(2);
-  });
-
-  test("refresh invalidates inactive pending-cashout history only for the current owner", async () => {
+  test("refresh invalidates inactive shared actions history only for the current owner", async () => {
     const f = fixture();
     const client = getHomeQueryClient();
     const ownerB = session("subject-b", walletB);
-    const keyB = dataOwnerKey(ownerB);
-    const staleKey = ownerQueryKey(f.key, "actions", "pending-cashout");
-    const foreignKey = ownerQueryKey(keyB, "actions", "pending-cashout");
+    const staleKey = ownerQueryKey(f.key, "actions");
+    const foreignKey = ownerQueryKey(dataOwnerKey(ownerB), "actions");
     client.setQueryData(staleKey, "inactive-stale");
     client.setQueryData(foreignKey, "foreign-stale");
     let foreignReads = 0;
-    const view = render(<><Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />
+    const view = render(<><Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} manageActions={false} />
       <ForeignCashoutHistory owner={ownerB} onRead={async () => `foreign-${++foreignReads}`} /></>);
-    expect(view.getByTestId("foreign-cashout").textContent).toBe("foreign-stale");
     await ready(view);
     await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
     expect(client.getQueryData<string>(staleKey)).toBe("inactive-stale");
@@ -414,57 +357,54 @@ describe("useHomeRefresh", () => {
     expect(client.getQueryState(foreignKey)?.isInvalidated).toBe(false);
     expect(client.getQueryData<string>(foreignKey)).toBe("foreign-stale");
     expect(foreignReads).toBe(0);
-    expect(f.calls.actions).toBe(2);
+    expect(f.calls.actions).toBe(0);
+    view.rerender(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
+    await waitFor(() => expect(view.getByTestId("actions").textContent).toBe("actions-1"));
   });
 
-  test("an interleaved owner switch cannot invalidate or refresh the new owner's pending-cashout history with the old cycle", async () => {
+  test("Home pull cancels inactive in-flight shared actions history and leaves it stale", async () => {
+    const f = fixture();
+    const client = getHomeQueryClient();
+    const key = ownerQueryKey(f.key, "actions");
+    client.setQueryData(key, "funded-stale");
+    const inFlight = deferred<string>();
+    let signal: AbortSignal | undefined;
+    const read = client.fetchQuery({ queryKey: key, staleTime: 0, queryFn: (context) => { signal = context.signal; return inFlight.promise; } }).catch(() => undefined);
+    const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} manageActions={false} />);
+    await ready(view);
+    await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
+    expect(signal?.aborted).toBe(true);
+    await act(async () => { inFlight.resolve("funded-late"); await read; });
+    expect(client.getQueryData<string>(key)).toBe("funded-stale");
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+  });
+
+  test("an interleaved owner switch cannot refresh the new owner's shared actions history with the old cycle", async () => {
     const f = fixture();
     const client = getHomeQueryClient();
     const ownerB = session("subject-b", walletB);
-    const keyB = dataOwnerKey(ownerB);
-    const keyAHistory = ownerQueryKey(f.key, "actions", "pending-cashout");
-    const keyBHistory = ownerQueryKey(keyB, "actions", "pending-cashout");
+    const keyB = ownerQueryKey(dataOwnerKey(ownerB), "actions");
     const pending = deferred<string>();
-    let aActionReads = 0;
-    let aCashoutReads = 0;
-    let bCashoutReads = 0;
-    const readsA = { ...f.reads, actions: () => ++aActionReads === 1 ? Promise.resolve("a-home") : pending.promise,
-      cashout: async () => `a-${++aCashoutReads}` };
-    const readsB = { ...f.reads, cashout: async () => `b-${++bCashoutReads}` };
+    const readsA = { ...f.reads, actions: () => ++f.calls.actions === 1 ? Promise.resolve("a-home") : pending.promise };
+    let bReads = 0;
+    const readsB = { ...f.reads, actions: async () => `b-${++bReads}` };
     const fetchB: FetchActivity = async (query) => page(query, walletB, [], null);
-    const aHome = <Harness owner={f.owner} reads={readsA} fetchActivity={f.fetchActivity} capture={f.capture} />;
-    const aCashout = <Harness owner={f.owner} reads={readsA} fetchActivity={f.fetchActivity} capture={f.capture} view="cashout" />;
-    const bHome = <Harness owner={ownerB} reads={readsB} fetchActivity={fetchB} capture={f.capture} />;
-    const bCashout = <Harness owner={ownerB} reads={readsB} fetchActivity={fetchB} capture={f.capture} view="cashout" />;
-    const view = render(aHome);
+    const view = render(<Harness owner={f.owner} reads={readsA} fetchActivity={f.fetchActivity} capture={f.capture} />);
     await ready(view);
-    view.rerender(aCashout);
-    await waitFor(() => expect(view.getByTestId("cashout").textContent).toBe("a-1"));
-    view.rerender(aHome);
-    client.setQueryData(keyBHistory, "b-cached");
+    client.setQueryData(keyB, "b-cached");
     let oldCycle!: Promise<unknown>;
     act(() => { oldCycle = f.current().refresh(); });
-    await waitFor(() => expect(aActionReads).toBe(2));
-    expect(client.getQueryState(keyAHistory)?.isInvalidated).toBe(true);
-    view.rerender(bCashout);
+    await waitFor(() => expect(f.calls.actions).toBe(2));
+    view.rerender(<Harness owner={ownerB} reads={readsB} fetchActivity={fetchB} capture={f.capture} />);
     expect(view.getByTestId("refresh").textContent).toBe("idle");
-    expect(view.getByTestId("cashout").textContent).toBe("b-cached");
-    expect(client.getQueryState(keyBHistory)?.isInvalidated).toBe(false);
-    expect(bCashoutReads).toBe(0);
-    await act(async () => {
-      pending.resolve("a-late");
-      expect(await oldCycle).toEqual({ phase: "superseded" });
-    });
-    expect(client.getQueryState(keyBHistory)?.isInvalidated).toBe(false);
-    expect(client.getQueryData<string>(keyBHistory)).toBe("b-cached");
-    view.rerender(bHome);
+    expect(client.getQueryState(keyB)?.isInvalidated).toBe(false);
+    expect(bReads).toBe(0);
+    await act(async () => { pending.resolve("a-late"); expect(await oldCycle).toEqual({ phase: "superseded" }); });
+    expect(client.getQueryData<string>(keyB)).toBe("b-cached");
+    expect(client.getQueryState(keyB)?.isInvalidated).toBe(false);
     await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
-    expect(client.getQueryState(keyBHistory)?.isInvalidated).toBe(true);
-    view.rerender(bCashout);
-    await waitFor(() => expect(view.getByTestId("cashout").textContent).toBe("b-1"));
-    expect(client.getQueryState(keyBHistory)?.isInvalidated).toBe(false);
-    expect(aCashoutReads).toBe(1);
-    expect(bCashoutReads).toBe(1);
+    expect(client.getQueryData<string>(keyB)).toBe("b-1");
+    expect(bReads).toBe(1);
   });
 
   test("issues every active read, coalesces a cycle, and preserves two pages without a loading transition", async () => {

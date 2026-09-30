@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { childFailureDetail, flingBrowserPidFromStderr, flingStderrTail, playwrightBrowserIdentity, playwrightBrowserPid, reapFlingBrowser } from "../navigation-profile";
+import { childFailureDetail, flingAttemptNeedsReap, flingBrowserPidFromStderr, flingStderrTail, playwrightBrowserIdentity, playwrightBrowserPid, reapFlingBrowser } from "../navigation-profile";
 import { baselineDeltas, baselineMismatches, compactNavigationBaseline, firstNextEnvFile, hasNavigationCapGuard, isFlingResult, navigationMarkdown, parseNavigationReport, patchNavigationCap, readNavigationBaseline, summarizeNavigation, validateNavigationSample,
   type NavigationSample } from "./navigation-samples";
 
@@ -410,4 +410,20 @@ test("compacts 5×10 navigation sessions with ordered legs, rounded intervals an
   expect(baselineMismatches(mainScroll, comparison)).toContain("fling.scrollHost");
   expect(navigationMarkdown(comparison, previousResults)).toContain("| Group | Baseline p95 ms");
   expect(sessions[0]!.samples[0]!.roundTrip).toBe(10);
+});
+
+test("reaps after a failed attempt or an accepted close timeout, not after a clean close", () => {
+  const identity = "fling worker: browser 140 pid 42 profile /tmp/playwright_chromiumdev_profile-ok";
+  expect(flingAttemptNeedsReap(true, `${identity}\n`)).toBe(true);
+  expect(flingAttemptNeedsReap(false, `${identity}\nError: Chromium close timed out after 5 s\nfling worker: close timed out\nfling worker: writing result\n`)).toBe(true);
+  expect(flingAttemptNeedsReap(false, `${identity}\nfling worker: writing result\n`)).toBe(false);
+  expect(flingAttemptNeedsReap(false, `${identity}\nfling worker: close timed out later\n`)).toBe(false);
+
+  const transcript = `fling worker: launching chromium\n${identity}\nfling worker: runFeed 1 flings starting\nError: Chromium close timed out after 5 s\nfling worker: close timed out\nfling worker: writing result\n`;
+  const browser = flingAttemptNeedsReap(false, transcript) ? flingBrowserPidFromStderr(transcript) : null;
+  expect(browser).toEqual({ pid: 42, profile: "/tmp/playwright_chromiumdev_profile-ok" });
+  if (!browser) throw new Error("expected a reported browser identity");
+  const signaled: number[] = [];
+  expect(reapFlingBrowser([{ pid: 42, ppid: 1, command: "chromium --user-data-dir=/tmp/playwright_chromiumdev_profile-ok" }], browser, (pid) => signaled.push(pid))).toBe(1);
+  expect(signaled).toEqual([42]);
 });

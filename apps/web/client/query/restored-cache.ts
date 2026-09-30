@@ -44,16 +44,7 @@ function activitySession(owner: RestoredOwner): VerifiedAccountSession | null {
   return isVerifiedActivitySession(session) ? session : null;
 }
 
-const atomicPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
-
-function optionalAtomic(value: unknown): boolean {
-  return value === undefined || value === null || typeof value === "string" && atomicPattern.test(value);
-}
-
-function optionalString(value: unknown): boolean {
-  return value === undefined || value === null || typeof value === "string";
-}
 
 function isFundingFee(value: unknown): boolean {
   return isRecord(value) && typeof value.label === "string" && typeof value.amount === "string" &&
@@ -62,14 +53,7 @@ function isFundingFee(value: unknown): boolean {
 
 function isTrustedFundingOrderSummary(value: unknown): boolean {
   if (!isFundingOrderSummary(value)) return false;
-  return (value.fees === undefined || Array.isArray(value.fees) && value.fees.every(isFundingFee)) &&
-    (value.instructions === null) &&
-    (value.providerStatus === null || typeof value.providerStatus === "string") &&
-    (value.sandbox === undefined || typeof value.sandbox === "boolean") &&
-    (value.quote === undefined || isRecord(value.quote)) &&
-    optionalString(value.quoteToken) && optionalAtomic(value.expectedTokenAmountAtomic) &&
-    optionalString(value.expiresAt) && optionalString(value.transactionHash) &&
-    optionalString(value.createdAt) && optionalString(value.updatedAt);
+  return (value.fees === undefined || value.fees.every(isFundingFee)) && value.instructions === null;
 }
 
 
@@ -114,15 +98,18 @@ export function trustRestoredBalances(data: unknown, entry: RestoredQueryEntry):
   }
 }
 
-export function trustRestoredBorrow(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
+export function trustRestoredBorrowOverview(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const owner = restoredOwner(entry.ownerKey);
-  if (!owner) return null;
-  if (entry.queryKey[2] === "overview") {
-    const overview = parseBorrowOverview(data, owner.address);
-    return overview ? { data: overview } : null;
-  }
+  if (!owner || entry.queryKey.length !== 3 || entry.queryKey[1] !== "borrow" || entry.queryKey[2] !== "overview") return null;
+  const overview = parseBorrowOverview(data, owner.address);
+  return overview ? { data: overview } : null;
+}
+
+export function trustRestoredBorrowMarket(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
+  const owner = restoredOwner(entry.ownerKey);
+  if (!owner || entry.queryKey.length !== 3 || entry.queryKey[1] !== "borrow-market") return null;
   const snapshot = parseSnapshot(data, owner.address);
-  return snapshot && snapshot.market.id === entry.queryKey[3] ? { data: snapshot } : null;
+  return snapshot && snapshot.market.id === entry.queryKey[2] ? { data: snapshot } : null;
 }
 
 export function trustRestoredFundingOpenOrder(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {

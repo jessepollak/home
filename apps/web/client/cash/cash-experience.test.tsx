@@ -275,7 +275,7 @@ describe("Cash L2", () => {
     await waitFor(() => expect(page().getByRole("button", { name: "Save" })).toBeTruthy());
   });
   test("the Cash currency Save arms the fresh deposit history floor and files the submitted deposit", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false }, { updatedAt: NOW - 61_000 });
     cached();
     const releases: Array<() => void> = [];
     const preparations: unknown[] = [];
@@ -315,7 +315,7 @@ describe("Cash L2", () => {
     expect(executed).toEqual(["cash-deposit-1"]);
   });
   test("an embedded Save whose dispatch outcome is unknown files the ambiguous deposit and keeps the entry blocked", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false }, { updatedAt: NOW - 61_000 });
     cached();
     const releases: Array<() => void> = [];
     const preparations: unknown[] = [];
@@ -345,7 +345,7 @@ describe("Cash L2", () => {
     expect(preparations).toEqual([{ kind: "deposit", vaultAddress: GAUNTLET, amountBaseUnits: "1000000" }]);
   });
   test("a first deposit that appears after the embedded Save opens blocks the deposit step", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false }, { updatedAt: NOW - 61_000 });
     cached();
     const preparations: unknown[] = [];
     let otherTabDeposit = false;
@@ -375,7 +375,7 @@ describe("Cash L2", () => {
     expect(preparations).toEqual([]);
   });
   test("a Convert execution does not exempt the next Save entry from its history gate", async () => {
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "actions"), { operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false }, { updatedAt: NOW - 61_000 });
     cached();
     let holdHistory = false;
     let reads = 0;
@@ -962,7 +962,7 @@ describe("Cash L2", () => {
   });
   test("a routed first deposit needs a newer history read before it can confirm", async () => {
     const actionsKey = ownerQueryKey(dataOwnerKey(session), "actions");
-    getHomeQueryClient().setQueryData(actionsKey, { operations: [], unparsedSavingsDeposits: [] }, { updatedAt: NOW - 61_000 });
+    getHomeQueryClient().setQueryData(actionsKey, { operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false }, { updatedAt: NOW - 61_000 });
     cached();
     onlineManager.setOnline(false);
     render(<Route initialFlow="save-deposit" snapshot={empty} fetchAccountResource={async (path) => {

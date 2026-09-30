@@ -98,6 +98,25 @@ test("Back and Forward restore document scroll after Activity navigation", async
   await expectRestored(page, target);
 });
 
+test("immediate browser Back preserves a scrolled Home entry for Forward", async ({ page }) => {
+  await setupLongActivity(page);
+  await page.locator("#home-nav").click();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(1_200);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  const target = await page.evaluate(() => {
+    window.scrollTo({ top: 1_200, behavior: "instant" });
+    const top = window.scrollY;
+    history.back();
+    return top;
+  });
+  expect(target).toBe(1_200);
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect.poll(() => page.evaluate((expected) => Math.abs(window.scrollY - expected), target)).toBeLessThanOrEqual(1);
+});
+
 test("reselecting the active Home tab, the Home mark or the Invest root tab scrolls to the top", async ({ page }) => {
   await setupLongActivity(page);
   await page.locator("#home-nav").click();

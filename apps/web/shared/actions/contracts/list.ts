@@ -57,7 +57,12 @@ export type RecentMoneyActionOperation = {
 };
 
 export type UnparsedSavingsDeposit = { status: DerivedActionStatus | null; settledAt?: string; vaultAddress: string | null };
-export type RecentActionsPayload = { operations: RecentMoneyActionOperation[]; unparsedSavingsDeposits: UnparsedSavingsDeposit[] };
+export type RecentActionsPayload = {
+  operations: RecentMoneyActionOperation[];
+  unparsedSavingsDeposits: UnparsedSavingsDeposit[];
+  truncated: boolean;
+  incomplete: boolean;
+};
 
 class RecentActionsContractError extends Error {
   constructor() {
@@ -180,7 +185,9 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
 
 export function parseRecentActionsPayload(value: unknown, session: VerifiedAccountSession): RecentActionsPayload {
   const operations = parseRecentMoneyActions(value, session);
-  if (!isRecentActionsResponse(value)) return { operations, unparsedSavingsDeposits: [] };
+  const truncated = readRecentActionsTruncated(value);
+  const incomplete = readRecentActionsIncomplete(value, session);
+  if (!isRecentActionsResponse(value)) return { operations, unparsedSavingsDeposits: [], truncated, incomplete };
   const parsedIds = new Set(operations.filter((row) => row.action.kind === "savings-deposit").map((row) => row.action.id));
   const unparsedSavingsDeposits: UnparsedSavingsDeposit[] = [];
   for (const row of value.actions) {
@@ -194,7 +201,7 @@ export function parseRecentActionsPayload(value: unknown, session: VerifiedAccou
         ? metadata.vaultAddress : null,
     });
   }
-  return { operations, unparsedSavingsDeposits };
+  return { operations, unparsedSavingsDeposits, truncated, incomplete };
 }
 
 function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
