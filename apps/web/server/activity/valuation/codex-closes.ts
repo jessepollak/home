@@ -8,6 +8,7 @@ import {
   type FetchLike,
 } from "@/server/market-data/codex/execute";
 import { createBoundedCache } from "@/server/cache/bounded";
+import { createWriteOrder } from "@/server/cache/write-order";
 import { parseExactDecimal } from "@/shared/balances/math";
 import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import {
@@ -66,11 +67,13 @@ export function createCodexHistoricalCloseReader(options: {
   now?: () => Date;
   timeoutMs?: number;
   cacheMaxEntries?: number;
+  writeOrder?: ReturnType<typeof createWriteOrder>;
 }): HistoricalCloseReader {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date());
   const timeoutMs = options.timeoutMs ?? ACTIVITY_CLOSE_TIMEOUT_MS;
   const cacheMaxEntries = options.cacheMaxEntries ?? ACTIVITY_CLOSE_CACHE_MAX_ENTRIES;
+  const writeOrder = options.writeOrder ?? createWriteOrder();
   const cache = createBoundedCache<CacheEntry>({
     maxEntries: cacheMaxEntries, ttlMs: ACTIVITY_CLOSE_STALE_RETENTION_MS, maxInFlight: 1,
     now: () => now().getTime(),
@@ -120,40 +123,45 @@ export function createCodexHistoricalCloseReader(options: {
         const chunk = toFetch.slice(index, index + ACTIVITY_CLOSE_MAX_BUCKETS_PER_REQUEST);
         const fetchedAtSeconds = Math.floor(now().getTime() / 1_000);
         const request = fetchBuckets({ apiKey, chunk, fetchImpl, timeoutMs });
-        chunk.forEach(([key], position) => {
+        chunk.forEach(([key, bucket], position) => {
           const single: InFlight = {
             fetchedAtSeconds,
-            bars: request.then(
-              (values) => completedBars(values[position] ?? null, fetchedAtSeconds),
-              () => null,
+            bars: writeOrder.settle(
+              key,
+              request.then(
+                (values) => completedBars(values[position] ?? null, fetchedAtSeconds),
+                () => null,
+              ),
+              (value) => {
+                const storedAt = now().getTime();
+                const settledBucket =
+                  (bucket.hour + 1) * ACTIVITY_CLOSE_BUCKET_SECONDS + SETTLE_MARGIN_SECONDS <=
+                  Math.floor(storedAt / 1_000);
+                const ttlMs = value && value.length > 0 && settledBucket
+                  ? ACTIVITY_CLOSE_SETTLED_TTL_MS
+                  : recentTtlMs(fetchedAtSeconds, storedAt);
+                if (value && ttlMs > 0) {
+                  cache.set(key, { storedAt, ttlMs, fetchedAtSeconds, bars: value });
+                  return true;
+                }
+                return false;
+              },
             ),
           };
           inFlight.set(key, single);
           pending.set(key, single);
-          void single.bars.finally(() => {
+          const release = () => {
             if (inFlight.get(key) === single) inFlight.delete(key);
-          });
+          };
+          void single.bars.then(release, release);
         });
       }
       const settled = await Promise.all(
         [...pending].map(async ([key, entry]) =>
-          [key, await entry.bars, entry.fetchedAtSeconds] as const),
+          [key, await entry.bars] as const),
       );
-      const storedAt = now().getTime();
-      for (const [key, value, fetchedAtSeconds] of settled) {
+      for (const [key, value] of settled) {
         bars.set(key, value);
-        const bucket = buckets.get(key);
-        if (value && bucket) {
-          const settledBucket =
-            (bucket.hour + 1) * ACTIVITY_CLOSE_BUCKET_SECONDS + SETTLE_MARGIN_SECONDS <=
-            Math.floor(storedAt / 1_000);
-          const ttlMs = value.length > 0 && settledBucket
-            ? ACTIVITY_CLOSE_SETTLED_TTL_MS
-            : recentTtlMs(fetchedAtSeconds, storedAt);
-          if (ttlMs > 0) {
-            cache.set(key, { storedAt, ttlMs, fetchedAtSeconds, bars: value });
-          }
-        }
       }
     }
 
