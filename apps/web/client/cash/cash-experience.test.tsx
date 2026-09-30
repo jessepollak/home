@@ -49,6 +49,9 @@ const held = buildBalancesSnapshotFixture({ registry: {
 } });
 const single = buildBalancesSnapshotFixture({ registry: { ...cash, "morpho-steakhouse-usdc": { balance: ready("800000000000000000000"), underlyingBalance: ready("800000000"), value: priced("USD", "80000") } } });
 const empty = buildBalancesSnapshotFixture({ registry: cash });
+const unsupportedLocalCash = buildBalancesSnapshotFixture({ region: "BR", registry: {
+  usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+} });
 const noop = () => undefined;
 const preparedInputs: unknown[] = [];
 const routeCalls: string[] = [];
@@ -167,6 +170,19 @@ function pendingActionRow(action: PreparedMoneyAction, status: "pending" | "unkn
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); focusManager.setFocused(undefined); onlineManager.setOnline(true); preparedInputs.length = 0; routeCalls.length = 0; });
 
 describe("Cash L2", () => {
+  test("unsupported local currency shows verification pending without inventing an amount", () => {
+    render(<Surface view="cash" snapshot={unsupportedLocalCash} />);
+    const currencies = page().getByRole("region", { name: "Currencies" });
+    const brazilianRealRow = within(currencies).getByText("Brazilian real").closest("li");
+    expect(brazilianRealRow).not.toBeNull();
+    expect(brazilianRealRow?.textContent).toContain("Verification pending");
+    expect(brazilianRealRow?.textContent).not.toMatch(/[0-9]/);
+    expect(within(brazilianRealRow!).queryByRole("img", { name: "Verification pending" })).toBeNull();
+    const usDollarRow = within(currencies).getByText("US dollar").closest("li");
+    expect(usDollarRow).not.toBeNull();
+    expect(within(usDollarRow!).getByRole("img", { name: "$5,00" })).toBeTruthy();
+    expect(within(usDollarRow!).getByText("R$ 25,00")).toBeTruthy();
+  });
   test("shows priced pending escrow below the wallet-only Cash balance", () => {
     const snapshot = buildBalancesSnapshotFixture({ registry: cash });
     snapshot.holdings.find(({ id }) => id === "usdc")!.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };

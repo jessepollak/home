@@ -400,6 +400,14 @@ export const EmptyNonUsd: Story = { args: { snapshot: buildBalancesSnapshotFixtu
   await expect(await canvas.findByText("Earn up to 4.10% APY")).toBeVisible();
   await expect(canvas.queryByRole("region", { name: "Currencies" })).toBeNull();
 } };
+export const UnsupportedLocalCurrency: Story = { args: { snapshot: buildBalancesSnapshotFixture({ region: "BR", registry: {
+  usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+} }) }, play: async ({ canvasElement }) => {
+  const currencies = within(within(canvasElement).getByRole("region", { name: "Currencies" }));
+  const real = currencies.getByText("Brazilian real").closest("li")!;
+  await expect(within(real).getByText("Verification pending")).toBeVisible();
+  await expect(real.textContent).not.toMatch(/[0-9]|R\$/);
+} };
 export const EmptyStaleRates: Story = { args: { snapshot: emptySnapshot }, parameters: { msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json({ ...metadata, stale: true }))] } }, play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);
   await expect(canvas.getByLabelText("Cash balance").textContent).toContain("$0.00");

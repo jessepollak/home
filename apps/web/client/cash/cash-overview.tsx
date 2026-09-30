@@ -170,7 +170,7 @@ export function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
           symbol: currency,
           currency,
           value: row.primary,
-          isFiat: true,
+          isFiat: false,
           usdValue: null,
           usdUnavailable: false,
           holding: false,
