@@ -1,6 +1,40 @@
 import { expect, test } from "bun:test";
-import { parseActivityOrders } from "./contract-orders";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { activityOrdersFixture } from "@/tests/browser/feature-map/fixtures";
+import { parseActivityOrders } from "./contract-orders";
+
+function fixtureSession(subject: string): VerifiedAccountSession {
+  return { user: { subject }, accountProvider: "cdp-embedded", smartAccount: null };
+}
+
+test("parses all five feature-map orders without changing their fields", () => {
+  const fixture = activityOrdersFixture();
+  const orders = parseActivityOrders(fixture, fixtureSession(fixture.owner.subject));
+  expect(orders.map(({ id, kind, status }) => [id, kind, status])).toEqual([
+    ["fixture-funding-pending", "funding", "waiting-customer"],
+    ["fixture-funding-processing", "funding", "waiting-provider"],
+    ["fixture-funding-received", "funding", "confirmed"],
+    ["fixture-funding-ambiguous", "funding", "ambiguous"],
+    ["90100000-0000-4000-8000-000000000001", "cash-out", "waiting-provider"],
+  ]);
+  expect(orders).toEqual(fixture.orders);
+});
+
+test("strips unknown envelope, owner, order, and asset keys", () => {
+  const fixture = activityOrdersFixture();
+  const first = fixture.orders[0];
+  if (!first || first.kind !== "funding") throw new Error("Expected a funding fixture order");
+  const parsed = parseActivityOrders({
+    ...fixture,
+    extra: "ignored",
+    owner: { ...fixture.owner, extra: "ignored" },
+    orders: [{ ...first, extra: "ignored", asset: { ...first.asset, extra: "ignored" } }, ...fixture.orders.slice(1)],
+  }, fixtureSession(fixture.owner.subject));
+  expect(parsed).toEqual(fixture.orders);
+  expect(parsed[0]).not.toHaveProperty("extra");
+  if (parsed[0]?.kind !== "funding") throw new Error("Expected a funding order");
+  expect(parsed[0].asset).not.toHaveProperty("extra");
+});
 
 const session: VerifiedAccountSession = { user: { subject: "owner" }, smartAccount: null, accountProvider: "cdp-embedded" };
 const order = {
