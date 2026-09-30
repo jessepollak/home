@@ -276,8 +276,11 @@ export type PresentationTokenAmountOptions = {
   useNoBreakSpace?: boolean;
 };
 
-type FiatAmountOptions = {
-  regionId?: RegionId;
+export type FiatPresentation =
+  | { regionId: RegionId; currencyNative?: never }
+  | { currencyNative: true; regionId?: never };
+
+type FiatAmountOptions = FiatPresentation & {
   fractionDigits?: number;
   minimumFractionDigits?: number;
   sign?: MoneySignPolicy;
@@ -436,28 +439,29 @@ export function formatFiatAmount(
   atoms: bigint,
   decimals: number,
   currency: string,
-  options?: FiatAmountOptions,
+  options: FiatAmountOptions,
 ): string;
 export function formatFiatAmount(
   value: string,
   currency: string,
-  options?: FiatAmountOptions,
+  options: FiatAmountOptions,
 ): string;
 export function formatFiatAmount(
   value: bigint | string,
   decimalsOrCurrency: number | string,
-  currencyOrOptions: string | FiatAmountOptions = {},
-  maybeOptions: FiatAmountOptions = {},
+  currencyOrOptions: string | FiatAmountOptions,
+  maybeOptions?: FiatAmountOptions,
 ): string {
   if (typeof value === "string") {
     const currency = decimalsOrCurrency as string;
     const options = currencyOrOptions as FiatAmountOptions;
+    assertFiatPresentation(options);
+    const regionId = fiatPresentationRegion(options, currency);
     const decimal = parseDecimal(value);
     if (!decimal || decimal.negative) return "—";
     const fractionDigits = options.fractionDigits ?? 2;
     const minimumFractionDigits = options.minimumFractionDigits ?? fractionDigits;
     validateFractionRange(fractionDigits, minimumFractionDigits);
-    const regionId = options.regionId ?? defaultRegionForCurrency(currency);
     const result = scaledDecimalResult(
       BigInt(decimal.digits),
       decimal.scale,
@@ -478,10 +482,11 @@ export function formatFiatAmount(
   const decimals = decimalsOrCurrency as number;
   const currency = currencyOrOptions as string;
   const options = maybeOptions;
+  assertFiatPresentation(options);
+  const regionId = fiatPresentationRegion(options, currency);
   const fractionDigits = options.fractionDigits ?? 2;
   const minimumFractionDigits = options.minimumFractionDigits ?? fractionDigits;
   validateFractionRange(fractionDigits, minimumFractionDigits);
-  const regionId = options.regionId ?? defaultRegionForCurrency(currency);
   const result = scaledDecimalResult(
     value,
     decimals,
@@ -822,6 +827,22 @@ export function scaleDecimalByExact(
   const fraction = scale === 0 ? "" : padded.slice(-scale).replace(/0+$/, "");
   const amount = fraction ? `${whole}.${fraction}` : whole;
   return decimal.negative ? `-${amount}` : amount;
+}
+
+function assertFiatPresentation(value: unknown): asserts value is FiatPresentation {
+  if (value === null || typeof value !== "object") throw new TypeError("A presentation region is required.");
+}
+
+function fiatPresentationRegion(presentation: FiatPresentation, currency: string): RegionId {
+  if (presentation.currencyNative === true) {
+    if ("regionId" in presentation) throw new TypeError("Choose exactly one fiat presentation mode.");
+    return defaultRegionForCurrency(currency);
+  }
+  if (presentation.regionId === undefined) throw new TypeError("A presentation region is required.");
+  if (typeof presentation.regionId !== "string" || !Object.hasOwn(regionLocales, presentation.regionId)) {
+    throw new TypeError("Unknown presentation region.");
+  }
+  return presentation.regionId;
 }
 
 function defaultRegionForCurrency(currency: string): RegionId {

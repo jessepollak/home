@@ -17,8 +17,8 @@ import {
   type ActivityOnchainTokenResult,
 } from "./token-metadata-rpc";
 
-const ACTIVITY_TOKEN_CODEX_TIMEOUT_MS = 3_000;
-const ACTIVITY_ASSET_ICON_WAIT_MS = 750;
+export const ACTIVITY_TOKEN_CODEX_TIMEOUT_MS = 3_000;
+export const ACTIVITY_ASSET_ICON_WAIT_MS = 750;
 
 export type ActivityTokenMetadataResolution = {
   metadata: Map<string, ActivityTokenMetadata>;

@@ -49,10 +49,10 @@ export function quoteAmount(quote: TradeQuote, direction: "spend" | "receive") {
 export function quoteSpendLabel(quote: TradeQuote) {
   if (quote.side === "sell") return quoteAmount(quote, "spend");
   const amount = quote.action.amounts.find((entry) => entry.direction === "spend");
-  return amount ? formatFiatAmount(BigInt(amount.amountBaseUnits), amount.decimals, "USD") : "—";
+  return amount ? formatFiatAmount(BigInt(amount.amountBaseUnits), amount.decimals, "USD", { currencyNative: true }) : "—";
 }
 
 export function quoteFiatReceive(quote: TradeQuote) {
   const amount = quote.action.amounts.find((entry) => entry.direction === "receive" && entry.symbol === "USDC");
-  return amount ? formatFiatAmount(BigInt(amount.amountBaseUnits), amount.decimals, "USD") : "—";
+  return amount ? formatFiatAmount(BigInt(amount.amountBaseUnits), amount.decimals, "USD", { currencyNative: true }) : "—";
 }

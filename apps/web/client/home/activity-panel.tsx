@@ -13,7 +13,7 @@ import { fetchRecentActions, recentActionsQueryOptions, useRecentActionsStatus }
 import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeMutation, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { ownerMutation } from "@/client/query/mutation-options";
 import { AccountWalletContext } from "@/client/account/cdp-client";
-import { cashoutOrderAction, cashoutWithdrawForDeposit, linkedCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
+import { cashoutOrderAction, cashoutProgress, cashoutWithdrawForDeposit, linkedCashoutWithdraw } from "@/client/activity/cash-out-presenter";
 import { isRecentActionsResponse, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { parseActivityOrders, type ActivityOrder } from "@/shared/activity/contract-orders";
 import type { ActivityLedgerNextActionKind } from "@/client/activity/activity-ledger";
@@ -145,7 +145,7 @@ export function ConnectedActivityPanel({
         !isRecentActionsResponse(query.state.data)) return false;
       const operations = parseRecentMoneyActions(query.state.data, activitySession);
       return operations.some((operation) => operation.action.kind === "cash-out" &&
-        presentCashout(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
+        cashoutProgress(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
     },
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
@@ -196,7 +196,7 @@ export function ConnectedActivityPanel({
   } });
   const cancelCashout = (operation: RecentMoneyActionOperation) => {
     const progress = operation.cashout;
-    if (progress?.depositId && presentCashout(operation, linkedCashoutWithdraw(operation, actions.data ?? EMPTY_OPERATIONS)).cancellable) {
+    if (progress?.depositId && cashoutProgress(operation, linkedCashoutWithdraw(operation, actions.data ?? EMPTY_OPERATIONS)).cancellable) {
       void withdrawJourney.prepare(progress.providerId, progress.region, progress.depositId);
     }
   };

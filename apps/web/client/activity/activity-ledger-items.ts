@@ -52,7 +52,7 @@ function detailAsset(mark: { assetKey: string; name: string; symbol: string; ima
   };
 }
 
-type Options = { regionId?: RegionId; timeZone?: string; now?: number };
+type Options = { regionId: RegionId; timeZone?: string; now?: number };
 
 function transactionFor(hash: string | undefined): Transaction | undefined {
   if (!hash) return undefined;
@@ -208,7 +208,7 @@ function actionDetailValue(
   amount: MoneyActionAmount,
   matched: readonly ActivityTransfer[],
   confirmed: boolean,
-  regionId?: RegionId,
+  regionId: RegionId,
 ): string | undefined {
   if (matched.length === 0) return confirmed ? "Unknown" : undefined;
   const priced = matched.flatMap((transfer) => transfer.valuation.status === "priced" ? [transfer.valuation] : []);

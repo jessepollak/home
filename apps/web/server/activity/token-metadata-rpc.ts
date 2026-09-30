@@ -17,7 +17,7 @@ import { createBoundedCache } from "@/server/cache/bounded";
 export const ACTIVITY_TOKEN_RPC_BATCH_MAX = 25;
 export const ACTIVITY_TOKEN_RPC_CACHE_MAX = 512;
 export const ACTIVITY_TOKEN_RPC_CACHE_TTL_MS = 5 * 60 * 1000;
-const ACTIVITY_TOKEN_RPC_TIMEOUT_MS = 3_000;
+export const ACTIVITY_TOKEN_RPC_TIMEOUT_MS = 3_000;
 
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const decimalsAbi = [{

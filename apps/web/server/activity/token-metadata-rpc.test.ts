@@ -7,6 +7,7 @@ import {
 import { multicallAbi } from "@/server/balances/abi";
 import {
   ACTIVITY_TOKEN_RPC_BATCH_MAX,
+  ACTIVITY_TOKEN_RPC_TIMEOUT_MS,
   createActivityTokenRpcResolver,
   decodeActivityTokenMetadataMulticall,
 } from "./token-metadata-rpc";

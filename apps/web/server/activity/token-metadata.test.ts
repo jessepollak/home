@@ -3,6 +3,8 @@ import {
   activityAssets,
 } from "@/shared/activity/types";
 import {
+  ACTIVITY_ASSET_ICON_WAIT_MS,
+  ACTIVITY_TOKEN_CODEX_TIMEOUT_MS,
   createActivityTokenMetadataResolver,
   createLatestAssetIcons,
   type LatestAssetIcons,
