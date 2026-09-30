@@ -4,37 +4,53 @@ import {
   subscribeBeforeClientUrlCommit,
 } from "@/config/shell-location";
 
-const scrollQuietMs = 150;
+const scrollThrottleMs = 250;
 
 export function subscribeShellScrollPersistence(scroller: HTMLElement): () => void {
   let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  let dirty = false;
   const cancelPending = () => {
-    if (pendingTimer === null) return;
-    clearTimeout(pendingTimer);
+    dirty = false;
+    if (pendingTimer !== null) clearTimeout(pendingTimer);
     pendingTimer = null;
   };
-  const persist = () => {
-    cancelPending();
+  const writeScrollTop = () => {
     const scrollTop = Math.max(0, scroller.scrollTop);
     if (readClientScrollTop() !== scrollTop) replaceClientScrollTop(scrollTop);
   };
-  const schedulePersist = () => {
+  const persist = () => {
     cancelPending();
-    pendingTimer = setTimeout(persist, scrollQuietMs);
+    writeScrollTop();
+  };
+  const persistTrailing = () => {
+    pendingTimer = null;
+    if (!dirty) return;
+    dirty = false;
+    writeScrollTop();
+    pendingTimer = setTimeout(persistTrailing, scrollThrottleMs);
+  };
+  const schedulePersist = () => {
+    if (pendingTimer !== null) {
+      dirty = true;
+      return;
+    }
+    writeScrollTop();
+    pendingTimer = setTimeout(persistTrailing, scrollThrottleMs);
   };
   const persistIfHidden = () => {
     if (document.visibilityState === "hidden") persist();
   };
   const unsubscribe = subscribeBeforeClientUrlCommit(persist);
   const supportsScrollEnd = "onscrollend" in scroller;
-  scroller.addEventListener(supportsScrollEnd ? "scrollend" : "scroll", supportsScrollEnd ? persist : schedulePersist, { passive: true });
+  scroller.addEventListener("scroll", schedulePersist, { passive: true });
+  if (supportsScrollEnd) scroller.addEventListener("scrollend", persist, { passive: true });
   window.addEventListener("pagehide", persist);
   document.addEventListener("visibilitychange", persistIfHidden);
   window.addEventListener("popstate", cancelPending);
   return () => {
-    cancelPending();
     persist();
-    scroller.removeEventListener(supportsScrollEnd ? "scrollend" : "scroll", supportsScrollEnd ? persist : schedulePersist);
+    scroller.removeEventListener("scroll", schedulePersist);
+    if (supportsScrollEnd) scroller.removeEventListener("scrollend", persist);
     window.removeEventListener("pagehide", persist);
     document.removeEventListener("visibilitychange", persistIfHidden);
     window.removeEventListener("popstate", cancelPending);

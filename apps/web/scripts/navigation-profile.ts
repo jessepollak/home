@@ -59,6 +59,10 @@ export function flingBrowserPidFromStderr(stderr: string): BrowserIdentity | nul
   const pid = Number(match[1]);
   return Number.isSafeInteger(pid) && pid > 0 ? { pid, profile: match[2]! } : null;
 }
+const flingCloseTimedOutMarker = "fling worker: close timed out";
+export function flingAttemptNeedsReap(failed: boolean, stderr: string): boolean {
+  return failed || stderr.split(/\r?\n/).includes(flingCloseTimedOutMarker);
+}
 export function reapFlingBrowser(processList: readonly ListedProcess[], browser: BrowserIdentity, signal: (pid: number) => void): number {
   const rows = processList.filter(({ pid }) => pid === browser.pid);
   if (rows.length !== 1 || browserProfile(rows[0]!.command) !== browser.profile) return 0;
@@ -425,7 +429,7 @@ async function main() {
         await stopTrackedChild(child);
         let strayChromiumReaped: number | null = null;
         let reapError: string | undefined;
-        const browser = failure ? flingBrowserPidFromStderr(errorOutput) : null;
+        const browser = flingAttemptNeedsReap(failure !== undefined, errorOutput) ? flingBrowserPidFromStderr(errorOutput) : null;
         if (browser) {
           strayChromiumReaped = 0;
           try { strayChromiumReaped = reapFlingBrowser(listedProcesses(), browser, (pid) => process.kill(pid, "SIGKILL")); }
@@ -508,6 +512,7 @@ async function flingWorker() {
     catch (error) {
       if (!(error instanceof Error) || error.message !== "Chromium close timed out after 5 s") throw error;
       console.error(error);
+      console.error(flingCloseTimedOutMarker);
     }
   }
   console.error("fling worker: writing result");

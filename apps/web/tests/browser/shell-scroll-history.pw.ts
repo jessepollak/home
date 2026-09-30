@@ -85,7 +85,8 @@ test("a long Activity fling does not write history on each frame", async ({ page
     const { top, stateTop } = await historySnapshot(page);
     return Math.abs(top - (stateTop ?? -100));
   }).toBeLessThanOrEqual(1);
-  expect((await historySnapshot(page)).writes - before).toBeLessThanOrEqual(5);
+  const writeBudget = Math.ceil(2 * distance / position.speed * 1_000 / 250) + 4;
+  expect((await historySnapshot(page)).writes - before).toBeLessThanOrEqual(writeBudget);
 });
 
 test("back and forward restore Activity scroll twice", async ({ page }) => {
@@ -99,6 +100,27 @@ test("back and forward restore Activity scroll twice", async ({ page }) => {
   await expect(page).toHaveURL(/\/home$/);
   await page.goBack();
   await expectRestored(page, target);
+});
+
+test("immediate browser Back preserves a scrolled Home entry for Forward", async ({ page }) => {
+  await setupLongActivity(page);
+  await page.locator("#home-nav").click();
+  await expect(page).toHaveURL(/\/home$/);
+  const main = page.locator(mainSelector);
+  await expect.poll(() => main.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(4_000);
+  await expect.poll(() => page.evaluate(() => history.state?.__homeShellScrollTop)).toBe(0);
+  const target = await main.evaluate((node) => {
+    node.scrollTo({ top: 1_200, behavior: "instant" });
+    node.dispatchEvent(new Event("scroll"));
+    const top = node.scrollTop;
+    history.back();
+    return top;
+  });
+  expect(target).toBe(1_200);
+  await expect(page).toHaveURL(/\/activity$/);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/home$/);
+  await expect.poll(() => main.evaluate((node, expected) => Math.abs(node.scrollTop - expected), target)).toBeLessThanOrEqual(1);
 });
 
 test("immediate in-app Back preserves an unsettled Savings scroll for Forward", async ({ page }) => {
