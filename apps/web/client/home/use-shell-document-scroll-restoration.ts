@@ -76,7 +76,7 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     verified.current = ownerKey !== null;
     if (!next.reset && !next.clear) return;
     cancelPending.current();
-    const state = window.history.state;
+    const state: unknown = window.history.state;
     if (isRecord(state)) {
       const cleared = { ...state };
       delete cleared[scrollKey];
@@ -107,18 +107,23 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
       const anchor = visibleRow();
       const detail: ShellVirtualSnapshotEvent["detail"] = { measurements: null };
       window.dispatchEvent(new CustomEvent(shellVirtualSnapshotEvent, { detail }));
-      const savedOwner = window.history.state?.[scrollOwnerKey];
+      const rawState: unknown = window.history.state;
+      const state = isRecord(rawState) ? rawState : {};
+      const savedOwner = state[scrollOwnerKey];
       const ownerMatches = typeof savedOwner === "string" && savedOwner === owner.current;
-      const measurements = detail.measurements ?? (ownerMatches ? window.history.state?.[shellVirtualMeasurementsKey] ?? null : null);
-      const storedCache: unknown = ownerMatches ? window.history.state?.[shellVirtualMeasurementsKey] : undefined;
+      const storedCache = ownerMatches ? state[shellVirtualMeasurementsKey] : undefined;
       const cached: unknown[] | null = Array.isArray(storedCache) ? storedCache : null;
+      const measurements: readonly unknown[] | null = detail.measurements ?? cached;
       const previousAnchor = previous?.anchor ?? null;
       if (previous && Math.abs(previous.y - y) < 1 && previousAnchor?.index === anchor?.index &&
         (previousAnchor?.key ?? null) === (anchor?.key ?? null) &&
         (anchor === null || (previousAnchor !== null && Math.abs(previousAnchor.top - anchor.top) < 1)) &&
         (measurements === null || cached !== null && cached.length === measurements.length &&
-          cached.every((item, index) => isRecord(item) && item.key === measurements[index]?.key && item.size === measurements[index]?.size))) return;
-      window.history.replaceState({ ...window.history.state, [scrollKey]: y, [anchorKey]: anchor,
+          cached.every((item, index) => {
+            const next = measurements[index];
+            return isRecord(item) && isRecord(next) && item.key === next.key && item.size === next.size;
+          }))) return;
+      window.history.replaceState({ ...state, [scrollKey]: y, [anchorKey]: anchor,
         [shellVirtualMeasurementsKey]: measurements, [scrollOwnerKey]: owner.current }, "");
     };
     const attempt = () => {
