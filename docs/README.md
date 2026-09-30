@@ -27,6 +27,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 - [Unreplied P1 review findings](qa/review-triage-1166.md) — #1166 dispositions for 48 priority-one findings on merged PRs, with current-code references and follow-ups.
 - [PRD template](prd-template.md) and [repository gates](gates.md) — shaping and repository checks.
 - [Browser validation](browser-validation.md) and [UI PR previews](ui-pr-previews.md) — interactive iteration, regression ownership, and current-head visual proof.
+- [React memoization audit](memoization-audit.md) — source inventory, focused derivation fixes, Oxlint guardrails and measurement limits.
 - [Device performance profiling](device-profiling.md) — production-fixture device matrix, workloads, measurements, and physical-phone evidence procedure.
 - [Activity ledger design](activity-ledger-design.md) — approved taxonomy, production component contract, and source gaps.
 - [UI direction](ui-direction.md), [design system](design-system.md), and [Storybook review boards](design-system/component-workshop.md#review-boards) — product presentation rules, owned components, tokens, and review workflow; [design-system explorations](design-explorations/design-system.md) — historical gap matrix, finance pattern inventory, and follow-ups; [Mobbin references](design-explorations/mobbin.md) — real-world design references, access, and terms; [design explorations](design-explorations/README.md) — where design-lane non-production code lives.
