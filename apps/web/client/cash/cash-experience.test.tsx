@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { useRef, useState } from "react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, HomeQueryClientProvider, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
@@ -16,6 +16,7 @@ import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { pinClock } from "@/tests/helpers/pin-clock";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { AuthenticatedCashExperience, CashExperience, savingsEntryRefreshInterval } = await import("./cash-experience");
@@ -26,7 +27,9 @@ const { savingsManagement } = await import("./savings-management");
 import type { CashExperienceProps } from "./cash-experience";
 const { page } = await import("@/tests/helpers/dom");
 const [GAUNTLET, , STEAKHOUSE] = MORPHO_V1_CANDIDATE_ADDRESSES;
-const NOW = Date.parse("2026-09-10T12:04:00.000Z");
+const NOW_ISO = "2026-09-10T12:04:00.000Z";
+const NOW = Date.parse(NOW_ISO);
+let restoreClock = () => {};
 const now = () => NOW;
 const session: VerifiedAccountSession = { user: { subject: "cash-test" }, smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 }, accountProvider: "cdp-embedded" };
 const sessionB: VerifiedAccountSession = { user: { subject: "cash-test-b" }, smartAccount: { address: "0x2222222222222222222222222222222222222222", chainId: 8453 }, accountProvider: "cdp-embedded" };
@@ -168,7 +171,8 @@ function pendingActionRow(action: PreparedMoneyAction, status: "pending" | "unkn
     } };
 }
 
-afterEach(() => { cleanup(); getHomeQueryClient().clear(); focusManager.setFocused(undefined); onlineManager.setOnline(true); preparedInputs.length = 0; routeCalls.length = 0; });
+beforeEach(() => { restoreClock = pinClock(NOW_ISO); });
+afterEach(() => { restoreClock(); restoreClock = () => {}; cleanup(); getHomeQueryClient().clear(); focusManager.setFocused(undefined); onlineManager.setOnline(true); preparedInputs.length = 0; routeCalls.length = 0; });
 
 describe("Cash L2", () => {
   test("unsupported local currency shows verification pending without inventing an amount", () => {
