@@ -6,6 +6,7 @@ import { focusManager, onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, HomeQueryClientProvider, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeInboundPanelState } from "@/client/home/panel-routing";
+import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
@@ -370,6 +371,13 @@ describe("Cash L2", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().queryByRole("button", { name: /Deposit \$/ })).toBeNull();
   });
+  test("uses the DE presentation region for savings labels despite a GLOBAL balance snapshot", async () => {
+    cached();
+    const globalSnapshot = buildBalancesSnapshotFixture({ registry: cash, region: "GLOBAL" });
+    render(<PresentationRegionProvider regionId="DE"><Surface snapshot={globalSnapshot} /></PresentationRegionProvider>);
+    expect((await page().findByText("Up to 4,10 % APY")).textContent).toBe("Up to 4,10\u00a0% APY");
+  });
+
   test("routes an inbound deposit to the highest-rate vault and normalizes Back history", async () => {
     cached();
     render(<Route initialFlow="save-deposit" snapshot={held} />);
@@ -1532,7 +1540,7 @@ describe("Cash L2", () => {
   test("a vault missing from a complete snapshot is absent, not unreadable", () => {
     const snapshot = buildBalancesSnapshotFixture();
     const without = { ...snapshot, holdings: snapshot.holdings.filter((holding) => holding.contractAddress?.toLowerCase() !== GAUNTLET.toLowerCase()) };
-    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
+    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
     expect(management.absent).toBe(true);
     expect(management.savedBaseUnits).toBe("0");
     expect(management.unreadable).toBe(false);
@@ -1541,7 +1549,7 @@ describe("Cash L2", () => {
   test("a vault missing from a partial snapshot stays unavailable", () => {
     const snapshot = buildBalancesSnapshotFixture({ coverage: { registry: "partial" } });
     const without = { ...snapshot, holdings: snapshot.holdings.filter((holding) => holding.contractAddress?.toLowerCase() !== GAUNTLET.toLowerCase()) };
-    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
+    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
     expect(management.absent).toBe(false);
     expect(management.savedBaseUnits).toBeNull();
     expect(management.withdraw.reason).toBe("Couldn't check this balance.");

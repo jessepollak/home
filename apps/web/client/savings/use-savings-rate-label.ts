@@ -64,6 +64,7 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true): str
 
   if (!metadataQuery.data) return null;
   return savingsTeaserApyLabel({
+    regionId,
     summary,
     candidates: metadataQuery.data.candidates,
     metadata: metadataQuery.data,

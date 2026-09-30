@@ -7,6 +7,9 @@ import {
 
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const decimalPattern = /^(-?)(\d+)(?:\.(\d*))?(?:e([+-]?\d+))?$/i;
+function isStringNumericLiteral(value: string): value is Intl.StringNumericLiteral {
+  return decimalPattern.test(value);
+}
 const signedPercentPattern = /^([+\u2212-])?(\d+(?:\.\d+)?)\s*%$/;
 const minimumPriceFractionDigits = 2;
 const maximumTinyPriceFractionDigits = 8;
@@ -543,16 +546,19 @@ export function formatWadPercent(
   })}%`;
 }
 
-/** @public exercised by shared/formatting/money.test.ts */
 export function formatBasisPoints(
   raw: AtomicAmount,
   regionId: RegionId = "GLOBAL",
 ): string {
-  return `${formatDecimalAmount(parseUnsignedAtomicAmount(raw), 2, {
-    fractionDigits: 2,
-    markTiny: false,
-    regionId,
-  })}%`;
+  const basisPoints = parseUnsignedAtomicAmount(raw);
+  const value = `${basisPoints}E-4`;
+  if (!isStringNumericLiteral(value)) throw new TypeError("Invalid basis points");
+  if (!Number.isFinite(Number(value))) return "—";
+  return cachedNumberFormat(presentationLocale(regionId), {
+    style: "percent",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 export function formatHealthFactor(
