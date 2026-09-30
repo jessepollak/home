@@ -37,6 +37,11 @@ export const ACTIVITY_READ_SOURCES = [
 export type ActivityReadOutcome = (typeof ACTIVITY_READ_OUTCOMES)[number];
 export type ActivityReadReason = (typeof ACTIVITY_READ_REASONS)[number];
 export type ActivityReadSource = (typeof ACTIVITY_READ_SOURCES)[number];
+export const ACTIVITY_SOURCE_ERRORS = [
+  "invalid-input", "invalid-response", "not-configured", "unauthorized",
+  "payment-required", "rate-limited", "timed-out", "upstream-error", "unknown",
+] as const;
+export type ActivitySourceError = (typeof ACTIVITY_SOURCE_ERRORS)[number];
 export type ActivityReadValuation = {
   priced: number;
   unknownToken: number;
@@ -236,6 +241,8 @@ export type ObservabilityEvent =
       outcome: ActivityReadOutcome;
       reason: ActivityReadReason;
       source: ActivityReadSource;
+      sourceError?: ActivitySourceError;
+      upstreamStatus?: number;
       durationMs: number;
       sourceDurationMs: number;
       sourceAttemptCount: number;
@@ -403,6 +410,8 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         outcome: ActivityReadOutcome;
         reason: ActivityReadReason;
         source: ActivityReadSource;
+        sourceError?: ActivitySourceError;
+        upstreamStatus?: number;
         durationMs: number;
         sourceDurationMs: number;
         sourceAttemptCount: number;
@@ -626,6 +635,9 @@ export function normalizeObservabilityEvent(
       outcome,
       reason: allowedValue(event.reason, ACTIVITY_READ_REASONS, "none"),
       source: allowedValue(event.source, ACTIVITY_READ_SOURCES, "none"),
+      ...(event.sourceError === undefined ? {} : { sourceError: allowedValue(event.sourceError, ACTIVITY_SOURCE_ERRORS, "unknown") }),
+      ...(typeof event.upstreamStatus === "number" && Number.isSafeInteger(event.upstreamStatus) && event.upstreamStatus >= 100 && event.upstreamStatus <= 599
+        ? { upstreamStatus: event.upstreamStatus } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
       sourceDurationMs: boundedInteger(event.sourceDurationMs, 60_000),
       sourceAttemptCount: boundedInteger(event.sourceAttemptCount, 10),
