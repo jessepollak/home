@@ -1,4 +1,4 @@
 declare module "virtual:library-candidates" {
-  const files: import("./candidates").CandidateFile[];
-  export default files;
+  const payload: import("./candidates").CandidatePayload;
+  export default payload;
 }

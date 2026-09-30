@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import "@/client/account/dom-test-harness";
+import { Scanner } from "@tailwindcss/oxide";
 import { scanLibraryCandidates } from "../../.storybook/library-candidates";
 import { confirmedCandidates, type SourceFile } from "../../stories/review/explorations/library/foundations/candidates";
 import { readMotionReference } from "../../stories/review/explorations/library/foundations/motion-values";
@@ -156,7 +157,7 @@ describe("Tailwind candidate usage", () => {
     try {
       const layer = { name: "utilities", cssText: "@layer utilities { }", cssRules: style.sheet!.cssRules };
       const owner = { styleSheets: [{ cssRules: [layer] }], defaultView: window } as unknown as Document;
-      const snapshot = confirmedCandidates(scanLibraryCandidates(files), owner);
+      const snapshot = confirmedCandidates(scanLibraryCandidates(files, new Scanner({})), owner);
       expect(snapshot.status).toBe("available");
       return snapshot.files;
     } finally { style.remove(); }
@@ -241,7 +242,7 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
     const utilities = { name: "utilities", cssText: "@layer utilities { }", cssRules: [] };
     const owner = { styleSheets: [{ cssRules: [utilities] }, foreign.sheet!], defaultView: window } as unknown as Document;
     try {
-      expect(confirmedCandidates(scanLibraryCandidates([{ path: "example.tsx", source: '"duration-storybook"' }]), owner))
+      expect(confirmedCandidates(scanLibraryCandidates([{ path: "example.tsx", source: '"duration-storybook"' }], new Scanner({})), owner))
         .toEqual({ status: "available", files: [{ path: "example.tsx", candidates: [] }] });
     } finally { foreign.remove(); }
   });
@@ -403,6 +404,8 @@ describe("measurement availability and discovered scales", () => {
     expect(await loadCandidateSet(async () => { throw new Error("Plugin unavailable"); }))
       .toEqual({ status: "unavailable", files: [] });
     expect(await loadCandidateSet(async () => ({ default: [] }))).toEqual({ status: "available", files: [] });
+    expect(await loadCandidateSet(async () => ({ default: { status: "unavailable", reason: "Tailwind candidate scanner unavailable." } })))
+      .toEqual({ status: "unavailable", files: [] });
     const files = [{ path: "components/ui/example.tsx", candidates: ["duration-200", "duration-200"] }];
     expect(await loadCandidateSet(async () => ({ default: files }))).toEqual({ status: "available", files });
   });

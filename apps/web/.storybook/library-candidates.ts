@@ -1,16 +1,15 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Scanner } from "@tailwindcss/oxide";
+import type { Scanner } from "@tailwindcss/oxide";
 import type { Plugin } from "vite";
-import type { CandidateFile, SourceFile } from "../stories/review/explorations/library/foundations/candidates";
+import type { CandidateFile, CandidatePayload, SourceFile } from "../stories/review/explorations/library/foundations/candidates";
 
 const virtualId = "virtual:library-candidates";
 const resolvedId = `\0${virtualId}`;
 const webRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
-export function scanLibraryCandidates(files: SourceFile[]): CandidateFile[] {
-  const scanner = new Scanner({});
+export function scanLibraryCandidates(files: SourceFile[], scanner: Scanner): CandidateFile[] {
   return files.map(({ path, source }) => ({
     path,
     candidates: scanner.getCandidatesWithPositions({ content: source, extension: "tsx" }).map(({ candidate }) => candidate),
@@ -38,12 +37,19 @@ export function libraryCandidates(root = webRoot): Plugin {
   return {
     name: "library-candidates",
     resolveId(id) { if (id === virtualId) return resolvedId; },
-    load(id) {
+    async load(id) {
       if (id !== resolvedId) return;
       const files = libraryCandidateSources(root);
       this.addWatchFile(componentRoot);
       for (const file of files) this.addWatchFile(join(root, file.path));
-      return `export default ${JSON.stringify(scanLibraryCandidates(files))};`;
+      let payload: CandidatePayload;
+      try {
+        const { Scanner } = await import("@tailwindcss/oxide");
+        payload = scanLibraryCandidates(files, new Scanner({}));
+      } catch {
+        payload = { status: "unavailable", reason: "Tailwind candidate scanner unavailable." };
+      }
+      return `export default ${JSON.stringify(payload)};`;
     },
     configureServer(server) {
       server.watcher.add(componentRoot);

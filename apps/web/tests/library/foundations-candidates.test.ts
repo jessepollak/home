@@ -19,7 +19,7 @@ describe("build-time oxide candidates", () => {
     ['`${state === "transition" ? fn({x:1}) : "duration-200"}`', ["transition", "duration-200"]],
     ['`${ready ? `duration-100` : `duration-200`}`', ["duration-100", "duration-200"]],
   ] as [string, string[]][])("preserves native candidates in %s", (source, expected) => {
-    const [{ candidates }] = scanLibraryCandidates([{ path: "fixture.tsx", source }]);
+    const [{ candidates }] = scanLibraryCandidates([{ path: "fixture.tsx", source }], new Scanner({}));
     expect(candidates.filter((name) => name.includes("duration") || name.includes("ease-") || name.includes("mt-1.5") || name === "transition"))
       .toEqual(expected);
   });
@@ -28,7 +28,7 @@ describe("build-time oxide candidates", () => {
     const output = scanLibraryCandidates([
       { path: "first.tsx", source: '"duration-200 duration-200"' },
       { path: "second.tsx", source: '"duration-200"' },
-    ]);
+    ], new Scanner({}));
     expect(output).toEqual([
       { path: "first.tsx", candidates: ["duration-200", "duration-200"] },
       { path: "second.tsx", candidates: ["duration-200"] },
@@ -49,7 +49,7 @@ describe("build-time oxide candidates", () => {
     }).map(({ candidate }) => candidate) }));
     const sources = libraryCandidateSources(root);
     expect(sources.map(({ path }) => path)).toEqual(paths);
-    expect(scanLibraryCandidates(sources)).toEqual(native);
+    expect(scanLibraryCandidates(sources, new Scanner({}))).toEqual(native);
     expect(native.find(({ path }) => path === "components/ui/field.tsx")?.candidates)
       .toContain("[[data-variant=legend]+&]:-mt-1.5");
   });
