@@ -19,7 +19,91 @@ const input = {
   networkId: 8453 as const,
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
+}
+
+function freshResponse() {
+  return new Response(`{"data":{"getTokenPrices":[{"address":"${ADDRESS}","networkId":8453,"priceUsd":1,"timestamp":${NOW_SECONDS}}]}}`);
+}
+
 describe("Codex raw quotes", () => {
+  test("an already-aborted waiter never starts a fetch", async () => {
+    let calls = 0;
+    const reader = createCodexRawQuotesReader({
+      apiKey: "fixture-key",
+      inputs: [input],
+      fetchImpl: async () => { calls += 1; return freshResponse(); },
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(reader(controller.signal)).rejects.toBe(controller.signal.reason);
+    expect(calls).toBe(0);
+  });
+
+  test("a single waiter aborts the fetch and a new call refetches without old cleanup clearing it", async () => {
+    const responses = [deferred<Response>(), deferred<Response>()];
+    const starts = [deferred<void>(), deferred<void>()];
+    const signals: AbortSignal[] = [];
+    const reader = createCodexRawQuotesReader({
+      apiKey: "fixture-key",
+      inputs: [input],
+      now: () => new Date(NOW),
+      fetchImpl: async (_url, init) => {
+        signals.push(init!.signal!);
+        starts[signals.length - 1]!.resolve();
+        return await responses[signals.length - 1]!.promise;
+      },
+    });
+    const controller = new AbortController();
+    const aborted = reader(controller.signal);
+    await starts[0]!.promise;
+    controller.abort();
+    expect(signals[0]?.aborted).toBe(true);
+    const refetched = reader();
+    await starts[1]!.promise;
+    await expect(aborted).rejects.toBe(controller.signal.reason);
+    responses[0]!.resolve(freshResponse());
+    await Promise.resolve();
+    const coalesced = reader();
+    expect(signals).toHaveLength(2);
+    expect(signals[1]?.aborted).toBe(false);
+    responses[1]!.resolve(freshResponse());
+    expect((await refetched)[0]?.status).toBe("fresh");
+    expect((await coalesced)[0]?.status).toBe("fresh");
+    expect((await reader())[0]?.status).toBe("fresh");
+    expect(signals).toHaveLength(2);
+  });
+
+  test.each(["abortable", "non-abortable"])("one coalesced waiter abort leaves the %s waiter and fetch alive", async (kind) => {
+    const response = deferred<Response>();
+    let calls = 0;
+    let fetchSignal: AbortSignal | null | undefined;
+    const reader = createCodexRawQuotesReader({
+      apiKey: "fixture-key",
+      inputs: [input],
+      now: () => new Date(NOW),
+      fetchImpl: async (_url, init) => {
+        calls += 1;
+        fetchSignal = init?.signal;
+        return await response.promise;
+      },
+    });
+    const controller = new AbortController();
+    const aborted = reader(controller.signal);
+    const survivor = reader(kind === "abortable" ? new AbortController().signal : undefined);
+    controller.abort();
+    await expect(aborted).rejects.toBe(controller.signal.reason);
+    expect(calls).toBe(1);
+    expect(fetchSignal?.aborted).toBe(false);
+    response.resolve(freshResponse());
+    expect((await survivor)[0]?.status).toBe("fresh");
+    expect((await reader())[0]?.status).toBe("fresh");
+    expect(calls).toBe(1);
+  });
+
   test("bounds shared readers with least-recently-used eviction", async () => {
     const previousKey = process.env.CODEX_API_KEY;
     delete process.env.CODEX_API_KEY;

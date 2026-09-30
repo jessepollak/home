@@ -51,9 +51,15 @@ export function createCodexRawQuotesReader(options: {
     throw new CodexRawQuoteError("The Codex quote freshness window is invalid.");
   }
   let cache: { storedAt: number; quotes: PriceQuote[] } | null = null;
-  let inFlight: Promise<PriceQuote[]> | null = null;
+  let inFlight: {
+    promise: Promise<PriceQuote[]>;
+    controller: AbortController;
+    waiters: number;
+    settled: boolean;
+  } | null = null;
 
-  return async function readRawQuotes(): Promise<PriceQuote[]> {
+  return async function readRawQuotes(signal?: AbortSignal): Promise<PriceQuote[]> {
+    signal?.throwIfAborted();
     const fetchedAt = readCurrentTime(now);
     if (!options.apiKey?.trim()) {
       return unavailableQuotes(inputs, fetchedAt.toISOString());
@@ -63,28 +69,58 @@ export function createCodexRawQuotesReader(options: {
       cache = { ...cache, quotes };
       return quotes;
     }
-    if (!inFlight) {
-      inFlight = fetchQuotes({
-        apiKey: options.apiKey.trim(),
-        inputs,
-        fetchImpl,
-        fetchedAt,
-        timeoutMs,
-        freshnessMs,
-      });
+    if (!inFlight || inFlight.controller.signal.aborted) {
+      const controller = new AbortController();
+      const pending: NonNullable<typeof inFlight> = {
+        controller,
+        waiters: 0,
+        settled: false,
+        promise: fetchQuotes({
+          apiKey: options.apiKey.trim(),
+          inputs,
+          fetchImpl,
+          fetchedAt,
+          timeoutMs,
+          freshnessMs,
+          signal: controller.signal,
+        }).then((fetchedQuotes) => {
+          pending.settled = true;
+          controller.signal.throwIfAborted();
+          const completedAt = readCurrentTime(now);
+          const quotes = reevaluateQuoteFreshness(fetchedQuotes, completedAt, freshnessMs);
+          cache = { storedAt: completedAt.getTime(), quotes };
+          return quotes;
+        }).finally(() => {
+          pending.settled = true;
+          if (inFlight === pending) inFlight = null;
+        }),
+      };
+      inFlight = pending;
     }
+    const pending = inFlight;
+    pending.waiters += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      pending.waiters -= 1;
+      if (pending.waiters === 0 && !pending.settled) pending.controller.abort();
+    };
+    let onAbort: (() => void) | undefined;
     try {
-      const fetchedQuotes = await inFlight;
-      const completedAt = readCurrentTime(now);
-      const quotes = reevaluateQuoteFreshness(
-        fetchedQuotes,
-        completedAt,
-        freshnessMs,
-      );
-      cache = { storedAt: completedAt.getTime(), quotes };
-      return quotes;
+      if (!signal) return await pending.promise;
+      return await new Promise<PriceQuote[]>((resolve, reject) => {
+        onAbort = () => {
+          release();
+          reject(signal.reason);
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+        pending.promise.then(resolve, reject);
+      });
     } finally {
-      inFlight = null;
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
+      release();
     }
   };
 }
@@ -95,7 +131,7 @@ const sharedReaders = new LRUCache<string, ReturnType<typeof createCodexRawQuote
 
 export function getCodexRawQuotes(
   inputs: readonly CodexRawQuoteInput[],
-  options: { freshnessMs?: number } = {},
+  options: { freshnessMs?: number; signal?: AbortSignal } = {},
 ): Promise<PriceQuote[]> {
   const apiKey = process.env.CODEX_API_KEY;
   if (sharedApiKey !== apiKey) {
@@ -112,7 +148,7 @@ export function getCodexRawQuotes(
     reader = createCodexRawQuotesReader({ apiKey, inputs, freshnessMs });
     sharedReaders.set(key, reader);
   }
-  return reader();
+  return reader(options.signal);
 }
 
 /** @public exercised by server/market-data/codex/raw-quotes.test.ts */
@@ -133,6 +169,7 @@ async function fetchQuotes({
   fetchedAt,
   timeoutMs,
   freshnessMs,
+  signal,
 }: {
   apiKey: string;
   inputs: readonly CodexRawQuoteInput[];
@@ -140,6 +177,7 @@ async function fetchQuotes({
   fetchedAt: Date;
   timeoutMs: number;
   freshnessMs: number;
+  signal: AbortSignal;
 }): Promise<PriceQuote[]> {
   try {
     const data = readRecord(await executeCodexGraphql({
@@ -150,6 +188,7 @@ async function fetchQuotes({
       },
       fetchImpl,
       timeoutMs,
+      signal,
       subject: "Codex quotes",
       createError: (message, options) => new CodexRawQuoteError(message, options),
       noDataMessage: "Codex quotes returned an invalid price list.",
