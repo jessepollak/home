@@ -65,15 +65,23 @@ bun run --cwd apps/web fixture-server stop
 
 Apply this cleanup also on interruptions/failures, using the same `HOME_FIXTURE_PORT` (or explicit `--port`) as start. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the recorded process group was stopped or already gone, and whether the helper confirmed the port was free. If another process holds the port after shutdown, the helper fails loudly instead of reporting success.
 
-### Manual production smoke
+### Production warm navigation
 
-Playwright smoke runs against `next dev`, which refetches RSC payloads on navigation. Tests titled `manual-production:` assert production router-cache behavior and skip unless `HOME_PLAYWRIGHT_PRODUCTION=1`; CI does not run them. When a change touches shell routing, prefetch or the router cache, run them locally and record the result in PR Evidence:
+Ordinary `test:browser-smoke` stays on `next dev`, which refetches RSC payloads on navigation. The separate `chromium-production-navigation` project selects only the production warm-navigation assertion, with no skip or retry. Run it when shell routing, prefetch or router-cache behavior changes:
 
 ```sh
-HOME_PLAYWRIGHT_PRODUCTION=1 bun run --cwd apps/web test:browser-smoke shell-pages.pw.ts -g manual-production
+bun run --cwd apps/web test:browser-production-navigation
 ```
 
-The flag makes the Playwright web server run `next build` then `next start` on the fixture port with the same fixture environment. The build writes the production `.next` output in the worktree; it needs no database or provider credentials.
+The command sets `HOME_PLAYWRIGHT_PRODUCTION=1`; Playwright owns a pinned local `./node_modules/.bin/next build` then `next start` on an isolated fixture port and stops the server on completion/failure. It bypasses the migration-bearing app build script, enables `HOME_PLAYWRIGHT_SMOKE=1`, uses the existing signed-in session/API fixtures, and requires the pinned Playwright Chromium (`test:browser-install`). Like the [navigation profiler](navigation-performance.md), it writes `.next` in this worktree; run from a checkout without Next-loadable `.env` files or provider/database credentials. No admin warm-up runs in this project.
+
+Home → Cash → Invest → Home warms each destination, waiting for its visible content as well as its URL. Measured Home → Cash → Home → Invest → Home taps must issue zero document/navigation and RSC requests through destination visibility. Per-leg counts/URLs are logged and attached to the JSON report in `apps/web/test-results/production-navigation.json`; failures retain traces/video. API refresh traffic is not this assertion's budget.
+
+The separate **Production warm navigation** workflow runs on every push to `main` and `workflow_dispatch`, not pull requests or the required-check dependency graph. A build, startup or assertion failure fails that workflow; build/start/test total wall time appears in its step summary and results are uploaded even after failure.
+
+Playwright-rung: dispatch
+
+Browser-issued document/RSC requests under the optimized Next runtime cannot be established by a unit/component test or the development smoke; this extends the existing browser assertion rather than adding a second regression layer. Fixture Chromium evidence does not prove live-provider behavior, hardware latency or a navigation timing budget.
 
 ### Real Android device
 

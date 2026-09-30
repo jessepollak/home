@@ -36,9 +36,16 @@ The full check suite also covers:
 - disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
 - unit-test runtime budgets (per-test and summed per-file JUnit timings, with a checked-in outlier allowlist)
 - performance budgets (separate, non-required workflow: production fixture, structural gates, and report-only timings)
+- production warm navigation (separate, non-required workflow on `main` push and manual dispatch; zero document/RSC requests for warmed Home/Cash/Invest taps)
 - the route contract inventory (`bun test` running `apps/web/app/api/route-contracts.contract.test.ts`), which requires every route handler under `app/` to be classified with a shared versioned parser contract or a reasoned document/machine/webhook/redirect/status exemption (handlers outside `app/api` must be exempt), checks handler and client linkage, and fails on new or stale baselined gaps
 
 CI cancels in-progress runs only for pull requests. Each push to `main` runs in its own concurrency group keyed by commit, so no push cancels or replaces another and each gets its own verdict.
+
+## Production warm navigation
+
+The **Production warm navigation** workflow (`production-navigation.yml`) runs `bun run --cwd apps/web test:browser-production-navigation` with the pinned Node/Bun/Chromium setup used by performance CI. Its `chromium-production-navigation` project builds with the local pinned Next binary, then uses `next start` and credential-free smoke fixtures; only the warm Home/Cash/Invest request assertion runs, without skips or retries. It waits for visible destination content, measures warmed Cash as well as Invest and Home, and fails on any document/navigation or RSC request. Build/startup/assertion failures fail this workflow, with total build/start/test wall time in the step summary and counts plus failure traces/video in the `production-navigation-results` artifact.
+
+This workflow triggers only on push to `main` and `workflow_dispatch`. It adds no PR build cost and no dependency to required checks; **Chromium smoke** keeps its development-mode coverage and server command. See [production warm navigation](browser-validation.md#production-warm-navigation) for the local command, fixture restrictions and `Playwright-rung: dispatch` rationale.
 
 ## SQL query behavior
 
