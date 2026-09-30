@@ -3,8 +3,10 @@ import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 
 type RouteEntry = { contracts?: string[]; exempt?: { kind: string; reason: string }; client?: string };
+type AppRouteEntry = { exempt?: { kind: string; reason: string }; contracts?: string[] };
 type Manifest = {
   routes: Record<string, RouteEntry>;
+  appRoutes: Record<string, AppRouteEntry>;
   baseline: {
     routesWithoutVersionedParser: Record<string, string[]>;
     unversionedContracts: string[];
@@ -20,6 +22,8 @@ const parserPattern = /^(parse|read|assert)[A-Z]/;
 const contractPattern = /(?:^|\/)[^/]*contract[^/]*\.ts$|\/contracts\/[^/]+\.ts$/;
 const testPattern = /(?:\.test|\.spec)\.(?:ts|tsx|js|jsx)$/;
 const clientDependencyPattern = /^(?:client|components|shared)\//;
+const privateFolderPattern = /(?:^|\/)_[^/]*(?=\/)/;
+const exemptionKinds = ["webhook", "machine", "redirect", "status", "document"];
 
 type ExportedValue = { callable: boolean; version: boolean };
 type ExportLink = { name: string; original: string; specifier?: string };
@@ -263,8 +267,12 @@ function routePriority(a: string, b: string): number {
 export function inventoryRouteContracts({ root, manifest }: { root: string; manifest: Manifest }): Violation[] {
   const violations: Violation[] = [];
   const report = (code: string, path: string, detail: string) => violations.push({ code, path, detail });
-  const files = (pattern: string) => [...new Bun.Glob(pattern).scanSync({ cwd: root })].sort();
-  const routes = new Set(["ts", "tsx", "js", "jsx"].flatMap((extension) => files(`app/api/**/route.${extension}`)).map((path) => path.slice("app/api/".length)));
+  const files = (pattern: string, dot = false) => [...new Bun.Glob(pattern).scanSync({ cwd: root, dot })].sort();
+  const routeFiles = (directory: string) =>
+    ["ts", "tsx", "js", "jsx"].flatMap((extension) => files(`${directory}/**/route.${extension}`, true))
+      .filter((path) => !privateFolderPattern.test(path));
+  const routes = new Set(routeFiles("app/api").map((path) => path.slice("app/api/".length)));
+  const appRoutes = new Set(routeFiles("app").filter((path) => !path.startsWith("app/api/")));
   const contracts = new Set(files("shared/**/*.ts").filter((path) => !testPattern.test(path) && contractPattern.test(path)));
   const clientFiles = ["client", "components", "app"].flatMap((directory) =>
     files(`${directory}/**/*.{ts,tsx,js,jsx}`).filter((path) =>
@@ -516,6 +524,22 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
       }
     }
   }
+  for (const path of appRoutes) {
+    if (!(path in manifest.appRoutes)) report("route-unclassified", path, "Route is not in the manifest's appRoutes section");
+  }
+  const manifestAppRoutes = Object.keys(manifest.appRoutes);
+  if (manifestAppRoutes.join("\0") !== [...manifestAppRoutes].sort().join("\0")) {
+    report("manifest-unsorted", "appRoutes", "App routes must be sorted");
+  }
+  for (const [path, entry] of Object.entries(manifest.appRoutes)) {
+    if (!appRoutes.has(path)) report("route-unknown", path, "Manifest app route does not exist");
+    if (Object.hasOwn(entry, "contracts")) {
+      report("route-contract-unsupported", path, "Handlers outside app/api must carry an exemption; declare shared contracts on an app/api route");
+    }
+    if (!entry.exempt || !exemptionKinds.includes(entry.exempt.kind) || typeof entry.exempt.reason !== "string" || entry.exempt.reason.trim().length < 30) {
+      report("exempt-invalid", path, "Exemption needs a recognized kind and a specific reason");
+    }
+  }
   for (const path of routes) {
     if (!(path in manifest.routes)) report("route-unclassified", path, "Route is not in the manifest");
   }
@@ -551,7 +575,7 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
     if ((hasExempt && Object.hasOwn(baseline.routesWithoutVersionedParser, path)) || hasContracts === hasExempt || (hasContracts && (!Array.isArray(entry.contracts) || entry.contracts.length === 0))) {
       report("route-double", path, "Route must have exactly one nonempty contract list or exemption and cannot be both exempt and baselined");
     }
-    if (hasExempt && (!entry.exempt || !["webhook", "machine", "redirect", "status"].includes(entry.exempt.kind) || typeof entry.exempt.reason !== "string" || entry.exempt.reason.trim().length < 30)) {
+    if (hasExempt && (!entry.exempt || !exemptionKinds.includes(entry.exempt.kind) || typeof entry.exempt.reason !== "string" || entry.exempt.reason.trim().length < 30)) {
       report("exempt-invalid", path, "Exemption needs a recognized kind and a specific reason");
     }
     if (!Array.isArray(entry.contracts) || !routes.has(path)) continue;
