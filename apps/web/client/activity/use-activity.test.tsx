@@ -1602,6 +1602,7 @@ describe("after-action activity windows", () => {
     expect(advancedEnd).not.toBe(windowEnd);
     expect(view.getByTestId("ids").textContent).toBe("latest");
     expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(jest.getTimerCount()).toBe(0);
     await act(async () => {
       hung.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "late-original", "50"))], null));
     });
@@ -1609,10 +1610,7 @@ describe("after-action activity windows", () => {
     expect(queryClient.getQueryData<string>(windowKey)).toBe(advancedEnd);
     expect(view.getByTestId("ids").textContent).toBe("latest");
     expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
-    await act(async () => { await advanceFirstPageRetry(activityLatestReadTimeoutMs); });
-    await flushMountedRecovery();
-    expect(queryClient.getQueryData<string>(windowKey)).toBe(advancedEnd);
-    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   test("a new session object for the same owner does not abandon an in-flight latest read", async () => {
