@@ -16,6 +16,7 @@ import { AccountWalletContext } from "@/client/account/cdp-client";
 import { cashoutOrderAction, cashoutProgress, cashoutWithdrawForDeposit, linkedCashoutWithdraw } from "@/client/activity/cash-out-presenter";
 import { isRecentActionsResponse, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { parseActivityOrders, type ActivityOrder } from "@/shared/activity/contract-orders";
+import { FUNDING_ORDER_RESOLUTION_VERSION, readResolveFundingOrderResponse } from "@/shared/funding/contracts/order-resolution";
 import type { ActivityLedgerNextActionKind } from "@/client/activity/activity-ledger";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
@@ -89,9 +90,15 @@ export function ConnectedActivityPanel({
   const clearOrderMutation = useHomeMutation(ownerMutation({
     owner: ownerKey,
     invalidates: (order: ActivityOrder) => [{ scope: "funding-open-order", key: [order.region], refetchType: "all" }],
-    mutationFn: async (order: ActivityOrder) => wallet!.fetchAccountResource(
-      `/api/funding/orders/${encodeURIComponent(order.id)}/resolve`, { method: "POST", body: { version: 1 } },
-    ),
+    mutationFn: async (order: ActivityOrder) => {
+      const body = await wallet!.fetchAccountResource(
+        `/api/funding/orders/${encodeURIComponent(order.id)}/resolve`,
+        { method: "POST", body: { version: FUNDING_ORDER_RESOLUTION_VERSION } },
+      );
+      const resolved = readResolveFundingOrderResponse(body);
+      if (!resolved || resolved.order.id !== order.id) throw new Error("resolution");
+      return resolved;
+    },
   }));
   const routing = useOptionalHomeShellRouting();
   const [cancelBusy, setCancelBusy] = useState(false);
