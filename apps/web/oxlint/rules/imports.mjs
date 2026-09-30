@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const productionIsolationMessage =
@@ -121,16 +122,55 @@ function sourceVisitors(check) {
   };
 }
 
-function rule(message, reject) {
+// Oxc does not surface JSDoc types as type-query nodes in JS files; consult TypeScript's JSDoc parse.
+// TypeScript loads only when a file has a JSDoc block with a tag, so most runs skip the parser.
+const requireTypeScript = createRequire(import.meta.url);
+let typeScript;
+
+function jsdocImportReferences(filename, text) {
+  const firstBlock = text.indexOf("/**");
+  // One linear scan: a regex over a file of tag-less doc comments rescans the tail from every block.
+  if (firstBlock === -1 || text.indexOf("@", firstBlock + 3) === -1) return [];
+  typeScript ??= requireTypeScript("typescript");
+  const ts = typeScript;
+  const source = ts.createSourceFile(filename, text, ts.ScriptTarget.Latest, true, /\.[cm]?[jt]sx$/.test(filename) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const references = [];
+  function visit(node) {
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      references.push({ value: node.argument.literal.text, start: node.argument.literal.getStart(source) });
+    }
+    if (ts.isJSDocImportTag(node)) references.push({ value: node.moduleSpecifier.text, start: node.moduleSpecifier.getStart(source) });
+    for (const doc of node.jsDoc ?? []) visit(doc);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return references;
+}
+
+function rule(message, reject, { jsdoc = false } = {}) {
   return {
     meta: { type: "problem", schema: [], messages: { rejected: message } },
     create(context) {
       const reported = new WeakSet();
-      return sourceVisitors((node, value, complete) => {
+      const visitors = sourceVisitors((node, value, complete) => {
         if (typeof value !== "string" || reported.has(node) || !reject(value, context.filename, complete)) return;
         reported.add(node);
         context.report({ node, messageId: "rejected" });
       });
+      if (jsdoc) visitors["Program:exit"] = () => {
+        const offending = jsdocImportReferences(context.filename, context.sourceCode.text)
+          .filter((reference) => reject(reference.value, context.filename, true))
+          .sort((left, right) => left.start - right.start);
+        if (!offending.length) return;
+        let index = 0;
+        for (const comment of context.sourceCode.getAllComments()) {
+          while (index < offending.length && offending[index].start < comment.range[0]) index += 1;
+          if (index === offending.length || offending[index].start >= comment.range[1]) continue;
+          context.report({ loc: comment.loc, messageId: "rejected" });
+          while (index < offending.length && offending[index].start < comment.range[1]) index += 1;
+        }
+      };
+      return visitors;
     },
   };
 }
@@ -175,7 +215,7 @@ function packageRoot(value) {
 
 export const noStorybookImports = rule(productionIsolationMessage, isStorybookImport);
 export const noExplorationImports = rule(explorationIsolationMessage, (value) =>
-  /(?:^|\/)explorations(?:\/|$)/.test(value));
+  /(?:^|\/)explorations(?:\/|$)/.test(value), { jsdoc: true });
 export const noTestSupportImports = rule(testSupportIsolationMessage, (value, _filename, complete) => {
   const specifier = normalizedSpecifier(value, complete);
   return /(?:^|\/)(?:tests|testing)(?:\/|$)/.test(specifier)
