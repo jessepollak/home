@@ -7,14 +7,15 @@ import { clearCookie, cookie, equalText, requestOrigin } from "@/server/auth/sig
 import {
   ACCESS_CONTRACT_VERSION,
   ACCESS_COOKIE_NAME,
-  ACCESS_CREDENTIAL_FIELD,
   ACCESS_RESPONSE_MODE_HEADER,
   parseSafeAccessDestination,
+  readAccessRequest,
+  type AccessError,
   type AccessErrorCode,
+  type AccessSuccess,
 } from "@/shared/access/contract";
 
 const MAX_BODY_BYTES = 4_096;
-const MAX_CREDENTIAL_BYTES = 1_024;
 
 type LoginDependencies = {
   getConfig?: () => AccessConfig;
@@ -31,10 +32,8 @@ function responseHeaders(): Headers {
 }
 
 function errorResponse(code: AccessErrorCode, status: number): Response {
-  return Response.json(
-    { version: ACCESS_CONTRACT_VERSION, error: { code } },
-    { status, headers: responseHeaders() },
-  );
+  const payload: AccessError = { version: ACCESS_CONTRACT_VERSION, error: { code } };
+  return Response.json(payload, { status, headers: responseHeaders() });
 }
 
 function sameOriginPost(request: Request): URL | null {
@@ -88,23 +87,14 @@ export function createAccessLoginHandler(input: LoginDependencies = {}) {
       return errorResponse("INVALID_ACCESS", 400);
     }
 
-    const allowedFields = new Set([ACCESS_CREDENTIAL_FIELD, "next"]);
-    const fields = [...form.keys()];
-    const credentials = form.getAll(ACCESS_CREDENTIAL_FIELD);
-    const destinations = form.getAll("next");
-    if (
-      fields.some((name) => !allowedFields.has(name)) ||
-      credentials.length !== 1 ||
-      destinations.length > 1 ||
-      Buffer.byteLength(credentials[0] ?? "", "utf8") > MAX_CREDENTIAL_BYTES ||
-      !equalText(
-        credentialDigest(credentials[0] ?? ""),
-        credentialDigest(config.credential),
-      )
-    ) return errorResponse("INVALID_ACCESS", 401);
+    const submitted = readAccessRequest(form);
+    if (!submitted || !equalText(
+      credentialDigest(submitted.credential),
+      credentialDigest(config.credential),
+    )) return errorResponse("INVALID_ACCESS", 401);
 
     const now = (input.now ?? (() => new Date()))();
-    const destination = parseSafeAccessDestination(destinations[0]);
+    const destination = parseSafeAccessDestination(submitted.destination);
     const headers = responseHeaders();
     headers.set(
       "Set-Cookie",
@@ -116,10 +106,8 @@ export function createAccessLoginHandler(input: LoginDependencies = {}) {
       ),
     );
     if (request.headers.get(ACCESS_RESPONSE_MODE_HEADER) === "json") {
-      return Response.json(
-        { version: ACCESS_CONTRACT_VERSION, destination },
-        { status: 200, headers },
-      );
+      const payload: AccessSuccess = { version: ACCESS_CONTRACT_VERSION, destination };
+      return Response.json(payload, { status: 200, headers });
     }
     headers.set("Location", new URL(destination, origin).toString());
     return new Response(null, { status: 303, headers });
