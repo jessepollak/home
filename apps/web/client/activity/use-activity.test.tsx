@@ -170,7 +170,7 @@ function HookHarness({
   regionId?: RegionId;
   scheduleValuationRetry?: (run: () => void, delayMs: number) => () => void;
 }) {
-  const activity = useActivity(owner, fetchActivity, regionId, scheduleValuationRetry);
+  const activity = useActivity(owner, fetchActivity, regionId, { scheduleValuationRetry });
   return (
     <div>
       <output data-testid={`${testId}status`}>{activity.status}</output>
@@ -210,10 +210,10 @@ function HookHarness({
 }
 
 afterEach(() => {
-  jest.useRealTimers();
   notifyManager.setScheduler(defaultScheduler);
   cleanup();
   getHomeQueryClient().clear();
+  jest.useRealTimers();
 });
 
 describe("useActivity pagination", () => {
