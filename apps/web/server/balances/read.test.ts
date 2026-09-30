@@ -279,6 +279,20 @@ describe("balances chain read", () => {
     expect(events).toHaveLength(1);
   });
 
+  test("hosted guard log throws without changing unavailable holdings", async () => {
+    let attempts = 0;
+    const read = readerFor(async (method) => {
+      if (method === "eth_getBlockByNumber") return block;
+      throw new Error("registry RPC must be guarded");
+    }, {
+      hosted: true,
+      log: () => { attempts += 1; throw new Error("sink failed"); },
+    });
+    const result = await read({ entries: [native, r1] }, owner);
+    expect(result.holdings.every(({ balance }) => balance.status === "unavailable")).toBeTrue();
+    expect(attempts).toBe(1);
+  });
+
   test("reports an unreadable confirmation after the re-pin also cannot confirm", async () => {
     const read = readerFor(async (method) => {
       if (method === "eth_getBlockByNumber") return block;
