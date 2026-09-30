@@ -64,6 +64,16 @@ rm -f "$HOME_FIXTURE_SERVER_LOG"
 
 Apply this cleanup also on interruptions/failures. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the exact PID was terminated or already exited and waited for.
 
+### Manual production smoke
+
+Playwright smoke runs against `next dev`, which refetches RSC payloads on navigation. Tests titled `manual-production:` assert production router-cache behavior and skip unless `HOME_PLAYWRIGHT_PRODUCTION=1`; CI does not run them. When a change touches shell routing, prefetch or the router cache, run them locally and record the result in PR Evidence:
+
+```sh
+HOME_PLAYWRIGHT_PRODUCTION=1 bun run --cwd apps/web test:browser-smoke shell-pages.pw.ts -g manual-production
+```
+
+The flag makes the Playwright web server run `next build` then `next start` on the fixture port with the same fixture environment. The build writes the production `.next` output in the worktree; it needs no database or provider credentials.
+
 ### Real Android device
 
 On a runner that exposes a real Android device, supplement the required rungs with an Android Chrome check for mobile-web behavior: safe areas, software keyboard, touch/gestures, fixed bottom UI, viewport units, and sheets. The runner must provide exclusive access to the device (one agent at a time) and its Chrome CDP port. The fixture check below uses the credential-free fixture server; `fixture-session --cdp <port>` seeds the signed-in fixture state and routes in the device's Chrome instead of a local browser. Use no app on the device beyond what the check needs.

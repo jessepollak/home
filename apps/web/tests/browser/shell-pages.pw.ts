@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { activityOrdersFixture, marketPricesFixture } from "./feature-map/fixtures";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { borrowOverviewBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
@@ -37,8 +38,9 @@ for (const path of pages) {
   });
 }
 
-test("warm Home, Cash and Invest taps avoid document and RSC requests", async ({ page }) => {
-  test.skip(process.env.NODE_ENV !== "production", "Next dev disables reliable client router cache reuse");
+test("manual-production: warm Home, Cash and Invest taps avoid document and RSC requests", async ({ page }) => {
+  test.skip(process.env.HOME_PLAYWRIGHT_PRODUCTION !== "1",
+    "manual-production: Next dev refetches RSC payloads; run with HOME_PLAYWRIGHT_PRODUCTION=1 against a production fixture build");
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
@@ -75,6 +77,77 @@ test("a left Savings page makes no vault requests while hidden for two fake minu
   });
   await page.clock.runFor(120_000);
   expect(vaultReads).toBe(0);
+});
+
+const mainNavigation = (page: Page, name: string) => page.getByRole("navigation", { name: "Main navigation" })
+  .getByRole("button", { name, exact: true }).last();
+
+function countRequests(page: Page, pathname: string) {
+  const counter = { count: 0 };
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === pathname) counter.count += 1;
+  });
+  return counter;
+}
+
+for (const [path, ready] of [
+  ["/home", (page: Page) => page.getByRole("heading", { name: "Your money" })],
+  ["/activity", (page: Page) => page.locator("[data-app-main-authenticated]").getByRole("region", { name: "Activity" }).last()],
+] as const) {
+  test(`a left ${path} page stops polling pending orders while hidden for two fake minutes`, async ({ page }) => {
+    await page.clock.install();
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    await page.route("**/api/activity/orders", (route) => json(route, activityOrdersFixture()));
+    await page.goto(path);
+    await expect(ready(page)).toBeVisible();
+    const orders = countRequests(page, "/api/activity/orders");
+    await page.clock.runFor(60_000);
+    await expect.poll(() => orders.count).toBeGreaterThan(0);
+    await mainNavigation(page, "Invest").click();
+    await expect(page).toHaveURL("/invest");
+    orders.count = 0;
+    await page.clock.runFor(120_000);
+    expect(orders.count).toBe(0);
+  });
+}
+
+test("a left Investments page stops rechecking market prices while hidden", async ({ page }) => {
+  await page.clock.install();
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.route("**/api/market-prices", (route) => json(route, marketPricesFixture()));
+  await page.goto("/investments");
+  await expect(page.getByRole("region", { name: "Your investments" })).toBeVisible();
+  const prices = countRequests(page, "/api/market-prices");
+  await page.clock.runFor(600_000);
+  await expect.poll(() => prices.count).toBeGreaterThan(0);
+  await mainNavigation(page, "Home").click();
+  await expect(page).toHaveURL("/home");
+  prices.count = 0;
+  await page.clock.runFor(600_000);
+  expect(prices.count).toBe(0);
+});
+
+test("a hidden holding detail keeps its own route and chart range across Home and Back", async ({ page }) => {
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/investments/0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf");
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Bitcoin");
+  const ranges = page.getByRole("group", { name: "Price range" });
+  await ranges.getByRole("button", { name: "1M", exact: true }).click();
+  await expect(ranges.getByRole("button", { name: "1M", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await ranges.evaluate((element) => { element.setAttribute("data-mount-probe", "kept"); });
+  await mainNavigation(page, "Home").click();
+  await expect(page).toHaveURL("/home");
+  await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
+  await expect(page.locator("[data-mount-probe=kept]")).toHaveCount(1);
+  await expect(page.locator("[data-holding-key]")).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/investments\/0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf$/i);
+  await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Bitcoin");
+  await expect(page.locator("[data-mount-probe=kept]")).toBeVisible();
+  await expect(ranges.getByRole("button", { name: "1M", exact: true })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("Activity transaction detail returns after visiting its owned Bitcoin holding", async ({ page }) => {

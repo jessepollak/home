@@ -2,12 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { AppChromeProvider, useOptionalAppChrome, type NestedAppChrome } from "@/components/app-chrome";
 import { shellDesktopContentClassName } from "@/components/shell-layout";
-import { parseShellLocation, shellHref } from "@/config/shell-location";
+import { shellHref } from "@/config/shell-location";
 import { useOptionalHomeShellRouting } from "./panel-routing";
-import { useShellPage } from "./shell-page-context";
+import { useRouteShellLocation, useShellPage } from "./shell-page-context";
 import { HomePanel } from "./home-panel";
 import { ActivityPage } from "./activity-panel";
 import { CashPanel, InvestPanel, InvestmentsPanel } from "./feature-panels";
@@ -56,7 +56,7 @@ export function ActivityPageContent() {
 
 export function CashPageContent() {
   const page = useShellPage();
-  const location = parseShellLocation(usePathname());
+  const location = useRouteShellLocation();
   const view = location.cashView === "savings" ? "savings" : "cash";
   return <div className={shellDesktopContentClassName}><CashPanel regionId={page.regionId} isVerified={page.isVerified}
     isChecking={page.isChecking} content={page.cashContent?.({ view, onOpenSavings: page.openCashSavings })} /></div>;
@@ -64,7 +64,7 @@ export function CashPageContent() {
 
 export function BorrowPageContent() {
   const page = useShellPage();
-  const location = parseShellLocation(usePathname());
+  const location = useRouteShellLocation();
   const router = useRouter();
   const routing = useOptionalHomeShellRouting();
   return <div className={shellDesktopContentClassName}><AuthenticatedBorrowExperience
@@ -89,7 +89,7 @@ function ChromeSync({ onChange }: { onChange: (chrome: NestedAppChrome | null) =
 
 export function InvestmentsPageContent() {
   const page = useShellPage();
-  const location = parseShellLocation(usePathname());
+  const location = useRouteShellLocation();
   const changeChrome = page.onInvestmentsChromeChange;
   return <div className={shellDesktopContentClassName}><AppChromeProvider>
     <ChromeSync onChange={changeChrome} />
@@ -118,7 +118,7 @@ export function CardPageContent() {
 
 export function ShellFallbackContent() {
   const page = useShellPage();
-  const location = parseShellLocation(usePathname());
+  const location = useRouteShellLocation();
   switch (location.panel) {
     case "card":
       return page.cardsEnabled ? <CardPageContent /> : <CardUnavailableRedirect />;

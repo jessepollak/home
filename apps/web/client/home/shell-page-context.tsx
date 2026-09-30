@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { parseShellLocation, type ShellLocation } from "@/config/shell-location";
 import type { NestedAppChrome } from "@/components/app-chrome";
 import type { FetchActivity } from "@/client/activity";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -49,4 +51,10 @@ export function useShellPage(): ShellPageContextValue {
   const value = useContext(ShellPageContext);
   if (!value) throw new Error("A shell page must render inside the shell layout");
   return value;
+}
+
+export function useRouteShellLocation(): ShellLocation {
+  const pathname = usePathname();
+  const [location] = useState(() => parseShellLocation(pathname));
+  return location;
 }

@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { usePathname } from "next/navigation";
-import { parseShellLocation } from "@/config/shell-location";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
@@ -19,6 +17,7 @@ import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
+import { useRouteShellLocation } from "./shell-page-context";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 import { useShowSmallBalances } from "./use-show-small-balances";
 import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
@@ -26,7 +25,7 @@ import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
 const preferenceReadRetryDelays = [500, 1500] as const;
 
 function RoutedInvestExperience(props: Omit<ComponentProps<typeof PricedInvestExperienceWithDiscover>, "initialView">) {
-  const location = parseShellLocation(usePathname());
+  const location = useRouteShellLocation();
   return <PricedInvestExperienceWithDiscover {...props} initialView={investViewFromLocation(location)} />;
 }
 

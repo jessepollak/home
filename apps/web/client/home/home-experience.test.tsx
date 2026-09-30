@@ -271,7 +271,12 @@ function DashboardHarness({
 }
 
 function TestPage() {
-  const panel = parseShellLocation(useTestPathname()).panel;
+  const pathname = useTestPathname();
+  const panel = parseShellLocation(pathname).panel;
+  return <TestRoutePage key={panel === "invest" ? panel : pathname} panel={panel} />;
+}
+
+function TestRoutePage({ panel }: { panel: ReturnType<typeof parseShellLocation>["panel"] }) {
   if (panel === "home") return <HomePageContent />;
   if (panel === "cash") return <CashPageContent />;
   if (panel === "activity") return <ActivityPageContent />;
