@@ -40,6 +40,7 @@ afterEach(() => {
 });
 
 test("a fresh savings observation replaces the displayed rate", () => {
+  jest.setSystemTime(Date.parse("2025-01-01T00:00:00.000Z"));
   const start = Date.now();
   const query = getHomeQueryClient();
   const key = publicQueryKey("savings-vaults");
@@ -91,6 +92,7 @@ test("the rate label recomputes at its freshness deadline and retains the stale 
 
 
 test("vault positions reuse a snapshot and invalidate when balances change", () => {
+  jest.setSystemTime(Date.parse("2025-01-01T00:00:00.000Z"));
   const query = getHomeQueryClient();
   const snapshot = buildBalancesSnapshotFixture();
   const session = { user: { subject: "memo-savings" }, smartAccount: { address: snapshot.owner.address, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
