@@ -98,8 +98,8 @@ function resultRow(rowOwner: PreparedMoneyAction["owner"], status: "pending" | "
     summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt },
   };
 }
-function typeAmount(value: string) {
-  fireEvent.change(page().getByRole("textbox", { name: "Amount" }), { target: { value } });
+async function typeAmount(value: string) {
+  fireEvent.change(await page().findByRole("textbox", { name: "Amount" }), { target: { value } });
 }
 afterEach(() => {
   cleanup();
@@ -121,9 +121,11 @@ function ReducedAmountJourney(props: AmountJourneyProps) {
 
 function ReopenHarness() {
   const [open, setOpen] = useState(true);
+  const [closed, setClosed] = useState(false);
   return (
     <>
       {!open ? <button onClick={() => setOpen(true)}>Reopen deposit dialog</button> : null}
+      {closed ? <span>journey closed</span> : null}
       <AmountJourney
         open={open}
         mode="deposit"
@@ -132,6 +134,7 @@ function ReopenHarness() {
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
         onClose={() => setOpen(false)}
+        onClosed={() => setClosed(true)}
       />
     </>
   );
@@ -158,7 +161,7 @@ describe("SavingsJourney amount entry", () => {
     await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true), feeLookupWait);
     await waitFor(() => expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false), feeLookupWait);
     fireEvent.click(page().getByRole("button", { name: "Max" }));
-    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("49.98");
+    expect((await page().findByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("49.98");
   });
 
   test("withdraw does not report an irrelevant USDC fee lookup failure", async () => {
@@ -167,6 +170,7 @@ describe("SavingsJourney amount entry", () => {
       fetchAccountResource={async () => { throw new Error("network unavailable"); }}
       prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })} onClose={() => {}} />);
+    await page().findByRole("textbox", { name: "Amount" });
     await waitFor(() => expect(getHomeQueryClient().isFetching()).toBe(0));
     expect(page().queryByRole("alert")).toBeNull();
     expect(page().queryByRole("button", { name: "Retry" })).toBeNull();
@@ -183,11 +187,11 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
-    const amount = page().getByRole("textbox", { name: "Amount" });
-    const destination = page().getByText("Gauntlet USDC Prime · 4.10% APY");
+    const amount = await page().findByRole("textbox", { name: "Amount" });
+    const destination = await page().findByText("Gauntlet USDC Prime · 4.10% APY");
     expect(destination.compareDocumentPosition(amount) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(destination.closest('[data-slot="alert"]')).toBeNull();
-    typeAmount("1.234567");
+    await typeAmount("1.234567");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
     expect(page().getByRole("button", { name: "Deposit $1.234567" }).getAttribute("data-money-action-id")).toBe("action-1");
@@ -213,14 +217,14 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
-    typeAmount("1.234567");
+    await typeAmount("1.234567");
     fireEvent.keyDown(page().getByRole("textbox", { name: "Amount" }), { key: "Enter" });
     expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
     expect(requests).toEqual([{ kind: "deposit", vaultAddress: VAULT, amountBaseUnits: "1234567" }]);
     expect(executions).toBe(0);
   });
 
-  test("explains an empty withdrawal balance before entry and blocks preparation", () => {
+  test("explains an empty withdrawal balance before entry and blocks preparation", async () => {
     let prepareCalls = 0;
     render(
       <AmountJourney
@@ -231,8 +235,9 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
+    await page().findByRole("textbox", { name: "Amount" });
     expect(page().getByRole("status").textContent).toBe("Nothing saved to withdraw.");
-    typeAmount("0.10");
+    await typeAmount("0.10");
     const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(continueButton.disabled).toBe(true);
     expect(page().getByRole("status").textContent).toBe("Nothing saved to withdraw.");
@@ -241,7 +246,7 @@ describe("SavingsJourney amount entry", () => {
     expect(page().queryByRole("alert")).toBeNull();
   });
 
-  test("explains an empty deposit balance before entry", () => {
+  test("explains an empty deposit balance before entry", async () => {
     render(
       <AmountJourney
         open mode="deposit" session={session} candidate={candidate}
@@ -251,10 +256,11 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
+    await page().findByRole("textbox", { name: "Amount" });
     expect(page().getByRole("status").textContent).toBe("No USDC available to deposit.");
   });
 
-  test("blocks an amount above a non-zero available deposit balance", () => {
+  test("blocks an amount above a non-zero available deposit balance", async () => {
     let prepareCalls = 0;
     render(
       <AmountJourney
@@ -265,7 +271,7 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
-    typeAmount("60");
+    await typeAmount("60");
     const input = page().getByRole("textbox", { name: "Amount" });
     expect(input.getAttribute("aria-invalid")).toBe("true");
     expect(page().getByText("Only $50.00 available")).toBeTruthy();
@@ -288,8 +294,9 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
+    await page().findByRole("textbox", { name: "Amount" });
     expect(page().queryByRole("status")).toBeNull();
-    typeAmount("60");
+    await typeAmount("60");
     const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(continueButton.disabled).toBe(false);
     fireEvent.click(continueButton);
@@ -308,7 +315,7 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(continueButton.disabled).toBe(false);
     fireEvent.click(continueButton);
@@ -325,7 +332,7 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     expect(page().getByRole("button", { name: "Continue" }).hasAttribute("data-money-action-id")).toBe(false);
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const confirm = await page().findByRole("button", { name: "Withdraw $1.00" });
@@ -349,7 +356,7 @@ describe("SavingsJourney amount entry", () => {
           onClose={() => {}}
         />,
       );
-      typeAmount("1");
+      await typeAmount("1");
       fireEvent.click(page().getByRole("button", { name: "Continue" }));
       const label = `${mode === "deposit" ? "Deposit" : "Withdraw"} $1.00`;
       const confirm = await page().findByRole("button", { name: label });
@@ -388,7 +395,7 @@ describe("SavingsJourney amount entry", () => {
       </SavingsDialogFixtureProvider>,
     );
 
-    const input = view.getByRole("combobox", { name: "Asset" });
+    const input = await view.findByRole("combobox", { name: "Asset" });
     const trigger = input.parentElement?.querySelector("button");
     expect(trigger).toBeTruthy();
     fireEvent.click(trigger!);
@@ -418,7 +425,7 @@ describe("SavingsJourney amount entry", () => {
       </SavingsDialogFixtureProvider>,
     );
 
-    typeAmount("5");
+    await typeAmount("5");
     expect(page().getByText("EURC is available for presentation review only", { exact: false })).toBeTruthy();
     const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(continueButton.disabled).toBe(true);
@@ -426,7 +433,7 @@ describe("SavingsJourney amount entry", () => {
     expect(prepareCalls).toBe(0);
   });
 
-  test("forces every number and drawer layer into deterministic reduced motion", () => {
+  test("forces every number and drawer layer into deterministic reduced motion", async () => {
     const view = render(
       <SavingsDialogFixtureProvider value={{ motion: "reduced" }}>
         <AmountJourney
@@ -439,7 +446,7 @@ describe("SavingsJourney amount entry", () => {
       </SavingsDialogFixtureProvider>,
     );
 
-    typeAmount("1.234567");
+    await typeAmount("1.234567");
     expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1.234567");
     expect(page().getByText("$50.00 available")).toBeTruthy();
     expect(view.container.ownerDocument.querySelector("[data-money-sheet]")?.hasAttribute("data-immediate")).toBe(true);
@@ -448,10 +455,63 @@ describe("SavingsJourney amount entry", () => {
 
   test("reopens the same controlled dialog after close", async () => {
     render(<ReopenHarness />);
+    await page().findByRole("textbox", { name: "Amount" });
     fireEvent.click(await page().findByRole("button", { name: "Close deposit dialog" }));
+    await page().findByText("journey closed");
     const reopen = await page().findByRole("button", { name: "Reopen deposit dialog" });
     fireEvent.click(reopen);
     await waitFor(() => expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy());
+  });
+
+  test("reopening a controlled dialog after review starts a fresh amount", async () => {
+    function ReopenFromReview() {
+      const [open, setOpen] = useState(true);
+      const [closed, setClosed] = useState(false);
+      return <>
+        {!open ? <button onClick={() => setOpen(true)}>Reopen deposit dialog</button> : null}
+        {closed ? <span>journey closed</span> : null}
+        <AmountJourney open={open} mode="deposit" session={session} candidate={candidate}
+          prepareMoneyAction={async () => prepared()}
+          executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+          onClose={() => setOpen(false)} onClosed={() => setClosed(true)} />
+      </>;
+    }
+    render(<ReopenFromReview />);
+    await typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await page().findByRole("dialog", { name: "Confirm" });
+    fireEvent.click(page().getByRole("button", { name: "Close deposit dialog" }));
+    await page().findByText("journey closed");
+    fireEvent.click(await page().findByRole("button", { name: "Reopen deposit dialog" }));
+    await page().findByRole("dialog", { name: "Deposit" });
+    expect((await page().findByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+  });
+
+  test("reopening a controlled dialog after a result starts a fresh amount", async () => {
+    function ReopenFromResult() {
+      const [open, setOpen] = useState(true);
+      const [closed, setClosed] = useState(false);
+      return <>
+        {!open ? <button onClick={() => setOpen(true)}>Reopen deposit dialog</button> : null}
+        {closed ? <span>journey closed</span> : null}
+        <AmountJourney open={open} mode="deposit" session={session} candidate={candidate}
+          prepareMoneyAction={async () => prepared()}
+          executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+          onClose={() => setOpen(false)} onClosed={() => setClosed(true)} />
+      </>;
+    }
+    render(<ReopenFromResult />);
+    await typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect(await page().findByRole("heading", { name: "Depositing $1.00 to Save" })).toBeTruthy();
+    fireEvent.click(page().getByRole("button", { name: "Close deposit dialog" }));
+    await page().findByText("journey closed");
+    fireEvent.click(await page().findByRole("button", { name: "Reopen deposit dialog" }));
+    await page().findByRole("dialog", { name: "Deposit" });
+    expect((await page().findByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(page().queryByRole("heading", { name: "Depositing $1.00 to Save" })).toBeNull();
   });
 
   test("Save review X closes once and Back returns exactly to the typed amount", async () => {
@@ -464,7 +524,7 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => { closes++; setOpen(false); }} />;
     }
     render(<Journey />);
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await page().findByRole("dialog", { name: "Confirm" });
     fireEvent.click(page().getAllByRole("button", { name: "Back" }).at(-1)!);
@@ -486,7 +546,7 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />
     </>);
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await page().findByRole("button", { name: "Deposit $1.00" });
     const dialog = page().getByRole("dialog", { name: "Confirm" });
@@ -508,7 +568,7 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     expect((await page().findByRole("alert")).textContent).toContain("wallet request was rejected");
@@ -535,7 +595,7 @@ describe("SavingsJourney amount entry", () => {
       />,
     );
 
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
 
@@ -550,6 +610,7 @@ describe("SavingsJourney amount entry", () => {
         onClose={() => {}}
       />,
     );
+    await page().findByRole("textbox", { name: "Amount" });
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
@@ -562,7 +623,7 @@ describe("SavingsJourney amount entry", () => {
     expect(page().queryByRole("alert")).toBeNull();
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
 
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
     expect(ownerBRequests).toEqual([{
@@ -625,7 +686,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     const continueButton = page().getByRole("button", { name: "Continue" });
     fireEvent.click(continueButton);
     await waitFor(() => expect(continueButton.getAttribute("aria-busy")).toBe("true"));
@@ -655,7 +716,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     const input = page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
     act(() => { input.focus(); });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -665,7 +726,7 @@ function ManagementHarness({ prepareMoneyAction }: {
     expect(input.getAttribute("aria-readonly")).toBe("true");
     expect(document.activeElement).toBe(input);
     expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
-    typeAmount("2");
+    await typeAmount("2");
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(input.value).toBe("1");
     expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
@@ -686,7 +747,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
     await act(async () => {
@@ -709,7 +770,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         <ManagementHarness prepareMoneyAction={() => pending} />
       </SavingsDialogFixtureProvider>,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(page().getByText("Leave amount for tray"));
     const tray = await page().findByRole("dialog", { name: "Configured USDC vault" });
@@ -737,7 +798,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     view.rerender(
       <ReducedAmountJourney
@@ -754,8 +815,8 @@ function ManagementHarness({ prepareMoneyAction }: {
     });
     expect(page().getByRole("dialog", { name: "Withdraw" })).toBeTruthy();
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
-    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
-    typeAmount("1");
+    expect((await page().findByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Withdraw $1.00" })).toBeTruthy();
     expect(requests).toEqual([{ kind: "withdraw", vaultAddress: VAULT, amountBaseUnits: "1000000" }]);
@@ -776,7 +837,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     view.rerender(
@@ -787,7 +848,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Withdraw $1.00" }));
     expect(await page().findByRole("button", { name: "Done" })).toBeTruthy();
@@ -815,7 +876,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     await waitFor(() => expect(refreshes).toBe(1));
@@ -835,7 +896,7 @@ function ManagementHarness({ prepareMoneyAction }: {
     });
     expect(page().getByRole("dialog", { name: "Withdraw" })).toBeTruthy();
     expect(page().queryByRole("button", { name: "Done" })).toBeNull();
-    expect(page().getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(await page().findByRole("textbox", { name: "Amount" })).toBeTruthy();
     view.unmount();
   });
 
@@ -852,7 +913,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => {}}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     view.rerender(
@@ -870,8 +931,35 @@ function ManagementHarness({ prepareMoneyAction }: {
     });
     expect(page().getByRole("dialog", { name: "Withdraw" })).toBeTruthy();
     expect(page().queryByRole("button", { name: "Done" })).toBeNull();
-    expect(page().getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(await page().findByRole("textbox", { name: "Amount" })).toBeTruthy();
     view.unmount();
+  });
+
+  test("does not call onConfirmed when the dispatch settles after unmount", async () => {
+    let settleDispatch!: () => void;
+    const dispatch = new Promise<{ id: string; status: "submitted" }>((resolve) => {
+      settleDispatch = () => resolve({ id: "action-1", status: "submitted" });
+    });
+    let confirmed = 0;
+    const view = render(
+      <ReducedAmountJourney
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={async () => prepared("savings-deposit", "1000000")}
+        executeMoneyAction={() => dispatch as never}
+        onConfirmed={() => { confirmed += 1; }}
+        onClose={() => {}}
+      />,
+    );
+    await typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    view.unmount();
+    await act(async () => {
+      settleDispatch();
+      await dispatch;
+      await Promise.resolve();
+    });
+    expect(confirmed).toBe(0);
   });
 
   test("clears a completed owner-A review and amount before owner B can confirm", async () => {
@@ -885,7 +973,7 @@ function ManagementHarness({ prepareMoneyAction }: {
       />,
     );
 
-    typeAmount("1.234567");
+    await typeAmount("1.234567");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.234567" })).toBeTruthy();
     expect(document.body.textContent).toContain("Base (8453)");
@@ -902,12 +990,13 @@ function ManagementHarness({ prepareMoneyAction }: {
       />,
     );
 
+    await page().findByRole("textbox", { name: "Amount" });
     expect(page().queryByRole("button", { name: "Deposit $1.234567" })).toBeNull();
     expect(document.body.textContent).not.toContain("Base (8453)");
     expect(document.body.textContent).not.toContain("$1.234567");
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
 
-    typeAmount("2");
+    await typeAmount("2");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $2.00" })).toBeTruthy();
     expect(document.body.textContent).toContain("Base (8453)");
@@ -929,7 +1018,7 @@ function ManagementHarness({ prepareMoneyAction }: {
     );
     const view = render(dialog);
 
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
 
@@ -937,6 +1026,7 @@ function ManagementHarness({ prepareMoneyAction }: {
     expect(page().queryByRole("dialog")).toBeNull();
     view.rerender(dialog);
 
+    await page().findByRole("textbox", { name: "Amount" });
     expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
     expect(document.body.textContent).not.toContain("Base (8453)");
     expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
@@ -961,7 +1051,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         />,
       );
 
-      typeAmount("1");
+      await typeAmount("1");
       fireEvent.click(page().getByRole("button", { name: "Continue" }));
       fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
 
@@ -992,7 +1082,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         onClose={() => { closes += 1; }}
       />,
     );
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     fireEvent.click(await page().findByRole("button", { name: "Retry" }));
@@ -1029,7 +1119,7 @@ function ManagementHarness({ prepareMoneyAction }: {
       />,
     );
 
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const confirm = await page().findByRole("button", { name: "Deposit $1.00" }) as HTMLButtonElement;
 
@@ -1055,7 +1145,7 @@ function ManagementHarness({ prepareMoneyAction }: {
           onClose={() => {}}
         />,
       );
-      typeAmount("5");
+      await typeAmount("5");
       fireEvent.click(page().getByRole("button", { name: "Continue" }));
       expect((await page().findByRole("alert")).textContent).toContain(failure.message);
       cleanup();
@@ -1069,7 +1159,7 @@ function ManagementHarness({ prepareMoneyAction }: {
       prepareMoneyAction={async () => prepared()}
       executeMoneyAction={() => { calls += 1; return new Promise((resolve) => { release = resolve; }); }}
       onClose={() => {}} />);
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     const confirm = await page().findByRole("button", { name: "Deposit $1.00" });
     confirm.focus();
@@ -1098,7 +1188,7 @@ function ManagementHarness({ prepareMoneyAction }: {
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
       fetchAccountResource={fetchAccountResource} onClose={() => { closes += 1; }} />);
     rowOwner = prepared("savings-deposit", "1000000", sessionB).owner;
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Withdraw $1.00" }));
     expect(await page().findByRole("heading", { name: "Withdrawing $1.00 from Save" })).toBeTruthy();
@@ -1119,7 +1209,7 @@ function ManagementHarness({ prepareMoneyAction }: {
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
       fetchAccountResource={async () => ({ actions: [resultRow(prepared().owner, "failed")] })}
       onClose={() => {}} />);
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     expect(await page().findByRole("heading", { name: "Deposit didn't go through" })).toBeTruthy();
@@ -1138,7 +1228,7 @@ function ManagementHarness({ prepareMoneyAction }: {
       prepareMoneyAction={async () => prepared("savings-withdraw")}
       executeMoneyAction={async () => ({ id: "action-1", status: "failed" })}
       onClose={() => {}} />);
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Withdraw $1.00" }));
     expect(await page().findByRole("heading", { name: "Withdrawal didn't go through" })).toBeTruthy();
@@ -1157,7 +1247,7 @@ function ManagementHarness({ prepareMoneyAction }: {
         fetchAccountResource={async () => ({ actions: [resultRow(prepared().owner, "pending")] })}
         onClose={() => { events.push("close"); }} />
     </HomeShellRoutingProvider>);
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
     expect(await page().findByRole("heading", { name: "We can't confirm $1.00" })).toBeTruthy();
@@ -1187,6 +1277,7 @@ describe("SavingsMoneyFlow embedded in a MoneyModal", () => {
       </MoneyModal>;
     }
     render(<Journey />);
+    await page().findByRole("textbox", { name: "Amount" });
     expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     expect(events).toEqual(["back"]);
@@ -1209,7 +1300,7 @@ describe("SavingsMoneyFlow embedded in a MoneyModal", () => {
         executeMoneyAction={async (action) => { events.push(`confirm:${action.id}`); return { id: action.id, status: "submitted" }; }}
         onBack={() => { events.push("back"); }} onDone={() => { events.push("done"); }} />
     </MoneyModal>);
-    typeAmount("1");
+    await typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect((page().getByRole("button", { name: "Close deposit dialog" }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { releasePreparation(prepared()); await preparation; });
@@ -1238,7 +1329,7 @@ describe("SavingsMoneyFlow embedded in a MoneyModal", () => {
       </MoneyModal>;
     }
     const view = render(<Host blocked />);
-    typeAmount("1");
+    await typeAmount("1");
     const blocked = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(blocked.disabled).toBe(true);
     fireEvent.click(blocked);
@@ -1253,5 +1344,29 @@ describe("SavingsMoneyFlow embedded in a MoneyModal", () => {
     expect(late.disabled).toBe(true);
     fireEvent.click(late);
     expect(executions).toBe(0);
+  });
+
+  test("a mode change during preparation restarts the embedded amount step", async () => {
+    let releasePreparation!: (action: PreparedMoneyAction) => void;
+    function Host({ mode }: { mode: "deposit" | "withdraw" }) {
+      return <MoneyModal open immediate labelledBy="savings-action-title" onCancel={() => {}} onClose={() => {}}>
+        <SavingsMoneyFlow depth={1} mode={mode} session={session} candidate={candidate}
+          prepareMoneyAction={() => new Promise<PreparedMoneyAction>((resolve) => { releasePreparation = resolve; })}
+          executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} />
+      </MoneyModal>;
+    }
+    const view = render(<Host mode="deposit" />);
+    await typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    view.rerender(<Host mode="withdraw" />);
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(page().queryByRole("button", { name: "Withdraw $1.00" })).toBeNull();
+    await act(async () => {
+      releasePreparation(prepared());
+      await Promise.resolve();
+    });
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("");
+    expect(page().queryByRole("button", { name: "Withdraw $1.00" })).toBeNull();
   });
 });

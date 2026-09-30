@@ -83,9 +83,6 @@
     "apps/web/client/query/query-client.tsx": {
       "home/no-silent-catch": 1
     },
-    "apps/web/client/savings/savings-actions.tsx": {
-      "home/no-silent-catch": 2
-    },
     "apps/web/client/trading/trade-money-dialog.tsx": {
       "home/no-silent-catch": 1
     },
@@ -219,6 +216,13 @@
       "count": 1,
       "issue": "#1463",
       "reason": "Fixture server tests read only their own system-temp state and log files to verify the recorded group, its leader, and the freed port."
+    },
+    {
+      "path": "apps/web/client/savings/savings-journey-step.tsx",
+      "rule": "home/no-silent-catch",
+      "count": 2,
+      "issue": "#1318",
+      "reason": "Two reviewed home/no-silent-catch disables moved unchanged out of savings-actions.tsx with the lazily loaded amount/confirm step: a stale preparation and a stale dispatch fenced by a newer journey generation have no state to report."
     }
   ]
 }

@@ -5,6 +5,12 @@
       "kind": "suppression",
       "count": 1,
       "reason": "The shell invokes this third route-content callback as a function, not a component, exactly like the two neighbouring callbacks that already carry the reviewed inline suppression."
+    },
+    {
+      "path": "apps/web/client/savings/savings-journey-step.tsx",
+      "kind": "suppression",
+      "count": 2,
+      "reason": "Two reviewed home/no-silent-catch disables with reasons: a stale preparation and a stale dispatch fenced by a newer journey generation have no state to report. Both moved unchanged with the deferred step."
     }
   ]
 }
