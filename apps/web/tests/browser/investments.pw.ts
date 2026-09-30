@@ -108,3 +108,18 @@ test("Invest tab opens discovery, not owned holdings", async ({ page }) => {
   }
   await expect(page.getByRole("region", { name: "Your investments" })).toHaveCount(0);
 });
+
+test("cold deep link beyond the first batch reveals and focuses its row on Back", async ({ page }) => {
+  await seedSignedInSession(page);
+  const snapshot = manyOwnedInvestmentsSnapshot();
+  await installApiFixtures(page, { balances: snapshot });
+  const holding = snapshot.holdings.find((entry) => entry.name === "Extra investment 45");
+  if (!holding?.contractAddress) throw new Error("Missing deep-link fixture holding");
+  await page.goto(`/investments/${holding.contractAddress}`);
+  await expect(title(page)).toHaveText("Extra investment 45");
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page).toHaveURL(/\/investments$/);
+  const row = page.getByRole("region", { name: "Your investments" }).getByRole("button", { name: /^Extra investment 45 / });
+  await expect(row).toBeFocused();
+  await expect(row).toBeInViewport();
+});
