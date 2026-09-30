@@ -45,6 +45,8 @@ const activityContinuationRetryDelaysMs = [1_000, 3_000] as const;
 export const activityFirstPageRetryDelaysMs = [500, 1_500] as const;
 
 export type UseActivityResult = ActivityState & {
+  refreshing?: boolean;
+  failed?: boolean;
   retry: () => void;
   refresh: () => void;
   setSentinelVisible: (visible: boolean) => void;
@@ -282,6 +284,7 @@ type ActivityAdvanceInputs = {
 
 type ActivityAdvanceInputsBox = { current: ActivityAdvanceInputs };
 type ActivityLatestFailure = { windowEnd: string; currency: string } | null;
+type ActivityLatestState = { failure: ActivityLatestFailure; busy: boolean };
 type ActivityRunToken = { epoch: number };
 type ActivityRefreshWaiter = {
   ticket: number;
@@ -299,6 +302,7 @@ class ActivityWindowController {
   epoch = 0;
   dirty = false;
   failure: ActivityLatestFailure = null;
+  latestState: ActivityLatestState = { failure: null, busy: false };
   listeners = new Set<() => void>();
   prefetchKey: QueryKey | null = null;
   unregisterAdvancer: (() => void) | null = null;
@@ -310,12 +314,19 @@ class ActivityWindowController {
     return () => { this.listeners.delete(listener); };
   };
 
-  getFailure = () => this.failure;
+  getLatestState = () => this.latestState;
+
+  private publish() {
+    const busy = this.active !== null;
+    if (this.latestState.busy === busy && this.latestState.failure === this.failure) return;
+    this.latestState = { failure: this.failure, busy };
+    for (const listener of this.listeners) listener();
+  }
 
   setFailure(failure: ActivityLatestFailure) {
     if (this.failure === failure) return;
     this.failure = failure;
-    for (const listener of this.listeners) listener();
+    this.publish();
   }
 
   updateObserver(id: symbol, inputs: ActivityAdvanceInputsBox) {
@@ -338,6 +349,7 @@ class ActivityWindowController {
       const needsFallback = this.dirty || this.active !== null || this.failure !== null;
       this.epoch += 1;
       this.active = null;
+      this.publish();
       const waiters = this.waiters;
       this.waiters = [];
       for (const waiter of waiters) waiter.reject(new Error("Latest activity refresh abandoned."));
@@ -388,6 +400,7 @@ class ActivityWindowController {
     if (this.active?.epoch === this.epoch) return;
     const token = { epoch: this.epoch };
     this.active = token;
+    this.publish();
     void this.run(token);
   }
 
@@ -464,6 +477,7 @@ class ActivityWindowController {
       if (this.requested > this.served) continue;
       this.active = null;
       this.dirty = false;
+      this.publish();
       return;
     }
   }
@@ -492,7 +506,8 @@ export function refreshActivityThroughController(input: Parameters<typeof refres
 }
 
 const subscribeWithoutOwner = () => () => {};
-const failureWithoutOwner = () => null;
+const idleLatestState = Object.freeze<ActivityLatestState>({ failure: null, busy: false });
+const latestStateWithoutOwner = () => idleLatestState;
 
 export function useActivity(
   session: VerifiedAccountSession | null,
@@ -536,12 +551,13 @@ export function useActivity(
 
   const continuationScope = `${ownerKey ?? "signed-out"}\u0000${windowEnd}\u0000${currency}`;
   const controller = ownerKey ? activityWindowController(queryClient, ownerKey) : null;
-  const failure = useSyncExternalStore(
+  const state = useSyncExternalStore(
     controller?.subscribe ?? subscribeWithoutOwner,
-    controller?.getFailure ?? failureWithoutOwner,
-    controller?.getFailure ?? failureWithoutOwner,
+    controller?.getLatestState ?? latestStateWithoutOwner,
+    controller?.getLatestState ?? latestStateWithoutOwner,
   );
-  const latestUnavailable = Boolean(ownerKey && failure?.windowEnd === windowEnd && failure.currency === currency);
+  const latestUnavailable = Boolean(ownerKey && state.failure?.windowEnd === windowEnd && state.failure.currency === currency);
+  const latestBusy = Boolean(ownerKey && state.busy);
   const observerId = useRef(Symbol());
   const advanceInputRef = useRef({ session: validSession, regionId, fetchActivity });
   useEffect(() => {
@@ -810,6 +826,7 @@ export function useActivity(
   if (!ownerKey) {
     return {
       status: "unavailable", page: null, loadingMore: false,
+      refreshing: query.isFetching || query.isPaused || latestBusy,
       loadMoreError: false, continuing: false,
       retry, refresh, setSentinelVisible, retryLoadMore,
     };
@@ -817,6 +834,7 @@ export function useActivity(
   if (query.isPending) {
     return {
       status: "loading", page: null, loadingMore: false,
+      refreshing: query.isFetching || query.isPaused || latestBusy,
       loadMoreError: false, continuing: false,
       retry, refresh, setSentinelVisible, retryLoadMore,
     };
@@ -824,6 +842,7 @@ export function useActivity(
   if (!mergedPage) {
     return {
       status: "error", page: null, loadingMore: false,
+      refreshing: query.isFetching || query.isPaused || latestBusy,
       loadMoreError: false, continuing: false,
       error: readActivityFailure(query.error),
       retry, refresh, setSentinelVisible, retryLoadMore,
@@ -832,6 +851,8 @@ export function useActivity(
   return {
     status: "ready",
     page: mergedPage,
+    refreshing: query.isFetching || query.isPaused || latestBusy,
+    failed: query.isError,
     loadingMore: query.isFetchingNextPage,
     loadMoreError: loadMoreFailed,
     continuing,
