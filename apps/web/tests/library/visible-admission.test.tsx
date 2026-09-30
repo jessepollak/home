@@ -78,7 +78,7 @@ test("one-screen-ahead admission mounts offscreen frames without starting their 
   try {
     const view = sheet(undefined, null, root);
     const { nearby, visible } = observers();
-    expect(nearby.options).toEqual({ root, rootMargin: "100% 0px", threshold: 0 });
+    expect(nearby.options).toEqual({ root, rootMargin: `${window.innerHeight}px 0px`, threshold: 0 });
     const placeholder = view.getByRole("status");
     expect(Number.parseFloat(placeholder.style.height)).toBe(844);
     nearby.emit(0, 0);
@@ -97,6 +97,24 @@ test("one-screen-ahead admission mounts offscreen frames without starting their 
     expect(deadlines.size).toBe(1);
     act(() => [...deadlines.values()][0]());
     expect(view.getByRole("alert").textContent).toBe("Story did not finish rendering in 20 s");
+    expect(deadlines.size).toBe(0);
+  } finally { root.remove(); }
+});
+
+test("the preload margin follows scrolling viewport height rather than its width, including resize", () => {
+  const root = document.createElement("div");
+  let height = 760;
+  Object.defineProperty(root, "clientHeight", { get: () => height });
+  Object.defineProperty(root, "clientWidth", { value: 390 });
+  document.body.append(root);
+  try {
+    sheet(undefined, null, root);
+    const nearby = observers().nearby;
+    expect(nearby.options?.rootMargin).toBe("760px 0px");
+    height = 640;
+    act(() => window.dispatchEvent(new Event("resize")));
+    expect(nearby.disconnected).toBe(true);
+    expect(Intersection.instances.filter((observer) => observer.options?.rootMargin).at(-1)?.options?.rootMargin).toBe("640px 0px");
     expect(deadlines.size).toBe(0);
   } finally { root.remove(); }
 });

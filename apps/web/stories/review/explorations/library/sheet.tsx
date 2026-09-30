@@ -76,11 +76,20 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
     if (nearby) return;
     const node = container.current;
     if (!node) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) setNearby(true);
-    }, { root, rootMargin: "100% 0px", threshold: 0 });
-    observer.observe(node);
-    return () => observer.disconnect();
+    const view = node.ownerDocument.defaultView!;
+    let observer: IntersectionObserver;
+    const observe = () => {
+      observer?.disconnect();
+      observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setNearby(true);
+      }, { root, rootMargin: `${root?.clientHeight || view.innerHeight}px 0px`, threshold: 0 });
+      observer.observe(node);
+    };
+    observe();
+    const resize = new ResizeObserver(observe);
+    resize.observe(root ?? node.ownerDocument.documentElement);
+    view.addEventListener("resize", observe);
+    return () => { observer.disconnect(); resize.disconnect(); view.removeEventListener("resize", observe); };
   }, [nearby, root]);
   useEffect(() => {
     if (visible) return;
