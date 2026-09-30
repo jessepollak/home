@@ -59,7 +59,6 @@ export type SavingsJourneyProps = {
   };
   availableLabel?: string;
   destinationLabel?: string;
-  historyBlocked?: boolean;
   availableBaseUnits?: string | null;
   availableStale?: boolean;
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
@@ -72,7 +71,7 @@ export type SavingsJourneyProps = {
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
 
-export type SavingsMoneyFlowProps = Pick<SavingsJourneyProps, "session" | "availableLabel" | "availableBaseUnits" | "availableStale" | "historyBlocked" | "fetchAccountResource" | "prepareMoneyAction" | "executeMoneyAction" | "onConfirmed"> & {
+export type SavingsMoneyFlowProps = Pick<SavingsJourneyProps, "session" | "availableLabel" | "availableBaseUnits" | "availableStale" | "fetchAccountResource" | "prepareMoneyAction" | "executeMoneyAction" | "onConfirmed"> & {
   mode: SavingsActionMode;
   candidate: MorphoVaultCandidate;
   depth?: number;
@@ -142,7 +141,6 @@ function OwnerBoundSavingsJourney({
   picker,
   availableLabel,
   destinationLabel,
-  historyBlocked = false,
   availableBaseUnits,
   availableStale = false,
   fetchAccountResource,
@@ -177,7 +175,7 @@ function OwnerBoundSavingsJourney({
         /> : mode !== null && candidate ? <SavingsJourneyStep
           key={`${mode}:${candidate.vaultAddress}:${management?.address ?? ""}`}
           open={open} entry={entry} management={management} titleId={titleId} mode={mode} session={session} candidate={candidate}
-          availableLabel={availableLabel} destinationLabel={destinationLabel} historyBlocked={historyBlocked}
+          availableLabel={availableLabel} destinationLabel={destinationLabel}
           availableBaseUnits={availableBaseUnits} availableStale={availableStale}
           fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction}
           onBackToManagement={onBackToManagement} onBackToPicker={picker?.onBack} onClose={onClose} onConfirmed={onConfirmed}
