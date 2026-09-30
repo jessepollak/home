@@ -18,6 +18,7 @@ import {
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
 import { formatAddress, formatPresentationDate } from "@/shared/formatting";
 import { formatBasisPoints } from "@/shared/formatting/money";
+import { readJson } from "@/shared/http/read-json";
 import {
   OPERATOR_SETTINGS_CONTRACT_VERSION,
   parseOperatorSettingsErrorResponse,
@@ -71,14 +72,6 @@ function savedLine(settings: FeeSettingsState): string {
   if (settings.source === "default" || !settings.updatedAt) return "Not saved yet.";
   const when = formatPresentationDate(settings.updatedAt, { style: "date-time-zone", timeZone: "UTC" });
   return settings.updatedBy ? `Last updated ${when} by ${formatAddress(settings.updatedBy)}` : `Last updated ${when}`;
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
 }
 
 export function FeeSettingsForm({ initial, operator }: { initial: FeeSettingsState; operator: `0x${string}` }) {
@@ -154,7 +147,7 @@ export function FeeSettingsForm({ initial, operator }: { initial: FeeSettingsSta
         headers,
         body: JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: stored.revision, value, operator }),
       });
-      const body = await readJson(response);
+      const body = await readJson(response).catch(() => null);
       if (response.ok) {
         const saved = parseSettingsResponse(body);
         const savedValue = saved?.domain === "fees" ? parseOperatorFeeSettings(saved.settings.value) : null;

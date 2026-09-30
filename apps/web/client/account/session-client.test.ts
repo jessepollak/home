@@ -170,6 +170,31 @@ describe("session validation boundary", () => {
     }
   });
 
+  test.each([
+    { payload: null },
+    { payload: "BASE_ACCOUNT_DISABLED" },
+    { payload: [] },
+    { payload: {} },
+    { payload: { error: null } },
+    { payload: { error: "BASE_ACCOUNT_DISABLED" } },
+    { payload: { error: [] } },
+    { payload: { error: { code: 403 } } },
+  ])("keeps malformed forbidden bodies unavailable: %j", async ({ payload }) => {
+    await expect(validateAccountSession(
+      "test-access-token",
+      undefined,
+      async () => jsonResponse(payload, 403),
+    )).rejects.toMatchObject({ reason: "unavailable" });
+  });
+
+  test("keeps a forbidden response with malformed JSON unavailable", async () => {
+    await expect(validateAccountSession(
+      "test-access-token",
+      undefined,
+      async () => new Response("invalid-json", { status: 403 }),
+    )).rejects.toMatchObject({ reason: "unavailable" });
+  });
+
   test("hard-navigates on deployment access expiry instead of reporting Home signed out", async () => {
     const destinations: string[] = [];
     await expect(validateAccountSession(

@@ -16,7 +16,7 @@
     "perf:seeds": "bun run scripts/performance/seeds-check.ts",
     "profile:device": "bun run scripts/device-profile/cli.ts",
     "perf:cpu-check": "bun run scripts/performance/cpu-check.ts",
-    "lint": "oxlint -c .oxlintrc.jsonc --deny-warnings --report-unused-disable-directives --disable-nested-config .",
+    "lint": "next typegen && oxlint -c .oxlintrc.jsonc --deny-warnings --report-unused-disable-directives --disable-nested-config .",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "bun run scripts/unit-tests.ts",
     "knip": "knip --production --no-progress",

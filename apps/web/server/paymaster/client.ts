@@ -2,6 +2,7 @@ import "server-only";
 
 import { USDC_PAYMASTER_CONTEXT } from "@/shared/money-actions/network-fee";
 import { getPaymasterUrl } from "./config";
+import { readJson } from "@/shared/http/read-json";
 
 export const PAYMASTER_METHODS = ["pm_getPaymasterStubData", "pm_getPaymasterData", "pm_getAcceptedPaymentTokens"] as const;
 export type PaymasterMethod = (typeof PAYMASTER_METHODS)[number];
@@ -37,7 +38,7 @@ export function createPaymasterClient(options: { fetchImpl?: FetchLike; url?: st
           cache: "no-store",
         });
         if (!response.ok) throw new PaymasterError();
-        const payload: unknown = await response.json();
+        const payload: unknown = await readJson(response);
         if (!isRecord(payload) || payload.jsonrpc !== "2.0" || payload.id !== 1) throw new PaymasterError();
         if (isRecord(payload.error)) throw new PaymasterError();
         if (!("result" in payload)) throw new PaymasterError();
