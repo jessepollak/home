@@ -256,9 +256,7 @@
         "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "./instrumentation*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "./next.config.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "./proxy.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -269,7 +267,14 @@
         "**/explorations/**",
         "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-exploration-imports": "error",

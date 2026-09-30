@@ -1,0 +1,50 @@
+[
+  {
+    "path": ".storybook",
+    "reason": "Storybook configuration and preview setup support the non-production component workshop."
+  },
+  {
+    "path": "oxlint",
+    "reason": "Lint rules and their fixtures inspect source boundaries rather than ship product modules."
+  },
+  {
+    "path": "scripts",
+    "reason": "Development and verification scripts run outside the production application."
+  },
+  {
+    "path": "stories",
+    "reason": "Workshop stories and design explorations are non-production review surfaces."
+  },
+  {
+    "path": "tests",
+    "reason": "Regression tests and test helpers exercise the application without shipping as production modules."
+  },
+  {
+    "path": "gmail.ts",
+    "reason": "Gmail read-only helper used by the live-session CLI is operator verification tooling, not an application module."
+  },
+  {
+    "path": "live-login.ts",
+    "reason": "Live-session CLI invoked by a package script signs a browser in for verification and never ships."
+  },
+  {
+    "path": "pinned-agent-browser.ts",
+    "reason": "Launcher for the pinned verification browser supports the live-session CLI and its tests rather than the application."
+  },
+  {
+    "path": "playwright.config.ts",
+    "reason": "Playwright configuration is loaded by the test runner for fixture browser suites and does not ship with the application."
+  },
+  {
+    "path": "postcss.config.mjs",
+    "reason": "PostCSS pipeline configuration is loaded by the build tool rather than shipped as an application module."
+  },
+  {
+    "path": "verification-paths.ts",
+    "reason": "Private-path helper for verification state files is imported only by the verification CLI and its tests, not the application."
+  },
+  {
+    "path": "vitest.config.ts",
+    "reason": "Vitest and Storybook test configuration is loaded by the test runner rather than shipped with the application."
+  }
+]

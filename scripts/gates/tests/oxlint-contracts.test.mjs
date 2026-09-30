@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
+
+import { evaluateBoundaryExemptions, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const appsWebDir = path.join(repoRoot, "apps/web");
@@ -42,6 +45,14 @@ await mkdir(path.join(mirror, "app"), { recursive: true });
 await symlink(path.join(appsWebDir, "app/globals.css"), path.join(mirror, "app/globals.css"));
 await mkdir(path.join(mirror, "components/ui"), { recursive: true });
 await symlink(path.join(appsWebDir, "components/ui/button.tsx"), path.join(mirror, "components/ui/button.tsx"));
+
+const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: repoRoot })
+  .toString().split("\0").filter((entry) => existsSync(path.join(repoRoot, entry)))
+  .map((entry) => entry.slice("apps/web/".length));
+const directories = topLevelSourceDirectories(paths);
+const rootFiles = rootSourceFiles(paths);
+const exemptions = JSON.parse(await readFile(new URL("../exploration-boundary-exemptions.json", import.meta.url), "utf8"));
+const boundary = evaluateBoundaryExemptions({ directories, rootFiles, exemptions });
 
 const fixtures = {
   "app/comment.mjs": "export const value = 1; // unexplained",
@@ -251,6 +262,24 @@ const fixtures = {
   "storybook-static/ignored.ts": 'const x: any = 1;'
 };
 
+for (const directory of [...boundary.requiredFence, ...boundary.exempt]) {
+  fixtures[`${directory}/__exploration-boundary-probe.ts`] = 'export * from "./explorations/probe";';
+}
+const declarationProbe = 'export type BoundaryProbe = typeof import("./explorations/probe");';
+const rootProbe = (file) => /\.d\.(?:ts|mts|cts)$/.test(file) ? declarationProbe : 'void import("./explorations/probe");';
+for (const file of rootFiles) {
+  if (!Object.hasOwn(fixtures, file)) fixtures[file] = rootProbe(file);
+}
+fixtures["middleware.ts"] = rootProbe("middleware.ts");
+fixtures["__exploration-boundary-root-probe.ts"] = rootProbe("__exploration-boundary-root-probe.ts");
+fixtures["__exploration-boundary-root-probe.cjs"] = rootProbe("__exploration-boundary-root-probe.cjs");
+fixtures["__exploration-boundary-root-probe.cts"] = rootProbe("__exploration-boundary-root-probe.cts");
+fixtures["__exploration-boundary-root-probe.d.ts"] = rootProbe("__exploration-boundary-root-probe.d.ts");
+fixtures["__exploration-boundary-root-probe.d.mts"] = rootProbe("__exploration-boundary-root-probe.d.mts");
+fixtures["__exploration-boundary-root-probe.d.cts"] = rootProbe("__exploration-boundary-root-probe.d.cts");
+fixtures["verify.stories.foo.ts"] = rootProbe("verify.stories.foo.ts");
+fixtures["a.stories..ts"] = rootProbe("a.stories..ts");
+
 assert.ok(Object.keys(fixtures).length > 0, "Oxlint contract fixtures must not be empty");
 
 for (const [relativePath, contents] of Object.entries(fixtures)) {
@@ -313,6 +342,34 @@ const contracts = [
   ["TypeScript assertion wrappers around exploration specifiers are checked", () => assertHits("client/exploration-assertions.ts", "home(no-exploration-imports)", 3)],
   ["angle-bracket assertions are checked", () => assertHits("client/exploration-angle-assertion.ts", "home(no-exploration-imports)")],
   ["root JS entry points and TS proxy are covered", () => { for (const file of ["proxy.ts", "proxy.js", "instrumentation.js", "next.config.mjs"]) assertHits(file, "home(no-exploration-imports)"); }],
+  ["every top-level production directory is fenced", () => {
+    assert.deepEqual(boundary.stale, []);
+    assert.deepEqual(boundary.invalid, []);
+    for (const directory of boundary.requiredFence) assertHits(`${directory}/__exploration-boundary-probe.ts`, "home(no-exploration-imports)");
+  }],
+  ["every root-level production file is fenced", () => {
+    assert.deepEqual(boundary.stale, []);
+    assert.deepEqual(boundary.invalid, []);
+    for (const file of boundary.requiredRootFence) assertHits(file, "home(no-exploration-imports)", 1);
+  }],
+  ["reasoned root-file exemptions sit outside the boundary", () => {
+    assert.deepEqual(boundary.stale, []);
+    assert.deepEqual(boundary.invalid, []);
+    for (const file of boundary.exemptRootFiles) assertHits(file, "home(no-exploration-imports)", 0);
+  }],
+  ["preclassified root test, story, and test-harness files sit outside the boundary", () => {
+    assert.deepEqual(boundary.stale, []);
+    assert.deepEqual(boundary.invalid, []);
+    for (const file of boundary.preclassifiedRootFiles) assertHits(file, "home(no-exploration-imports)", 0);
+  }],
+  ["a new root-level entry file is fenced", () => {
+    for (const file of ["middleware.ts", "__exploration-boundary-root-probe.ts", "__exploration-boundary-root-probe.cjs", "__exploration-boundary-root-probe.cts", "__exploration-boundary-root-probe.d.ts", "__exploration-boundary-root-probe.d.mts", "__exploration-boundary-root-probe.d.cts", "verify.stories.foo.ts", "a.stories..ts"]) assertHits(file, "home(no-exploration-imports)");
+  }],
+  ["non-production exemptions sit outside the boundary", () => {
+    assert.deepEqual(boundary.stale, []);
+    assert.deepEqual(boundary.invalid, []);
+    for (const directory of boundary.exempt) assertHits(`${directory}/__exploration-boundary-probe.ts`, "home(no-exploration-imports)", 0);
+  }],
   ["concatenated and interpolated exploration imports reject only known exploration paths", () => { assertHits("client/exploration-concatenated.ts", "home(no-exploration-imports)", 3); assertHits("client/exploration-concatenated-clean.ts", "home(no-exploration-imports)", 0); }],
   ["non-static concatenation checks known segments on both sides", () => assertHits("client/exploration-concatenated-dynamic.ts", "home(no-exploration-imports)", 4)],
   ["split static template fragments still reveal knowable exploration segments", () => { assertHits("client/exploration-split-template.ts", "home(no-exploration-imports)", 2); }],
