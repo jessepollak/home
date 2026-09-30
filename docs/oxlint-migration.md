@@ -163,6 +163,7 @@ The Effect group is also exhaustive: `no-service-constructor-imports`, `no-manua
 
 The syntactic ratchet in `scripts/gates/type-assertions.mjs` backs the unsafe-rule burn-down by blocking per-file increases in unchecked assertions and suppressions without a reviewed, reasoned exception.
 The per-rule and per-file disable ratchet in `scripts/gates/lint-disables.mjs` blocks increases in `oxlint-disable` and `eslint-disable` directives across the linted `apps/web` tree. Its checked-in baseline may only shrink; admitting a disable requires a reviewed exception that links a lint issue and gives a reason, rather than raising a baseline count.
+The separate config-exemption inventory in `scripts/gates/lint-exemptions-baseline.json` records each rule-and-glob pair disabled by `off`, `allow`, or numeric `0` in `apps/web/.oxlintrc.jsonc`, with a reviewed reason; removed exemptions must be dropped with `bun run lint-exemptions:shrink`, which never adds entries. It stays separate from directive counts because a config exemption disables a rule for a whole glob without introducing any directive to count.
 
 The two accepted rules are production-only zero-hit guards owned in `oxlint/rules/anti-slop.mjs`, registered in `home-plugin.mjs`, enabled in the existing production override, isolated in `oxlint/tests/anti-slop.test.mjs`, and represented by failing and clean delivery-mirror canaries. All other generic rules, the Effect group, and native accumulating-spread are rejected or deferred as recorded above.
 

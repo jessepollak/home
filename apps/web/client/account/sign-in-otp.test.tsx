@@ -76,11 +76,13 @@ describe("sign-in verification code", () => {
     expect(changes.at(-1)).toBe("012345");
   });
 
-  test("invalid marks the input and verifying disables it and submit", () => {
+  test("invalid marks the input and verifying disables it and busies submit", () => {
     render(<Harness invalid verifying />);
     const input = page().getByRole("textbox", { name: "Verification code" }) as HTMLInputElement;
     expect(input.getAttribute("aria-invalid")).toBe("true");
     expect(input.disabled).toBe(true);
-    expect((page().getByRole("button", { name: "Verifying…" }) as HTMLButtonElement).disabled).toBe(true);
+    const submit = page().getByRole("button", { name: "Verifying…" });
+    expect(submit.getAttribute("aria-busy")).toBe("true");
+    expect(submit.getAttribute("aria-disabled")).toBe("true");
   });
 });

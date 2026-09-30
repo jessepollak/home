@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -46,6 +47,8 @@ import { useInvestSearch } from "./use-invest-search";
 import { useResolvedAsset } from "./use-resolved-asset";
 
 export type { InvestView };
+
+const EMPTY_MEME_ASSETS: readonly InvestAsset[] = [];
 
 const investDetailFromStateKey = "investDetailFrom";
 const searchQueryKey = "investSearchQuery";
@@ -100,7 +103,7 @@ export function InvestExperience({
   memeMarket = unavailableMarketData,
   cryptoMarket = unavailableMarketData,
   initialView,
-  memeAssets = [],
+  memeAssets = EMPTY_MEME_ASSETS,
   memeStatus = "empty",
   assetMarkResolution = {},
   memePagination,
@@ -158,18 +161,15 @@ export function InvestExperience({
     }
   }
   const search = useInvestSearch(query, composing);
-  const visibleSearch = {
-    ...search,
-    results: search.results.filter(({ asset }) => isInvestAssetVisible(investVisibility, asset)),
-  };
+  const visibleResults = useMemo(() => search.results.filter(({ asset }) => isInvestAssetVisible(investVisibility, asset)), [search.results, investVisibility]);
+  const visibleSearch = { ...search, results: visibleResults };
+  const searchedAssets = useMemo(() => search.results.map((result) => result.asset), [search.results]);
+  const knownAssets = useMemo(() => [...memeAssets, ...searchedAssets], [memeAssets, searchedAssets]);
   const detailIdentity = view.screen === "detail"
     ? resolveMarketPriceAssetIdentity(view.assetId)
     : null;
   const knownDetail = view.screen === "detail"
-    ? getDiscoverAsset(view.assetId, [
-        ...memeAssets,
-        ...search.results.map((result) => result.asset),
-      ])
+    ? getDiscoverAsset(view.assetId, knownAssets)
     : null;
   const detailAssetId = detailIdentity &&
     isDynamicMarketPriceAssetId(detailIdentity.assetId) && !knownDetail
@@ -177,19 +177,16 @@ export function InvestExperience({
     : null;
   const detail = useResolvedAsset(detailAssetId);
   const resolvedDetail = detail.asset;
-  const catalog = [
-    ...memeAssets,
-    ...search.results.map((result) => result.asset),
-    ...(resolvedDetail ? [resolvedDetail] : []),
-  ];
+  const catalog = useMemo(() => [...knownAssets, ...(resolvedDetail ? [resolvedDetail] : [])], [knownAssets, resolvedDetail]);
   const hostRef = useRef<HTMLDivElement>(null);
   const currentViewKey = viewKey(displayView);
   const markets = { stockMarket, memeMarket, cryptoMarket };
-  const dynamicSnapshots = [
-    ...(memeMarket.status === "ready" ? memeMarket.snapshots : []),
+  const memeSnapshots = memeMarket.status === "ready" ? memeMarket.snapshots : null;
+  const dynamicSnapshots = useMemo(() => [
+    ...(memeSnapshots ?? []),
     ...search.snapshots,
     ...(detail.snapshot ? [detail.snapshot] : []),
-  ];
+  ], [memeSnapshots, search.snapshots, detail.snapshot]);
   const dynamicDetailMarket: MarketDataState =
     memeMarket.status === "loading" && dynamicSnapshots.length === 0
       ? { status: "loading" }

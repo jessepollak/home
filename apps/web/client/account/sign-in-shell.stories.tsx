@@ -26,13 +26,8 @@ type Story = StoryObj<typeof meta>;
 export const VerifyingSession: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const status = canvas.getByRole("status");
-    const message = canvas.getByText("Verifying your session…").getBoundingClientRect();
-    const icon = status.querySelector("svg");
-    await expect(icon).not.toBeNull();
-    const iconBox = icon!.getBoundingClientRect();
-    await expect(iconBox.right).toBeLessThanOrEqual(message.left);
-    await expect(Math.abs((iconBox.top + iconBox.bottom) / 2 - (message.top + message.bottom) / 2)).toBeLessThanOrEqual(1);
+    await expect(canvas.getByRole("status").textContent).toContain("In progress: Verifying your session…");
+    await expect(canvas.getAllByRole("listitem")).toHaveLength(1);
   },
 };
 

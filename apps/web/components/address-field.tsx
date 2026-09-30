@@ -18,6 +18,7 @@ export function AddressField({
   onChange,
   placeholder = "0x…",
   disabled = false,
+  readOnly = false,
   "aria-describedby": describedBy,
 }: {
   id: string;
@@ -26,6 +27,7 @@ export function AddressField({
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  readOnly?: boolean;
   "aria-describedby"?: string;
 }) {
   const [focused, setFocused] = useState(false);
@@ -59,6 +61,8 @@ export function AddressField({
           autoComplete="off"
           spellCheck={false}
           disabled={disabled}
+          readOnly={readOnly}
+          aria-readonly={readOnly || undefined}
           aria-label={label}
           aria-describedby={describedBy}
         />
@@ -66,7 +70,7 @@ export function AddressField({
           <InputGroupButton
             className="size-11 shrink-0"
             size="icon-sm"
-            disabled={disabled}
+            disabled={disabled || readOnly}
             aria-label="Paste address"
             onClick={() => void paste()}
           >

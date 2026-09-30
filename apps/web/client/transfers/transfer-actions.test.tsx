@@ -61,6 +61,7 @@ test("changing Send owner drops the sheet immediately and reopens without the pr
   await waitFor(() => expect(frames.size).toBeGreaterThan(0));
   await flushFrame();
   await page().findByRole("dialog", { name: "Send" });
+  await flushFrame();
 
   fireEvent.input(await page().findByRole("textbox", { name: "Amount" }), { target: { value: "1.25" } });
   fireEvent.click(page().getByRole("button", { name: "Continue" }));

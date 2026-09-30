@@ -58,7 +58,9 @@ function SheetHarness({
   initiallySignedIn = false,
   restoredAccountProvider = "cdp-embedded",
   onVerified,
+  sessionResponse,
 }: {
+  sessionResponse?: Promise<void>;
   requestEmailCode: AccountWalletSdkBoundary["signInWithEmail"];
   baseAccountEnabled?: boolean;
   verifyEmailOTP?: AccountWalletSdkBoundary["verifyEmailOTP"];
@@ -72,15 +74,18 @@ function SheetHarness({
   const [open, setOpen] = useState(false);
   const [signedIn, setSignedIn] = useState(initiallySignedIn);
   const sessionFetch = useMemo(
-    () => async () => Response.json({
-      user: { subject: "existing-subject" },
-      smartAccount: {
-        address: "0x1111111111111111111111111111111111111111",
-        chainId: 8453,
-      },
-      accountProvider: restoredAccountProvider,
-    }),
-    [restoredAccountProvider],
+    () => async () => {
+      await sessionResponse;
+      return Response.json({
+        user: { subject: "existing-subject" },
+        smartAccount: {
+          address: "0x1111111111111111111111111111111111111111",
+          chainId: 8453,
+        },
+        accountProvider: restoredAccountProvider,
+      });
+    },
+    [restoredAccountProvider, sessionResponse],
   );
   const sdk = useMemo<AccountWalletSdkBoundary>(
     () => ({
@@ -188,6 +193,65 @@ describe("production account sign-in sheet", () => {
     expect(handoffs).toHaveLength(1);
   });
 
+  test("keeps the code step with a busy verify button while the session is verified", async () => {
+    const validation = deferred<void>();
+    render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "fixture-flow" })}
+        sessionResponse={validation.promise}
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    fireEvent.input(await page().findByRole("textbox", { name: "Email address" }), {
+      target: { value: "fixture@example.test" },
+    });
+    fireEvent.click(page().getByRole("button", { name: "Continue with email" }));
+    const code = await page().findByRole("textbox", { name: "Verification code" });
+    const sheet = page().getByRole("dialog", { name: "Check your email" });
+    fireEvent.paste(code, { clipboardData: { getData: () => "123456" } });
+    fireEvent.click(page().getByRole("button", { name: "Verify and continue" }));
+
+    await waitFor(() =>
+      expect(page().getByTestId("session-status").textContent).toBe("validating"),
+    );
+    expect(page().getByRole("dialog", { name: "Check your email" }) === sheet).toBe(true);
+    expect((page().getByRole("textbox", { name: "Verification code" }) as HTMLInputElement).value).toBe("123456");
+    expect(page().queryByText("Verifying your session…")).toBeNull();
+    const verify = page().getByRole("button", { name: "Verifying…" });
+    expect(verify.getAttribute("aria-busy")).toBe("true");
+    expect(verify.getAttribute("aria-disabled")).toBe("true");
+
+    await act(async () => {
+      validation.resolve();
+      await validation.promise;
+    });
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+  });
+
+  test("opens into one session check status while a session restore is pending", async () => {
+    const validation = deferred<void>();
+    render(
+      <SheetHarness
+        requestEmailCode={async () => ({ flowId: "unused-flow" })}
+        sessionResponse={validation.promise}
+        initiallySignedIn
+      />,
+    );
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    const sheet = await page().findByRole("dialog", { name: "Sign in to Home" });
+    expect(page().getByRole("status").textContent).toContain("Verifying your session…");
+    expect(page().queryByRole("textbox", { name: "Email address" })).toBeNull();
+
+    await act(async () => {
+      validation.resolve();
+      await validation.promise;
+    });
+    await waitFor(() =>
+      expect(page().getByTestId("session-status").textContent).toBe("verified"),
+    );
+    expect(page().getByRole("dialog", { name: "Sign in to Home" }) === sheet).toBe(true);
+  });
+
   test("marks the code invalid only when verification rejects it", async () => {
     const failures = [new Error("network unavailable"), new Error("invalid otp"), new Error("code expired")];
     render(
@@ -219,6 +283,26 @@ describe("production account sign-in sheet", () => {
     fireEvent.click(page().getByRole("button", { name: "Verify and continue" }));
     expect((await page().findByText(/expired/)).textContent).toContain("expired");
     await waitFor(() => expect(code.getAttribute("aria-invalid")).toBe("true"));
+  });
+
+  test("moves between email and code entry inside the same open sheet", async () => {
+    render(<SheetHarness requestEmailCode={async () => ({ flowId: "fixture-flow" })} />);
+    fireEvent.click(page().getByRole("button", { name: "Open account" }));
+    const sheet = await page().findByRole("dialog", { name: "Sign in to Home" });
+    fireEvent.input(page().getByRole("textbox", { name: "Email address" }), {
+      target: { value: "fixture@example.test" },
+    });
+    fireEvent.click(page().getByRole("button", { name: "Continue with email" }));
+
+    const code = await page().findByRole("textbox", { name: "Verification code" });
+    expect(page().getByRole("dialog", { name: "Check your email" })).toBe(sheet);
+    expect(document.activeElement).toBe(code);
+
+    fireEvent.click(page().getByRole("button", { name: "Change email" }));
+    const email = await page().findByRole("textbox", { name: "Email address" });
+    expect(page().getByRole("dialog", { name: "Sign in to Home" })).toBe(sheet);
+    expect(document.activeElement).toBe(email);
+    expect((email as HTMLInputElement).value).toBe("fixture@example.test");
   });
 
   test("existing verified session does not auto-close a new email attempt", async () => {

@@ -72,7 +72,7 @@
       "react/no-array-index-key": 1
     },
     "apps/web/client/money-modal/money-modal.tsx": {
-      "home/no-silent-catch": 2
+      "home/no-silent-catch": 1
     },
     "apps/web/client/observability/client-reporter.test.ts": {
       "home/no-self-referential-expectation": 1

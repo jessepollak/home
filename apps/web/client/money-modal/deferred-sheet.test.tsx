@@ -2,13 +2,17 @@ import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
 import { afterEach, describe, expect, jest, test } from "bun:test";
-import { useState, type ComponentType } from "react";
+import { useLayoutEffect, useState, type ComponentType } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { deferSheet } = await import("./deferred-sheet");
-const { MoneyModal, MoneyModalHeader, moneySheetLoading } = await import("./money-modal");
+const { MoneyModal, MoneyModalHeader, MoneyModalStep, moneySheetLoading } = await import("./money-modal");
+
+let restoreAnimations = () => {};
+const baseUiAnimations = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
 
 afterEach(() => {
+  restoreAnimations();
   cleanup();
   jest.restoreAllMocks();
 });
@@ -48,12 +52,110 @@ function FocusSheet({ open, onCancel, onClosed }: LoadingProps) {
   </MoneyModal>;
 }
 
+function DetailSheet({ open, onCancel, onClosed }: LoadingProps) {
+  return <MoneyModal open={open} labelledBy="loaded-detail-title" onCancel={onCancel} onClose={onClosed}>
+    <MoneyModalStep step="detail">
+      <MoneyModalHeader title="Loaded money sheet" titleId="loaded-detail-title" closeLabel="Close loaded sheet" />
+    </MoneyModalStep>
+  </MoneyModal>;
+}
+
+function NestedDetailSheet(props: LoadingProps) {
+  return <>
+    <MoneyModal open={false} labelledBy="inner-title" onCancel={() => {}} onClose={() => {}}>
+      <MoneyModalHeader title="Inner sheet" titleId="inner-title" />
+    </MoneyModal>
+    <MoneyModal open={props.open} labelledBy="loaded-detail-title" onCancel={props.onCancel} onClose={props.onClosed}>
+      <MoneyModalStep step="detail">
+        <MoneyModalHeader title="Loaded money sheet" titleId="loaded-detail-title" closeLabel="Close loaded sheet" />
+        <MoneyModal open={false} labelledBy="nested-title" onCancel={() => {}} onClose={() => {}}>
+          <MoneyModalHeader title="Nested sheet" titleId="nested-title" />
+        </MoneyModal>
+      </MoneyModalStep>
+    </MoneyModal>
+  </>;
+}
+
+type PopupHeightAnimation = { frames: Keyframe[]; options: KeyframeAnimationOptions };
+
+function recordPopupHeights(reduced: boolean, observe = true) {
+  const records: PopupHeightAnimation[] = [];
+  const restore = [
+    [globalThis, "ResizeObserver"],
+    [HTMLElement.prototype, "offsetHeight"],
+    [HTMLElement.prototype, "animate"],
+    [window, "matchMedia"],
+  ] as const;
+  const descriptors = restore.map(([target, name]) => [target, name, Object.getOwnPropertyDescriptor(target, name)] as const);
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: (query: string) => ({ matches: query === "(prefers-reduced-motion: reduce)" && reduced, media: query, addEventListener() {}, removeEventListener() {} }),
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.getAttribute("data-slot") !== "drawer-popup") return 0;
+      return this.querySelector("[data-money-step=detail]") ? 673 : 253;
+    },
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        if (!observe || target.getAttribute("data-slot") !== "drawer-popup") return;
+        queueMicrotask(() => this.callback([{ target, borderBoxSize: [{ blockSize: (target as HTMLElement).offsetHeight }] } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver));
+      }
+      disconnect() {}
+    },
+  });
+  Object.defineProperty(HTMLElement.prototype, "animate", {
+    configurable: true,
+    value(this: HTMLElement, frames: Keyframe[], options: KeyframeAnimationOptions) {
+      if (this.getAttribute("data-slot") === "drawer-popup") records.push({ frames, options });
+      return { cancel() {}, finished: Promise.resolve() } as unknown as Animation;
+    },
+  });
+  restoreAnimations = () => {
+    restoreAnimations = () => {};
+    for (const [target, name, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(target, name, descriptor);
+      else Reflect.deleteProperty(target, name);
+    }
+  };
+  return records;
+}
+
 function FocusJourney({ Sheet }: { Sheet: ReturnType<typeof delayedSheet> }) {
   const [open, setOpen] = useState(false);
   return <>
     <button type="button" onClick={() => setOpen(true)}>Open add money</button>
     <Sheet open={open} onCancel={() => setOpen(false)} onClosed={() => {}} />
   </>;
+}
+
+function holdEntranceAnimation() {
+  let finish = () => {};
+  const finished = new Promise<void>((resolve) => { finish = resolve; });
+  const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getAnimations");
+  const animationsDisabled = baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED;
+  baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED = false;
+  Object.defineProperty(Element.prototype, "getAnimations", {
+    configurable: true,
+    value: () => [{ finished, pending: false, playState: "running" }],
+  });
+  restoreAnimations = () => {
+    restoreAnimations = () => {};
+    if (descriptor) Object.defineProperty(Element.prototype, "getAnimations", descriptor);
+    else Reflect.deleteProperty(Element.prototype, "getAnimations");
+    baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED = animationsDisabled;
+  };
+  return {
+    finish: async () => {
+      restoreAnimations();
+      await act(async () => { finish(); await finished; });
+    },
+  };
 }
 
 describe("deferSheet", () => {
@@ -155,6 +257,66 @@ describe("deferSheet", () => {
     expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
     expect(openStates.length).toBeGreaterThan(0);
     expect(openStates.every(Boolean)).toBe(true);
+  });
+
+  test("a chunk arriving during the loading shell entrance waits for the entrance to finish before handing off", async () => {
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const openStates: boolean[] = [];
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    function RecordedSheet(props: LoadingProps) {
+      openStates.push(props.open);
+      return <LoadedSheet {...props} />;
+    }
+    const entrance = holdEntranceAnimation();
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+
+    await act(async () => { resolve(RecordedSheet); await Promise.resolve(); });
+    expect(page().getByRole("dialog", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("dialog", { name: "Loaded money sheet" })).toBeNull();
+
+    await entrance.finish();
+    expect(await page().findByRole("dialog", { name: "Loaded money sheet" })).toBeTruthy();
+    expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
+    expect(openStates.length).toBeGreaterThan(0);
+    expect(openStates.every(Boolean)).toBe(true);
+  });
+
+  test("disabled animations finish the loading shell even when an animation reports itself running", async () => {
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    const entrance = holdEntranceAnimation();
+    baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED = true;
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("dialog", { name: "Add money" });
+    await act(async () => { resolve(LoadedSheet); await Promise.resolve(); });
+    expect(page().getByRole("dialog", { name: "Loaded money sheet" })).toBeTruthy();
+    await entrance.finish();
+  });
+
+  test("closing the loading shell during its entrance after the chunk arrives closes without handing off", async () => {
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const openStates: boolean[] = [];
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    function RecordedSheet(props: LoadingProps) {
+      openStates.push(props.open);
+      return <LoadedSheet {...props} />;
+    }
+    let closed = 0;
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <Sheet open={open} onCancel={() => setOpen(false)} onClosed={() => { closed++; }} />;
+    }
+    const entrance = holdEntranceAnimation();
+    render(<Journey />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(RecordedSheet); await Promise.resolve(); });
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    await entrance.finish();
+
+    await waitFor(() => expect(closed).toBe(1));
+    expect(page().queryByRole("dialog")).toBeNull();
+    expect(openStates.every((open) => !open)).toBe(true);
   });
 
   test("keeps focus inside the loaded sheet during handoff and returns it to the trigger on close", async () => {
@@ -311,6 +473,118 @@ describe("deferSheet", () => {
     await waitFor(() => expect(closed).toBe(1));
     expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
     expect(page().queryByRole("dialog")).toBeNull();
+  });
+
+  test("the loaded sheet eases its height from the loading shell's height on handoff", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    expect(heights).toEqual([]);
+
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
+  });
+
+  test("handoff captures the shell height when layout observation has not fired yet", async () => {
+    const heights = recordPopupHeights(false, false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
+  });
+
+  test("the handoff resizes instantly under reduced motion", async () => {
+    const heights = recordPopupHeights(true);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toEqual([]);
+  });
+
+  test("an unrelated sheet mounted in the handoff commit does not take the shell height", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    let showSibling!: () => void;
+    let shellEntered = false;
+    const Sheet = deferSheet(
+      () => new Promise<ComponentType<LoadingProps>>((done) => { resolve = done; }).then((component) => { showSibling(); return component; }),
+      (props: LoadingProps) => {
+        const shell = moneySheetLoading({ title: "Add money", titleId: "add-money-title", closeLabel: "Close add money", onCancel: props.onCancel, onClosed: props.onClosed });
+        return { ...shell, render: (state) => shell.render({ ...state, onEntered: () => { shellEntered = true; state.onEntered(); } }) };
+      },
+    );
+    function Journey() {
+      const [sibling, setSibling] = useState(false);
+      useLayoutEffect(() => { showSibling = () => setSibling(true); }, []);
+      return <>
+        {sibling ? <MoneyModal open={false} labelledBy="sibling-title" onCancel={() => {}} onClose={() => {}}>
+          <MoneyModalHeader title="Sibling sheet" titleId="sibling-title" />
+        </MoneyModal> : null}
+        <Sheet open onCancel={() => {}} onClosed={() => {}} />
+      </>;
+    }
+    render(<Journey />);
+    await waitFor(() => expect(shellEntered).toBe(true));
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
+  });
+
+  test("closed sheets inside the loaded sheet do not take the shell height", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(NestedDetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
+  });
+
+  test("reopening a handed-off sheet does not replay the shell height", async () => {
+    const heights = recordPopupHeights(false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    function Journey() {
+      const [open, setOpen] = useState(true);
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>Reopen</button>
+        <Sheet open={open} onCancel={() => setOpen(false)} onClosed={() => {}} />
+      </>;
+    }
+    render(<Journey />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
+    expect(heights).toHaveLength(1);
+
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Close loaded sheet" })));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    await act(async () => fireEvent.click(page().getByRole("button", { name: "Reopen" })));
+    expect(await page().findByRole("dialog", { name: "Loaded money sheet" })).toBeTruthy();
+    expect(heights).toHaveLength(1);
   });
 
   test("automatic failures show a Retry card, then a successful retry replaces the shell", async () => {

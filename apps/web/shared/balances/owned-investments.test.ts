@@ -67,3 +67,23 @@ describe("owned investments", () => {
     expect(selectOwnedInvestment(buildBalancesSnapshotFixture(), sold.key)).toBeNull();
   });
 });
+
+it("selects one investment without valuing or ordering unrelated assets", () => {
+  const selected = token(101, "Selected");
+  const unrelated = token(102, "Unrelated");
+  const snapshot = buildBalancesSnapshotFixture({ catalog: [selected, unrelated] });
+  Object.defineProperty(unrelated, "value", { get() { throw new Error("Unrelated valuation accessed"); } });
+  expect(selectOwnedInvestment(snapshot, selected.key)?.holding).toBe(selected);
+  expect(selectOwnedInvestment(snapshot, token(999).key)).toBeNull();
+});
+
+it("focused selections preserve wallet, collateral, unreadable and unpriced overview rows", () => {
+  const snapshots = [
+    buildBalancesSnapshotFixture({ catalog: [token(103)], borrow: { coverage: "complete", positions: [borrowed] } }),
+    buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: unavailableBalance, value: { status: "unavailable" } } }, borrow: { coverage: "complete", positions: [borrowed] } }),
+    buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: ready("0"), value: priced("USD", "0") } }, borrow: { coverage: "complete", positions: [borrowed] }, catalog: [{ ...token(104), value: { status: "unpriced", reason: "price-unavailable" } }] }),
+  ];
+  for (const snapshot of snapshots) for (const row of selectOwnedInvestments(snapshot)) {
+    expect(selectOwnedInvestment(snapshot, row.key)).toEqual(row);
+  }
+});

@@ -141,13 +141,14 @@ export function ActivityPanelView({
   const labelledBy = header === null ? undefined : "activity-title";
   const labelled = header === null ? "Activity" : undefined;
   const transfers = activity.status === "ready" ? activity.page.transfers : EMPTY_TRANSFERS;
-  const loadedThrough = activity.status === "ready" && activity.page.nextCursor !== null
+  const pendingWindowEnd = activity.status === "ready" && activity.page.nextCursor !== null ? activity.page.window.to : null;
+  const loadedThrough = useMemo(() => pendingWindowEnd !== null
     ? transfers.length > 0
       ? transfers.reduce((oldest, transfer) =>
         Date.parse(transfer.blockTimestamp) < Date.parse(oldest) ? transfer.blockTimestamp : oldest,
       transfers[0]!.blockTimestamp)
-      : activity.page.window.to
-    : null;
+      : pendingWindowEnd
+    : null, [transfers, pendingWindowEnd]);
   const cards = activity.status === "ready" ? activity.page.cards?.rows : undefined;
   const feed = useMemo(() => mergeActivityFeed({ transfers, operations, orders, cards, loadedThrough }), [transfers, operations, orders, cards, loadedThrough]);
   const [clock, setClock] = useState(0);

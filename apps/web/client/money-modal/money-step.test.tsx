@@ -74,12 +74,12 @@ describe("persistent money steps", () => {
       value: class { observe() {} disconnect() {} },
     });
     const animated: HTMLElement[] = [];
-    let hostReads = 0;
+    let popupReads = 0;
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
       get() {
-        if ((this as HTMLElement).matches("[data-slot=money-modal-steps]")) {
-          hostReads += 1;
+        if ((this as HTMLElement).matches("[data-slot=drawer-popup]")) {
+          popupReads += 1;
           return 420;
         }
         return 0;
@@ -102,10 +102,10 @@ describe("persistent money steps", () => {
       </MoneyModal>;
     }
     render(<Journey />);
-    expect(hostReads).toBe(0);
+    expect(popupReads).toBe(0);
     fireEvent.click(page().getByRole("button", { name: "Next" }));
     expect(animated.map((element) => element.getAttribute("data-money-step"))).toEqual(["1"]);
-    expect(hostReads).toBe(1);
+    expect(popupReads).toBe(1);
   });
 
   test("deliberate blur stays blurred through a same-key report", () => {

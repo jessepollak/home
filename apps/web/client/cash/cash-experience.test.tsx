@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { useRef, useState } from "react";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, HomeQueryClientProvider, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
@@ -461,6 +461,30 @@ describe("Cash L2", () => {
     expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
     expect(routeCalls).toEqual([]);
   });
+  for (const { mode, snapshot, available } of [
+    { mode: "deposit", snapshot: held, available: "$234.00 available" },
+    { mode: "withdraw", snapshot: single, available: "$800.00 available" },
+  ] as const) {
+    test(`closing a direct ${mode} keeps its amount and available balance until the sheet finishes closing`, async () => {
+      cached();
+      render(<Route initialFlow={`save-${mode}`} snapshot={snapshot} />);
+      const dialog = await page().findByRole("dialog", { name: mode === "deposit" ? "Deposit" : "Withdraw" });
+      await within(dialog).findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
+      expect(within(dialog).getByText(available)).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole("button", { name: `Close ${mode} dialog` }));
+      expect(routeCalls.at(-1)).toBe("clear:replace");
+      expect(within(dialog).getByRole("textbox", { name: "Amount", hidden: true })).toBeTruthy();
+      expect(within(dialog).getByText(available)).toBeTruthy();
+      await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    }, 20_000);
+  }
+  test("a held savings row opens its tray closed before presenting it", async () => {
+    cached();
+    render(<Surface snapshot={single} />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    expect(page().queryByRole("dialog")).toBeNull();
+    expect(await page().findByRole("dialog", { name: "Gauntlet USDC Prime" })).toBeTruthy();
+  }, 20_000);
   test("routes an inbound withdrawal to the sole funded vault", async () => {
     cached();
     render(<Route initialFlow="save-withdraw" snapshot={single} />);
@@ -1704,7 +1728,7 @@ describe("Cash L2", () => {
     cached();
     render(<Surface snapshot={held} />);
     fireEvent.click(await page().findByRole("button", { name: /^Steakhouse USDC/, description: "Manage Steakhouse USDC" }));
-    fireEvent.click(page().getByRole("button", { name: "Withdraw" }));
+    fireEvent.click(await page().findByRole("button", { name: "Withdraw" }));
     await page().findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Withdraw" })));
@@ -1713,14 +1737,14 @@ describe("Cash L2", () => {
     cached();
     render(<Surface snapshot={single} />);
     fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
-    const hero = page().getByRole("img", { name: "$800.00" }).closest("p");
+    const hero = (await page().findByRole("img", { name: "$800.00" })).closest("p");
     await waitFor(() => expect(document.activeElement).toBe(hero));
   }, 20_000);
   test("Back restores focus to the most recently chosen action", async () => {
     cached();
     render(<Surface snapshot={held} />);
     fireEvent.click(await page().findByRole("button", { name: /^Steakhouse USDC/, description: "Manage Steakhouse USDC" }));
-    fireEvent.click(page().getByRole("button", { name: "Deposit more" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
     await page().findByRole("textbox", { name: "Amount" }, { timeout: 10_000 });
     fireEvent.click(page().getByRole("button", { name: "Back" }));
     await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Deposit more" })));
@@ -1863,3 +1887,22 @@ describe("Cash L2", () => {
   });
 });
 
+
+test("Cash preserves the savings anchor on unrelated renders and invalidates owner and freshness", async () => {
+  const growth = await import("@/client/savings/use-estimated-growth");
+  const anchor = spyOn(growth, "createSavingsGrowthAnchor");
+  try {
+    cached();
+    const view = render(<Surface view="cash" snapshot={single} />);
+    const initialCalls = anchor.mock.calls.length;
+    expect(initialCalls).toBeGreaterThan(0);
+    view.rerender(<Surface view="cash" snapshot={single} onAddMoney={() => {}} />);
+    expect(anchor.mock.calls.length).toBe(initialCalls);
+    const replacementOwner = { ...session, user: { subject: "replacement-owner" } };
+    view.rerender(<Surface view="cash" snapshot={single} owner={replacementOwner} />);
+    const replacedCalls = anchor.mock.calls.length;
+    expect(replacedCalls).toBeGreaterThan(initialCalls);
+    view.rerender(<Surface view="cash" snapshot={single} owner={replacementOwner} stale />);
+    expect(anchor.mock.calls.length).toBeGreaterThan(replacedCalls);
+  } finally { anchor.mockRestore(); }
+});

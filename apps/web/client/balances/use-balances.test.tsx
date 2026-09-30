@@ -7,6 +7,7 @@ import {
   ownerQueryKey,
   shouldPersistOwnerQuery,
 } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, priced } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import type { FetchBalances } from "@/shared/balances/types";
@@ -119,7 +120,7 @@ describe("useBalances", () => {
     const view = render(<BorrowHarness fetchBalances={fetchBalances} />);
     await waitFor(() => expect(view.getByRole("status").textContent).toBe("ready:settled:$30.01"));
 
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     act(() => { void getHomeQueryClient().invalidateQueries({ queryKey: ownerQueryKey(ownerKey, "balances") }); });
     await waitFor(() => expect(calls).toBe(2));
     expect(view.getByRole("status").textContent).toBe("ready:revalidating:$30.01");
@@ -128,7 +129,7 @@ describe("useBalances", () => {
   });
 
   test("cached balances remain ready while a provisional refresh is pending", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     const key = ownerQueryKey(ownerKey, "balances", "US");
     getHomeQueryClient().setQueryData(key, balancesSnapshotFixture, {
       updatedAt: NOW - 60_000,
@@ -143,7 +144,7 @@ describe("useBalances", () => {
   });
 
   test("held balances paint exact-key cached data only when opted in, without a read", () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
     let reads = 0;
     const fetchBalances: FetchBalances = async () => {
@@ -159,7 +160,7 @@ describe("useBalances", () => {
   });
 
   test("held balances never paint another region's or owner's cached snapshot", () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "DE"), buildBalancesSnapshotFixture({ region: "DE" }));
     getHomeQueryClient().setQueryData(ownerQueryKey("different-owner", "balances", "US"), balancesSnapshotFixture);
     let reads = 0;
@@ -172,7 +173,7 @@ describe("useBalances", () => {
   });
 
   test("release to the same region keeps cached data visible during one background fetch", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 60_000 });
     let reads = 0;
     let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
@@ -192,7 +193,7 @@ describe("useBalances", () => {
   });
 
   test("release to a different region does not use the held region as placeholder", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
     let reads = 0;
     let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
@@ -209,7 +210,7 @@ describe("useBalances", () => {
     await waitFor(() => expect(view.getByRole("status").textContent).toContain("ready:DE:"));
   });
   test("keeps visible region balances during an ordinary country switch", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
     let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
     const pendingRead = new Promise<typeof balancesSnapshotFixture>((resolve) => { finishRead = resolve; });
@@ -227,7 +228,7 @@ describe("useBalances", () => {
   });
 
   test("a cached provisional failure stays ready without an error before verification refetches", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
       updatedAt: NOW - 60_000,
     });
@@ -325,7 +326,7 @@ describe("useBalances", () => {
     render(<Harness fetchBalances={async () => balancesSnapshotFixture} />);
     await waitFor(() => expect(document.body.textContent).toBe("US:3"));
 
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     const query = getHomeQueryClient().getQueryCache().find({
       queryKey: ownerQueryKey(ownerKey, "balances", "US"),
     });
@@ -408,4 +409,30 @@ describe("useBalances", () => {
     render(<Harness fetchBalances={async () => mismatched} />);
     await waitFor(() => expect(document.body.textContent).toBe("error"));
   });
+});
+
+test("failed refresh status updates preserve the stale snapshot until data changes", async () => {
+  let calls = 0;
+  let rejectPending: (error: Error) => void = () => {};
+  const fetchBalances = () => ++calls === 1 ? Promise.resolve(balancesSnapshotFixture)
+    : calls === 2 ? Promise.reject(new Error("first failure"))
+    : new Promise<never>((_resolve, reject) => { rejectPending = reject; });
+  let current: RecoverableBalancesState;
+  render(<IdentityHarness fetchBalances={fetchBalances} revision={0} onState={(state) => { current = state; }} />);
+  await waitFor(() => expect(current.status).toBe("ready"));
+  await act(async () => { await current.retry(); });
+  await waitFor(() => expect(current.refreshError).toBe(true));
+  const stale = current!.snapshot;
+  expect(stale?.stale).toBe(true);
+  act(() => { void current.retry(); });
+  await waitFor(() => expect(current.revalidating).toBe(true));
+  expect(current!.snapshot).toBe(stale);
+  await act(async () => { rejectPending(new Error("second failure")); });
+  await waitFor(() => expect(current.revalidating).not.toBe(true));
+  expect(current!.snapshot).toBe(stale);
+  const ownerKey = dataOwnerKey(session);
+  act(() => { getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), { ...balancesSnapshotFixture, fetchedAt: "2026-09-28T12:01:00.000Z" }); });
+  await waitFor(() => expect(current.snapshot?.fetchedAt).toBe("2026-09-28T12:01:00.000Z"));
+  expect(current!.snapshot).not.toBe(stale);
+  expect(current!.refreshError).not.toBe(true);
 });

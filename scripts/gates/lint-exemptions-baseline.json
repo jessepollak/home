@@ -1,0 +1,42 @@
+[
+  {
+    "glob": "components/ui/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+    "rule": "home/no-restyle",
+    "reason": "Owned UI primitives implement the shared presentation contracts that product callers may not restyle."
+  },
+  {
+    "glob": "oxlint/tests/**",
+    "rule": "home/no-source-reads",
+    "reason": "Lint-rule tests read and execute source fixtures to verify the rules themselves."
+  },
+  {
+    "glob": "tests/browser/feature-map/map.ts",
+    "rule": "home/no-source-reads",
+    "reason": "The feature-map parser replays checked-in Reach data rather than asserting implementation source (#800)."
+  },
+  {
+    "glob": "tests/helpers/migrations.ts",
+    "rule": "home/no-source-reads",
+    "reason": "Integration fixtures load committed migration SQL through this single schema-loading seam."
+  },
+  {
+    "glob": "tests/helpers/route-contract-inventory.ts",
+    "rule": "home/no-source-reads",
+    "reason": "The route-contract inventory inspects committed handlers and contracts to enforce their linkage."
+  },
+  {
+    "glob": "tests/route-contract-inventory.test.ts",
+    "rule": "home/no-source-reads",
+    "reason": "Inventory regression tests create source fixtures to validate the source-inspection gate."
+  },
+  {
+    "glob": "tests/well-known/apple-pay-domain-association.test.ts",
+    "rule": "home/no-source-reads",
+    "reason": "The association-file contract checks the provider-supplied public artifact byte for byte."
+  },
+  {
+    "glob": "client/account/cdp-money-action-execution.test.ts",
+    "rule": "react-hooks/globals",
+    "reason": "The action-execution test harness controls browser globals to exercise hook behavior."
+  }
+]

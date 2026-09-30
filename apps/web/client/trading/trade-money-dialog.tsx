@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { LoaderCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
@@ -57,7 +56,7 @@ type TradeMoneyFlowProps = {
   onUnresolved?: (state: { amount: string; amountBaseUnits: string; prepared: PreparedMoneyAction }) => void;
 };
 type Props = Omit<TradeMoneyFlowProps, "onDone"> & { open: boolean; onClose: () => void; onClosed?: () => void };
-type Step = "amount" | "confirm" | "pending" | "failed" | "dispatch-unknown";
+type Step = "amount" | "confirm" | "failed" | "dispatch-unknown";
 
 type FencedExecution = { state: "current"; result: OperationResult } | { state: "superseded"; result: OperationResult | null };
 
@@ -79,7 +78,7 @@ export function TradeMoneyDialog({ open, onClose, onClosed, onAttemptedChange, .
     if (!attempted.current || dispatchUnknown.current) setResetKey((key) => key + 1);
     onClosed?.();
   }}>
-    <TradeMoneyFlow key={resetKey} {...props} onDone={onClose} onAttemptedChange={(value, unknown = false) => {
+    <TradeMoneyFlow key={`${resetKey}:${props.session.user.subject}:${props.session.smartAccount?.address ?? ""}:${props.session.accountProvider}:${props.token.assetId}`} {...props} onDone={onClose} onAttemptedChange={(value, unknown = false) => {
       attempted.current = value;
       dispatchUnknown.current = unknown;
       onAttemptedChange?.(value, unknown);
@@ -102,6 +101,7 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
   const [amountBaseUnits, setAmountBaseUnits] = useState<string | null>(resume?.amountBaseUnits ?? null);
   const [prepared, setPrepared] = useState<PreparedMoneyAction | null>(resume?.prepared ?? null);
   const [step, setStep] = useState<Step>(resume ? "confirm" : "amount");
+  const [busy, setBusy] = useState<"quote" | "wallet" | null>(null);
   const [error, setError] = useState<string | null>(resume ? "We couldn't confirm this conversion yet. Retry to record the same conversion, or check Activity before converting again." : null);
   const [attempted, setAttempted] = useState(Boolean(resume));
   const [serverExpiredId, setServerExpiredId] = useState<string | null>(null);
@@ -112,10 +112,11 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
   const customer = metadata ? tradeCustomerAmounts(metadata) : null;
   const { expired, recheckExpired } = useReactiveExpiry(prepared?.expiresAt ?? null);
   const actionExpired = expired || (prepared !== null && serverExpiredId === prepared.id);
-  const expiredUnresolved = step === "confirm" && actionExpired && attempted;
+  const expiredUnresolved = step === "confirm" && actionExpired && attempted && busy !== "wallet";
+  const expiryRecovery = actionExpired && busy !== "wallet";
   const canGoBack = step === "failed" || (step === "confirm" && !attempted);
   const secondsLeft = prepared ? Math.max(0, Math.ceil((Date.parse(prepared.expiresAt) - now) / 1000)) : 0;
-  useMoneyModalPending(step === "pending");
+  useMoneyModalPending(busy !== null);
   useEffect(() => {
     if (step !== "confirm" || !prepared || actionExpired) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -158,7 +159,7 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
 
   async function prepare(requote = false) {
     const amountToPrepare = requote ? amountBaseUnits : direction === "sell" && maxSelected && enteredBaseUnits === maxBaseUnits ? TRADE_SELL_ALL : enteredBaseUnits;
-    if (!amountToPrepare || !session.smartAccount || !validConversion) return;
+    if (!amountToPrepare || !session.smartAccount || !validConversion || busy !== null) return;
     const request: TradeActionParams = {
       version: TRADE_ACTION_CONTRACT_VERSION,
       assetId: token.assetId,
@@ -167,7 +168,7 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
     };
     const generation = ++preparation.current;
     setError(null);
-    setStep("pending");
+    setBusy("quote");
     if (!requote) setAmountBaseUnits(amountToPrepare);
     try {
       const action = await prepareMoneyAction("trade", request);
@@ -178,20 +179,22 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
           ? "The conversion quote did not match this account or currencies. Get a new quote."
           : "The quote did not match this account or trade. Get a new quote.");
       setPrepared(action); setServerExpiredId(null); changeAttempted(false); setNow(Date.now()); setStep("confirm");
+      setBusy(null);
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded quotes are fenced; current failures are shown as typed recovery states
       if (generation !== preparation.current) return;
       setError(messageForTradeError(caught, direction, conversion));
       setStep(requote ? "confirm" : "amount");
+      setBusy(null);
     }
   }
 
   async function confirm() {
-    if (!prepared || !metadata || step !== "confirm" || confirming.current) return;
+    if (!prepared || !metadata || step !== "confirm" || busy !== null || confirming.current) return;
     if (actionExpired || recheckExpired()) { setServerExpiredId(prepared.id); return; }
     const generation = preparation.current;
     confirming.current = true;
     setError(null);
-    setStep("pending");
+    setBusy("wallet");
     try {
       const execution = await executeFenced(() => executeMoneyAction(prepared), () => generation === preparation.current);
       if (execution.state === "superseded") {
@@ -201,7 +204,6 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
       const result = execution.result;
       if (result.status === "rejected") {
         setError(conversion ? "The wallet request was rejected. Review the conversion and try again." : "The wallet request was rejected. Review the quote and try again.");
-        setStep("confirm");
         return;
       }
       if (result.status === "failed") {
@@ -228,9 +230,9 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
         if (amountBaseUnits) onUnresolved?.({ amount, amountBaseUnits, prepared });
         setError(conversion ? "We couldn't confirm this conversion yet. Retry to record the same conversion, or check Activity before converting again." : "We couldn't confirm this trade yet. Retry to record the same trade, or check Activity before trading again.");
       }
-      setStep("confirm");
     } finally {
       confirming.current = false;
+      if (generation === preparation.current) setBusy(null);
     }
   }
 
@@ -246,13 +248,13 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
   const receivedAmount = metadata && customer ? conversionPair
     ? formatExactPresentationCashAmount(customer.expectedReceiveBaseUnits, metadata.toAsset.decimals, conversionPair.to.code)
     : tradeDisplayAmount(customer.expectedReceiveBaseUnits, metadata.toAsset) : "";
-  return <MoneyModalStep step={step === "pending" || step === "failed" ? "confirm" : step} depth={depth + (step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1)}>
+  return <MoneyModalStep step={step === "failed" ? "confirm" : step} depth={depth + (step === "amount" ? 0 : step === "dispatch-unknown" ? 2 : 1)}>
       <MoneyModalHeader title={step === "amount" ? conversion ? `Convert to ${conversion.to.name}` : `${direction === "buy" ? "Buy" : "Sell"} ${assetName}` : step === "dispatch-unknown" ? "Check Activity" : "Confirm"} titleId="trade-action-title"
-        {...(step === "amount" ? onBack ? { onBack } : { assetControl: <MoneyAssetPicker {...amountAssetProps} locked /> } : canGoBack ? { onBack: back } : {})} closeLabel={conversion ? "Close conversion" : "Close trade dialog"} />
-      <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
-        {step === "amount" ? <MoneyAmountDisplay amount={amount} maxDecimals={decimals} onAmountChange={(value) => { setAmount(value); onAmountChange?.(value); setMaxSelected(false); }}
-            onMaxSelect={() => setMaxSelected(true)}
-            overAvailable={exceedsAvailable} onSubmit={canContinue ? () => void prepare() : undefined}
+        {...(step === "amount" ? onBack ? { onBack } : { assetControl: <MoneyAssetPicker {...amountAssetProps} locked /> } : canGoBack ? { onBack: back, backDisabled: busy !== null } : {})} closeLabel={conversion ? "Close conversion" : "Close trade dialog"} />
+      <MoneyModalBody hasFooter className="gap-4 pt-4">
+        {step === "amount" ? <MoneyAmountDisplay amount={amount} maxDecimals={decimals} readOnly={busy !== null} onAmountChange={(value) => { if (busy !== null) return; setAmount(value); onAmountChange?.(value); setMaxSelected(false); }}
+            onMaxSelect={() => { if (busy === null) setMaxSelected(true); }}
+            overAvailable={exceedsAvailable} onSubmit={canContinue && busy === null ? () => void prepare() : undefined}
             {...amountAssetProps} assetControl="header" assetLocked
             nativeSymbol={symbol} unit={conversion || direction === "buy" ? cashUnit : sellUnit}
             availableLabel={reservePending ? reserveFailed ? "Network fee unavailable" : "Checking network fee…" : maxBaseUnits !== null ? `${decimalFromBaseUnits(maxBaseUnits, decimals)} available` : "Balance unavailable"}
@@ -274,15 +276,14 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
             ...metadata.operatorFee ? [{ label: SERVICE_FEE_LABEL, value: serviceFeeValue(metadata.operatorFee) }] : [],
           ]}
           details={tradeDetailRows(prepared, metadata, customer, actionExpired ? 0 : secondsLeft, conversionPair)} /> : null}
-        {step === "pending" ? <Notice><span className="flex items-center gap-2"><LoaderCircle className="size-4 animate-spin" aria-hidden="true" />{prepared ? "Waiting for your wallet…" : "Getting a quote…"}</span></Notice> : null}
         {step === "dispatch-unknown" ? <Notice tone="error" role="alert">{conversion ? "This conversion may have been submitted. Check Activity for its result." : "This trade may have been submitted. Check Activity for its result."}</Notice> : null}
         {expiredUnresolved ? <Notice tone="error" role="alert">{conversion ? "This quote expired before the outcome was recorded. Check Activity before converting again." : "This quote expired before the outcome was recorded. Check Activity before trading again."}</Notice>
           : error ? <Notice tone="error" role="alert">{error}</Notice> : null}
       </MoneyModalBody>
-      {step === "amount" ? <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinue} onPrimary={() => void prepare()} /> : null}
-      {step === "confirm" && prepared ? <MoneyConfirmFooter action={prepared} actionExpired={actionExpired}
-        primaryLabel={expiredUnresolved ? "Close" : actionExpired ? "Get new quote" : attempted ? "Retry" : `${conversion ? "Convert" : direction === "buy" ? "Buy" : "Sell"} ${spentAmount}`}
-        primaryDisabled={!metadata} onPrimary={() => void (expiredUnresolved ? close() : actionExpired ? prepare(true) : confirm())}
+      {step === "amount" ? <MoneyModalFooter primaryLabel={busy === "quote" ? "Getting quote…" : "Continue"} primaryDisabled={!canContinue} primaryLoading={busy === "quote"} onPrimary={() => void prepare()} /> : null}
+      {step === "confirm" && prepared ? <MoneyConfirmFooter action={prepared} actionExpired={actionExpired} submitting={busy !== null}
+        primaryLabel={busy === "quote" ? "Getting quote…" : expiredUnresolved ? "Close" : expiryRecovery ? "Get new quote" : attempted ? "Retry" : `${conversion ? "Convert" : direction === "buy" ? "Buy" : "Sell"} ${spentAmount}`}
+        primaryDisabled={!metadata} onPrimary={() => void (expiredUnresolved ? close() : expiryRecovery ? prepare(true) : confirm())}
         {...(canGoBack ? { secondaryLabel: "Back", onSecondary: back } : {})} /> : null}
       {step === "failed" ? <MoneyModalFooter primaryLabel="Back" onPrimary={back} secondaryLabel="Close" onSecondary={close} /> : null}
       {step === "dispatch-unknown" ? <MoneyModalFooter primaryLabel="Close" onPrimary={close} /> : null}
