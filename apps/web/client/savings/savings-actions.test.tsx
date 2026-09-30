@@ -529,7 +529,7 @@ describe("SavingsJourney amount entry", () => {
 
     typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    await page().findByRole("dialog", { name: "Confirm" });
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
 
     view.rerender(
       <ReducedAmountJourney
@@ -605,6 +605,91 @@ function ManagementHarness({ prepareMoneyAction }: {
     </>
   );
 }
+
+  test("keeps the amount step with a busy Continue until the preparation resolves", async () => {
+    let resolveDeposit!: (action: PreparedMoneyAction) => void;
+    let prepares = 0;
+    render(
+      <ReducedAmountJourney
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={() => { prepares += 1; return new Promise<PreparedMoneyAction>((resolve) => { resolveDeposit = resolve; }); }}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    const continueButton = page().getByRole("button", { name: "Continue" });
+    fireEvent.click(continueButton);
+    await waitFor(() => expect(continueButton.getAttribute("aria-busy")).toBe("true"));
+    expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
+    expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
+    expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("1");
+    expect(page().queryByText("Prepared facts unavailable")).toBeNull();
+    expect((page().getByRole("button", { name: "Close deposit dialog" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(continueButton);
+    fireEvent.keyDown(page().getByRole("textbox", { name: "Amount" }), { key: "Enter" });
+    expect(prepares).toBe(1);
+    await act(async () => {
+      resolveDeposit(prepared("savings-deposit", "1000000"));
+      await Promise.resolve();
+    });
+    expect(await page().findByRole("dialog", { name: "Confirm" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
+  });
+
+  test("preparing keeps focus on a read-only amount with Max disabled and ignores edits", async () => {
+    let resolveDeposit!: (action: PreparedMoneyAction) => void;
+    render(
+      <ReducedAmountJourney
+        open mode="deposit" session={session} candidate={candidate}
+        prepareMoneyAction={() => new Promise<PreparedMoneyAction>((resolve) => { resolveDeposit = resolve; })}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    const input = page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
+    act(() => { input.focus(); });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    expect(input.readOnly).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(input.getAttribute("aria-readonly")).toBe("true");
+    expect(document.activeElement).toBe(input);
+    expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
+    typeAmount("2");
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect(input.value).toBe("1");
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      resolveDeposit(prepared("savings-deposit", "1000000"));
+      await Promise.resolve();
+    });
+    expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
+  });
+
+  test("keeps the amount step and reports a failed preparation there", async () => {
+    let rejectDeposit!: (error: unknown) => void;
+    render(
+      <ReducedAmountJourney
+        open mode="withdraw" session={session} candidate={candidate}
+        prepareMoneyAction={() => new Promise<PreparedMoneyAction>((_resolve, reject) => { rejectDeposit = reject; })}
+        executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+        onClose={() => {}}
+      />,
+    );
+    typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    await act(async () => {
+      rejectDeposit(Object.assign(new Error("limited"), { status: 429, code: "SAVINGS_ACTION_RATE_LIMITED", serverMessage: "Base RPC is rate limited. Try again shortly." }));
+      await Promise.resolve();
+    });
+    expect((await page().findByRole("alert")).textContent).toContain("Base RPC is rate limited");
+    expect(page().getByRole("dialog", { name: "Withdraw" })).toBeTruthy();
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
+    expect((page().getByRole("button", { name: "Close withdraw dialog" }) as HTMLButtonElement).disabled).toBe(false);
+  });
 
   test("browser Back during a pending preparation leaves the management tray dismissible", async () => {
     let resolveDeposit!: (action: PreparedMoneyAction) => void;

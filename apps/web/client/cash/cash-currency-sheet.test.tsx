@@ -263,10 +263,10 @@ test("a confirmed conversion executes once and closes the sheet", async () => {
   await waitFor(() => expect((view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(view.getByRole("button", { name: "Continue" }));
   fireEvent.click(await view.findByRole("button", { name: /Convert \$1\.00/ }));
-  await view.findByText("Waiting for your wallet…");
+  await waitFor(() => expect(view.getByRole("button", { name: "Convert $1.00" }).getAttribute("aria-busy")).toBe("true"));
   expect((view.getByRole("button", { name: "Close conversion" }) as HTMLButtonElement).disabled).toBe(true);
   await waitFor(() => expect(executions).toBe(1));
-  resolveExecute!({ id: "cash-trade-1", status: "confirmed" });
+  await act(async () => { resolveExecute!({ id: "cash-trade-1", status: "confirmed" }); });
   await waitFor(() => expect(Boolean(view.queryByRole("dialog"))).toBe(false), { timeout: 2_000 });
   expect(executions).toBe(1);
 }, 40_000);

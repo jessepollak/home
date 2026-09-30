@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
-import { ArrowDownLeft, CircleAlert, CircleCheck, CircleQuestionMark, CircleX, Clock, LoaderCircle } from "lucide-react";
+import { ArrowDownLeft, CircleAlert, CircleCheck, CircleQuestionMark, CircleX, Clock } from "lucide-react";
 import { MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalFooter, MoneyModalHeader, MoneyModalStep, MoneyResult, MoneyResultFooter, moneyConfirmFromRow, useAutoFitAmountText } from "@/client/money-modal";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { useReactiveExpiry } from "@/client/actions/expiry";
@@ -25,7 +25,7 @@ function statusBadge(item: ActivityLedgerItem) {
   const Icon = {
     "waiting-customer": customerAction ? CircleAlert : Clock,
     "waiting-provider": Clock,
-    "waiting-chain": LoaderCircle,
+    "waiting-chain": Clock,
     "waiting-home": Clock,
     confirmed: CircleCheck,
     failed: CircleX,
@@ -130,7 +130,7 @@ export function ActivityLedgerDetailSheet({
   const StatusIcon = item ? {
     "waiting-customer": Clock,
     "waiting-provider": Clock,
-    "waiting-chain": LoaderCircle,
+    "waiting-chain": Clock,
     "waiting-home": Clock,
     confirmed: CircleCheck,
     failed: CircleX,

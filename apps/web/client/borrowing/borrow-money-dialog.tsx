@@ -131,9 +131,12 @@ export function BorrowMoneyFlow({
     : null;
   const primaryUnit = useMoneyAmountUnit(verifiedCashCurrency(primaryAsset.address), collateralPrice, regionId);
   const primaryAssetMark = presentBorrowAssetMark(primaryAsset, assetMarkResolution);
+  const prepareGeneration = useRef(0);
   function changeAmount(value: string) {
+    prepareGeneration.current += 1;
     setAmount(value);
   }
+  useEffect(() => () => { prepareGeneration.current += 1; }, [dataOwnerKey, snapshot.market.id, operation]);
   const [amount, setAmount] = useState(initialAmount);
   const maximumFilled = useRef(initialAmount !== "");
   useEffect(() => {
@@ -147,10 +150,11 @@ export function BorrowMoneyFlow({
   const [step, setStep] = useState<"amount" | "confirm" | "pending" | "error" | "result">("amount");
   const [submission, setSubmission] = useState<ResultSubmission | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | undefined>(undefined);
-  const confirming = useRef(false);
+  const inFlight = useRef(false);
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attempted, setAttempted] = useState(false);
-  useMoneyModalPending(step === "pending");
+  useMoneyModalPending(step === "pending" || preparing);
   const title = step === "amount" || step === "result" ? borrowOperationLabels[operation] : "Confirm";
   const requiresPrimaryAmount = !closesWithoutDebt;
   const openingCollateralBaseUnits = operation === "supply-and-borrow" && isPositiveDecimalAmount(amount)
@@ -172,6 +176,7 @@ export function BorrowMoneyFlow({
   }, [clockNow, preparedAction, preparedExpiresAt]);
 
   function goBack() {
+    prepareGeneration.current += 1;
     setPreparedAction(null);
     setSubmission(null);
     setSubmittedAt(undefined);
@@ -182,6 +187,10 @@ export function BorrowMoneyFlow({
   }
 
   async function prepare() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const generation = ++prepareGeneration.current;
+    setPreparing(true);
     try {
       const amountBaseUnits = requiresPrimaryAmount ? parseClientTokenAmount(amount, primaryAsset.decimals) : undefined;
       const collateralAmountBaseUnits = operation === "supply-and-borrow"
@@ -198,8 +207,10 @@ export function BorrowMoneyFlow({
         maximumRepayBaseUnits: maximumRepayBaseUnits ?? undefined,
       });
       setError(null);
-      setStep("pending");
-      const action = await prepareMoneyAction(intent.kind, intent.params);
+      const outcome = await prepareMoneyAction(intent.kind, intent.params).then((prepared) => ({ prepared }), (failure: unknown) => ({ failure }));
+      if (generation !== prepareGeneration.current) return;
+      if ("failure" in outcome) throw outcome.failure;
+      const action = outcome.prepared;
       if (!preparedActionMatches(action, session, snapshot.market.id, intent.kind, intent.operation)) {
         throw new BorrowActionClientError("The prepared action did not match this verified account and Borrow market.");
       }
@@ -211,13 +222,15 @@ export function BorrowMoneyFlow({
     } catch (caught) {
       setPreparedAction(null);
       setError(readableResourceError(caught));
-      setStep("amount");
+    } finally {
+      inFlight.current = false;
+      setPreparing(false);
     }
   }
 
   async function confirm() {
-    if (!preparedAction || step === "pending" || confirming.current) return;
-    confirming.current = true;
+    if (!preparedAction || step === "pending" || inFlight.current) return;
+    inFlight.current = true;
     setError(null);
     setStep("pending");
     try {
@@ -253,7 +266,7 @@ export function BorrowMoneyFlow({
       }
       setStep("confirm");
     } finally {
-      confirming.current = false;
+      inFlight.current = false;
     }
   }
 
@@ -286,35 +299,35 @@ export function BorrowMoneyFlow({
         title={title}
         titleId="borrow-action-title"
         {...(step === "amount"
-          ? onBack ? { onBack } : closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
+          ? onBack ? { onBack, backDisabled: preparing } : closesWithoutDebt ? {} : { assetControl: <MoneyAssetPicker {...amountAssetProps} /> }
           : step === "pending" || step === "result" ? {} : { onBack: goBack })}
         closeLabel="Close Borrow action"
       />
-      {step === "result" && preparedAction && submission ? <BorrowResult action={preparedAction} submission={submission} submittedAt={submittedAt} snapshot={snapshot} operation={operation} fetchAccountResource={fetchAccountResource} onClose={onDone ?? exit} onTryAgain={goBack} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { onLeave?.(); exit(); })} /> : <MoneyModalBody hasFooter={step !== "pending" || Boolean(preparedAction)} className="gap-4 pt-4">
+      {step === "result" && preparedAction && submission ? <BorrowResult action={preparedAction} submission={submission} submittedAt={submittedAt} snapshot={snapshot} operation={operation} fetchAccountResource={fetchAccountResource} onClose={onDone ?? exit} onTryAgain={goBack} onViewActivity={() => openPanelAfterClose(routing, "activity", () => { onLeave?.(); exit(); })} /> : <MoneyModalBody hasFooter className="gap-4 pt-4">
         {step === "amount" ? (
           <>
             {closesWithoutDebt ? (
               <MoneyConfirmSummary amount={formatToken(snapshot.position.collateralRaw, snapshot.market.collateralToken, regionId)} lead="Withdraw all collateral" rows={[{ label: "Debt", value: "No debt" }]} />
             ) : (
-              <>
-                <MoneyAmountDisplay
-                  amount={amount}
-                  maxDecimals={primaryAsset.decimals}
-                  onAmountChange={changeAmount}
-                  overAvailable={overAvailable}
-                  amountError={insufficientCollateral ? `That amount needs more ${snapshot.market.collateralToken.symbol} than is available in this wallet.` : undefined}
-                  onSubmit={continueDisabled ? undefined : () => void prepare()}
-                  availableLabel={availableLabel}
-                  availableAmount={availableAmount}
-                  assetId={primaryAsset.id}
-                  assetLabel={primaryAsset.symbol}
-                  assetCurrency={primaryAssetMark.currency}
-                  assetControl={onBack ? "body" : "header"}
-                  assetLocked={Boolean(onBack)}
-                  chipSet={availableBaseUnits === null ? "none" : "max"}
-                  unit={primaryUnit}
-                  nativeSymbol={primaryAsset.symbol}
-                >
+              <MoneyAmountDisplay
+                amount={amount}
+                maxDecimals={primaryAsset.decimals}
+                onAmountChange={changeAmount}
+                readOnly={preparing}
+                overAvailable={overAvailable}
+                amountError={insufficientCollateral ? `That amount needs more ${snapshot.market.collateralToken.symbol} than is available in this wallet.` : undefined}
+                onSubmit={continueDisabled || preparing ? undefined : () => void prepare()}
+                availableLabel={availableLabel}
+                availableAmount={availableAmount}
+                assetId={primaryAsset.id}
+                assetLabel={primaryAsset.symbol}
+                assetCurrency={primaryAssetMark.currency}
+                assetControl={onBack ? "body" : "header"}
+                assetLocked={Boolean(onBack)}
+                chipSet={availableBaseUnits === null ? "none" : "max"}
+                unit={primaryUnit}
+                nativeSymbol={primaryAsset.symbol}
+              >
                 {reserveRelevant && reserveFailed ? (
                   <LoadErrorCard tone="destructive" role="alert" title="Couldn't check the network fee." onRetry={retryReserve} />
                 ) : null}
@@ -323,14 +336,12 @@ export function BorrowMoneyFlow({
                     Current debt is {formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)}. The actual repayment is determined by current borrow shares and cannot exceed the amount you review.
                   </BorrowNotice>
                 ) : null}
-                </MoneyAmountDisplay>
-              </>
+              </MoneyAmountDisplay>
             )}
           </>
         ) : null}
 
         {preparedAction && step !== "amount" && step !== "result" ? <BorrowPreparedReview action={preparedAction} snapshot={snapshot} regionId={regionId} /> : null}
-        {step === "pending" && !preparedAction ? <BorrowNotice title="Preparing Borrow review…" /> : null}
         {error ? <BorrowNotice tone="error" role="alert" title="Borrow action unavailable">{error}</BorrowNotice> : null}
         {preparedExpired && !attempted && step === "confirm" && !error ? (
           <BorrowNotice tone="error" role="alert" title="Borrow review expired">Go back and prepare this action again.</BorrowNotice>
@@ -340,6 +351,7 @@ export function BorrowMoneyFlow({
         <MoneyModalFooter
           primaryLabel="Continue"
           primaryDisabled={continueDisabled}
+          primaryLoading={preparing}
           onPrimary={() => void prepare()}
         />
       ) : null}

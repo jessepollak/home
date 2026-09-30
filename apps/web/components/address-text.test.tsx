@@ -2,7 +2,7 @@ import "./../client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { AddressField } = await import("./address-field");
 
 const ADDRESS = "0x12a4aaaaaaaaaaaaaaaaaaaaaaaaaaaaaac19fab";
@@ -39,5 +39,16 @@ describe("AddressText and AddressField", () => {
       <AddressField id="to" value={ADDRESS} onChange={() => {}} />,
     );
     expect((view.getByRole("textbox") as HTMLInputElement).value).toBe("0x12a4…c19fab");
+  });
+
+  test("a read-only field keeps focus and disables paste", () => {
+    const view = render(<AddressField id="to" label="To" value={ADDRESS} onChange={() => {}} readOnly />);
+    const input = view.getByRole("textbox", { name: "To" }) as HTMLInputElement;
+    act(() => { input.focus(); });
+    expect(input.readOnly).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(input.getAttribute("aria-readonly")).toBe("true");
+    expect(document.activeElement).toBe(input);
+    expect((view.getByRole("button", { name: "Paste address" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

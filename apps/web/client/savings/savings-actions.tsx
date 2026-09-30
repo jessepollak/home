@@ -155,6 +155,7 @@ function OwnerBoundSavingsJourney({
   const [attemptedAction, setAttemptedAction] = useState(false);
   const [serverExpiredActionId, setServerExpiredActionId] = useState<string | null>(null);
   const [step, setStep] = useState<DialogStep>("amount");
+  const [preparing, setPreparing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsId = useId();
   const managementFocusRef = useRef<HTMLElement>(null);
@@ -175,6 +176,7 @@ function OwnerBoundSavingsJourney({
     setSubmittedAt(undefined);
     setError(null);
     setStep("amount");
+    setPreparing(false);
   }
   useLayoutEffect(() => {
     preparation.current += 1;
@@ -210,10 +212,14 @@ function OwnerBoundSavingsJourney({
   const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open && mode !== null);
   const inPicker = Boolean(picker && pickerOpen);
   const title = inPicker ? "Choose where to save" : step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
-  useMoneyModalPending(embeddedDepth !== undefined && step === "pending");
+  useMoneyModalPending(embeddedDepth !== undefined && (step === "pending" || preparing));
   const baseDepth = embeddedDepth ?? 1;
 
   function changeAmount(value: string) {
+    if (preparing) {
+      preparation.current += 1;
+      setPreparing(false);
+    }
     setAmount(value);
   }
 
@@ -227,6 +233,7 @@ function OwnerBoundSavingsJourney({
     setSubmission(null);
     setSubmittedAt(undefined);
     setStep("amount");
+    setPreparing(false);
     setError(null);
   }
 
@@ -266,7 +273,7 @@ function OwnerBoundSavingsJourney({
   }
 
   async function continueFromAmount() {
-    if (!mode || !candidate) return;
+    if (!mode || !candidate || preparing) return;
     const generation = ++preparation.current;
     try {
       if (historyBlocked) return;
@@ -285,7 +292,7 @@ function OwnerBoundSavingsJourney({
       const preparationIdentity = ownerIdentity;
       setAmountBaseUnits(nextAmount);
       setError(null);
-      setStep("pending");
+      setPreparing(true);
       const action = await prepareMoneyAction(mode === "withdraw" ? "savings-withdraw" : "savings-deposit", {
         kind: mode,
         vaultAddress: candidate.vaultAddress,
@@ -311,11 +318,13 @@ function OwnerBoundSavingsJourney({
       setPreparedAction(action);
       setAttemptedAction(false);
       setServerExpiredActionId(null);
+      setPreparing(false);
       setStep("confirm");
     } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a stale preparation fenced by a newer journey generation has no state to report
       if (generation !== preparation.current) return;
       setPreparedAction(null);
       setError(messageForPrepareError(caught));
+      setPreparing(false);
       setStep("amount");
     }
   }
@@ -411,7 +420,7 @@ function OwnerBoundSavingsJourney({
           closeLabel={`Close ${mode} dialog`}
         />
 
-        <MoneyModalBody hasFooter={step !== "pending"} className="gap-4 pt-4">
+        <MoneyModalBody hasFooter className="gap-4 pt-4">
           {inPicker && picker ? (
             <>
               {picker.options.length === 0 ? (
@@ -440,6 +449,7 @@ function OwnerBoundSavingsJourney({
                 amount={amount}
                 maxDecimals={assetDecimals}
                 onAmountChange={changeAmount}
+                readOnly={preparing}
                 overAvailable={overAvailable}
                 onSubmit={canContinue ? () => void continueFromAmount() : undefined}
                 availableLabel={availableLabel}
@@ -501,6 +511,7 @@ function OwnerBoundSavingsJourney({
           <MoneyModalFooter
             primaryLabel="Continue"
             primaryDisabled={!canContinue || historyBlocked}
+            primaryLoading={preparing}
             onPrimary={() => void continueFromAmount()}
           />
         ) : null}
@@ -537,7 +548,7 @@ function OwnerBoundSavingsJourney({
         open={open}
         immediate={motion === "reduced"}
         labelledBy={titleId}
-        pending={step === "pending"}
+        pending={step === "pending" || preparing}
         onCancel={onClose}
         onClose={() => {
           reset();

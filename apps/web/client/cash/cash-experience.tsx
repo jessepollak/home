@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } from "react";
 import { readClientHistoryFlag } from "@/config/shell-location";
 import {
   isServerVerified,
@@ -20,7 +20,7 @@ import { browserHomeQueryClient, getHomeQueryClient, useHomeQueryClient } from "
 import { queryViewState } from "@/client/query/query-view-state";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry } from "@/client/savings/savings-actions";
+import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry, type SavingsJourneyProps } from "@/client/savings/savings-actions";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
 import { invalidateAfterAction } from "@/client/query/after-action";
@@ -59,6 +59,35 @@ import { savingsManagement, type SavingsManagement } from "./savings-management"
 
 const SAVINGS_JOURNEY_TITLE_ID = "savings-journey-title";
 const noDeadline = () => null;
+
+function StagedSavingsJourney(props: SavingsJourneyProps) {
+  const [stage] = useState(() => {
+    let ready = false;
+    let frame: number | undefined;
+    const listeners = new Set<() => void>();
+    return {
+      subscribe(listener: () => void) {
+        listeners.add(listener);
+        if (!ready && frame === undefined) frame = requestAnimationFrame(() => {
+          ready = true;
+          frame = undefined;
+          listeners.forEach((notify) => notify());
+        });
+        return () => {
+          listeners.delete(listener);
+          if (listeners.size === 0 && frame !== undefined) {
+            cancelAnimationFrame(frame);
+            frame = undefined;
+          }
+        };
+      },
+      getSnapshot: () => ready,
+      getServerSnapshot: () => false,
+    };
+  });
+  const entered = useSyncExternalStore(stage.subscribe, stage.getSnapshot, stage.getServerSnapshot);
+  return <SavingsJourney {...props} open={props.open && entered} />;
+}
 
 const CashCurrencySheet = deferSheet(() => import("./cash-currency-sheet").then((module) => module.CashCurrencySheet),
   (props) => moneySheetLoading({
@@ -376,6 +405,7 @@ export function CashExperience({
       : null, [liveSnapshot, growthOwner, balanceStale]);
 
   const [localMode, setLocalMode] = useState<Mode | null>(null);
+  const [openMode, setOpenMode] = useState<Mode | null>(null);
   const [targetSelection, setTargetSelection] = useState<{ owner: string; candidate: MorphoVaultCandidate } | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [firstUseHistoryFloor, setFirstUseHistoryFloor] = useState(0);
@@ -460,6 +490,7 @@ export function CashExperience({
       ? "withdraw"
       : null;
   const mode = routing ? routeMode : localMode;
+  const retainedMode = mode ?? openMode;
   const accountIdentity = session?.smartAccount ? dataOwnerKey(session) : null;
   const actionsQueryKey = useMemo(
     () => accountIdentity ? ownerQueryKey(accountIdentity, "actions") : ["unauthenticated", "savings-actions-disabled"],
@@ -612,7 +643,7 @@ export function CashExperience({
   });
 
   const available =
-    mode === "deposit"
+    retainedMode === "deposit"
       ? liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       : liveSnapshot?.holdings.find(
           (holding) =>
@@ -850,6 +881,12 @@ export function CashExperience({
   const sheetOpen = view === "savings" && session !== null && (management !== null ||
     (choosing && mode === "deposit") ||
     (mode !== null && target !== null && ((availableBaseUnits !== null && balanceStatus !== "failed") || confirmed)));
+  if (sheetOpen && mode !== openMode) setOpenMode(mode);
+  const journeyMode = sheetOpen ? mode : retainedMode;
+  const journeyKey = session && (activeManagement !== null || target !== null || choosing)
+    ? `${ownerIdentity}:${journeyGeneration}`
+    : null;
+  if (journeyKey === null && openMode !== null) setOpenMode(null);
   const currentTarget = target && metadata?.candidates.find((candidate) =>
     candidate.vaultAddress.toLowerCase() === target.vaultAddress.toLowerCase()
   );
@@ -963,14 +1000,14 @@ export function CashExperience({
         fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeSavingsAction}
         onCancel={() => setCurrencyOpen(false)} onClosed={currencyClosed} onAddMoney={onAddMoney}
         onConfirmed={() => invalidateAfterAction(getHomeQueryClient(), dataOwnerKey(session))} /> : null}
-      {session && (activeManagement !== null || target !== null || choosing) ? (
-        <SavingsJourney
+      {session && journeyKey !== null ? (
+        <StagedSavingsJourney
           titleId={SAVINGS_JOURNEY_TITLE_ID}
-          key={`${session.user.subject}:${session.smartAccount?.address ?? ""}:${activeManagement?.address ?? target?.vaultAddress ?? ""}:${entry}`}
+          key={journeyKey}
           open={sheetOpen}
           entry={entry}
           management={activeManagement}
-          mode={mode}
+          mode={journeyMode}
           session={session}
           candidate={target}
           picker={choosing ? {

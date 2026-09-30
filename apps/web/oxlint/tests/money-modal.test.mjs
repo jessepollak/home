@@ -36,6 +36,8 @@ const sheet = "no-sheet-primitives";
 const reexports = "no-sheet-primitive-reexports";
 const api = "money-modal-public-api";
 const alternate = "no-alternate-money-modal";
+const loadingOwnership = "no-unowned-loading";
+const transientCopy = "no-transient-money-copy";
 
 describe("no-sheet-primitives", () => {
   it("permits shared composition, a popover, and reviewed named drawer imports", async () => {
@@ -215,6 +217,55 @@ describe("no-alternate-money-modal", () => {
       const modal = <MoneyModal />;
       function ConfirmationSheet() { return <AppDrawer />; }
     `)).toHaveLength(0);
+  });
+});
+
+describe("no-unowned-loading", () => {
+  it("rejects direct and aliased LoaderCircle imports and bare or modified spin classes", async () => {
+    expect(await lint(loadingOwnership, `
+      import { LoaderCircle as Progress, CircleCheck } from "lucide-react";
+      const marker = <Progress className="size-4 motion-safe:animate-spin" />;
+      const later = <span className={\`size-4 animate-spin\`} />;
+    `)).toHaveLength(3);
+  });
+  it("allows owned controls and other icon and animation names", async () => {
+    expect(await lint(loadingOwnership, `
+      import { Button } from "@/components/ui/button";
+      import { CircleCheck } from "lucide-react";
+      const ok = <Button loading><CircleCheck />Continue</Button>;
+      const unrelated = <div className="animate-pulse animate-spinny" />;
+    `)).toHaveLength(0);
+  });
+});
+
+describe("no-transient-money-copy", () => {
+  const flow = `import { MoneyModalStep, MoneyModalFooter } from "@/client/money-modal";`;
+  it("rejects progress-only JSX text and string expressions in a money sheet", async () => {
+    expect(await lint(transientCopy, `${flow}
+      const step = <MoneyModalStep step="amount" depth={0}>
+        <p>Preparing review…</p><div>{"Getting a quote..."}</div>
+        <span>{busy ? "Waiting for your wallet…" : "Continue"}</span>
+        <p>{\`Verifying session…\`}</p><p>Loading details…</p>
+      </MoneyModalStep>;
+    `, "client/trading/trade-money-dialog.tsx")).toHaveLength(5);
+  });
+  it("allows footer primary labels and a Button loading label, but not unrelated props or idle buttons", async () => {
+    expect(await lint(transientCopy, `${flow}
+      import { MoneyConfirmFooter } from "@/client/money-modal";
+      import { Button } from "@/components/ui/button";
+      const labels = <><MoneyModalFooter primaryLabel={busy ? "Getting quote…" : "Review quote"} />
+        <MoneyConfirmFooter primaryLabel={"Waiting for your wallet…"} />
+        <Button loading={busy}><span>Verifying…</span></Button>
+        <Button loading={false}>Loading review…</Button>
+        <p title="Preparing review…">Ready</p></>;
+    `, "client/transfers/send-dialog.tsx")).toHaveLength(2);
+  });
+  it("ignores non-flow screens, ordinary text, and progress copy without a trailing ellipsis", async () => {
+    expect(await lint(transientCopy, `const page = <span>Loading more…</span>;`, "client/activity/activity-panel.tsx")).toHaveLength(0);
+    expect(await lint(transientCopy, `${flow}
+      const page = <><span>Waiting for a buyer</span><span>Preparing review</span>
+        <span>Getting started</span></>;
+    `, "client/borrowing/borrow-money-dialog.tsx")).toHaveLength(0);
   });
 });
 

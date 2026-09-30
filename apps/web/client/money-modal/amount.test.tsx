@@ -25,6 +25,7 @@ function AmountHarness({
   overAvailable = false,
   amountError,
   disabled = false,
+  readOnly = false,
   onSubmit,
 }: {
   chipSet?: "none" | "max" | "quick-local";
@@ -41,6 +42,7 @@ function AmountHarness({
   overAvailable?: boolean;
   amountError?: string;
   disabled?: boolean;
+  readOnly?: boolean;
   onSubmit?: () => void;
 }) {
   const [amount, setAmount] = useState(initialAmount);
@@ -52,6 +54,7 @@ function AmountHarness({
       overAvailable={overAvailable}
       amountError={amountError}
       disabled={disabled}
+      readOnly={readOnly}
       onSubmit={onSubmit}
       availableLabel={availableLabel}
       availableAmount={availableAmount}
@@ -184,6 +187,30 @@ describe("MoneyAmountDisplay", () => {
     expect(amountInput().value).toBe("12.345600");
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(amountInput().value).toBe("12.345600");
+  });
+
+  test("a read-only amount keeps focus and value while every shortcut is disabled", () => {
+    const onSubmit = mock(() => undefined);
+    render(<AmountHarness initialAmount="5" availableAmount="12" readOnly onSubmit={onSubmit} />);
+    const input = amountInput();
+    input.focus();
+    expect(input.readOnly).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(input.getAttribute("aria-readonly")).toBe("true");
+    fireEvent.input(input, { target: { value: "7" } });
+    fireEvent.paste(input, { clipboardData: { getData: () => "9" } });
+    expect(page().getByLabelText("Native amount").textContent).toBe("5");
+    expect(input.value).toBe("5");
+    for (const name of ["$10", "$25", "Max"]) expect((page().getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(input);
+  });
+
+  test("a disabled amount disables Max", () => {
+    render(<AmountHarness availableAmount="12" disabled />);
+    expect(amountInput().disabled).toBe(true);
+    expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   test("disables fiat quick amounts for native units but keeps exact Max", () => {
@@ -481,6 +508,14 @@ describe("priced amount toggle", () => {
     fireEvent.click(primaryToggle());
     expect(input.value).toBe("0.001");
     expect(page().getByLabelText("Native amount").textContent).toBe("0.001");
+  });
+
+  test("a read-only priced amount locks the unit toggle", () => {
+    render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
+      initialAmount="0.001" availableAmount="0.02" maxDecimals={8} readOnly />);
+    expect((primaryToggle() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(primaryToggle());
+    expect(amountInput().value).toBe("0.001");
   });
 
   test("typing fiat emits exact floored native while retaining the typed fiat string", () => {

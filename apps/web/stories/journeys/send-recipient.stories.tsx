@@ -216,7 +216,11 @@ export const PreparingReview: Story = {
     const screen = await toDestination(canvasElement);
     await enterRecipient(screen, RECIPIENT);
     await userEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await expect(await screen.findByText("Preparing review…")).toBeVisible();
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+    await waitFor(() => expect(continueButton).toHaveAttribute("aria-busy", "true"));
+    await expect(continueButton).toHaveAttribute("aria-disabled", "true");
+    await expect(screen.getByRole("dialog", { name: "Send" })).toBeVisible();
+    await expect(screen.getByRole("textbox", { name: "To" })).toBeVisible();
     await expect(journey.prepares).toHaveLength(1);
   },
 };

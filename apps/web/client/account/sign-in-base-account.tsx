@@ -1,6 +1,5 @@
 "use client";
 
-import { LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { RefObject } from "react";
 import type { BaseAccountLoginPhase } from "./cdp-client";
@@ -20,11 +19,6 @@ export function BaseAccountButtonContent({ phase }: { phase: BaseAccountLoginPha
   return (
     <>
       <span className="sr-only">{baseAccountSignInLabel}</span>
-      <LoaderCircle
-        className="size-4 animate-spin motion-reduce:animate-none"
-        aria-hidden="true"
-        data-icon="inline-start"
-      />
       <span aria-hidden="true">{baseAccountPhaseMessage(phase)}</span>
     </>
   );
@@ -55,8 +49,7 @@ export function BaseAccountOnlySignIn({
         size="touch"
         variant="secondary"
         onClick={onSignIn}
-        aria-busy={phase ? true : undefined}
-        aria-disabled={phase ? true : undefined}
+        loading={phase !== null}
         autoFocus
         data-initial-focus
       >
