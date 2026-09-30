@@ -6,6 +6,7 @@ import {
   BASE_USDC_DECIMALS,
   MORPHO_GRAPHQL_ENDPOINT,
 } from "@/shared/savings/config";
+import { createUpstreamDeadline, upstreamRequest, type UpstreamDeadline } from "@/server/http/upstream";
 import { parseLosslessJson } from "./lossless-json";
 import {
   MorphoSchemaError,
@@ -18,6 +19,7 @@ import {
 } from "@/shared/savings/types";
 
 const REQUEST_TIMEOUT_MS = 8_000;
+export const MORPHO_MAX_RESPONSE_BYTES = 256_000;
 const REQUEST_RETRY_LIMIT = 1;
 const FRESH_CACHE_MS = 30_000;
 const STALE_FALLBACK_MS = 5 * 60_000;
@@ -62,6 +64,7 @@ type CacheEntry = {
 
 type VaultCandidatesReaderOptions = {
   signal?: AbortSignal;
+  timeoutMs?: number;
   now?: () => Date;
 };
 
@@ -93,7 +96,11 @@ export function createMorphoVaultCandidatesReader(fetchImpl: FetchLike) {
 
     if (useSharedCache && vaultRequest) return vaultRequest;
 
-    const request = fetchVaultCandidates(fetchImpl, options?.signal, now).catch(
+    const deadline = createUpstreamDeadline({
+      timeoutMs: options?.timeoutMs ?? REQUEST_TIMEOUT_MS,
+      signal: options?.signal,
+    });
+    const request = fetchVaultCandidates(fetchImpl, deadline, now).catch(
       (error: unknown) => {
         if (
           useSharedCache &&
@@ -126,18 +133,19 @@ let sharedVaultCandidatesReader = createMorphoVaultCandidatesReader(fetch);
 export async function getMorphoVaultCandidates(options?: {
   fetchImpl?: FetchLike;
   signal?: AbortSignal;
+  timeoutMs?: number;
   now?: () => Date;
 }): Promise<MorphoVaultsResult> {
   const reader = options?.fetchImpl
     ? createMorphoVaultCandidatesReader(options.fetchImpl)
     : sharedVaultCandidatesReader;
 
-  return reader({ signal: options?.signal, now: options?.now });
+  return reader({ signal: options?.signal, now: options?.now, timeoutMs: options?.timeoutMs });
 }
 
 async function fetchVaultCandidates(
   fetchImpl: FetchLike,
-  signal: AbortSignal | undefined,
+  deadline: UpstreamDeadline,
   now: () => Date,
 ): Promise<MorphoVaultsResult> {
   const source = createSource("vaults", now());
@@ -145,7 +153,7 @@ async function fetchVaultCandidates(
     VAULTS_QUERY,
     undefined,
     fetchImpl,
-    signal,
+    deadline,
   );
   const data = readRecord(payload, "response.data");
   const vaults = readRecord(data.vaults, "response.data.vaults");
@@ -181,15 +189,15 @@ async function executeGraphqlWithRetry(
   query: string,
   variables: Record<string, string> | undefined,
   fetchImpl: FetchLike,
-  externalSignal: AbortSignal | undefined,
+  deadline: UpstreamDeadline,
 ) {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await executeGraphql(query, variables, fetchImpl, externalSignal);
+      return await executeGraphql(query, variables, fetchImpl, deadline);
     } catch (error) { // oxlint-disable-line home/no-silent-catch -- a retryable upstream error continues the bounded retry loop
       if (
         attempt >= REQUEST_RETRY_LIMIT ||
-        externalSignal?.aborted ||
+        deadline.interruptionKind() !== undefined ||
         !(error instanceof MorphoUpstreamError)
       ) {
         throw error;
@@ -202,52 +210,40 @@ async function executeGraphql(
   query: string,
   variables: Record<string, string> | undefined,
   fetchImpl: FetchLike,
-  externalSignal: AbortSignal | undefined,
+  deadline: UpstreamDeadline,
 ) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  const abortFromExternal = () => controller.abort();
-  externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
-
-  try {
-    const response = await fetchImpl(MORPHO_GRAPHQL_ENDPOINT, {
+  const result = await upstreamRequest(MORPHO_GRAPHQL_ENDPOINT, {
+    deadline,
+    maxBytes: MORPHO_MAX_RESPONSE_BYTES,
+    init: {
       method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json",
-      },
+      headers: { accept: "application/json", "content-type": "application/json" },
       body: JSON.stringify({ query, variables }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new MorphoUpstreamError(
-        `Morpho GraphQL returned HTTP ${response.status}.`,
-      );
+    },
+    responseType: "text",
+    parse: (value) => parseLosslessJson(String(value)),
+    fetchImpl,
+  });
+  if (!result.ok) {
+    if (result.kind === "http") {
+      throw new MorphoUpstreamError(`Morpho GraphQL returned HTTP ${result.status}.`);
     }
-
-    const parsed = parseLosslessJson(await response.text());
-    const envelope = readRecord(parsed, "response");
-    if (Array.isArray(envelope.errors) && envelope.errors.length > 0) {
-      throw new MorphoUpstreamError("Morpho GraphQL returned an error response.");
-    }
-    if (envelope.data === null || envelope.data === undefined) {
-      throw new MorphoUpstreamError("Morpho GraphQL returned no data.");
-    }
-    return envelope.data;
-  } catch (error) {
-    if (error instanceof MorphoUpstreamError || error instanceof MorphoSchemaError) {
-      throw error;
-    }
-    const message = controller.signal.aborted
-      ? "Morpho GraphQL request timed out or was aborted."
-      : "Morpho GraphQL request failed.";
-    throw new MorphoUpstreamError(message, { cause: error });
-  } finally {
-    clearTimeout(timeout);
-    externalSignal?.removeEventListener("abort", abortFromExternal);
+    const cause = "cause" in result ? result.cause : undefined;
+    throw new MorphoUpstreamError(
+      result.kind === "aborted" || result.kind === "timeout"
+        ? "Morpho GraphQL request timed out or was aborted."
+        : "Morpho GraphQL request failed.",
+      cause === undefined ? undefined : { cause },
+    );
   }
+  const envelope = readRecord(result.value, "response");
+  if (Array.isArray(envelope.errors) && envelope.errors.length > 0) {
+    throw new MorphoUpstreamError("Morpho GraphQL returned an error response.");
+  }
+  if (envelope.data === null || envelope.data === undefined) {
+    throw new MorphoUpstreamError("Morpho GraphQL returned no data.");
+  }
+  return envelope.data;
 }
 
 function createSource(
