@@ -67,6 +67,56 @@ function expectPrivate(response: Response) {
 }
 
 describe("activity route handler", () => {
+  test("a keyed request fingerprint joins identical retries but separates changed windows and owners", async () => {
+    const events: ReturnType<typeof normalizeObservabilityEvent>[] = [];
+    let address: string = VERIFIED;
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(address),
+      now: () => new Date("2026-09-07T12:00:05.000Z"), diagnosticKey: "synthetic-secret",
+      observe: (event) => { events.push(normalizeObservabilityEvent(event)); }, readActivity: async () => page() });
+    const keys: unknown[] = [];
+    for (const to of [TO, TO, "2026-09-07T12:00:00.001Z", TO]) {
+      if (keys.length === 3) address = ATTACKER;
+      await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(to)}`));
+      const event = events.at(-1);
+      if (!event || event.kind !== "activity-read") throw new Error("Expected an activity observation");
+      keys.push(event.requestKey);
+    }
+    expect(keys[0]).toMatch(/^[a-f0-9]{32}$/);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[0]);
+    expect(keys[3]).not.toBe(keys[0]);
+    expect(JSON.stringify(events)).not.toMatch(/synthetic-secret|subject-a|11111111|99999999/);
+  });
+  test("distinguishes cursor reads and reports cache provenance without private request parameters", async () => {
+    const observations: unknown[] = [];
+    const source = page().source;
+    if (!source) throw new Error("Expected fixture source metadata");
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      now: () => new Date("2026-09-07T12:00:05.000Z"),
+      observe: (event) => { observations.push(normalizeObservabilityEvent(event)); },
+      readActivity: async () => ({ ...page(), source: { ...source, cached: true, stale: false } }),
+    });
+    await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(observations.at(-1)).toMatchObject({ requestPage: "first", windowEndAgeSeconds: 5,
+      windowEndAlignment: "whole-second", sourceCached: true, sourceStale: false });
+    await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=private-cursor`));
+    expect(observations.at(-1)).toMatchObject({ requestPage: "cursor" });
+    expect(JSON.stringify(observations)).not.toMatch(/private-cursor|subject-a|11111111/);
+  });
+
+  test("preserves the closed SQL rejection reason through the route and log boundary", async () => {
+    const observations: unknown[] = [];
+    const transport = createCdpSqlHttpTransport({ auth: { mode: "client-api-key", clientApiKey: "private-key" },
+      fetch: async () => Response.json({ errorType: "invalid_request", errorMessage: "MAX_BYTES_TO_READ private-body" }, { status: 400 }) });
+    const handler = createActivityHandler({ authorize: async () => sessionResponse(),
+      now: () => new Date(TO), observe: (event) => { observations.push(normalizeObservabilityEvent(event)); },
+      readActivity: async () => { await transport.run({ sql: "SELECT 1" }); return page(); } });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(502);
+    expect(observations.at(-1)).toMatchObject({ requestPage: "first", upstreamStatus: 400, sqlRejectionReason: "resource-limit" });
+    expect(JSON.stringify(observations)).not.toContain("private-");
+    expect(await response.text()).not.toContain("private-");
+  });
   test("records only typed source failures and HTTP status for both failure boundaries", async () => {
     for (const boundary of ["source", "read"] as const) {
       for (const code of ACTIVITY_SOURCE_ERRORS) {
