@@ -9,6 +9,7 @@ const { deferSheet } = await import("./deferred-sheet");
 const { MoneyModal, MoneyModalHeader, MoneyModalStep, moneySheetLoading } = await import("./money-modal");
 
 let restoreAnimations = () => {};
+const baseUiAnimations = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
 
 afterEach(() => {
   restoreAnimations();
@@ -77,9 +78,10 @@ function NestedDetailSheet(props: LoadingProps) {
 
 type PopupHeightAnimation = { frames: Keyframe[]; options: KeyframeAnimationOptions };
 
-function recordPopupHeights(reduced: boolean) {
+function recordPopupHeights(reduced: boolean, observe = true) {
   const records: PopupHeightAnimation[] = [];
   const restore = [
+    [globalThis, "ResizeObserver"],
     [HTMLElement.prototype, "offsetHeight"],
     [HTMLElement.prototype, "animate"],
     [window, "matchMedia"],
@@ -94,6 +96,17 @@ function recordPopupHeights(reduced: boolean) {
     get(this: HTMLElement) {
       if (this.getAttribute("data-slot") !== "drawer-popup") return 0;
       return this.querySelector("[data-money-step=detail]") ? 673 : 253;
+    },
+  });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        if (!observe || target.getAttribute("data-slot") !== "drawer-popup") return;
+        queueMicrotask(() => this.callback([{ target, borderBoxSize: [{ blockSize: (target as HTMLElement).offsetHeight }] } as unknown as ResizeObserverEntry], this as unknown as ResizeObserver));
+      }
+      disconnect() {}
     },
   });
   Object.defineProperty(HTMLElement.prototype, "animate", {
@@ -125,6 +138,8 @@ function holdEntranceAnimation() {
   let finish = () => {};
   const finished = new Promise<void>((resolve) => { finish = resolve; });
   const descriptor = Object.getOwnPropertyDescriptor(Element.prototype, "getAnimations");
+  const animationsDisabled = baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED;
+  baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED = false;
   Object.defineProperty(Element.prototype, "getAnimations", {
     configurable: true,
     value: () => [{ finished, pending: false, playState: "running" }],
@@ -133,6 +148,7 @@ function holdEntranceAnimation() {
     restoreAnimations = () => {};
     if (descriptor) Object.defineProperty(Element.prototype, "getAnimations", descriptor);
     else Reflect.deleteProperty(Element.prototype, "getAnimations");
+    baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED = animationsDisabled;
   };
   return {
     finish: async () => {
@@ -264,6 +280,18 @@ describe("deferSheet", () => {
     expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
     expect(openStates.length).toBeGreaterThan(0);
     expect(openStates.every(Boolean)).toBe(true);
+  });
+
+  test("disabled animations finish the loading shell even when an animation reports itself running", async () => {
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    const entrance = holdEntranceAnimation();
+    baseUiAnimations.BASE_UI_ANIMATIONS_DISABLED = true;
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("dialog", { name: "Add money" });
+    await act(async () => { resolve(LoadedSheet); await Promise.resolve(); });
+    expect(page().getByRole("dialog", { name: "Loaded money sheet" })).toBeTruthy();
+    await entrance.finish();
   });
 
   test("closing the loading shell during its entrance after the chunk arrives closes without handing off", async () => {
@@ -458,6 +486,20 @@ describe("deferSheet", () => {
     await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
     await page().findByRole("dialog", { name: "Loaded money sheet" });
     expect(page().queryByRole("dialog", { name: "Add money" })).toBeNull();
+    expect(heights).toEqual([{
+      frames: [{ height: "253px" }, { height: "673px" }],
+      options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },
+    }]);
+  });
+
+  test("handoff captures the shell height when layout observation has not fired yet", async () => {
+    const heights = recordPopupHeights(false, false);
+    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
+    render(<Sheet open onCancel={() => {}} onClosed={() => {}} />);
+    await page().findByRole("button", { name: "Close add money" });
+    await act(async () => { resolve(DetailSheet); await Promise.resolve(); });
+    await page().findByRole("dialog", { name: "Loaded money sheet" });
     expect(heights).toEqual([{
       frames: [{ height: "253px" }, { height: "673px" }],
       options: { duration: 180, easing: "cubic-bezier(0.22, 1, 0.36, 1)" },

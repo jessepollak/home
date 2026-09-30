@@ -91,7 +91,7 @@ function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number, m
   };
 }
 
-function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carriedHeight: () => number; releaseHeight: (height: number) => void; children: ReactNode }) {
+function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carriedHeight: () => number; releaseHeight: (popup: HTMLElement | null, measured: number) => void; children: ReactNode }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const previous = useRef<StepReport | null>(null);
   const height = useRef<HeightTrack>({ last: 0, maxHeight: "" });
@@ -150,7 +150,7 @@ function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carrie
       observer?.disconnect();
       host.removeEventListener("focusin", onFocusIn);
       stopAnimations();
-      releaseHeight(popup && acceptsHandoffHeight(popup) ? track.last : 0);
+      releaseHeight(popup, track.last);
       previous.current = null;
     };
   }, [releaseHeight, stopAnimations]);
@@ -236,7 +236,9 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
   const shellCarry = handoff?.role === "shell" ? handoff.carry : null;
   const carriedHeightRef = useRef(0);
   const carriedHeight = useCallback(() => carriedHeightRef.current, []);
-  const releaseHeight = useCallback((height: number) => shellCarry?.carryHeight(height), [shellCarry]);
+  const releaseHeight = useCallback((popup: HTMLElement | null, measured: number) => {
+    if (shellCarry) shellCarry.carryHeight(popup && acceptsHandoffHeight(popup) ? measured || popup.offsetHeight : 0);
+  }, [shellCarry]);
 
   useLayoutEffect(() => {
     openRef.current = open;
