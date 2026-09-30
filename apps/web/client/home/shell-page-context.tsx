@@ -32,6 +32,7 @@ type ShellPageContextValue = {
   onHomeDetailsOpenChange: (open: boolean) => void;
   openInvestmentHolding: (holding: AssetKey) => void;
   closeInvestmentHolding: () => void;
+  investmentsReturnHolding: AssetKey | null;
   openCashSavings: () => void;
   onInvestmentsChromeChange: (chrome: NestedAppChrome | null) => void;
   onRetryBalances?: () => void;

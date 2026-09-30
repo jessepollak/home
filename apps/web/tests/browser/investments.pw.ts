@@ -138,11 +138,10 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
   await list.getByRole("button").last().scrollIntoViewIfNeeded();
   await expect(list.getByRole("button")).toHaveCount(40);
   await list.getByRole("button").nth(30).scrollIntoViewIfNeeded();
-  const main = page.locator("[data-app-main-authenticated]");
   const focusedRow = list.getByRole("button").nth(30);
   const focusedKey = await focusedRow.locator("[data-holding-key]").getAttribute("data-holding-key");
   await focusedRow.focus();
-  const before = await main.evaluate((element) => element.scrollTop);
+  const before = await page.evaluate(() => window.scrollY);
   expect(before).toBeGreaterThan(0);
   await page.evaluate(() => {
     const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
@@ -152,7 +151,7 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
     witness.investmentRefreshSamples = samples;
     new MutationObserver(() => {
       const section = main.querySelector('[aria-labelledby="investments-held-heading"]');
-      samples.push({ busy: section?.getAttribute("aria-busy") === "true", scroll: main.scrollTop });
+      samples.push({ busy: section?.getAttribute("aria-busy") === "true", scroll: window.scrollY });
     }).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-busy"] });
   });
   await page.clock.install();
@@ -170,5 +169,5 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
   expect(pendingScrolls.length).toBeGreaterThan(0);
   for (const scroll of pendingScrolls) expect(scroll).toBeCloseTo(before, 0);
   await expect(list.getByRole("button").filter({ has: page.locator(`[data-holding-key="${focusedKey}"]`) })).toBeFocused();
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeCloseTo(before, 0);
 });

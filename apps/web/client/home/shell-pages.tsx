@@ -97,6 +97,7 @@ export function InvestmentsPageContent() {
       holding: location.holding ?? null,
       onOpenHolding: page.openInvestmentHolding,
       onCloseHolding: page.closeInvestmentHolding,
+      returnHolding: page.investmentsReturnHolding,
     })} />
   </AppChromeProvider></div>;
 }

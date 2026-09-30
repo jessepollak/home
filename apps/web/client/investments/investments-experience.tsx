@@ -17,6 +17,7 @@ export type InvestmentsExperienceProps = {
   onCloseHolding: () => void;
   balances: { status: "unavailable" | "loading" | "ready" | "error"; snapshot: BalancesSnapshot | null; refreshError?: true; retry: () => Promise<void> };
   discover: Pick<UseInvestDiscoverResult, "memeAssets" | "memeMarket" | "assetMarkResolution">;
+  returnHolding?: AssetKey | null;
 };
 
 const EMPTY_ROWS: OwnedInvestment[] = [];
@@ -49,11 +50,11 @@ function readVisibleCount(): number {
   return typeof saved === "number" && Number.isInteger(saved) && saved >= 20 ? saved : 20;
 }
 
-export function InvestmentsExperience({ holding, onOpenHolding, onCloseHolding, balances, discover }: InvestmentsExperienceProps): JSX.Element {
+export function InvestmentsExperience({ holding, onOpenHolding, onCloseHolding, balances, discover, returnHolding = null }: InvestmentsExperienceProps): JSX.Element {
   const active = balances.status === "loading" || (balances.status === "error" && !balances.snapshot) ? null : balances.snapshot;
   const selection = useInvestmentRows(active, holding === null);
   const rows = selection.rows;
-  const [returnKey, setReturnKey] = useState<AssetKey | null>(null);
+  const [returnKey, setReturnKey] = useState<AssetKey | null>(holding ? null : returnHolding);
   const [visibleCount, setVisibleCount] = useState(readVisibleCount);
   const [previousHolding, setPreviousHolding] = useState(holding);
   if (previousHolding !== holding) {

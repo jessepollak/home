@@ -13,6 +13,7 @@ export type InvestmentsContentProps = {
   holding: AssetKey | null;
   onOpenHolding: (holding: AssetKey) => void;
   onCloseHolding: () => void;
+  returnHolding?: AssetKey | null;
 };
 
 export type HomeExperienceProps = {

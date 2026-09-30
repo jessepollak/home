@@ -89,6 +89,7 @@ function DashboardShellBody({
   const activeNavigationRef = useRef(activeNavigation);
   const previousLocationRef = useRef(location);
   const holdingRestoreRef = useRef<(() => void) | null>(null);
+  const [investmentsReturnHolding, setInvestmentsReturnHolding] = useState<AssetKey | null>(null);
   const pendingOriginRef = useRef<{ origin: string; target: string } | null>(null);
   const fundingOpenerRef = useRef<HTMLElement | null>(null);
   const activityReturnRef = useRef<ActivityDetailReturn | null>(null);
@@ -250,6 +251,7 @@ function DashboardShellBody({
 
   const navigateTo = useCallback((panel: ShellPanelId) => {
     settingsOpenerRef.current = null;
+    setInvestmentsReturnHolding(null);
     takeHomeHistoryTraversal(null);
     if (panel !== activeNavigation) beginHomeNavigation({ from: startupRoutes[activeNavigation], to: startupRoutes[panel], cache: "first-visit", trigger: "in-app" });
     activityReturnRef.current = null;
@@ -294,6 +296,7 @@ function DashboardShellBody({
     pushRoute(shellHref({ panel: "cash", cashView: "savings" }));
   };
   const openInvestmentHolding = (holding: AssetKey) => {
+    setInvestmentsReturnHolding(null);
     pushRoute(shellHref({ panel: "investments", holding }));
   };
   const openAssetDetail = useCallback((key: string) => {
@@ -302,6 +305,7 @@ function DashboardShellBody({
     return true;
   }, [pushRoute, canOpenAssetDetail]);
   const closeInvestmentHolding = () => {
+    setInvestmentsReturnHolding(location.holding ?? null);
     leaveRoute(shellHref({ panel: "investments" }));
   };
   const routingValue = {
@@ -321,7 +325,7 @@ function DashboardShellBody({
     regionId, regionReady, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
     showSmallBalances,
     cardsEnabled,
-    cashContent, investContent, investmentsContent, onHomeDetailsOpenChange: setHomeDetailsOpen, onInvestmentsChromeChange: setInvestmentsChrome, openInvestmentHolding, closeInvestmentHolding, openCashSavings,
+    cashContent, investContent, investmentsContent, onHomeDetailsOpenChange: setHomeDetailsOpen, onInvestmentsChromeChange: setInvestmentsChrome, openInvestmentHolding, closeInvestmentHolding, investmentsReturnHolding: location.panel === "investments" ? investmentsReturnHolding : null, openCashSavings,
     onRetryBalances: balanceRowRetry, initialAddMoney: urlIntent.addMoney,
     returnedFromProvider: urlIntent.returnedFromProvider, initialSendFlow: urlIntent.sendFlow,
     initialSendActionId: urlIntent.actionId,
@@ -363,7 +367,9 @@ function DashboardShellBody({
     : activeNavigation === borrowPanelId && location.market
     ? shellHref({ panel: "borrow" })
     : isHomeNestedPanelId(activeNavigation) ? shellHref({ panel: "home" }) : null;
-  const onNestedChromeBack = shellParentHref !== null
+  const onNestedChromeBack = activeNavigation === investmentsPanelId && location.holding
+    ? closeInvestmentHolding
+    : shellParentHref !== null
     ? () => leaveRoute(shellParentHref)
     : investChrome?.nested?.onBack ?? (() => router.push("/invest"));
   const homeStatus = isVerified && !isAccountSettingsOpen ? headerStatus({
