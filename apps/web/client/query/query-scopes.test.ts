@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { skipToken, type QueryKey } from "@tanstack/react-query";
-import { afterActionScopes, applyActionHandleEffects, indexedScopes } from "./after-action";
+import { activityWindowScope, afterActionScopes, applyActionHandleEffects, indexedScopes, invalidateAfterAction, registerActivityWindowAdvancer } from "./after-action";
 import { homeRefreshScopes } from "@/client/home/use-home-refresh";
 import { createHomeQueryClient, dehydrateOwnerQueries, ownerQueryKey, publicQueryKey } from "./query-client";
 import { ownerQuery } from "./query-options";
@@ -29,6 +29,44 @@ for (const scope of Object.keys(queryScopes) as QueryScope[]) {
     client.clear();
   });
 }
+
+test("after-action delegation selects one advancer for its client and owner and skips old activity invalidation", async () => {
+  const client = createHomeQueryClient();
+  const otherClient = createHomeQueryClient();
+  const windowKey = ownerQueryKey(owner, activityWindowScope);
+  const windowEnd = "2026-09-28T12:00:00.000Z";
+  client.setQueryData(windowKey, windowEnd);
+  for (const scope of afterActionScopes) client.setQueryData(ownerQueryKey(owner, scope), { value: 1 });
+  let firstCalls = 0;
+  let secondCalls = 0;
+  let otherCalls = 0;
+  let finish!: () => void;
+  const read = new Promise<void>((resolve) => { finish = resolve; });
+  const unregisterFirst = registerActivityWindowAdvancer(client, owner, async () => { firstCalls++; await read; });
+  const unregisterSecond = registerActivityWindowAdvancer(client, owner, async () => { secondCalls++; });
+  const unregisterOther = registerActivityWindowAdvancer(otherClient, owner, async () => { otherCalls++; });
+  let finished = false;
+  const pending = invalidateAfterAction(client, owner).then(() => { finished = true; });
+  expect(firstCalls).toBe(1);
+  expect(secondCalls).toBe(0);
+  expect(otherCalls).toBe(0);
+  expect(finished).toBe(false);
+  expect(client.getQueryData<string>(windowKey)).toBe(windowEnd);
+  for (const scope of afterActionScopes) expect(client.getQueryState(ownerQueryKey(owner, scope))?.isInvalidated).toBe(scope !== "activity");
+  finish();
+  await pending;
+  unregisterFirst();
+  await invalidateAfterAction(client, owner);
+  expect(secondCalls).toBe(1);
+  unregisterSecond();
+  unregisterOther();
+  const now = Date.parse(windowEnd) + 1000;
+  await invalidateAfterAction(client, owner, now);
+  expect(client.getQueryData<string>(windowKey)).toBe(new Date(now).toISOString());
+  expect(client.getQueryState(ownerQueryKey(owner, "activity"))?.isInvalidated).toBe(true);
+  client.clear();
+  otherClient.clear();
+});
 
 test("action and refresh scopes belong to the registered audiences", () => {
   for (const scope of [...afterActionScopes, ...indexedScopes]) {

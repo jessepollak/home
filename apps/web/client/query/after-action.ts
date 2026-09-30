@@ -26,6 +26,30 @@ export const afterActionScopes = [
 export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
 
 const activityWindowQuantumMs = 60_000;
+const activityWindowAdvancers = new WeakMap<object, Map<string, Set<() => Promise<void>>>>();
+
+export function registerActivityWindowAdvancer(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData" | "invalidateQueries">,
+  ownerKey: string,
+  advancer: () => Promise<void>,
+): () => void {
+  let owners = activityWindowAdvancers.get(queryClient);
+  if (!owners) {
+    owners = new Map();
+    activityWindowAdvancers.set(queryClient, owners);
+  }
+  let advancers = owners.get(ownerKey);
+  if (!advancers) {
+    advancers = new Set();
+    owners.set(ownerKey, advancers);
+  }
+  advancers.add(advancer);
+  return () => {
+    advancers.delete(advancer);
+    if (advancers.size === 0) owners.delete(ownerKey);
+    if (owners.size === 0) activityWindowAdvancers.delete(queryClient);
+  };
+}
 
 export function invalidateNetworkFeePolicy(queryClient: Pick<QueryClient, "invalidateQueries">): Promise<void> {
   return queryClient.invalidateQueries({
@@ -70,8 +94,10 @@ export async function invalidateAfterAction(
   dataOwnerKey: string,
   now = Date.now(),
 ): Promise<void> {
-  advanceActivityWindowEnd(queryClient, dataOwnerKey, now);
-  await Promise.all(afterActionScopes.map((scope) =>
+  const advancer = activityWindowAdvancers.get(queryClient)?.get(dataOwnerKey)?.values().next().value;
+  if (advancer) void advancer();
+  else advanceActivityWindowEnd(queryClient, dataOwnerKey, now);
+  await Promise.all(afterActionScopes.filter((scope) => !advancer || scope !== "activity").map((scope) =>
     queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, scope) })
   ));
 }
