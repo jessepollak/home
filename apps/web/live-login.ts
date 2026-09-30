@@ -1,13 +1,21 @@
+import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
+import { acquireGmailOtpLock, defaultOtpSender, gmailCredentialsPath, pollGmailOtp, readGmailCredentials, runGmailAuth, verifyAccountEmail, type GmailCredentials } from "./gmail";
 import { pinnedAgentBrowser } from "./pinned-agent-browser";
 import { privateVerificationPath } from "./verification-paths";
 
 type BrowserCommand = (args: string[], input?: string) => string;
-type LoginOptions = { command?: BrowserCommand; home?: string; env?: Record<string, string | undefined>; getOtp?: (email: string, submittedAt: number) => Promise<string> };
+type LoginOptions = {
+  command?: BrowserCommand;
+  home?: string;
+  env?: Record<string, string | undefined>;
+  getOtp?: (email: string, submittedAt: number) => Promise<string>;
+  now?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
+};
 
 const verificationKeys = [
   "HOME_VERIFY_ACCOUNT_EMAIL", "HOME_ACCESS_PASSWORD", "HOME_VERIFY_GMAIL_CREDENTIALS",
@@ -95,7 +103,7 @@ function option(args: string[], flag: string): string | undefined {
 export async function liveLogin(args: string[], options: LoginOptions = {}): Promise<string> {
   const env = await loadVerificationEnv(options.env ?? process.env, options.home);
   const email = verifyAccountEmail(env);
-  const name = option(args, "--session") ?? "home-live";
+  const name = option(args, "--session") ?? `home-live-${process.pid}-${randomUUID().replaceAll("-", "")}`;
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) throw new Error("--session must be a short alphanumeric name (hyphens and underscores allowed).");
   const base = option(args, "--base-url") ?? env.HOME_VERIFY_PRODUCTION_URL;
   if (!base) throw new Error("Specify --base-url <deployed-url> or set HOME_VERIFY_PRODUCTION_URL.");
@@ -106,6 +114,10 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
   const directory = privateVerificationPath(resolve(options.home ?? homedir(), ".home-verify"));
   const path = resolve(directory, `${name}.state.json`);
   await mkdir(directory, { recursive: true, mode: 0o700 });
+  const directoryInfo = await lstat(directory);
+  if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink() || directoryInfo.uid !== process.getuid?.()) {
+    throw new Error("Verification directory must be owned by the current user and not a symlink.");
+  }
   await chmod(directory, 0o700);
   try {
     if ((await lstat(path)).isSymbolicLink()) throw new Error("Refusing a symlink state path.");
@@ -125,23 +137,28 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
     }
     command(["wait", "--fn", `Boolean(${inputExpression("Email address")})`]);
     fillSecret("Email address", email, command);
-    const submittedAt = Date.now();
-    command(["find", "role", "button", "click", "--name", "Continue with email", "--exact"]);
-    const code = options.getOtp
-      ? await options.getOtp(email, submittedAt)
-      : await pollGmailOtp(
-        await readGmailCredentials(credentialsPath ?? gmailCredentialsPath(env)) as Required<GmailCredentials>,
-        env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender,
-        submittedAt,
-        { accountEmail: email },
-      );
-    command(["wait", "--fn", `Boolean(${inputExpression("Verification code")})`]);
-    fillSecret("Verification code", code, command);
-    command(["find", "role", "button", "click", "--name", "Verify and continue", "--exact"]);
-    command(["wait", "--fn", "Boolean(document.querySelector('[data-app-main-authenticated]'))"]);
-    command(["state", "save", path]);
-    await chmod(path, 0o600);
-    return path;
+    const release = await acquireGmailOtpLock(directory, { now: options.now, sleep: options.sleep });
+    try {
+      const submittedAt = (options.now ?? Date.now)();
+      command(["find", "role", "button", "click", "--name", "Continue with email", "--exact"]);
+      const code = options.getOtp
+        ? await options.getOtp(email, submittedAt)
+        : await pollGmailOtp(
+          await readGmailCredentials(credentialsPath ?? gmailCredentialsPath(env)) as Required<GmailCredentials>,
+          env.HOME_VERIFY_OTP_SENDER ?? defaultOtpSender,
+          submittedAt,
+          { accountEmail: email },
+        );
+      command(["wait", "--fn", `Boolean(${inputExpression("Verification code")})`]);
+      fillSecret("Verification code", code, command);
+      command(["find", "role", "button", "click", "--name", "Verify and continue", "--exact"]);
+      command(["wait", "--fn", "Boolean(document.querySelector('[data-app-main-authenticated]'))"]);
+      command(["state", "save", path]);
+      await chmod(path, 0o600);
+      return path;
+    } finally {
+      await release();
+    }
   } finally {
     try { command(["close"]); } catch { /* The session may already be closed. */ }
   }

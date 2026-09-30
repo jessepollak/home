@@ -102,6 +102,77 @@ test("OTP and gated password are passed only via stdin, never argv or output", a
   }
 });
 
+function fakeLogin(home: string, events: string[], label: string, getOtp: (submittedAt: number) => Promise<string>) {
+  return liveLogin(["--base-url", "https://example.com"], {
+    home,
+    env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: (args) => {
+      if (args[0] === "find" && args.includes("Continue with email")) events.push(`${label}:submit`);
+      if (args[0] === "state") {
+        events.push(`${label}:save`);
+        Bun.spawnSync(["touch", args[2]]);
+      }
+      return "";
+    },
+    getOtp: async (_email, submittedAt) => getOtp(submittedAt),
+  });
+}
+
+test("concurrent logins queue before email submit and save distinct states in order", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-queue-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  const events: string[] = [];
+  let firstCode!: (code: string) => void;
+  let firstSubmitted!: () => void;
+  const submitted = new Promise<void>((resolveSubmitted) => { firstSubmitted = resolveSubmitted; });
+  const first = fakeLogin(home, events, "first", async () => {
+    firstSubmitted();
+    return new Promise<string>((resolveCode) => { firstCode = resolveCode; });
+  });
+  await submitted;
+  let wakeSecond!: () => void;
+  let secondQueued!: () => void;
+  const queued = new Promise<void>((resolveQueued) => { secondQueued = resolveQueued; });
+  const second = liveLogin(["--base-url", "https://example.com"], {
+    home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: (args) => {
+      if (args[0] === "find" && args.includes("Continue with email")) events.push("second:submit");
+      if (args[0] === "state") { events.push("second:save"); Bun.spawnSync(["touch", args[2]]); }
+      return "";
+    },
+    getOtp: async () => "654321",
+    sleep: () => { secondQueued(); return new Promise<void>((resolveWake) => { wakeSecond = resolveWake; }); },
+  });
+  await queued;
+  expect(events).toEqual(["first:submit"]);
+  firstCode("123456");
+  const firstPath = await first;
+  wakeSecond();
+  const secondPath = await second;
+  expect(events).toEqual(["first:submit", "first:save", "second:submit", "second:save"]);
+  expect(firstPath).not.toBe(secondPath);
+  expect(firstPath).toMatch(/home-live-\d+-[a-f0-9]{32}\.state\.json$/);
+  expect(secondPath).toMatch(/home-live-\d+-[a-f0-9]{32}\.state\.json$/);
+  expect(Bun.spawnSync(["test", "-f", firstPath]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["test", "-f", secondPath]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["test", "-e", resolve(home, ".home-verify/live-login.lock")]).exitCode).not.toBe(0);
+});
+
+test("releases the email lock when code retrieval or state save fails", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-failure-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  const lock = resolve(home, ".home-verify/live-login.lock");
+  await expect(fakeLogin(home, [], "failed", async () => { throw new Error("OTP unavailable"); })).rejects.toThrow("OTP unavailable");
+  expect(Bun.spawnSync(["test", "-e", lock]).exitCode).not.toBe(0);
+  await expect(liveLogin(["--base-url", "https://example.com"], {
+    home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: (args) => { if (args[0] === "state") throw new Error("State save failed"); return ""; },
+    getOtp: async () => "123456",
+  })).rejects.toThrow("State save failed");
+  expect(Bun.spawnSync(["test", "-e", lock]).exitCode).not.toBe(0);
+  await expect(fakeLogin(home, [], "retry", async () => "123456")).resolves.toContain(".state.json");
+});
+
 async function privateEnvFile(contents: string): Promise<{ home: string; path: string }> {
   const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-env-test-XXXXXX")]).stdout.toString().trim();
   directories.push(home);

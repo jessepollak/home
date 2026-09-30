@@ -1,10 +1,122 @@
-import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { randomUUID } from "node:crypto";
+import { constants } from "node:fs";
+import { chmod, lstat, mkdir, open, readFile, rename, rmdir, rm, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { homedir, hostname } from "node:os";
 import { dirname, resolve } from "node:path";
 import { privateVerificationPath } from "./verification-paths";
 
 export const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly";
 export const defaultOtpSender = "no-reply@info.coinbase.com";
+
+const otpLockStaleMs = 8 * 60_000;
+const otpLockWaitMs = 4 * 60_000;
+const otpLockRetryMs = 1000;
+
+type OtpLockOwner = { pid: number; host: string; startedAt: number; token: string };
+type OtpLockOptions = { now?: () => number; sleep?: (milliseconds: number) => Promise<void> };
+
+async function lockDirectoryInfo(path: string) {
+  const info = await lstat(path);
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
+    throw new Error("Live-login lock directory must be owned by the current user, private, and not a symlink.");
+  }
+  return info;
+}
+
+async function lockOwner(path: string): Promise<OtpLockOwner | null> {
+  let file;
+  try {
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await file.stat();
+    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) {
+      throw new Error("Live-login lock metadata must be a private, current-user-owned regular file.");
+    }
+    const owner = JSON.parse(await file.readFile("utf8")) as Partial<OtpLockOwner> | null;
+    if (owner && Number.isSafeInteger(owner.pid) && (owner.pid ?? 0) > 0 && typeof owner.host === "string"
+      && Number.isFinite(owner.startedAt) && typeof owner.token === "string") return owner as OtpLockOwner;
+    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return null;
+    throw error;
+  } finally {
+    await file?.close();
+  }
+}
+
+function pidIsDead(pid: number): boolean {
+  try { process.kill(pid, 0); return false; }
+  catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
+}
+
+export async function acquireGmailOtpLock(directory: string, options: OtpLockOptions = {}): Promise<() => Promise<void>> {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((milliseconds: number) => Bun.sleep(milliseconds));
+  await lockDirectoryInfo(directory);
+  const path = resolve(directory, "live-login.lock");
+  const metadata = resolve(path, "owner.json");
+  const owner: OtpLockOwner = { pid: process.pid, host: hostname(), startedAt: now(), token: randomUUID() };
+  const deadline = now() + otpLockWaitMs;
+  while (true) {
+    try {
+      await mkdir(path, { mode: 0o700 });
+      const info = await lockDirectoryInfo(path);
+      try {
+        const file = await open(metadata, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+        try { await file.writeFile(JSON.stringify(owner)); } finally { await file.close(); }
+      } catch (error) {
+        await rm(path, { recursive: true, force: true });
+        throw error;
+      }
+      const heartbeat = setInterval(() => {
+        void (async () => {
+          if ((await lockDirectoryInfo(path)).ino === info.ino && (await lockOwner(metadata))?.token === owner.token) {
+            const time = new Date(now());
+            await utimes(path, time, time);
+          }
+        })().catch(() => undefined);
+      }, 30_000);
+      heartbeat.unref();
+      return async () => {
+        clearInterval(heartbeat);
+        try {
+          if ((await lockDirectoryInfo(path)).ino !== info.ino || (await lockOwner(metadata))?.token !== owner.token) return;
+          await unlink(metadata);
+          await rmdir(path);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    let info;
+    try { info = await lockDirectoryInfo(path); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    const heldBy = await lockOwner(metadata);
+    if (now() - info.mtimeMs >= otpLockStaleMs || (heldBy?.host === hostname() && pidIsDead(heldBy.pid))) {
+      const current = await lockDirectoryInfo(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return null;
+        throw error;
+      });
+      if (!current || current.ino !== info.ino || current.mtimeMs !== info.mtimeMs
+        || (await lockOwner(metadata))?.token !== heldBy?.token) continue;
+      const abandoned = `${path}.${randomUUID()}.stale`;
+      try { await rename(path, abandoned); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if ((await lockDirectoryInfo(abandoned)).ino !== info.ino) throw new Error("Live-login lock changed during recovery; retry login.");
+      await rm(abandoned, { recursive: true });
+      continue;
+    }
+    if (now() >= deadline) throw new Error("Timed out waiting for the live-login email code lock (4 minutes).");
+    await sleep(Math.min(otpLockRetryMs, deadline - now()));
+  }
+}
 
 export function verifyAccountEmail(env: Record<string, string | undefined> = process.env): string {
   const email = env.HOME_VERIFY_ACCOUNT_EMAIL?.trim();

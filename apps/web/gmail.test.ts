@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { resolve } from "node:path";
-import { callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailCredentialsPath, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, readGmailCredentials, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
+import { acquireGmailOtpLock, callbackDecision, completeGmailAuthorization, defaultOtpSender, extractOtp, gmailAuthorizationUrl, gmailCredentialsPath, gmailReadonlyScope, isReadonlyScopeGrant, pollGmailOtp, readGmailCredentials, verifyAccountEmail, type GmailCredentials, type GmailMessage } from "./gmail";
 
 const credentials: Required<GmailCredentials> = {
   client_id: "client-id",
@@ -10,6 +10,7 @@ const credentials: Required<GmailCredentials> = {
 };
 const submittedAt = Date.parse("2026-09-21T12:00:00.000Z");
 const sender = defaultOtpSender;
+const lockNow = Date.parse("2026-09-21T12:00:00.000Z");
 const servers: Array<{ stop(closeActiveConnections?: boolean): void }> = [];
 
 function message(overrides: Partial<GmailMessage> = {}): GmailMessage {
@@ -24,6 +25,75 @@ function message(overrides: Partial<GmailMessage> = {}): GmailMessage {
 
 afterEach(() => {
   for (const server of servers.splice(0)) server.stop(true);
+});
+
+async function lockFixture(): Promise<{ directory: string; path: string; metadata: string }> {
+  const directory = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-otp-lock-test-XXXXXX")]).stdout.toString().trim();
+  const path = resolve(directory, "live-login.lock");
+  const metadata = resolve(path, "owner.json");
+  return { directory, path, metadata };
+}
+
+async function seedLock(path: string, metadata: string, owner: { pid: number; host: string; startedAt: number; token: string }) {
+  expect(Bun.spawnSync(["mkdir", "-m", "700", path]).exitCode).toBe(0);
+  await Bun.write(metadata, JSON.stringify(owner));
+  expect(Bun.spawnSync(["chmod", "600", metadata]).exitCode).toBe(0);
+}
+
+describe("Gmail OTP lock", () => {
+  test("recovers a stale private lock and replaces its metadata", async () => {
+    const { directory, path, metadata } = await lockFixture();
+    try {
+      const now = lockNow;
+      await seedLock(path, metadata, { pid: process.pid, host: hostname(), startedAt: now - 9 * 60_000, token: "old" });
+      expect(Bun.spawnSync(["touch", "-t", "202001010000.00", path]).exitCode).toBe(0);
+      const release = await acquireGmailOtpLock(directory, { now: () => now, sleep: async () => { throw new Error("should not wait"); } });
+      expect(Bun.spawnSync(["ls", "-ld", path]).stdout.toString()).toStartWith("drwx------");
+      expect(Bun.spawnSync(["ls", "-ld", metadata]).stdout.toString()).toStartWith("-rw-------");
+      await release();
+      expect(Bun.spawnSync(["test", "-e", path]).exitCode).not.toBe(0);
+    } finally { Bun.spawnSync(["rm", "-rf", directory]); }
+  });
+
+  test("recovers a recently started lock when its local pid has died", async () => {
+    const { directory, path, metadata } = await lockFixture();
+    try {
+      await seedLock(path, metadata, { pid: 2147483647, host: hostname(), startedAt: lockNow, token: "dead" });
+      const release = await acquireGmailOtpLock(directory, { sleep: async () => { throw new Error("should not wait"); } });
+      await release();
+    } finally { Bun.spawnSync(["rm", "-rf", directory]); }
+  });
+
+  test("bounds the wait for a living holder without real sleeps", async () => {
+    const { directory, path, metadata } = await lockFixture();
+    try {
+      let now = lockNow;
+      await seedLock(path, metadata, { pid: process.pid, host: hostname(), startedAt: now, token: "active" });
+      let waits = 0;
+      await expect(acquireGmailOtpLock(directory, {
+        now: () => now,
+        sleep: async (milliseconds) => { now += milliseconds; waits++; },
+      })).rejects.toThrow("Timed out waiting for the live-login email code lock (4 minutes).");
+      expect(waits).toBe(240);
+      expect(Bun.spawnSync(["test", "-f", metadata]).exitCode).toBe(0);
+    } finally { Bun.spawnSync(["rm", "-rf", directory]); }
+  });
+
+  test("refuses symlink and permissive lock paths or metadata", async () => {
+    const { directory, path, metadata } = await lockFixture();
+    try {
+      await Bun.write(resolve(directory, "target"), "private");
+      expect(Bun.spawnSync(["ln", "-s", resolve(directory, "target"), path]).exitCode).toBe(0);
+      await expect(acquireGmailOtpLock(directory)).rejects.toThrow("lock directory must be owned");
+      expect(Bun.spawnSync(["rm", path]).exitCode).toBe(0);
+      await seedLock(path, metadata, { pid: process.pid, host: hostname(), startedAt: lockNow, token: "active" });
+      expect(Bun.spawnSync(["chmod", "755", path]).exitCode).toBe(0);
+      await expect(acquireGmailOtpLock(directory)).rejects.toThrow("lock directory must be owned");
+      expect(Bun.spawnSync(["chmod", "700", path]).exitCode).toBe(0);
+      expect(Bun.spawnSync(["chmod", "644", metadata]).exitCode).toBe(0);
+      await expect(acquireGmailOtpLock(directory)).rejects.toThrow("metadata must be a private");
+    } finally { Bun.spawnSync(["rm", "-rf", directory]); }
+  });
 });
 
 describe("Gmail OTP parsing", () => {
