@@ -49,54 +49,79 @@ afterEach(() => {
   globalThis.clearTimeout = originalClear;
 });
 
-function story(id: string, frame: SheetStory["frame"] = "Play function"): SheetStory {
+function story(id: string, frame: SheetStory["frame"] = "Library override"): SheetStory {
   return { id, name: id, Story: () => <p>Document {id}</p>, portals: true, frame,
     argTypes: {}, initialArgs: {}, layout: "centered", themePinned: false };
 }
 function sheet(stories = [story("frame")], focused: string | null = null, root: HTMLElement | null = null) {
   const props = { root, component: "Fixture", changed: false, stories, theme: "light", focused,
     focusedArgs: null, annotating: false, frameSource: "blank" as const,
-    onToggle: () => {}, onActivate: () => {}, onEscape: () => {}, onExitAnnotate: () => {} };
+    onToggle: () => {}, onEscape: () => {}, onExitAnnotate: () => {} };
   const view = render(<VariantSheet {...props} />, root ? { container: root } : undefined);
   return { ...view, update: (patch: Partial<Parameters<typeof VariantSheet>[0]>) => {
     Object.assign(props, patch);
     view.rerender(<VariantSheet {...props} />);
   } };
 }
+function observers(index = 0) {
+  return { nearby: Intersection.instances[index * 2], visible: Intersection.instances[index * 2 + 1] };
+}
+function show(index = 0) {
+  const { nearby, visible } = observers(index);
+  visible.emit(0.5, 300);
+  nearby.emit(0.5, 300);
+}
 
-test("offscreen placeholders reserve height without admission or a deadline; visible frames stay mounted", () => {
-  const view = sheet();
-  const observer = Intersection.instances[0];
-  const placeholder = view.getByRole("status");
-  expect(placeholder.getBoundingClientRect().height || Number.parseFloat(placeholder.style.height)).toBe(844);
-  observer.emit(0, 0);
-  observer.emit(0.49, 200);
-  expect(view.container.querySelector("iframe")).toBeNull();
-  expect(deadlines.size).toBe(0);
-  observer.emit(0.5, 200);
-  const frame = view.getByTitle("Fixture · frame");
-  expect(deadlines.size).toBe(1);
-  expect(observer.disconnected).toBe(true);
-  observer.emit(0, 0);
-  expect(view.getByTitle("Fixture · frame")).toBe(frame);
-  expect(deadlines.size).toBe(1);
-  act(() => [...deadlines.values()][0]());
-  expect(view.getByRole("alert").textContent).toBe("Story did not finish rendering in 20 s");
-  expect(deadlines.size).toBe(0);
+test("one-screen-ahead admission mounts offscreen frames without starting their deadline", () => {
+  const root = document.createElement("div");
+  document.body.append(root);
+  try {
+    const view = sheet(undefined, null, root);
+    const { nearby, visible } = observers();
+    expect(nearby.options).toEqual({ root, rootMargin: "100% 0px", threshold: 0 });
+    const placeholder = view.getByRole("status");
+    expect(Number.parseFloat(placeholder.style.height)).toBe(844);
+    nearby.emit(0, 0);
+    expect(view.container.querySelector("iframe")).toBeNull();
+    nearby.emit(0.01, 1);
+    const frame = view.getByTitle("Fixture · frame");
+    expect(nearby.disconnected).toBe(true);
+    expect(deadlines.size).toBe(0);
+    visible.emit(0.49, 200);
+    expect(deadlines.size).toBe(0);
+    visible.emit(0.5, 200);
+    expect(deadlines.size).toBe(1);
+    expect(visible.disconnected).toBe(true);
+    visible.emit(0, 0);
+    expect(view.getByTitle("Fixture · frame")).toBe(frame);
+    expect(deadlines.size).toBe(1);
+    act(() => [...deadlines.values()][0]());
+    expect(view.getByRole("alert").textContent).toBe("Story did not finish rendering in 20 s");
+    expect(deadlines.size).toBe(0);
+  } finally { root.remove(); }
 });
 
-test("tall frames admit at half the viewport height even below half the frame", () => {
+test("a frame already visible starts its deadline at mount", () => {
+  const view = sheet();
+  observers().visible.emit(0.5, 300);
+  expect(deadlines.size).toBe(0);
+  observers().nearby.emit(0.5, 300);
+  expect(view.getByTitle("Fixture · frame")).toBeTruthy();
+  expect(deadlines.size).toBe(1);
+});
+
+test("tall frames start their deadline at half the viewport height below half the frame", () => {
   const rect = spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 2000 } as DOMRect);
   try {
     const view = sheet();
-    const observer = Intersection.instances[0];
-    expect(observer.options?.threshold).toContain(window.innerHeight / 4000);
-    observer.emit(0.2, window.innerHeight / 2 - 1);
-    expect(view.container.querySelector("iframe")).toBeNull();
-    observer.emit(0.2, window.innerHeight / 2);
+    const { nearby, visible } = observers();
+    expect(visible.options?.threshold).toContain(window.innerHeight / 4000);
+    nearby.emit(0.2, 100);
     expect(view.getByTitle("Fixture · frame")).toBeTruthy();
+    visible.emit(0.2, window.innerHeight / 2 - 1);
+    expect(deadlines.size).toBe(0);
+    visible.emit(0.2, window.innerHeight / 2);
     expect(deadlines.size).toBe(1);
-    expect(observer.disconnected).toBe(true);
   } finally { rect.mockRestore(); }
 });
 
@@ -110,18 +135,17 @@ test("without IntersectionObserver, admission and the mount deadline start immed
 
 test("unmount disconnects offscreen observers and cancels admitted deadlines", () => {
   const view = sheet([story("visible"), story("offscreen")]);
-  Intersection.instances[0].emit(0.5, 300);
-  const waiting = Intersection.instances[1];
-  expect(waiting.disconnected).toBe(false);
+  show();
+  expect(observers(1).nearby.disconnected).toBe(false);
   expect(deadlines.size).toBe(1);
   view.unmount();
   expect(Intersection.instances.every((observer) => observer.disconnected)).toBe(true);
   expect(deadlines.size).toBe(0);
 });
 
-test("offscreen stories do not consume the three loading slots", () => {
+test("the Library keeps three loading slots, excluding sections outside the preload margin", () => {
   const view = sheet([story("offscreen"), ...[1, 2, 3, 4].map((id) => story(String(id)))]);
-  for (const observer of Intersection.instances.slice(1)) observer.emit(0.5, 300);
+  for (let index = 1; index <= 4; index++) show(index);
   expect(view.container.querySelectorAll("iframe")).toHaveLength(3);
   expect(view.queryByTitle("Fixture · offscreen")).toBeNull();
   expect(view.queryByTitle("Fixture · 4")).toBeNull();
@@ -131,7 +155,7 @@ test("offscreen stories do not consume the three loading slots", () => {
   expect(deadlines.size).toBe(3);
 });
 
-test("restored focus scrolls once, then awaits normal visibility admission; later selection does not scroll", () => {
+test("restored focus scrolls once, then awaits admission; later selection does not scroll", () => {
   const scroll = spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => {});
   const root = document.createElement("div");
   document.body.append(root);
@@ -142,7 +166,7 @@ test("restored focus scrolls once, then awaits normal visibility admission; late
     expect(scroll).toHaveBeenCalledWith({ block: "start", behavior: "instant" });
     expect(view.container.querySelector("iframe")).toBeNull();
     expect(deadlines.size).toBe(0);
-    Intersection.instances[1].emit(0.5, 300);
+    show(1);
     expect(view.getByTitle("Fixture · restored")).toBeTruthy();
     view.update({ focused: "first" });
     expect(scroll).toHaveBeenCalledTimes(1);

@@ -1,4 +1,4 @@
-import { Component, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Component, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { propControls, storyArgs } from "./controls";
 import { FrameSection } from "./preview";
 import { createFrameSlots, fittedFrameHeight, FRAME_MAX_HEIGHT, FRAME_MIN_HEIGHT, FRAME_WIDTH, scaledViewport, type FrameSlots } from "./sheet-state";
@@ -10,14 +10,14 @@ import styles from "./library.module.css";
 const USER_SCROLL_WINDOW = 1000;
 
 function useFrameScrollGuard(root: HTMLElement | null, busy: { current: Set<string> }) {
+  const userUntil = useRef(0);
+  const user = useCallback(() => { userUntil.current = performance.now() + USER_SCROLL_WINDOW; }, []);
   useEffect(() => {
     if (!root) return;
     const doc = root.ownerDocument;
     let allowed = root.scrollTop;
-    let userUntil = 0;
-    const user = () => { userUntil = performance.now() + USER_SCROLL_WINDOW; };
     const scroll = () => {
-      if (performance.now() < userUntil || !busy.current.size) allowed = root.scrollTop;
+      if (performance.now() < userUntil.current || !busy.current.size) allowed = root.scrollTop;
       else if (root.scrollTop !== allowed) root.scrollTop = allowed;
     };
     const rootEvents = ["wheel", "touchstart", "pointerdown"] as const;
@@ -29,7 +29,8 @@ function useFrameScrollGuard(root: HTMLElement | null, busy: { current: Set<stri
       doc.removeEventListener("keydown", user, true);
       root.removeEventListener("scroll", scroll);
     };
-  }, [root, busy]);
+  }, [root, busy, user]);
+  return user;
 }
 
 type SectionInputs = { Story: SheetStory["Story"]; theme: string; args: Record<string, unknown> | null };
@@ -51,7 +52,8 @@ class SectionBoundary extends Component<SectionInputs & { story: string; childre
   }
 }
 
-function QueuedFrame({ slots, busy, story, component, changed, theme, args, annotating, frameSource, onActivate, onEscape, onExitAnnotate }: {
+function QueuedFrame({ root, slots, busy, story, component, changed, theme, args, annotating, frameSource, onUserInput, onEscape, onExitAnnotate }: {
+  root: HTMLElement | null;
   slots: FrameSlots;
   busy: { current: Set<string> };
   story: SheetStory;
@@ -61,14 +63,25 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
   args: Record<string, unknown>;
   annotating: boolean;
   frameSource: "story" | "blank";
-  onActivate: () => void;
+  onUserInput: () => void;
   onEscape: () => void;
   onExitAnnotate: () => void;
 }) {
   const [granted, setGranted] = useState(false);
   const release = useRef<(() => void) | null>(null);
+  const [nearby, setNearby] = useState(() => typeof IntersectionObserver === "undefined");
   const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
   const container = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (nearby) return;
+    const node = container.current;
+    if (!node) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) setNearby(true);
+    }, { root, rootMargin: "100% 0px", threshold: 0 });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [nearby, root]);
   useEffect(() => {
     if (visible) return;
     const node = container.current;
@@ -82,7 +95,7 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
       observer = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting && (entry.intersectionRatio >= 0.5 ||
           entry.intersectionRect.height >= view.innerHeight / 2))) setVisible(true);
-      }, { threshold: [0, tallThreshold, 0.5] });
+      }, { root, threshold: [0, tallThreshold, 0.5] });
       observer.observe(node);
     };
     observe();
@@ -90,9 +103,9 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
     resize.observe(node);
     view.addEventListener("resize", observe);
     return () => { observer.disconnect(); resize.disconnect(); view.removeEventListener("resize", observe); };
-  }, [visible]);
+  }, [visible, root]);
   useEffect(() => {
-    if (!visible) return;
+    if (!nearby) return;
     const frames = busy.current;
     frames.add(story.id);
     const cancel = slots.request(story.id, () => setGranted(true));
@@ -101,7 +114,7 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
       cancel();
     };
     return release.current;
-  }, [slots, busy, story.id, visible]);
+  }, [slots, busy, story.id, nearby]);
   const fullHeight = story.portals || story.layout === "fullscreen";
   const [height, setHeight] = useState(FRAME_MIN_HEIGHT);
   const [available, setAvailable] = useState(FRAME_WIDTH);
@@ -135,7 +148,7 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
       Queued {story.name}…
     </div> : <FrameSection target={target} theme={theme} args={args} annotating={annotating}
       frameSource={frameSource} viewport={viewport} scale={fitted.scale} onSettled={() => release.current?.()} onRendered={measure}
-      onActivate={onActivate} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />}
+      visible={visible} onUserInput={onUserInput} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />}
     {story.viewport && <p className={styles.viewportCaption}>
       <a href={storyCanvasUrl(story.id)} target="_blank" rel="noreferrer">
         {viewport.width} × {viewport.height}{fitted.scale < 1 ? " · scaled" : ""}
@@ -145,7 +158,7 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
 }
 
 export function VariantSheet({ root, component, changed, stories, hiddenThemes = 0, theme, focused, focusedArgs, annotating, frameSource,
-  onToggle, onActivate, onEscape, onExitAnnotate }: {
+  onToggle, onEscape, onExitAnnotate }: {
   root: HTMLElement | null;
   component: string;
   changed: boolean;
@@ -157,14 +170,13 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
   annotating: boolean;
   frameSource: "story" | "blank";
   onToggle: (story: string) => void;
-  onActivate: (story: string) => void;
   onEscape: () => void;
   onExitAnnotate: () => void;
 }) {
   const id = useId();
   const slots = useMemo(() => createFrameSlots(3), []);
   const busy = useRef(new Set<string>());
-  useFrameScrollGuard(root, busy);
+  const onUserInput = useFrameScrollGuard(root, busy);
   const restored = useRef(false);
   useLayoutEffect(() => {
     if (!root || restored.current) return;
@@ -190,12 +202,11 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
           onClick={() => onToggle(story.id)}>{story.name}</button>
         {reason && <span className={styles.sectionNote}>{reason}</span>}
       </h2>
-      {reason ? <QueuedFrame slots={slots} busy={busy} story={story} component={component} changed={changed} theme={theme}
-        args={args} annotating={annotating} frameSource={frameSource} onActivate={() => onActivate(story.id)}
+      {reason ? <QueuedFrame root={root} slots={slots} busy={busy} story={story} component={component} changed={changed} theme={theme}
+        args={args} annotating={annotating} frameSource={frameSource} onUserInput={onUserInput}
         onEscape={onEscape} onExitAnnotate={onExitAnnotate} /> :
           <div className={styles.sectionBody} data-layout={story.layout} data-library-story=""
-            inert={annotating || undefined}
-            onPointerDown={() => onActivate(story.id)} onFocus={() => onActivate(story.id)}>
+            inert={annotating || undefined}>
             <SectionBoundary story={story.id} Story={story.Story} theme={theme} args={isFocused ? focusedArgs : null}>
               <story.Story {...(isFocused && focusedArgs ? focusedArgs : {})} />
             </SectionBoundary>

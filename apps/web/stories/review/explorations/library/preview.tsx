@@ -21,8 +21,8 @@ function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
   }
 }
 
-export function FrameSection({ target, theme, args, annotating, frameSource, viewport, scale = 1, onSettled, onRendered,
-  onActivate, onEscape, onExitAnnotate }: {
+export function FrameSection({ target, theme, args, annotating, frameSource, viewport, scale = 1, visible = true, onSettled, onRendered,
+  onUserInput, onEscape, onExitAnnotate }: {
   target: FrameSectionTarget;
   theme: string;
   args: Record<string, unknown>;
@@ -30,9 +30,10 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   frameSource: "story" | "blank";
   viewport: { width: number; height: number };
   scale?: number;
+  visible?: boolean;
   onSettled: () => void;
   onRendered?: (frame: HTMLIFrameElement) => void;
-  onActivate?: () => void;
+  onUserInput?: () => void;
   onEscape?: () => void;
   onExitAnnotate: () => void;
 }) {
@@ -49,7 +50,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   const stopRender = useRef<(() => void) | null>(null);
   const stopDeadline = useRef<(() => void) | null>(null);
   const stopInteractions = useRef<(() => void) | null>(null);
-  const interaction = useRef({ annotating, onActivate, onEscape });
+  const interaction = useRef({ annotating, onUserInput, onEscape });
+  const visibleRef = useRef(visible);
   const themeRef = useRef(theme);
   const argsRef = useRef(args);
   const settled = useRef(onSettled);
@@ -59,7 +61,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     argsRef.current = args;
     settled.current = onSettled;
     rendered.current = onRendered;
-    interaction.current = { annotating, onActivate, onEscape };
+    interaction.current = { annotating, onUserInput, onEscape };
+    visibleRef.current = visible;
   });
   useEffect(() => {
     if (metric.status === "rendered" && frame.current) rendered.current?.(frame.current);
@@ -94,21 +97,25 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     cancel();
     setMetric((current) => ({ ...current, status: "errored", error }));
   }, [cancel]);
+  const startDeadline = useCallback(() => {
+    if (!visibleRef.current || stopDeadline.current) return;
+    const load = generation.current;
+    stopDeadline.current = startRenderDeadline((error) => {
+      if (generation.current === load) fail(error);
+    });
+  }, [fail]);
   const begin = useCallback(() => {
     cancel();
     setMetric({ id: item.id, story: item.story, status: "loading" });
-    const load = generation.current;
-    stopDeadline.current = startRenderDeadline((error) => {
-      if (generation.current === load) fail(error);
-    });
-  }, [cancel, fail, item.id, item.story]);
+    startDeadline();
+  }, [cancel, startDeadline, item.id, item.story]);
   useLayoutEffect(() => {
-    const load = generation.current;
-    stopDeadline.current = startRenderDeadline((error) => {
-      if (generation.current === load) fail(error);
-    });
+    startDeadline();
     return cancel;
-  }, [cancel, fail]);
+  }, [cancel, startDeadline]);
+  useLayoutEffect(() => {
+    if (metric.status !== "rendered" && metric.status !== "errored") startDeadline();
+  }, [visible, metric.status, startDeadline]);
   const mark = useCallback((_: string, patch: Partial<Metric>) => {
     if (patch.status === "loaded" && loads.current++ > 0) begin();
     if (patch.status === "loaded") {
@@ -116,8 +123,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
       const doc = frame.current?.contentDocument;
       if (doc) {
         const load = generation.current;
-        const activate = (event: PointerEvent) => {
-          if (event.isTrusted && generation.current === load && !interaction.current.annotating) interaction.current.onActivate?.();
+        const user = (event: Event) => {
+          if (event.isTrusted && generation.current === load && !interaction.current.annotating) interaction.current.onUserInput?.();
         };
         const escape = (event: KeyboardEvent) => {
           if (event.key !== "Escape") return;
@@ -127,10 +134,12 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
             }
           });
         };
-        doc.addEventListener("pointerdown", activate, true);
+        doc.addEventListener("pointerdown", user, true);
+        doc.addEventListener("keydown", user, true);
         doc.addEventListener("keydown", escape);
         stopInteractions.current = () => {
-          doc.removeEventListener("pointerdown", activate, true);
+          doc.removeEventListener("pointerdown", user, true);
+          doc.removeEventListener("keydown", user, true);
           doc.removeEventListener("keydown", escape);
         };
       }

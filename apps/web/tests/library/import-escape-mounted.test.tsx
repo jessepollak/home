@@ -26,7 +26,7 @@ for (const name of ["commented", "escaped"]) {
       id: "probe", name: "Probe", Story: Default, argTypes: {}, initialArgs: {}, layout: "centered", themePinned: false,
       portals: rule.portals, frame: frameReason({}, {}, rule.portals, rule.sourceReadable),
     }]} theme="light" focused={null} focusedArgs={null} annotating={false} frameSource="blank"
-      onToggle={() => {}} onActivate={() => {}} onEscape={() => {}} onExitAnnotate={() => {}} />);
+      onToggle={() => {}} onEscape={() => {}} onExitAnnotate={() => {}} />);
     await act(async () => { await import("./fixtures/dialog"); });
     expect(rule).toEqual({ portals: true, sourceReadable: true });
     expect(document.body.textContent).not.toContain("Escaped imported overlay");

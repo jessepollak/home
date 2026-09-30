@@ -154,8 +154,10 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
     setFocus(toggleFocus(focused, story));
     setOverrides({});
   };
-  const activate = (story: string) => {
-    if (story !== focused) toggle(story);
+  const preload = (id: string) => {
+    const target = catalog.items.find((entry) => entry.id === id);
+    const path = target && componentStories(index, target.title)[0]?.importPath;
+    if (path) loadStoryModule(path).catch(() => undefined);
   };
   const change = (name: string, value: PropValue | undefined) => setOverrides((currentOverrides) => {
     const rest = Object.fromEntries(Object.entries(currentOverrides).filter(([key]) => key !== name));
@@ -163,7 +165,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   });
   const count = entries.length === 1 ? "1 story" : `${entries.length} stories`;
   return <div className={styles.library} data-review-library="workspace">
-    <LibrarySidebar catalog={catalog} selected={foundation ?? item.id} onSelect={select} />
+    <LibrarySidebar catalog={catalog} selected={foundation ?? item.id} onSelect={select} onPreload={preload} />
     <main className={styles.surface} aria-label={foundation
       ? `${foundationPages.find((page) => page.id === foundation)!.name} foundations` : `${item.name} preview`}>
       <header className={styles.toolbar}>
@@ -182,7 +184,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
           {stories ? <VariantSheet key={item.id} root={root} component={item.name} changed={item.changed}
             stories={stories} theme={theme} focused={focused} focusedArgs={args} annotating={annotating}
-            hiddenThemes={hiddenThemes} frameSource={frameSource} onToggle={toggle} onActivate={activate}
+            hiddenThemes={hiddenThemes} frameSource={frameSource} onToggle={toggle}
             onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} /> :
             <p className={styles.sectionMessage} role={failed ? "alert" : "status"}>
               {failed ? `Couldn't load ${item.name}'s stories. Reload to try again.` : `Loading ${item.name}…`}

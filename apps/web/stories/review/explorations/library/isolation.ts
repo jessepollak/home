@@ -7,7 +7,7 @@ export type StoryAnnotations = {
   parameters?: Record<string, unknown>;
 };
 
-export type FrameReason = "Loaders" | "Network mocks" | "Setup hook" | "Play function" | "Pinned globals" |
+export type FrameReason = "Loaders" | "Network mocks" | "Setup hook" | "Pinned globals" |
   "Opens an overlay" | "Portals outside the sheet" | "Couldn't read component source" | "Library override" | "Declared viewport";
 
 function present(value: unknown): boolean {
@@ -22,7 +22,6 @@ export function frameReason(meta: StoryAnnotations, story: StoryAnnotations, por
   if (present(story.loaders) || present(meta.loaders)) return "Loaders";
   if (present(story.parameters?.msw) || present(meta.parameters?.msw)) return "Network mocks";
   if (present(story.beforeEach) || present(meta.beforeEach)) return "Setup hook";
-  if (present(story.play) || present(meta.play)) return "Play function";
   if (Object.keys({ ...meta.globals, ...story.globals }).some((key) => key !== "theme")) return "Pinned globals";
   const args = { ...meta.args, ...story.args };
   if (args.open === true || args.defaultOpen === true) return "Opens an overlay";

@@ -21,8 +21,8 @@ describe("section isolation rules", () => {
     expect(frameReason({ parameters: { msw: { handlers: { balances: [] } } } }, {})).toBe("Network mocks");
     expect(frameReason({ parameters: { msw: [] } }, {})).toBeNull();
     expect(frameReason({ beforeEach: () => undefined }, { play })).toBe("Setup hook");
-    expect(frameReason({}, { play })).toBe("Play function");
-    expect(frameReason({ play }, {})).toBe("Play function");
+    expect(frameReason({}, { play })).toBeNull();
+    expect(frameReason({ play }, {})).toBeNull();
     expect(frameReason({}, { globals: { locale: "en" } })).toBe("Pinned globals");
     expect(frameReason({ globals: { theme: "dark" } }, {})).toBeNull();
     expect(frameReason({}, { globals: { theme: "dark" } })).toBeNull();
@@ -75,7 +75,7 @@ describe("section isolation rules", () => {
     expect(frameReason({}, { parameters: { library: { render: "frame" } } })).toBe("Library override");
     expect(frameReason({}, { parameters: { library: { render: "invalid" } } }, true)).toBe("Portals outside the sheet");
     expect(frameReason({ parameters: { library: { render: "document" } } }, {}, true)).toBe("Portals outside the sheet");
-    expect(frameReason({}, { play: () => {}, parameters: { library: { render: "document" } } }, true)).toBe("Play function");
+    expect(frameReason({}, { play: () => {}, parameters: { library: { render: "document" } } }, true)).toBeNull();
     expect(frameReason({}, {}, false, false)).toBe("Couldn't read component source");
     expect(frameReason({}, { parameters: { library: { render: "document" } } }, false, false))
       .toBe("Couldn't read component source");
@@ -83,7 +83,7 @@ describe("section isolation rules", () => {
 });
 
 describe("section focus", () => {
-  test("clicking a section focuses it and clicking it again clears focus", () => {
+  test("activating a heading focuses its section and activating it again clears focus", () => {
     expect(toggleFocus(null, "ui-button--default")).toBe("ui-button--default");
     expect(toggleFocus("ui-button--default", "ui-button--default")).toBeNull();
     expect(toggleFocus("ui-button--default", "ui-button--sizes")).toBe("ui-button--sizes");

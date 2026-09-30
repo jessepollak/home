@@ -1,6 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
+import { composeStory } from "storybook/preview-api";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { frameReason, readPortalRule, rendersPortal } from "@/stories/review/explorations/library/isolation";
@@ -40,7 +41,7 @@ function story(id: string, Story: SheetStory["Story"], source = "", frame: Sheet
 function sheet(stories: SheetStory[]) {
   const props = { root: null, component: "Fixture", changed: false, stories, theme: "light", focused: null,
     focusedArgs: null, annotating: false, frameSource: "blank" as const,
-    onToggle: (_id: string) => {}, onActivate: (_id: string) => {}, onEscape: () => {}, onExitAnnotate: () => {} };
+    onToggle: (_id: string) => {}, onEscape: () => {}, onExitAnnotate: () => {} };
   const view = render(<VariantSheet {...props} />);
   return { ...view, update: (patch: Partial<Parameters<typeof VariantSheet>[0]>) => {
     Object.assign(props, patch);
@@ -62,6 +63,39 @@ function trustedPointerDown(target: HTMLElement) {
   fireEvent(target, event);
 }
 
+test("a play-only portable story renders in-document without running play, while its tagged sibling frames", () => {
+  let plays = 0;
+  const annotations = { render: () => <button>Live action</button>, play: async () => { plays++; } };
+  const meta = { id: "portable-fixture", title: "Fixture", args: {} };
+  const Portable = composeStory(annotations, meta, {}, {}, "Plain");
+  const tagged = { ...annotations, parameters: { library: { render: "frame" } } };
+  const entries = [story("plain", Portable, "", frameReason(meta, annotations)),
+    story("tagged", Portable, "", frameReason(meta, tagged))];
+  const view = sheet(entries);
+  expect(view.getByRole("button", { name: "Live action" })).toBeTruthy();
+  expect(view.queryByTitle("Fixture · plain")).toBeNull();
+  expect(view.getByTitle("Fixture · tagged")).toBeTruthy();
+  expect(plays).toBe(0);
+});
+
+test("document actions leave selection unchanged and heading activation selects", () => {
+  const selections: string[] = [];
+  let actions = 0;
+  const view = sheet([story("plain", () => <button onClick={() => { actions++; }}>Live action</button>)]);
+  view.update({ onToggle: (id) => selections.push(id) });
+  const control = view.getByRole("button", { name: "Live action" });
+  fireEvent.pointerDown(control);
+  control.focus();
+  fireEvent.click(control);
+  fireEvent.keyDown(control, { key: "Enter" });
+  expect(actions).toBe(1);
+  expect(selections).toEqual([]);
+  const heading = view.getByRole("button", { name: "plain" });
+  heading.focus();
+  fireEvent.click(heading);
+  expect(selections).toEqual(["plain"]);
+});
+
 test("source-known portals never mount in the parent; unrelated nodes cannot frame plain neighbors", () => {
   let portalMounts = 0;
   const portal = story("portal", () => { portalMounts++; return null; }, "const Content = () => <Primitive.Portal />");
@@ -82,7 +116,7 @@ test("source-known portals never mount in the parent; unrelated nodes cannot fra
 
 for (const portals of [true, false]) {
   test(`${portals ? "portal" : "non-portal"} frames keep the correct viewport after restoration`, () => {
-    const entry = story("height", () => null, portals ? "<Portal />" : "", "Play function");
+    const entry = story("height", () => null, portals ? "<Portal />" : "", "Library override");
     const view = sheet([entry]);
     const iframe = view.getByTitle("Fixture · height") as HTMLIFrameElement;
     if (portals) expect(iframe.height).toBe("844");
@@ -112,11 +146,11 @@ for (const portals of [true, false]) {
   });
 }
 
-test("only trusted child pointerdown activates; programmatic focus and untrusted events do not", async () => {
+test("child pointer and keyboard interaction never select; unconsumed Escape still clears selection", async () => {
   const view = sheet([story("frame", () => null, "<Portal />")]);
   const activated: string[] = [];
   let escaped = 0;
-  view.update({ onActivate: (id) => activated.push(id), onEscape: () => { escaped++; } });
+  view.update({ onToggle: (id) => activated.push(id), onEscape: () => { escaped++; } });
   const iframe = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
   fireEvent.load(iframe);
   const doc = iframe.contentDocument!;
@@ -127,7 +161,7 @@ test("only trusted child pointerdown activates; programmatic focus and untrusted
   fireEvent.focusIn(control);
   expect(activated).toEqual([]);
   trustedPointerDown(control);
-  expect(activated).toEqual(["frame"]);
+  expect(activated).toEqual([]);
   const consume = (event: KeyboardEvent) => { if (event.key === "Escape") event.preventDefault(); };
   doc.addEventListener("keydown", consume);
   fireEvent.keyDown(control, { key: "Escape" });
@@ -143,7 +177,7 @@ test("only trusted child pointerdown activates; programmatic focus and untrusted
   fireEvent.focusIn(control);
   fireEvent.keyDown(control, { key: "Escape" });
   await flush();
-  expect(activated).toHaveLength(1);
+  expect(activated).toHaveLength(0);
   expect(escaped).toBe(1);
 });
 
@@ -151,7 +185,7 @@ test("reload and unmount remove child listeners and fence pending Escape from th
   const view = sheet([story("frame", () => null, "<Portal />")]);
   let activated = 0;
   let escaped = 0;
-  view.update({ onActivate: () => { activated++; }, onEscape: () => { escaped++; } });
+  view.update({ onToggle: () => { activated++; }, onEscape: () => { escaped++; } });
   const iframe = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
   fireEvent.load(iframe);
   const previous = iframe.contentDocument!;
@@ -167,24 +201,24 @@ test("reload and unmount remove child listeners and fence pending Escape from th
   expect(escaped).toBe(0);
   trustedPointerDown(replacement.body);
   fireEvent.focusIn(replacement.body);
-  expect(activated).toBe(1);
+  expect(activated).toBe(0);
   fireEvent.keyDown(replacement.body, { key: "Escape" });
   view.unmount();
   trustedPointerDown(replacement.body);
   fireEvent.focusIn(replacement.body);
   fireEvent.keyDown(replacement.body, { key: "Escape" });
   await flush();
-  expect(activated).toBe(1);
+  expect(activated).toBe(0);
   expect(escaped).toBe(0);
   expect(callbacks.size).toBe(0);
 });
 
-test("a framed play focus preserves restored Default props until intentional activation", () => {
+test("a framed interaction preserves restored Default props until its heading is activated", () => {
   const stories = [story("default", ({ children }) => <button>{String(children)}</button>),
-    story("play", () => null, "", "Play function")];
+    story("play", () => null, "", "Library override")];
   const view = sheet(stories);
   view.update({ focused: "default", focusedArgs: { children: "PERSISTED" },
-    onActivate: (id) => view.update({ focused: id, focusedArgs: null }) });
+    onToggle: (id) => view.update({ focused: id, focusedArgs: null }) });
   const iframe = view.getByTitle("Fixture · play") as HTMLIFrameElement;
   fireEvent.load(iframe);
   const control = iframe.contentDocument!.createElement("button");
@@ -193,6 +227,9 @@ test("a framed play focus preserves restored Default props until intentional act
   expect(view.getByRole("button", { name: "PERSISTED" })).toBeTruthy();
   expect(view.getByRole("button", { name: "default" }).getAttribute("aria-pressed")).toBe("true");
   trustedPointerDown(control);
+  expect(view.getByRole("button", { name: "PERSISTED" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "default" }).getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(view.getByRole("button", { name: "play" }));
   expect(view.getByRole("button", { name: "play" }).getAttribute("aria-pressed")).toBe("true");
 });
 

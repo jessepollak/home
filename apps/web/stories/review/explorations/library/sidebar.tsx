@@ -19,10 +19,11 @@ function changeSummary(changes: number | null): string | null {
   return changes === 1 ? "1 change" : `${changes} changes`;
 }
 
-export function LibrarySidebar({ catalog, selected, onSelect }: {
+export function LibrarySidebar({ catalog, selected, onSelect, onPreload }: {
   catalog: LibraryCatalog;
   selected: string;
   onSelect: (id: string) => void;
+  onPreload: (id: string) => void;
 }) {
   const foundationRows = foundationPages.map((page) => ({
     id: page.id, name: page.name, kind: page.kind, label: `${page.name}, ${page.kind}`,
@@ -40,17 +41,18 @@ export function LibrarySidebar({ catalog, selected, onSelect }: {
     <SidebarGroup id="library-foundations-heading" heading="Foundations" rows={foundationRows}
       selected={selected} onSelect={onSelect} />
     <SidebarGroup id="library-components-heading" heading="Components" summary={changeSummary(catalog.changes)}
-      rows={componentRows} selected={selected} onSelect={onSelect} fill />
+      rows={componentRows} selected={selected} onSelect={onSelect} onPreload={onPreload} fill />
   </nav>;
 }
 
-function SidebarGroup({ id, heading, summary, rows, selected, onSelect, fill }: {
+function SidebarGroup({ id, heading, summary, rows, selected, onSelect, onPreload, fill }: {
   id: string;
   heading: string;
   summary?: string | null;
   rows: SidebarRow[];
   selected: string;
   onSelect: (id: string) => void;
+  onPreload?: (id: string) => void;
   fill?: boolean;
 }) {
   const list = useRef<HTMLDivElement>(null);
@@ -76,6 +78,8 @@ function SidebarGroup({ id, heading, summary, rows, selected, onSelect, fill }: 
         return <div key={row.id} role="option" aria-selected={active} tabIndex={active || (current === -1 && index === 0) ? 0 : -1}
           data-library-item={row.id} className={styles.row} aria-label={row.label}
           onClick={() => onSelect(row.id)}
+          onMouseEnter={() => { onPreload?.(row.id); if (rows[index + 1]) onPreload?.(rows[index + 1].id); }}
+          onFocus={() => { onPreload?.(row.id); if (rows[index + 1]) onPreload?.(rows[index + 1].id); }}
           onKeyDown={(event) => {
             if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); }
           }}>
