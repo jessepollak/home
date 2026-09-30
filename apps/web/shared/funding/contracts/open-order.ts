@@ -1,4 +1,3 @@
-import { isFundingInstruction } from "@/shared/funding/provider-contract";
 import { readFundingOrder, type FundingOrderSummary } from "./order";
 
 export const FUNDING_OPEN_ORDER_VERSION = 1 as const;
@@ -20,9 +19,7 @@ function completeOrder(value: Record<string, unknown>, region: string): boolean 
     optional(fields, "expectedTokenAmountAtomic", (amount) => amount === null || (typeof amount === "string" && /^(0|[1-9]\d*)$/.test(amount))) &&
     optional(fields, "fees", (fees) => Array.isArray(fees) && fees.every((fee) => record(fee) && typeof fee.label === "string" && typeof fee.amount === "string" && typeof fee.currency === "string")) &&
     optional(fields, "expiresAt", (expiresAt) => expiresAt === null || typeof expiresAt === "string") &&
-    optional(fields, "transactionHash", (hash) => hash === null || (typeof hash === "string" && /^0x[0-9a-fA-F]{64}$/.test(hash))) &&
-    (order.providerStatus === null || typeof order.providerStatus === "string") &&
-    (order.instructions === null || isFundingInstruction(order.instructions));
+    optional(fields, "transactionHash", (hash) => hash === null || (typeof hash === "string" && /^0x[0-9a-fA-F]{64}$/.test(hash)));
 }
 
 function optionalString(value: Record<string, unknown>, key: string): boolean {

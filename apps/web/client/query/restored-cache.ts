@@ -65,8 +65,8 @@ function isFundingFee(value: unknown): boolean {
 function isTrustedFundingOrderSummary(value: unknown): boolean {
   if (!isFundingOrderSummary(value)) return false;
   return (value.fees === undefined || Array.isArray(value.fees) && value.fees.every(isFundingFee)) &&
-    (value.instructions === undefined || value.instructions === null) &&
-    (value.providerStatus === undefined || value.providerStatus === null || typeof value.providerStatus === "string") &&
+    (value.instructions === null) &&
+    (value.providerStatus === null || typeof value.providerStatus === "string") &&
     (value.sandbox === undefined || typeof value.sandbox === "boolean") &&
     (value.quote === undefined || isRecord(value.quote)) &&
     optionalString(value.quoteToken) && optionalAtomic(value.expectedTokenAmountAtomic) &&
