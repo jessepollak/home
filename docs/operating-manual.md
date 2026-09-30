@@ -72,7 +72,7 @@ Jesse alone approves and merges. The `main` branch requires one approving review
 
 All factory code changes use an issue, an isolated branch/worktree, a normal pull request to `main`, repository checks, fresh independent review, and Jesse-only merge. There is no direct-to-main exception.
 
-1. **One issue, one writer, one PR.** A blocked change stops and names its dependency instead of widening scope.
+1. **One issue, one writer, one PR.** A blocked change stops and names its dependency instead of widening scope. Issues are sized, sequenced and split by area under [work sizing](work-sizing.md): one open change per area, migrations have one owner, and debt joins the area's debt issue instead of a new one.
 2. **Implement and validate.** For user-visible or core-flow work, run the required [verification ladder](#verification-ladder) rungs before the first edit and after the last edit, using repository-pinned `agent-browser` under the [browser contract](browser-validation.md). Run focused checks and `bun check` unless the task sets a narrower validation contract.
 3. **Independent review.** Review is fresh, read-only, scoped to the complete current diff, and time-boxed. The writer cannot review its own change. Follow the [Home review contract](../.agents/skills/home-review/SKILL.md): supply its context packet, run the applicable passes on the exact head, and record the deduplicated findings and dispositions under **Evidence → Review findings**. A design or library handoff review also checks [design handoff coverage](#design-handoff-coverage) and design/code parity.
 4. **Bounded repairs.** Blocking findings include correctness, security, privacy, data loss, and the money/auth invariants below. User-visible work also follows the [assignment-specific design review](ui-pr-previews.md#review-findings): unmet visual deliverables or unintended divergence from a selected design cannot be marked complete solely because technical checks pass. The factory gets at most two repair-and-review loops. Unresolved blockers stop for Jesse.
@@ -84,7 +84,7 @@ All factory code changes use an issue, an isolated branch/worktree, a normal pul
 
 ### Shared merge hotspots
 
-Coordinate ownership before editing these files:
+Coordinate ownership before editing these files. [Work sizing](work-sizing.md#areas) groups them into areas that allow one open change at a time:
 
 - `apps/web/client/account/cdp-session-lifecycle.tsx`
 - `apps/web/client/account/cdp-money-action-execution.ts`
