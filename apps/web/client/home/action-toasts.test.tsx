@@ -3,6 +3,7 @@ import "../account/dom-test-harness";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { announceActionFailure } from "./action-toast-events";
@@ -35,6 +36,7 @@ const row = {
   status: "pending",
   createdAt: "2026-09-12T12:00:00.000Z",
   confirmedAt: "2026-09-12T12:01:00.000Z",
+  owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
 };
 
 const progress = {
@@ -66,6 +68,22 @@ const withdrawal = {
   },
 };
 
+const parseRows = (rows: unknown[], parseSession: VerifiedAccountSession = session) => parseRecentActionsPayload({ actions: rows.map((value) => {
+  const item = value as typeof row;
+  const metadata = "metadata" in item.summary ? item.summary.metadata as Record<string, unknown> : null;
+  if (metadata?.product === "borrow") return { ...item, summary: { ...item.summary, metadata: {
+    marketId: `0x${"a".repeat(64)}`, loanAsset: { id: "usdc", symbol: "USDC" },
+    collateralAsset: { id: "eth", symbol: "ETH" },
+    source: { blockNumber: "1", blockHash: `0x${"b".repeat(64)}`, blockTimestamp: "1" }, ...metadata,
+  } } };
+  if (metadata?.product === "cashout") return { ...item, summary: { ...item.summary, metadata: {
+    providerId: "peer", providerName: "Peer", environment: "sandbox", platform: "cashapp", platformLabel: "Cash App",
+    currency: "USD", approximateFiatAmount: "20", minConversionRate: "1",
+    intentAmountRange: { min: "1", max: "1" }, estimateAsOf: "2026-09-12T12:01:00.000Z", escrow: "escrow", ...metadata,
+  } } };
+  return item;
+}) }, parseSession);
+
 afterEach(() => {
   toast.close();
   cleanup();
@@ -82,7 +100,7 @@ function mount(initial: unknown[] = [], regionId: RegionId = "US") {
     />,
   );
   const update = (actions: unknown[]) => {
-    void act(() => getHomeQueryClient().setQueryData(key, { actions }));
+    void act(() => getHomeQueryClient().setQueryData(key, parseRows(actions)));
   };
   return { key, view, update };
 }
@@ -198,9 +216,10 @@ describe("action toast owner fence", () => {
     await waitFor(() => expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull());
     const otherKey = ownerQueryKey(activityOwnerKey(otherSession), "actions");
     await waitFor(() => expect(getHomeQueryClient().getQueryData(otherKey)).toBeTruthy());
-    void act(() => getHomeQueryClient().setQueryData(otherKey, { actions: [row] }));
+    const otherRow = { ...row, owner: { ...row.owner, subject: otherSession.user.subject } };
+    void act(() => getHomeQueryClient().setQueryData(otherKey, parseRows([otherRow], otherSession)));
     await waitFor(() => expect(view.getByText(/Sending .*1,00 to 0x2222…222222/)).toBeTruthy());
-    void act(() => getHomeQueryClient().setQueryData(otherKey, { actions: [{ ...row, status: "confirmed" }] }));
+    void act(() => getHomeQueryClient().setQueryData(otherKey, parseRows([{ ...otherRow, status: "confirmed" }], otherSession)));
     await waitFor(() => expect(view.getByText(/Sent .*1,00 to 0x2222…222222/)).toBeTruthy());
     expect(view.queryByText("Sent $1.00 to 0x2222…222222")).toBeNull();
   });

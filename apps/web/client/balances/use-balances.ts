@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { isInterruptionEligible } from "@/client/account/resource-failure";
-import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { browserHomeQueryClient, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { ownerQuery } from "@/client/query/query-options";
 import type { RegionId } from "@/config/regions";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import type {
@@ -36,7 +37,6 @@ export type RecoverableBalancesState = BalancesState & {
   };
 };
 
-export const balancesStaleTimeMs = 15_000;
 export const balancesStaleRefetchMs = 3_000;
 export const balancesStaleRefetchLimit = 4;
 
@@ -109,32 +109,14 @@ function useBalancesObserver(
   const stalePolling = useRef({ identity: "", dataUpdatedAt: 0, completedRefetches: 0 });
   const heldRegion = useRef<string | null>(null);
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const queryKey = ownerKey
-    ? ownerQueryKey(ownerKey, "balances", region)
-    : ["unauthenticated", "balances-disabled", region];
-  const query = useHomeQuery<BalancesSnapshot>({
-    notifyOnChangeProps: dataOnly ? () => queryClient.getQueryState(queryKey)?.error instanceof ProvisionalBalancesFailure
-      ? ["data", "error", "status", "isPlaceholderData", "fetchStatus"]
-      : ["data", "error", "status", "isPlaceholderData"] : undefined,
-    queryKey,
-    enabled: (queryState) => ownerKey !== null && options.enabled !== false && options.held !== true &&
+  const queryOptions = ownerQuery<BalancesSnapshot>({
+    owner: ownerKey,
+    scope: "balances",
+    key: [region],
+    enabled: (queryState) => options.enabled !== false && options.held !== true &&
       (!options.provisional || !(queryState.state.error instanceof ProvisionalBalancesFailure)),
-    staleTime: balancesStaleTimeMs,
     retry: false,
     refetchOnWindowFocus: true,
-    refetchInterval: (queryState) => queryState.state.status === "error"
-      ? false
-      : nextStaleRefetchDelay(
-        stalePolling.current,
-        queryState.state.data,
-        `${ownerKey ?? "unauthenticated"}\u0000${region}`,
-        queryState.state.dataUpdatedAt,
-      ),
-    meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    placeholderData: (previousData, previousQuery) =>
-      previousQuery?.queryKey[0] === ownerKey &&
-      (heldRegion.current !== `${ownerKey}\u0000${previousQuery.queryKey[2]}` || previousQuery.queryKey[2] === region)
-        ? keepPreviousData(previousData) : undefined,
     queryFn: async ({ signal }) => {
       if (!validSession) throw new Error("Balances are unavailable.");
       try {
@@ -152,6 +134,24 @@ function useBalancesObserver(
         throw error;
       }
     },
+  });
+  const query = useHomeQuery({
+    ...queryOptions,
+    notifyOnChangeProps: dataOnly ? () => queryClient.getQueryState(queryOptions.queryKey)?.error instanceof ProvisionalBalancesFailure
+      ? ["data", "error", "status", "isPlaceholderData", "fetchStatus"]
+      : ["data", "error", "status", "isPlaceholderData"] : undefined,
+    refetchInterval: (queryState) => queryState.state.status === "error"
+      ? false
+      : nextStaleRefetchDelay(
+        stalePolling.current,
+        queryState.state.data,
+        `${ownerKey ?? "unauthenticated"}\u0000${region}`,
+        queryState.state.dataUpdatedAt,
+      ),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[0] === ownerKey &&
+      (heldRegion.current !== `${ownerKey}\u0000${previousQuery.queryKey[2]}` || previousQuery.queryKey[2] === region)
+        ? keepPreviousData(previousData) : undefined,
   });
 
   const identity = ownerKey ? `${ownerKey}\u0000${region}` : null;

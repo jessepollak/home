@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
-import type { QueryKey } from "@tanstack/react-query";
-import { createHomeQueryClient, ownerQueryMeta } from "./query-client";
-import { ownerQuery, publicInfiniteQuery, publicQuery } from "./query-options";
+import { skipToken, type InfiniteData, type QueryKey } from "@tanstack/react-query";
+import { createHomeQueryClient, ownerQueryKey, ownerQueryMeta } from "./query-client";
+import { ownerInfiniteQuery, ownerQuery, publicInfiniteQuery, publicQuery } from "./query-options";
+import { queryScopes, type OwnerQueryScope } from "./query-scopes";
+import { invalidateAfterAction, invalidateIndexedScopes } from "./after-action";
 
 const owner = "owner-a";
 
@@ -23,6 +25,34 @@ test("owner query receives its owner and signal with registered key, meta, and s
   expect(await client.fetchQuery(options)).toEqual({ total: 3 });
   expect(String(receivedOwner)).toBe(owner);
   expect(receivedSignal).toBeInstanceOf(AbortSignal);
+  client.clear();
+});
+
+test("parsed action and activity-order queries keep owner keys but remain memory-only", () => {
+  for (const scope of ["actions", "activity-orders"] as const) {
+    const options = ownerQuery({ owner, scope, queryFn: async () => [] });
+    expect([...options.queryKey]).toEqual([owner, scope]);
+    expect(options.meta).toEqual(ownerQueryMeta(owner, "memory"));
+  }
+});
+
+test("action invalidation reaches both the default actions query and a pending-cashout subkey", async () => {
+  const client = createHomeQueryClient();
+  const actionsKey = ownerQueryKey(owner, "actions");
+  const cashoutKey = ownerQueryKey(owner, "actions", "pending-cashout");
+  let cashoutReads = 0;
+  await client.fetchQuery({ queryKey: actionsKey, queryFn: async () => [] });
+  await client.fetchQuery({ queryKey: cashoutKey, queryFn: async () => ({ operations: [++cashoutReads], unparsedSavingsDeposits: [] }) });
+  await invalidateAfterAction(client, owner);
+  expect(client.getQueryState(actionsKey)?.isInvalidated).toBe(true);
+  expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(true);
+  await client.refetchQueries({ queryKey: actionsKey, type: "all" });
+  expect(cashoutReads).toBe(2);
+  expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(false);
+  await invalidateIndexedScopes(client, owner);
+  expect(client.getQueryState(cashoutKey)?.isInvalidated).toBe(true);
+  await client.refetchQueries({ queryKey: actionsKey, type: "all" });
+  expect(cashoutReads).toBe(3);
   client.clear();
 });
 
@@ -101,3 +131,56 @@ test("public infinite query passes keys and page parameters through", async () =
   expect(publicPages).toEqual([2]);
   client.clear();
 });
+
+test("signed-out infinite owner query stays disabled with its scoped key", () => {
+  const options = ownerInfiniteQuery<{ value: number }, number>({
+    owner: null, scope: "activity", key: ["window"], initialPageParam: 0,
+    queryFn: async ({ pageParam }) => ({ value: pageParam }),
+    getNextPageParam: () => undefined,
+  });
+  expect([...options.queryKey]).toEqual(["unauthenticated", "activity-disabled", "window"]);
+  expect(options.queryFn).toBe(skipToken);
+  expect(options.meta).toBeUndefined();
+  const client = createHomeQueryClient();
+  const queryKey: QueryKey = ["owner", "activity"];
+  const query = client.getQueryCache().build<{ value: number }, Error, InfiniteData<{ value: number }, number>, QueryKey>(
+    client, { queryKey, queryFn: async () => ({ value: 0 }) },
+  );
+  expect(typeof options.enabled === "function" && options.enabled(query)).toBe(false);
+  client.clear();
+});
+
+const ownerScopes = Object.keys(queryScopes).filter((scope): scope is OwnerQueryScope =>
+  queryScopes[scope as keyof typeof queryScopes].audience === "owner");
+
+for (const scope of ownerScopes) {
+  test(`${scope} fences a deferred response to its original owner key`, async () => {
+    const client = createHomeQueryClient();
+    let resolve!: (value: string) => void;
+    const pending = new Promise<string>((done) => { resolve = done; });
+    const first = ownerQuery({ owner: "owner-a", scope, queryFn: () => pending });
+    const second = ownerQuery({ owner: "owner-b", scope, queryFn: async () => "owner-b" });
+    const request = client.fetchQuery(first);
+    expect(second.queryKey).not.toEqual(first.queryKey);
+    expect(client.getQueryData(second.queryKey)).toBeUndefined();
+    resolve("owner-a");
+    await expect(request).resolves.toBe("owner-a");
+    expect(client.getQueryData<unknown>(first.queryKey)).toBe("owner-a");
+    expect(client.getQueryData(second.queryKey)).toBeUndefined();
+    client.clear();
+  });
+
+  test(`${scope} keeps cached data after a failed refetch`, async () => {
+    const client = createHomeQueryClient();
+    let fails = false;
+    const options = ownerQuery({ owner: "owner-a", scope, retry: false,
+      queryFn: async () => { if (fails) throw new Error("read failed"); return "cached"; },
+    });
+    expect(await client.fetchQuery(options)).toBe("cached");
+    fails = true;
+    await expect(client.fetchQuery({ ...options, staleTime: 0 })).rejects.toThrow("read failed");
+    expect(client.getQueryData<unknown>(options.queryKey)).toBe("cached");
+    expect(client.getQueryState(options.queryKey)?.status).toBe("error");
+    client.clear();
+  });
+}

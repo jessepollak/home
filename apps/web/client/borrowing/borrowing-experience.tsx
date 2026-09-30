@@ -25,10 +25,10 @@ import { queryViewState } from "@/client/query/query-view-state";
 import {
   browserHomeQueryClient,
   ownerQueryKey,
-  ownerQueryMeta,
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import { ownerQuery } from "@/client/query/query-options";
 import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { LoadErrorCard } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
@@ -394,13 +394,13 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
   const owner = session?.smartAccount?.address ?? null;
   const key = session?.smartAccount ? ownerDataKey(session) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const overview = useHomeQuery({
-    queryKey: key ? ownerQueryKey(key, "borrow", "overview") : ["unauthenticated", "borrow-overview-disabled"],
-    enabled: Boolean(key && owner && fetchAccountResource),
-    staleTime: 15_000,
+  const overview = useHomeQuery(ownerQuery<BorrowOverviewResponse>({
+    owner: key,
+    scope: "borrow",
+    key: key ? ["overview"] : [],
+    enabled: Boolean(owner && fetchAccountResource),
     retry: false,
     refetchOnWindowFocus: true,
-    meta: key ? ownerQueryMeta(key, "owner") : undefined,
     queryFn: async ({ signal }): Promise<BorrowOverviewResponse> => {
       if (!fetchAccountResource || !owner) throw new Error("Borrow is unavailable.");
       const parsed = parseBorrowOverview(await fetchAccountResource("/api/borrow", { signal }), owner);
@@ -412,7 +412,7 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
       ))) throw new Error("Borrow overview response is invalid.");
       return parsed;
     },
-  });
+  }));
   useEffect(() => {
     if (!key || !overview.data) return;
     for (const opportunity of overview.data.opportunities) {
@@ -428,25 +428,22 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
 function useBorrowDetail(session: VerifiedAccountSession | null, marketId: BorrowMarketId | null, fetchAccountResource: FetchAccountResource | undefined, enabled: boolean) {
   const owner = session?.smartAccount?.address ?? null;
   const key = session?.smartAccount ? ownerDataKey(session) : null;
-  return useHomeQuery({
-    queryKey: key && marketId ? ownerQueryKey(key, "borrow", "detail", marketId) : ["unauthenticated", "borrow-detail-disabled"],
+  return useHomeQuery(ownerQuery<BorrowMarketSnapshot>({
+    owner: key && marketId ? key : null,
+    scope: "borrow",
+    key: key && marketId ? ["detail", marketId] : [],
     enabled: Boolean(enabled && marketId && key && owner && fetchAccountResource),
-    staleTime: 0,
     retry: false,
     refetchOnWindowFocus: true,
-    meta: key ? ownerQueryMeta(key, "owner") : undefined,
-    queryFn: ({ signal }) => {
+    refetchOnMount: "always",
+    queryFn: async ({ signal }) => {
       if (!marketId) throw new Error("Borrow market is unavailable.");
-      if (!fetchAccountResource) throw new Error("Borrow is unavailable.");
-      return fetchAccountResource(`/api/borrow/markets/${marketId}`, { signal });
-    },
-    select: (value): BorrowMarketSnapshot => {
-      if (!owner) throw new Error("Borrow is unavailable.");
-      const parsed = parseTrustedSnapshot(value, owner);
+      if (!fetchAccountResource || !owner) throw new Error("Borrow is unavailable.");
+      const parsed = parseTrustedSnapshot(await fetchAccountResource(`/api/borrow/markets/${marketId}`, { signal }), owner);
       if (!parsed) throw new Error("Borrow market response is invalid.");
       return parsed;
     },
-  });
+  }));
 }
 
 export function formatToken(raw: string, asset: BorrowMarketIdentity["loanToken"], regionId: RegionId): string {

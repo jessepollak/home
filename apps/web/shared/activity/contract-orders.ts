@@ -103,14 +103,6 @@ export class ActivityOrdersResponseError extends Error {
   }
 }
 
-export function isActivityOrdersResponse(value: unknown): value is {
-  version: typeof ACTIVITY_ORDERS_CONTRACT_VERSION;
-  owner: unknown;
-  orders: unknown[];
-} {
-  return responseSchema.safeParse(value).success;
-}
-
 export function parseActivityOrders(value: unknown, session: VerifiedAccountSession): ActivityOrder[] {
   const result = responseSchema.safeParse(value);
   if (!result.success || result.data.owner.subject !== session.user.subject ||

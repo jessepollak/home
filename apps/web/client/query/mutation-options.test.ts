@@ -186,8 +186,8 @@ test("an owner boundary drops retained POST variables and results even when the 
   const client = createHomeQueryClient();
   const request = client.getMutationCache().build(client, { gcTime: 60_000, mutationFn: async (email: string) => ({ handoff: `https://provider.invalid/?t=${email}` }) });
   await request.execute("owner-a@example.com");
-  client.setQueryData(ownerQueryKey("owner-b", "activity-orders"), { orders: [] });
+  client.setQueryData(ownerQueryKey("owner-b", "activity-orders"), []);
   clearOwnerQueryBoundary(client, undefined, "owner-b");
   expect(client.getMutationCache().getAll()).toEqual([]);
-  expect(client.getQueryData<{ orders: unknown[] }>(ownerQueryKey("owner-b", "activity-orders"))).toEqual({ orders: [] });
+  expect(client.getQueryData<unknown>(ownerQueryKey("owner-b", "activity-orders"))).toEqual([]);
 });

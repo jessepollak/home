@@ -3,6 +3,9 @@ import { dehydrate, QueryObserver } from "@tanstack/react-query";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { anonymousCountryPreferenceKey, legacyCountryPreferenceKey } from "@/config/country-preference";
+import { recentActionsQuery } from "@/client/actions/recent-actions-query";
+import { activityOrdersQuery } from "@/client/activity/activity-orders-query";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   clearOwnerQueryBoundary,
   clearOwnerQueryMemory,
@@ -101,7 +104,7 @@ describe("owner query cache boundary", () => {
     const state = dehydrateOwnerQueries(client, ownerKey);
     const storage = memoryStorage();
     const persister = createOwnerQueryPersister(storage, ownerKey);
-    persister?.persistClient({ timestamp: NOW, buster: "home-query-v3", clientState: state });
+    persister?.persistClient({ timestamp: NOW, buster: "home-query-v4", clientState: state });
     persister?.flush();
     const restored = createHomeQueryClient();
 
@@ -130,7 +133,7 @@ describe("owner query cache boundary", () => {
     const persister = createOwnerQueryPersister(storage, ownerKey)!;
     persister.persistClient({
       timestamp: now - ownerQueryCacheTtlMs + 1,
-      buster: "home-query-v3",
+      buster: "home-query-v4",
       clientState: dehydrateOwnerQueries(client, ownerKey, now),
     });
     persister.flush();
@@ -159,7 +162,7 @@ describe("owner query cache boundary", () => {
     const persister = createOwnerQueryPersister(storage, ownerKey)!;
     persister.persistClient({
       timestamp: now,
-      buster: "home-query-v3",
+      buster: "home-query-v4",
       clientState: dehydrateOwnerQueries(client, ownerKey, now),
     });
     persister.flush();
@@ -181,7 +184,7 @@ describe("owner query cache boundary", () => {
     const persister = createOwnerQueryPersister(storage, "owner-a", 0);
 
     expect(() => {
-      persister?.persistClient({ timestamp: NOW, buster: "home-query-v3", clientState: { mutations: [], queries: [] } });
+      persister?.persistClient({ timestamp: NOW, buster: "home-query-v4", clientState: { mutations: [], queries: [] } });
       persister?.flush();
     }).not.toThrow();
     expect(restoreOwnerQueries(client, storage, "owner-a")).toBe(false);
@@ -197,7 +200,7 @@ describe("owner query cache boundary", () => {
     attacker.setQueryData(ownerQueryKey("owner-b", "balances", "US"), { amount: "99" });
     storage.setItem(`${ownerQueryCachePrefix}owner-a`, JSON.stringify({
       timestamp: NOW,
-      buster: "home-query-v3",
+      buster: "home-query-v4",
       clientState: dehydrateOwnerQueries(attacker, "owner-b"),
     }));
 
@@ -224,7 +227,7 @@ describe("owner query cache boundary", () => {
       malformed([ownerKey, "not-a-scope"], { actions: [] }),
     ];
     storage.setItem(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
-      timestamp: Date.now(), buster: "home-query-v3",
+      timestamp: Date.now(), buster: "home-query-v4",
       clientState: { mutations: [], queries: entries },
     }));
     const restored = createHomeQueryClient();
@@ -244,7 +247,7 @@ describe("owner query cache boundary", () => {
     source.setQueryData(actionsKey, { actions: [] });
     const actionsEntry = dehydrate(source).queries[0]!;
     storage.setItem(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
-      timestamp: Date.now(), buster: "home-query-v3",
+      timestamp: Date.now(), buster: "home-query-v4",
       clientState: {
         mutations: [],
         queries: [{ ...actionsEntry, queryKey: balancesKey, state: { ...actionsEntry.state, data: balancesSnapshotFixture } }],
@@ -260,7 +263,7 @@ describe("owner query cache boundary", () => {
     const ownerKey = balanceOwnerKey;
     const storage = memoryStorage();
     const body = JSON.stringify({
-      timestamp: Date.now(), buster: "home-query-v3",
+      timestamp: Date.now(), buster: "home-query-v4",
       clientState: {
         mutations: [],
         queries: [{
@@ -280,7 +283,7 @@ describe("owner query cache boundary", () => {
     const ownerKey = balanceOwnerKey;
     const values = new Map<string, string>();
     values.set(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
-      timestamp: Date.now(), buster: "home-query-v3",
+      timestamp: Date.now(), buster: "home-query-v4",
       clientState: {
         mutations: [],
         queries: [{
@@ -306,7 +309,7 @@ describe("owner query cache boundary", () => {
     const key = `${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`;
     for (const queries of ["not an array", [{ queryKey: ownerQueryKey(ownerKey, "stock-trade-eligibility") }]]) {
       storage.setItem(key, JSON.stringify({
-        timestamp: Date.now(), buster: "home-query-v3",
+        timestamp: Date.now(), buster: "home-query-v4",
         clientState: { mutations: [], queries },
       }));
       const restored = createHomeQueryClient();
@@ -315,6 +318,45 @@ describe("owner query cache boundary", () => {
       expect(result).toBe(false);
       expect(restored.getQueryCache().getAll()).toHaveLength(0);
     }
+  });
+
+  test("parsed actions and orders never persist or restore and refetch on reload", async () => {
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject-a" },
+      smartAccount: { address: balancesSnapshotFixture.owner.address, chainId: 8453 },
+      accountProvider: "cdp-embedded",
+    };
+    const ownerKey = dataOwnerKey(session);
+    const storage = memoryStorage();
+    const source = createHomeQueryClient();
+    let actionReads = 0;
+    let orderReads = 0;
+    const actions = recentActionsQuery({ owner: ownerKey, session, fetchOperations: async () => { actionReads += 1; return { actions: [] }; } });
+    const orders = activityOrdersQuery({ owner: ownerKey, session, fetchOrders: async () => {
+      orderReads += 1;
+      return { version: 1, owner: { subject: session.user.subject, accountProvider: session.accountProvider }, orders: [] };
+    } });
+    expect(await source.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
+    expect(await source.fetchQuery(orders)).toEqual([]);
+    expect(actionReads).toBe(1);
+    expect(orderReads).toBe(1);
+    expect(dehydrateOwnerQueries(source, ownerKey).queries).toHaveLength(0);
+    for (const query of source.getQueryCache().getAll()) {
+      expect(shouldPersistOwnerQuery(query, ownerKey)).toBe(false);
+      query.setOptions({ ...query.options, meta: ownerQueryMeta(ownerKey, "owner") });
+      expect(shouldPersistOwnerQuery(query, ownerKey)).toBe(false);
+    }
+    storage.setItem(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
+      timestamp: NOW, buster: "home-query-v4", clientState: dehydrate(source),
+    }));
+    const reloaded = createHomeQueryClient();
+    expect(restoreOwnerQueries(reloaded, storage, ownerKey)).toBe(false);
+    expect(reloaded.getQueryData(actions.queryKey)).toBeUndefined();
+    expect(reloaded.getQueryData(orders.queryKey)).toBeUndefined();
+    expect(await reloaded.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [] });
+    expect(await reloaded.fetchQuery(orders)).toEqual([]);
+    expect(actionReads).toBe(2);
+    expect(orderReads).toBe(2);
   });
 
   test("persister restores synchronously and dehydration rejects non-owner keys", async () => {
@@ -343,7 +385,7 @@ describe("owner query cache boundary", () => {
     const persister = createOwnerQueryPersister(storage, ownerKey);
     persister?.persistClient({
       timestamp: NOW,
-      buster: "home-query-v3",
+      buster: "home-query-v4",
       clientState: dehydrated,
     });
     persister?.flush();
@@ -399,6 +441,26 @@ describe("coalesced owner query persistence", () => {
     unsubscribe();
     jest.advanceTimersByTime(1_000);
     expect(scan).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    cancel();
+  });
+
+  test("parsed action and order fetches do not schedule an owner storage write", async () => {
+    const ownerKey = balanceOwnerKey;
+    const session: VerifiedAccountSession = {
+      user: { subject: "subject-a" },
+      smartAccount: { address: balancesSnapshotFixture.owner.address, chainId: 8453 },
+      accountProvider: "cdp-embedded",
+    };
+    const client = createHomeQueryClient();
+    const storage = memoryStorage();
+    const write = spyOn(storage, "setItem");
+    const cancel = subscribeOwnerQueryPersistence(client, storage, ownerKey);
+    await client.fetchQuery(recentActionsQuery({ owner: ownerKey, session, fetchOperations: async () => ({ actions: [] }) }));
+    await client.fetchQuery(activityOrdersQuery({ owner: ownerKey, session, fetchOrders: async () => ({
+      version: 1, owner: { subject: session.user.subject, accountProvider: session.accountProvider }, orders: [],
+    }) }));
+    jest.advanceTimersByTime(1_000);
     expect(write).not.toHaveBeenCalled();
     cancel();
   });
@@ -538,7 +600,7 @@ describe("coalesced owner query persistence", () => {
   });
 
   test("lazy snapshots are not evaluated after cancellation and diagnostics fail open", () => {
-    const snapshot = mock(() => ({ timestamp: NOW, buster: "home-query-v3", clientState: { mutations: [], queries: [] } }));
+    const snapshot = mock(() => ({ timestamp: NOW, buster: "home-query-v4", clientState: { mutations: [], queries: [] } }));
     const persister = createOwnerQueryPersister(memoryStorage(), "owner-a", 250, () => { throw new Error("diagnostics failed"); })!;
     persister.persistClient(snapshot);
     persister.cancel();

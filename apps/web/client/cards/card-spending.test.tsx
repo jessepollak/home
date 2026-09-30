@@ -8,6 +8,7 @@ import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ExpirySchedulerContext } from "@/client/actions/expiry";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
 import type { CardScreenProps } from "./card-experience";
 
@@ -29,6 +30,18 @@ function prepared(params: CardAllowancePrepareParams): PreparedMoneyAction {
     createdAt: "2026-09-28T12:00:00.000Z", expiresAt: "2026-09-28T12:05:00.000Z",
     metadata: { product: "card", provider: "bridge", mode: "production", operation: params.operation === "set" ? "set-allowance" : "revoke-allowance", token: BASE_USDC_ADDRESS.toLowerCase() as `0x${string}`, spender: params.operation === "revoke" ? params.spender : spender, allowanceBaseUnits: params.operation === "set" ? params.allowanceBaseUnits : "0", previousAllowanceBaseUnits: "25000000", maximumBaseUnits: params.operation === "set" ? "1000000000" : null, source: { blockNumber: "1" } },
   };
+}
+
+function actionsPayload(action: PreparedMoneyAction) {
+  return parseRecentActionsPayload({ actions: [{
+    id: action.id, kind: "card-allowance", status: "confirmed",
+    createdAt: action.createdAt, confirmedAt: action.createdAt, owner: action.owner,
+    summary: { title: action.title, amounts: [], warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+  }] }, {
+    user: { subject: action.owner.subject },
+    smartAccount: { address: action.owner.address, chainId: action.owner.chainId },
+    accountProvider: action.owner.accountProvider,
+  });
 }
 
 function renderScreen(props: CardScreenProps) {
@@ -345,7 +358,7 @@ describe("Card allowance flow", () => {
     await waitFor(() => expect(dialog.getByText("Setting card spending limit")).toBeTruthy());
     const action = prepared({ version: 1, operation: "set", allowanceBaseUnits: "25000000" });
     const ownerKey = dataOwnerKey({ subject: action.owner.subject, smartAccountAddress: action.owner.address, chainId: action.owner.chainId, accountProvider: action.owner.accountProvider });
-    await act(async () => { getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "actions"), { actions: [{ id: action.id, status: "confirmed", owner: action.owner }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "actions"), actionsPayload(action)); });
     await waitFor(() => expect(dialog.getByText("Card spending limit set")).toBeTruthy());
     expect(refresh).toHaveBeenCalledTimes(1);
     fireEvent.click(dialog.getByRole("button", { name: "Done" }));
@@ -384,7 +397,7 @@ describe("Card allowance flow", () => {
     await waitFor(() => expect(dialog.getByText("Removing card spending permission")).toBeTruthy());
     const action = prepared({ version: 1, operation: "revoke", spender });
     const ownerKey = dataOwnerKey({ subject: action.owner.subject, smartAccountAddress: action.owner.address, chainId: action.owner.chainId, accountProvider: action.owner.accountProvider });
-    await act(async () => { getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "actions"), { actions: [{ id: action.id, status: "confirmed", owner: action.owner }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "actions"), actionsPayload(action)); });
     await waitFor(() => expect(dialog.getByText("Card spending permission removed")).toBeTruthy());
     expect(refresh).toHaveBeenCalledTimes(1);
     fireEvent.click(dialog.getByRole("button", { name: "Done" }));

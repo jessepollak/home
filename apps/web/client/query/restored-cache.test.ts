@@ -15,33 +15,6 @@ const ownerKey = dataOwnerKey({
 
 const fundingOrder = { id: "order-1", providerId: "provider-1", state: "confirmed", fiatAmount: "10", providerStatus: null, instructions: null };
 
-const actionItem = {
-  id: "11111111-1111-4111-8111-111111111111",
-  provider: "cdp-embedded",
-  kind: "send",
-  summary: {
-    title: "Recorded send",
-    amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000001", direction: "spend" }],
-    warnings: [],
-    expiresAt: "2026-09-15T12:30:00.000Z",
-  },
-  status: "confirmed",
-  createdAt: "2026-09-15T12:00:00.000Z",
-  confirmedAt: "2026-09-15T12:05:00.000Z",
-  owner: {
-    subject: "subject-a",
-    address: balancesSnapshotFixture.owner.address,
-    chainId: 8453,
-    accountProvider: "cdp-embedded",
-  },
-};
-
-const tradeActionItem = {
-  ...actionItem,
-  kind: "trade",
-  summary: { ...actionItem.summary, amounts: [{ ...actionItem.summary.amounts[0], assetId: "degen", symbol: "DEGEN", decimals: 36 }] },
-};
-
 const activityWindowEnd = "2026-09-07T12:00:00.000Z";
 const activityWallet = "0x1111111111111111111111111111111111111111" as const;
 
@@ -93,8 +66,6 @@ const tradeToken = {
 };
 
 const validEntries = [
-  { scope: "actions", data: { actions: [actionItem, tradeActionItem] } },
-  { scope: "activity-orders", data: { version: 1, owner: { subject: "subject-a", accountProvider: "cdp-embedded" }, orders: [] } },
   { scope: "balances", data: balancesSnapshotFixture, parts: ["US"] },
   { scope: "funding-open-order", data: { order: null } },
   { scope: "funding-open-order", data: { order: fundingOrder } },
@@ -109,7 +80,7 @@ describe("restored owner cache scope guards", () => {
   test("every persisted owner scope rejects malformed containers", () => {
     const ownerScopes = Object.entries(queryScopes).filter(([, policy]) =>
       policy.audience === "owner" && policy.persistence === "owner");
-    expect(ownerScopes).toHaveLength(11);
+    expect(ownerScopes).toHaveLength(9);
     for (const [scope, policy] of ownerScopes) {
       if (policy.audience !== "owner" || policy.persistence !== "owner") continue;
       expect(typeof policy.validateRestored).toBe("function");
@@ -172,19 +143,6 @@ describe("restored owner cache scope guards", () => {
       .toEqual({ pages: [first, extra], pageParams: [null, "next-page"] });
   });
 
-  test("rejects activity and order entries whose members or owner do not parse", () => {
-    const actionsEntry = { ownerKey, queryKey: [ownerKey, "actions"] };
-    expect(queryScopes.actions.validateRestored({ actions: [{}] }, actionsEntry)).toBeNull();
-    expect(queryScopes.actions.validateRestored({ actions: [actionItem] }, actionsEntry)?.data)
-      .toEqual({ actions: [actionItem] });
-    const badAmount = { ...actionItem, summary: { ...actionItem.summary, amounts: [null] } };
-    expect(queryScopes.actions.validateRestored({ actions: [badAmount] }, actionsEntry)).toBeNull();
-    const badDecimals = { ...actionItem, summary: { ...actionItem.summary, amounts: [{ ...actionItem.summary.amounts[0], decimals: -1 }] } };
-    expect(queryScopes.actions.validateRestored({ actions: [badDecimals] }, actionsEntry)).toBeNull();
-    const ordersEntry = { ownerKey, queryKey: [ownerKey, "activity-orders"] };
-    expect(queryScopes["activity-orders"].validateRestored({ version: 1, owner: { subject: "subject-a", accountProvider: "cdp-embedded" }, orders: [{}] }, ordersEntry)).toBeNull();
-    expect(queryScopes["activity-orders"].validateRestored({ version: 1, owner: { subject: "subject-b", accountProvider: "cdp-embedded" }, orders: [] }, ordersEntry)).toBeNull();
-  });
 
   test("rejects a trade-availability response bound to another asset", () => {
     const policy = queryScopes["trade-availability"];

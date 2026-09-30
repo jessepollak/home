@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { InfiniteQueryObserver, infiniteQueryOptions, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { InfiniteQueryObserver, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
@@ -18,7 +18,6 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   browserHomeQueryClient,
   ownerQueryKey,
-  ownerQueryMeta,
   useHomeInfiniteQuery,
   useHomeQuery,
   useHomeQueryClient,
@@ -34,8 +33,8 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import { ResourceFailure } from "@/client/account/resource-failure";
 import type { RegionId } from "@/config/regions";
 import { presentationMoneyMetadata } from "@/shared/formatting";
+import { ownerInfiniteQuery, ownerQuery } from "@/client/query/query-options";
 
-export const activityStaleTimeMs = 10_000;
 export const activityLatestReadTimeoutMs = 45_000;
 const activityRefreshExtraPages = 10;
 export const activityContinuationBurstPages = 3;
@@ -149,13 +148,13 @@ function activityQueryOptions(input: {
   previousPages?: readonly ActivityPage[];
 }) {
   const { session, ownerKey, windowEnd, currency, fetchActivity, queryClient, previousPages } = input;
-  return infiniteQueryOptions({
-    queryKey: ownerQueryKey(ownerKey, "activity", windowEnd, currency),
-    initialPageParam: null as string | null,
-    staleTime: activityStaleTimeMs,
+  return ownerInfiniteQuery<ActivityPage, string | null>({
+    owner: session ? ownerKey : null,
+    scope: "activity",
+    key: [windowEnd, currency],
+    initialPageParam: null,
     retry: false,
     refetchOnWindowFocus: true,
-    meta: session ? ownerQueryMeta(ownerKey, "owner") : undefined,
     queryFn: async ({ pageParam, queryKey, signal }) => {
       if (!session) throw new Error("Activity is unavailable.");
       const requestedWindow = queryKey[2] as string;
@@ -519,29 +518,22 @@ export function useActivity(
   const validSession = isVerifiedActivitySession(session) ? session : null;
   const ownerKey = validSession ? activityOwnerKey(validSession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const windowQuery = useHomeQuery({
-    queryKey: ownerKey
-      ? ownerQueryKey(ownerKey, activityWindowScope)
-      : ["unauthenticated", "activity-window-disabled"],
+  const windowQuery = useHomeQuery(ownerQuery({
+    owner: ownerKey,
+    scope: activityWindowScope,
     enabled: false,
     initialData: ownerKey ? initialActivityWindowEnd : "",
-    staleTime: Infinity,
     gcTime: Infinity,
-    meta: ownerKey ? ownerQueryMeta(ownerKey, "memory") : undefined,
     queryFn: async () => ownerKey ? initialActivityWindowEnd() : "",
-  });
+  }));
   const windowEnd = windowQuery.data ?? "";
   const activityQueryKey = useMemo(() => ownerKey
     ? ownerQueryKey(ownerKey, "activity", windowEnd, currency)
     : ["unauthenticated", "activity-disabled"], [ownerKey, windowEnd, currency]);
 
-  const query = useHomeInfiniteQuery({
-    ...activityQueryOptions({
-      session: validSession, ownerKey: ownerKey ?? "unauthenticated", windowEnd, currency, fetchActivity, queryClient,
-    }),
-    queryKey: activityQueryKey,
-    enabled: ownerKey !== null,
-  });
+  const query = useHomeInfiniteQuery(activityQueryOptions({
+    session: validSession, ownerKey: ownerKey ?? "unauthenticated", windowEnd, currency, fetchActivity, queryClient,
+  }));
 
   const mergedPage = useMemo(() => {
     const pages = query.data?.pages;

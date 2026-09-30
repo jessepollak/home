@@ -6,6 +6,7 @@ import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
+import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import {
   MoneyAmountDisplay,
@@ -376,7 +377,7 @@ function BorrowResult({ action, submission, submittedAt, snapshot, operation, fe
     action,
     submission,
     fetchOperations: (signal) => fetchAccountResource
-      ? fetchAccountResource("/api/actions", { signal })
+      ? fetchAccountResource(recentActionsPath, { signal })
       : Promise.reject(new Error("Actions are unavailable.")),
   });
   return <>

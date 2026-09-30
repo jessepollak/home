@@ -11,6 +11,7 @@ import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
 import { readCardAllowanceRegistry, readCardSpenderBlocklist, type CardAllowanceRegistry } from "@/server/cards/allowance/config";
 import {
   isActionKind,
+  MAX_MONEY_ACTION_AMOUNT_DECIMALS,
   type MoneyActionAmount,
   type MoneyActionCall,
   type MoneyActionDraft,
@@ -394,7 +395,7 @@ function normalizeAmount(amount: MoneyActionAmount): MoneyActionAmount {
     amount.symbol.length > 24 ||
     !Number.isSafeInteger(amount.decimals) ||
     amount.decimals < 0 ||
-    amount.decimals > 255 ||
+    amount.decimals > MAX_MONEY_ACTION_AMOUNT_DECIMALS ||
     typeof amount.amountBaseUnits !== "string" ||
     !integerPattern.test(amount.amountBaseUnits) ||
     BigInt(amount.amountBaseUnits) > MAX_UINT256 ||

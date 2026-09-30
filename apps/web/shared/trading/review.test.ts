@@ -73,7 +73,7 @@ describe("trade review parsers", () => {
     expect(pending?.metadata?.product).toBe("trade");
     expect(pending?.signing?.signer).toBe("cdp-embedded");
     expect(parsePendingActionResponse({ id, kind: "trade", summary, signing: { ...signing, evmAccount: "invalid" }, calls: [], expiresAt: summary.expiresAt }, id, session)).toBeNull();
-    const item = { id, kind: "trade", owner: { subject: "owner", address: OWNER, accountProvider: "cdp-embedded" },
+    const item = { id, kind: "trade", owner: { subject: "owner", address: OWNER, chainId: 8453, accountProvider: "cdp-embedded" },
       summary, status: "pending", createdAt: summary.expiresAt, confirmedAt: summary.expiresAt };
     expect(parseRecentMoneyActions({ actions: [item] }, session)[0]?.action.metadata?.product).toBe("trade");
     const tampered = { ...item, summary: { ...summary, metadata: { ...metadata, minimumToAmountBaseUnits: "1001" } } };
@@ -96,7 +96,7 @@ describe("generic trade metadata", () => {
   test("defaults legacy cbBTC metadata to the original asset identity and title", () => {
     expect(parseTradeMetadata(metadata)).toMatchObject({ assetId: "cbbtc", assetName: "Bitcoin" });
     expect(parseTradeMetadata({ ...metadata, toAsset: { ...metadata.toAsset, id: "other" } })).toBeNull();
-    const item = { id, kind: "trade", owner: { subject: "owner", address: OWNER, accountProvider: "cdp-embedded" },
+    const item = { id, kind: "trade", owner: { subject: "owner", address: OWNER, chainId: 8453, accountProvider: "cdp-embedded" },
       summary, status: "confirmed", createdAt: summary.expiresAt, confirmedAt: summary.expiresAt };
     expect(parseRecentMoneyActions({ actions: [item] }, session)[0]?.action.metadata).toMatchObject({ assetId: "cbbtc", assetName: "Bitcoin" });
     const pending = parsePendingActionResponse({ id, kind: "trade", summary, signing, calls: [{ to: OWNER, data: "0x1234", value: "0" }], expiresAt: summary.expiresAt }, id, session);

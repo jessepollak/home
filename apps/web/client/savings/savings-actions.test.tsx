@@ -90,6 +90,14 @@ function prepared(
     },
   };
 }
+function resultRow(rowOwner: PreparedMoneyAction["owner"], status: "pending" | "confirmed" | "failed") {
+  const action = prepared();
+  return {
+    id: action.id, kind: action.kind, status, owner: rowOwner,
+    createdAt: action.createdAt, confirmedAt: action.createdAt,
+    summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt },
+  };
+}
 function typeAmount(value: string) {
   fireEvent.change(page().getByRole("textbox", { name: "Amount" }), { target: { value } });
 }
@@ -1084,7 +1092,7 @@ function ManagementHarness({ prepareMoneyAction }: {
   test("ignores another owner's matching id and follows this owner's confirmed row", async () => {
     let rowOwner = prepared().owner;
     let closes = 0;
-    const fetchAccountResource = async () => ({ actions: [{ id: "action-1", owner: rowOwner, status: "confirmed" }] });
+    const fetchAccountResource = async () => ({ actions: [resultRow(rowOwner, "confirmed")] });
     render(<AmountJourney open mode="withdraw" session={session} candidate={candidate}
       prepareMoneyAction={async () => prepared("savings-withdraw")}
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
@@ -1109,7 +1117,7 @@ function ManagementHarness({ prepareMoneyAction }: {
     render(<AmountJourney open mode="deposit" session={session} candidate={candidate}
       prepareMoneyAction={async () => { preparations += 1; return prepared(); }}
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
-      fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "failed" }] })}
+      fetchAccountResource={async () => ({ actions: [resultRow(prepared().owner, "failed")] })}
       onClose={() => {}} />);
     typeAmount("1");
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
@@ -1146,7 +1154,7 @@ function ManagementHarness({ prepareMoneyAction }: {
       <AmountJourney open mode="deposit" session={session} candidate={candidate}
         prepareMoneyAction={async () => prepared()}
         executeMoneyAction={async () => { throw new TransferExecutionError(reason); }}
-        fetchAccountResource={async () => ({ actions: [{ id: "action-1", owner: prepared().owner, status: "pending" }] })}
+        fetchAccountResource={async () => ({ actions: [resultRow(prepared().owner, "pending")] })}
         onClose={() => { events.push("close"); }} />
     </HomeShellRoutingProvider>);
     typeAmount("1");

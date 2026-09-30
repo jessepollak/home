@@ -6,6 +6,7 @@ import { defaultScheduler, dehydrate, focusManager, notifyManager } from "@tanst
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { holdClock, pinClock } from "@/tests/helpers/pin-clock";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 import {
   ACTIVITY_CONTRACT_VERSION,
   type ActivityResponse,
@@ -422,10 +423,10 @@ describe("ConnectedActivityPanel", () => {
     expect(calls).toBe(2);
   });
 
-  test("restored action rows older than the tolerance still report a sustained failure", async () => {
+  test("cached action rows older than the tolerance still report a sustained failure", async () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
-    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], { actions: [actionFor(owner, "Restored send")] }, {
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], parseRecentActionsPayload({ actions: [actionFor(owner, "Restored send")] }, owner), {
       updatedAt: NOW - 10 * 60_000,
     });
     let calls = 0;
@@ -448,7 +449,7 @@ describe("ConnectedActivityPanel", () => {
     source.setQueryData(actionsKey, { actions: [null] });
     const queries = dehydrate(source).queries;
     window.localStorage.setItem(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
-      timestamp: NOW, buster: "home-query-v3", clientState: { mutations: [], queries },
+      timestamp: NOW, buster: "home-query-v4", clientState: { mutations: [], queries },
     }));
     expect(restoreOwnerQueries(getHomeQueryClient(), window.localStorage, ownerKey)).toBe(false);
     expect(getHomeQueryClient().getQueryData(activityKey)).toBeUndefined();
@@ -463,7 +464,18 @@ describe("ConnectedActivityPanel", () => {
     expect(actionsCalls).toBeGreaterThan(0);
   });
 
-  test("a malformed actions value restored from an earlier cache recovers instead of crashing", async () => {
+  test("a malformed cached actions value never masks a failed actions read", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const { activityOwnerKey } = await import("./use-activity");
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: NOW - 60_000 });
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A, { empty: true })}
+      fetchOperations={async () => { throw actionFailure(401); }} />);
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(view.queryByText("No activity yet")).toBeNull();
+  });
+
+  test("a malformed actions value already in memory recovers instead of crashing", async () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
     getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: NOW - 60_000 });

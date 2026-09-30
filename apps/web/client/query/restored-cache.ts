@@ -2,9 +2,7 @@ import { regionIds } from "@/config/regions";
 import { ACTIVITY_CONTRACT_VERSION, isVerifiedActivitySession, parseActivityPage } from "@/shared/activity/contract";
 import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import { mergeActivityPages } from "@/shared/activity/pages";
-import { isActivityOrdersResponse, parseActivityOrders } from "@/shared/activity/contract-orders";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
-import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { BALANCES_CHAIN_ID } from "@/shared/balances/types";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { parseBorrowOverview, parseSnapshot } from "@/shared/borrowing/contract";
@@ -75,17 +73,6 @@ function isTrustedFundingOrderSummary(value: unknown): boolean {
 }
 
 
-export function trustRestoredActions(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
-  const owner = restoredOwner(entry.ownerKey);
-  const session = owner ? activitySession(owner) : null;
-  if (!session || !isRecord(data) || !Array.isArray(data.actions)) return null;
-  try {
-    return parseRecentMoneyActions(data, session).length === data.actions.length ? { data } : null;
-  } catch {
-    return null;
-  }
-}
-
 export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const owner = restoredOwner(entry.ownerKey);
   const session = owner ? activitySession(owner) : null;
@@ -102,17 +89,6 @@ export function trustRestoredActivity(data: unknown, entry: RestoredQueryEntry):
         index === 0 || (typeof pages[index - 1]?.nextCursor === "string" && param === pages[index - 1]?.nextCursor))) return null;
     mergeActivityPages(pages);
     return { data: { pages, pageParams: [...data.pageParams] } };
-  } catch {
-    return null;
-  }
-}
-
-export function trustRestoredActivityOrders(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
-  const owner = restoredOwner(entry.ownerKey);
-  const session = owner ? activitySession(owner) : null;
-  if (!session || !isActivityOrdersResponse(data)) return null;
-  try {
-    return parseActivityOrders(data, session).length === data.orders.length ? { data } : null;
   } catch {
     return null;
   }
