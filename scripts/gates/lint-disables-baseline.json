@@ -208,6 +208,20 @@
   },
   "exceptions": [
     {
+      "path": "apps/web/gmail.test.ts",
+      "rule": "home/no-source-reads",
+      "count": 1,
+      "issue": "#1637",
+      "reason": "Live-login lock tests read only their own temp-dir lock metadata to verify ownership."
+    },
+    {
+      "path": "apps/web/live-login.test.ts",
+      "rule": "home/no-source-reads",
+      "count": 1,
+      "issue": "#1637",
+      "reason": "Live-login tests read only their own temp-dir state files to verify cleanup and permissions."
+    },
+    {
       "path": "apps/web/scripts/fixture-port.test.ts",
       "rule": "home/no-source-reads",
       "count": 1,
