@@ -1,5 +1,6 @@
 
-import type { FiatCurrencyCode, RegionId } from "@/config/regions";
+import type { RegionId } from "@/config/regions";
+import type { BalancesSnapshot } from "./contract";
 
 export const BALANCES_VERSION = 5 as const;
 export const BALANCES_CHAIN_ID = 8453 as const;
@@ -10,15 +11,15 @@ export type NativeAssetKey = `eip155:${typeof BALANCES_CHAIN_ID}/native`;
 export type Erc20AssetKey = `eip155:${typeof BALANCES_CHAIN_ID}/erc20:${string}`;
 export type AssetKey = NativeAssetKey | Erc20AssetKey;
 
-export type ExactDecimal = { atoms: string; scale: number };
+export type { ExactDecimal, HoldingBalance, HoldingValue, HoldingCashValue, Holding,
+  BorrowCollateralHolding, BorrowPosition, BalancesBorrow, BalancesCoverage,
+  BalancesTotal, BalancesNetTotal, BalancesTotals, BalancesSnapshot } from "./contract";
+/** @public keeps the response type import path that existed before the schema migration */
+export type { BorrowDebtLine } from "./contract";
 
 export type HoldingKind = "native" | "erc20" | "vault-share";
 export type HoldingSource = "registry" | "catalog" | "wallet" | "borrow";
 export type BorrowMarketKey = `0x${string}`;
-
-export type HoldingBalance =
-  | { status: "ready"; baseUnits: string }
-  | { status: "unavailable"; baseUnits: null };
 
 export type HoldingValueUnpricedReason =
   | "price-unavailable"
@@ -30,98 +31,6 @@ export type HoldingValueUnpricedReason =
   | "asset-removed";
 
 export type HoldingValueReference = { kind: "tokenized-equity"; session: "open" | "closed" };
-
-export type HoldingValue =
-  | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal; asOf: string; reference?: HoldingValueReference }
-  | { status: "unpriced"; reason: HoldingValueUnpricedReason }
-  | { status: "unavailable" };
-
-export type HoldingCashValue =
-  | { status: "priced"; currency: FiatCurrencyCode; amount: ExactDecimal }
-  | { status: "unpriced"; reason: Exclude<HoldingValueUnpricedReason, "below-market-gate" | "no-quote-currency" | "price-paused" | "asset-removed"> }
-  | { status: "unavailable" };
-
-export type Holding = {
-  key: AssetKey;
-  id: string;
-  kind: HoldingKind;
-  source: HoldingSource;
-  name: string;
-  symbol: string;
-  decimals: number;
-  contractAddress: BalancesAddress | null;
-  cashCurrency: FiatCurrencyCode | null;
-  imageUrl?: string;
-  underlying?: { key: Erc20AssetKey; symbol: "USDC"; decimals: 6 };
-  balance: HoldingBalance;
-  underlyingBalance?: HoldingBalance;
-  value: HoldingValue;
-  unitValue?: { currency: FiatCurrencyCode; amount: ExactDecimal };
-  cashValue?: HoldingCashValue;
-  collateral?: { marketId: BorrowMarketKey };
-};
-
-export type BorrowCollateralHolding = Holding & {
-  kind: "erc20";
-  source: "borrow";
-  collateral: { marketId: BorrowMarketKey };
-  balance: { status: "ready"; baseUnits: string };
-};
-
-export type BorrowDebtLine = {
-  sign: -1;
-  marketId: BorrowMarketKey;
-  asset: { key: Erc20AssetKey; name: string; symbol: string; decimals: number };
-  balance: { status: "ready"; baseUnits: string };
-  value: HoldingValue;
-};
-
-export type BorrowPosition = {
-  marketId: BorrowMarketKey;
-  collateral: BorrowCollateralHolding;
-  debt: BorrowDebtLine;
-  borrowAprWad: string;
-};
-
-export type BalancesBorrow = {
-  coverage: "complete" | "partial";
-  positions: BorrowPosition[];
-};
-
-export type BalancesCoverage = {
-  registry: "complete" | "partial";
-  catalog: "complete" | "incomplete" | "unavailable";
-};
-
-export type BalancesTotal = {
-  status: "complete" | "partial" | "unavailable" | "no-quote-currency";
-  value: ExactDecimal | null;
-  currency: FiatCurrencyCode | null;
-};
-
-export type BalancesNetTotal = BalancesTotal & { negative: boolean };
-
-export type BalancesTotals = {
-  cash: BalancesTotal;
-  investments: BalancesTotal;
-  borrow: BalancesTotal;
-  net: BalancesNetTotal;
-};
-
-export type BalancesSnapshot = {
-  version: typeof BALANCES_VERSION;
-  owner: { address: BalancesAddress; chainId: typeof BALANCES_CHAIN_ID };
-  region: RegionId;
-  quoteCurrency: FiatCurrencyCode | null;
-  block: { number: string; hash: `0x${string}`; timestamp: string };
-  fetchedAt: string;
-  holdings: Holding[];
-  coverage: BalancesCoverage;
-  total: BalancesTotal;
-  borrow: BalancesBorrow;
-  totals: BalancesTotals;
-  stale?: true;
-};
 
 export type BalancesSession = {
   subject: string;
