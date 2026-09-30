@@ -1,6 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-// oxlint-disable-next-line home/no-source-reads -- Login fixtures write only system-temp scratch files.
-import { symlink, utimes, writeFile } from "node:fs/promises";
+import { scratchFiles } from "./tests/helpers/scratch-files";
 import { homedir, tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 import { checkAccount, liveLogin, loadVerificationEnv } from "./live-login";
@@ -133,6 +132,11 @@ test("concurrent logins queue before email submit and save distinct states in or
     return new Promise<string>((resolveCode) => { firstCode = resolveCode; });
   });
   await submitted;
+  const stale = resolve(home, ".home-verify", `home-live-42-${"a".repeat(32)}.state.json`);
+  const old = new Date("2020-01-01T00:00:00.000Z");
+  await scratchFiles.writeFile(stale, "fixture");
+  await scratchFiles.writeFile(`${stale}.generated`, "");
+  await scratchFiles.utimes(stale, old);
   let wakeSecond!: () => void;
   let secondQueued!: () => void;
   const queued = new Promise<void>((resolveQueued) => { secondQueued = resolveQueued; });
@@ -148,6 +152,8 @@ test("concurrent logins queue before email submit and save distinct states in or
   });
   await queued;
   expect(events).toEqual(["first:submit"]);
+  expect(Bun.spawnSync(["test", "-f", stale]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["test", "-f", `${stale}.generated`]).exitCode).toBe(0);
   firstCode("123456");
   const firstPath = await first;
   wakeSecond();
@@ -159,6 +165,8 @@ test("concurrent logins queue before email submit and save distinct states in or
   expect(Bun.spawnSync(["test", "-f", firstPath]).exitCode).toBe(0);
   expect(Bun.spawnSync(["test", "-f", secondPath]).exitCode).toBe(0);
   expect(Bun.spawnSync(["test", "-e", resolve(home, ".home-verify/live-login.lock")]).exitCode).not.toBe(0);
+  expect(Bun.spawnSync(["test", "-e", stale]).exitCode).not.toBe(0);
+  expect(Bun.spawnSync(["test", "-e", `${stale}.generated`]).exitCode).not.toBe(0);
 });
 test("removes only marked, owned, regular generated-default states older than 24 hours", async () => {
   const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-prune-test-XXXXXX")]).stdout.toString().trim();
@@ -168,23 +176,23 @@ test("removes only marked, owned, regular generated-default states older than 24
   const directory = resolve(home, ".home-verify");
   const old = new Date(now - 25 * 60 * 60_000);
   const unmarked = resolve(directory, `home-live-42-${"a".repeat(32)}.state.json`);
-  await writeFile(unmarked, "fixture", { mode: 0o600 });
-  await utimes(unmarked, old, old);
+  await scratchFiles.writeFile(unmarked, "fixture");
+  await scratchFiles.utimes(unmarked, old);
   const explicit = await liveLogin(["--session", "operator-state", "--base-url", "https://example.com"], {
     home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
     command: (args) => { if (args[0] === "state") Bun.spawnSync(["touch", args[2]]); return ""; },
     getOtp: async () => "123456",
     now: () => now,
   });
-  await utimes(stale, old, old);
-  await utimes(explicit, old, old);
+  await scratchFiles.utimes(stale, old);
+  await scratchFiles.utimes(explicit, old);
   const linkedState = resolve(directory, `home-live-43-${"b".repeat(32)}.state.json`);
-  await symlink(unmarked, linkedState);
-  await writeFile(`${linkedState}.generated`, "", { mode: 0o600 });
+  await scratchFiles.symlink(unmarked, linkedState);
+  await scratchFiles.writeFile(`${linkedState}.generated`, "");
   const linkedMarkerState = resolve(directory, `home-live-44-${"c".repeat(32)}.state.json`);
-  await writeFile(linkedMarkerState, "fixture", { mode: 0o600 });
-  await utimes(linkedMarkerState, old, old);
-  await symlink(`${stale}.generated`, `${linkedMarkerState}.generated`);
+  await scratchFiles.writeFile(linkedMarkerState, "fixture");
+  await scratchFiles.utimes(linkedMarkerState, old);
+  await scratchFiles.symlink(`${stale}.generated`, `${linkedMarkerState}.generated`);
   const recent = await fakeLogin(home, [], "new", async () => "123456", () => now);
   expect(Bun.spawnSync(["test", "-e", stale]).exitCode).not.toBe(0);
   expect(Bun.spawnSync(["test", "-e", `${stale}.generated`]).exitCode).not.toBe(0);
@@ -195,7 +203,7 @@ test("removes only marked, owned, regular generated-default states older than 24
   expect(Bun.spawnSync(["test", "-f", recent]).exitCode).toBe(0);
   expect(Bun.spawnSync(["test", "-f", `${recent}.generated`]).exitCode).toBe(0);
   const recentDate = new Date(now - 23 * 60 * 60_000);
-  await utimes(recent, recentDate, recentDate);
+  await scratchFiles.utimes(recent, recentDate);
   await fakeLogin(home, [], "later", async () => "123456", () => now);
   expect(Bun.spawnSync(["test", "-f", recent]).exitCode).toBe(0);
 });
@@ -223,6 +231,7 @@ test("releases the email lock when code retrieval or state save fails", async ()
     getOtp: async () => "123456",
   })).rejects.toThrow("State save failed");
   expect(Bun.spawnSync(["test", "-e", lock]).exitCode).not.toBe(0);
+  expect((await scratchFiles.readdir(resolve(home, ".home-verify"))).filter((name) => name.endsWith(".generated"))).toEqual([]);
   await expect(fakeLogin(home, [], "retry", async () => "123456")).resolves.toContain(".state.json");
 });
 

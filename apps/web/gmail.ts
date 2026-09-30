@@ -12,6 +12,7 @@ const otpLockStaleMs = 8 * 60_000;
 const otpLockUnownedGraceMs = 30_000;
 const otpLockWaitMs = 4 * 60_000;
 const otpLockRetryMs = 1000;
+const otpLockGuardStaleMs = 30_000;
 
 type OtpLockOwner = { pid: number; host: string; startedAt: number; token: string };
 type OtpLockOptions = { now?: () => number; sleep?: (milliseconds: number) => Promise<void>; writeMetadata?: (path: string, owner: OtpLockOwner) => Promise<void> };
@@ -55,6 +56,93 @@ async function writeLockMetadata(path: string, owner: OtpLockOwner): Promise<voi
   try { await file.writeFile(JSON.stringify(owner)); } finally { await file.close(); }
 }
 
+async function moveAndRemoveLock(path: string, info: Awaited<ReturnType<typeof lockDirectoryInfo>>, suffix: string): Promise<boolean> {
+  const moved = `${path}.${randomUUID()}.${suffix}`;
+  try { await rename(path, moved); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  if ((await lockDirectoryInfo(moved)).ino !== info.ino) {
+    await rename(moved, path);
+    return false;
+  }
+  await rm(moved, { recursive: true });
+  return true;
+}
+
+const localGuardQueues = new Map<string, Promise<void>>();
+
+async function withFilesystemOtpLockGuard<T>(
+  path: string, now: () => number, sleep: (milliseconds: number) => Promise<void>, deadline: number, run: () => Promise<T>,
+): Promise<T> {
+  const guard = `${path}.recover`;
+  let owned: Awaited<ReturnType<typeof lockDirectoryInfo>> | null = null;
+  while (true) {
+    try {
+      owned = null;
+      await mkdir(guard, { mode: 0o700 });
+      try {
+        owned = await lockDirectoryInfo(guard);
+        await writeLockMetadata(resolve(guard, "owner.json"), { pid: process.pid, host: hostname(), startedAt: now(), token: randomUUID() });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        const current = await lockDirectoryInfo(guard).catch(() => null);
+        if (owned && current?.ino === owned.ino) await moveAndRemoveLock(guard, owned, "released");
+        throw error;
+      }
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    let info;
+    try { info = await lockDirectoryInfo(guard); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    if (now() - info.mtimeMs >= otpLockGuardStaleMs) {
+      const owner = await lockOwner(resolve(guard, "owner.json"));
+      if (!owner || (owner.host === hostname() && pidIsDead(owner.pid))) {
+        const current = await lockDirectoryInfo(guard).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        if (current?.ino === info.ino && current.mtimeMs === info.mtimeMs
+          && (await lockOwner(resolve(guard, "owner.json")))?.token === owner?.token) {
+          await moveAndRemoveLock(guard, info, "stale");
+          continue;
+        }
+      }
+    }
+    if (now() >= deadline) throw new Error("Timed out waiting for the live-login email code lock (4 minutes).");
+    await sleep(Math.min(otpLockRetryMs, deadline - now()));
+  }
+  try { return await run(); }
+  finally {
+    const current = await lockDirectoryInfo(guard).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (owned && current?.ino === owned.ino) await moveAndRemoveLock(guard, owned, "released");
+  }
+}
+async function withOtpLockGuard<T>(
+  path: string, now: () => number, sleep: (milliseconds: number) => Promise<void>, deadline: number, run: () => Promise<T>,
+): Promise<T> {
+  const previous = localGuardQueues.get(path);
+  let done!: () => void;
+  const turn = new Promise<void>((resolveTurn) => { done = resolveTurn; });
+  localGuardQueues.set(path, turn);
+  if (previous) await previous;
+  try { return await withFilesystemOtpLockGuard(path, now, sleep, deadline, run); }
+  finally {
+    if (localGuardQueues.get(path) === turn) localGuardQueues.delete(path);
+    done();
+  }
+}
+
+
 export async function acquireGmailOtpLock(directory: string, options: OtpLockOptions = {}): Promise<() => Promise<void>> {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((milliseconds: number) => Bun.sleep(milliseconds));
@@ -64,69 +152,72 @@ export async function acquireGmailOtpLock(directory: string, options: OtpLockOpt
   const owner: OtpLockOwner = { pid: process.pid, host: hostname(), startedAt: now(), token: randomUUID() };
   const deadline = now() + otpLockWaitMs;
   while (true) {
-    try {
-      await mkdir(path, { mode: 0o700 });
-      let info;
+    const release = await withOtpLockGuard(path, now, sleep, deadline, async () => {
       try {
-        info = await lockDirectoryInfo(path);
-        await (options.writeMetadata ?? writeLockMetadata)(metadata, owner);
-      } catch (error) {
-        await rm(path, { recursive: true, force: true });
-        throw error;
-      }
-      const heartbeat = setInterval(() => {
-        void (async () => {
-          if ((await lockDirectoryInfo(path)).ino === info.ino && (await lockOwner(metadata))?.token === owner.token) {
-            const time = new Date(now());
-            await utimes(path, time, time);
-          }
-        })().catch(() => undefined);
-      }, 30_000);
-      heartbeat.unref();
-      return async () => {
-        clearInterval(heartbeat);
+        await mkdir(path, { mode: 0o700 });
+        let info: Awaited<ReturnType<typeof lockDirectoryInfo>> | undefined;
         try {
-          if ((await lockDirectoryInfo(path)).ino !== info.ino || (await lockOwner(metadata))?.token !== owner.token) return;
-          const released = `${path}.${randomUUID()}.released`;
-          try { await rename(path, released); }
-          catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-            throw error;
-          }
-          if ((await lockDirectoryInfo(released)).ino !== info.ino) throw new Error("Live-login lock changed during release; retry login.");
-          await rm(released, { recursive: true });
+          info = await lockDirectoryInfo(path);
+          await (options.writeMetadata ?? writeLockMetadata)(metadata, owner);
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          if (info) {
+            const current = await lockDirectoryInfo(path).catch((caught: NodeJS.ErrnoException) => {
+              if (caught.code === "ENOENT") return null;
+              throw caught;
+            });
+            if (current?.ino === info.ino) await moveAndRemoveLock(path, info, "released");
+          }
+          if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+          throw error;
         }
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-    let info;
-    try { info = await lockDirectoryInfo(path); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      throw error;
-    }
-    const heldBy = await lockOwner(metadata);
-    if (now() - info.mtimeMs >= otpLockStaleMs || (!heldBy && now() - info.mtimeMs >= otpLockUnownedGraceMs)
-      || (heldBy?.host === hostname() && pidIsDead(heldBy.pid))) {
-      const current = await lockDirectoryInfo(path).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return null;
-        throw error;
-      });
-      if (!current || current.ino !== info.ino || current.mtimeMs !== info.mtimeMs
-        || (await lockOwner(metadata))?.token !== heldBy?.token) continue;
-      const abandoned = `${path}.${randomUUID()}.stale`;
-      try { await rename(path, abandoned); }
+        const held = info;
+        const heartbeat = setInterval(() => {
+          void (async () => {
+            if ((await lockDirectoryInfo(path)).ino === held.ino && (await lockOwner(metadata))?.token === owner.token) {
+              const time = new Date(now());
+              await utimes(path, time, time);
+            }
+          })().catch(() => undefined);
+        }, 30_000);
+        heartbeat.unref();
+        return async () => {
+          clearInterval(heartbeat);
+          await withOtpLockGuard(path, now, sleep, now() + otpLockWaitMs, async () => {
+            const current = await lockDirectoryInfo(path).catch((error: NodeJS.ErrnoException) => {
+              if (error.code === "ENOENT") return null;
+              throw error;
+            });
+            if (current?.ino === held.ino && (await lockOwner(metadata))?.token === owner.token) {
+              await moveAndRemoveLock(path, held, "released");
+            }
+          });
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      let info;
+      try { info = await lockDirectoryInfo(path); }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
         throw error;
       }
-      if ((await lockDirectoryInfo(abandoned)).ino !== info.ino) throw new Error("Live-login lock changed during recovery; retry login.");
-      await rm(abandoned, { recursive: true });
-      continue;
-    }
+      const heldBy = await lockOwner(metadata);
+      if (now() - info.mtimeMs >= otpLockStaleMs || (!heldBy && now() - info.mtimeMs >= otpLockUnownedGraceMs)
+        || (heldBy?.host === hostname() && pidIsDead(heldBy.pid))) {
+        const current = await lockDirectoryInfo(path).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        if (current?.ino === info.ino && current.mtimeMs === info.mtimeMs
+          && (await lockOwner(metadata))?.token === heldBy?.token) {
+          await moveAndRemoveLock(path, info, "stale");
+        }
+        return null;
+      }
+      return false;
+    });
+    if (release) return release;
+    if (release === null) continue;
     if (now() >= deadline) throw new Error("Timed out waiting for the live-login email code lock (4 minutes).");
     await sleep(Math.min(otpLockRetryMs, deadline - now()));
   }

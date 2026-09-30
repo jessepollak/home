@@ -42,11 +42,13 @@ async function removeOldGeneratedStates(directory: string, now: number): Promise
     if (!state.isFile() || state.isSymbolicLink() || state.uid !== process.getuid?.()
       || !marker.isFile() || marker.isSymbolicLink() || marker.uid !== process.getuid?.()
       || (marker.mode & 0o077) !== 0 || now - state.mtimeMs < generatedStateAgeMs) continue;
-    try {
-      await unlink(statePath);
-      await unlink(markerPath);
-    } catch {
-      throw new Error("Could not remove old live-login state files.");
+    for (const file of [statePath, markerPath]) {
+      try { await unlink(file); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw new Error("Could not remove old live-login state files.");
+        }
+      }
     }
   }
 }
@@ -152,7 +154,6 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
     throw new Error("Verification directory must be owned by the current user and not a symlink.");
   }
   await chmod(directory, 0o700);
-  await removeOldGeneratedStates(directory, (options.now ?? Date.now)());
   try {
     const existing = await lstat(path);
     if (existing.isSymbolicLink()) throw new Error("Refusing a symlink state path.");
@@ -175,6 +176,7 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
     fillSecret("Email address", email, command);
     const release = await acquireGmailOtpLock(directory, { now: options.now, sleep: options.sleep });
     try {
+      await removeOldGeneratedStates(directory, (options.now ?? Date.now)());
       const submittedAt = (options.now ?? Date.now)();
       command(["find", "role", "button", "click", "--name", "Continue with email", "--exact"]);
       const code = options.getOtp
@@ -189,12 +191,12 @@ export async function liveLogin(args: string[], options: LoginOptions = {}): Pro
       fillSecret("Verification code", code, command);
       command(["find", "role", "button", "click", "--name", "Verify and continue", "--exact"]);
       command(["wait", "--fn", "Boolean(document.querySelector('[data-app-main-authenticated]'))"]);
+      command(["state", "save", path]);
+      await chmod(path, 0o600);
       if (explicitSession === undefined) {
         const marker = await open(`${path}.generated`, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
         await marker.close();
       }
-      command(["state", "save", path]);
-      await chmod(path, 0o600);
       return path;
     } finally {
       await release();
