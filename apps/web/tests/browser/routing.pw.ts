@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
+import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
 
 test("canonical routing preserves the shell and one balances read", async ({ page }) => {
   await seedSignedInSession(page);
@@ -274,11 +275,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await page.route("**/api/funding/providers**", (route) => {
       if (new URL(route.request().url()).searchParams.get("direction") !== "offramp") return route.fallback();
       return json(route, {
-        version: 2,
+        version: FUNDING_PROVIDERS_VERSION,
         direction: "offramp",
         providers: [{
           direction: "offramp", providerId: "peer", displayName: "Peer", region: "US", assetId: "base:usdc",
-          assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, kyc: null,
+          assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, customerSetup: null,
           paymentMethods: [{ id: "cashapp", label: "Cash App", platform: "cashapp", handleHint: "Cashtag", minimumAmountAtomic: "10000", maximumAmountAtomic: null, estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", corridorConfirmedBy: "pending" }],
         }],
       });

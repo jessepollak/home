@@ -68,7 +68,7 @@ The configured vault registry is transaction authority; the public Morpho listin
 - preserves integer amounts as decimal strings with a lossless JSON parser;
 - distinguishes missing values from reported zero values;
 - records API fetch time and state time;
-- uses an 8-second timeout per attempt and retries one transient upstream failure (two attempts total, with no background loop);
+- spends one 8-second budget across at most two attempts, retrying one failed request only while budget remains; it refuses redirects and bodies over 256 KB, and a spent budget or an aborted caller ends the retries;
 - coalesces concurrent server reads and caches fresh data for 30 seconds;
 - may return a marked stale result for up to five minutes after an upstream failure;
 - never runs a background polling loop.

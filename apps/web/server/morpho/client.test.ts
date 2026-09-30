@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   clearMorphoCacheForTests,
+  MORPHO_MAX_RESPONSE_BYTES,
   createMorphoVaultCandidatesReader,
   getMorphoVaultCandidates,
   MorphoUpstreamError,
@@ -188,6 +189,7 @@ describe("getMorphoVaultCandidates", () => {
     const coalesced = reader({ now });
     const failedReads = Promise.allSettled([first, coalesced]);
 
+    await Promise.resolve();
     expect(calls).toBe(1);
     pendingFailure.resolve(jsonResponse({ error: "unavailable" }, 503));
     const outcomes = await failedReads;
@@ -200,5 +202,52 @@ describe("getMorphoVaultCandidates", () => {
     expect(calls).toBe(3);
     expect(retried.stale).toBeFalse();
     expect(retried.source.fetchedAt).toBe("2026-09-07T20:30:00.000Z");
+  });
+
+  test.each([
+    ["oversized declared length", () => new Response("{}", { headers: { "content-length": String(MORPHO_MAX_RESPONSE_BYTES + 1) } })],
+    ["oversized body", () => Response.json({ pad: "x".repeat(MORPHO_MAX_RESPONSE_BYTES) })],
+    ["malformed JSON", () => new Response("{broken")],
+  ] as const)("rejects %s as an upstream failure", async (_case, response) => {
+    const error = await getMorphoVaultCandidates({
+      fetchImpl: (async () => response()) as unknown as typeof fetch,
+      now,
+    }).then(() => null, (reason: unknown) => reason);
+    expect(error).toBeInstanceOf(MorphoUpstreamError);
+    expect((error as Error).message).toBe("Morpho GraphQL request failed.");
+  });
+
+  test("a stalled attempt spends its deadline and does not retry", async () => {
+    let calls = 0;
+    const error = await getMorphoVaultCandidates({
+      fetchImpl: (async (_url, init) => {
+        calls += 1;
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+        });
+      }) as typeof fetch,
+      now,
+      timeoutMs: 10,
+    }).then(() => null, (reason: unknown) => reason);
+    expect(calls).toBe(1);
+    expect(error).toBeInstanceOf(MorphoUpstreamError);
+    expect((error as Error).message).toBe("Morpho GraphQL request timed out or was aborted.");
+  });
+
+  test("does not retry when the caller aborts", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+    const error = await getMorphoVaultCandidates({
+      fetchImpl: (async () => {
+        calls += 1;
+        controller.abort();
+        throw new DOMException("aborted", "AbortError");
+      }) as unknown as typeof fetch,
+      signal: controller.signal,
+      now,
+    }).then(() => null, (reason: unknown) => reason);
+    expect(calls).toBe(1);
+    expect(error).toBeInstanceOf(MorphoUpstreamError);
+    expect((error as Error).message).toBe("Morpho GraphQL request timed out or was aborted.");
   });
 });

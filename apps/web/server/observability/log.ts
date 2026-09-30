@@ -112,3 +112,11 @@ export function writeObservabilityEvent(
     return undefined;
   }
 }
+
+export function observeSafely(report: () => unknown): void {
+  try {
+    void Promise.resolve(report()).catch(() => undefined);
+  } catch {
+    return;
+  }
+}

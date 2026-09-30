@@ -2,6 +2,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
 import { isRecord, isUnknownArray } from "@/shared/guards";
+import { CARD_ALLOWANCE_PREPARE_ERRORS, parseCardAllowanceMetadata, type CardAllowancePrepareErrorCode } from "@/shared/cards/allowance-contract";
 
 export type PrepareActionResponse = PreparedMoneyAction;
 export const CASHOUT_PREPARE_ERRORS = {
@@ -25,12 +26,17 @@ export function isCashoutPrepareErrorCode(value: unknown): value is CashoutPrepa
   return typeof value === "string" && (CASHOUT_PREPARE_ERROR_CODES as readonly string[]).includes(value);
 }
 
-export type PrepareActionErrorResponse = { error: { code: CashoutPrepareErrorCode; message: string } };
+export type PrepareActionErrorResponse = { error: { code: CashoutPrepareErrorCode | CardAllowancePrepareErrorCode; message: string } };
 
-export function parseCashoutPrepareErrorResponse(value: unknown): PrepareActionErrorResponse | null {
+const PREPARE_ERROR_CODES: readonly (CashoutPrepareErrorCode | CardAllowancePrepareErrorCode)[] =
+  [...CASHOUT_PREPARE_ERROR_CODES, ...Object.values(CARD_ALLOWANCE_PREPARE_ERRORS).map((entry) => entry.code)];
+function isPrepareErrorCode(value: unknown): value is CashoutPrepareErrorCode | CardAllowancePrepareErrorCode {
+  return typeof value === "string" && PREPARE_ERROR_CODES.some((code) => code === value);
+}
+export function parsePrepareActionErrorResponse(value: unknown): PrepareActionErrorResponse | null {
   if (!isRecord(value) || !isRecord(value.error)) return null;
   const { code, message } = value.error;
-  if (typeof message !== "string" || !isCashoutPrepareErrorCode(code)) return null;
+  if (typeof message !== "string" || !isPrepareErrorCode(code)) return null;
   return { error: { code, message } };
 }
 
@@ -46,6 +52,8 @@ export function validPrepared(
     value.owner.accountProvider !== session.accountProvider ||
     !isUnknownArray(value.calls) || !isUnknownArray(value.amounts) || !isUnknownArray(value.warnings)
   ) return false;
+  if (value.kind === "card-allowance" && (value.amounts.length !== 0 || !parseCardAllowanceMetadata(value.metadata))) return false;
+  if (value.kind !== "card-allowance" && isRecord(value.metadata) && value.metadata.product === "card") return false;
   if (value.networkFee === undefined) return true;
   const fee = parseMoneyActionNetworkFee(value.networkFee);
   if (!fee) return false;

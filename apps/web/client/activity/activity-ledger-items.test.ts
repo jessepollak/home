@@ -132,6 +132,26 @@ describe("presentActivityLedgerEntries", () => {
 });
 
 describe("presentActivityLedgerItems", () => {
+  test.each([
+    ["set-allowance", "confirmed", "Card spending limit set"],
+    ["revoke-allowance", "confirmed", "Card spending permission removed"],
+    ["revoke-allowance", "pending", "Removing card spending permission"],
+    ["revoke-allowance", "failed", "Remove card spending permission"],
+    ["set-allowance", "pending", "Setting card spending limit"],
+  ] as const)("shows %s %s without a money amount", (operation, status, title) => {
+    const snapshot = action(status);
+    snapshot.action.kind = "card-allowance";
+    snapshot.action.amounts = [];
+    snapshot.action.metadata = { product: "card", operation, provider: "bridge", mode: "production",
+      token: TOKEN, spender: OTHER, allowanceBaseUnits: operation === "set-allowance" ? "25000000" : "0",
+      previousAllowanceBaseUnits: "5000000", maximumBaseUnits: operation === "set-allowance" ? "100000000" : null,
+      source: { blockNumber: "100" } };
+    const [item] = present([fromAction(snapshot)]);
+    expect(item).toMatchObject({ family: "home-action", title, amount: "", direction: "none",
+      detail: { operation: "Card spending limit", facts: [{ label: "Card program spender", value: OTHER },
+        { label: "Spending limit", value: operation === "set-allowance" ? "25 USDC" : "Removed" }] } });
+    expect(item?.detailAmount).toBeUndefined();
+  });
   test("retains source order, canonical identities, and maps all action statuses", () => {
     for (const [source, expected] of [
       ["pending", "waiting-chain"], ["unknown", "ambiguous"],

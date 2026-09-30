@@ -1,10 +1,12 @@
 import "server-only";
 
 import { BASE_CHAIN_ID } from "@/shared/assets/base";
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 
 export const DEFAULT_BASE_RPC_URL = "https://mainnet.base.org";
 export const DEFAULT_ETHEREUM_RPC_URL = "https://ethereum.reth.rs/rpc";
 export const BASE_RPC_TIMEOUT_MS = 6_000;
+export const BASE_RPC_MAX_RESPONSE_BYTES = 4_000_000;
 export const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 
 const quantityPattern = /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/;
@@ -211,48 +213,49 @@ async function postRpc(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
     throw new BaseRpcError("The Base RPC timeout must be 1-30000ms.");
   }
-  const controller = new AbortController();
-  const abort = () => controller.abort(options.signal?.reason);
-  options.signal?.addEventListener("abort", abort, { once: true });
-  if (options.signal?.aborted) abort();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const deadline = createUpstreamDeadline({ timeoutMs, signal: options.signal });
+  let serialized: string;
   try {
-    const response = await (options.fetchImpl ?? fetch)(
-      resolveBaseRpcUrl(options.rpcUrl),
-      {
-        method: "POST",
-        headers: { accept: "application/json", "content-type": "application/json" },
-        body: JSON.stringify(body),
-        cache: "no-store",
-        signal: controller.signal,
-      },
-    );
-    if (!response.ok) {
-      throw new BaseRpcError(`Base RPC returned HTTP ${response.status}.`, {
-        code: "http",
-        httpStatus: response.status,
-      });
-    }
-    try {
-      return JSON.parse(await response.text()) as unknown;
-    } catch (error) {
-      throw new BaseRpcError("Base RPC returned malformed JSON.", {
-        code: "invalid-response",
-        cause: error,
-      });
-    }
+    serialized = JSON.stringify(body);
   } catch (error) {
-    if (error instanceof BaseRpcError) throw error;
-    throw new BaseRpcError(
-      controller.signal.aborted
-        ? "The Base RPC request timed out or was aborted."
-        : "The Base RPC transport failed.",
-      { code: controller.signal.aborted ? "aborted" : "transport", cause: error },
-    );
-  } finally {
-    clearTimeout(timeout);
-    options.signal?.removeEventListener("abort", abort);
+    throw new BaseRpcError("The Base RPC transport failed.", { code: "transport", cause: error });
   }
+  const result = await upstreamRequest(resolveBaseRpcUrl(options.rpcUrl), {
+    deadline,
+    maxBytes: BASE_RPC_MAX_RESPONSE_BYTES,
+    init: {
+      method: "POST",
+      headers: { accept: "application/json", "content-type": "application/json" },
+      body: serialized,
+    },
+    fetchImpl: options.fetchImpl ?? fetch,
+  });
+  if (result.ok) return result.value;
+  if (result.kind === "http") {
+    throw new BaseRpcError(`Base RPC returned HTTP ${result.status}.`, {
+      code: "http",
+      httpStatus: result.status,
+    });
+  }
+  if (result.kind === "oversized") {
+    throw new BaseRpcError("Base RPC returned an oversized response.", { code: "invalid-response" });
+  }
+  if (result.kind === "invalid") {
+    throw new BaseRpcError("Base RPC returned malformed JSON.", {
+      code: "invalid-response",
+      cause: result.cause,
+    });
+  }
+  const cause = result.cause;
+  throw new BaseRpcError(
+    result.kind === "transport"
+      ? "The Base RPC transport failed."
+      : "The Base RPC request timed out or was aborted.",
+    {
+      code: result.kind === "transport" ? "transport" : "aborted",
+      ...(cause === undefined ? {} : { cause }),
+    },
+  );
 }
 
 function parseEnvelope(value: unknown, expectedId?: number): RpcSuccess {

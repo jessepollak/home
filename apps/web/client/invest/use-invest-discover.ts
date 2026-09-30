@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { InfiniteData } from "@tanstack/react-query";
 import { publicResource } from "@/client/query/public-resource";
+import { queryViewState } from "@/client/query/query-view-state";
 import {
   browserHomeQueryClient,
   publicQueryKey,
@@ -101,11 +102,13 @@ export function useInvestDiscover({
     fetchDiscoverPage(pageParam, signal, endpoint, fetchImpl), [endpoint, fetchImpl]);
   const query = useHomeInfiniteQuery(investDiscoverOptions({ endpoint, fetchImpl }));
   const state = useMemo(() => {
-    const pages = query.data?.pages;
-    const firstPage = pages?.[0];
-    if (!firstPage) return query.isError ? errorDiscoverState : initialDiscoverState;
-    return pages.slice(1).reduce(mergeDiscoverPages, firstPage);
-  }, [query.data?.pages, query.isError]);
+    const [firstPage, ...rest] = query.data?.pages ?? [];
+    if (!firstPage) {
+      const view = queryViewState({ status: query.status }, { hasCachedData: false });
+      return view === "failed" ? errorDiscoverState : initialDiscoverState;
+    }
+    return rest.reduce(mergeDiscoverPages, firstPage);
+  }, [query.data?.pages, query.status]);
   const visibleState: InvestDiscoverState = {
     ...state,
     memePagination: {

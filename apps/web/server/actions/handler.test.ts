@@ -8,6 +8,7 @@ import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/s
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
 import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
+import { createCardAllowanceEligibility } from "@/server/cards/allowance/prepare";
 
 function parseLog(line: string): unknown {
   const parsed: unknown = JSON.parse(line);
@@ -64,6 +65,150 @@ function authorize(subject = "owner-a", accountProvider: "cdp-embedded" | "base-
     accountProvider,
   });
 }
+
+describe("card allowance confirmation", () => {
+  const metadata = { product: "card" as const, operation: "set-allowance" as const, provider: "bridge" as const,
+    mode: "production" as const, token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const,
+    spender: "0x65bf8b55eedef53c094e40003a03390de744df33" as const,
+    allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "5000000", maximumBaseUnits: "100000000", source: { blockNumber: "100" } };
+  test.each(["removed", "settings-unavailable"] as const)("refuses an unconfirmed set when %s", async (reason) => {
+    let confirms = 0;
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => ({ ...row, kind: "card-allowance", summary: { ...row.summary, metadata } }),
+        confirm: async () => { confirms++; return row; } },
+      cardAllowanceSetAllowed: () => { if (reason === "settings-unavailable") throw new Error("settings unavailable"); return false; },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(await readJson(response)).toEqual({ error: { code: "CARD_ALLOWANCE_UNAVAILABLE", message: "Card spending limits changed. Prepare again." } });
+    expect(confirms).toBe(0);
+  });
+  test.each([
+    ["canceled", "CARD_ALLOWANCE_NOT_READY", 409], ["restricted", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["no-link", "CARD_ALLOWANCE_NOT_READY", 409], ["no-owner-link", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["unavailable", "CARD_ALLOWANCE_UNAVAILABLE", 503], ["read-failed", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["active", null, 200],
+  ] as const)("rechecks %s card eligibility before confirming an unconfirmed set", async (gate, code, status) => {
+    let confirms = 0;
+    const eligible = createCardAllowanceEligibility({
+      customer: async () => ({ id: "customer-1", walletId: gate === "no-owner-link" ? null : "wallet-1" }),
+      account: async () => ({ bridgeCustomerId: "bridge-1", stripeCardholderId: "ich_test", cards: gate === "no-link" ? [] :
+        [{ id: "card-1", stripeCardId: "ic_test", walletAddress: ADDRESS }] }),
+      state: async () => {
+        if (gate === "read-failed") throw new Error("provider unavailable");
+        return { version: 1, state: gate === "no-link" || gate === "no-owner-link" ? "active" : gate,
+        cards: [{ id: "ic_test", status: gate === "canceled" ? "canceled" : gate === "restricted" ? "restricted" : "active", last4: "4242" }],
+        provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-28T12:00:00.000Z" } };
+      },
+    });
+    const draft = { ...row, kind: "card-allowance" as const, summary: { ...row.summary, metadata } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      cardAllowanceSetAllowed: () => true, cardAllowanceEligible: eligible, markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async () => { confirms++; return { ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(status);
+    expect(confirms).toBe(code ? 0 : 1);
+    if (code) expect(parseConfirmActionErrorResponse(await readJson(response))?.error.code).toBe(code);
+  });
+  test("confirm returns calls accepted by the shared parser for a set", async () => {
+    const calls: MoneyActionCall[] = [{ to: ADDRESS,
+      data: `0x095ea7b3${"0".repeat(24)}${metadata.spender.slice(2)}${"0".repeat(62)}25`, value: "0",
+      approval: { assetId: "usdc", spender: metadata.spender } }];
+    const draft = { ...row, kind: "card-allowance" as const, pending: { calls }, summary: { ...row.summary, metadata } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => draft, confirm: async (_owner, _id, confirmedCalls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: confirmedCalls ?? [] } }) },
+      cardAllowanceSetAllowed: () => true, cardAllowanceEligible: async () => {}, markHot: async () => {}, recordConfirmed: async () => {},
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    expect(parseConfirmActionResponse(await readJson(response))?.calls).toEqual(calls);
+  });
+
+  test("default confirm gate refuses a set when Bridge is disabled", async () => {
+    const prior = process.env.BRIDGE_ENABLED;
+    process.env.BRIDGE_ENABLED = "0";
+    try {
+      let confirms = 0;
+      const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+        store: { get: async () => ({ ...row, kind: "card-allowance", summary: { ...row.summary, metadata } }),
+          confirm: async () => { confirms++; return row; } },
+      });
+      const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+      expect(response.status).toBe(503);
+      expect(confirms).toBe(0);
+    } finally {
+      if (prior === undefined) delete process.env.BRIDGE_ENABLED;
+      else process.env.BRIDGE_ENABLED = prior;
+    }
+  });
+  test("confirms enabled set and a revoke without rechecking set eligibility", async () => {
+    const confirmed = { ...row, kind: "card-allowance" as const, summary: { ...row.summary, metadata } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => confirmed, confirm: async () => ({ ...confirmed, confirmed_at: "2026-09-12T12:05:00.000Z" }) },
+      cardAllowanceSetAllowed: () => true, cardAllowanceEligible: async () => {}, markHot: async () => {}, recordConfirmed: async () => {},
+    });
+    expect((await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+    const revoke = { ...confirmed, summary: { ...confirmed.summary, metadata: { ...metadata, operation: "revoke-allowance" as const,
+      allowanceBaseUnits: "0", maximumBaseUnits: null } } };
+    const revokeHandler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => revoke, confirm: async () => ({ ...revoke, confirmed_at: "2026-09-12T12:05:00.000Z" }) },
+      cardAllowanceSetAllowed: () => { throw new Error("Should not read set configuration for revoke"); }, markHot: async () => {}, recordConfirmed: async () => {},
+    });
+    expect((await revokeHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+  });
+  test.each([
+    ["retired", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["set-disabled", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["canceled", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["eligibility-unavailable", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["eligible", null, 200],
+  ] as const)("rechecks %s before retrying a confirmed card set", async (reason, code, status) => {
+    const confirmed = { ...row, kind: "card-allowance" as const, confirmed_at: "2026-09-12T12:05:00.000Z",
+      summary: { ...row.summary, metadata } };
+    let retries = 0;
+    let eligibilityChecks = 0;
+    const eligible = createCardAllowanceEligibility({
+      customer: async () => ({ id: "customer-1", walletId: "wallet-1" }),
+      account: async () => ({ bridgeCustomerId: "bridge-1", stripeCardholderId: "ich_test",
+        cards: [{ id: "card-1", stripeCardId: "ic_test", walletAddress: ADDRESS }] }),
+      state: async () => ({ version: 1, state: reason === "eligibility-unavailable" ? "unavailable" : "active",
+        cards: [{ id: "ic_test", status: reason === "canceled" ? "canceled" : "active", last4: "4242" }],
+        provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-28T12:00:00.000Z" } }),
+    });
+    const handler = createRetryActionHandler({ authorize: authorize(),
+      store: { get: async () => confirmed, beginRetry: async () => { retries++; return { row: confirmed, conflict: false, dispatched: false }; } },
+      cardAllowanceSetAllowed: (candidate) => reason !== "set-disabled" && candidate.spender ===
+        (reason === "retired" ? "0x4444444444444444444444444444444444444444" : metadata.spender),
+      cardAllowanceEligible: async (session, mode, signal) => {
+        eligibilityChecks++;
+        expect(signal).toBe(requestSignal);
+        return eligible(session, mode, signal);
+      },
+    });
+    const retryRequest = request(`/api/actions/${ID}/retry`, { method: "POST", body: '{"version":1,"attempt":1}' });
+    const requestSignal = retryRequest.signal;
+    const response = await handler(retryRequest, context());
+    expect(response.status).toBe(status);
+    expect(retries).toBe(code ? 0 : 1);
+    expect(eligibilityChecks).toBe(reason === "retired" || reason === "set-disabled" ? 0 : 1);
+    if (code) expect(await readJson(response)).toMatchObject({ error: { code } });
+  });
+  test("retrying a confirmed revoke skips the set gate and card eligibility", async () => {
+    const confirmed = { ...row, kind: "card-allowance" as const, confirmed_at: "2026-09-12T12:05:00.000Z",
+      summary: { ...row.summary, metadata: { ...metadata, operation: "revoke-allowance" as const,
+        allowanceBaseUnits: "0", maximumBaseUnits: null } } };
+    let retries = 0;
+    const handler = createRetryActionHandler({ authorize: authorize(),
+      store: { get: async () => confirmed, beginRetry: async () => { retries++; return { row: confirmed, conflict: false, dispatched: false }; } },
+      cardAllowanceSetAllowed: () => { throw new Error("Set disabled"); },
+      cardAllowanceEligible: async () => { throw new Error("Revoke must not check card eligibility"); },
+    });
+    const response = await handler(request(`/api/actions/${ID}/retry`, { method: "POST", body: '{"version":1,"attempt":1}' }), context());
+    expect(response.status).toBe(200);
+    expect(retries).toBe(1);
+  });
+});
 
 describe("action confirm operator capture", () => {
   const confirmed = { ...row, owner_key: JSON.stringify(["owner-a", ADDRESS, 8453, "cdp-embedded"]),
@@ -667,7 +812,7 @@ describe("actions HTTP handlers", () => {
     };
   }
 
-  test.each(ACTION_KINDS.filter((kind) => kind !== "trade"))("confirm %s returns calls accepted by the shared parser", async (kind) => {
+  test.each(ACTION_KINDS.filter((kind) => kind !== "trade" && kind !== "card-allowance"))("confirm %s returns calls accepted by the shared parser", async (kind) => {
     const transfer: MoneyActionCall = { to: ADDRESS, data: "0x", value: "123" };
     const approval: MoneyActionCall = {
       to: ADDRESS,

@@ -1,5 +1,4 @@
-
-import type { Instruction, OrderState, Quote } from "@/shared/funding/provider-contract";
+import { type Instruction, type OrderState, type Quote } from "@/shared/funding/provider-contract";
 export type {
   Instruction,
 } from "@/shared/funding/provider-contract";

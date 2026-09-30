@@ -72,6 +72,14 @@ describe("USDC network fee quote", () => {
 });
 
 describe("network fee choice", () => {
+  test("card allowance has no USDC spend and needs only enough USDC for the network fee", async () => {
+    const { fee, requested } = service({ usdc: BigInt(100000) });
+    const allowance = { ...draft, kind: "card-allowance" as const, amounts: [] };
+    const plan = await fee.applyNetworkFee(session, allowance);
+    expect(plan.networkFee).toMatchObject({ payment: "usdc", maxFeeBaseUnits: "100000" });
+    expect(plan.calls).toEqual([makePaymasterApproval(BigInt(100000)), ...calls]);
+    expect(requested).toEqual(["pm_getPaymasterData"]);
+  });
   test("USDC covers spend plus quote: first call approves the exact fee", async () => {
     const { fee, requested } = service({ usdc: BigInt(1100000), quote: { ...tokenPayment, tokenPayment: { ...tokenPayment.tokenPayment, maxFee: "0xca10" } } });
     const plan = await fee.applyNetworkFee(session, draft);

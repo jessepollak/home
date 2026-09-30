@@ -13,6 +13,7 @@ import {
 import { isSavingsMetadata } from "@/shared/savings/review";
 import { parseCashoutQuote } from "@/shared/funding/cash-out-quote";
 import { parseTradeMetadata, parseTradeSigning } from "@/shared/trading/review";
+import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
 import { parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
 import type { MoneyActionNetworkFee } from "@/shared/money-actions/types";
@@ -68,7 +69,8 @@ export function parsePendingActionResponse(
     !Array.isArray(value.calls) ||
     typeof value.expiresAt !== "string" ||
     (value.summary.networkFee !== undefined && !parseMoneyActionNetworkFee(value.summary.networkFee)) ||
-    !active.smartAccount
+    !active.smartAccount || (value.kind === "card-allowance" && (value.summary.amounts.length !== 0 || !parseCardAllowanceMetadata(value.summary.metadata))) ||
+    (value.kind !== "card-allowance" && isRecord(value.summary.metadata) && value.summary.metadata.product === "card")
     || (value.kind === "trade" && (!parseTradeMetadata(value.summary.metadata) ||
       !parseTradeSigning(value.signing, parseTradeMetadata(value.summary.metadata)!, active.smartAccount.address)))
   ) {
@@ -110,6 +112,7 @@ function isMoneyActionMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.estimateAsOf === "string" && typeof value.escrow === "string" &&
       (value.quote === undefined || (value.operation === "deposit" && parseCashoutQuote(value.quote) !== null));
   }
+  if (value.product === "card") return parseCardAllowanceMetadata(value) !== null;
   if (value.product === "savings") return isSavingsMetadata(value);
   if (value.product === "trade") return parseTradeMetadata(value) !== null;
   return value.product === "borrow";

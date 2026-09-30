@@ -1,11 +1,11 @@
 import "@/client/account/dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
-import { getHomeQueryClient } from "@/client/query/query-client";
+import { getHomeQueryClient, publicQueryKey } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 
-const { cleanup, render, waitFor, within } = await import("@testing-library/react");
+const { act, cleanup, render, waitFor, within } = await import("@testing-library/react");
 const { usePriceHistory } = await import("./use-price-history");
 
 const originalFetch = window.fetch;
@@ -47,6 +47,7 @@ function HookProbe({
     <div>
       <output data-testid="status">{history.status}</output>
       <output data-testid="count">{String(history.points.length)}</output>
+      <output data-testid="as-of">{history.status === "stale" ? String(history.asOf) : ""}</output>
       <output data-testid="first">{history.points[0]?.value ?? ""}</output>
     </div>
   );
@@ -201,6 +202,20 @@ describe("usePriceHistory", () => {
     expect(headers[1]?.has("x-home-history-priority")).toBe(false);
   });
 
+  test("returns empty for a successful history response without points", async () => {
+    window.fetch = (async () => Response.json(historyPayload("cbbtc", "1W", []))) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("empty"));
+    expect(page().getByTestId("count").textContent).toBe("0");
+  });
+
+  test("a successful transport response with failed provider and no points is not empty history", async () => {
+    window.fetch = (async () => Response.json({ ...historyPayload("cbbtc", "1W", []), status: "error" })) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
+    expect(page().getByTestId("count").textContent).toBe("0");
+  });
+
   test("a 502 provider error is not cached as fresh history", async () => {
     let calls = 0;
     window.fetch = (async () => {
@@ -230,6 +245,71 @@ describe("usePriceHistory", () => {
     await waitFor(() => expect(view.getByTestId("status").textContent).toBe("error"));
     expect(view.getByTestId("count").textContent).toBe("0");
   });
+
+  test("a failed cached refetch retains the matching series with failure age, then retry replaces it", async () => {
+    let response: "ready" | "failed" | "recovered" = "ready";
+    let calls = 0;
+    window.fetch = (async () => {
+      calls++;
+      return response === "failed"
+        ? Response.json({ ...historyPayload("cbbtc", "1W", []), status: "error" })
+        : Response.json(historyPayload("cbbtc", "1W", [
+          { time: "2026-09-07T00:00:00.000Z", value: response === "ready" ? "62000" : "63000" },
+        ]));
+    }) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
+    response = "failed";
+    await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", "cbbtc", "1W") }); });
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("stale"));
+    expect(page().getByTestId("first").textContent).toBe("62000");
+    expect(page().getByTestId("as-of").textContent).toBe(String(Date.parse("2026-09-07T20:00:00.000Z")));
+    response = "recovered";
+    await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", "cbbtc", "1W") }); });
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
+    expect(page().getByTestId("first").textContent).toBe("63000");
+    expect(page().getByTestId("as-of").textContent).toBe("");
+    expect(calls).toBe(3);
+  });
+
+  test("a failed refetch after confirmed empty history is an error, not another empty result", async () => {
+    let fail = false;
+    window.fetch = (async () => fail
+      ? Response.json({ invalid: true }, { status: 502 })
+      : Response.json({ ...historyPayload("cbbtc", "1W", []), status: "empty" })) as unknown as typeof fetch;
+    render(<HookProbe assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("empty"));
+    fail = true;
+    await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", "cbbtc", "1W") }); });
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
+    expect(page().getByTestId("count").textContent).toBe("0");
+  });
+
+  test("a failed range or owner-and-asset switch cannot reuse the previous range's cached series", async () => {
+    const nextRange = deferred<void>();
+    window.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.searchParams.get("assetId") === "cbltc") return Response.json({ invalid: true });
+      if (url.searchParams.get("range") === "1D") { await nextRange.promise; return Response.json({ invalid: true }); }
+      return Response.json(historyPayload("cbbtc", "1W", [
+        { time: "2026-09-07T00:00:00.000Z", value: "62000" },
+      ]));
+    }) as typeof fetch;
+    const { rerender } = render(<HookProbe key="owner-a" assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
+    rerender(<HookProbe key="owner-a" assetId="cbbtc" range="1D" />);
+    expect(page().getByTestId("status").textContent).toBe("loading");
+    nextRange.resolve();
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
+    expect(page().getByTestId("count").textContent).toBe("0");
+    rerender(<HookProbe key="owner-a" assetId="cbbtc" range="1W" />);
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("ready"));
+    rerender(<HookProbe key="owner-b" assetId="cbltc" range="1W" />);
+    expect(page().getByTestId("count").textContent).toBe("0");
+    await waitFor(() => expect(page().getByTestId("status").textContent).toBe("error"));
+    expect(page().getByTestId("first").textContent).toBe("");
+  });
+
 
   test("does not keep another asset’s series while the next history loads", async () => {
     const nextAsset = deferred<void>();

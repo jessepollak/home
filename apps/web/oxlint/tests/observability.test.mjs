@@ -35,7 +35,10 @@ async function lint(rule, code, options) {
 }
 
 describe("no-silent-catch", () => {
-  const options = { reportingHelpers: ["emitServerEvent", "reportClientError"] };
+  const options = {
+    reportingHelpers: ["emitServerEvent", "writeObservabilityEvent", "reportClientError", "observeSafely"],
+    reportingModules: ["@/server/observability/log", "@/client/observability/client-reporter"],
+  };
   const messages = {
     empty: "Empty catch clauses and rejection handlers are forbidden; return or throw a typed error result, or report the failure.",
     silent: "Caught failures and rejection handlers must be rethrown, returned as a typed error result, or passed to an approved reporting helper.",
@@ -51,6 +54,7 @@ describe("no-silent-catch", () => {
 
   it("accepts throws, explicit return values, reporting, recovery state, and promise settlement", async () => {
     expect(await lint("no-silent-catch", `
+      import { emitServerEvent } from "@/server/observability/log";
       function a() { try { run(); } catch (error) { throw error; } }
       function b() { try { run(); } catch { return { ok: false }; } }
       function c() { try { run(); } catch { return null; } }
@@ -147,6 +151,7 @@ describe("no-silent-catch", () => {
 
   it("rejects discards and dispositions that do not dominate the catch body", async () => {
     expect(await lint("no-silent-catch", `
+      import { emitServerEvent } from "@/server/observability/log";
       try { run(); } catch (error) { void error; }
       try { run(); } catch (error) { error; }
       try { run(); } catch { 0; }
@@ -182,6 +187,7 @@ describe("no-silent-catch", () => {
 
   it("accepts failures disposed by same-file helpers that throw or report", async () => {
     expect(await lint("no-silent-catch", `
+      import { emitServerEvent } from "@/server/observability/log";
       function unsupported(): never { throw new Error("unsupported"); }
       function unavailable(cause: unknown): never { throw new Error(String(cause)); }
       function observeStoreFailure(code: string): void { emitServerEvent(code); }
@@ -190,6 +196,16 @@ describe("no-silent-catch", () => {
       try { run(); } catch (error) { if (error instanceof Error) throw error; unavailable(error); }
       try { run(); } catch { observeStoreFailure("failed"); }
     `, options)).toHaveLength(0);
+  });
+
+  it("rejects a no-op binding that shares a name with a throwing same-file helper", async () => {
+    expect(await lint("no-silent-catch", `
+      function recordFailure(): never { throw new Error("failed"); }
+      function handle(createNoop: () => () => void): void {
+        const recordFailure = createNoop();
+        try { run(); } catch { recordFailure(); }
+      }
+    `, options)).toHaveLength(1);
   });
 
   it("rejects same-file helpers that only return values or fall through", async () => {
@@ -254,6 +270,7 @@ describe("no-silent-catch", () => {
 
   it("accepts reporting and helper calls behind a TypeScript-wrapped callee", async () => {
     expect(await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
       try { run(); } catch (error) { (reportClientError as (caught: unknown) => void)(error); }
       run().catch((error) => { (reportClientError as (caught: unknown) => void)(error); });
       function dispose(error: unknown): never { throw error; }
@@ -264,9 +281,379 @@ describe("no-silent-catch", () => {
 
   it("accepts collection cleanup and void-wrapped reporting calls", async () => {
     expect(await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
       try { run(); } catch { pending.delete(key); }
       try { run(); } catch (error) { void reportClientError(error); }
     `, options)).toHaveLength(0);
+  });
+
+  it("rejects a local declaration shadowing an approved reporting helper", async () => {
+    expect(await lint("no-silent-catch", `
+      function observeSafely(x: unknown): void {}
+      try { run(); } catch (error) { observeSafely(error); }
+    `, options)).toHaveLength(1);
+  });
+
+  it("rejects an alias of a non-approved reporting export", async () => {
+    expect(await lint("no-silent-catch", `
+      import { buildClientErrorReport as reportClientError } from "@/client/observability/client-reporter";
+      try { run(); } catch (error) { reportClientError(error); }
+    `, options)).toHaveLength(1);
+  });
+
+  it("rejects a parameter shadowing a throwing same-file helper", async () => {
+    expect(await lint("no-silent-catch", `
+      function observeSafely(x: unknown): never { throw x; }
+      function handle(observeSafely: (x: unknown) => void): void {
+        try { run(); } catch (error) { observeSafely(error); }
+      }
+    `, options)).toHaveLength(1);
+  });
+
+  it("accepts a throwing same-file helper shadowing a same-name no-op helper", async () => {
+    expect(await lint("no-silent-catch", `
+      function reportFailure(): void {}
+      function handle(): void {
+        function reportFailure(): never { throw new Error("failed"); }
+        try { run(); } catch { reportFailure(); }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("accepts approved aliases wrapping an injected telemetry sink", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely as reportTelemetry } from "@/server/observability/log";
+      function handle(log: (error: unknown) => void) {
+        try { run(); } catch (error) { reportTelemetry(() => log(error)); }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects an object method named like an approved reporting helper", async () => {
+    expect(await lint("no-silent-catch", `
+      try { run(); } catch (error) { sink.observeSafely(error); }
+    `, options)).toHaveLength(1);
+  });
+
+  it("rejects a reporting helper imported from an unapproved module", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "./local-sink";
+      try { run(); } catch (error) { observeSafely(error); }
+    `, options)).toHaveLength(1);
+  });
+
+  it("accepts a directly imported wrapper around a real noncritical telemetry sink", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      try { run(); } catch (error) { observeSafely(() => emitServerEvent("failure", { code: String(error) })); }
+      function handle(log: (event: object) => unknown) {
+        try { run(); } catch { observeSafely(() => log({ outcome: "unavailable" })); }
+      }
+      function report(log: (error: unknown) => void) {
+        try { run(); } catch (error) { observeSafely(() => { return log(error); }); }
+        try { run(); } catch (error) { observeSafely(async () => { await log(error); }); }
+        try { run(); } catch (error) { observeSafely(async () => { await (log(error) as unknown); }); }
+        try { run(); } catch (error) { observeSafely(() => { observeSafely(() => log(error)); }); }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("accepts returned conditional, sequence and helper telemetry writes", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>, condition: boolean, work: () => void) {
+        try { run(); } catch (error) { observeSafely(() => (condition ? log(error) : log(error))); }
+        try { run(); } catch (error) { observeSafely(() => (work(), log(error))); }
+        try { run(); } catch (error) { observeSafely(() => log(error) || undefined); }
+        try { run(); } catch (error) { observeSafely(async () => { await (log(error) ?? undefined); }); }
+        try { run(); } catch (error) { observeSafely(() => { function helper() { return log(error); } return helper(); }); }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  for (const { name, body, expected } of [
+    {
+      name: "rejects returned telemetry overridden by a returning finalizer",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { return sink("finally"); }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry delayed by an awaiting finalizer",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { await cleanup; }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry delayed by a for-await finalizer",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { for await (const item of cleanupItems) { pending.delete(item); } }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry overridden by an escaping labeled break in a finalizer",
+      body: 'exit: { try { return sink(error); } catch { return sink(error); } finally { break exit; } }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry overridden by an escaping continue in a finalizer",
+      body: 'outer: do { try { return sink(error); } catch { return sink(error); } finally { continue outer; } } while (false);',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a throw nested in a finalizer loop",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { while (condition) { throw new Error("cleanup"); } }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a throw in a finalizer static block",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { class Nested { static { throw new Error("cleanup"); } } }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a finalizer using declaration",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { using disposable = resource; void disposable; }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a finalizer await-using declaration",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { await using disposable = asyncResource; void disposable; }',
+      expected: 1,
+    },
+    {
+      name: "accepts awaited telemetry with a finalizer await-using declaration",
+      body: 'try { return await sink(error); } catch { return await sink(error); } finally { await using disposable = asyncResource; void disposable; }',
+      expected: 0,
+    },
+    {
+      name: "accepts return-await telemetry with a returning finalizer",
+      body: 'try { return await sink(error); } catch { return await sink(error); } finally { return sink("finally"); }',
+      expected: 0,
+    },
+    {
+      name: "accepts return-await telemetry with an awaiting finalizer",
+      body: 'try { return await sink(error); } catch { return await sink(error); } finally { await cleanup; }',
+      expected: 0,
+    },
+    {
+      name: "accepts awaited telemetry with a returning finalizer",
+      body: 'try { await sink(error); } catch { return await sink(error); } finally { return sink("finally"); }',
+      expected: 0,
+    },
+    {
+      name: "accepts awaited telemetry with an awaiting finalizer",
+      body: 'try { await sink(error); } catch { return await sink(error); } finally { await cleanup; }',
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry with a synchronous-only finalizer",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { pending.delete(key); }',
+      expected: 0,
+    },
+    {
+      name: "accepts telemetry returned from the finalizer itself",
+      body: 'try { await sink(error); } catch { return await sink(error); } finally { return sink(error); }',
+      expected: 0,
+    },
+    {
+      name: "ignores return and await inside a finalizer's nested function",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { async function nested() { return await cleanup; } }',
+      expected: 0,
+    },
+    {
+      name: "ignores return and await inside a finalizer's nested arrow",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { const nested = async () => { return await cleanup; }; }',
+      expected: 0,
+    },
+    {
+      name: "ignores return and await inside a finalizer's object method",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { const nested = { async method() { return await cleanup; } }; }',
+      expected: 0,
+    },
+    {
+      name: "ignores return and await inside a finalizer's class declaration",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { class Nested { async method() { return await cleanup; } } }',
+      expected: 0,
+    },
+    {
+      name: "rejects returned telemetry delayed by await in a finalizer's class heritage",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { class Nested extends (await cleanupBase) {} }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry delayed by await in a finalizer's computed method key",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { class Nested { [await cleanupKey]() {} } }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry delayed by await in a finalizer's computed static field key",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { class Nested { static [await cleanupKey] = 1; } }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry delayed by await in a finalizer's computed instance field key",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { class Nested { [await cleanupKey] = 1; } }',
+      expected: 1,
+    },
+    {
+      name: "ignores return and await inside a finalizer's class expression",
+      body: 'try { return sink(error); } catch { return sink(error); } finally { const Nested = class { async method() { return await cleanup; } }; }',
+      expected: 0,
+    },
+    {
+      name: "ignores an awaiting finalizer whose try does not enclose the return",
+      body: 'try { work(); } catch { pending.delete(key); } finally { await cleanup; } return sink(error);',
+      expected: 0,
+    },
+    {
+      name: "rejects telemetry returned from a finalizer before an interrupting outer finalizer",
+      body: 'try { try { await sink(error); } catch { return await sink(error); } finally { return sink(error); } } catch { return sink(error); } finally { await cleanup; }',
+      expected: 1,
+    },
+    {
+      name: "rejects returned helper telemetry overridden by a finalizer",
+      body: 'function helper() { return sink(error); } try { return helper(); } catch { return helper(); } finally { return sink("finally"); }',
+      expected: 1,
+    },
+  ]) {
+    it(name, async () => {
+      expect(await lint("no-silent-catch", `
+        import { observeSafely } from "@/server/observability/log";
+        async function report(sink: (error: unknown) => Promise<void>, cleanup: Promise<void>) {
+          try { run(); } catch (error) { observeSafely(async () => { ${body} }); } finally { await cleanup; }
+        }
+      `, options)).toHaveLength(expected);
+    });
+  }
+
+  it("rejects discarded telemetry sink calls inside observeSafely callbacks", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { log(error); }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { void log(error); }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { if (condition) log(error); else return log(error); }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      try { run(); } catch (error) { observeSafely(() => { emitServerEvent("x", {}); }); }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { const pending = log(error); }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>, condition: boolean) {
+        try { run(); } catch (error) { observeSafely(() => { condition ? log(error) : log(error); }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { queue.push(log(error)); }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { return [log(error)]; }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(async () => { await [log(error)]; }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { if (log(error)) { work(); } }); }
+      }
+    `, options)).toHaveLength(1);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<void>) {
+        try { run(); } catch (error) { observeSafely(() => { function helper() { return log(error); } helper(); }); }
+      }
+    `, options)).toHaveLength(1);
+  });
+
+  it("accepts approved reporting imports and a directly injected sink in telemetry callbacks", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent as emit, writeObservabilityEvent } from "@/server/observability/log";
+      import { reportClientError as send } from "@/client/observability/client-reporter";
+      function report(sink: (failure: unknown) => void) {
+        try { run(); } catch (error) { observeSafely(() => sink(error)); }
+        try { run(); } catch (error) { observeSafely(() => emit("failure", { code: String(error) })); }
+        try { run(); } catch (error) { observeSafely(() => writeObservabilityEvent({ code: String(error) })); }
+        try { run(); } catch (error) { observeSafely(() => send({ name: "Failure", message: String(error), route: "/" })); }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects wrappers whose callbacks return or discard a failure without reporting it", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely as reportTelemetry } from "@/server/observability/log";
+      try { run(); } catch (error) { reportTelemetry(() => error); }
+      try { run(); } catch (error) { reportTelemetry(() => { void error; }); }
+      try { run(); } catch (error) { reportTelemetry(() => undefined); }
+      try { run(); } catch (error) { reportTelemetry(() => { throw error; }); }
+      try { run(); } catch (error) { reportTelemetry(() => console.log(error)); }
+      let status = "ready";
+      try { run(); } catch (error) { reportTelemetry(() => { status = "failed"; }); }
+      consume(status);
+      try { run(); } catch (error) { reportTelemetry(() => { try { work(); } finally { throw error; } }); }
+      try { run(); } catch (error) { reportTelemetry(() => { if (condition) log(error); }); }
+    `, options)).toHaveLength(8);
+  });
+
+  it("rejects a local no-op sink and inauthentic wrapper imports", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely as approved } from "@/server/observability/log";
+      import { observeSafely as foreign } from "./local-sink";
+      import { buildClientErrorReport as disguised } from "@/client/observability/client-reporter";
+      function noop(error: unknown): void {}
+      function handle(log: (error: unknown) => void) {
+        const approved = (callback: () => unknown) => callback();
+        try { run(); } catch (error) { approved(() => log(error)); }
+        try { run(); } catch (error) { foreign(() => log(error)); }
+        try { run(); } catch (error) { disguised(() => log(error)); }
+        try { run(); } catch (error) { observeSafely(() => log(error)); }
+      }
+      try { run(); } catch (error) { approved(() => noop(error)); }
+    `, options)).toHaveLength(5);
+  });
+
+  it("rejects builders, arbitrary imports, aliases, and callback-local parameters as telemetry sinks", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { buildClientErrorReport as build } from "@/client/observability/client-reporter";
+      import { sendReport } from "./unknown-reporter";
+      function noop(_error: unknown): void {}
+      function handle(sink: (error: unknown) => void) {
+        const alias = sink;
+        const ignored = noop;
+        try { run(); } catch (error) { observeSafely(() => build({ name: "Failure", message: String(error), route: "/" })); }
+        try { run(); } catch (error) { observeSafely(() => sendReport(error)); }
+        try { run(); } catch (error) { observeSafely(() => alias(error)); }
+        try { run(); } catch (error) { observeSafely(() => ignored(error)); }
+        try { run(); } catch (error) { observeSafely((callbackSink: (error: unknown) => void) => callbackSink(error)); }
+        try { run(); } catch { observeSafely(() => emitServerEvent()); }
+        try { run(); } catch (error) { observeSafely((callbackSink: (error: unknown) => void) => observeSafely(() => callbackSink(error))); }
+      }
+    `, options)).toHaveLength(7);
   });
 
   it("rejects empty and non-disposing inline promise rejection handlers", async () => {
@@ -388,6 +775,7 @@ describe("no-silent-catch", () => {
 
   it("accepts explicit promise fallbacks, throws, reporting, recovery, and named handlers", async () => {
     expect(await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
       run().catch(() => []);
       run().catch(() => null);
       run()?.catch(() => undefined);
@@ -436,9 +824,9 @@ describe("no-silent-catch", () => {
       ["console.log(error);", 1, "silent"],
     ]) {
       const catchDiagnostics = await lint("no-silent-catch",
-        `async function read() { try { return await run(); } catch (error) { ${body} } }`, options);
+        `import { reportClientError } from "@/client/observability/client-reporter"; async function read() { try { return await run(); } catch (error) { ${body} } }`, options);
       const promiseDiagnostics = await lint("no-silent-catch",
-        `async function read() { return await run().catch((error) => { ${body} }); }`, options);
+        `import { reportClientError } from "@/client/observability/client-reporter"; async function read() { return await run().catch((error) => { ${body} }); }`, options);
       expect(catchDiagnostics).toHaveLength(expected);
       expect(promiseDiagnostics).toHaveLength(catchDiagnostics.length);
       if (messageId) {

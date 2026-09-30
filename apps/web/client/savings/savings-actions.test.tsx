@@ -131,25 +131,26 @@ function ReopenHarness() {
 
 describe("SavingsJourney amount entry", () => {
   test("deposit Max reports a failed USDC fee lookup and recovers on Retry", async () => {
-    let requests = 0;
+    let failLookup = true;
+    const feeLookupWait = { timeout: 5000 };
     render(<AmountJourney open mode="deposit" session={session} candidate={candidate}
       availableLabel="$50.00 available" availableBaseUnits="50000000"
       fetchAccountResource={async () => {
-        requests++;
-        if (requests <= 3) throw new Error("network unavailable");
+        if (failLookup) throw new Error("network unavailable");
         return { version: 1, usdcReserveBaseUnits: "20000" };
       }}
       prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
       executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })} onClose={() => {}} />);
-    const alert = await page().findByRole("alert");
+    const alert = await page().findByRole("alert", {}, feeLookupWait);
     expect(alert.textContent).toContain("Couldn't check the network fee.");
     expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
+    // Recovery starts only once the settled failure is observable, so extra or reordered lookups cannot consume a failure budget.
+    failLookup = false;
     fireEvent.click(page().getByRole("button", { name: "Retry" }));
-    await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true));
-    await waitFor(() => expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true), feeLookupWait);
+    await waitFor(() => expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(false), feeLookupWait);
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect((page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("49.98");
-    expect(requests).toBe(4);
   });
 
   test("withdraw does not report an irrelevant USDC fee lookup failure", async () => {

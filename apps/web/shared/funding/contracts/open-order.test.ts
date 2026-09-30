@@ -1,0 +1,116 @@
+import { expect, test } from "bun:test";
+import { assertFundingOpenOrderResponse, FUNDING_OPEN_ORDER_VERSION } from "./open-order";
+
+const partialOrder = { id: "id", providerId: "provider", state: "pending", fiatAmount: "1" };
+
+test.each([null, {}, { version: FUNDING_OPEN_ORDER_VERSION, order: undefined }, { version: FUNDING_OPEN_ORDER_VERSION, order: {} }, { version: FUNDING_OPEN_ORDER_VERSION, order: [] }, { version: FUNDING_OPEN_ORDER_VERSION, order: { id: "id" } }, { version: FUNDING_OPEN_ORDER_VERSION, order: partialOrder }, { version: FUNDING_OPEN_ORDER_VERSION, order: { ...partialOrder, providerStatus: null } }])("rejects unknown or partial open-order response: %p", (value) => {
+  expect(() => assertFundingOpenOrderResponse(value, "AR")).toThrow("Invalid funding open order response");
+});
+
+test.each([undefined, 0, 2])("rejects a missing or stale open-order version: %p", (version) => {
+  expect(() => assertFundingOpenOrderResponse({ ...(version === undefined ? {} : { version }), order: null }, "AR")).toThrow("Invalid funding open order response");
+});
+
+test("accepts a known no-open-order response and a parsed order", () => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: null }, "AR")).not.toThrow();
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...partialOrder, providerStatus: null, instructions: null } }, "AR")).not.toThrow();
+});
+
+const completeOrder = { ...partialOrder, providerStatus: null };
+
+test("binds the open order to the requested region while accepting a legacy order without one", () => {
+  const order = { ...completeOrder, instructions: null };
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...order, region: "AR" } }, "AR")).not.toThrow();
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order }, "AR")).not.toThrow();
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...order, region: "BR" } }, "AR")).toThrow("Invalid funding open order response");
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...order, region: "AR" } }, "BR")).toThrow("Invalid funding open order response");
+});
+
+test.each([
+  { kind: "redirect", url: "https://example.com/pay" },
+  { kind: "embed", url: "https://example.com/apple-pay", presentation: "apple-pay", amount: "25", currency: "USD" },
+  { kind: "bank-transfer", rail: "ACH", accountNumber: "123", amount: "25", currency: "USD", accountName: "Home", bank: "Bank", alias: "alias", reference: "ref" },
+  { kind: "qr", scheme: "pix", payload: "qr-payload", amount: "25", currency: "BRL" },
+  { kind: "payment-key", scheme: "upi", key: "payment-key", amount: "25", currency: "INR" },
+])('accepts complete %s instructions', (instructions) => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...completeOrder, instructions } }, "AR")).not.toThrow();
+});
+
+test.each([
+  { kind: "redirect" },
+  { kind: "embed", url: "https://example.com/apple-pay", presentation: "apple-pay", amount: "25" },
+  { kind: "bank-transfer", rail: "ACH", amount: "25", currency: "USD" },
+  { kind: "qr", scheme: "pix", amount: "25", currency: "BRL" },
+  { kind: "payment-key", scheme: "upi", amount: "25", currency: "INR" },
+  { kind: "unknown", url: "https://example.com/pay" },
+  { kind: "bank-transfer", rail: "ACH", accountNumber: "123", amount: "25", currency: "USD", reference: 123 },
+  { kind: "bank-transfer", rail: "ACH", accountNumber: "123", amount: "25", currency: "USD", accountName: null },
+  { kind: "bank-transfer", rail: "ACH", accountNumber: "123", amount: "25", currency: "USD", bank: 123 },
+  { kind: "bank-transfer", rail: "ACH", accountNumber: "123", amount: "25", currency: "USD", alias: false },
+  { kind: "bank-transfer", rail: "ACH", accountNumber: "123", amount: "25", currency: "USD", reference: undefined },
+  { kind: "qr", scheme: "unsupported", payload: "qr-payload", amount: "25", currency: "BRL" },
+  { kind: "embed", url: "https://example.com/apple-pay", presentation: "card", amount: "25", currency: "USD" },
+])('rejects incomplete or invalid %s instructions', (instructions) => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...completeOrder, instructions } }, "AR")).toThrow("Invalid funding open order response");
+});
+
+const fullOrder = {
+  ...partialOrder, region: "AR", assetId: "base:wars", paymentMethod: "bank_transfer",
+  quote: { fiatAmount: "1", tokenAmountAtomic: "100", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+  quoteToken: "signed-quote", sandbox: false, expectedTokenAmountAtomic: "100",
+  fees: [{ label: "Provider", amount: "0.01", currency: "ARS" }], expiresAt: null,
+  providerStatus: null, instructions: { kind: "redirect", url: "https://example.com/pay" },
+  transactionHash: null, createdAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z",
+};
+
+test("accepts all summary fields and legitimate nullable order fields", () => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: fullOrder }, "AR")).not.toThrow();
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, expectedTokenAmountAtomic: null, transactionHash: `0x${"a".repeat(64)}`, providerStatus: "PENDING", expiresAt: "2099-01-01T00:00:00.000Z" } }, "AR")).not.toThrow();
+});
+
+test.each([
+  ["provider quote id and fee certainty", { providerQuoteId: "provider-quote", feesKnown: true }, false],
+  ["non-string provider quote id", { providerQuoteId: null }, true],
+  ["non-boolean fee certainty", { feesKnown: "true" }, true],
+  ["missing atomic token amount", { tokenAmountAtomic: undefined }, true],
+  ["missing expiry", { expiresAt: null }, true],
+  ["non-string quote fee currency", { fees: [{ label: "Provider", amount: "0.01", currency: 1 }] }, true],
+])('handles the quote %s field', (_field, override, rejected) => {
+  const order = { ...fullOrder, quote: { ...fullOrder.quote, ...override } };
+  const check = () => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order }, "AR");
+  if (rejected) expect(check).toThrow("Invalid funding open order response");
+  else expect(check).not.toThrow();
+});
+
+test.each([
+  ["id", { id: null }],
+  ["providerId", { providerId: 1 }],
+  ["state", { state: {} }],
+  ["fiatAmount", { fiatAmount: [] }],
+  ["foreign region", { region: "BR" }],
+  ["non-string region", { region: 1 }],
+  ["assetId", { assetId: [] }],
+  ["paymentMethod", { paymentMethod: null }],
+  ["incomplete quote", { quote: { fiatAmount: "1" } }],
+  ["quote fee", { quote: { ...fullOrder.quote, fees: [null] } }],
+  ["quoteToken", { quoteToken: {} }],
+  ["sandbox", { sandbox: "false" }],
+  ["atomic amount object", { expectedTokenAmountAtomic: { value: "100" } }],
+  ["non-atomic amount", { expectedTokenAmountAtomic: "1.5" }],
+  ["fees not an array", { fees: null }],
+  ["null fee", { fees: [null] }],
+  ["partial fee", { fees: [{ label: "Provider", amount: "0.01" }] }],
+  ["fee amount", { fees: [{ label: "Provider", amount: {}, currency: "ARS" }] }],
+  ["expiresAt", { expiresAt: false }],
+  ["providerStatus", { providerStatus: {} }],
+  ["instructions", { instructions: {} }],
+  ["transactionHash", { transactionHash: "0xnot-a-hash" }],
+  ["createdAt", { createdAt: 1 }],
+  ["updatedAt", { updatedAt: [] }],
+])('rejects a malformed %s summary field', (_field, override) => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, ...override } }, "AR")).toThrow("Invalid funding open order response");
+});
+
+test.each(["region", "assetId", "paymentMethod", "quote", "quoteToken", "sandbox", "expectedTokenAmountAtomic", "fees", "expiresAt", "transactionHash", "createdAt", "updatedAt"])('rejects explicitly undefined %s in cached data', (field) => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, [field]: undefined } }, "AR")).toThrow("Invalid funding open order response");
+});
