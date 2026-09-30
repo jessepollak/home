@@ -1,4 +1,6 @@
 
+import type { FundingDirection } from "@/shared/funding/provider-contract";
+
 export const FUNDING_PROVIDERS_VERSION = 3 as const;
 
 type FundingBindingBase = {
@@ -36,6 +38,20 @@ export type FundingOfframpBinding = FundingBindingBase & {
 };
 
 export type FundingBinding = FundingOnrampBinding | FundingOfframpBinding;
+export function assertFundingProvidersResponse(
+  value: unknown,
+  direction: FundingDirection,
+  region: string,
+): asserts value is { version: typeof FUNDING_PROVIDERS_VERSION; direction: FundingDirection; providers: unknown[] } {
+  if (!isRecord(value) || value.version !== FUNDING_PROVIDERS_VERSION || value.direction !== direction || !Array.isArray(value.providers)) {
+    throw new Error("Invalid funding providers response");
+  }
+  const bindings = readProviderBindings(value);
+  if (bindings.length !== value.providers.length || !bindings.every((binding) => binding.direction === direction && binding.region === region)) {
+    throw new Error("Invalid funding providers response");
+  }
+}
+
 export function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
   if (!isRecord(value) || !Array.isArray(value.providers)) return [];
   const parsed: FundingBinding[] = [];

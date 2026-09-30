@@ -11,12 +11,12 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { MARKET_PRICE_RANGES, type MarketPriceHistoryPoint, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
-import { formatChartPrice, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
+import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
 import { endsEarly, rangeSeconds, scrubTime, useReducedMotion, type ChartClock, type ChartReadout } from "./asset-chart-support";
 import { usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 
-type Plot = { id: number; range: MarketPriceRange; points: LivelinePoint[]; value: number; windowSecs: number };
+type Plot = { id: number; assetId: string; range: MarketPriceRange; points: LivelinePoint[]; value: number; windowSecs: number };
 const rangeLabels: Record<MarketPriceRange, string> = {
   "1D": "past day", "1W": "past week", "1M": "past month", "3M": "past 3 months", "1Y": "past year",
 };
@@ -24,7 +24,7 @@ const plotPadding = { top: 20, right: 18, bottom: 20, left: 16 };
 let plotId = 0;
 
 function samePlot(a: Plot | undefined, b: Plot) {
-  return a?.range === b.range && a.points.length === b.points.length
+  return a?.assetId === b.assetId && a.range === b.range && a.points.length === b.points.length
     && a.points.every((point, index) => point.time === b.points[index]?.time && point.value === b.points[index]?.value);
 }
 function pointX(time: number, plot: Plot, width: number, now: number) {
@@ -122,16 +122,16 @@ export function visibleWindowSeconds(range: MarketPriceRange, points: readonly L
   const now = Date.now() / 1000;
   return Math.max(nominal, last - first + 1, now - first + 1);
 }
-function historyPlot(history: PriceHistoryState, range: MarketPriceRange): Plot | null {
-  if (history.status !== "ready") return null;
+function historyPlot(history: Pick<PriceHistoryState, "status" | "points">, assetId: string, range: MarketPriceRange): Plot | null {
+  if (history.status !== "ready" && history.status !== "stale") return null;
   const points = toLivelinePoints(history.points);
   return points.length < 2 ? null : {
-    id: ++plotId, range, points, value: points.at(-1)!.value, windowSecs: visibleWindowSeconds(range, points),
+    id: ++plotId, assetId, range, points, value: points.at(-1)!.value, windowSecs: visibleWindowSeconds(range, points),
   };
 }
 function PrefetchedRange({ assetId, range, onPlot }: { assetId: string; range: MarketPriceRange; onPlot: (plot: Plot) => void }) {
   const { points, status } = usePriceHistory(assetId, range, { speculative: true });
-  const plot = useMemo(() => historyPlot({ points, status }, range), [points, status, range]);
+  const plot = useMemo(() => historyPlot({ points, status }, assetId, range), [points, status, assetId, range]);
   useEffect(() => { if (plot) onPlot(plot); }, [plot, onPlot]);
   return null;
 }
@@ -149,8 +149,8 @@ export function AssetChart({ assetId, range, onRangeChange, clock, onReadout, on
   const { resolvedAppearance } = useAppearance();
   const reduced = useReducedMotion();
   const { points: historyPoints, status: historyStatus } = history;
-  const next = useMemo(() => historyPlot({ points: historyPoints, status: historyStatus }, range),
-    [historyPoints, historyStatus, range]);
+  const next = useMemo(() => historyPlot({ points: historyPoints, status: historyStatus }, assetId, range),
+    [historyPoints, historyStatus, assetId, range]);
   const [plots, setPlots] = useState<Partial<Record<MarketPriceRange, Plot>>>({});
   const [prefetchAssetId, setPrefetchAssetId] = useState<string | null>(null);
   const [visible, setVisible] = useState<MarketPriceRange | null>(null);
@@ -166,10 +166,12 @@ export function AssetChart({ assetId, range, onRangeChange, clock, onReadout, on
   const hintId = useId();
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [scrubPosition, setScrubPosition] = useState<{ x: number; y: number } | null>(null);
-  const missing = history.status === "error" || history.status === "empty" || history.status === "ready" && !next;
-  const targetReady = !!next && !!plots[range] && resting[range]?.id === plots[range].id;
+  const missing = history.status === "error" || history.status === "empty"
+    || (history.status === "ready" || history.status === "stale") && !next;
+  const targetReady = !!next && plots[range]?.assetId === assetId && resting[range]?.id === plots[range].id;
   const pending = !missing && !targetReady;
-  const drawn = visible ? resting[visible] ?? null : null;
+  const drawnPlot = visible ? resting[visible] : undefined;
+  const drawn = drawnPlot?.assetId === assetId ? drawnPlot : null;
   const active = visible === range && !missing && !pending ? drawn : null;
   const coldLoad = history.status === "loading" && pending;
   useEffect(() => {
@@ -323,14 +325,16 @@ export function AssetChart({ assetId, range, onRangeChange, clock, onReadout, on
   const visibleGap = !!drawn && !!lastPoint && endsEarly(lastPoint.time, drawn.range, clock.value);
   const gapWarning = active && endsEarly(active.points.at(-1)!.time, active.range, clock.value)
     ? `, no data since ${scrubTime(active.points.at(-1)!.time, active.range, regionId)}` : "";
+  const staleNotice = history.status === "stale"
+    ? `Couldn't refresh price history · last updated ${formatPresentationDate(history.asOf, { regionId, style: "date-time-zone" })}` : null;
   const lastY = visibleGap && lastPoint && drawn && stageSize.height ? pointY(lastPoint.value, drawn, stageSize.height, clock.value) : null;
   return (
     <section className="min-w-0" aria-label="Market price history">
       {prefetchAssetId === assetId ? MARKET_PRICE_RANGES.filter((value) => value !== range).map((value) =>
         <PrefetchedRange key={value} assetId={assetId} range={value} onPlot={registerPlot} />) : null}
       <div ref={stage} role={active ? "group" : "status"} aria-roledescription={active ? "chart" : undefined}
-        aria-label={active ? `${{ "1D": "1 day", "1W": "1 week", "1M": "1 month", "3M": "3 months", "1Y": "1 year" }[range]} price history, ${active.points.length} points${gapWarning}`
-          : missing ? history.status === "error" ? "Couldn't load price history" : "No price history for this range." : "Loading price history"}
+        aria-label={active ? `${{ "1D": "1 day", "1W": "1 week", "1M": "1 month", "3M": "3 months", "1Y": "1 year" }[range]} price history, ${active.points.length} points${gapWarning}${staleNotice ? `, ${staleNotice}` : ""}`
+          : missing ? history.status === "error" || history.status === "stale" ? "Couldn't load price history" : "No price history for this range." : "Loading price history"}
         aria-describedby={active ? hintId : undefined}
         aria-busy={pending && dimmed || undefined}
         tabIndex={active ? 0 : undefined}
@@ -341,8 +345,8 @@ export function AssetChart({ assetId, range, onRangeChange, clock, onReadout, on
         <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-1/2 h-px bg-muted-foreground/20"
           style={{ opacity: drawn ? 0 : 1, transition: `opacity ${reduced ? 120 : 180}ms` }} />
         {MARKET_PRICE_RANGES.flatMap((value) => {
-          const latest = plots[value];
-          const previous = resting[value];
+          const latest = plots[value]?.assetId === assetId ? plots[value] : undefined;
+          const previous = resting[value]?.assetId === assetId ? resting[value] : undefined;
           return [latest, previous && previous.id !== latest?.id ? previous : null].filter((plot): plot is Plot => !!plot);
         }).map((data) => {
           const value = data.range;
@@ -370,7 +374,7 @@ export function AssetChart({ assetId, range, onRangeChange, clock, onReadout, on
         })}
         {slow && coldLoad ? <span className="absolute inset-x-0 bottom-4 text-center text-sm">Still loading price history</span> : null}
         {missing ? <div className="absolute inset-0 bg-(--asset-surface,var(--color-background))"><Empty><EmptyHeader><EmptyTitle>
-          {history.status === "error" ? "Couldn't load price history" : "No price history for this range."}
+          {history.status === "error" || history.status === "stale" ? "Couldn't load price history" : "No price history for this range."}
         </EmptyTitle></EmptyHeader>{history.status === "error" ? <Button variant="outline" size="touch"
           onClick={() => { void getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", assetId, range) }); }}>
           Try again
@@ -391,6 +395,10 @@ export function AssetChart({ assetId, range, onRangeChange, clock, onReadout, on
             style={{ top: (scrubPosition?.y ?? 0) - plotPadding.top - 4, backgroundColor: active ? plotColor(active) : "var(--primary)" }} />
         </div>
       </div>
+      {staleNotice ? <div role="alert" className="flex items-center justify-between gap-3 py-2 text-sm text-muted-foreground">
+        <span>{staleNotice}</span>
+        <Button variant="outline" size="touch" onClick={() => { void getHomeQueryClient().invalidateQueries({ queryKey: publicQueryKey("price-history", assetId, range) }); }}>Try again</Button>
+      </div> : null}
       <span id={hintId} className="sr-only">Use the left and right arrow keys to move between points. Home and End jump to the first and last point. Escape stops.</span>
       <span className="sr-only" aria-live="polite">{announcement}</span>
       <ToggleGroup value={[range]} onValueChange={(values) => {

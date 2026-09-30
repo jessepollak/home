@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { isTransientAccountResourceFailure } from "@/client/account/resource-failure";
 import { assertRecentActionsResponse } from "@/shared/actions/contracts/list";
+import { queryViewState } from "@/client/query/query-view-state";
 
 export async function fetchRecentActions(
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>,
@@ -36,12 +37,14 @@ type RecentActionsQueryState = {
 };
 
 export function recentActionsStatus(query: RecentActionsQueryState, { tolerateStaleError = true }: { tolerateStaleError?: boolean } = {}): "loading" | "ready" | "error" {
-  if (query.isError) {
-    const recentlyLoaded = tolerateStaleError && query.hasData &&
-      query.errorUpdatedAt - query.dataUpdatedAt <= RECENT_ACTIONS_STALE_TOLERANCE_MS;
-    return recentlyLoaded ? "ready" : "error";
-  }
-  return query.isPending ? "loading" : "ready";
+  const recentlyLoaded = tolerateStaleError && query.hasData &&
+    query.errorUpdatedAt - query.dataUpdatedAt <= RECENT_ACTIONS_STALE_TOLERANCE_MS;
+  const view = queryViewState(
+    { status: query.isError ? "error" : query.isPending ? "pending" : "success" },
+    { hasCachedData: query.isError ? recentlyLoaded : query.hasData },
+  );
+  if (view === "failed") return "error";
+  return view === "loading" && query.isPending ? "loading" : "ready";
 }
 
 export function useRecentActionsStatus(query: RecentActionsQueryState, options: { tolerateStaleError?: boolean } = {}): "loading" | "ready" | "error" {

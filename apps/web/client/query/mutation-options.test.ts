@@ -1,3 +1,4 @@
+import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { expect, spyOn, test } from "bun:test";
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { clearOwnerQueryBoundary, createHomeQueryClient, dehydrateOwnerQueries, ownerQueryKey } from "./query-client";
@@ -17,7 +18,7 @@ test("a successful mutation invalidates each declared owner key once and refetch
   const client = createHomeQueryClient();
   const openKey = ownerQueryKey("owner-a", "funding-open-order", "US");
   let reads = 0;
-  await client.fetchQuery({ queryKey: openKey, queryFn: async () => ++reads });
+  await client.fetchQuery({ queryKey: openKey, queryFn: async () => { reads += 1; return { version: FUNDING_OPEN_ORDER_VERSION, order: null }; } });
   client.setQueryData(activityKey, { orders: [] });
   const invalidate = spyOn(client, "invalidateQueries");
   const operation = mutation(client, ownerMutation({
@@ -94,7 +95,7 @@ test("per-call invalidations resolve the region from variables without touching 
   const usKey = ownerQueryKey("owner-a", "funding-open-order", "US");
   const arKey = ownerQueryKey("owner-a", "funding-open-order", "AR");
   const otherOwner = ownerQueryKey("owner-b", "funding-open-order", "US");
-  for (const key of [usKey, arKey, otherOwner]) client.setQueryData(key, { order: null });
+  for (const key of [usKey, arKey, otherOwner]) client.setQueryData(key, { version: FUNDING_OPEN_ORDER_VERSION, order: null });
   const operation = mutation(client, ownerMutation({
     owner: "owner-a",
     invalidates: (variables: { region: string }) => [{ scope: "funding-open-order", key: [variables.region] }],
