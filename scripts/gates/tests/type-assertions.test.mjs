@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -104,12 +106,31 @@ test("a transferred exception does not grant new debt for a renamed path", () =>
   ]);
 });
 
+test("a renamed destination's inherited exception grants no new debt", () => {
+  const renamed = "apps/web/client/renamed.ts";
+  const added = [change(original + "\nconst cast = input as unknown;", original, renamed, file)];
+  const destinationException = { ...exception, path: renamed };
+  for (const baseExceptions of [[destinationException], [exception, destinationException]]) {
+    const inherited = baseExceptions.reduce((total, entry) => total + entry.count, 0);
+    assert.deepEqual(evaluate(added, [{ ...destinationException, count: inherited }], baseExceptions), {
+      ...clean,
+      increases: [`${renamed}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`],
+    });
+    assert.deepEqual(evaluate(added, [{ ...destinationException, count: inherited + 1 }], baseExceptions), clean);
+    assert.deepEqual(evaluate(added, [{ ...destinationException, count: inherited + 2 }], baseExceptions), {
+      ...clean,
+      notes: [`${renamed}: assertion exception allows 2 but this change adds 1; remove or narrow it`],
+    });
+  }
+});
+
 test("reviewed exceptions cover only newly granted debt", () => {
   const added = [change(original + "\nconst cast = input as unknown;")];
   assert.deepEqual(evaluate(added, [exception]), clean);
   assert.deepEqual(evaluate(added, [exception], [exception]).increases, [
     `${file}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
   ]);
+  assert.deepEqual(evaluate(added, [{ ...exception, count: 2 }], [exception]), clean);
 });
 
 test("oversized and unused exceptions are non-failing notes", () => {
@@ -160,7 +181,10 @@ test("the changed set follows renames, additions, moves, and untracked files", (
   const movedContent = "const moved = value as string;";
   const blob = "b".repeat(40);
   const runner = (args) => {
-    if (args[0] === "diff") return `M\t${kept}\nD\t${movedFrom}\nR100\t${source}\t${renamed}\nM\tapps/web/client/account/basename-profile.test.ts\n`;
+    if (args[0] === "diff") {
+      assert.ok(args.includes("-z"));
+      return `C100\0${source}\0apps/web/client/account/copied.ts\0M\0${kept}\0D\0${movedFrom}\0R100\0${source}\0${renamed}\0M\0apps/web/client/account/basename-profile.test.ts\0`;
+    }
     if (args[0] === "ls-files") return `${moved}\0${added}\0apps/web/client/account/native-base-bridge.test.tsx\0`;
     if (args[0] === "rev-parse") return String(args.at(-1)) === `origin/main:${movedFrom}` ? blob : "";
     if (args[0] === "hash-object") return [kept, moved, added].includes(String(args.at(-1))) ? blob : "";
@@ -186,7 +210,10 @@ test("a production path that comes from an excluded source starts from zero", ()
   const target = "apps/web/client/account/cdp-sdk-provider.tsx";
   const blob = "c".repeat(40);
   const runner = (args) => {
-    if (args[0] === "diff") return `D\t${excluded}\n`;
+    if (args[0] === "diff") {
+      assert.ok(args.includes("-z"));
+      return `D\0${excluded}\0`;
+    }
     if (args[0] === "ls-files") return `${target}\0`;
     if (args[0] === "rev-parse") return String(args.at(-1)) === `origin/main:${excluded}` ? blob : "";
     if (args[0] === "hash-object") return String(args.at(-1)) === target ? blob : "";
@@ -195,6 +222,7 @@ test("a production path that comes from an excluded source starts from zero", ()
   };
   const changed = changedProductionTypeScript({ base: "origin/main", cwd: root, gitRunner: runner });
   assert.deepEqual(changed.map(({ path, basePath, baseContent }) => [path, basePath, baseContent === undefined ? null : baseContent]), [[target, target, null]]);
+});
 
 test("a rewritten rename keeps its source's counts", () => {
   const root = fileURLToPath(new URL("../../..", import.meta.url));
@@ -202,7 +230,10 @@ test("a rewritten rename keeps its source's counts", () => {
   const destination = "apps/web/client/account/native-base-bridge.tsx";
   const baseContent = "const kept = value as string;";
   const runner = (args) => {
-    if (args[0] === "diff") return `R51\t${source}\t${destination}\n`;
+    if (args[0] === "diff") {
+      assert.ok(args.includes("-z"));
+      return `R51\0${source}\0${destination}\0`;
+    }
     if (args[0] === "ls-files") return "";
     if (args[0] === "cat-file") return "present";
     if (args[0] === "show") return baseContent;
@@ -211,6 +242,34 @@ test("a rewritten rename keeps its source's counts", () => {
   const changed = changedProductionTypeScript({ base: "origin/main", cwd: root, gitRunner: runner });
   assert.deepEqual(changed.map(({ path, basePath, baseContent: content }) => [path, basePath, content]), [[destination, source, baseContent]]);
 });
+
+test("real git includes non-ASCII production additions and rename destinations", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" };
+  const gitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const git = (...args) => gitRunner(args);
+  const source = "apps/web/shared/source.ts";
+  const added = "apps/web/shared/café.ts";
+  const renamed = "apps/web/shared/renommé.ts";
+  git("init", "--template=");
+  git("config", "core.quotePath", "true");
+  mkdirSync(path.join(cwd, "apps/web/shared"), { recursive: true });
+  writeFileSync(path.join(cwd, source), original);
+  git("add", "--", source);
+  git("-c", "user.name=Gate Test", "-c", "user.email=gate-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "test fixture");
+  renameSync(path.join(cwd, source), path.join(cwd, renamed));
+  writeFileSync(path.join(cwd, added), "const added = input as number;");
+  git("add", "--", "apps/web");
+  const changed = changedProductionTypeScript({ base: "HEAD", cwd, gitRunner });
+  assert.deepEqual(changed, [
+    { path: added, basePath: added, content: "const added = input as number;", baseContent: undefined },
+    { path: renamed, basePath: source, content: original, baseContent: original },
+  ]);
+  assert.deepEqual(evaluate(changed), {
+    ...clean,
+    increases: [`${added}: assertion 1 > 0; narrow the new use with a runtime guard or add a reviewed exception with a reason`],
+  });
 });
 
 test("base resolution verifies commits and fetches unresolved branches", () => {
