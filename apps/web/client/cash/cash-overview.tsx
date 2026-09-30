@@ -91,6 +91,7 @@ export type SavingsDetailProps = Omit<
   depositFailed?: boolean;
   onStartSaving: () => void;
   onDepositVault: (candidate: MorphoVaultCandidate) => void;
+  onDepositIntent?: () => void;
   onManageVault: (address: string) => void;
   onRetryVaults: () => void;
   actionsAvailable?: boolean;
@@ -354,6 +355,7 @@ function SavingsVaultRow({
   rateLoading,
   nowMs,
   onActivate,
+  onIntent,
   activateLabel,
 }: {
   vault: SavingsDisplayVault;
@@ -362,6 +364,7 @@ function SavingsVaultRow({
   rateLoading: boolean;
   nowMs: number;
   onActivate?: (opener: HTMLElement) => void;
+  onIntent?: () => void;
   activateLabel?: string;
 }) {
   const { held, partial, amount } = vaultHolding(vault);
@@ -393,6 +396,7 @@ function SavingsVaultRow({
       }
       valueTone={partial ? "muted" : "default"}
       onActivate={onActivate}
+      onIntent={onIntent}
       activateLabel={activateLabel}
       chevron={Boolean(onActivate)}
     />
@@ -738,6 +742,7 @@ export function SavingsDetail({
   nowMs,
   now = Date.now,
   onDepositVault,
+  onDepositIntent,
   onManageVault,
   onRetryVaults,
   onRetryBalances,
@@ -1047,6 +1052,7 @@ export function SavingsDetail({
                             ? undefined
                             : () => onDepositVault(candidate)
                         }
+                        onIntent={depositUnavailable ? undefined : onDepositIntent}
                         activateLabel={`Deposit to ${vault.name}`}
                       />
                     );

@@ -447,11 +447,15 @@ function DashboardShellBody({
         mainRef.current?.scrollTo({ top: 0, behavior: "auto" });
         setBalancesRevealReset((resetSignal) => resetSignal + 1);
       }
-      setNavigationRequest((request) => request + 1);
+      const returningToSavingsTray = urlIntent.location.cashView === "savings" &&
+        (urlIntent.flow === "save-deposit" || urlIntent.flow === "save-withdraw") &&
+        intent.location.cashView === "savings" && intent.flow === null;
+      if (returningToSavingsTray) pendingHistoryScrollRestoreRef.current = null;
+      if (!returningToSavingsTray) setNavigationRequest((request) => request + 1);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [applyUrlState, currentUrlIntent, isBalancesRestoreArmed, urlIntent.location.cashView, urlIntent.location.holding]);
+  }, [applyUrlState, currentUrlIntent, isBalancesRestoreArmed, urlIntent.flow, urlIntent.location.cashView, urlIntent.location.holding]);
 
   useEffect(() => {
     if (forwardRequest !== 0) pendingBalancesRestoreRef.current = false;
