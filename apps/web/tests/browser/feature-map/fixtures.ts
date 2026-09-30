@@ -10,6 +10,7 @@ import { preparedSendFixtureAction } from "../fixtures/api";
 import { COUNTRY_PREFERENCE_VERSION } from "../../../shared/account/contracts/country-preference";
 import { cashoutFixtureAction, cashoutFixtureProgress, cashoutFixtureWithdraw } from "./cashout-fixture";
 import { conversionFixtureAction } from "./conversion-fixture";
+import { savingsPrepareFixture } from "./savings-fixture";
 import {
   actionsBody,
   basenameProfileBody,
@@ -132,10 +133,11 @@ export function priceHistoryFixture(assetId: string, now = new Date(FIXED_NOW)):
   };
 }
 
-export function fixtureRoutes() {
+export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "savings-deposit" | "savings-withdraw" } = {}) {
   const balances = balancesSnapshot("US", { stocks: true });
   const borrowOverview = borrowOverviewBody();
-  const prepared = preparedSendFixtureAction(recentRecipient);
+  const prepared = prepare === "send" ? preparedSendFixtureAction(recentRecipient)
+    : savingsPrepareFixture({ operation: prepare === "savings-deposit" ? "deposit" : "withdraw" });
   const assetIds = new Set([
     ...cashConversionCurrencies.filter((currency) => currency.code !== "USD").map((currency) => currency.tradeAssetId),
     ...[...cryptoAssets, ...memeAssets].map((asset) => asset.id),
