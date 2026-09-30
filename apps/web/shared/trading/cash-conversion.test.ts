@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { parseAddress } from "@/shared/chain/hex";
 import type { TradeMoneyActionMetadata } from "./contract";
 import { cashConversionCurrencies, cashConversionDestinations, cashConversionPair, cashConversionTrade } from "./cash-conversion";
 
@@ -21,7 +22,7 @@ describe("cash conversion route", () => {
   test("inventory uses verified Base addresses, decimals and portfolio identities", () => {
     expect(cashConversionCurrencies).toEqual([canonicalUsdcAsset, ...Object.values(verifiedLocalCashAssets)].map((asset) => ({
       code: asset.cashCurrency, name: asset.name, symbol: asset.symbol, decimals: asset.decimals,
-      address: asset.contractAddress, portfolioAssetId: asset.id,
+      address: parseAddress(asset.contractAddress)!, portfolioAssetId: asset.id,
       tradeAssetId: asset.cashCurrency === "USD" ? "usdc" : `base:${asset.contractAddress.toLowerCase()}`,
     })));
   });

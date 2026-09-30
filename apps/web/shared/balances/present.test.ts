@@ -55,11 +55,11 @@ describe("focused investment presentation", () => {
 
 function validatedPresentationSnapshot(options: BalancesFixtureOptions): BalancesSnapshot {
   const snapshot = buildBalancesSnapshotFixture(options);
-  expect(parseBalancesSnapshot(snapshot, {
+  expect(JSON.parse(JSON.stringify(parseBalancesSnapshot(snapshot, {
     subject: "cdp:test",
     smartAccountAddress: snapshot.owner.address,
     chainId: snapshot.owner.chainId,
-  }, snapshot.region)).toEqual(snapshot);
+  }, snapshot.region)))).toEqual(snapshot);
   return snapshot;
 }
 
@@ -448,6 +448,30 @@ describe("balance presentation", () => {
       tone: "error",
     });
     expect(presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: true }).groups[0]?.displaySubtotal).toBeNull();
+  });
+
+  test("keeps an unverified local currency visible without inventing a balance or affecting totals", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      region: "BR",
+      registry: {
+        usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+      },
+    });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+    const cash = presentation.groups.find((group) => group.id === "cash");
+    const unsupported = cash?.rows.find((row) => row.key === "cash:unsupported:BRL");
+
+    expect(unsupported).toMatchObject({
+      name: "Brazilian real",
+      mark: { kind: "flag", currency: "BRL" },
+      primary: "Verification pending",
+      secondary: null,
+      tone: "muted",
+    });
+    expect(`${unsupported?.primary}${unsupported?.secondary ?? ""}`).not.toMatch(/[0-9]/);
+    expect(cash?.displaySubtotal).toBe("R$ 25,00");
+    expect(presentation.displayTotal).toBe("R$ 25,00");
+    expect(presentation.summary?.cash.value).toBe("R$ 25,00");
   });
 
   test("renders a positive non-selected cash holding once in the cash group", () => {

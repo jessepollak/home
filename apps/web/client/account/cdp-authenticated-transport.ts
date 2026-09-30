@@ -10,7 +10,7 @@ import type { SessionFetch, VerifiedAccountSession } from "./session-client";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { readJson } from "@/shared/http/read-json";
 import { TransferExecutionError } from "@/shared/transfers/types";
-import { parseCashoutPrepareErrorResponse } from "@/shared/actions/contracts/prepare";
+import { parsePrepareActionErrorResponse } from "@/shared/actions/contracts/prepare";
 import { parseConfirmActionErrorResponse } from "@/shared/actions/contracts/confirm";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
 import {
@@ -77,7 +77,7 @@ function actionErrorDetails(pathname: string, payload: unknown): { code: string;
   const parsed = /^\/api\/actions\/[^/]+\/confirm$/.test(pathname)
     ? parseConfirmActionErrorResponse(payload)
     : pathname === "/api/actions/prepare"
-      ? parseCashoutPrepareErrorResponse(payload)
+      ? parsePrepareActionErrorResponse(payload)
       : null;
   return parsed ? { code: parsed.error.code, serverMessage: parsed.error.message } : null;
 }

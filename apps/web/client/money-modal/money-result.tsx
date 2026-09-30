@@ -7,18 +7,28 @@ import { formatPresentationDate } from "@/shared/formatting";
 import { MoneyModalFooter } from "./money-modal";
 
 type MoneyResultOutcome = ReturnType<typeof useMoneyActionOutcome>["outcome"];
-type MoneyResultKind = "send" | "cash-out" | "cash-out-withdraw" | "savings-deposit" | "savings-withdraw" |
+type MoneyResultKind = "send" | "card-allowance" | "cash-out" | "cash-out-withdraw" | "savings-deposit" | "savings-withdraw" |
   "supply-collateral" | "borrow" | "supply-and-borrow" | "repay" | "repay-all" | "withdraw-collateral" | "close-position";
 type MoneyResultCopyInput = {
   kind: MoneyResultKind;
   outcome: MoneyResultOutcome;
   amount?: string;
   provider?: string;
+  cardOperation?: "set-allowance" | "revoke-allowance";
 };
 
-export function moneyResultCopy({ kind, outcome, amount, provider }: MoneyResultCopyInput): { title: string; description?: string } {
+export function moneyResultCopy({ kind, outcome, amount, provider, cardOperation }: MoneyResultCopyInput): { title: string; description?: string } {
+  if (kind === "card-allowance") {
+    const revoke = cardOperation === "revoke-allowance";
+    if (outcome === "unknown") return { title: revoke ? "We can't confirm removing the card spending permission" : "We can't confirm the card spending change", description: "It may have gone through. Check Activity before trying again." };
+    if (outcome === "failed") return revoke ? { title: "Card spending permission wasn't removed", description: "This spender still has permission to spend USDC from Cash." }
+      : { title: "Card spending change didn't go through", description: "Your card spending limit didn't change." };
+    if (outcome === "pending") return { title: revoke ? "Removing card spending permission" : "Setting card spending limit", description: "We'll update Activity when it's confirmed." };
+    return { title: revoke ? "Card spending permission removed" : "Card spending limit set" };
+  }
   const a = amount ?? "the amount";
   const titles: Record<MoneyResultKind, [string, string, string]> = {
+    "card-allowance": ["Card spending limit set", "Setting card spending limit", "Card spending change didn't go through"],
     send: [`${a} sent`, `${a} on its way`, `${a} wasn't sent`],
     "cash-out": [`${a} sent to cash out`, `Cashing out ${a}`, "Cash-out didn't go through"],
     "cash-out-withdraw": [`${a} returned to your account`, `Returning ${a} to your account`, "Withdrawal didn't go through"],
@@ -53,8 +63,8 @@ export function moneyResultCopy({ kind, outcome, amount, provider }: MoneyResult
   };
 }
 
-export function MoneyResult({ kind, outcome, amount, provider, submittedAt }: MoneyResultCopyInput & { submittedAt?: string }) {
-  const { title, description } = moneyResultCopy({ kind, outcome, amount, provider });
+export function MoneyResult({ kind, outcome, amount, provider, cardOperation, submittedAt }: MoneyResultCopyInput & { submittedAt?: string }) {
+  const { title, description } = moneyResultCopy({ kind, outcome, amount, provider, cardOperation });
   const parsedTime = submittedAt ? Date.parse(submittedAt) : NaN;
   const time = Number.isFinite(parsedTime) ? formatPresentationDate(parsedTime, { style: "chart-time" }) : undefined;
   return (

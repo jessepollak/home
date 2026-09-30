@@ -1,3 +1,4 @@
+import { parseAddress, type Address } from "@/shared/chain/hex";
 import { parseAssetSnapshot } from "./asset-resolution";
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import type { MarketSnapshot } from "@/shared/invest/invest-market";
@@ -55,6 +56,9 @@ export type InvestSearchResult = {
   source: InvestSearchSource;
 };
 
+export type ParsedInvestSearchResult = InvestSearchResult & { asset: InvestAsset & { contractAddress: Address } };
+export type ParsedInvestSearchPage = InvestSearchPage & { results: readonly ParsedInvestSearchResult[] };
+
 export type InvestSearchPage = {
   query: string;
   offset: number;
@@ -67,7 +71,6 @@ export type InvestSearchPage = {
 
 export type InvestSearchRequest = { query: string; offset: number };
 
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const configuredById = new Map<string, InvestAsset>(
   investAssets.map((asset) => [asset.id, asset]),
 );
@@ -78,7 +81,7 @@ export function normalizeInvestSearchQuery(raw: string): string | null {
 }
 
 export function isInvestSearchAddressQuery(query: string): boolean {
-  return addressPattern.test(query);
+  return parseAddress(query.toLowerCase()) !== null;
 }
 
 export function parseInvestSearchRequest(
@@ -121,7 +124,7 @@ export function investSearchSearchParams({
 
 export function parseInvestSearchResponse(
   value: unknown,
-): InvestSearchPage | null {
+): ParsedInvestSearchPage | null {
   const record = readRecord(value);
   if (
     !record ||
@@ -148,12 +151,12 @@ export function parseInvestSearchResponse(
     return null;
   }
 
-  const results: InvestSearchResult[] = [];
+  const results: ParsedInvestSearchResult[] = [];
   const seen = new Set<string>();
   for (const item of record.results) {
     const result = parseResult(item);
     if (!result) return null;
-    const key = result.asset.contractAddress.toLowerCase();
+    const key = result.asset.contractAddress;
     if (seen.has(key)) continue;
     seen.add(key);
     results.push(result);
@@ -180,13 +183,14 @@ export function parseInvestSearchResponse(
   };
 }
 
-function parseResult(value: unknown): InvestSearchResult | null {
+function parseResult(value: unknown): ParsedInvestSearchResult | null {
   const record = readRecord(value);
   if (!record || !isMatch(record.match)) return null;
   if (record.kind === "configured") {
     const asset =
       typeof record.assetId === "string" ? configuredById.get(record.assetId) : undefined;
-    return asset ? { asset, match: record.match, source: "configured" } : null;
+    const address = parseAddress(asset?.contractAddress);
+    return asset && address ? { asset: { ...asset, contractAddress: address }, match: record.match, source: "configured" } : null;
   }
   if (
     record.kind !== "dynamic" ||

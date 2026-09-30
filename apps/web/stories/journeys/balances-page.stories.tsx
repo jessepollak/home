@@ -7,6 +7,8 @@ import {
   buildBalancesSnapshotFixture,
   catalogHolding,
   priced,
+  pricedCash,
+  ready,
   walletHolding,
 } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
@@ -49,5 +51,19 @@ export const WithUnpricedTokens: Story = {
     await expect(unpriced.getByText("Discovered Token")).toBeVisible();
     await expect(unpriced.getByRole("img", { name: "2.00 DISC" })).toBeVisible();
     await expect(unpriced.queryByRole("img", { name: "$0.00" })).not.toBeInTheDocument();
+  },
+};
+
+const unsupportedSnapshot = buildBalancesSnapshotFixture({ region: "BR", registry: {
+  usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+} });
+
+export const UnsupportedLocalCurrency: Story = {
+  args: { assetBalances: presentBalances({ status: "ready", snapshot: unsupportedSnapshot, error: null }) },
+  play: async ({ canvasElement }) => {
+    const cash = within(within(canvasElement).getByRole("region", { name: "Cash" }));
+    const real = cash.getByText("Brazilian real").closest("li")!;
+    await expect(within(real).getByRole("img", { name: "Verification pending" })).toBeVisible();
+    await expect(real.textContent).not.toMatch(/[0-9]|R\$/);
   },
 };

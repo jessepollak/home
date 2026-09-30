@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
-import { linkedCashoutWithdraw, presentCashout } from "./cash-out-presenter";
+import { cashoutMoney, cashoutProgress, linkedCashoutWithdraw, presentCashout as presentCashoutForRegion } from "./cash-out-presenter";
 import { presentActivityLedgerItems } from "./activity-ledger-items";
+
+const presentCashout = (operation: RecentMoneyActionOperation, withdraw?: RecentMoneyActionOperation) =>
+  presentCashoutForRegion(operation, withdraw, { regionId: "US" });
 
 const operation: RecentMoneyActionOperation = {
   action: { id: "deposit", kind: "cash-out", title: "Cash out", amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000", direction: "spend" }], warnings: [], expiresAt: "", createdAt: "" },
@@ -18,6 +21,24 @@ function ledger(entry: RecentMoneyActionOperation, linked?: RecentMoneyActionOpe
   if (item.family !== "home-action") throw new Error("expected a Home action");
   return { ...item, facts: item.detail.facts ?? [] };
 }
+
+test("cash-out amounts follow the presentation region", () => {
+  expect(cashoutMoney("1234560000", 6, "US")).toContain("1,234.56");
+  expect(cashoutMoney("1234560000", 6, "BR")).toContain("1.234,56");
+});
+test("cash-out label follows the presentation region", () => {
+  const view = presentCashoutForRegion(withState("awaiting-buyer", { amountAtomic: "1234560000", remainingAtomic: "1234560000" }), undefined, { regionId: "BR" });
+  expect(view.label).toContain("1.234,56");
+});
+
+test("region-free progress agrees with presentation on lifecycle flags", () => {
+  const cases = [operation, withState("matched"), withState("returned", { returnedAtomic: "50000000", remainingAtomic: "0" })];
+  for (const entry of cases) {
+    const { stage, inProgress, refreshing, cancellable } = cashoutProgress(entry);
+    expect(presentCashoutForRegion(entry, undefined, { regionId: "BR" })).toMatchObject({ stage, inProgress, refreshing, cancellable });
+  }
+});
+
 
 describe("cash-out presentation", () => {
   test.each([

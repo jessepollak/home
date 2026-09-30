@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
-import { writeObservabilityEvent } from "@/server/observability/log";
+import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CdpTokenBalancesError,
@@ -106,17 +106,14 @@ function emitEnumerationEvent(
   pageCount: number,
   durationMs: number,
 ): void {
-  try {
-    log({
-      kind: "portfolio-balance-source",
-      route: "/api/balances",
-      source: "cdp-token-balances",
-      stage: "inventory",
-      outcome,
-      reason,
-      pageCount,
-      durationMs,
-    });
-  } catch { // oxlint-disable-line home/no-silent-catch -- the enumeration log sink is isolated so observability cannot change the enumeration result
-  }
+  observeSafely(() => log({
+    kind: "portfolio-balance-source",
+    route: "/api/balances",
+    source: "cdp-token-balances",
+    stage: "inventory",
+    outcome,
+    reason,
+    pageCount,
+    durationMs,
+  }));
 }

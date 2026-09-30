@@ -15,7 +15,7 @@ create table actions (
   id                 uuid primary key,          -- CDP idempotencyKey and EIP-5792 id
   owner_key          text not null,             -- verified subject + smart account + provider
   provider           text not null,             -- 'cdp-embedded' | 'base-account'
-  kind               text not null,             -- 'send' | 'savings-deposit' | 'savings-withdraw' | 'trade' | 'borrow' ...
+  kind               text not null,             -- 'send' | 'card-allowance' | 'savings-deposit' | 'savings-withdraw' | 'trade' | 'borrow' ...
   summary            jsonb not null,            -- what to render: amounts, asset, target, label, typed product metadata
   pending            jsonb,                     -- server-built calls and (trades) permit fields for unconfirmed actions; cleared on confirm, except a trade keeps only its committed calls until a handle or outcome is recorded
   created_at         timestamptz not null default now(),
@@ -42,6 +42,7 @@ create index actions_open_by_account on actions (account_address) where confirme
 
 ```
 
+- **Card allowance exception.** `card-allowance` has `amounts: []`: changing an approval does not spend USDC. After an optional exact per-Action paymaster fee approval, its one call is the server-encoded Base USDC `approve(registeredSpender, amount)`. Set requires a production crypto-wallet Bridge card, a finite customer-chosen amount within the configured maximum, and an eligible fresh card state; revoke permits the current or registered retired spender with amount zero even when the card journey is disabled. Issuance checks the spender registry and maximum again; confirmation of an unconfirmed set rechecks that its spender and configuration remain enabled. All other kinds retain exact same-Action spend approvals and cannot approve a registered card spender. No maximum-uint approval is permitted.
 - **Store facts, not a changing status.** Final result and wallet reference facts have one authority and are written once, only while empty; receipt observations can refresh or clear as canonical chain evidence changes. Dispatch attempts increment, and a retry clears the prior decline claim. Evidence that conflicts with a stored result is logged as an `action-outcome` event and never written over it. There is still no `status` column and no `plan_hash` (the server never observes the dispatch, so a hash enforces nothing); status is derived from the facts at read time.
   - Intent and consent: the server, at prepare and confirm (`confirmed_at`).
   - Wallet decline: the browser, labelled as a claim (`declined_reported_at`) for the matching `dispatch_attempt`. The retry route atomically increments the attempt and clears the claim before another dispatch; a late claim for an earlier attempt cannot hide the retry. A declined row with nothing else is not shown in Activity.

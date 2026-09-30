@@ -1,3 +1,4 @@
+import { parseAddress } from "@/shared/chain/hex";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -19,7 +20,7 @@ const { ExpirySchedulerContext } = await import("@/client/actions/expiry");
 const { MoneyModal } = await import("@/client/money-modal");
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
-const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
+const usdc = parseAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")!;
 const NOW = Date.parse("2026-09-28T12:00:00.000Z");
 let restoreClock: () => void;
 beforeEach(() => { restoreClock = pinClock("2026-09-28T12:00:00.000Z"); });
@@ -28,7 +29,7 @@ const session: VerifiedAccountSession = {
 };
 const token = (decimals: number): TradeToken => ({
   assetId: "base:0x2222222222222222222222222222222222222222",
-  symbol: "DEGEN", decimals, address: "0x2222222222222222222222222222222222222222",
+  symbol: "DEGEN", decimals, address: parseAddress("0x2222222222222222222222222222222222222222")!,
 });
 
 function action(direction: TradeDirection, amount: string, traded: TradeToken, expired = false): PreparedMoneyAction {
@@ -614,7 +615,7 @@ describe("trade review service fee", () => {
 describe("cash conversion trade flow", () => {
   const usd = cashConversionCurrencies.find((currency) => currency.code === "USD")!;
   const eur = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
-  const localToken: TradeToken = { assetId: eur.tradeAssetId, address: eur.address as `0x${string}`, symbol: eur.symbol, decimals: eur.decimals };
+  const localToken: TradeToken = { assetId: eur.tradeAssetId, address: eur.address, symbol: eur.symbol, decimals: eur.decimals };
   const conversion = { from: usd, to: eur };
   const common = {
     direction: "buy" as const, session, token: localToken, assetName: eur.name, availableBaseUnits: "10000000",
@@ -688,7 +689,7 @@ describe("cash conversion trade flow", () => {
   });
   test("IDR to USD keeps the exact two-decimal sell amount and existing trade asset id", async () => {
     const idr = cashConversionCurrencies.find((currency) => currency.code === "IDR")!;
-    const idrToken: TradeToken = { assetId: idr.tradeAssetId, address: idr.address as `0x${string}`, symbol: idr.symbol, decimals: idr.decimals };
+    const idrToken: TradeToken = { assetId: idr.tradeAssetId, address: idr.address, symbol: idr.symbol, decimals: idr.decimals };
     const requests: TradeActionParams[] = [];
     const view = render(<TradeMoneyDialog {...common} open direction="sell" token={idrToken} assetName={idr.name}
       conversion={{ from: idr, to: usd }} availableBaseUnits="100000"
@@ -726,7 +727,7 @@ describe("cash conversion trade flow", () => {
       prepareMoneyAction={async (_kind, input) => {
         const prepared = action("buy", (input as TradeActionParams).amountBaseUnits, localToken);
         const metadata = prepared.metadata as TradeMoneyActionMetadata;
-        metadata.toAsset = { ...metadata.toAsset, address: "0x2222222222222222222222222222222222222222" };
+        metadata.toAsset = { ...metadata.toAsset, address: parseAddress("0x2222222222222222222222222222222222222222")! };
         return prepared;
       }} />);
     await submit(view, "1");

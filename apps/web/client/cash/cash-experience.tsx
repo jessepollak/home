@@ -17,6 +17,7 @@ import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/quer
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
 import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
 import { browserHomeQueryClient, getHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { queryViewState } from "@/client/query/query-view-state";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry, type SavingsJourneyProps } from "@/client/savings/savings-actions";
@@ -344,6 +345,7 @@ export function CashExperience({
   fetchAccountResource,
 }: CashExperienceProps) {
   const routing = useOptionalHomeShellRouting();
+  const region = usePresentationRegionId();
   const ownerIdentity = session ? `${session.user.subject}:${session.smartAccount?.address.toLowerCase() ?? ""}:${session.accountProvider}` : "signed-out";
   const query = useSavingsVaults({ fetchVaults });
   const metadata = query.data ?? null;
@@ -354,7 +356,8 @@ export function CashExperience({
     [metadata],
   );
   const rateNowMs = useNow(metadata, nextDeadline, now);
-  const vaultStatus = metadata ? "ready" : query.isError ? "failed" : "loading";
+  const vaultView = queryViewState(query, { hasCachedData: metadata !== null });
+  const vaultStatus = vaultView === "failed" ? "failed" : vaultView === "loading" ? "loading" : "ready";
   const liveSnapshot = balanceStatus === "failed" ? null : snapshot;
   const positions = useMemo(
     () => (liveSnapshot ? selectVaultPositions(liveSnapshot) : null),
@@ -377,6 +380,7 @@ export function CashExperience({
   );
   const rateLabel = metadata
     ? savingsTeaserApyLabel({
+        regionId: region,
         summary,
         candidates: metadata.candidates,
         metadata,
@@ -531,10 +535,11 @@ export function CashExperience({
     snapshot: liveSnapshot,
     metadata,
     nowMs: rateNowMs,
+    regionId: region,
     actionsAvailable: Boolean(session?.smartAccount),
     usdcBaseUnits: usdc?.status === "ready" ? usdc.baseUnits : null,
     usdcUnavailable: usdc?.status !== "ready" || balanceStatus === "failed",
-  }) : null, [managementAddress, liveSnapshot, metadata, rateNowMs, session?.smartAccount, usdc, balanceStatus]);
+  }) : null, [managementAddress, liveSnapshot, metadata, rateNowMs, region, session?.smartAccount, usdc, balanceStatus]);
   const activeManagement = management ?? closingManagement;
   const [previousAccountIdentity, setPreviousAccountIdentity] = useState(accountIdentity);
   const fundedNow = Boolean(summary?.funded || liveSnapshot?.holdings.some((holding) =>
@@ -899,14 +904,14 @@ export function CashExperience({
       candidate,
       name: candidate.name,
       rateLabel: rate.status === "unavailable" ? "Rate unavailable"
-        : `${formatPresentationPercentage(rate.value)} APY${rate.status === "stale" ? " at last update" : ""}`,
+        : `${formatPresentationPercentage(rate.value, region)} APY${rate.status === "stale" ? " at last update" : ""}`,
       rate: rate.status === "unavailable" ? -1 : rate.value,
       disabled: rate.status === "unavailable" || depositCashState !== "ready" || firstUseHistoryPending,
     };
   }).sort((left, right) => right.rate - left.rate) : [];
   const destinationLabel = target
     ? `${target.name}${destinationRate && destinationRate.status !== "unavailable"
-      ? ` · ${formatPresentationPercentage(destinationRate.value)} APY${destinationRate.status === "stale" ? " at last update" : ""}` : ""}`
+      ? ` · ${formatPresentationPercentage(destinationRate.value, region)} APY${destinationRate.status === "stale" ? " at last update" : ""}` : ""}`
     : undefined;
   const centsLabel =
     availableBaseUnits !== null
@@ -922,6 +927,7 @@ export function CashExperience({
     <>
       {view === "cash" ? (
         <CashOverview
+          regionId={region}
           snapshot={liveSnapshot}
           pendingCashout={pendingCashout}
           balanceStatus={balanceStatus}
@@ -943,6 +949,7 @@ export function CashExperience({
         />
       ) : (
         <SavingsDetail
+          regionId={region}
           key={accountIdentity ?? "signed-out"}
           snapshot={liveSnapshot}
           balanceStatus={balanceStatus}

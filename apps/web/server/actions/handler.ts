@@ -9,7 +9,11 @@ import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type Declin
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
 import { RECENT_ACTIONS_LIMIT, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
-import type { MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
+import type { CardAllowanceMoneyActionMetadata, MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
+import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
+import { cardAllowanceSetEnabled, readCardAllowanceRegistry } from "@/server/cards/allowance/config";
+import { readCardJourneyConfig } from "@/server/cards/bridge/journey-config";
+import { checkCardAllowanceEligibility, CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { actionConfirmedEvent } from "@/server/operator-events/events";
 import { deferCustomerRecord } from "@/server/customers/resolve";
@@ -120,6 +124,28 @@ async function recordConfirmedBestEffort(row: ActionRow, recordConfirmed?: (row:
   }
 }
 
+async function checkCardAllowanceSetGate(row: ActionRow, owner: MoneyActionOwner, signal: AbortSignal, dependencies: {
+  cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
+  cardAllowanceEligible?: typeof checkCardAllowanceEligibility;
+}, fail: (code: string, message: string, status: number) => Response): Promise<Response | null> {
+  const metadata = parseCardAllowanceMetadata(row.summary.metadata);
+  if (!metadata) return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits are unavailable right now. Prepare again.", 503);
+  if (metadata.operation !== "set-allowance") return null;
+  const allowed = await Promise.resolve().then(() => (dependencies.cardAllowanceSetAllowed ?? cardAllowanceSetConfirmAllowed)(metadata)).catch(() => false);
+  if (!allowed) return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits changed. Prepare again.", 503);
+  try {
+    await (dependencies.cardAllowanceEligible ?? checkCardAllowanceEligibility)({
+      user: { subject: owner.subject }, accountProvider: owner.accountProvider,
+      smartAccount: { address: owner.address, chainId: owner.chainId },
+    }, metadata.mode, signal);
+  } catch (error) {
+    if (error instanceof CardAllowancePreparationError && error.code === "CARD_ALLOWANCE_NOT_READY")
+      return fail("CARD_ALLOWANCE_NOT_READY", "An eligible card is required. Prepare again.", 409);
+    return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits are unavailable right now. Prepare again.", 503);
+  }
+  return null;
+}
+
 export function createConfirmActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   store?: Pick<ActionsStore, "get" | "confirm">;
@@ -130,6 +156,8 @@ export function createConfirmActionHandler(dependencies: {
   estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
   now?: () => Date;
   regionOffered?: (region: string) => Promise<boolean>;
+  cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
+  cardAllowanceEligible?: typeof checkCardAllowanceEligibility;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
     const startedAt = Date.now();
@@ -168,6 +196,11 @@ export function createConfirmActionHandler(dependencies: {
     const tradeMetadata = draft.summary.metadata;
     if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade" && tradeMetadata.operatorFee?.recipient.toLowerCase() === owner.address.toLowerCase()) {
       return fail("ACTION_EXPIRED", "This trade's fee destination is your own account. Prepare the trade again.", 410);
+    }
+
+    if (!draft.confirmed_at && draft.kind === "card-allowance") {
+      const failure = await checkCardAllowanceSetGate(draft, owner, request.signal, dependencies, fail);
+      if (failure) return failure;
     }
 
     if (!draft.confirmed_at && draft.kind === "cash-out") {
@@ -250,6 +283,13 @@ export function createConfirmActionHandler(dependencies: {
       ...(batchGasLimit ? { batchGasLimit } : {}),
     } satisfies ConfirmActionResponse, 200);
   };
+}
+
+function cardAllowanceSetConfirmAllowed(metadata: CardAllowanceMoneyActionMetadata): boolean {
+  const registry = readCardAllowanceRegistry();
+  return Boolean(registry && cardAllowanceSetEnabled(registry, readCardJourneyConfig) &&
+    metadata.mode === registry.bridge.mode && metadata.spender === registry.current &&
+    metadata.maximumBaseUnits === registry.maximumBaseUnits);
 }
 
 export function createHandleActionHandler(dependencies: {
@@ -366,6 +406,8 @@ export function createGetPendingTradeHandler(dependencies: { authorize: ActionAu
 export function createRetryActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   store?: Pick<ActionsStore, "get" | "beginRetry">;
+  cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
+  cardAllowanceEligible?: typeof checkCardAllowanceEligibility;
   now?: () => Date;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
@@ -379,6 +421,10 @@ export function createRetryActionHandler(dependencies: {
     const row = await store.get(owner, id);
     if (row && tradeExecutionExpired(row, dependencies.now?.() ?? new Date())) {
       return privateError("ACTION_EXPIRED", "The trade quote expired. Get a new quote.", 409);
+    }
+    if (row?.confirmed_at && row.kind === "card-allowance") {
+      const failure = await checkCardAllowanceSetGate(row, owner, request.signal, dependencies, privateError);
+      if (failure) return failure;
     }
     const result = await store.beginRetry(owner, id, body.attempt);
     if (!result.row) return privateError("ACTION_NOT_FOUND", "The action was not found.", 404);

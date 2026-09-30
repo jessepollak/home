@@ -1,3 +1,4 @@
+import { parseAddress, parseHash32, type Address, type Hash32 } from "@/shared/chain/hex";
 
 import {
   getDirectPortfolioAssets,
@@ -24,7 +25,6 @@ import {
   type BalancesTotals,
   type BorrowCollateralHolding,
   type BorrowDebtLine,
-  type BorrowMarketKey,
   type BorrowPosition,
   type ExactDecimal,
   type Holding,
@@ -35,10 +35,18 @@ import {
 } from "./types";
 
 export type { BalancesSnapshot } from "./types";
+type ParsedHolding = Holding & { contractAddress: Address | null };
+type ParsedBorrowCollateralHolding = BorrowCollateralHolding & { contractAddress: Address; collateral: { marketId: Hash32 } };
+type ParsedBorrowDebtLine = BorrowDebtLine & { marketId: Hash32 };
+type ParsedBorrowPosition = BorrowPosition & { marketId: Hash32; collateral: ParsedBorrowCollateralHolding; debt: ParsedBorrowDebtLine };
+type ParsedBalancesBorrow = BalancesBorrow & { positions: ParsedBorrowPosition[] };
+export type ParsedBalancesSnapshot = BalancesSnapshot & {
+  owner: { address: Address; chainId: typeof BALANCES_CHAIN_ID };
+  block: { number: string; hash: Hash32; timestamp: string };
+  holdings: ParsedHolding[];
+  borrow: ParsedBalancesBorrow;
+};
 
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
-const lowercaseAddressPattern = /^0x[0-9a-f]{40}$/;
-const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
 const decimalIntegerPattern = /^(?:0|[1-9]\d*)$/;
 const valueUnpricedReasons = new Set([
   "price-unavailable",
@@ -69,7 +77,7 @@ type RegistryExpectation = {
   name: string;
   symbol: string;
   decimals: number;
-  contractAddress: string | null;
+  contractAddress: Address | null;
   cashCurrency: FiatCurrencyCode | null;
 };
 
@@ -86,7 +94,7 @@ export function expectedRegistryHoldings(): ReadonlyMap<string, RegistryExpectat
       name: asset.name,
       symbol: asset.symbol,
       decimals: asset.decimals,
-      contractAddress: asset.contractAddress ? asset.contractAddress.toLowerCase() : null,
+      contractAddress: parseAddress(asset.contractAddress),
       cashCurrency: asset.cashCurrency,
     });
   }
@@ -98,7 +106,7 @@ export function expectedRegistryHoldings(): ReadonlyMap<string, RegistryExpectat
       name: vault.name,
       symbol: vault.symbol,
       decimals: vault.decimals,
-      contractAddress: vault.address.toLowerCase(),
+      contractAddress: parseAddress(vault.address),
       cashCurrency: null,
     });
   }
@@ -110,29 +118,31 @@ export function parseBalancesSnapshot(
   value: unknown,
   session: BalancesSession,
   expectedRegion: RegionId,
-): BalancesSnapshot {
+): ParsedBalancesSnapshot {
   if (!isRecord(value)) fail("not an object");
   const expectedCurrency = presentationRegions[expectedRegion].currency.code;
 
   if (value.version !== BALANCES_VERSION) fail("version");
+  const owner = isRecord(value.owner) ? value.owner : null;
+  const ownerAddress = parseAddress(owner?.address);
   if (
-    !isRecord(value.owner) ||
-    typeof value.owner.address !== "string" ||
-    !addressPattern.test(value.owner.address) ||
-    value.owner.address.toLowerCase() !== session.smartAccountAddress.toLowerCase() ||
-    value.owner.chainId !== BALANCES_CHAIN_ID ||
+    !owner ||
+    !ownerAddress ||
+    ownerAddress !== parseAddress(session.smartAccountAddress) ||
+    owner.chainId !== BALANCES_CHAIN_ID ||
     session.chainId !== BALANCES_CHAIN_ID
   ) {
     fail("owner");
   }
   if (value.region !== expectedRegion) fail("region");
   if (value.quoteCurrency !== expectedCurrency) fail("quoteCurrency");
+  const block = isRecord(value.block) ? value.block : null;
+  const blockHash = parseHash32(block?.hash);
   if (
-    !isRecord(value.block) ||
-    !readInteger(value.block.number) ||
-    typeof value.block.hash !== "string" ||
-    !blockHashPattern.test(value.block.hash) ||
-    !readInteger(value.block.timestamp)
+    !block ||
+    !readInteger(block.number) ||
+    !blockHash ||
+    !readInteger(block.timestamp)
   ) {
     fail("block");
   }
@@ -145,7 +155,7 @@ export function parseBalancesSnapshot(
   const seenKeys = new Set<string>();
   const seenIds = new Set<string>();
   const seenRegistryIds = new Set<string>();
-  const holdings: Holding[] = [];
+  const holdings: ParsedHolding[] = [];
 
   for (const raw of value.holdings) {
     const holding = validateHolding(raw, quoteCurrency, registry, registryKeys);
@@ -178,13 +188,13 @@ export function parseBalancesSnapshot(
 
   return {
     version: BALANCES_VERSION,
-    owner: { address: value.owner.address as `0x${string}`, chainId: BALANCES_CHAIN_ID },
+    owner: { address: ownerAddress, chainId: BALANCES_CHAIN_ID },
     region: expectedRegion,
     quoteCurrency,
     block: {
-      number: value.block.number,
-      hash: value.block.hash as `0x${string}`,
-      timestamp: value.block.timestamp,
+      number: block.number,
+      hash: blockHash,
+      timestamp: block.timestamp,
     },
     fetchedAt: value.fetchedAt,
     holdings,
@@ -253,16 +263,16 @@ function validateTotals(
   return { cash, investments, borrow: debt, net: { ...net, negative } };
 }
 
-function validateBorrow(raw: unknown, quoteCurrency: FiatCurrencyCode | null): BalancesBorrow {
+function validateBorrow(raw: unknown, quoteCurrency: FiatCurrencyCode | null): ParsedBalancesBorrow {
   if (!isRecord(raw) || (raw.coverage !== "complete" && raw.coverage !== "partial") || !Array.isArray(raw.positions)) {
     fail("borrow");
   }
   const seen = new Set<string>();
-  const positions = raw.positions.map((entry): BorrowPosition => {
+  const positions = raw.positions.map((entry): ParsedBorrowPosition => {
     if (!isRecord(entry) || typeof entry.marketId !== "string") fail("borrow position");
     const market = getBorrowMarketRef(entry.marketId);
-    const marketId = entry.marketId as BorrowMarketKey;
-    if (!market || marketId !== market.marketId.toLowerCase() || seen.has(marketId)) fail("borrow market");
+    const marketId = parseHash32(entry.marketId);
+    if (!marketId || !market || marketId !== parseHash32(market.marketId) || seen.has(marketId)) fail("borrow market");
     seen.add(marketId);
     if (!readInteger(entry.borrowAprWad)) fail("borrow apr");
     const collateral = validateCollateral(entry.collateral, market.collateralToken, marketId, quoteCurrency);
@@ -276,24 +286,26 @@ function validateBorrow(raw: unknown, quoteCurrency: FiatCurrencyCode | null): B
 function validateCollateral(
   raw: unknown,
   asset: BorrowAssetRef,
-  marketId: BorrowMarketKey,
+  marketId: Hash32,
   quoteCurrency: FiatCurrencyCode | null,
-): BorrowCollateralHolding {
+): ParsedBorrowCollateralHolding {
   if (!isRecord(raw)) fail("borrow collateral");
   const key = erc20AssetKey(asset.address);
   const balance = validateBalance(raw.balance);
+  const contractAddress = parseAddress(asset.address);
   if (
     raw.source !== "borrow" ||
     raw.kind !== "erc20" ||
     raw.key !== key ||
     raw.id !== `borrow-collateral:${marketId}` ||
-    normalizeNullableAddress(raw.contractAddress) !== asset.address.toLowerCase() ||
+    !contractAddress ||
+    normalizeNullableAddress(raw.contractAddress) !== contractAddress ||
     raw.decimals !== asset.decimals ||
     !readBoundedText(raw.name) ||
     !readBoundedText(raw.symbol) ||
     (raw.cashCurrency ?? null) !== null ||
     !isRecord(raw.collateral) ||
-    raw.collateral.marketId !== marketId ||
+    parseHash32(raw.collateral.marketId) !== marketId ||
     raw.underlying !== undefined ||
     raw.underlyingBalance !== undefined ||
     raw.cashValue !== undefined ||
@@ -312,7 +324,7 @@ function validateCollateral(
     name: raw.name,
     symbol: raw.symbol,
     decimals: asset.decimals,
-    contractAddress: asset.address.toLowerCase() as `0x${string}`,
+    contractAddress,
     cashCurrency: null,
     balance,
     value,
@@ -324,15 +336,15 @@ function validateCollateral(
 function validateDebt(
   raw: unknown,
   asset: BorrowAssetRef,
-  marketId: BorrowMarketKey,
+  marketId: Hash32,
   quoteCurrency: FiatCurrencyCode | null,
-): BorrowDebtLine {
+): ParsedBorrowDebtLine {
   if (!isRecord(raw) || !isRecord(raw.asset)) fail("borrow debt");
   const key = erc20AssetKey(asset.address);
   const balance = validateBalance(raw.balance);
   if (
     raw.sign !== -1 ||
-    raw.marketId !== marketId ||
+    parseHash32(raw.marketId) !== marketId ||
     raw.asset.key !== key ||
     raw.asset.decimals !== asset.decimals ||
     !readBoundedText(raw.asset.name) ||
@@ -355,7 +367,7 @@ function validateHolding(
   quoteCurrency: FiatCurrencyCode | null,
   registry: ReadonlyMap<string, RegistryExpectation>,
   registryKeys: ReadonlySet<string>,
-): Holding {
+): ParsedHolding {
   if (!isRecord(raw)) fail("holding shape");
   if (raw.source !== "registry" && raw.source !== "catalog" && raw.source !== "wallet") {
     fail("holding source");
@@ -383,7 +395,7 @@ function validateHolding(
     ) {
       fail(`registry holding mismatch: ${raw.id}`);
     }
-    const holding: Holding = {
+    const holding: ParsedHolding = {
       key: expected.key as Holding["key"],
       id: expected.id,
       kind: expected.kind,
@@ -391,7 +403,7 @@ function validateHolding(
       name: expected.name,
       symbol: expected.symbol,
       decimals: expected.decimals,
-      contractAddress: expected.contractAddress as Holding["contractAddress"],
+      contractAddress: expected.contractAddress,
       cashCurrency: expected.cashCurrency,
       ...(raw.imageUrl !== undefined ? { imageUrl: raw.imageUrl as string } : {}),
       balance,
@@ -424,12 +436,12 @@ function validateHolding(
     return holding;
   }
 
-  const contractAddress = typeof raw.contractAddress === "string" ? raw.contractAddress : "";
+  const contractAddress = parseAddress(raw.contractAddress);
+  if (!contractAddress) fail("holding address");
   const expectedId = raw.source === "catalog"
     ? catalogHoldingId(contractAddress)
     : walletHoldingId(contractAddress);
   if (
-    !lowercaseAddressPattern.test(contractAddress) ||
     raw.kind !== "erc20" ||
     raw.id !== expectedId ||
     raw.key !== erc20AssetKey(contractAddress) ||
@@ -452,7 +464,7 @@ function validateHolding(
     name: raw.name as string,
     symbol: raw.symbol as string,
     decimals: raw.decimals as number,
-    contractAddress: contractAddress as `0x${string}`,
+    contractAddress,
     cashCurrency: null,
     ...(raw.imageUrl !== undefined ? { imageUrl: raw.imageUrl as string } : {}),
     balance,
@@ -570,10 +582,8 @@ function validateHttpsImage(value: unknown): boolean {
   }
 }
 
-function normalizeNullableAddress(value: unknown): string | null | undefined {
-  if (value === null) return null;
-  if (typeof value === "string" && addressPattern.test(value)) return value.toLowerCase();
-  return undefined;
+function normalizeNullableAddress(value: unknown): Address | null | undefined {
+  return value === null ? null : parseAddress(value) ?? undefined;
 }
 
 function readBoundedText(value: unknown): value is string {

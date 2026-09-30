@@ -19,6 +19,15 @@ describe("Stripe Issuing read client", () => {
     expect(calls.map((call) => call.init.headers && (call.init.headers as Record<string, string>)["Stripe-Version"])).toEqual([config.stripeApiVersion, config.stripeApiVersion]);
     expect(calls.every((call) => call.init.redirect === "manual" && call.init.signal !== undefined)).toBe(true);
   });
+  test("does not fetch card or cardholder when the eligibility signal is already aborted", async () => {
+    let requests = 0;
+    const controller = new AbortController();
+    controller.abort();
+    const client = createStripeClient(config, (async () => { requests++; return Response.json(card); }) as unknown as typeof fetch);
+    await expect(client.readCard("ic_123", controller.signal)).rejects.toThrow();
+    await expect(client.readCardholder("ich_123", controller.signal)).rejects.toThrow();
+    expect(requests).toBe(0);
+  });
   test("rejects malformed status, metadata marker, holder, and mismatched IDs", async () => {
     expect(() => parseStripeCard({ ...card, status: "blocked" })).toThrow();
     expect(() => parseStripeCard({ ...card, metadata: { home_freeze: "provider" } })).toThrow();

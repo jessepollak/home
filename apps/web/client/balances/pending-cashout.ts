@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { dataOwnerKey } from "@/client/account/owner-keys";
-import { linkedCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
+import { cashoutProgress, linkedCashoutWithdraw } from "@/client/activity/cash-out-presenter";
 import { fetchRecentActions, recentActionsQueryOptions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
 import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
 import { isRecentActionsResponse, parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
@@ -28,7 +28,7 @@ export function selectPendingCashoutEscrow(operations: readonly RecentMoneyActio
     if (operation.action.kind !== "cash-out") continue;
     const withdraw = linkedCashoutWithdraw(operation, operations);
     const cashout = operation.cashout;
-    const presentation = presentCashout(operation, withdraw);
+    const presentation = cashoutProgress(operation, withdraw);
     if (!presentation.inProgress) {
       if (!cashout) indeterminate = true;
       continue;
@@ -72,7 +72,7 @@ export function usePendingCashoutEscrow(
         !isRecentActionsResponse(state.state.data)) return false;
       const operations = parseRecentMoneyActions(state.state.data, session);
       return operations.some((operation) => operation.action.kind === "cash-out" &&
-        presentCashout(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
+        cashoutProgress(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
     },
     meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
     queryFn: ({ signal }) => {

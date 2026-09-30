@@ -1,3 +1,4 @@
+import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import { BalancesResponseError, expectedRegistryHoldings, parseBalancesSnapshot } from "./contract";
 import {
@@ -30,7 +31,7 @@ function clone(snapshot: BalancesSnapshot): BalancesSnapshot {
 describe("parseBalancesSnapshot", () => {
   test("accepts the reference fixture and returns an equal snapshot", () => {
     const parsed = parseBalancesSnapshot(clone(balancesSnapshotFixture), session, "US");
-    expect(parsed).toEqual(balancesSnapshotFixture);
+    expect(JSON.parse(JSON.stringify(parsed))).toEqual(balancesSnapshotFixture);
   });
 
   test("the reference fixture totals 385288 minor units at partial status", () => {
@@ -46,7 +47,7 @@ describe("parseBalancesSnapshot", () => {
     const snapshot = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     expect(snapshot.quoteCurrency).toBeNull();
     expect(snapshot.total.status).toBe("no-quote-currency");
-    expect(parseBalancesSnapshot(clone(snapshot), session, "GLOBAL")).toEqual(snapshot);
+    expect(JSON.parse(JSON.stringify(parseBalancesSnapshot(clone(snapshot), session, "GLOBAL")))).toEqual(snapshot);
   });
 
   test("accepts a non-USD region where USDC carries its own USD cash value", () => {
@@ -351,7 +352,7 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
   test("accepts a snapshot with a collateral holding, a signed debt line, and net totals", () => {
     const snapshot = withBorrow();
     const parsed = parseBalancesSnapshot(clone(snapshot), session, "US");
-    expect(parsed).toEqual(snapshot);
+    expect(JSON.parse(JSON.stringify(parsed))).toEqual(snapshot);
     expect(parsed.borrow.positions[0]).toMatchObject({
       marketId: FIXTURE_BORROW_MARKET_ID,
       collateral: { source: "borrow", collateral: { marketId: FIXTURE_BORROW_MARKET_ID } },
@@ -359,6 +360,20 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
       borrowAprWad: FIXTURE_BORROW_APR_WAD,
     });
     expect(parsed.totals.net).toMatchObject({ status: "complete", currency: "USD", negative: false });
+  });
+
+  test("canonicalizes mixed-case nested borrow market ids and rejects mismatched ones", () => {
+    const upper = `0x${FIXTURE_BORROW_MARKET_ID.slice(2).toUpperCase()}` as `0x${string}`;
+    const snapshot = clone(withBorrow());
+    const position = snapshot.borrow.positions[0]!;
+    position.marketId = upper as typeof position.marketId;
+    position.collateral.collateral.marketId = upper as typeof position.marketId;
+    position.debt.marketId = upper as typeof position.marketId;
+    const parsed = parseBalancesSnapshot(snapshot, session, "US").borrow.positions[0]!;
+    expect([String(parsed.marketId), String(parsed.collateral.collateral.marketId), String(parsed.debt.marketId)])
+      .toEqual([FIXTURE_BORROW_MARKET_ID, FIXTURE_BORROW_MARKET_ID, FIXTURE_BORROW_MARKET_ID]);
+    position.debt.marketId = `0x${"00".repeat(32)}` as typeof position.marketId;
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
   });
 
   test("preserves and validates a borrow collateral unit value", () => {
@@ -400,4 +415,16 @@ describe("parseBalancesSnapshot borrow and net totals", () => {
     mutate(value);
     expect(() => parseBalancesSnapshot(value, session, "US")).toThrow(BalancesResponseError);
   });
+});
+
+test("canonicalizes checksummed owner and mixed-case block hash, rejecting bad checksum and width", () => {
+  const owner = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const base = clone(balancesSnapshotFixture);
+  const changed = { ...base, owner: { ...base.owner, address: owner }, block: { ...base.block, hash: `0x${"Ab".repeat(32)}` as `0x${string}` } };
+  expect(String(parseBalancesSnapshot(changed, { ...session, smartAccountAddress: owner }, "US").owner.address)).toBe(owner.toLowerCase());
+  expect(String(parseBalancesSnapshot(changed, { ...session, smartAccountAddress: owner }, "US").block.hash)).toBe(`0x${"ab".repeat(32)}`);
+  for (const address of [owner.replace("A", "a"), "0x1234"]) {
+    expect(() => parseBalancesSnapshot({ ...changed, owner: { ...changed.owner, address } }, { ...session, smartAccountAddress: owner }, "US")).toThrow(BalancesResponseError);
+  }
+  expect(() => parseBalancesSnapshot({ ...changed, block: { ...changed.block, hash: "0x0" } }, { ...session, smartAccountAddress: owner }, "US")).toThrow(BalancesResponseError);
 });

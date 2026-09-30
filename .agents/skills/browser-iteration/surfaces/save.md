@@ -1,12 +1,14 @@
 ### `save`
-- **Entry context**: Cash overview `/cash`, Savings detail `/cash/savings`, deep links `/cash/savings?flow=save-deposit` and `?flow=save-withdraw`; legacy `/save` redirects to `/cash/savings`, preserving allowlisted overlays. Fixture `HOME_PLAYWRIGHT_SMOKE=1` with `/api/savings/vaults` in `tests/browser/feature-map/fixtures.ts` and Playwright's `installApiFixtures`.
+- **Entry context**: Cash overview `/cash`, Savings detail `/cash/savings`, deep links `/cash/savings?flow=save-deposit` and `?flow=save-withdraw`; legacy `/save` redirects to `/cash/savings`, preserving allowlisted overlays. Fixture `HOME_PLAYWRIGHT_SMOKE=1` with `/api/savings/vaults` in `tests/browser/feature-map/fixtures.ts` and Playwright's kind-aware savings prepare in `installApiFixtures`; agent-browser sessions use `fixture-session --prepare savings-deposit` (or `savings-withdraw`) for a static 0.1 USDC review.
 - **Live**: confirm
 - **Owned paths**: `apps/web/app/[...shell]/**`, `apps/web/client/cash/**`, `apps/web/client/savings/**`, `apps/web/client/trading/**`, `apps/web/shared/savings/**`, `apps/web/shared/trading/**`, `apps/web/app/api/savings/**`, `apps/web/server/savings/**`, `apps/web/server/morpho/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Deposit $<amount>", "Withdraw $<amount>", "Convert $<amount>", "Retry"
 - **Reach**:
   1. `goto "/cash/savings?flow=save-deposit"`
   2. `expect "Deposit"`; in-app entry from `/cash/savings` opens a `Manage <vault>` row, then `Deposit more`. On a verified-empty account start from the intro: Start saving opens the vault picker, and picking a vault opens the amount step.
-  3. `fill "Amount" "0.1"`, click `Continue`, expect `Confirm`. With no eligible cash the picker offers Add money instead of a selectable vault.
+  3. `fill "Amount" "0.1"`, `click "Continue"`, `expect "Confirm"`. With no eligible cash the picker offers Add money instead of a selectable vault.
+  4. `expect "From"`; `expect "Gauntlet USDC Prime"`; `expect "Base (8453)"`; `expect "Rate"`; `expect "3.50% APY at last update"`; `expect "Vault fee"`; `expect "10%"`.
+  5. `expect "Network fee"`; `expect "Up to 0.02 USDC · ≈ $0.02"`; `expect "Deposit $0.10"`.
 - **Reach (replay: convert)**: fixture Convert from USD to EUR, stopping at the review before the marked control.
   1. `goto "/cash"`
   2. `click "Convert"`

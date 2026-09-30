@@ -1,3 +1,4 @@
+import { parseTradeMetadata } from "@/shared/trading/review";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
@@ -18,7 +19,7 @@ function operation(direction: TradeDirection, status: RecentMoneyActionOperation
     action: {
       id: action.id, kind: "trade", title: "Stored title",
       amounts: action.amounts as RecentMoneyActionOperation["action"]["amounts"],
-      ...(metadata ? { metadata: action.metadata as RecentMoneyActionOperation["action"]["metadata"] } : {}),
+      ...(metadata ? { metadata: action.metadata?.product === "trade" ? parseTradeMetadata(action.metadata)! : undefined } : {}),
       warnings: [], createdAt: timestamp, expiresAt: timestamp,
     },
     status, createdAt: timestamp, updatedAt: timestamp,

@@ -1,3 +1,4 @@
+import { parseAddress, type Address } from "@/shared/chain/hex";
 
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import { assetKeyForErc20 } from "@/config/portfolio-assets";
@@ -21,6 +22,8 @@ export type InvestDiscoverResponse = {
     exhausted: boolean;
   };
 };
+export type ParsedDynamicInvestAsset = InvestAsset & { contractAddress: Address };
+export type ParsedInvestDiscoverState = InvestDiscoverState & { memeAssets: readonly ParsedDynamicInvestAsset[] };
 export type AssetMarkResolution = {
   images?: Readonly<Record<string, string | null>>;
   pending?: boolean;
@@ -48,7 +51,7 @@ const discoverEmptyPagination: MemePagination = {
 
 export function parseDiscoverResponse(
   value: unknown,
-): InvestDiscoverState | null {
+): ParsedInvestDiscoverState | null {
   const record = readRecord(value);
   if (
     !record ||
@@ -92,7 +95,7 @@ export function parseDiscoverResponse(
     return null;
   }
 
-  const assets: InvestAsset[] = [];
+  const assets: ParsedDynamicInvestAsset[] = [];
   for (const item of memes.assets) {
     const asset = parseDynamicInvestAsset(item);
     if (!asset) return null;
@@ -161,8 +164,9 @@ function parsePagination(
 }
 
 
-export function parseDynamicInvestAsset(value: unknown): InvestAsset | null {
+export function parseDynamicInvestAsset(value: unknown): ParsedDynamicInvestAsset | null {
   const record = readRecord(value);
+  const contractAddress = parseAddress(record?.contractAddress);
   if (
     !record ||
     typeof record.id !== "string" ||
@@ -172,7 +176,7 @@ export function parseDynamicInvestAsset(value: unknown): InvestAsset | null {
     typeof record.initials !== "string" ||
     record.chainId !== 8453 ||
     typeof record.contractAddress !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(record.contractAddress) ||
+    !contractAddress ||
     record.availability !== "informational" ||
     typeof record.descriptor !== "string" ||
     typeof record.contractUrl !== "string"
@@ -187,7 +191,7 @@ export function parseDynamicInvestAsset(value: unknown): InvestAsset | null {
     typeof representation.tokenSymbol !== "string" ||
     !identity ||
     identity.chainId !== record.chainId ||
-    identity.contractAddress.toLowerCase() !== record.contractAddress.toLowerCase()
+    parseAddress(identity.contractAddress) !== parseAddress(record.contractAddress)
   ) {
     return null;
   }
@@ -199,7 +203,7 @@ export function parseDynamicInvestAsset(value: unknown): InvestAsset | null {
     displaySymbol: record.displaySymbol,
     initials: record.initials,
     chainId: 8453,
-    contractAddress: record.contractAddress as `0x${string}`,
+    contractAddress,
     availability: "informational",
     descriptor: record.descriptor,
     representation: {

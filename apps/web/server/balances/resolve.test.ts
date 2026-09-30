@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { RecognizedTokenCatalogEntry } from "@/server/market-data/codex/recognized-catalog";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { Holding } from "@/shared/balances/types";
 import { createBalancesResolver } from "./resolve";
 import { assembleBalancesSnapshot } from "./snapshot";
@@ -291,7 +292,7 @@ describe("balances resolution", () => {
       subject: "fixture",
       smartAccountAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       chainId: 8453,
-    }, "US")).toEqual(snapshot);
+    }, "US") as BalancesSnapshot).toEqual(snapshot);
   });
 });
 

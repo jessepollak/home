@@ -395,9 +395,9 @@ export function presentCashSelection(entry: CashSelection, snapshot: BalancesSna
       group: "cash",
       name: entry.name,
       mark: { kind: "flag", currency: entry.currency },
-      primary: formatPresentationFiat({ atoms: "0", scale: 2 }, entry.currency, 2, snapshot.region),
+      primary: "Verification pending",
       secondary: null,
-      tone: "default",
+      tone: "muted",
     };
   }
   const { holding } = entry;

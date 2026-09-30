@@ -3,6 +3,7 @@ import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
 import { EmailRequestIdentityMismatchError, EmailRequestStore } from "./email-request";
 import { CustomerResolver } from "./resolve";
+import { parseAddress } from "@/shared/chain/hex";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
 const describePostgres = connectionString ? describe : describe.skip;
@@ -11,7 +12,8 @@ type Admin = { unsafe(text: string): Promise<unknown>; begin<T>(run: (tx: Admin)
 let admin: Admin;
 let sql: SqlExecutor;
 let store: EmailRequestStore;
-const address = "0x2222222222222222222222222222222222222222" as const;
+const address = parseAddress("0x2222222222222222222222222222222222222222")!;
+const otherAddress = parseAddress("0x3333333333333333333333333333333333333333")!;
 const claim = { version: 1 as const, kind: "claim" as const, channel: "share_step" as const, address };
 const email = "Wallet.Person@Example.COM";
 
@@ -62,14 +64,14 @@ describePostgres("customer email request PostgreSQL contract", () => {
   });
 
   test("a mismatched address writes neither credential email nor marker", async () => {
-    await expect(store.write(baseSession(), { version: 1, kind: "email", channel: "sign_in", email, address: "0x3333333333333333333333333333333333333333" }))
+    await expect(store.write(baseSession(), { version: 1, kind: "email", channel: "sign_in", email, address: otherAddress }))
       .rejects.toBeInstanceOf(EmailRequestIdentityMismatchError);
     expect(await credential()).toBeUndefined();
     expect(await marker()).toBeUndefined();
   });
 
   test("a mismatched claim creates neither credential nor marker", async () => {
-    await expect(store.claim(baseSession(), { ...claim, address: "0x3333333333333333333333333333333333333333" }))
+    await expect(store.claim(baseSession(), { ...claim, address: otherAddress }))
       .rejects.toBeInstanceOf(EmailRequestIdentityMismatchError);
     expect(await credential()).toBeUndefined();
     expect(await marker()).toBeUndefined();

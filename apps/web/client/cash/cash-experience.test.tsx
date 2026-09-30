@@ -1,13 +1,15 @@
 import "@/client/account/dom-test-harness";
 
 import { useRef, useState } from "react";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, HomeQueryClientProvider, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeInboundPanelState } from "@/client/home/panel-routing";
+import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
+import { parseAddress } from "@/shared/chain/hex";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -15,6 +17,7 @@ import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { pinClock } from "@/tests/helpers/pin-clock";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { AuthenticatedCashExperience, CashExperience, savingsEntryRefreshInterval } = await import("./cash-experience");
@@ -25,7 +28,9 @@ const { savingsManagement } = await import("./savings-management");
 import type { CashExperienceProps } from "./cash-experience";
 const { page } = await import("@/tests/helpers/dom");
 const [GAUNTLET, , STEAKHOUSE] = MORPHO_V1_CANDIDATE_ADDRESSES;
-const NOW = Date.parse("2026-09-10T12:04:00.000Z");
+const NOW_ISO = "2026-09-10T12:04:00.000Z";
+const NOW = Date.parse(NOW_ISO);
+let restoreClock = () => {};
 const now = () => NOW;
 const session: VerifiedAccountSession = { user: { subject: "cash-test" }, smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 }, accountProvider: "cdp-embedded" };
 const sessionB: VerifiedAccountSession = { user: { subject: "cash-test-b" }, smartAccount: { address: "0x2222222222222222222222222222222222222222", chainId: 8453 }, accountProvider: "cdp-embedded" };
@@ -49,6 +54,9 @@ const held = buildBalancesSnapshotFixture({ registry: {
 } });
 const single = buildBalancesSnapshotFixture({ registry: { ...cash, "morpho-steakhouse-usdc": { balance: ready("800000000000000000000"), underlyingBalance: ready("800000000"), value: priced("USD", "80000") } } });
 const empty = buildBalancesSnapshotFixture({ registry: cash });
+const unsupportedLocalCash = buildBalancesSnapshotFixture({ region: "BR", registry: {
+  usdc: { balance: ready("5000000"), value: priced("BRL", "2500"), cashValue: pricedCash("USD", "500") },
+} });
 const noop = () => undefined;
 const preparedInputs: unknown[] = [];
 const routeCalls: string[] = [];
@@ -140,7 +148,7 @@ function preparedTrade(): PreparedMoneyAction {
       { assetId: from.id, symbol: from.symbol, decimals: from.decimals, amountBaseUnits: "1000000", direction: "spend" },
       { assetId: to.id, symbol: to.symbol, decimals: to.decimals, amountBaseUnits: "2000000", direction: "receive", estimated: true },
     ],
-    signing: { signer: "cdp-embedded", evmAccount: session.smartAccount!.address, typedData: {
+    signing: { signer: "cdp-embedded", evmAccount: parseAddress(session.smartAccount!.address)!, typedData: {
       domain: { name: "Coinbase Smart Wallet", version: "1", chainId: 8453, verifyingContract: session.smartAccount!.address },
       types: {
         EIP712Domain: [
@@ -164,9 +172,23 @@ function pendingActionRow(action: PreparedMoneyAction, status: "pending" | "unkn
     } };
 }
 
-afterEach(() => { cleanup(); getHomeQueryClient().clear(); focusManager.setFocused(undefined); onlineManager.setOnline(true); preparedInputs.length = 0; routeCalls.length = 0; });
+beforeEach(() => { restoreClock = pinClock(NOW_ISO); });
+afterEach(() => { restoreClock(); restoreClock = () => {}; cleanup(); getHomeQueryClient().clear(); focusManager.setFocused(undefined); onlineManager.setOnline(true); preparedInputs.length = 0; routeCalls.length = 0; });
 
 describe("Cash L2", () => {
+  test("unsupported local currency shows verification pending without inventing an amount", () => {
+    render(<Surface view="cash" snapshot={unsupportedLocalCash} />);
+    const currencies = page().getByRole("region", { name: "Currencies" });
+    const brazilianRealRow = within(currencies).getByText("Brazilian real").closest("li");
+    expect(brazilianRealRow).not.toBeNull();
+    expect(brazilianRealRow?.textContent).toContain("Verification pending");
+    expect(brazilianRealRow?.textContent).not.toMatch(/[0-9]/);
+    expect(within(brazilianRealRow!).queryByRole("img", { name: "Verification pending" })).toBeNull();
+    const usDollarRow = within(currencies).getByText("US dollar").closest("li");
+    expect(usDollarRow).not.toBeNull();
+    expect(within(usDollarRow!).getByRole("img", { name: "$5,00" })).toBeTruthy();
+    expect(within(usDollarRow!).getByText("R$ 25,00")).toBeTruthy();
+  });
   test("shows priced pending escrow below the wallet-only Cash balance", () => {
     const snapshot = buildBalancesSnapshotFixture({ registry: cash });
     snapshot.holdings.find(({ id }) => id === "usdc")!.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
@@ -370,6 +392,13 @@ describe("Cash L2", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().queryByRole("button", { name: /Deposit \$/ })).toBeNull();
   });
+  test("uses the DE presentation region for savings labels despite a GLOBAL balance snapshot", async () => {
+    cached();
+    const globalSnapshot = buildBalancesSnapshotFixture({ registry: cash, region: "GLOBAL" });
+    render(<PresentationRegionProvider regionId="DE"><Surface snapshot={globalSnapshot} /></PresentationRegionProvider>);
+    expect((await page().findByText("Up to 4,10 % APY")).textContent).toBe("Up to 4,10\u00a0% APY");
+  });
+
   test("routes an inbound deposit to the highest-rate vault and normalizes Back history", async () => {
     cached();
     render(<Route initialFlow="save-deposit" snapshot={held} />);
@@ -1556,7 +1585,7 @@ describe("Cash L2", () => {
   test("a vault missing from a complete snapshot is absent, not unreadable", () => {
     const snapshot = buildBalancesSnapshotFixture();
     const without = { ...snapshot, holdings: snapshot.holdings.filter((holding) => holding.contractAddress?.toLowerCase() !== GAUNTLET.toLowerCase()) };
-    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
+    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
     expect(management.absent).toBe(true);
     expect(management.savedBaseUnits).toBe("0");
     expect(management.unreadable).toBe(false);
@@ -1565,7 +1594,7 @@ describe("Cash L2", () => {
   test("a vault missing from a partial snapshot stays unavailable", () => {
     const snapshot = buildBalancesSnapshotFixture({ coverage: { registry: "partial" } });
     const without = { ...snapshot, holdings: snapshot.holdings.filter((holding) => holding.contractAddress?.toLowerCase() !== GAUNTLET.toLowerCase()) };
-    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
+    const management = savingsManagement({ address: GAUNTLET, snapshot: without, metadata: null, nowMs: NOW, regionId: "GLOBAL", actionsAvailable: true, usdcBaseUnits: null, usdcUnavailable: false });
     expect(management.absent).toBe(false);
     expect(management.savedBaseUnits).toBeNull();
     expect(management.withdraw.reason).toBe("Couldn't check this balance.");

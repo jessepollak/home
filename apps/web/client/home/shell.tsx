@@ -1212,7 +1212,7 @@ function DashboardShellBody({
         <PrimaryNavigation activeNavigation={activeNavigation} onNavigate={navigateTo} cardsEnabled={cardsEnabled} />
       ) : null}
       {isVerified ? (
-        <ActionToasts session={account.session} fetchOperations={account.fetchOperations} />
+        <ActionToasts session={account.session} regionId={regionId} fetchOperations={account.fetchOperations} />
       ) : null}
       {account.emailRequest ? (
         <EmailShareSheet

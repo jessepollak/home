@@ -1,4 +1,5 @@
 import { readJson } from "@/tests/helpers/read-json";
+import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { BORROW_MARKETS, type BorrowMarketRef } from "@/shared/borrowing/config";
@@ -8,7 +9,7 @@ import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { BorrowRpcReader } from "./rpc";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
-const BLOCK_HASH = `0x${"ab".repeat(32)}` as const;
+const BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`)!;
 function session(): VerifiedAccountSession { return { user: { subject: "borrow-test-user" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }; }
 function snapshot(ref: BorrowMarketRef): BorrowMarketSnapshot {
   return {

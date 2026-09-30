@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import type { RegionId } from "@/config/regions";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import {
   formatExactSavingsApy,
   getSavingsRateState,
   summarizeSavingsPortfolio,
+  type ExactSavingsApy,
   type SummarizeSavingsPortfolioInput,
 } from "./portfolio-summary";
 
@@ -69,6 +71,42 @@ function input(
 }
 
 describe("savings portfolio summary", () => {
+  test("formats exact APY with half-up rounding and regional separators", () => {
+    const huge = BigInt(10) ** BigInt(30);
+    const cases: Array<{
+      name: string;
+      value: ExactSavingsApy;
+      regionId?: RegionId;
+      expected: string;
+    }> = [
+      { name: "fractional rounding", value: { numerator: BigInt(1), denominator: BigInt(3) }, expected: "33.33%" },
+      { name: "half-up boundary", value: { numerator: BigInt(4075), denominator: BigInt(100000) }, expected: "4.08%" },
+      { name: "below half-up boundary", value: { numerator: BigInt(40749), denominator: BigInt(1000000) }, expected: "4.07%" },
+      { name: "trailing hundredth zero", value: { numerator: BigInt(11), denominator: BigInt(200) }, expected: "5.50%" },
+      { name: "two trailing zeros", value: { numerator: BigInt(1), denominator: BigInt(25) }, expected: "4.00%" },
+      { name: "GLOBAL grouping", value: { numerator: BigInt(12345), denominator: BigInt(1) }, expected: "1,234,500.00%" },
+      { name: "DE grouping", value: { numerator: BigInt(12345), denominator: BigInt(1) }, regionId: "DE", expected: "1.234.500,00\u00a0%" },
+      { name: "FR narrow-space grouping", value: { numerator: BigInt(12345), denominator: BigInt(1) }, regionId: "FR", expected: "1\u202f234\u202f500,00\u00a0%" },
+      { name: "TR percent prefix", value: { numerator: BigInt(12345), denominator: BigInt(1) }, regionId: "TR", expected: "%1.234.500,00" },
+      { name: "huge ratio", value: { numerator: huge + BigInt(1), denominator: huge }, expected: "100.00%" },
+      { name: "huge whole percent", value: { numerator: huge + BigInt(1), denominator: BigInt(1) }, expected: "100,000,000,000,000,000,000,000,000,000,100.00%" },
+      { name: "overflow", value: { numerator: BigInt(10) ** BigInt(309), denominator: BigInt(1) }, expected: "—" },
+      { name: "zero", value: { numerator: BigInt(0), denominator: BigInt(1) }, expected: "0%" },
+      { name: "Turkish zero", value: { numerator: BigInt(0), denominator: BigInt(1) }, regionId: "TR", expected: "%0" },
+      { name: "German zero", value: { numerator: BigInt(0), denominator: BigInt(1) }, regionId: "DE", expected: "0\u00a0%" },
+      { name: "Turkish rounded-to-zero", value: { numerator: BigInt(1), denominator: BigInt(20001) }, regionId: "TR", expected: "%0" },
+      { name: "German rounded-to-zero", value: { numerator: BigInt(1), denominator: BigInt(20001) }, regionId: "DE", expected: "0\u00a0%" },
+      { name: "rounded nonzero preserves precision", value: { numerator: BigInt(1), denominator: BigInt(20000) }, regionId: "DE", expected: "0,01\u00a0%" },
+      { name: "invalid denominator", value: { numerator: BigInt(1), denominator: BigInt(0) }, expected: "—" },
+      { name: "negative denominator", value: { numerator: BigInt(1), denominator: BigInt(-1) }, expected: "—" },
+      { name: "negative numerator", value: { numerator: BigInt(-1), denominator: BigInt(1) }, expected: "—" },
+    ];
+
+    for (const { name, value, regionId, expected } of cases) {
+      expect(formatExactSavingsApy(value, regionId), name).toBe(expected);
+    }
+  });
+
   test("uses exact balance-weighted net APY without subtracting fees again", () => {
     const summary = summarizeSavingsPortfolio(input(
       {

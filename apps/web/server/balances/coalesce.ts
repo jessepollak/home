@@ -17,7 +17,7 @@ import { borrowReadCurrent, carryForwardBorrow, readBorrowPositions as defaultRe
 import { readBalances as defaultReadBalances } from "./read";
 import { resolveBalances as defaultResolveBalances } from "./resolve";
 import { assembleBalancesSnapshot } from "./snapshot";
-import { emitServerEvent, writeObservabilityEvent } from "@/server/observability/log";
+import { emitServerEvent, observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type {
   BalancesReadDurations,
   BalancesReadIncomplete,
@@ -211,7 +211,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
           coinbase: 0,
           total: Math.max(0, nowMs() - startedAt),
         }, observed.coverage);
-      } catch { // oxlint-disable-line home/no-silent-catch -- the background failure is reported through emitBalancesRead, which isolates the balances log sink
+      } catch {
         emitBalancesRead(log, "background-error", {
           ...durationMs,
           price: 0,
@@ -445,17 +445,14 @@ function emitBalancesRead(
   coverage: Extract<ObservabilityEvent, { kind: "balances-read" }>["coverage"],
   snapshot?: BalancesSnapshot,
 ): void {
-  try {
-    log({
-      kind: "balances-read",
-      route: "/api/balances",
-      outcome,
-      durationMs,
-      coverage,
-      incomplete: snapshot ? countIncomplete(snapshot) : emptyIncomplete(),
-    });
-  } catch { // oxlint-disable-line home/no-silent-catch -- the balances log sink is isolated so observability cannot change the read result
-  }
+  observeSafely(() => log({
+    kind: "balances-read",
+    route: "/api/balances",
+    outcome,
+    durationMs,
+    coverage,
+    incomplete: snapshot ? countIncomplete(snapshot) : emptyIncomplete(),
+  }));
 }
 
 function emptyIncomplete(): BalancesReadIncomplete {

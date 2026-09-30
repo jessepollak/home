@@ -37,6 +37,7 @@ import {
   selectVaultPositions,
 } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
+import type { RegionId } from "@/config/regions";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import { cashConversionCurrencies, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import {
@@ -55,6 +56,7 @@ import { verifiedEmptySavings } from "./verified-empty-savings";
 import type { SavingsPortfolioSummary } from "@/client/savings/portfolio-summary";
 
 export type CashOverviewProps = {
+  regionId: RegionId;
   snapshot: BalancesSnapshot | null;
   pendingCashout?: PendingCashoutEstimate;
   balanceStatus?: "ready" | "loading" | "failed";
@@ -170,7 +172,7 @@ export function cashHoldings(snapshot: BalancesSnapshot): CashHoldingRow[] {
           symbol: currency,
           currency,
           value: row.primary,
-          isFiat: true,
+          isFiat: false,
           usdValue: null,
           usdUnavailable: false,
           holding: false,
@@ -289,7 +291,8 @@ function useSavingsGrowth(
   metadata: MorphoVaultsResult | null,
   nowMs: number,
   now: () => number,
-  growthAuthority: SavingsGrowthAuthority | null
+  growthAuthority: SavingsGrowthAuthority | null,
+  regionId: BalancesSnapshot["region"],
 ) {
   const anchor = useMemo(() => {
     const positions = snapshot ? selectVaultPositions(snapshot) : [];
@@ -313,7 +316,7 @@ function useSavingsGrowth(
     const earningApy =
       summary.funded &&
       (summary.apy.status === "available" || summary.apy.status === "stale")
-        ? `${formatExactSavingsApy(summary.apy.value)} APY`
+        ? `${formatExactSavingsApy(summary.apy.value, regionId)} APY`
         : null;
     if (!snapshot || !metadata || !growthAuthority)
       return {
@@ -335,7 +338,7 @@ function useSavingsGrowth(
         summary,
       }),
     };
-  }, [snapshot, metadata, nowMs, growthAuthority]);
+  }, [snapshot, metadata, nowMs, growthAuthority, regionId]);
   return {
     earningApy: anchor.earningApy,
     growth:
@@ -347,6 +350,7 @@ function useSavingsGrowth(
 function SavingsVaultRow({
   vault,
   metadata,
+  regionId,
   rateLoading,
   nowMs,
   onActivate,
@@ -354,6 +358,7 @@ function SavingsVaultRow({
 }: {
   vault: SavingsDisplayVault;
   metadata: MorphoVaultsResult | null;
+  regionId: BalancesSnapshot["region"];
   rateLoading: boolean;
   nowMs: number;
   onActivate?: (opener: HTMLElement) => void;
@@ -373,7 +378,7 @@ function SavingsVaultRow({
         rateLoading ? (
           <RateLoadingPlaceholder />
         ) : (
-          savingsRateLabel(vault.candidate, metadata, nowMs)
+          savingsRateLabel(vault.candidate, metadata, nowMs, regionId)
         )
       }
       value={
@@ -395,6 +400,7 @@ function SavingsVaultRow({
 }
 
 export function CashOverview({
+  regionId,
   snapshot,
   pendingCashout = null,
   balanceStatus = "ready",
@@ -434,7 +440,8 @@ export function CashOverview({
     vaultStatus === "ready" ? metadata : null,
     nowMs,
     now,
-    growthAuthority
+    growthAuthority,
+    regionId,
   );
   const cashTotal = useMemo(
     () => activeSnapshot ? selectBalanceTotals(activeSnapshot).cash : null,
@@ -456,7 +463,7 @@ export function CashOverview({
       ? rateLabel ?? "Rate unavailable"
       : bestRate === null
       ? "Rate unavailable"
-      : `Earn up to ${formatPresentationPercentage(bestRate)} APY`;
+      : `Earn up to ${formatPresentationPercentage(bestRate, regionId)} APY`;
   const cashValue =
     summary?.status === "complete" &&
     cashTotal?.value &&
@@ -535,7 +542,8 @@ export function CashOverview({
                   >
                     {empty
                       ? `Earn up to ${formatPresentationPercentage(
-                          bestRate!
+                          bestRate!,
+                          regionId
                         )} APY`
                       : rateLabel}
                   </p>
@@ -723,6 +731,7 @@ export function CashOverview({
 
 export function SavingsDetail({
   snapshot,
+  regionId,
   balanceStatus = "ready",
   metadata,
   vaultStatus = "ready",
@@ -757,7 +766,8 @@ export function SavingsDetail({
     vaultStatus === "ready" ? metadata : null,
     nowMs,
     now,
-    growthAuthority
+    growthAuthority,
+    regionId,
   );
   const shown = holdings.filter(
     ({ held, partial: unreadable }) => held || unreadable
@@ -890,7 +900,7 @@ export function SavingsDetail({
             !partial &&
             bestRate !== null ? (
               <p className="text-sm text-muted-foreground">
-                Earn up to {formatPresentationPercentage(bestRate)} APY
+                Earn up to {formatPresentationPercentage(bestRate, regionId)} APY
               </p>
             ) : null}
           </div>
@@ -932,8 +942,8 @@ export function SavingsDetail({
             description="Rates can change and aren't guaranteed."
             benefits={[
               { icon: Percent, text: bestRate === null || bestRateStatus === "unavailable" ? "Rates are shown before you save"
-                : bestRateStatus === "stale" ? `Up to ${formatPresentationPercentage(bestRate)} APY at last update`
-                : `Up to ${formatPresentationPercentage(bestRate)} APY` },
+                : bestRateStatus === "stale" ? `Up to ${formatPresentationPercentage(bestRate, regionId)} APY at last update`
+                : `Up to ${formatPresentationPercentage(bestRate, regionId)} APY` },
               { icon: Eye, text: "Review the rate before you confirm" },
             ]}
             primary={{ label: "Start saving", ref: startSavingRef, onClick: onStartSaving }}
@@ -972,6 +982,7 @@ export function SavingsDetail({
                     metadata={vaultStatus === "failed" ? null : metadata}
                     rateLoading={vaultStatus === "loading"}
                     nowMs={nowMs}
+                    regionId={regionId}
                     onActivate={actionsAvailable ? () => onManageVault(vault.address) : undefined}
                     activateLabel={actionsAvailable ? `Manage ${vault.name}` : undefined}
                   />
@@ -1030,6 +1041,7 @@ export function SavingsDetail({
                         metadata={metadata}
                         rateLoading={vaultStatus === "loading"}
                         nowMs={nowMs}
+                        regionId={regionId}
                         onActivate={
                           depositUnavailable
                             ? undefined

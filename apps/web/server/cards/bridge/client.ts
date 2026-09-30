@@ -48,9 +48,10 @@ export function parseBridgeCustomer(value: unknown): BridgeCustomer {
 }
 
 export function createBridgeClient(config: CardJourneyConfig, fetcher: typeof fetch = fetch) {
-  async function request(path: string, init?: { body: string; key: string }): Promise<unknown> {
+  async function request(path: string, init?: { body: string; key: string }, signal?: AbortSignal): Promise<unknown> {
+    signal?.throwIfAborted();
     const response = await fetcher(`${config.bridgeOrigin}${path}`, {
-      method: init ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000),
+      method: init ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
       headers: { "Api-Key": config.bridgeApiKey, ...(init ? { "Content-Type": "application/json", "Idempotency-Key": init.key } : {}) },
       ...(init ? { body: init.body } : {}),
     });
@@ -58,9 +59,9 @@ export function createBridgeClient(config: CardJourneyConfig, fetcher: typeof fe
     return readProviderJson(response, "Bridge");
   }
   return {
-    async readCustomer(id: string): Promise<BridgeCustomer> {
+    async readCustomer(id: string, signal?: AbortSignal): Promise<BridgeCustomer> {
       if (!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) throw new Error("Invalid Bridge customer ID");
-      const customer = parseBridgeCustomer(await request(`/v0/customers/${encodeURIComponent(id)}`));
+      const customer = parseBridgeCustomer(await request(`/v0/customers/${encodeURIComponent(id)}`, undefined, signal));
       if (customer.id !== id) throw new Error("Bridge customer ID mismatch");
       return customer;
     },

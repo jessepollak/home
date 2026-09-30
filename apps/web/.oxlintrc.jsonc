@@ -519,7 +519,12 @@
             "reportingHelpers": [
               "emitServerEvent",
               "writeObservabilityEvent",
-              "reportClientError"
+              "reportClientError",
+              "observeSafely"
+            ],
+            "reportingModules": [
+              "@/server/observability/log",
+              "@/client/observability/client-reporter"
             ]
           }
         ]
@@ -563,6 +568,7 @@
               "markHomeAuthRestore",
               "markHomePerformance",
               "markHomeStartupOutcome",
+              "observeSafely",
               "recordAuthDiagnostic",
               "recordHomeStartupCache",
               "reportCaughtClientError",

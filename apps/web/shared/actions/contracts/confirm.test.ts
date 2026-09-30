@@ -131,6 +131,7 @@ describe("confirm action error contract", () => {
     });
     expect(parseConfirmActionErrorResponse({ error: { code: "CASHOUT_UNAVAILABLE", message: "x" } })).toEqual({ error: { code: "CASHOUT_UNAVAILABLE", message: "x" } });
     expect(parseConfirmActionErrorResponse({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "y" } })?.error.code).toBe("CASHOUT_SETTINGS_UNAVAILABLE");
+    expect(parseConfirmActionErrorResponse({ error: { code: "CARD_ALLOWANCE_UNAVAILABLE", message: "Prepare again." } })).toEqual({ error: { code: "CARD_ALLOWANCE_UNAVAILABLE", message: "Prepare again." } });
   });
 
   test("rejects codes confirm never returns and malformed bodies", () => {

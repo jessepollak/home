@@ -1,3 +1,4 @@
+import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
@@ -29,6 +30,16 @@ function row(address = session.smartAccount!.address, status = "confirmed") {
 }
 
 describe("recent Home action activity", () => {
+  test("retains a card allowance with zero amount entries but rejects mismatched or malformed metadata", () => {
+    const metadata = { product: "card", operation: "set-allowance", provider: "bridge", mode: "production",
+      token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+      allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "0", maximumBaseUnits: "100000000", source: { blockNumber: "100" } };
+    const card = { ...row(), kind: "card-allowance", summary: { ...row().summary, title: "Set card spending limit", amounts: [], metadata } };
+    expect(parseRecentMoneyActions({ actions: [card] }, session)[0]?.action).toMatchObject({ kind: "card-allowance", amounts: [], metadata });
+    expect(parseRecentMoneyActions({ actions: [{ ...card, summary: { ...card.summary, amounts: row().summary.amounts } }] }, session)).toEqual([]);
+    expect(parseRecentMoneyActions({ actions: [{ ...card, kind: "send" }] }, session)).toEqual([]);
+    expect(parseRecentMoneyActions({ actions: [{ ...card, summary: { ...card.summary, metadata: { ...metadata, spender: "not-an-address" } } }] }, session)).toEqual([]);
+  });
   test("rejects invalid top-level responses without hiding malformed individual records", () => {
     for (const value of [null, [], {}, { actions: null }, { actions: {} }]) {
       expect(() => parseRecentMoneyActions(value, session)).toThrow("Recent actions response is invalid.");
@@ -230,4 +241,26 @@ describe("recent Home action activity", () => {
     for (const value of [{ actions: [] }, { actions: [], truncated: false }, { actions: [], truncated: "true" }, null, "truncated"])
       expect(readRecentActionsTruncated(value)).toBe(false);
   });
+});
+
+test("recent action hash fields canonicalize mixed-case and reject malformed wire values", () => {
+  const checksum = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const input = { ...row(checksum), providerHandle: `0x${"Ab".repeat(32)}`, transactionHash: `0x${"Cd".repeat(32)}` };
+  const parsed = parseRecentMoneyActions({ actions: [input] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } });
+  expect(String(parsed[0]?.transactionHash)).toBe(`0x${"cd".repeat(32)}`);
+  expect(String(parsed[0]?.userOperationHash)).toBe(`0x${"ab".repeat(32)}`);
+  expect(parseRecentMoneyActions({ actions: [{ ...input, owner: { ...input.owner, address: checksum.replace("A", "a") } }] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } })).toEqual([]);
+  expect(parseRecentMoneyActions({ actions: [{ ...input, transactionHash: "0xno" }] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } })[0]?.transactionHash).toBeUndefined();
+});
+
+test("borrow action metadata carries canonical market and source hashes only", () => {
+  const metadata = { product: "borrow", operation: "borrow", marketId: `0x${"Ab".repeat(32)}`,
+    loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "asset", symbol: "ASSET" },
+    source: { blockNumber: "1", blockHash: `0x${"Cd".repeat(32)}`, blockTimestamp: "1" } };
+  const withMetadata = (value: unknown) => ({ ...row(), summary: { ...row().summary, metadata: value } });
+  const parsed = parseRecentMoneyActions({ actions: [withMetadata(metadata)] }, session)[0]?.action.metadata;
+  expect(parsed?.product === "borrow" ? String(parsed.marketId) : null).toBe(`0x${"ab".repeat(32)}`);
+  expect(parsed?.product === "borrow" ? String(parsed.source.blockHash) : null).toBe(`0x${"cd".repeat(32)}`);
+  const invalid = parseRecentMoneyActions({ actions: [withMetadata({ ...metadata, source: { ...metadata.source, blockHash: "0x1234" } })] }, session)[0]?.action.metadata;
+  expect(invalid).toBeUndefined();
 });

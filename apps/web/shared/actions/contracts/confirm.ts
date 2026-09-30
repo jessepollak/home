@@ -3,6 +3,7 @@ import { parseAddress } from "@/shared/chain/hex";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { ActionSummaryResponse } from "./get";
 import { CASHOUT_PREPARE_ERRORS } from "./prepare";
+import { CARD_ALLOWANCE_PREPARE_ERRORS } from "@/shared/cards/allowance-contract";
 
 const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
 const MAX_UINT256_DECIMAL_DIGITS = MAX_UINT256.toString().length;
@@ -12,8 +13,8 @@ export const CONFIRM_CASHOUT_ERRORS = {
   "settings-unavailable": CASHOUT_PREPARE_ERRORS["settings-unavailable"],
 } as const;
 
-export type ConfirmActionErrorCode = (typeof CONFIRM_CASHOUT_ERRORS)[keyof typeof CONFIRM_CASHOUT_ERRORS]["code"];
-const CONFIRM_ACTION_ERROR_CODES: readonly ConfirmActionErrorCode[] = Object.values(CONFIRM_CASHOUT_ERRORS).map((entry) => entry.code);
+export type ConfirmActionErrorCode = (typeof CONFIRM_CASHOUT_ERRORS)[keyof typeof CONFIRM_CASHOUT_ERRORS]["code"] | typeof CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code | typeof CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"]["code"];
+const CONFIRM_ACTION_ERROR_CODES: readonly ConfirmActionErrorCode[] = [...Object.values(CONFIRM_CASHOUT_ERRORS).map((entry) => entry.code), CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code, CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"].code];
 
 export type ConfirmActionErrorResponse = { error: { code: ConfirmActionErrorCode; message: string } };
 

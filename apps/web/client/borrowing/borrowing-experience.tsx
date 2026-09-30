@@ -21,6 +21,7 @@ import {
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
+import { queryViewState } from "@/client/query/query-view-state";
 import {
   browserHomeQueryClient,
   ownerQueryKey,
@@ -155,6 +156,7 @@ function BorrowExperienceInner({
 }: BorrowExperienceProps) {
   const configuredSelection = selectedMarketId && getBorrowMarketRef(selectedMarketId) ? selectedMarketId : null;
   const overview = useBorrowOverview(configuredSelection ? null : session, fetchAccountResource);
+  const overviewView = queryViewState(overview, { hasCachedData: overview.data !== undefined });
 
   if (configuredSelection) {
     return (
@@ -176,7 +178,7 @@ function BorrowExperienceInner({
   return (
     <>
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
-      {session?.smartAccount && overview.isError && overview.data ? (
+      {session?.smartAccount && overviewView === "failed-with-data" && overview.data ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow data could not be refreshed"
           description={`Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`}
           onRetry={() => void overview.refetch()} />
@@ -184,7 +186,7 @@ function BorrowExperienceInner({
       {session?.smartAccount || sessionSettling ? <BorrowOverview
         overview={overview.data ?? null}
         borrowSummary={borrowSummary}
-        status={(!session?.smartAccount && sessionSettling) || overview.isPending ? "loading" : overview.isError && !overview.data ? "error" : "ready"}
+        status={(!session?.smartAccount && sessionSettling) || overviewView === "loading" ? "loading" : overviewView === "failed" ? "error" : "ready"}
         onRetry={() => void overview.refetch()}
         session={session}
         fetchAccountResource={fetchAccountResource}
@@ -219,6 +221,7 @@ function BorrowDirectMarket({
   assetMarkResolution?: AssetMarkResolution;
 }) {
   const detail = useBorrowDetail(session, marketId, fetchAccountResource, true);
+  const detailView = queryViewState(detail, { hasCachedData: detail.data !== undefined });
   const snapshot = detail.data ?? null;
   const hasCollateral = snapshot ? BigInt(snapshot.position.collateralRaw) > BigInt(0) : false;
   const risk = borrowRiskState(snapshot?.position.healthFactorWad ?? null);
@@ -236,8 +239,8 @@ function BorrowDirectMarket({
         <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
       </div>
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
-      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
-      {session?.smartAccount && detail.isError ? (
+      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detailView === "loading") ? <BorrowOverviewLoading /> : null}
+      {session?.smartAccount && (detailView === "failed" || detailView === "failed-with-data") ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
       ) : null}
       {snapshot && !canOpen && !dialogSnapshot ? (

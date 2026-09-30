@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import type { BalancesSnapshot } from "@/shared/balances/types";
 import { presentBalances } from "@/shared/balances/present";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import {
@@ -10,6 +11,7 @@ import {
 } from "@/shared/balances/fixtures";
 import type { BalancesBorrow, Holding } from "@/shared/balances/types";
 import { createBalancesService } from "./coalesce";
+import type { ObservabilityEvent } from "@/server/observability/schema";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
 import type { BalanceObservation } from "./snapshot-store";
 import { borrowReadComplete } from "./borrow";
@@ -124,6 +126,7 @@ function setup(options: {
   price?: (read: BalancesRead) => Holding[];
   pricedBorrow?: BalancesBorrow | ((read: BalancesRead) => BalancesBorrow);
   readBorrow?: (at: BalancesRead["block"]) => Promise<BorrowRead>;
+  log?: (event: ObservabilityEvent) => unknown;
 }) {
   const store = options.store ?? new MemoryBalanceSnapshotStore();
   const configuredNow = options.now;
@@ -140,7 +143,7 @@ function setup(options: {
       ? configuredNow
       : () => new Date(configuredNow ?? "2026-09-13T12:00:30.000Z"),
     nowMs: () => clock++,
-    log: (event) => events.push(event),
+    log: options.log ?? ((event) => events.push(event)),
     schedule: (task) => scheduled.push(typeof task === "function" ? task : () => task),
     readUniverse: async () => ({ entries: [] }),
     readBalances: async () => {
@@ -239,6 +242,17 @@ describe("balance observations", () => {
         priceUnavailable: 2, priceStale: 0, fxUnavailable: 0, belowMarketGate: 0, noQuoteCurrency: 0,
       },
     }]);
+  });
+
+  test("a throwing balances-read log does not change the served snapshot", async () => {
+    let attempts = 0;
+    const fixture = setup({ log: () => { attempts += 1; throw new Error("sink failed"); } });
+    await fixture.store.putObservation(observation());
+    const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.fetchedAt).toBe(observedAt);
+    expect(snapshot.stale).toBeUndefined();
+    expect(fixture.reads()).toBe(0);
+    expect(attempts).toBe(1);
   });
 
   test("counts final snapshot coverage and positive holding and Borrow valuation gaps", async () => {
@@ -860,7 +874,7 @@ describe("balance observations", () => {
       subject: "fixture",
       smartAccountAddress: owner,
       chainId: 8453,
-    }, "US")).toEqual(snapshot);
+    }, "US") as BalancesSnapshot).toEqual(snapshot);
   });
 
   test("a genuinely complete re-observe replaces stored non-registry holdings", async () => {

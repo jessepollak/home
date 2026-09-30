@@ -111,6 +111,7 @@ export function describeProblem(problem) {
   if (problem.state === "stale") {
     return `stale (installed ${problem.installed}; the lockfile resolves ${problem.expected.join(", ")})`;
   }
+  if (problem.state === "unverifiable") return "unverifiable (its installed package.json has no readable version)";
   if (problem.state === "lockfile-missing") return "missing (dependency versions cannot be verified)";
   if (problem.state === "lockfile-unreadable") return "unreadable (dependency versions cannot be verified)";
   if (problem.state === "lockfile-mismatched") return "out of sync with this worktree's dependencies (dependency versions cannot be verified)";
@@ -225,7 +226,14 @@ export function dependencyProblems(root) {
       const versions = lockfile.versions.get(name);
       if (!versions) continue;
       const installed = installedPackage(scope, name);
-      if (installed?.version === undefined) continue;
+      if (installed?.version === undefined) {
+        problems.push({
+          absolute: join(scope.directory, name),
+          relative: `${scope.label}/${name}`,
+          state: "unverifiable",
+        });
+        continue;
+      }
       const selectedVersion = lockfile.resolutions.get(scope.workspace)?.get(name) ?? lockfile.resolutions.get("")?.get(name);
       const expected = selectedVersion === undefined ? [...versions].sort() : [selectedVersion];
       if (!expected.includes(installed.version)) {

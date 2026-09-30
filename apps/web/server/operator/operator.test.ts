@@ -1,4 +1,5 @@
 import { readJson } from "@/tests/helpers/read-json";
+import { parseAddress } from "@/shared/chain/hex";
 import { describe, expect, setSystemTime, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { signedValue } from "@/server/auth/native-base-session";
@@ -118,7 +119,7 @@ test("admin API status, contract and private headers across both endpoints", asy
     expect(response.headers.get("cache-control")).toContain("no-store");
     const body = await readJson(response);
     expect(body).toEqual(item.body);
-    if (item.status === 200) expect(parseOperatorSessionResponse(body)?.operator.address).toBe(X);
+    if (item.status === 200) expect(parseOperatorSessionResponse(body)?.operator.address).toBe(parseAddress(X)!);
     if (item.status === 401 || item.status === 403 || item.status === 404) {
       expect(item.body.error?.code).toBe(parseOperatorErrorResponse(body)?.error.code);
     }

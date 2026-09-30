@@ -15,7 +15,7 @@ type Owner = { accountProvider: VerifiedAccountSession["accountProvider"]; subje
 type CustomerRow = { id: string; status: string; first_seen_at: Date; invite_code: string | null };
 type CredentialRow = { id: string; customer_id: string };
 type CreateOptions = { create: true; at?: Date; email?: string | null; country?: string | null; inviteCode?: string | null };
-type ReadOptions = { create: false };
+type ReadOptions = { create: false; signal?: AbortSignal };
 
 export class CustomerResolver {
   constructor(private readonly sql: SqlExecutor) {}
@@ -30,6 +30,7 @@ export class CustomerResolver {
          LEFT JOIN customer_wallets w ON w.credential_id=cr.id AND w.chain_id=$3 AND w.address=$4
          WHERE cr.account_provider=$1 AND cr.subject=$2`,
         [session.accountProvider, session.user.subject, session.smartAccount?.chainId ?? BASE_CHAIN_ID, session.smartAccount?.address.toLowerCase() ?? null],
+        { signal: options.signal },
       );
       const row = result.rows[0];
       return row ? { id: row.id, status: row.status, created: false, credentialId: row.credential_id, walletId: row.wallet_id } : null;

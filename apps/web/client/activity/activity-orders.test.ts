@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityFundingOrder, ActivityCashoutOrder } from "@/shared/activity/contract-orders";
@@ -8,7 +9,7 @@ import { presentActivityLedgerItems } from "./activity-ledger-items";
 const createdAt = "2026-09-15T12:00:00.000Z";
 const updatedAt = "2026-09-15T12:01:00.000Z";
 const clearableAt = "2026-09-15T12:02:00.000Z";
-const hash = `0x${"ab".repeat(32)}` as `0x${string}`;
+const hash = parseHash32(`0x${"ab".repeat(32)}`)!;
 const funding: ActivityFundingOrder = {
   kind: "funding", id: "funding-1", region: "US", providerId: "coinbase", providerName: "Coinbase",
   paymentMethodLabel: "Debit card", status: "waiting-customer", stage: "awaiting-payment", instruction: "embed", resumable: true,

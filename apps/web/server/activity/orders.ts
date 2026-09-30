@@ -1,4 +1,5 @@
 import "server-only";
+import { parseHash32 } from "@/shared/chain/hex";
 
 import type { ActivityCashoutOrder, ActivityFundingOrder, ActivityFundingOrderStage, ActivityOrderStatus } from "@/shared/activity/contract-orders";
 import { getFundingAsset } from "@/shared/funding/assets";
@@ -43,6 +44,8 @@ export function presentFundingOrder(order: FundingOrder, now: Date, resumable: b
       clearableAt = null;
     }
   }
+  const transactionHash = order.transactionHash === null ? null : parseHash32(order.transactionHash);
+  if (order.transactionHash !== null && !transactionHash) return null;
   return {
     kind: "funding", id: order.id, region: order.region,
     providerId: order.providerId, providerName: provider?.manifest.displayName ?? order.providerId,
@@ -52,7 +55,7 @@ export function presentFundingOrder(order: FundingOrder, now: Date, resumable: b
     asset: { id: asset.id, symbol: asset.symbol, decimals: asset.decimals },
     tokenAmountAtomic: order.expectedTokenAmountAtomic ?? order.quote.tokenAmountAtomic ?? null,
     sandbox: order.sandbox, expiresAt: order.expiresAt, clearableAt,
-    transactionHash: order.transactionHash, logIndex: order.logIndex === null ? null : String(order.logIndex),
+    transactionHash, logIndex: order.logIndex === null ? null : String(order.logIndex),
     createdAt: order.createdAt, updatedAt: order.updatedAt,
   };
 }

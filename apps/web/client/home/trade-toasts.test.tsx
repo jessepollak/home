@@ -39,7 +39,7 @@ afterEach(() => { toast.close(); cleanup(); getHomeQueryClient().clear(); });
 
 test("trade toasts use metadata name and exact buy spend rather than warnings", async () => {
   const key = ownerQueryKey(activityOwnerKey(session), "actions");
-  const view = render(<ActionToasts session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
+  const view = render(<ActionToasts regionId="US" session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
   await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
   act(() => { getHomeQueryClient().setQueryData(key, { actions: [base] }); });
   await waitFor(() => expect(view.getByText("Buying Degen for $1.23")).toBeTruthy());
@@ -49,7 +49,7 @@ test("trade toasts use metadata name and exact buy spend rather than warnings", 
 
 test("sell toast presents exact 18-decimal token spend, not estimated Cash receive", async () => {
   const key = ownerQueryKey(activityOwnerKey(session), "actions");
-  const view = render(<ActionToasts session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
+  const view = render(<ActionToasts regionId="US" session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
   await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
   act(() => { getHomeQueryClient().setQueryData(key, { actions: [{ ...base, summary: {
     ...base.summary,
@@ -65,7 +65,7 @@ test("sell toast presents exact 18-decimal token spend, not estimated Cash recei
 
 test("a legacy cbBTC trade without an asset name still gets its completion toast", async () => {
   const key = ownerQueryKey(activityOwnerKey(session), "actions");
-  const view = render(<ActionToasts session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
+  const view = render(<ActionToasts regionId="US" session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
   await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
   const legacy = { ...base, summary: { ...base.summary,
     metadata: { ...quoted, direction: "buy", fromAsset: usdc, toAsset: cbbtc,

@@ -1,3 +1,4 @@
+import { parseAddress, parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActionSummaryResponse } from "./get";
 import { readCashoutProgress, type CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
@@ -12,6 +13,7 @@ import {
 import { isSavingsMetadata } from "@/shared/savings/review";
 import { parseCashoutQuote } from "@/shared/funding/cash-out-quote";
 import { parseTradeMetadata } from "@/shared/trading/review";
+import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
 
 export type ActionListItem = {
   id: string;
@@ -45,8 +47,8 @@ export type RecentMoneyActionOperation = {
     createdAt: string;
   };
   status: DerivedActionStatus;
-  transactionHash?: `0x${string}`;
-  userOperationHash?: `0x${string}`;
+  transactionHash?: Hash32;
+  userOperationHash?: Hash32;
   cashout?: CashoutProgress;
   createdAt: string;
   updatedAt: string;
@@ -96,6 +98,8 @@ function isCompleteRecentActionItem(item: unknown): item is CompleteRecentAction
   if (!Array.isArray(summary.amounts) || !summary.amounts.every((amount) => isMoneyActionAmount(amount, maxDecimals)) ||
     !Array.isArray(summary.warnings) || !summary.warnings.every((warning) => typeof warning === "string")) return false;
   if ("cashout" in item && item.kind !== "cash-out") return false;
+  if (item.kind === "card-allowance") return summary.amounts.length === 0 && parseCardAllowanceMetadata(summary.metadata) !== null;
+  if (isRecord(summary.metadata) && summary.metadata.product === "card") return false;
   const isDeposit = item.kind === "cash-out";
   const isWithdraw = item.kind === "cash-out-withdraw";
   if (!isDeposit && !isWithdraw) return true;
@@ -122,8 +126,10 @@ function isMoneyActionAmount(value: unknown, maxDecimals: number): value is Mone
 
 function sameOwner(owner: Record<string, unknown>, session: VerifiedAccountSession): boolean {
   const account = session.smartAccount;
-  return account !== null && owner.subject === session.user.subject && owner.accountProvider === session.accountProvider &&
-    typeof owner.address === "string" && owner.address.toLowerCase() === account.address.toLowerCase();
+  if (account === null) return false;
+  const ownerAddress = parseAddress(owner.address);
+  return ownerAddress !== null && ownerAddress === parseAddress(account.address) &&
+    owner.subject === session.user.subject && owner.accountProvider === session.accountProvider;
 }
 
 
@@ -140,6 +146,9 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
     if (!sameOwner(item.owner, session)) continue;
     if (!isCompleteRecentActionItem(item)) continue;
     const cashout = item.kind === "cash-out" ? readCashoutProgress(item.cashout) : null;
+    const transactionHash = parseHash32(item.transactionHash);
+    const userOperationHash = parseHash32(item.providerHandle);
+    const metadata = isMoneyMetadata(item.summary.metadata) ? normalizeRecentMetadata(item.summary.metadata) : null;
     parsed.push({
       action: {
         id: item.id,
@@ -149,9 +158,7 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
         warnings: item.summary.warnings as string[],
         expiresAt: item.summary.expiresAt,
         ...(typeof item.summary.quoteId === "string" ? { quoteId: item.summary.quoteId } : {}),
-        ...(isMoneyMetadata(item.summary.metadata)
-          ? { metadata: item.summary.metadata.product === "trade" ? parseTradeMetadata(item.summary.metadata)! : item.summary.metadata }
-          : {}),
+        ...(metadata ? { metadata } : {}),
         createdAt: item.createdAt,
       },
       status: item.status,
@@ -160,8 +167,8 @@ export function parseRecentMoneyActions(value: unknown, session: VerifiedAccount
       ...(typeof item.submittedAt === "string" && Number.isFinite(Date.parse(item.submittedAt)) ? { submittedAt: item.submittedAt } : {}),
       ...(typeof item.settledAt === "string" && Number.isFinite(Date.parse(item.settledAt)) ? { settledAt: item.settledAt } : {}),
       ...(cashout ? { cashout } : {}),
-      ...(typeof item.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.transactionHash) ? { transactionHash: item.transactionHash.toLowerCase() as `0x${string}` } : {}),
-      ...(typeof item.providerHandle === "string" && /^0x[0-9a-fA-F]{64}$/.test(item.providerHandle) ? { userOperationHash: item.providerHandle.toLowerCase() as `0x${string}` } : {}),
+      ...(transactionHash ? { transactionHash } : {}),
+      ...(userOperationHash ? { userOperationHash } : {}),
     });
   }
   return parsed.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
@@ -181,13 +188,28 @@ function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {
       typeof value.estimateAsOf === "string" && typeof value.escrow === "string" &&
       (value.quote === undefined || (value.operation === "deposit" && parseCashoutQuote(value.quote) !== null));
   }
+  if (value.product === "card") return parseCardAllowanceMetadata(value) !== null;
   if (value.product === "savings") return isSavingsMetadata(value);
   if (value.product === "trade") return parseTradeMetadata(value) !== null;
   return value.product === "borrow" && typeof value.operation === "string" &&
-    typeof value.marketId === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.marketId) &&
+    parseHash32(value.marketId) !== null &&
     isRecord(value.loanAsset) && typeof value.loanAsset.id === "string" && typeof value.loanAsset.symbol === "string" &&
     isRecord(value.collateralAsset) && typeof value.collateralAsset.id === "string" && typeof value.collateralAsset.symbol === "string" &&
-    isRecord(value.source) && typeof value.source.blockNumber === "string" && typeof value.source.blockHash === "string" && typeof value.source.blockTimestamp === "string";
+    isRecord(value.source) && typeof value.source.blockNumber === "string" && parseHash32(value.source.blockHash) !== null && typeof value.source.blockTimestamp === "string";
+}
+function normalizeRecentMetadata(metadata: MoneyActionMetadata): MoneyActionMetadata {
+  if (metadata.product === "trade") return parseTradeMetadata(metadata) ?? metadata;
+  if (metadata.product === "borrow") {
+    const marketId = parseHash32(metadata.marketId) ?? metadata.marketId;
+    const blockHash = parseHash32(metadata.source.blockHash) ?? metadata.source.blockHash;
+    return { ...metadata, marketId, source: { ...metadata.source, blockHash } };
+  }
+  if (metadata.product === "savings") {
+    const vaultAddress = parseAddress(metadata.vaultAddress) ?? metadata.vaultAddress;
+    const blockHash = parseHash32(metadata.source.blockHash) ?? metadata.source.blockHash;
+    return { ...metadata, vaultAddress, source: { ...metadata.source, blockHash } };
+  }
+  return metadata;
 }
 function isDerivedStatus(value: unknown): value is DerivedActionStatus {
   return value === "pending" || value === "unknown" || value === "confirmed" || value === "failed";

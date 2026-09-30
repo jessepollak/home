@@ -6,6 +6,8 @@ import { renderToString } from "react-dom/server";
 import type { Root } from "react-dom/client";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient } from "@/client/query/query-client";
+import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 
 const replaceCalls: string[] = [];
 const actualNavigation = await import("next/navigation");
@@ -22,6 +24,10 @@ const { hydrateRoot } = await import("react-dom/client");
 const { FundingActionsForWallet } = await import("./funding-actions");
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
+
+function providersOk(providers: unknown[]) {
+  return { version: FUNDING_PROVIDERS_VERSION, direction: "onramp" as const, providers };
+}
 
 type FundingWallet = Pick<
   AccountWalletClient,
@@ -101,8 +107,8 @@ describe("FundingActions hydration", () => {
     const requests: string[] = [];
     const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
       requests.push(path);
-      if (path.startsWith("/api/funding/providers?")) return { providers: [{ providerId: "ripio", displayName: "Ripio", region: "AR", assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS", paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, customerSetup: null }] };
-      if (path.startsWith("/api/funding/orders?")) return { order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: null } };
+      if (path.startsWith("/api/funding/providers?")) return providersOk([{ direction: "onramp", providerId: "ripio", displayName: "Ripio", region: "AR", assetId: "base:wars", assetSymbol: "wARS", assetDecimals: 18, currency: "ARS", paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }], quotes: true, customerSetup: null }]);
+      if (path.startsWith("/api/funding/orders?")) return { version: FUNDING_OPEN_ORDER_VERSION, order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: null } };
       throw new Error(`unexpected request: ${path}`);
     } };
     const fixture = await hydrateFundingActions(<FundingActionsForWallet wallet={wallet} regionId="AR" />);

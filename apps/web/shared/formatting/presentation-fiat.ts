@@ -15,8 +15,8 @@ export function presentationCurrencyName(code: string): string {
 export function formatPresentationFiat(
   value: ExactDecimal,
   currency: string,
-  fractionDigits = 2,
-  regionId?: RegionId,
+  fractionDigits: number,
+  regionId: RegionId,
 ): string {
   const atoms = parseExactDecimal(value, fractionDigits);
   return formatFiatAmount(atoms, value.scale, currency, {

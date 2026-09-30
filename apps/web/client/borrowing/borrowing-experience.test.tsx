@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import "@/client/account/dom-test-harness";
 
 import { getHomeQueryClient } from "@/client/query/query-client";
@@ -23,7 +24,7 @@ const { parseClientTokenAmount, selectPrimaryBorrowAsset } = await import("./bor
 
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
-const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
+const BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`)!;
 const BORROW_MARKET = VERIFIED_MORPHO_MARKETS[0]!;
 const BORROW_MARKET_ID = BORROW_MARKET.marketId;
 const BORROW_LOAN_TOKEN = BORROW_MARKET.loanToken;
