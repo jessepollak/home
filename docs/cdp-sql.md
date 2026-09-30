@@ -114,6 +114,14 @@ Implemented and mocked:
 - timeout and single-attempt 429 behavior;
 - credential/upstream-body redaction.
 
+Verified with synthetic ClickHouse execution:
+
+- the full generated query cancels added/removed logs and retains re-added logs for named strings, numeric strings, Int8, and Enum8;
+- numeric ordering, wallet/token/time/event scope, and keyset pagination remain correct after cancellation;
+- unknown actions fail rather than produce an empty successful history.
+
+The committed tests and their required CI job are described in [SQL query behavior](gates.md#sql-query-behavior). This is engine-level coverage; live CDP acceptance and scan/index performance need separate evidence.
+
 Verified live by the parent on 2026-09-07:
 
 - the existing Home project credentials can generate a signed JWT accepted by the exact SQL endpoint;
