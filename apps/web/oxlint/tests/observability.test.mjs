@@ -947,6 +947,24 @@ describe("no-silent-catch", () => {
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
     expect(results.fixture2).toHaveLength(0);
   }, budgetMs);
+  for (const [name, loop] of [
+    ["for-of", "for (using resource of resources)"],
+    ["for-await-of", "for await (using resource of resources)"],
+    ["for", "for (using resource = acquire();;)"],
+  ]) {
+    it(`rejects returned telemetry exiting a ${name} resource scope`, async () => {
+      const results = await lint({
+        fixture1: `
+        import { observeSafely } from "@/server/observability/log";
+        function report(sink: (error: unknown) => Promise<unknown>) {
+          observeSafely(async () => { ${loop} { return sink(error); } });
+        }
+        try { run(); } catch (error) { report(sink); }
+      `,
+      }, { rule: "no-silent-catch", options: options });
+      expect(results.fixture1).toHaveLength(1);
+    }, budgetMs);
+  }
 
   it("rejects discarded telemetry sink calls inside observeSafely callbacks", async () => {
     const results = await lint({
@@ -1324,12 +1342,149 @@ describe("no-silent-catch", () => {
       run()["catch"](() => []);
       run()["then"](ok, () => { setError("failed"); });
       run().then(ok, namedHandler);
-      let status = "ready";
-      run().catch(() => { status = "failed"; });
-      consume(status);
     `,
     }, { rule: "no-silent-catch", options: options });
     expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects outer recovery assignments read before promise settlement", async () => {
+    const promises = [
+      'run().catch(() => { status = "failed"; })',
+      'run().then(ok, () => { status = "failed"; })',
+    ];
+    const found = await lint(Object.fromEntries(promises.map((promise, index) => [
+      `fixture${index}`,
+      { path: `fixture${index}.test.ts`, code: `
+        let status = "ready";
+        ${promise};
+        consume(status);
+      ` },
+    ])), { rule: "no-silent-catch", options: options });
+    for (const index of promises.keys()) {
+      expect(found[`fixture${index}`]).toHaveLength(1);
+      expect(found[`fixture${index}`][0].message).toBe(messages.silent);
+    }
+  }, budgetMs);
+
+  it("accepts outer recovery assignments read after an awaited rejection handler", async () => {
+    const promises = [
+      'run().catch(() => { status = "failed"; })',
+      'run().then(ok, () => { status = "failed"; })',
+      '(run().catch(() => { status = "failed"; }) as Promise<void>).then(ok)',
+    ];
+    const found = await lint(Object.fromEntries(promises.map((promise, index) => [
+      `fixture${index}`,
+      { path: `fixture${index}.test.ts`, code: `
+        async function read() {
+          let status = "ready";
+          await ${promise};
+          consume(status);
+        }
+      ` },
+    ])), { rule: "no-silent-catch", options: options });
+    for (const index of promises.keys()) expect(found[`fixture${index}`]).toHaveLength(0);
+  }, budgetMs);
+
+  it("accepts outer recovery assignments read by chained continuations", async () => {
+    const chains = [
+      '.then(() => consume(status))',
+      '.finally(() => consume(status))',
+      '.then((() => consume(status)) as () => void)',
+      '["then"](() => consume(status))',
+    ];
+    const found = await lint(Object.fromEntries(chains.map((chain, index) => [
+      `fixture${index}`,
+      { path: `fixture${index}.test.ts`, code: `
+        function read() {
+          let status = "ready";
+          return run().catch(() => { status = "failed"; })${chain};
+        }
+      ` },
+    ])), { rule: "no-silent-catch", options: options });
+    for (const index of chains.keys()) expect(found[`fixture${index}`]).toHaveLength(0);
+  }, budgetMs);
+
+  it("does not let a continuation or an await sequence unrelated outer reads", async () => {
+    const results = await lint({
+      fixture1: `
+      let status = "ready";
+      run().catch(() => { status = "failed"; }).then(() => work());
+      consume(status);
+      let outside = "ready";
+      async function read() {
+        await run().catch(() => { outside = "failed"; });
+      }
+      consume(outside);
+      let returned = "ready";
+      function start() { return run().catch(() => { returned = "failed"; }); }
+      consume(returned);
+      let rejected = "ready";
+      run().catch(() => { rejected = "failed"; }).then(ok, () => consume(rejected));
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(4);
+  }, budgetMs);
+
+  it("accepts outer recovery assignments read by a closure created after the chain", async () => {
+    const results = await lint({
+      fixture1: `
+      function subscribe() {
+        let settled = false;
+        run().catch(() => { settled = true; });
+        return () => { if (!settled) cleanup(); };
+      }
+      function nestedDeclaration() {
+        let settled = false;
+        run().catch(() => { settled = true; });
+        return () => {
+          function stop() { pending.forEach((item) => { if (!settled) item.cancel(); }); }
+          stop();
+        };
+      }
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects closures inside the chain statement, outside the calling function, or hoisted", async () => {
+    const results = await lint({
+      fixture1: `
+      let early = "ready";
+      schedule(run().catch(() => { early = "failed"; }), () => consume(early));
+      let outer = "ready";
+      function start() { run().catch(() => { outer = "failed"; }); }
+      const read = () => consume(outer);
+      function hoisted() {
+        read();
+        let status = "ready";
+        run().catch(() => { status = "failed"; });
+        function read() { consume(status); }
+      }
+      function nestedHoisted() {
+        let status = "ready";
+        read();
+        run().catch(() => { status = "failed"; });
+        function read() { (() => consume(status))(); }
+      }
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(4);
+  }, budgetMs);
+
+  it("requires promise settlement before accepting retained fallback reads", async () => {
+    const found = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      let details = fallback;
+      load().then((value) => { details = value; }).catch(() => {});
+      consume(details);
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+      let details = fallback;
+      load().then((value) => { details = value; }).catch(() => {}).finally(() => consume(details));
+    ` },
+    }, { rule: "no-silent-catch", options: options });
+    expect(found.fixture1).toHaveLength(1);
+    expect(found.fixture2).toHaveLength(0);
   }, budgetMs);
 
   it("exempts iterator and stream cancellation cleanup", async () => {

@@ -10,8 +10,10 @@ export async function installFixedPageDate(page: Page, instant = FIXED_NOW) {
   pinnedContexts.add(context);
   await context.addInitScript((fixed) => {
     const NativeDate = Date;
+    // oxlint-disable-next-line home/no-real-waits -- This shim advances the pinned page clock by real elapsed time, so it must read the native clock.
+    const nativeNow = () => NativeDate.now();
     const anchorKey = "home:playwright-fixed-date-anchor";
-    const started = NativeDate.now();
+    const started = nativeNow();
     let anchor = started;
     try {
       const stored = Number(sessionStorage.getItem(anchorKey));
@@ -20,7 +22,7 @@ export async function installFixedPageDate(page: Page, instant = FIXED_NOW) {
     } catch {
       anchor = started;
     }
-    const current = () => fixed + (NativeDate.now() - anchor);
+    const current = () => fixed + (nativeNow() - anchor);
     function FixedDate(this: unknown, ...args: unknown[]) {
       if (!new.target) return new NativeDate(current()).toString();
       return args.length === 0 ? new NativeDate(current()) : Reflect.construct(NativeDate, args);
