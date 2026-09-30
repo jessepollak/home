@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { borrowPosition, buildBalancesSnapshotFixture, priced, ready, unavailableBalance, walletHolding } from "./fixtures";
 import { addFractions, exactDecimalToFraction } from "./math";
-import { selectOwnedInvestment, selectOwnedInvestments } from "./owned-investments";
+import { investmentSelection, selectOwnedInvestment, selectOwnedInvestments } from "./owned-investments";
 import type { Holding } from "./types";
 
 const token = (index: number, name = `Holding ${index}`, amount = String(index * 100)) => walletHolding({ address: `0x${index.toString(16).padStart(40, "0")}`, name, symbol: `T${index}`, decimals: 18 }, "1000000000000000000", priced("USD", amount));
@@ -86,4 +86,41 @@ it("focused selections preserve wallet, collateral, unreadable and unpriced over
   for (const snapshot of snapshots) for (const row of selectOwnedInvestments(snapshot)) {
     expect(selectOwnedInvestment(snapshot, row.key)).toEqual(row);
   }
+});
+
+for (const count of [100, 1000, 10000]) {
+  it(`${count} holdings yield throughout selection with linear valuation reads`, () => {
+    const holdings = Array.from({ length: count }, (_, index) => token(index + 100, `Token ${index}`, String((index * 7919) % 10007 + 1)));
+    const snapshot = buildBalancesSnapshotFixture({ catalog: holdings });
+    let reads = 0;
+    for (const holding of holdings) {
+      const value = holding.value;
+      Object.defineProperty(holding, "value", { get: () => { reads++; return value; } });
+    }
+    const selection = investmentSelection(snapshot);
+    let previousReads = 0;
+    let next = selection.next();
+    while (!next.done) {
+      expect(reads - previousReads).toBeLessThanOrEqual(512);
+      previousReads = reads;
+      next = selection.next();
+    }
+    expect(reads - previousReads).toBeLessThanOrEqual(512);
+    expect(reads).toBeLessThanOrEqual(count * 3);
+    expect(next.value.map((row) => row.key)).toEqual(holdings.map((holding, index) => ({ key: holding.key, value: (index * 7919) % 10007 })).sort((a, b) => b.value - a.value).map((entry) => entry.key));
+  });
+}
+
+it("preserves exact ordering above safe integers and existing sub-attounit rounding ties", () => {
+  const first = token(201, "A");
+  const second = token(202, "B");
+  const third = token(203, "C");
+  const fourth = token(204, "D");
+  first.value = priced("USD", "9007199254740993", 0);
+  second.value = priced("USD", "9007199254740992", 0);
+  third.value = priced("USD", "10000000000000000004", 19);
+  fourth.value = priced("USD", "10000000000000000003", 19);
+  const rows = selectOwnedInvestments(buildBalancesSnapshotFixture({ catalog: [fourth, second, third, first] }));
+  expect(rows.map((row) => row.key)).toEqual([first.key, second.key, third.key, fourth.key]);
+  expect(rows[2]!.amount).toEqual(rows[3]!.amount);
 });
