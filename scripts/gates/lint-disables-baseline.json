@@ -1,0 +1,218 @@
+{
+  "files": {
+    "apps/web/app/coverage/page.tsx": {
+      "nextjs/no-html-link-for-pages": 1
+    },
+    "apps/web/client/account/account-screen.tsx": {
+      "home/no-silent-catch": 4
+    },
+    "apps/web/client/account/action-resolution.ts": {
+      "home/no-silent-catch": 4
+    },
+    "apps/web/client/account/base-account-connector.ts": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/client/account/cdp-session-lifecycle.tsx": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/client/account/cdp-wallet-provider-capabilities.ts": {
+      "home/no-silent-catch": 4
+    },
+    "apps/web/client/account/composite-account-provider.tsx": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/client/account/email-request-flow.ts": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/client/account/native-base-bridge.tsx": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/client/account/sdk-activation.test.ts": {
+      "home/no-self-referential-expectation": 1
+    },
+    "apps/web/client/activity/activity-ledger-sheet.tsx": {
+      "react/no-array-index-key": 1
+    },
+    "apps/web/client/activity/virtual-activity-list.tsx": {
+      "react/incompatible-library": 1
+    },
+    "apps/web/client/borrowing/borrow-overview.tsx": {
+      "react/no-unstable-nested-components": 1
+    },
+    "apps/web/client/funding/add-money-dialog.tsx": {
+      "jsx-a11y/aria-role": 1,
+      "jsx-a11y/no-noninteractive-tabindex": 1
+    },
+    "apps/web/client/funding/order-flow.tsx": {
+      "react/no-array-index-key": 3
+    },
+    "apps/web/client/home/landing-shell.tsx": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/client/home/portfolio-home-experience.tsx": {
+      "home/no-silent-catch": 1,
+      "react/no-unstable-nested-components": 2
+    },
+    "apps/web/client/home/shell.tsx": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/client/home/use-home-region.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/client/money-modal/amount-input.ts": {
+      "home/no-local-formatting": 1
+    },
+    "apps/web/client/money-modal/amount-units.ts": {
+      "home/no-amount-fallback": 1
+    },
+    "apps/web/client/money-modal/amount.tsx": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/client/money-modal/confirm-summary.tsx": {
+      "react/no-array-index-key": 1
+    },
+    "apps/web/client/money-modal/money-modal.tsx": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/client/observability/client-reporter.test.ts": {
+      "home/no-self-referential-expectation": 1
+    },
+    "apps/web/client/query/fresh-until-moved.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/client/query/query-client.tsx": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/client/savings/savings-actions.tsx": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/client/trading/trade-money-dialog.tsx": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/client/transfers/send-dialog.tsx": {
+      "home/no-silent-catch": 5
+    },
+    "apps/web/components/address-field.tsx": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/components/copyable-value.tsx": {
+      "jsx-a11y/no-noninteractive-tabindex": 2,
+      "react/no-array-index-key": 1
+    },
+    "apps/web/components/currency-mark.tsx": {
+      "nextjs/no-img-element": 1
+    },
+    "apps/web/components/home-mark.tsx": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/components/money-ticker.tsx": {
+      "react/no-array-index-key": 1
+    },
+    "apps/web/components/profile-mark.tsx": {
+      "nextjs/no-img-element": 1
+    },
+    "apps/web/components/ui/coverage-status-preview.tsx": {
+      "jsx-a11y/heading-has-content": 1
+    },
+    "apps/web/components/ui/data-table.tsx": {
+      "react-hooks/incompatible-library": 1
+    },
+    "apps/web/components/ui/input-group.tsx": {
+      "jsx-a11y/click-events-have-key-events": 1,
+      "jsx-a11y/no-noninteractive-element-interactions": 1
+    },
+    "apps/web/components/ui/label.tsx": {
+      "jsx-a11y/label-has-associated-control": 1
+    },
+    "apps/web/instrumentation-client.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/instrumentation.ts": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/server/activity/handler.ts": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/server/activity/token-metadata-rpc.test.ts": {
+      "home/no-self-referential-expectation": 2
+    },
+    "apps/web/server/auth/cdp-render-session.test.ts": {
+      "home/no-self-referential-expectation": 2
+    },
+    "apps/web/server/balances/coalesce.ts": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/server/balances/enumerate-cdp.test.ts": {
+      "home/no-self-referential-expectation": 2
+    },
+    "apps/web/server/balances/enumerate.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/balances/handler.ts": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/server/balances/price.ts": {
+      "home/no-silent-catch": 3
+    },
+    "apps/web/server/balances/read.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/balances/webhook-subscriptions.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/cards/stripe/transactions.test.ts": {
+      "home/no-real-waits": 1
+    },
+    "apps/web/server/chain/rpc.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/db/sql.ts": {
+      "home/no-silent-catch": 2
+    },
+    "apps/web/server/funding/cash-out-progress.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/funding/core/base-receipt.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/market-data/codex/history.test.ts": {
+      "home/no-self-referential-expectation": 1
+    },
+    "apps/web/server/market-data/codex/raw-quotes.test.ts": {
+      "home/no-self-referential-expectation": 1
+    },
+    "apps/web/server/market-data/codex/recognized-catalog.test.ts": {
+      "home/no-self-referential-expectation": 1
+    },
+    "apps/web/server/market-data/codex/token-lookup.test.ts": {
+      "home/no-self-referential-expectation": 1
+    },
+    "apps/web/server/market-data/codex/trending.test.ts": {
+      "home/no-self-referential-expectation": 2
+    },
+    "apps/web/server/morpho/client.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/savings/prepare.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/server/scheduling/after-schedule.ts": {
+      "home/no-silent-catch": 1
+    },
+    "apps/web/shared/observability/scrub.test.ts": {
+      "home/no-self-referential-expectation": 1
+    },
+    "apps/web/tests/browser/navigation-geometry.pw.ts": {
+      "home/no-real-waits": 1
+    }
+  },
+  "exceptions": [
+    {
+      "path": "apps/web/scripts/fixture-port.test.ts",
+      "rule": "home/no-source-reads",
+      "count": 1,
+      "issue": "#1250",
+      "reason": "Fixture port tests read only their own system-temp scratch lock files to verify port ownership."
+    }
+  ]
+}
