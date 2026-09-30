@@ -11,6 +11,7 @@ import { propControls, storyArgs, type PropValue } from "./controls";
 import { LibraryPreview, type PreparedPreview } from "./preview";
 import { PropsBar } from "./props-bar";
 import { LibrarySidebar } from "./sidebar";
+import { loadLibraryIndex } from "./story-index";
 import { readLibraryUrl, writeLibraryUrl } from "./url-state";
 import styles from "./library.module.css";
 
@@ -30,14 +31,7 @@ export function LibraryView({ build, theme = "light", storyIndex, frameSource = 
   const [index, setIndex] = useState<StoryIndex | "unavailable" | undefined>(storyIndex);
   useEffect(() => {
     if (storyIndex) return;
-    const abort = new AbortController();
-    fetch("./index.json", { signal: abort.signal }).then((response) => {
-      if (!response.ok) throw new Error("Story index unavailable");
-      return response.json() as Promise<{ entries: StoryIndex }>;
-    }).then((data) => setIndex(data.entries)).catch(() => {
-      if (!abort.signal.aborted) setIndex("unavailable");
-    });
-    return () => abort.abort();
+    return loadLibraryIndex(setIndex);
   }, [storyIndex]);
   const catalog = useMemo(() => typeof index === "object" ? libraryCatalog(index, build) : null, [index, build]);
   if (index === undefined) return <LibraryMessage>Loading library…</LibraryMessage>;
