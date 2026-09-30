@@ -88,6 +88,7 @@ function DashboardShellBody({
   const previousPanelRef = useRef(activeNavigation);
   const activeNavigationRef = useRef(activeNavigation);
   const previousLocationRef = useRef(location);
+  const holdingRestoreRef = useRef<(() => void) | null>(null);
   const pendingOriginRef = useRef<{ origin: string; target: string } | null>(null);
   const fundingOpenerRef = useRef<HTMLElement | null>(null);
   const activityReturnRef = useRef<ActivityDetailReturn | null>(null);
@@ -203,6 +204,10 @@ function DashboardShellBody({
     if (previous.cashView === "savings" && location.panel === "cash" && location.cashView === null) {
       mainRef.current?.querySelector<HTMLButtonElement>('[aria-labelledby="cash-savings-heading"] button')?.focus({ preventScroll: true });
     }
+    if (previous.panel !== location.panel || previous.holding !== location.holding) {
+      holdingRestoreRef.current?.();
+      holdingRestoreRef.current = null;
+    }
     const main = mainRef.current;
     if (!previous.holding || location.panel !== "investments" || location.holding || !main) return;
     const row = main.querySelector<HTMLElement>(`[data-holding-key="${CSS.escape(previous.holding)}"]`);
@@ -210,11 +215,16 @@ function DashboardShellBody({
       row?.closest("button")?.focus({ preventScroll: true });
       return;
     }
-    return restoreHoldingReturn(main, previous.holding, (restored) => {
+    holdingRestoreRef.current = restoreHoldingReturn(main, previous.holding, (restored) => {
+      holdingRestoreRef.current = null;
       restored?.closest("button")?.focus({ preventScroll: true });
       restored?.scrollIntoView({ block: "center", behavior: "auto" });
     });
   }, [location]);
+  useEffect(() => () => {
+    holdingRestoreRef.current?.();
+    holdingRestoreRef.current = null;
+  }, [account.ownerKey, isAccountSettingsOpen]);
   useEffect(() => {
     if (previousPanelRef.current !== activeNavigation) {
       previousPanelRef.current = activeNavigation;

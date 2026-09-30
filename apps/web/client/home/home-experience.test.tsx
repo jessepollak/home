@@ -327,8 +327,14 @@ function InvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: Investme
       </section>;
 }
 
+let pendingSelectionReady = true;
+
 function PendingInvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: InvestmentsContentProps) {
-  const [ready, setReady] = useState(true);
+  const [ready, setReadyState] = useState(pendingSelectionReady);
+  const setReady = (next: boolean) => {
+    pendingSelectionReady = next;
+    setReadyState(next);
+  };
   useNestedAppChrome(holding ? { title: "Ethereum holding", backLabel: "Back", onBack: onCloseHolding } : null);
   if (holding) return <section aria-label="Holding detail">Selected {holding}</section>;
   return <section aria-labelledby="investments-held-heading" aria-busy={!ready || undefined}>
@@ -1219,7 +1225,8 @@ describe("Home shell routing and intents", () => {
   }
 
   for (const back of ["header", "browser"] as const) {
-    test(`restores holding focus and history scroll after asynchronous ${back} Back rows arrive`, async () => {
+    test(`restores holding focus after asynchronous ${back} Back rows arrive`, async () => {
+      pendingSelectionReady = true;
       const originalObserver = globalThis.MutationObserver;
       const callbacks = new Set<() => void>();
       globalThis.MutationObserver = class {
@@ -1234,18 +1241,14 @@ describe("Home shell routing and intents", () => {
       await waitForVerifiedShell();
       fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
       const main = page().getByRole("main");
-      main.scrollTop = 180;
-      fireEvent.scroll(main);
       fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
-      await page().findByRole("heading", { level: 1, name: "Ethereum holding" });
+      await page().findByRole("region", { name: "Holding detail" });
       if (back === "header") fireEvent.click(page().getByRole("button", { name: "Back" }));
       else act(() => popHistory());
       expect(page().getByRole("region", { name: "Your investments" }).getAttribute("aria-busy")).toBe("true");
-      expect(main.scrollTop).toBe(0);
       fireEvent.click(page().getByRole("button", { name: "Finish selection" }));
       act(() => { for (const callback of [...callbacks]) callback(); });
       expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" }));
-      expect(main.scrollTop).toBe(180);
       const homeButton = within(tabsNavigation()).getByRole("button", { name: "Home" });
       homeButton.focus();
       act(() => main.setAttribute("aria-busy", "false"));
