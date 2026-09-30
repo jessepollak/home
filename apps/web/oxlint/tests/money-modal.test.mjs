@@ -1,3 +1,4 @@
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { sheetHostExceptions } from "../policy/sheet-hosts.mjs";
+applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
 const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-money-modal-"));

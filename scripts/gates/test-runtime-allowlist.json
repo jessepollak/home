@@ -1,4 +1,26 @@
 {
   "tests": [],
-  "files": []
+  "files": [],
+  "testFiles": [
+    { "file": "oxlint/tests/accessibility-react-rules.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/anti-slop.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/exploration-story-tag.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/jsx-colors.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/memoization-config.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/money-modal.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-amount-fallback.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-comments.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-constant-pin.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-deferred-effect-setstate.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-detached-class-constants.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-real-waits.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-request-only-playwright.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-restyle.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-self-referential-expectation.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/no-test-support-imports.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/observability.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/portfolio-presentation.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/unknown-classes.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },
+    { "file": "oxlint/tests/utility-policy.test.mjs", "maxSeconds": 20, "reason": "Each case spawns a pinned Oxlint process with a 20 s budget declared in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." }
+  ]
 }

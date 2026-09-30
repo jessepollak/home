@@ -1,9 +1,11 @@
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
 const root = await mkdtemp(path.join(tmpdir(), "home-oxlint-test-support-"));
