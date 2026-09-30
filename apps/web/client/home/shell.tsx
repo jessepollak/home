@@ -1165,6 +1165,7 @@ function DashboardShellBody({
                       isChecking={isChecking}
                       revealedCount={balancesReveal.count}
                       onRevealMore={balancesReveal.extend}
+                      onRetryBalances={paintedAssetBalances.needsCountry ? undefined : balanceRowRetry}
                     />
                   </MountedShellPanel>
                 ) : null}

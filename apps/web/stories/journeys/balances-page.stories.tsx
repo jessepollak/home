@@ -9,6 +9,7 @@ import {
   priced,
   pricedCash,
   ready,
+  unavailableBalance,
   walletHolding,
 } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
@@ -41,6 +42,42 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+export const PartialSubtotals: Story = {
+  args: { assetBalances: presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({
+    registry: {
+      usdc: { balance: ready("1000000"), value: priced("USD", "100"), cashValue: pricedCash("USD", "100") },
+      eth: { balance: ready("1000000000000000000"), value: priced("USD", "5000") },
+      cbbtc: { balance: unavailableBalance },
+    },
+  }), error: null }) },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const investments = within(canvas.getByRole("region", { name: "Investments" }));
+    await expect(investments.getByText(/Partial balance/)).toBeVisible();
+    await expect(investments.getAllByRole("img", { name: "$50.00" })).toHaveLength(2);
+    await expect(canvas.getByText("Partial balance", { exact: true, selector: "p[data-total-status='partial']" })).toBeVisible();
+  },
+};
+
+export const CatalogUnavailable: Story = {
+  args: { assetBalances: presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({
+    registry: {
+      usdc: { balance: ready("0"), cashValue: pricedCash("USD", "0") },
+      eth: { balance: ready("0"), value: priced("USD", "0") },
+    },
+    coverage: { catalog: "unavailable" },
+  }), error: null }) },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const investments = within(canvas.getByRole("region", { name: "Investments" }));
+    const cash = within(canvas.getByRole("region", { name: "Cash" }));
+    await expect(canvas.getByText("Balance unavailable")).toBeVisible();
+    await expect(investments.getByText("Unavailable")).toBeVisible();
+    await expect(investments.queryByText("$0.00")).not.toBeInTheDocument();
+    await expect(cash.getAllByRole("img", { name: "$0.00" })).toHaveLength(2);
+  },
+};
 
 export const WithUnpricedTokens: Story = {
   play: async ({ canvasElement }) => {

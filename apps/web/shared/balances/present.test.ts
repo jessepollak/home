@@ -136,7 +136,9 @@ describe("balance presentation", () => {
   ])("prices remaining escrow in $region without changing wallet Cash", ({ region, unit, expected }) => {
     const snapshot = buildBalancesSnapshotFixture({ region });
     const usdc = snapshot.holdings.find(({ id }) => id === "usdc")!;
-    usdc.unitValue = { currency: snapshot.quoteCurrency!, amount: unit };
+    const currency = snapshot.quoteCurrency;
+    if (!currency) throw new Error("fixture region must resolve a quote currency");
+    usdc.unitValue = { currency, amount: unit };
     const escrow = { state: "escrow" as const, baseUnits: "20000000", partial: false };
     const view = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: false, pendingCashout: escrow });
     expect(view.displayTotal).toBe(expected);
@@ -157,8 +159,10 @@ describe("balance presentation", () => {
     expect(before.totalStatus).toBe("complete");
     expect(view.displayTotal).toBe("$20.00");
     expect(view.breakdown.find(({ id }) => id === "pending-cash-out")?.value).toBe("$20.00");
+    expect(view.breakdown.find(({ id }) => id === "pending-cash-out")?.status).toBe("partial");
     expect(view.totalStatus).toBe("partial");
-    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(view.statusLabel).toBe("Partial balance");
+    expect(view.statusDetails).toContain("Pending cash-out balances could not all be checked.");
     expect(presentPendingCashout(snapshot, escrow)).toEqual({ value: "$20.00" });
     const withoutCurrency = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     const noCurrency = presentBalances({ status: "ready", snapshot: withoutCurrency, error: null },
@@ -173,7 +177,8 @@ describe("balance presentation", () => {
     const view = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: false, pendingCashout: { state: "escrow", baseUnits: "1000000", partial: false } });
     expect(view.displayTotal).toBe(before.displayTotal);
     expect(view.totalStatus).toBe("partial");
-    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(view.statusLabel).toBe("Partial balance");
+    expect(view.statusDetails).toEqual(["Pending cash-out value unavailable."]);
     expect(view.breakdown).toEqual(before.breakdown);
     expect(presentPendingCashout(snapshot, { state: "escrow", baseUnits: "1000000", partial: false })).toBeNull();
   });
@@ -188,7 +193,8 @@ describe("balance presentation", () => {
     expect(view.displayTotal).toBe(before.displayTotal);
     expect(view.breakdown).toEqual(before.breakdown);
     expect(view.totalStatus).toBe("partial");
-    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(view.statusLabel).toBe("Partial balance");
+    expect(view.statusDetails).toEqual(["Pending cash-out balances could not all be checked."]);
     expect(presentPendingCashout(snapshot, pendingCashout)).toEqual(status === "indeterminate" ? { value: null } : null);
     const withoutCurrency = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     expect(presentBalances({ status: "ready", snapshot: withoutCurrency, error: null },
@@ -216,6 +222,177 @@ describe("balance presentation", () => {
     expect(presentBalances(state, { showSmallBalances: false, pendingCashout: { state: "escrow", baseUnits: "0", partial: false } }))
       .toEqual(presentBalances(state, { showSmallBalances: false }));
   });
+
+  test("cash and pending limitations do not contaminate complete Investments or counts", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: unavailableBalance },
+      eth: { balance: ready("1000000000000000000"), value: priced("USD", "5000") },
+    } });
+    const view = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: false, pendingCashout: { state: "unreadable" } });
+    expect(view.summary?.investments).toEqual({ status: "complete", value: "$50.00", assetCount: 1, ownedCount: 1 });
+    expect(view.summary?.cash.status).toBe("unavailable");
+    expect(view.statusDetails).toEqual(["Some quantities unavailable", "Pending cash-out balances could not all be checked."]);
+  });
+
+  test("distinguishes price delay from quantity and inventory limitations", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("1000000"), value: priced("USD", "100"), cashValue: pricedCash("USD", "100") },
+      cbbtc: { balance: ready("100000000"), value: { status: "unpriced", reason: "price-stale" } },
+    }, coverage: { catalog: "incomplete" } });
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    expect(view.statusDetails).toEqual(["Price delayed", "The full investment inventory could not be checked."]);
+    expect(view.statusDetails).not.toContain("Some quantities unavailable");
+    expect(view.summary?.cash).toEqual({ status: "complete", value: "$1.00" });
+  });
+
+  test("keeps known zero complete without a breakdown", () => {
+    const view = presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture(), error: null });
+    expect(view).toMatchObject({ displayTotal: "$0.00", totalStatus: "complete", breakdown: [] });
+    expect(view.summary?.cash).toEqual({ status: "complete", value: "$0.00" });
+    expect(view.summary?.investments).toMatchObject({ status: "complete", value: "$0.00", ownedCount: 0 });
+    expect(view.groups[0]?.subtotal).toEqual({ status: "complete", value: "$0.00" });
+  });
+
+  test("preserves priced rows and marks a mixed registry read partial", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
+      eth: { balance: ready("1000000000000000000"), value: priced("USD", "5000") },
+      cbbtc: { balance: unavailableBalance, value: { status: "unavailable" } },
+    } });
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    expect(view).toMatchObject({ displayTotal: "$62.34", totalStatus: "partial", statusLabel: "Partial balance", statusDetails: ["Some quantities unavailable"] });
+    expect(view.summary?.investments).toMatchObject({ status: "partial", value: "$50.00" });
+    expect(view.groups.find((group) => group.id === "investments")?.subtotal).toEqual({ status: "partial", value: "$50.00" });
+    expect(view.groups[0]?.subtotal).toEqual({ status: "complete", value: "$12.34" });
+    expect(view.rows.find((row) => row.name === "Ethereum")?.primary).toBe("$50.00");
+    expect(view.rows.find((row) => row.name === "US dollar")?.primary).toBe("$12.34");
+  });
+
+  test("never presents unavailable holdings and catalog coverage as zero", () => {
+    const registry = Object.fromEntries(buildBalancesSnapshotFixture().holdings.map((holding) => [
+      holding.id, { balance: unavailableBalance, value: { status: "unavailable" as const }, cashValue: { status: "unavailable" as const } },
+    ]));
+    const snapshot = buildBalancesSnapshotFixture({ registry, coverage: { catalog: "unavailable" } });
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    expect(view).toMatchObject({ displayTotal: "—", totalStatus: "unavailable", statusLabel: "Balance unavailable", breakdown: [] });
+    expect(view.summary?.cash).toEqual({ status: "unavailable", value: null });
+    expect(view.summary?.investments).toMatchObject({ status: "unavailable", value: null });
+    expect(view.groups[0]?.subtotal).toEqual({ status: "unavailable", value: null });
+    expect(view.groups.find((group) => group.id === "investments")?.subtotal).toEqual({ status: "unavailable", value: null });
+    expect(JSON.stringify([view.displayTotal, view.summary, view.groups.map((group) => group.subtotal)])).not.toContain("$0.00");
+  });
+
+  test("renders the Investments figure when catalog coverage is incomplete without investment rows", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: {
+        usdc: { balance: ready("0"), cashValue: pricedCash("USD", "0") },
+        eth: { balance: ready("0"), value: priced("USD", "0") },
+      },
+      coverage: { catalog: "incomplete" },
+    });
+    expect(snapshot.totals.investments).toEqual({ status: "unavailable", value: null, currency: "USD" });
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    expect(view.groups.map((group) => [group.id, group.subtotal])).toEqual([
+      ["cash", { status: "complete", value: "$0.00" }],
+      ["investments", { status: "unavailable", value: null }],
+    ]);
+    expect(view.groups.find((group) => group.id === "investments")?.rows).toEqual([]);
+  });
+
+  test("renders both figures unavailable without a quote currency only when a read is incomplete", () => {
+    const unreadable = presentBalances({
+      status: "ready",
+      snapshot: buildBalancesSnapshotFixture({
+        region: "GLOBAL",
+        registry: { usdc: { balance: ready("0") }, eth: { balance: ready("0") } },
+        coverage: { catalog: "unavailable" },
+      }),
+      error: null,
+    });
+    expect(unreadable.groups.map((group) => [group.id, group.subtotal])).toEqual([
+      ["cash", { status: "unavailable", value: null }],
+      ["investments", { status: "unavailable", value: null }],
+    ]);
+    const complete = presentBalances({
+      status: "ready",
+      snapshot: buildBalancesSnapshotFixture({
+        region: "GLOBAL",
+        registry: { usdc: { balance: ready("0") }, eth: { balance: ready("0") } },
+      }),
+      error: null,
+    });
+    expect(complete.groups.map((group) => [group.id, group.subtotal])).toEqual([
+      ["cash", { status: "unavailable", value: null }],
+    ]);
+  });
+
+
+  test("keeps an unreadable cash holding listed and labels its subtotal partial", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
+      eurc: { balance: unavailableBalance, value: { status: "unavailable" }, cashValue: { status: "unavailable" } },
+    } });
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    const eurc = snapshot.holdings.find((holding) => holding.id === "eurc")!;
+    expect(view.rows.find((row) => row.key === eurc.key)).toMatchObject({ primary: "Unavailable", tone: "error" });
+    expect(view.groups[0]?.subtotal).toEqual({ status: "partial", value: "$12.34" });
+    expect(view.summary?.cash).toEqual({ status: "partial", value: "$12.34", statusLabel: "Some quantities unavailable" });
+  });
+
+  test("marks a group subtotal incomplete for an unnameable unreadable holding with no row", () => {
+    const base = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
+      eth: { balance: ready("1000000000000000000"), value: priced("USD", "5000") },
+      idrx: { balance: unavailableBalance },
+      cbbtc: { balance: unavailableBalance },
+    } });
+    const nameless = new Set(["idrx", "cbbtc"]);
+    const snapshot = {
+      ...base,
+      holdings: base.holdings.map((holding) => nameless.has(holding.id)
+        ? { ...holding, name: " ", symbol: " " }
+        : holding),
+    };
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    const hiddenKeys = new Set<string>(snapshot.holdings.filter((holding) => nameless.has(holding.id)).map((holding) => holding.key));
+    expect(view.rows.some((row) => hiddenKeys.has(row.key))).toBeFalse();
+    expect(view.groups.map((group) => [group.id, group.subtotal])).toEqual([
+      ["cash", { status: "partial", value: "$12.34" }],
+      ["investments", { status: "partial", value: "$50.00" }],
+    ]);
+  });
+
+  test("does not show a known loan's unpriceable net as an amount", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
+    }, borrow: { coverage: "complete", positions: [borrowPosition({
+      collateralBaseUnits: "100000", collateralValue: priced("USD", "5000"),
+      debtBaseUnits: "30010000", debtValue: { status: "unavailable" },
+    })] } });
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    expect(view).toMatchObject({ displayTotal: "—", totalStatus: "unavailable", statusLabel: "Balance unavailable" });
+    expect(view.breakdown).toEqual([
+      { id: "borrow", label: "Borrow", status: "unavailable", value: null, weight: 0 },
+      expect.objectContaining({ id: "cash", status: "complete", value: "$12.34" }),
+      expect.objectContaining({ id: "investments", status: "complete", value: "$50.00" }),
+    ]);
+  });
+
+  test("forces partial net on unknown loan existence even for a complete upstream total", () => {
+    const base = buildBalancesSnapshotFixture({ registry: {
+      usdc: { balance: ready("1000000"), value: priced("USD", "100"), cashValue: pricedCash("USD", "100") },
+    }, borrow: { coverage: "partial", positions: [] } });
+    const snapshot = { ...base, totals: { ...base.totals, net: { ...base.totals.net, status: "complete" as const } } };
+    const view = presentBalances({ status: "ready", snapshot, error: null });
+    expect(view).toMatchObject({ displayTotal: "$1.00", totalStatus: "partial", statusLabel: "Partial balance", statusDetails: ["Home could not check whether you have a loan."] });
+    expect(view.breakdown.some((item) => item.id === "borrow")).toBeFalse();
+  });
+
+  test("returns no breakdown when every magnitude is unknown or zero", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: { usdc: { balance: unavailableBalance } } });
+    expect(presentBalances({ status: "ready", snapshot, error: null }).breakdown).toEqual([]);
+  });
+
 
   test("a successful post-action refetch keeps Borrow visible while a genuine empty failure is unavailable", () => {
     const position = borrowPosition({
@@ -325,12 +502,13 @@ describe("balance presentation", () => {
     }
     if (holding.value.status !== "priced") {
       if (group === "investments") {
-        expect(presentation.groups.find((entry) => entry.id === "investments")?.displaySubtotal).toBeNull();
+        expect(presentation.groups.find((entry) => entry.id === "investments")?.subtotal).toEqual({ status: "unavailable", value: null });
       }
       expect(presentation.rows.find((row) => row.name === holding.name)).toMatchObject({
         primary: holding.source === "wallet" ? "1.00 DISC" : "1.00 QUIET",
         secondary: null,
-        tone: "muted",
+        tone: "default",
+        valueContext: "— · Value unavailable",
       });
     }
   });
@@ -348,14 +526,14 @@ describe("balance presentation", () => {
 
     for (const showSmallBalances of [false, true]) {
       const presentation = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances });
-      expect(presentation.groups.map((group) => [group.id, group.label, group.displaySubtotal])).toEqual([
-        ["cash", "Cash", "$0.00"],
-        ["investments", "Investments", "$25.01"],
+      expect(presentation.groups.map((group) => [group.id, group.label, group.subtotal])).toEqual([
+        ["cash", "Cash", { status: "complete", value: "$0.00" }],
+        ["investments", "Investments", { status: "complete", value: "$25.01" }],
         ["unpriced", "Unpriced", null],
       ]);
       expect(presentation.groups[2]?.rows.map((row) => [row.name, row.primary, row.secondary, row.tone])).toEqual([
-        ["Alpha Token", "2.00 DISC", null, "muted"],
-        ["Zebra Token", "1.00 DISC", null, "muted"],
+        ["Alpha Token", "2.00 DISC", null, "default"],
+        ["Zebra Token", "1.00 DISC", null, "default"],
       ]);
       expect(presentation.hiddenCount).toBe(1);
       expect(presentation.hiddenRows.map((row) => row.name)).toEqual(["Thin Market Token"]);
@@ -431,7 +609,8 @@ describe("balance presentation", () => {
 
   test("keeps a ready unpriced investment's quantity while its price is delayed", () => {
     const snapshot = buildBalancesSnapshotFixture({ registry: { cbbtc: { balance: ready("100000000"), value: { status: "unpriced", reason: "price-stale" } } } });
-    expect(presentedRows(snapshot).find((row) => row.name === "Bitcoin")).toMatchObject({ primary: "1.0000 cbBTC", tone: "muted" });
+    expect(presentedRows(snapshot).find((row) => row.name === "Bitcoin")).toMatchObject({ primary: "1.0000 cbBTC", tone: "default", valueContext: "— · Price delayed" });
+    expect(presentBalances({ status: "ready", snapshot, error: null }).summary?.investments.status).toBe("unavailable");
     expect(holdingValueContext(snapshot.holdings.find((holding) => holding.id === "cbbtc")!.value)).toBe("Price delayed");
   });
 
@@ -447,7 +626,7 @@ describe("balance presentation", () => {
       primary: "Unavailable",
       tone: "error",
     });
-    expect(presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: true }).groups[0]?.displaySubtotal).toBeNull();
+    expect(presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: true }).groups[0]?.subtotal).toEqual({ status: "unavailable", value: null });
   });
 
   test("keeps an unverified local currency visible without inventing a balance or affecting totals", () => {
@@ -469,7 +648,7 @@ describe("balance presentation", () => {
       tone: "muted",
     });
     expect(`${unsupported?.primary}${unsupported?.secondary ?? ""}`).not.toMatch(/[0-9]/);
-    expect(cash?.displaySubtotal).toBe("$25.00");
+    expect(cash?.subtotal).toEqual({ status: "complete", value: "$25.00" });
     expect(presentation.displayTotal).toBe("$25.00");
     expect(presentation.summary?.cash.value).toBe("$25.00");
   });
@@ -590,10 +769,10 @@ describe("balance presentation", () => {
       status: "ready",
       displayTotal: "$3,852.88",
       totalStatus: "partial",
-      statusLabel: "Some balances are unavailable",
+      statusLabel: "Partial balance",
       breakdown: [
-        { id: "cash", label: "Cash", value: "$2,234.68", weight: 580 },
-        { id: "investments", label: "Investments", value: "$1,618.20", weight: 420 },
+        { id: "cash", label: "Cash", status: "complete", value: "$2,234.68", weight: 580 },
+        { id: "investments", label: "Investments", status: "partial", value: "$1,618.20", weight: 420 },
       ],
       revalidating: true,
     });
@@ -708,7 +887,7 @@ describe("balance presentation", () => {
     const presentation = presentBalances({ status: "ready", snapshot, error: null });
 
     expect(presentation.totalStatus).toBe("partial");
-    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+    expect(presentation.statusLabel).toBe("Partial balance");
   });
 
   test("never presents a gross total as net when the Borrow read is incomplete", () => {
@@ -725,7 +904,7 @@ describe("balance presentation", () => {
     const presentation = presentBalances({ status: "ready", snapshot, error: null });
 
     expect(presentation.totalStatus).toBe("partial");
-    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+    expect(presentation.statusLabel).toBe("Partial balance");
     expect(presentation.summary?.borrow).toEqual({ kind: "unavailable" });
     expect(presentation.breakdown.some((item) => item.id === "borrow")).toBeFalse();
   });

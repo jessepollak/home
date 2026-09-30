@@ -81,6 +81,19 @@ export const Touch: Story = {
   },
 };
 
+export const InlineStatus: Story = {
+  args: { variant: "ghost", size: "inline-status", children: "Partial balance", "aria-haspopup": "dialog", onClick: fn() },
+  play: async ({ canvasElement, args }) => {
+    const button = within(canvasElement).getByRole("button", { name: "Partial balance" });
+    await userEvent.tab();
+    await expect(button).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect(args.onClick).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const InlineStatusDark: Story = { ...InlineStatus, globals: { theme: "dark" } };
+
 export const Disabled: Story = { args: { disabled: true } };
 
 export const Loading: Story = {

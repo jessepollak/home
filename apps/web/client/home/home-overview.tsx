@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Banknote, ChartLine, HandCoins } from "lucide-react";
+import { Banknote, ChartLine, HandCoins, RotateCw } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BalanceRow } from "@/components/finance-rows";
 import { GlyphMark } from "@/components/currency-mark";
@@ -12,9 +13,9 @@ import {
   SignedBalanceBar,
 } from "@/components/signed-balance-bar";
 import type { HomeMoneySummary as HomeMoneySummaryModel, MoneyBreakdownItem } from "@/shared/balances/present";
-import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverDescription, PopoverTrigger } from "@/components/ui/popover";
 import type { HomeAssetBalancesPresentation } from "./home-types";
-import { ShimmerRows } from "./panel-shared";
+import { ShimmerRows, useShellPanelActive } from "./panel-shared";
 
 export type HomeOverviewDestinations = {
   onOpenCash: () => void;
@@ -62,7 +63,7 @@ export function HomeOverview({
   return (
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
       <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-6" : ""}`}>
-        <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
+        <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} onRetryBalances={onRetryBalances} />
         <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
           {actions}
         </div>
@@ -91,15 +92,18 @@ export function HomeSectionHeading({ id, children }: { id: string; children: Rea
 function HomeTotalBalance({
   assetBalances,
   accountKey,
+  onRetryBalances,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   accountKey: string | null;
+  onRetryBalances?: () => void;
 }) {
+  const isActive = useShellPanelActive();
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
   const heroLabel = isLoading
     ? "Updating…"
-    : assetBalances?.status === "unavailable"
+    : assetBalances?.status === "unavailable" || assetBalances?.totalStatus === "unavailable"
       ? "Balance unavailable"
       : "Total balance";
   const breakdown = assetBalances?.breakdown ?? [];
@@ -111,7 +115,23 @@ function HomeTotalBalance({
       aria-busy={isLoading || isRevalidating || undefined}
     >
       <CardContent inset="hero">
-        <p className="text-sm text-muted-foreground">Total balance</p>
+        <div className="@container">
+          <div className="flex min-h-5 flex-wrap items-center gap-x-2 @max-[13rem]:min-h-10">
+            <p id="home-total-label" className="text-sm text-muted-foreground">Total balance</p>
+            {isActive && totalStatus === "partial" ? (
+              <Popover key={accountKey ?? ""}>
+                <PopoverTrigger render={<Button variant="ghost" size="inline-status" id="home-total-status" />}>Partial balance</PopoverTrigger>
+                <PopoverContent align="start" aria-label="Partial balance details">
+                  <PopoverDescription>Known amounts are included. Missing values are not counted.</PopoverDescription>
+                  <ul className="list-inside list-disc space-y-1">
+                    {(assetBalances?.statusDetails ?? ["Some balance values are unavailable."]).map((reason) => <li key={reason}>{reason}</li>)}
+                  </ul>
+                  {onRetryBalances ? <Button variant="outline" size="touch" onClick={onRetryBalances}>Retry balances</Button> : null}
+                </PopoverContent>
+              </Popover>
+            ) : null}
+          </div>
+        </div>
         {isLoading ? (
           <div className="space-y-3 pt-1" data-shimmer="hero">
             <Skeleton className="h-10 w-48" />
@@ -124,19 +144,34 @@ function HomeTotalBalance({
             <span className="sr-only">Updating…</span>
           </div>
         ) : (
-          <div
-            className={cn(
-              "text-4xl font-semibold tabular-nums",
-              totalStatus !== "complete" && "text-muted-foreground",
-            )}
-            data-total-status={totalStatus === "complete" ? undefined : totalStatus}
-          >
-            <MoneyTicker
-              value={assetBalances?.displayTotal ?? "—"}
-              align="start"
-              reserveDigits={false}
-            />
-          </div>
+          <>
+            <div className="flex items-center gap-2">
+              <div
+                className="text-4xl font-semibold text-foreground tabular-nums"
+                data-total-status={totalStatus === "complete" ? undefined : totalStatus}
+                role={totalStatus === "partial" ? "img" : undefined}
+                aria-label={totalStatus === "partial" ? assetBalances?.displayTotal ?? undefined : undefined}
+                aria-describedby={totalStatus === "partial" ? "home-total-label home-total-status" : undefined}
+              >
+                {totalStatus === "unavailable" ? summaryValue(null) : (
+                  <MoneyTicker
+                    value={assetBalances?.displayTotal ?? "—"}
+                    align="start"
+                    reserveDigits={false}
+                    animated={totalStatus !== "partial"}
+                  />
+                )}
+              </div>
+              {totalStatus === "unavailable" && onRetryBalances && !assetBalances?.needsCountry ? (
+                <Button variant="ghost" size="icon" className="size-11" aria-label="Retry total balance" onClick={onRetryBalances}>
+                  <RotateCw aria-hidden="true" />
+                </Button>
+              ) : null}
+            </div>
+            {totalStatus === "unavailable" && assetBalances?.statusDetails ? (
+              <p className="text-sm text-muted-foreground">{assetBalances.statusDetails.join(" ")}</p>
+            ) : null}
+          </>
         )}
         {!isLoading && breakdown.length > 0 ? (
           <HomeBalanceBreakdown key={accountKey ?? ""} items={breakdown} />
@@ -148,10 +183,11 @@ function HomeTotalBalance({
 
 export function HomeBalanceBreakdown({ items }: { items: readonly MoneyBreakdownItem[] }) {
   const [selectedId, setSelectedId] = useState<MoneyBreakdownItem["id"] | null>(null);
-  if (selectedId !== null && !items.some((item) => item.id === selectedId)) {
+  if (selectedId !== null && !items.some((item) => item.id === selectedId && item.value !== null)) {
     setSelectedId(null);
   }
   const onSelect = (id: MoneyBreakdownItem["id"]) => {
+    if (!items.some((item) => item.id === id && item.value !== null)) return;
     setSelectedId((current) => current === id ? null : id);
   };
   return (
@@ -236,8 +272,9 @@ function CashRow({
       iconTone="mark"
       label="Cash"
       context={rate ?? undefined}
-      value={summaryValue(summary.value)}
-      valueTone={summary.status === "complete" ? "default" : "muted"}
+      value={summaryValue(summary.value, summary.status)}
+      valueContext={summary.status === "partial" ? summary.statusLabel ?? "Partial balance" : undefined}
+      valueTone="default"
       onActivate={onOpen}
       activateLabel="Open Cash"
       readRetry={summary.value === null && onRetryBalances ? { label: "Retry Cash balance", onRetry: onRetryBalances } : undefined}
@@ -266,8 +303,9 @@ function InvestmentsRow({
         : summary.assetCount === 1
           ? "Across 1 asset"
           : `Across ${summary.assetCount} assets`}
-      value={empty ? undefined : summaryValue(summary.value)}
-      valueTone={summary.status === "complete" ? "default" : "muted"}
+      value={empty ? undefined : summaryValue(summary.value, summary.status)}
+      valueContext={summary.status === "partial" ? summary.statusLabel ?? "Partial balance" : undefined}
+      valueTone="default"
       onActivate={onOpen}
       activateLabel={empty ? "Open Invest" : "Open Investments"}
       readRetry={!empty && summary.value === null && onRetryBalances ? { label: "Retry Investments balance", onRetry: onRetryBalances } : undefined}
@@ -295,9 +333,9 @@ function BorrowRow({
         iconTone="mark"
         label="Borrow Cash"
         context="Against your investments"
-        value={summaryValue(summary.value)}
-        valueTone={summary.status === "complete" ? "default" : "muted"}
-        valueContext={summary.rate ?? undefined}
+        value={summaryValue(summary.value, summary.status)}
+        valueTone="default"
+        valueContext={summary.status === "partial" ? "Partial balance" : summary.rate ?? undefined}
         onActivate={onOpen}
         activateLabel="Open Borrow"
         readRetry={summary.value === null && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
@@ -314,7 +352,7 @@ function BorrowRow({
         ? `Borrow at ${offerRate}`
         : "Against your investments"}
       value={summary.kind === "unavailable" ? summaryValue(null) : undefined}
-      valueTone="muted"
+      valueTone="default"
       onActivate={onOpen}
       activateLabel="Open Borrow"
       readRetry={summary.kind === "unavailable" && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
@@ -323,7 +361,7 @@ function BorrowRow({
   );
 }
 
-function summaryValue(value: string | null): ReactNode {
+function summaryValue(value: string | null, status: "complete" | "partial" | "unavailable" = "unavailable"): ReactNode {
   return value === null
     ? (
         <>
@@ -331,5 +369,5 @@ function summaryValue(value: string | null): ReactNode {
           <span className="sr-only">Unavailable</span>
         </>
       )
-    : <MoneyTicker value={value} reserveDigits={false} />;
+    : <MoneyTicker value={value} reserveDigits={false} animated={status !== "partial"} />;
 }

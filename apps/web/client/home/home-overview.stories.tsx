@@ -28,6 +28,18 @@ import type { RegionId } from "@/config/regions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { ComponentProps } from "react";
 import { HomeOverview, HomeSectionHeading } from "./home-overview";
+
+function required<T>(value: T | null | undefined, description: string): T {
+  if (value === null || value === undefined) throw new Error(`Missing ${description}`);
+  return value;
+}
+
+function requiredElement<T extends Element>(root: ParentNode, selector: string): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) throw new Error(`Missing ${selector}`);
+  return element;
+}
+
 import { HomeHeaderStatus, headerStatus, homeBalancesStatus } from "./home-status";
 import { ShellHeader } from "./shell-chrome";
 import type { HomeAssetBalancesPresentation } from "./home-types";
@@ -218,7 +230,8 @@ const emptyBalances = presentation(buildBalancesSnapshotFixture());
 const partialBalances = presentation(buildBalancesSnapshotFixture({
   registry: {
     ...cash,
-    eth: { balance: unavailableBalance, value: { status: "unavailable" } },
+    eth: { balance: ready("25000000000000000"), value: priced("USD", "7821") },
+    cbbtc: { balance: unavailableBalance, value: { status: "unavailable" } },
   },
   borrow: { coverage: "partial", positions: [] },
 }));
@@ -226,6 +239,21 @@ const partialBalances = presentation(buildBalancesSnapshotFixture({
 const partialBorrowBalances = presentation(buildBalancesSnapshotFixture({
   registry: cash,
   borrow: { coverage: "partial", positions: [fundedPosition] },
+}));
+
+const totalUnavailableBalances = presentation(buildBalancesSnapshotFixture({
+  registry: cash,
+  borrow: { coverage: "complete", positions: [borrowPosition({
+    collateralBaseUnits: "100000", collateralValue: priced("USD", "7821"),
+    debtBaseUnits: "30010000", debtValue: { status: "unavailable" },
+  })] },
+}));
+
+const unavailablePartBalances = presentation(buildBalancesSnapshotFixture({
+  registry: { ...cash, eth: { balance: ready("25000000000000000"), value: priced("USD", "7821") },
+    cbbtc: { balance: unavailableBalance, value: { status: "unavailable" } },
+    usdc: { balance: unavailableBalance, value: { status: "unavailable" }, cashValue: { status: "unavailable" } },
+  },
 }));
 
 const noCountryBalances = presentation(buildBalancesSnapshotFixture({
@@ -357,6 +385,9 @@ export const Funded: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByLabelText("Total balance").textContent).toContain("$60.54");
+    const totalStatus = requiredElement<HTMLElement>(canvasElement, "#home-total-label");
+    await expect(totalStatus.textContent).toBe("Total balance");
+    await expect(totalStatus.getBoundingClientRect().height).toBeGreaterThanOrEqual(20);
     const legend = [...canvasElement.querySelectorAll("[data-breakdown-item]")]
       .map((item) => item.getAttribute("data-breakdown-item"));
     await expect(legend).toEqual(["borrow", "cash", "investments"]);
@@ -392,8 +423,8 @@ export const Funded: Story = {
 export const BalanceAllocationSelection: Story = {
   play: async ({ canvasElement }) => {
     const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
-    const item = (id: string) => legend.querySelector<HTMLElement>(`[data-breakdown-item="${id}"]`)!;
-    const segment = (id: string) => canvasElement.querySelector<HTMLElement>(`[data-balance-segment="${id}"]`)!;
+    const item = (id: string) => requiredElement<HTMLElement>(legend, `[data-breakdown-item="${id}"]`);
+    const segment = (id: string) => requiredElement<HTMLElement>(canvasElement, `[data-balance-segment="${id}"]`);
     const press = async (id: string, selected: boolean) => {
       await expect(within(item(id)).getByRole("button")).toHaveAttribute("aria-pressed", String(selected));
       await expect(item(id).getAttribute("data-selected")).toBe(selected ? "true" : null);
@@ -428,7 +459,7 @@ export const BalanceAllocationKeyboard: Story = {
 
 export const BalanceAllocationBorrow: Story = {
   play: async ({ canvasElement }) => {
-    const borrowSegment = canvasElement.querySelector<HTMLButtonElement>('[data-balance-segment="borrow"]')!;
+    const borrowSegment = requiredElement<HTMLButtonElement>(canvasElement, '[data-balance-segment="borrow"]');
     await userEvent.click(borrowSegment);
     await expect(borrowSegment).toHaveAttribute("data-selected", "true");
     const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
@@ -441,15 +472,15 @@ export const BalanceAllocationTinyAndZero: Story = {
     assetBalances: {
       ...fundedBalances,
       breakdown: [
-        { id: "borrow", label: "Borrow", value: "−$9.99", weight: 999 },
-        { id: "cash", label: "Cash", value: "$0.01", weight: 1 },
-        { id: "investments", label: "Investments", value: "$0.00", weight: 0 },
+        { id: "borrow", label: "Borrow", status: "complete", value: "−$9.99", weight: 999 },
+        { id: "cash", label: "Cash", status: "complete", value: "$0.01", weight: 1 },
+        { id: "investments", label: "Investments", status: "complete", value: "$0.00", weight: 0 },
       ],
     },
   },
   play: async ({ canvasElement }) => {
     const legend = within(canvasElement).getByRole("list", { name: "Balance allocation" });
-    const tiny = canvasElement.querySelector<HTMLButtonElement>('[data-balance-segment="cash"]')!;
+    const tiny = requiredElement<HTMLButtonElement>(canvasElement, '[data-balance-segment="cash"]');
     await userEvent.click(tiny);
     await expect(tiny).toHaveAttribute("data-selected", "true");
     await expect(within(legend).getByRole("button", { name: /Cash/ })).toHaveAttribute("aria-pressed", "true");
@@ -511,7 +542,7 @@ export const IndexedActionContext: Story = {
         createdAt: "2026-09-21T12:00:00.000Z",
       },
       status: "pending",
-      transactionHash: parseHash32(indexedDepositTransfer.transactionHash)!,
+      transactionHash: required(parseHash32(indexedDepositTransfer.transactionHash), "indexed deposit transaction hash"),
       createdAt: "2026-09-21T12:00:00.000Z",
       updatedAt: "2026-09-21T12:01:00.000Z",
     }],
@@ -531,7 +562,7 @@ export const ActivityDetailReturn: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const body = within(canvasElement.ownerDocument.body);
-    const row = canvas.getAllByRole("button", { description: /transaction details/ })[1]!;
+    const row = required(canvas.getAllByRole("button", { description: /transaction details/ })[1], "second transaction details row");
     await userEvent.click(row);
     const dialog = await body.findByRole("dialog");
     await expect(dialog).toBeVisible();
@@ -574,7 +605,7 @@ export const Empty: Story = {
       .toContain("Start investing");
     const prompt = canvasElement.querySelector<HTMLElement>("[data-activity-nux]");
     await expect(prompt?.textContent).toContain("No activity yet");
-    const addMoney = within(prompt!).getByRole("button", { name: /Add money/ });
+    const addMoney = within(required(prompt, "activity prompt")).getByRole("button", { name: /Add money/ });
     await expect(addMoney.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
     await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
   },
@@ -608,11 +639,23 @@ export const PartialBalances: Story = {
     const canvas = within(canvasElement);
     await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
     await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
+    await expect(canvas.getByRole("button", { name: "Partial balance" })).toBeVisible();
+    await expect(canvasElement.querySelector("#home-total-label")?.textContent).toBe("Total balance");
+    await expect(canvas.getByRole("button", { description: "Open Investments" }).textContent).toContain("Some quantities unavailable");
+    await expect(canvasElement.querySelector("[data-breakdown-status='partial']")).not.toBeNull();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("—");
     await expect(canvas.getByRole("button", { name: "Retry Borrow balance" })).toBeTruthy();
-    await expect(canvasElement.querySelector("[data-value-tone='error']")).toBeNull();
     await expect(canvas.queryByRole("alert")).toBeNull();
+  },
+};
+
+export const BackgroundRefresh: Story = {
+  args: { assetBalances: { ...noBorrowBalances, revalidating: true }, operations: [] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByLabelText("Total balance")).toHaveAttribute("aria-busy", "true");
+    await expect(canvas.queryByRole("button", { name: "Partial balance" })).toBeNull();
   },
 };
 
@@ -625,8 +668,34 @@ export const PartialBorrowPosition: Story = {
     const canvas = within(canvasElement);
     await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
-    await expect(borrow.textContent).toContain("$30.01");
-    await expect(borrow.querySelector("[data-value-tone]")?.getAttribute("data-value-tone")).toBe("muted");
+    const amount = within(borrow).getByRole("img", { name: "$30.01" });
+    await expect(amount).toBeVisible();
+    await expect(within(borrow).getByText("Partial balance", { exact: true })).toBeVisible();
+    await expect(borrow).toHaveAccessibleName(/Partial balance/);
+    await expect(amount).toHaveAttribute("data-animated", "false");
+  },
+};
+
+export const TotalUnavailable: Story = {
+  args: { assetBalances: totalUnavailableBalances, operations: [], onRetry: fn() },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvasElement.querySelector("[data-total-status='unavailable']")?.textContent).toContain("—");
+    await userEvent.click(canvas.getByRole("button", { name: "Retry total balance" }));
+    await expect(args.onRetry).toHaveBeenCalledTimes(1);
+  },
+};
+
+export const BreakdownWithUnavailablePart: Story = {
+  args: { assetBalances: unavailablePartBalances, operations: [] },
+  play: async ({ canvasElement }) => {
+    const cash = requiredElement<HTMLElement>(canvasElement, "[data-breakdown-item='cash']");
+    await expect(cash).toHaveAttribute("data-breakdown-status", "unavailable");
+    await expect(cash.textContent).toContain("—");
+    const control = within(cash).getByRole("button");
+    await expect(control).toHaveAttribute("aria-disabled", "true");
+    await expect(control).toHaveAttribute("tabindex", "-1");
+    await expect(canvasElement.querySelector("[data-balance-segment='cash']")).toBeNull();
   },
 };
 
@@ -638,8 +707,11 @@ export const BalancesUnavailable: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
     const cashRetry = canvas.getByRole("button", { name: "Retry Cash balance" });
-    await userEvent.click(cashRetry);
+    await expect(canvasElement.querySelector("[data-total-status='unavailable']")?.textContent).toContain("—");
+    await userEvent.click(canvas.getByRole("button", { name: "Retry total balance" }));
     await expect(args.onRetry).toHaveBeenCalledTimes(1);
+    await userEvent.click(cashRetry);
+    await expect(args.onRetry).toHaveBeenCalledTimes(2);
     await userEvent.click(canvas.getByRole("button", { name: "Balances are unavailable" }));
     const detail = await waitFor(() => {
       const node = canvasElement.ownerDocument.querySelector<HTMLElement>("[data-home-status-detail]");
@@ -807,9 +879,9 @@ function expectPendingCashout(total: string, pending: string | null) {
       await expect(item).toBeNull();
       return;
     }
-    await expect(item).not.toBeNull();
-    await expect(within(item!).getByRole("button", { name: /Pending cash-out/ })).toBeVisible();
-    await expect(within(item!).getByRole("img", { name: pending })).toBeVisible();
+    const legendItem = required(item, "pending cash-out legend item");
+    await expect(within(legendItem).getByRole("button", { name: /Pending cash-out/ })).toBeVisible();
+    await expect(within(legendItem).getByRole("img", { name: pending })).toBeVisible();
   };
 }
 

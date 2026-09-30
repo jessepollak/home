@@ -62,7 +62,7 @@ export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
       icon={icon}
       iconTone="mark"
       label={row.name}
-      context={row.secondary ?? undefined}
+      context={row.secondary ? <span className="text-foreground">{row.secondary}</span> : undefined}
       value={
         <MoneyTicker
           value={compactFinancialValue(row.primary)}
@@ -71,6 +71,7 @@ export function HomeBalanceRowView({ row }: { row: BalanceRowModel }) {
         />
       }
       valueTone={row.tone}
+      valueContext={row.valueContext}
     />
   );
 }

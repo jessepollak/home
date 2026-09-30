@@ -234,7 +234,7 @@ function DashboardHarness({
           groups: [{
             id: "cash",
             label: "Cash",
-            displaySubtotal: "$12.34",
+            subtotal: { status: "complete", value: "$12.34" },
             rows: [{
               key: "usdc",
               group: "cash",
@@ -245,7 +245,7 @@ function DashboardHarness({
               tone: "default",
             }],
           }],
-          breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+          breakdown: [{ id: "cash", label: "Cash", status: "complete", value: "$12.34", weight: 1_000 }],
           summary: {
             cash: { status: "complete", value: "$12.34" },
             investments: { status: "complete", value: "$0.00", assetCount: 0, ownedCount: 0 },
@@ -985,9 +985,9 @@ describe("Home shell routing and intents", () => {
           totalStatus: "complete",
           groups: [],
           breakdown: [
-            { id: "borrow", label: "Borrow", value: "−$30.01", weight: 249 },
-            { id: "cash", label: "Cash", value: "$12.34", weight: 102 },
-            { id: "investments", label: "Investments", value: "$78.21", weight: 649 },
+            { id: "borrow", label: "Borrow", status: "complete", value: "−$30.01", weight: 249 },
+            { id: "cash", label: "Cash", status: "complete", value: "$12.34", weight: 102 },
+            { id: "investments", label: "Investments", status: "complete", value: "$78.21", weight: 649 },
           ],
           summary: {
             cash: { status: "complete", value: "$12.34" },
@@ -1041,7 +1041,7 @@ describe("Home shell routing and intents", () => {
       displayTotal: "$12.34",
       totalStatus: "complete",
       groups: [],
-      breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+      breakdown: [{ id: "cash", label: "Cash", status: "complete", value: "$12.34", weight: 1_000 }],
       summary: null,
       rows: [],
       hiddenRows: [],
@@ -1122,10 +1122,10 @@ describe("Home shell routing and intents", () => {
       groups: [{
         id: "cash",
         label: "Cash",
-        displaySubtotal: "$12.34",
+        subtotal: { status: "complete", value: "$12.34" },
         rows: [cashRow],
       }],
-      breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+      breakdown: [{ id: "cash", label: "Cash", status: "complete", value: "$12.34", weight: 1_000 }],
       summary: null,
       rows: [cashRow],
       hiddenRows: [],
@@ -1147,7 +1147,7 @@ describe("Home shell routing and intents", () => {
           displayTotal: "$99.00",
           groups: [{
             ...presentation.groups[0]!,
-            displaySubtotal: "$99.00",
+            subtotal: { status: "complete", value: "$99.00" },
             rows: [{ ...cashRow, name: "US Dollar", primary: "$99.00" }],
           }],
           rows: [{ ...cashRow, name: "US Dollar", primary: "$99.00" }],
@@ -1175,7 +1175,7 @@ describe("Home shell routing and intents", () => {
             {
               id: "investments",
               label: "Investments",
-              displaySubtotal: "$50.00",
+              subtotal: { status: "complete", value: "$50.00" },
               rows: [investmentRow],
             },
           ],
@@ -2068,6 +2068,8 @@ describe("walletless country preference read", () => {
     try {
       await act(async () => { verification.resolve(Response.json(session())); await verification.promise; });
       await waitForVerifiedShell();
+      expect(total.isConnected).toBe(true);
+      expect(page().getByLabelText("Total balance")).toBe(total);
       expect(total.textContent).toContain("1.234,56");
       await act(async () => { freshRead.resolve(Response.json(fresh)); await freshRead.promise; });
       await waitFor(() => expect(total.textContent).toContain("78,90"));

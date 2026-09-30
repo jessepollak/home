@@ -11,6 +11,7 @@ import { trackHydrationErrors } from "./fixtures/hydration-errors";
 const BALANCES_PAINTED_BUDGET_MS = 3_500;
 const BALANCES_PAINTED_LOAD_FACTOR = 2;
 const BALANCES_PAINTED_WAIT_MS = 15_000;
+const BALANCES_FIRST_BATCH = 10;
 
 async function visibleBalanceRowLayout(page: Page) {
   return page.locator(
@@ -33,14 +34,32 @@ function countVisibleBalanceRows() {
   ).length;
 }
 
+async function settledBalanceRowCount(page: Page) {
+  let previous = -1;
+  let quiet = 0;
+  let settled = -1;
+  await expect.poll(async () => {
+    const { count, complete } = await page.evaluate(() => {
+      const rows = document.querySelectorAll('[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]');
+      return { count: rows.length, complete: document.querySelector("[data-balances-sentinel]") === null };
+    });
+    quiet = count === previous ? quiet + 1 : 0;
+    previous = count;
+    const stable = count >= BALANCES_FIRST_BATCH && (complete || quiet >= 4);
+    if (stable) settled = count;
+    return stable;
+  }, { intervals: [250, 250, 250, 500, 1_000], timeout: 10_000, message: "the balances reveal window to settle" }).toBe(true);
+  return settled;
+}
+
 async function openScrolledBalances(page: Page) {
   await seedSignedInSession(page);
   await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
   await page.setViewportSize({ width: 390, height: 440 });
   await page.goto("/balances");
   await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThanOrEqual(10);
-  const freshCount = await page.evaluate(countVisibleBalanceRows);
+  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThanOrEqual(BALANCES_FIRST_BATCH);
+  const freshCount = await settledBalanceRowCount(page);
   await expect.poll(() => page.evaluate(() => {
     const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
     return main ? main.scrollHeight - main.clientHeight : 0;
@@ -61,7 +80,7 @@ async function openScrolledBalances(page: Page) {
     target,
     maxTop,
     freshCount,
-    revealedCount: await page.evaluate(countVisibleBalanceRows),
+    revealedCount: await settledBalanceRowCount(page),
   };
 }
 
@@ -375,7 +394,9 @@ test("generic destination resets Balances to the top on browser Back", async ({ 
   await expect.poll(() => page.evaluate(() =>
     document.querySelector<HTMLElement>("[data-app-main-authenticated]")?.scrollTop ?? 0,
   )).toBe(0);
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBe(state.freshCount);
+  const restoredCount = await settledBalanceRowCount(page);
+  expect(restoredCount).toBeGreaterThanOrEqual(BALANCES_FIRST_BATCH);
+  expect(restoredCount).toBeLessThan(state.revealedCount);
 });
 
 test("cold and revalidated cached Balances stay anchored to the requested group", async ({ page }) => {

@@ -16,8 +16,8 @@ type BreakdownProps = {
 };
 
 export function SignedBalanceBar({ items, selectedId, onSelect }: BreakdownProps) {
-  const borrow = items.find((item) => item.id === "borrow");
-  const assets = items.filter((item) => item.id !== "borrow" && item.weight > 0);
+  const borrow = items.find((item) => item.id === "borrow" && item.value !== null);
+  const assets = items.filter((item) => item.id !== "borrow" && item.value !== null && item.weight > 0);
   return (
     <div
       className="flex h-2 w-full items-center gap-0.5"
@@ -48,30 +48,58 @@ export function MoneyBreakdownLegend({ items, selectedId, onSelect }: BreakdownP
         className="grid list-none grid-cols-3 gap-x-2 p-0 text-xs text-muted-foreground tabular-nums data-pending:grid-cols-2 data-pending:gap-y-3 @max-[15rem]:data-pending:grid-cols-1 @md:data-pending:gap-y-0 @md:data-pending:data-[items=3]:grid-cols-3 @md:data-pending:data-[items=4]:grid-cols-4"
       >
         {items.map((item) => {
-          const selected = selectedId === item.id;
+          const unavailable = item.value === null;
+          const selected = selectedId === item.id && !unavailable;
+          const label = (
+            <span className="flex w-full min-w-0 items-start gap-1.5">
+              <span
+                className="size-1.5 shrink-0 rounded-xs"
+                style={{ background: segmentFills[item.id] }}
+                aria-hidden="true"
+              />
+              <span className="min-w-0 text-balance @max-[15rem]:max-w-[5rem]">
+                {item.id === "pending-cash-out" ? <>Pending <span className="whitespace-nowrap">cash-out</span></> : item.label}
+              </span>
+            </span>
+          );
+          const value = (
+            <span className="text-[0.8125rem] text-foreground">
+              {unavailable ? (
+                <><span aria-hidden="true">—</span><span className="sr-only">Unavailable</span></>
+              ) : (
+                <MoneyTicker
+                  value={item.value}
+                  align="start"
+                  reserveDigits={false}
+                  animated={item.status !== "partial"}
+                  aria-label={item.status === "partial" ? `${item.value}, some balances are unavailable` : undefined}
+                />
+              )}
+            </span>
+          );
           return (
-            <li key={item.id} className="min-w-0 leading-tight" data-breakdown-item={item.id} data-pending-cash-out={item.id === "pending-cash-out" ? "" : undefined} data-selected={selected ? "true" : undefined}>
+            <li
+              key={item.id}
+              className="min-w-0 leading-tight"
+              data-breakdown-item={item.id}
+              data-pending-cash-out={item.id === "pending-cash-out" ? "" : undefined}
+              data-breakdown-status={item.status === "complete" ? undefined : item.status}
+              data-selected={selected ? "true" : undefined}
+            >
               <Button
                 type="button"
                 variant="balance-legend"
                 size="balance-legend"
                 press="none"
-                aria-pressed={selected}
+                aria-pressed={unavailable ? undefined : selected}
+                aria-disabled={unavailable ? true : undefined}
+                tabIndex={unavailable ? -1 : undefined}
                 data-selected={selected ? "true" : undefined}
-                onClick={() => onSelect(item.id)}
+                onClick={() => { if (!unavailable) onSelect(item.id); }}
                 className="-mx-1.5 -my-1 flex w-full min-w-0 flex-col items-start gap-1 px-1.5 py-1 text-start"
               >
-                <span className="flex w-full min-w-0 items-start gap-1.5">
-                  <span
-                    className="size-1.5 shrink-0 rounded-xs"
-                    style={{ background: segmentFills[item.id] }}
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 text-balance @max-[15rem]:max-w-[5rem]">
-                    {item.id === "pending-cash-out" ? <>Pending <span className="whitespace-nowrap">cash-out</span></> : item.label}
-                  </span>
-                </span>
-                <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} />
+                {label}
+                {value}
               </Button>
             </li>
           );

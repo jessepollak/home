@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SectionHeader } from "@/components/section-header";
@@ -121,6 +122,7 @@ export function BalancesPage({
   isChecking,
   revealedCount,
   onRevealMore,
+  onRetryBalances,
 }: {
   active: boolean;
   assetBalances?: BalancesPresentation;
@@ -130,6 +132,7 @@ export function BalancesPage({
   isChecking: boolean;
   revealedCount: number;
   onRevealMore: () => void;
+  onRetryBalances?: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading" || isChecking;
   const balanceStatusLabel = assetBalances?.statusLabel;
@@ -138,9 +141,16 @@ export function BalancesPage({
   return (
     <section className="space-y-3" aria-label="Your money">
       {showBalanceStatus ? (
-        <p className="text-sm text-muted-foreground" data-total-status={assetBalances?.totalStatus}>
-          {balanceStatusLabel}
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-muted-foreground" data-total-status={assetBalances?.totalStatus}>
+            {balanceStatusLabel}
+          </p>
+          {onRetryBalances && !assetBalances?.needsCountry && (assetBalances?.totalStatus === "partial" || assetBalances?.totalStatus === "unavailable") ? (
+            <Button variant="ghost" size="icon" className="size-11" aria-label="Retry balances" onClick={onRetryBalances}>
+              <RotateCw aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       <Card>
         <CardContent inset="list">
@@ -255,7 +265,7 @@ function GroupedBalancesList({ groups }: { groups: readonly MoneyGroupPresentati
             variant="group"
             headingId={`panel-${group.id}-heading`}
             label={group.label}
-            subtotal={group.displaySubtotal}
+            subtotal={group.subtotal}
           />
           {group.rows.length > 0 ? <BalancesList rows={group.rows} /> : null}
         </section>

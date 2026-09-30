@@ -30,7 +30,7 @@ describe("balances restoration helpers", () => {
       groups: [{
         id: "cash",
         label: "Cash",
-        displaySubtotal: "$1",
+        subtotal: { status: "complete", value: "$1" },
         rows: [],
       }],
       breakdown: [],

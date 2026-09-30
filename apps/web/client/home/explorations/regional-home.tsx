@@ -98,7 +98,7 @@ export function RegionalHomeProposal({ regionId, assetBalances, activity, operat
             <CardContent inset="hero">
               <p className="text-sm text-muted-foreground">Total balance</p>
               {loading ? <div className="space-y-3 pt-1"><Skeleton className="h-10 w-48" /><Skeleton className="h-2 w-full" /></div> : (
-                <div className="@container"><div className={cn("text-3xl font-semibold tabular-nums @xs:text-4xl", totalStatus !== "complete" && "text-muted-foreground")} data-total-status={totalStatus === "complete" ? undefined : totalStatus}><bdi dir="ltr"><MoneyTicker value={assetBalances.displayTotal ?? "—"} reserveDigits={false} /></bdi></div></div>
+                <div className="@container"><div className={cn("text-3xl font-semibold tabular-nums @xs:text-4xl", totalStatus !== "complete" && "text-muted-foreground")} data-total-status={totalStatus === "complete" ? undefined : totalStatus} aria-describedby={totalStatus === "partial" ? "regional-total-partial" : undefined}><bdi dir="ltr">{totalStatus === "unavailable" ? <><span aria-hidden="true">—</span><span className="sr-only">Unavailable</span></> : <MoneyTicker value={assetBalances.displayTotal ?? "—"} reserveDigits={false} animated={totalStatus !== "partial"} />}</bdi></div>{totalStatus === "partial" ? <p id="regional-total-partial" className="text-sm text-muted-foreground">Some balances are unavailable</p> : null}</div>
               )}
               {!loading && assetBalances.breakdown.length > 0 ? (
                 <div className="@container [&_ul]:grid-cols-1 @xs:[&_ul]:grid-cols-3 [&_[data-slot=money-ticker]]:[direction:ltr] [&_[data-slot=money-ticker]]:[unicode-bidi:isolate]"><HomeBalanceBreakdown items={assetBalances.breakdown} />
