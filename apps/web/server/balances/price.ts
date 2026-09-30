@@ -68,7 +68,7 @@ export type PriceBalancesResult = {
   holdings: Holding[];
   borrow: BalancesBorrow;
   revalidating: boolean;
-  durationMs: { store: number; codex: number; coinbase: number };
+  durationMs: { store: number; codex: number; coinbase: number; index?: number; compute?: number };
 };
 type Dependencies = {
   readPrices?: (inputs: readonly CodexRawQuoteInput[], options?: { freshnessMs?: number; signal?: AbortSignal }) => Promise<PriceQuote[]>;
@@ -134,7 +134,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       priceStore.getMany(allKeys).catch(() => []),
       priceStore.getAttempts?.(allKeys).catch(() => []) ?? Promise.resolve([]),
     ]);
-    const durationMs = {
+    const durationMs: PriceBalancesResult["durationMs"] = {
       store: Math.max(0, nowMs() - startedStore),
       codex: 0,
       coinbase: 0,
@@ -159,8 +159,9 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
           scheduleRefresh({ tokenInputs: provider.uncompletedInputs, fxKeys: [] });
         }
       }
+      const bootstrapKeys = new Set(bootstrapWork.tokenInputs.map(({ assetKey }) => assetKey));
       if (!signal?.aborted) scheduleRefresh({
-        tokenInputs: work.tokenInputs.filter(({ assetKey }) => !bootstrapWork.tokenInputs.some((input) => input.assetKey === assetKey)),
+        tokenInputs: work.tokenInputs.filter(({ assetKey }) => !bootstrapKeys.has(assetKey)),
         fxKeys: work.fxKeys.filter((key) => !bootstrapWork.fxKeys.includes(key)),
       });
     } else if (!signal?.aborted && (work.tokenInputs.length > 0 || work.fxKeys.length > 0)) {
@@ -181,10 +182,20 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
 
     const degradedKeys = allKeys.filter((key) => !safeObservation(storedByKey.get(key), currentTime));
     const revalidating = bootstrapRevalidating || (mode === "cached" && (degradedKeys.some((key) => refreshing.has(key)) || referencesDegraded));
-    const prices = tokenInputs.map((input) => bootstrapQuotes.find(({ assetKey, status }) =>
-      assetKey === input.assetKey && (status === "fresh" || status === "stale"))
-      ?? quoteFromObservation(storedByKey.get(input.assetKey), input, currentTime));
+    const indexStartedAt = nowMs();
+    const bootstrapByKey = new Map<string, PriceQuote>();
+    for (const quote of bootstrapQuotes) {
+      if ((quote.status === "fresh" || quote.status === "stale") && !bootstrapByKey.has(quote.assetKey)) {
+        bootstrapByKey.set(quote.assetKey, quote);
+      }
+    }
+    const prices = new Map(tokenInputs.map((input) => [
+      input.assetKey,
+      bootstrapByKey.get(input.assetKey) ?? quoteFromObservation(storedByKey.get(input.assetKey), input, currentTime),
+    ]));
     const rates = ratesFromObservations(fxKeys, storedByKey, currentTime);
+    durationMs.index = Math.max(0, nowMs() - indexStartedAt);
+    const computeStartedAt = nowMs();
     const holdings = read.holdings.map((holding) => {
       const asset = holding.source === "registry" ? stocksById.get(holding.id) : undefined;
       return priceHolding(holding, quoteCurrency, prices, rates, currentTime, asset ? { listing: asset.listing, reference: referencesById.get(asset.id) } : undefined);
@@ -194,6 +205,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       borrowPairs,
       (holding) => priceHolding(holding, quoteCurrency, prices, rates, currentTime),
     );
+    durationMs.compute = Math.max(0, nowMs() - computeStartedAt);
     return { holdings, borrow, revalidating, durationMs };
   };
 
@@ -441,7 +453,7 @@ function ratesFromObservations(keys: readonly string[], stored: ReadonlyMap<stri
   return { fetchedAt: now.toISOString(), quotes, nativeEthQuote };
 }
 
-function priceHolding(holding: ReadHolding, quoteCurrency: FiatCurrencyCode | null, prices: readonly PriceQuote[], rates: ExchangeRates | null, currentTime: Date, stock?: StockHolding): Holding {
+function priceHolding(holding: ReadHolding, quoteCurrency: FiatCurrencyCode | null, prices: ReadonlyMap<string, PriceQuote>, rates: ExchangeRates | null, currentTime: Date, stock?: StockHolding): Holding {
   const base: Omit<Holding, "value"> = { key: holding.key, id: holding.id, kind: holding.kind, source: holding.source, name: holding.name, symbol: holding.symbol, decimals: holding.decimals, contractAddress: holding.contractAddress, cashCurrency: holding.cashCurrency, ...(holding.imageUrl ? { imageUrl: holding.imageUrl } : {}), ...(holding.underlying ? { underlying: holding.underlying } : {}), balance: holding.balance, ...(holding.underlyingBalance ? { underlyingBalance: holding.underlyingBalance } : {}) };
   if (holding.balance.status === "unavailable") return { ...base, value: { status: "unavailable" }, ...(holding.cashCurrency ? { cashValue: { status: "unavailable" } as HoldingCashValue } : {}) };
   if (quoteCurrency === null) return { ...base, value: { status: "unpriced", reason: "no-quote-currency" }, ...(holding.cashCurrency ? { cashValue: priceCash(holding, prices, rates) } : {}) };
@@ -456,7 +468,7 @@ function priceHolding(holding: ReadHolding, quoteCurrency: FiatCurrencyCode | nu
   return { ...base, value, ...(unitValue ? { unitValue } : {}), ...(holding.cashCurrency ? { cashValue: priceCash(holding, prices, rates) } : {}) };
 }
 
-function priceUnit(holding: ReadHolding, currency: FiatCurrencyCode, prices: readonly PriceQuote[], rates: ExchangeRates | null, stockReference?: TokenizedEquityReference): Holding["unitValue"] {
+function priceUnit(holding: ReadHolding, currency: FiatCurrencyCode, prices: ReadonlyMap<string, PriceQuote>, rates: ExchangeRates | null, stockReference?: TokenizedEquityReference): Holding["unitValue"] {
   if (holding.kind === "vault-share") return undefined;
   const fx = findFx(rates, currency);
   if (!fx) return undefined;
@@ -467,7 +479,7 @@ function priceUnit(holding: ReadHolding, currency: FiatCurrencyCode, prices: rea
     const ratio = divideFractions(exactDecimalToFraction(fx.quoteUnitsPerUsd!), exactDecimalToFraction(native.assetUnitsPerUsd));
     amount = normalizeUnitDecimal({ atoms: (ratio.numerator * BigInt(10) ** BigInt(18) / ratio.denominator).toString(), scale: 18 });
   } else {
-    const price = prices.find(({ assetKey }) => assetKey === holding.key);
+    const price = prices.get(holding.key);
     const unitPrice = stockReference?.status === "open" || stockReference?.status === "closed"
       ? stockReference.price
       : price?.status === "fresh" && price.unitPrice ? price.unitPrice : null;
@@ -489,7 +501,7 @@ function normalizeUnitDecimal(amount: ExactDecimal): ExactDecimal {
   return { atoms, scale };
 }
 
-function valueFraction(holding: ReadHolding, currency: FiatCurrencyCode, prices: readonly PriceQuote[], rates: ExchangeRates | null, currentTime: Date, stock?: StockHolding): Valuation {
+function valueFraction(holding: ReadHolding, currency: FiatCurrencyCode, prices: ReadonlyMap<string, PriceQuote>, rates: ExchangeRates | null, currentTime: Date, stock?: StockHolding): Valuation {
   const amount = holding.kind === "vault-share" ? holding.underlyingBalance : holding.balance;
   const decimals = holding.kind === "vault-share" ? holding.underlying!.decimals : holding.decimals;
   if (amount?.status !== "ready") return failed("price-unavailable", currentTime);
@@ -519,18 +531,18 @@ function valueFraction(holding: ReadHolding, currency: FiatCurrencyCode, prices:
     return { fraction: multiplyFractions(divideFractions(quantity, exactDecimalToFraction(native.assetUnitsPerUsd)), fxFraction), reason: "price-unavailable", asOf: oldestAsOf(native, fx) };
   }
   const pricingKey = holding.kind === "vault-share" ? holding.underlying!.key : holding.key;
-  const price = prices.find(({ assetKey }) => assetKey === pricingKey);
+  const price = prices.get(pricingKey);
   if (price?.status === "stale") return failed("price-stale", currentTime);
   if (price?.status !== "fresh" || !price.unitPrice) return failed("price-unavailable", currentTime);
   if ((holding.source === "catalog" || holding.source === "wallet") && !meetsGate(holding.liquidityUsd, LIQUIDITY_GATE)) return failed("below-market-gate", currentTime);
   return { fraction: multiplyFractions(quantity, exactDecimalToFraction(price.unitPrice), fxFraction), reason: "price-unavailable", asOf: oldestAsOf(price, fx) };
 }
 
-function priceCash(holding: ReadHolding, prices: readonly PriceQuote[], rates: ExchangeRates | null): HoldingCashValue {
+function priceCash(holding: ReadHolding, prices: ReadonlyMap<string, PriceQuote>, rates: ExchangeRates | null): HoldingCashValue {
   if (holding.balance.status === "unavailable") return { status: "unavailable" };
   const quantity = baseUnitsToFraction(holding.balance.baseUnits, holding.decimals);
   if (quantity.numerator === BigInt(0)) return { status: "priced", currency: holding.cashCurrency!, amount: roundFractionPreservingPositive(ZERO) };
-  const price = prices.find(({ assetKey }) => assetKey === holding.key);
+  const price = prices.get(holding.key);
   if (price?.status === "stale") return { status: "unpriced", reason: "price-stale" };
   if (price?.status !== "fresh" || !price.unitPrice) return { status: "unpriced", reason: "price-unavailable" };
   const fx = findFx(rates, holding.cashCurrency!);

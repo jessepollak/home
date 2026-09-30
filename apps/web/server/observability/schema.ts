@@ -86,6 +86,8 @@ export type BalancesReadDurations = {
   resolve: number;
   price: number;
   "valuation-store": number;
+  "pricing-index"?: number;
+  "pricing-compute"?: number;
   codex: number;
   coinbase: number;
   "store-write": number;
@@ -772,6 +774,8 @@ function normalizeBalancesReadDurations(
     resolve: boundedInteger(durations.resolve, 60_000),
     price: boundedInteger(durations.price, 60_000),
     "valuation-store": boundedInteger(durations["valuation-store"], 60_000),
+    ...(durations["pricing-index"] === undefined ? {} : { "pricing-index": boundedInteger(durations["pricing-index"], 60_000) }),
+    ...(durations["pricing-compute"] === undefined ? {} : { "pricing-compute": boundedInteger(durations["pricing-compute"], 60_000) }),
     codex: boundedInteger(durations.codex, 60_000),
     coinbase: boundedInteger(durations.coinbase, 60_000),
     "store-write": boundedInteger(durations["store-write"], 60_000),

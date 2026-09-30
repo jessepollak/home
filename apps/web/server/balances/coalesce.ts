@@ -78,7 +78,7 @@ type ObservedResult = {
   outcome: Exclude<BalancesReadOutcome, "error">;
   durationMs: Omit<
     BalancesReadDurations,
-    "price" | "valuation-store" | "codex" | "coinbase" | "total"
+    "price" | "pricing-index" | "pricing-compute" | "valuation-store" | "codex" | "coinbase" | "total"
   >;
 };
 
@@ -338,6 +338,8 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         ...observed.durationMs,
         price: priceDuration,
         "valuation-store": priced.durationMs.store,
+        "pricing-index": priced.durationMs.index,
+        "pricing-compute": priced.durationMs.compute,
         codex: priced.durationMs.codex,
         coinbase: priced.durationMs.coinbase,
         total: Math.max(0, nowMs() - startedAt),
