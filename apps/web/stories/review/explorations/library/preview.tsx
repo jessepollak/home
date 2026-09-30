@@ -48,9 +48,11 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
   const stopRender = useRef<(() => void) | null>(null);
   const stopDeadline = useRef<(() => void) | null>(null);
   const themeRef = useRef(theme);
+  const argsRef = useRef(args);
   const prepare = useRef(onPrepared);
   useLayoutEffect(() => {
     themeRef.current = theme;
+    argsRef.current = args;
     prepare.current = onPrepared;
   });
   const position = useMemo<Positioned>(() => ({
@@ -117,22 +119,35 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
       try {
         if (!api.onUpdateGlobals || !api.onUpdateArgs) throw new Error("Preview props API unavailable");
         const initial = prepare.current({ argTypes: story.argTypes ?? {}, initialArgs: story.initialArgs ?? {} });
-        const preparedTheme = themeRef.current;
-        const complete = (next: "rendered" | "errored" | "cancelled", renderError?: string) => {
+        const reconcile = () => {
           if (generation.current !== load) return;
-          if (next !== "rendered") { fail(renderError); return; }
-          applied.current = JSON.stringify(initial);
-          appliedTheme.current = preparedTheme;
-          stopDeadline.current?.();
-          stopDeadline.current = null;
-          setMetric((current) => ({ ...current, status: "rendered", renderedAt: performance.now() }));
+          const latestArgs = argsRef.current ?? initial;
+          const serialized = JSON.stringify(latestArgs);
+          const latestTheme = themeRef.current;
+          const complete = (next: "rendered" | "errored" | "cancelled", renderError?: string) => {
+            if (generation.current !== load) return;
+            if (next !== "rendered") { fail(renderError); return; }
+            reconcile();
+          };
+          if (appliedTheme.current !== latestTheme) {
+            stopRender.current = watchStoryRender(iframe, item.story, (next, renderError) => {
+              if (generation.current !== load) return;
+              if (next === "rendered") appliedTheme.current = latestTheme;
+              complete(next, renderError);
+            }, () => api.onUpdateGlobals!({ globals: { theme: latestTheme } }));
+          } else if (applied.current !== serialized) {
+            stopRender.current = watchStoryRender(iframe, item.story, (next, renderError) => {
+              if (generation.current !== load) return;
+              if (next === "rendered") applied.current = serialized;
+              complete(next, renderError);
+            }, () => api.onUpdateArgs!({ storyId: item.story, updatedArgs: latestArgs }));
+          } else {
+            stopDeadline.current?.();
+            stopDeadline.current = null;
+            setMetric((current) => ({ ...current, status: "rendered", renderedAt: performance.now() }));
+          }
         };
-        stopRender.current = watchStoryRender(iframe, item.story, (next, renderError) => {
-          if (generation.current !== load) return;
-          if (next !== "rendered") { fail(renderError); return; }
-          stopRender.current = watchStoryRender(iframe, item.story, complete,
-            () => api.onUpdateArgs!({ storyId: item.story, updatedArgs: initial }));
-        }, () => api.onUpdateGlobals!({ globals: { theme: preparedTheme } }));
+        reconcile();
       } catch (cause) {
         if (generation.current === load) fail(cause instanceof Error ? cause.message : String(cause));
       }

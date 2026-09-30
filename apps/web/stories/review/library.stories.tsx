@@ -172,9 +172,16 @@ export const RestoredPreview: Story = {
     await waitFor(() => expect(first.updates).toEqual(["globals", "args"]));
     await expect(canvas.getByText("Loading Default…")).toBeVisible();
     await expect(first.doc.body).toHaveTextContent("children=Continue");
+    const label = await canvas.findByRole("textbox", { name: "Children" });
+    await userEvent.clear(label);
+    await userEvent.type(label, "NEWER");
+    first.complete();
+    await waitFor(() => expect(first.updates).toEqual(["globals", "args", "args"]));
+    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    await expect(first.doc.body).toHaveTextContent("children=RESTORED");
     first.complete();
     await waitFor(() => expect(canvas.queryByText("Loading Default…")).not.toBeInTheDocument());
-    await expect(first.doc.body).toHaveTextContent("children=RESTORED");
+    await expect(first.doc.body).toHaveTextContent("children=NEWER");
     await expect(first.doc.documentElement).toHaveAttribute("data-theme", "dark");
     first.iframe.contentWindow!.location.reload();
     await waitFor(() => expect(first.iframe.contentDocument).not.toBe(first.doc));
@@ -186,7 +193,7 @@ export const RestoredPreview: Story = {
     await expect(canvas.getByText("Loading Default…")).toBeVisible();
     reloaded.complete();
     await waitFor(() => expect(canvas.queryByText("Loading Default…")).not.toBeInTheDocument());
-    await expect(reloaded.doc.body).toHaveTextContent("children=RESTORED");
+    await expect(reloaded.doc.body).toHaveTextContent("children=NEWER");
     await expect(reloaded.doc.documentElement).toHaveAttribute("data-theme", "dark");
   },
 };

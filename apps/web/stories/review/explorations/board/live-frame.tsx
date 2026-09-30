@@ -78,7 +78,6 @@ export function LiveFrame({
       channel = child?.__STORYBOOK_ADDONS_CHANNEL__;
       if (!channel) return;
       for (const [name, status] of [
-        ["storyRendered", "rendered"],
         ["storyErrored", "errored"],
         ["storyThrewException", "errored"],
         ["playFunctionThrewException", "errored"],
