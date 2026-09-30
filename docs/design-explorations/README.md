@@ -12,8 +12,13 @@ Storybook, story files, MSW, or `explorations/` code. Oxlint enforces all four
 boundaries; `home/no-exploration-imports` rejects any import, re-export,
 dynamic import, `require()`, or type query (`typeof import("./x")`) of an
 `explorations/` path from a production module, so a barrel cannot expose
-exploration code. `home/no-test-support-imports` closes the other barrel path:
-a production module cannot import a `tests/`, `testing/`, or `*.test.*` module
+exploration code. The rule also consults TypeScript's JSDoc parse in JavaScript
+and TypeScript files and reports exploration references TypeScript resolves,
+including braced or brace-less type queries, `@import` tags, and escaped
+specifiers. Comment text TypeScript does not read as a reference, such as
+non-JSDoc comments, description prose, and template-literal specifiers, stays
+clean. `home/no-test-support-imports` closes the other barrel path: a
+production module cannot import a `tests/`, `testing/`, or `*.test.*` module
 either.
 
 Keep proposals thin: compose owned `apps/web/components/ui` components and
