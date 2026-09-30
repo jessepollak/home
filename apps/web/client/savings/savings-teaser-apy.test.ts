@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { RegionId } from "@/config/regions";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { summarizeSavingsPortfolio } from "./portfolio-summary";
@@ -40,10 +41,12 @@ function scenario({
   balances,
   rates,
   stale = false,
+  regionId = "GLOBAL",
 }: {
   balances: readonly [string, string];
   rates: readonly [number | null, number | null];
   stale?: boolean;
+  regionId?: RegionId;
 }) {
   const candidates = [candidate(VAULT_A, rates[0]), candidate(VAULT_B, rates[1])];
   const metadata = {
@@ -67,7 +70,7 @@ function scenario({
     nowMs: NOW,
   });
   return {
-    label: savingsTeaserApyLabel({ summary, candidates, metadata, nowMs: NOW }),
+    label: savingsTeaserApyLabel({ summary, candidates, metadata, nowMs: NOW, regionId }),
     summary,
   };
 }
@@ -102,6 +105,25 @@ describe("savings teaser APY", () => {
     });
   }
 
+  test("uses presentation-region separators for funded and public rates", () => {
+    expect(scenario({ balances: ["100000000", "100000000"], rates: [12345, 12345], regionId: "DE" }).label)
+      .toBe("1.234.500,00\u00a0% APY");
+    expect(scenario({ balances: ["0", "0"], rates: [0.025, 0.035], regionId: "DE" }).label)
+      .toBe("Up to 3,50\u00a0% APY");
+  });
+
+  test("localizes funded zero and rounded-to-zero APY without losing nonzero precision", () => {
+    for (const { regionId, zero, nonzero } of [
+      { regionId: "TR", zero: "%0 APY", nonzero: "%0,01 APY" },
+      { regionId: "DE", zero: "0\u00a0% APY", nonzero: "0,01\u00a0% APY" },
+    ] as const) {
+      expect(scenario({ balances: ["100000000", "1"], rates: [0, 0], regionId }).label).toBe(zero);
+      expect(scenario({ balances: ["100000000", "1"], rates: [0.000049, 0.000049], regionId }).label).toBe(zero);
+      expect(scenario({ balances: ["100000000", "1"], rates: [0.00005, 0.00005], regionId }).label).toBe(nonzero);
+      expect(scenario({ balances: ["100000000", "1"], rates: [null, null], regionId }).label).toBeNull();
+    }
+  });
+
   test("keeps numeric stale public offers, including zero, but omits unknown rates", () => {
     const stale = scenario({ balances: ["0", "0"], rates: [0.04, 0.06], stale: true });
     expect(stale.label).toBe("Up to 6.00% APY");
@@ -121,6 +143,7 @@ describe("savings teaser APY", () => {
     } satisfies MorphoVaultsResult;
 
     expect(savingsTeaserApyLabel({
+      regionId: "GLOBAL",
       summary: null,
       candidates: metadata.candidates,
       metadata,

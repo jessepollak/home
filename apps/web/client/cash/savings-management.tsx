@@ -7,6 +7,7 @@ import { getSavingsRateState } from "@/client/savings/portfolio-summary";
 import { ManagementFacts } from "@/components/management-facts";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
+import type { RegionId } from "@/config/regions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import { formatPresentationDate, formatPresentationPercentage, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -30,14 +31,14 @@ export type SavingsManagement = {
   liquidityNote: string | null;
 };
 
-export function savingsRateLabel(candidate: MorphoVaultCandidate | null, metadata: MorphoVaultsResult | null, nowMs: number): string {
+export function savingsRateLabel(candidate: MorphoVaultCandidate | null, metadata: MorphoVaultsResult | null, nowMs: number, regionId: RegionId): string {
   if (!candidate || !metadata) return "Rate unavailable";
   const rate = getSavingsRateState(candidate, {
     metadataFetchedAt: metadata.source.fetchedAt,
     metadataStale: metadata.stale,
     nowMs,
   });
-  return rate.status !== "unavailable" ? `${formatPresentationPercentage(rate.value)} APY` : "Rate unavailable";
+  return rate.status !== "unavailable" ? `${formatPresentationPercentage(rate.value, regionId)} APY` : "Rate unavailable";
 }
 
 export function formatWadPercent(value: string): string {
@@ -51,11 +52,12 @@ export function formatWadPercent(value: string): string {
   return fraction ? `${whole}.${fraction}%` : `${whole}%`;
 }
 
-export function savingsManagement({ address, snapshot, metadata, nowMs, actionsAvailable, usdcBaseUnits, usdcUnavailable }: {
+export function savingsManagement({ address, snapshot, metadata, nowMs, regionId, actionsAvailable, usdcBaseUnits, usdcUnavailable }: {
   address: string;
   snapshot: BalancesSnapshot | null;
   metadata: MorphoVaultsResult | null;
   nowMs: number;
+  regionId: RegionId;
   actionsAvailable: boolean;
   usdcBaseUnits: string | null;
   usdcUnavailable: boolean;
@@ -82,7 +84,7 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, actionsA
     savedBaseUnits,
     absent,
     unreadable,
-    rateLabel: savingsRateLabel(depositCandidate, metadata, nowMs),
+    rateLabel: savingsRateLabel(depositCandidate, metadata, nowMs, regionId),
     depositCandidate,
     withdrawCandidate,
     deposit: { enabled: depositReason === null, reason: depositReason },

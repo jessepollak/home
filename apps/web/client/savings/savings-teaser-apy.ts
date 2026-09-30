@@ -1,3 +1,4 @@
+import type { RegionId } from "@/config/regions";
 import { formatPresentationPercentage } from "@/shared/formatting";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import {
@@ -7,18 +8,20 @@ import {
 } from "./portfolio-summary";
 
 export function savingsTeaserApyLabel({
+  regionId,
   summary,
   candidates,
   metadata,
   nowMs,
 }: {
+  regionId: RegionId;
   summary: SavingsPortfolioSummary | null;
   candidates: readonly MorphoVaultCandidate[];
   metadata: MorphoVaultsResult;
   nowMs: number;
 }): string | null {
   if (summary?.funded && (summary.apy.status === "available" || summary.apy.status === "stale")) {
-    return `${formatExactSavingsApy(summary.apy.value)} APY`;
+    return `${formatExactSavingsApy(summary.apy.value, regionId)} APY`;
   }
   const rates = candidates.map((candidate) =>
     getSavingsRateState(candidate, {
@@ -31,6 +34,6 @@ export function savingsTeaserApyLabel({
     rate.status !== "unavailable" ? [rate.value] : [],
   );
   return known.length > 0
-    ? `Up to ${formatPresentationPercentage(Math.max(...known))} APY`
+    ? `Up to ${formatPresentationPercentage(Math.max(...known), regionId)} APY`
     : null;
 }

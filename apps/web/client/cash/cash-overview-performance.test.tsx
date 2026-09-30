@@ -7,7 +7,7 @@ import { CashOverview } from "./cash-overview";
 afterEach(cleanup);
 const now = () => Date.parse("2026-09-10T12:04:00.000Z");
 const noop = () => undefined;
-const props = { metadata: null, vaultStatus: "failed" as const, nowMs: now(), now, onOpenSavings: noop, onAddMoney: noop };
+const props = { regionId: "US" as const, metadata: null, vaultStatus: "failed" as const, nowMs: now(), now, onOpenSavings: noop, onAddMoney: noop };
 
 describe("Cash presentation work", () => {
   test("renders Cash without sorting or formatting unrelated investments", () => {
