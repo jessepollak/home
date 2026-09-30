@@ -55,12 +55,38 @@ function Harness({ value, now }: { value: SavingsGrowthAnchor; now: () => number
   return <output>{useEstimatedSavingsGrowth(value, now).toString()}</output>;
 }
 
+let restoreScheduler: (() => void) | undefined;
+
+function manualSamplingScheduler() {
+  const pending: { run: () => void; delayMs: number }[] = [];
+  const schedule = jest.spyOn(globalThis, "setTimeout").mockImplementation(((run: () => void, delayMs = 0) => {
+    const task = { run, delayMs };
+    pending.push(task);
+    return task;
+  }) as unknown as typeof setTimeout);
+  const cancel = jest.spyOn(globalThis, "clearTimeout").mockImplementation((timeout) => {
+    const index = pending.indexOf(timeout as unknown as (typeof pending)[number]);
+    if (index !== -1) pending.splice(index, 1);
+  });
+  restoreScheduler = () => {
+    schedule.mockRestore();
+    cancel.mockRestore();
+  };
+  const fire = async (delayMs: number) => {
+    expect(pending.map((task) => task.delayMs)).toEqual([delayMs]);
+    const task = pending.shift()!;
+    await act(async () => task.run());
+  };
+  return { pending, fire };
+}
+
 afterEach(() => {
   hidden = false;
   reducedMotion = false;
   reducedMotionListeners.clear();
-  jest.useRealTimers();
   cleanup();
+  restoreScheduler?.();
+  restoreScheduler = undefined;
 });
 afterAll(() => {
   window.matchMedia = originalMatchMedia;
@@ -88,24 +114,24 @@ describe("Save estimated-growth owner", () => {
     const malformed = { ...summary, apy: { status: "available", value: { numerator: BigInt(11), denominator: BigInt(1) } } } as SavingsPortfolioSummary;
     expect([built({ authority: { snapshotStale: true } }), built({ authority: { registryCoverageComplete: false } }), built({ candidates: [] }), built({ summary: partial }), built({ summary: staleRate }), built({ summary: malformed })].every((value) => value.estimate === null)).toBe(true);
   });
-  test("does not schedule while initially hidden and resumes with one immediate recomputation", () => {
-    jest.useFakeTimers();
+  test("does not schedule while initially hidden and resumes with one immediate recomputation", async () => {
+    const scheduler = manualSamplingScheduler();
     hidden = true;
     const wall = 2_000_000_060_000;
     const now = jest.fn(() => wall);
     const view = render(<Harness value={anchor("a", BigInt("1000000000000000000"), wall - 60_000)} now={now} />);
     expect(view.container.textContent).toBe("1000000000000000000");
-    void act(() => jest.advanceTimersByTime(1_000));
+    expect(scheduler.pending).toHaveLength(0);
     expect(now).toHaveBeenCalledTimes(0);
 
     hidden = false;
-    void act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     expect(now).toHaveBeenCalledTimes(1);
     expect(view.container.textContent).not.toBe("1000000000000000000");
   });
 
-  test("pauses growth in an inactive shell panel and samples right after return", () => {
-    jest.useFakeTimers();
+  test("pauses growth in an inactive shell panel and samples right after return", async () => {
+    const scheduler = manualSamplingScheduler();
     let wall = 2_000_000_060_000;
     const now = jest.fn(() => wall);
     const value = anchor("panel", BigInt("1000000000000000000"), wall - 60_000);
@@ -115,27 +141,34 @@ describe("Save estimated-growth owner", () => {
       </MountedShellPanel>
     );
     const view = render(panel(true));
-    void act(() => jest.advanceTimersByTime(250));
+    expect(view.container.textContent).toBe(value.authoritativeBaseUnits.toString());
+    expect(now).toHaveBeenCalledTimes(0);
+    await scheduler.fire(250);
     expect(now).toHaveBeenCalledTimes(1);
-    const sampled = view.container.textContent;
+    const sampled = "1000000181335974973";
+    expect(view.container.textContent).toBe(sampled);
+    const queued = scheduler.pending[0]!;
     view.rerender(panel(false));
     wall += 60_000;
-    void act(() => jest.advanceTimersByTime(1_000));
+    expect(scheduler.pending).toHaveLength(0);
+    await act(async () => queued.run());
+    expect(scheduler.pending).toHaveLength(0);
     expect(now).toHaveBeenCalledTimes(1);
     expect(view.container.textContent).toBe(sampled);
     view.rerender(panel(true));
     expect(now).toHaveBeenCalledTimes(1);
-    void act(() => jest.advanceTimersByTime(0));
+    expect(view.container.textContent).toBe(sampled);
+    await scheduler.fire(0);
     expect(now).toHaveBeenCalledTimes(2);
     expect(view.container.textContent).toBe("1000000362671982829");
     wall += 60_000;
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
     expect(now).toHaveBeenCalledTimes(3);
     expect(view.container.textContent).toBe("1000000544008023567");
   });
 
-  test("closes a queued callback race while hidden and expires to B0 on resume", () => {
-    jest.useFakeTimers();
+  test("closes a queued callback race while hidden and expires to B0 on resume", async () => {
+    const scheduler = manualSamplingScheduler();
     let wall = 2_000_000_060_000;
     const now = jest.fn(() => wall);
     const value = anchor("a", BigInt("1000000000000000000"), wall - 60_000);
@@ -144,34 +177,35 @@ describe("Save estimated-growth owner", () => {
 
     hidden = true;
     wall += 500;
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
+    expect(scheduler.pending).toHaveLength(0);
     expect(now).toHaveBeenCalledTimes(0);
     hidden = false;
-    void act(() => document.dispatchEvent(new Event("visibilitychange")));
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     expect(now).toHaveBeenCalledTimes(1);
     expect(view.container.textContent).toBe("1000000000000000000");
   });
 
-  test("recomputes every displayed estimate from the authoritative base units", () => {
-    jest.useFakeTimers();
+  test("recomputes every displayed estimate from the authoritative base units", async () => {
+    const scheduler = manualSamplingScheduler();
     let wall = 2_000_000_060_000;
     const value = anchor("authoritative", BigInt("1000000000000000000"), wall - 60_000);
     const view = render(<Harness value={value} now={() => wall} />);
 
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
     expect(view.container.textContent).toBe("1000000181335974973");
 
     wall += 60_000;
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
     expect(view.container.textContent).toBe("1000000362671982829");
   });
 
-  test("reconciles higher and lower identities synchronously without a stale frame", () => {
-    jest.useFakeTimers();
+  test("reconciles higher and lower identities synchronously without a stale frame", async () => {
+    const scheduler = manualSamplingScheduler();
     const wall = 2_000_000_060_000;
     const now = () => wall;
     const view = render(<Harness value={anchor("a", BigInt("1000000000000000000"), wall - 60_000)} now={now} />);
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
     expect(view.container.textContent).not.toBe("1000000000000000000");
 
     view.rerender(<Harness value={anchor("higher", BigInt("2000000000000000000"), wall)} now={now} />);
@@ -180,29 +214,32 @@ describe("Save estimated-growth owner", () => {
     expect(view.container.textContent).toBe("500000000000000000");
   });
 
-  test("keeps an estimate across non-identity rerenders and cleans timers and listeners", () => {
-    jest.useFakeTimers();
+  test("keeps an estimate across non-identity rerenders and cleans timers and listeners", async () => {
+    const scheduler = manualSamplingScheduler();
     const add = jest.spyOn(document, "addEventListener");
     const remove = jest.spyOn(document, "removeEventListener");
     const now = jest.fn(() => 2_000_000_060_000);
     const value = anchor("stable", BigInt("1000000000000000000"), 2_000_000_000_000);
     const view = render(<Harness value={value} now={now} />);
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
     const grown = view.container.textContent;
     view.rerender(<Harness value={{ ...value }} now={now} />);
     expect(view.container.textContent).toBe(grown);
+    const queued = scheduler.pending[0]!;
     view.unmount();
     expect(add.mock.calls.some(([type]) => type === "visibilitychange")).toBe(true);
     expect(remove.mock.calls.some(([type]) => type === "visibilitychange")).toBe(true);
     const callsAtUnmount = now.mock.calls.length;
-    void act(() => jest.advanceTimersByTime(1_000));
+    expect(scheduler.pending).toHaveLength(0);
+    await act(async () => queued.run());
+    expect(scheduler.pending).toHaveLength(0);
     expect(now).toHaveBeenCalledTimes(callsAtUnmount);
     add.mockRestore();
     remove.mockRestore();
   });
 
-  test("displays the authoritative value without sampling for ineligible estimates or reduced motion", () => {
-    jest.useFakeTimers();
+  test("displays the authoritative value without sampling for ineligible estimates or reduced motion", async () => {
+    const scheduler = manualSamplingScheduler();
     const wall = 2_000_000_060_000;
     const amount = BigInt("1000000000000000000");
     const ineligible: SavingsGrowthAnchor = { identity: "ineligible", authoritativeBaseUnits: amount, estimate: null };
@@ -218,7 +255,8 @@ describe("Save estimated-growth owner", () => {
       const now = jest.fn(() => wall);
       const view = render(<Harness value={entry.value} now={now} />);
       expect(view.container.textContent, entry.name).toBe(amount.toString());
-      void act(() => jest.advanceTimersByTime(250));
+      if (entry.samples) await scheduler.fire(250);
+      else expect(scheduler.pending, entry.name).toHaveLength(0);
       expect(now.mock.calls.length, entry.name).toBe(entry.samples);
       expect(view.container.textContent, entry.name).toBe(
         entry.displayed === "estimate"
@@ -229,29 +267,29 @@ describe("Save estimated-growth owner", () => {
     }
   });
 
-  test("follows a runtime preference change without redisplaying a sample captured before it", () => {
-    jest.useFakeTimers();
+  test("follows a runtime preference change without redisplaying a sample captured before it", async () => {
+    const scheduler = manualSamplingScheduler();
     let wall = 2_000_000_060_000;
     const amount = BigInt("1000000000000000000");
     const now = jest.fn(() => wall);
     const value = anchor("runtime", amount, wall - 60_000);
     const view = render(<Harness value={value} now={now} />);
 
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
     const grown = "1000000181335974973";
     expect(view.container.textContent).toBe(grown);
 
-    act(() => setReducedMotion(true));
+    await act(async () => setReducedMotion(true));
     expect(view.container.textContent).toBe(amount.toString());
-    void act(() => jest.advanceTimersByTime(1_000));
-    void act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(scheduler.pending).toHaveLength(0);
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
     expect(view.container.textContent).toBe(amount.toString());
     expect(now).toHaveBeenCalledTimes(1);
 
     wall += 60_000;
-    act(() => setReducedMotion(false));
+    await act(async () => setReducedMotion(false));
     expect(view.container.textContent).toBe(amount.toString());
-    void act(() => jest.advanceTimersByTime(250));
+    await scheduler.fire(250);
     expect(now).toHaveBeenCalledTimes(2);
     const resumed = "1000000362671982829";
     expect(view.container.textContent).toBe(resumed);
