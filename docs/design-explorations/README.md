@@ -12,7 +12,9 @@ Storybook, story files, MSW, or `explorations/` code. Oxlint enforces all four
 boundaries; `home/no-exploration-imports` rejects any import, re-export,
 dynamic import, `require()`, or type query (`typeof import("./x")`) of an
 `explorations/` path from a production module, so a barrel cannot expose
-exploration code.
+exploration code. `home/no-test-support-imports` closes the other barrel path:
+a production module cannot import a `tests/`, `testing/`, or `*.test.*` module
+either.
 
 Keep proposals thin: compose owned `apps/web/components/ui` components and
 variants with existing feature components instead of rebuilding shells or

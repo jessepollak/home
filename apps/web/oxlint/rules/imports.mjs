@@ -4,6 +4,8 @@ const productionIsolationMessage =
   "Storybook and MSW are development-only; production modules must not import workshop packages, config, or stories";
 const explorationIsolationMessage =
   "Exploration code is design-lane only; production modules must not import or re-export from explorations/";
+const testSupportIsolationMessage =
+  "Test-support code is not production code; production modules must not import tests/, testing/, *.test.* modules, or test harnesses";
 const sharedLayerMessage =
   "shared modules must remain runtime-agnostic and independent of web application layers";
 const clientLayerMessage = "client modules must not import the server layer";
@@ -35,11 +37,33 @@ function mergeSegments(left, right) {
   return [...left, ...right];
 }
 
+const alternativeKey = (alternative) => JSON.stringify(alternative.map((segment) => (typeof segment === "string" ? segment : null)));
+
+function dedupeAlternatives(alternatives) {
+  const seen = new Set();
+  return alternatives.filter((alternative) => {
+    const key = alternativeKey(alternative);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function combineSegments(lefts, rights) {
   const combined = [];
-  for (const left of lefts) for (const right of rights) {
-    combined.push(mergeSegments(left, right));
-    if (combined.length > 4096) return [widenSegments(combined)];
+  const seenMerged = new Set();
+  let evaluated = 0;
+  const distinctLefts = dedupeAlternatives(lefts);
+  const distinctRights = dedupeAlternatives(rights);
+  for (const left of distinctLefts) for (const right of distinctRights) {
+    evaluated += 1;
+    if (evaluated > 16384) return [widenSegments([...combined, ...lefts, ...rights])];
+    const merged = mergeSegments(left, right);
+    const key = alternativeKey(merged);
+    if (seenMerged.has(key)) continue;
+    seenMerged.add(key);
+    combined.push(merged);
+    if (combined.length > 4096) return [widenSegments([...combined, ...lefts, ...rights])];
   }
   return combined;
 }
@@ -49,8 +73,11 @@ function combineSegments(lefts, rights) {
 // into one fail-closed sequence of every known segment seen.
 function widenSegments(alternatives) {
   const segments = [unknownSegment];
+  const seen = new Set();
   for (const alternative of alternatives) for (const segment of alternative) {
-    if (typeof segment === "string" && segment.length && !segments.includes(segment)) segments.push(segment);
+    if (typeof segment !== "string" || !segment.length || seen.has(segment)) continue;
+    seen.add(segment);
+    segments.push(segment);
   }
   return segments;
 }
@@ -76,8 +103,9 @@ function segmentAlternatives(node) {
 function sourceVisitors(check) {
   function visit(node) {
     for (const segments of segmentAlternatives(node)) {
+      const complete = segments.length === 1 && typeof segments[0] === "string";
       for (const segment of segments) {
-        if (typeof segment === "string" && segment.length) check(node, segment);
+        if (typeof segment === "string" && segment.length) check(node, segment, complete);
       }
     }
   }
@@ -98,8 +126,8 @@ function rule(message, reject) {
     meta: { type: "problem", schema: [], messages: { rejected: message } },
     create(context) {
       const reported = new WeakSet();
-      return sourceVisitors((node, value) => {
-        if (typeof value !== "string" || reported.has(node) || !reject(value, context.filename)) return;
+      return sourceVisitors((node, value, complete) => {
+        if (typeof value !== "string" || reported.has(node) || !reject(value, context.filename, complete)) return;
         reported.add(node);
         context.report({ node, messageId: "rejected" });
       });
@@ -115,6 +143,14 @@ function isStorybookImport(value) {
 
 function normalizedFilename(filename) {
   return String(filename ?? "").replaceAll("\\", "/");
+}
+
+// Normalize the specifier, not the importer path, so checkout ancestry cannot change classification; fully normalize complete specifiers, but preserve a fragment's trailing .. because an unknown expression may continue that segment.
+function normalizedSpecifier(value, complete) {
+  const normalized = value.replaceAll("\\", "/").replace(/^@\//, "");
+  const partialTraversal = !complete && /(?:^|\/)\.\.$/.test(normalized);
+  const resolved = path.posix.normalize(partialTraversal ? normalized.slice(0, -2) : normalized);
+  return partialTraversal ? `${resolved}/..` : resolved;
 }
 
 function layerForImport(value, filename) {
@@ -140,6 +176,12 @@ function packageRoot(value) {
 export const noStorybookImports = rule(productionIsolationMessage, isStorybookImport);
 export const noExplorationImports = rule(explorationIsolationMessage, (value) =>
   /(?:^|\/)explorations(?:\/|$)/.test(value));
+export const noTestSupportImports = rule(testSupportIsolationMessage, (value, _filename, complete) => {
+  const specifier = normalizedSpecifier(value, complete);
+  return /(?:^|\/)(?:tests|testing)(?:\/|$)/.test(specifier)
+    || /\.test(?:\.[^/]+)?$/.test(specifier)
+    || /(?:^|\/)[^/]*test-harness(?:\.[^/]+)?$/.test(specifier);
+});
 export const noClassicZodImports = rule(classicZodMessage, (value) =>
   value !== "zod/mini" && (value === "zod" || value.startsWith("zod/")));
 
