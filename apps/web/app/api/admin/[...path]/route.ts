@@ -1,7 +1,5 @@
 import { createOperatorApiHandler } from "@/server/operator/api";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const handle = createOperatorApiHandler(false);
 export const GET = handle;

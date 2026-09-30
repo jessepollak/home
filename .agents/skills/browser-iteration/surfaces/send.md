@@ -2,7 +2,7 @@
 - **Entry context**: transfers/money-modal · overlay on any shell route: `?flow=send` · signed-in (button disabled pre-boundary, transfer-actions.tsx) · signed-in seed + `/api/actions/prepare`, `[id]` pending-review, `/api/transfers/recipient-name`, `/api/transfers/recent-recipients` fixtures (confirmation is not part of routine verification) · `Send` button, `data-action-trigger` (transfer-actions.tsx).
 
 - **Live**: confirm
-- **Owned paths**: `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/**`, `apps/web/shared/transfers/**`, `apps/web/app/api/actions/**`, `apps/web/app/api/transfers/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`, `apps/web/server/transfers/**`
+- **Owned paths**: `apps/web/client/transfers/transfer-actions.tsx`, `apps/web/client/transfers/send-dialog.tsx`, `apps/web/client/money-modal/**`, `apps/web/shared/transfers/**`, `apps/web/app/api/actions/**`, `apps/web/app/api/transfers/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`, `apps/web/server/transfers/**`
 - **Confirm labels**: "Send $<amount>"
 - **Reach** (smoke-verified):
   1. Seed the signed-in fixture and install API fixtures.

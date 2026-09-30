@@ -134,7 +134,7 @@ export function LandingShell({
       <AccountSignInSheet
         open={isAccountOpen}
         onClose={closeAccount}
-        onVerified={() => router.replace("/home")}
+        onVerified={() => window.location.replace("/home")}
       />
     </div>
   );

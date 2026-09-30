@@ -15,6 +15,8 @@ async function readRevenue(): Promise<OperatorRevenueSummary | null> {
   }
 }
 
+export const instant = false;
+
 export default async function MoneyPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);

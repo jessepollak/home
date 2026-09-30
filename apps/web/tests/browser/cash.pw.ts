@@ -74,8 +74,8 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
 
   await main.hover();
   await page.mouse.wheel(0, 60);
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  const offset = await main.evaluate((element) => element.scrollTop);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const offset = await page.evaluate(() => window.scrollY);
   let release!: () => void;
   const deferred = new Promise<void>((resolve) => { release = resolve; });
   const holdApi = async (route: Route) => {
@@ -90,9 +90,9 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
       await expect(money).toBeVisible();
       await expect(activity).not.toHaveAttribute("aria-busy", "true");
       await expect(rows.first()).toBeVisible();
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeGreaterThanOrEqual(offset - 2);
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeLessThanOrEqual(offset + 2);
     };
     const expectCashPainted = async () => {
@@ -248,11 +248,11 @@ test("Savings Account settings Done restores Savings scroll and account focus", 
   const savings = page.getByRole("region", { name: "Savings", exact: true });
   await expect(savings).toBeVisible();
   await expect(page.getByRole("region", { name: "Your savings" })).toBeVisible();
-  const main = page.locator("main[data-app-main-authenticated]");
-  await expect.poll(() => main.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(40);
-  await main.evaluate((element) => element.scrollTo({ top: 40, behavior: "auto" }));
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThanOrEqual(38);
-  const offset = await main.evaluate((element) => element.scrollTop);
+  const scrollTop = () => page.evaluate(() => window.scrollY);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(40);
+  await page.evaluate(() => window.scrollTo({ top: 40, behavior: "auto" }));
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(38);
+  const offset = await scrollTop();
   const account = page.getByRole("banner").getByRole("button", { name: "Account" });
   await account.click();
   await expect(page).toHaveURL(/\/cash\/savings\?account=settings$/);
@@ -261,8 +261,8 @@ test("Savings Account settings Done restores Savings scroll and account focus", 
   await expect(page).toHaveURL(/\/cash\/savings$/);
   await expect(savings).toBeVisible();
   await expect(account).toBeFocused();
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThanOrEqual(offset - 2);
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(offset + 2);
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(offset - 2);
+  await expect.poll(scrollTop).toBeLessThanOrEqual(offset + 2);
 });
 
 test("Cash Add money closes to Cash and one browser Back returns Home", async ({ page }) => {

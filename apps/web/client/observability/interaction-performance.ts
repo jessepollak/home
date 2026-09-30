@@ -163,15 +163,15 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
     noteContent(to: HomeInteractionRoute, state: NonNullable<HomeNavigationReport["contentState"]>): void {
       if (pending?.to === to) pending.contentState = state;
     },
-    beginNavigation({ from, to, cache, trigger }: {
+    beginNavigation({ from, to, cache, trigger, startedAt }: {
       from: HomeInteractionRoute; to: HomeInteractionRoute;
-      cache: HomePanelCacheState; trigger: HomeNavigationTrigger;
+      cache: HomePanelCacheState; trigger: HomeNavigationTrigger; startedAt?: number;
     }): void {
       try {
         if (!enabled() || navigationCount >= HOME_NAVIGATION_REPORT_CAP || from === to || !deps.isVisible()) return;
         cancelNavigation();
         discardScroll();
-        pending = { from, to, cache, trigger, startedAt: deps.now(), frame: null,
+        pending = { from, to, cache, trigger, startedAt: startedAt ?? deps.now(), frame: null,
           ...(trigger === "in-app" && input ? { input } : {}),
           timeout: null, committed: false };
         clearInput();
@@ -339,6 +339,22 @@ const recorder = createHomeInteractionRecorder({
   },
   send: sendClientPerformanceReport,
 });
+
+let historyTraversal: { at: number; pathname: string } | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener("popstate", () => {
+    historyTraversal = { at: performance.now(), pathname: window.location.pathname };
+  });
+}
+
+export function takeHomeHistoryTraversal(pathname: string | null): number | null {
+  const traversal = historyTraversal;
+  historyTraversal = null;
+  if (pathname === null) return null;
+  const current = typeof window === "undefined" ? undefined : window.event;
+  if (current?.type === "popstate") return current.timeStamp;
+  return traversal !== null && traversal.pathname === pathname ? traversal.at : null;
+}
 
 export function beginHomeNavigation(input: Parameters<typeof recorder.beginNavigation>[0]): void {
   try { recorder.beginNavigation(input); } catch { return undefined; }

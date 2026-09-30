@@ -3,8 +3,6 @@ import { readRequestIsoCountry } from "@/server/region/request-country";
 import { createNativeBaseVerifyHandler } from "@/server/auth/native-base-session";
 import { inviteVerifiedCookies, recordVerifiedCustomer } from "@/server/invites/consumption";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const POST = createNativeBaseVerifyHandler({
   verifiedCookies: inviteVerifiedCookies,
   onVerified: (session, { request }) => {

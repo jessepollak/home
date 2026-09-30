@@ -64,17 +64,19 @@ describe("home/no-full-portfolio-presentation", () => {
     `)).toHaveLength(0);
   }, budgetMs);
 
-  it("allows only the exact list owner to import the full presenter, never re-export it", async () => {
+  it("rejects the full presenters from every production module", async () => {
     const source = 'import { presentBalances } from "@/shared/balances/present";';
     const found = await lintFixtures({
-      owner: { code: source, path: "client/home/balances-panel.tsx" },
-      cash: { code: source, path: "client/cash/balances-panel.tsx" },
-      helper: { code: source, path: "client/home/balances-panel-helper.tsx" },
+      home: { code: source, path: "client/home/portfolio-home-experience.tsx" },
+      panel: { code: source, path: "client/home/home-panel.tsx" },
+      cash: { code: source, path: "client/cash/cash-overview.tsx" },
+      investments: { code: source, path: "client/investments/investments-overview.tsx" },
     });
-    expect(found.owner).toHaveLength(0);
+    expect(found.home).toHaveLength(1);
+    expect(found.panel).toHaveLength(1);
     expect(found.cash).toHaveLength(1);
-    expect(found.helper).toHaveLength(1);
-    expect(await lint('export { presentBalances } from "@/shared/balances/present";', "client/home/balances-panel.tsx")).toHaveLength(1);
+    expect(found.investments).toHaveLength(1);
+    expect(await lint('export { presentBalances } from "@/shared/balances/present";', "client/home/shell.tsx")).toHaveLength(1);
   }, budgetMs);
 
   it("ignores identically named APIs from unrelated modules", async () => {

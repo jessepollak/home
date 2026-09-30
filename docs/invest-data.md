@@ -138,7 +138,7 @@ These are Base ERC-20 representations, not native BTC, XRP Ledger, Dogecoin, Lit
 - **cbETH:** Coinbase’s issuer page explicitly says cbETH is structured differently from its 1:1 wrapped assets. cbETH represents staked ETH and has a variable conversion relationship. It is omitted because the current price seam does not carry a separate per-cbETH versus per-ETH denomination or exchange-rate snapshot; presenting it as ordinary ETH would be unsafe.
 - **cbSOL:** no Coinbase-published Base representation or Base contract was established on the current issuer roster, so no address or availability was assumed.
 
-On Balances, held Base tokens outside the catalog with no price appear by quantity in an Unpriced section after priced Investments. This separates possible spam from priced holdings; unpriced tokens have no displayed value and are never counted in valued totals.
+On Investments, held Base tokens outside the catalog with no price appear by quantity in the owned holdings list. They have no displayed value and are never counted in valued totals.
 
 ## Base-native meme sample
 

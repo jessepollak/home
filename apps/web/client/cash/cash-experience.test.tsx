@@ -90,10 +90,11 @@ function SignInRoute({ initialFlow, snapshot }: { initialFlow: "save-deposit"; s
   const [flow, setFlow] = useState<string | null>(initialFlow);
   const [active, setActive] = useState<VerifiedAccountSession | null>(null);
   const routing = {
-    state: { flow } as HomeInboundPanelState, popRevision: 0, rootRequest: null, openPanel: noop,
+    state: { flow } as HomeInboundPanelState, activityReturn: null, popRevision: 0, rootRequest: null, openPanel: noop,
     canOpenAssetDetail: () => false, openAssetDetail: () => false,
     setFlow: (next: string) => { setFlow(next); return true; },
     clearFlow: () => { setFlow(null); },
+    pushRoute: noop, leaveRoute: noop,
   };
   return <HomeShellRoutingProvider value={routing as Parameters<typeof HomeShellRoutingProvider>[0]["value"]}>
     <button onClick={() => setActive(session)}>Verify account</button>
@@ -109,6 +110,7 @@ function Route({ initialFlow, snapshot, view = "savings", status = "ready", defe
     canOpenAssetDetail: () => false, openAssetDetail: () => false,
     setFlow: (next: string, options?: { mode?: "push" | "replace" }) => { pushedFlow.current = next; routeCalls.push(`${options?.mode === "replace" ? "replace" : "push"}:${next}`); setFlow(next); return true; },
     clearFlow: ({ mode }: { mode?: "replace" | "push" } = {}) => { routeCalls.push(`clear:${mode}`); if (!deferClear) setFlow(null); },
+    pushRoute: noop, leaveRoute: noop,
   };
   return <HomeShellRoutingProvider value={routing as Parameters<typeof HomeShellRoutingProvider>[0]["value"]}>
     <div data-shell-back><button onClick={() => setFlow(null)}>Browser Back</button></div>

@@ -1,9 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { RegionId } from "../../config/regions";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
-import { scrollableBalancesSnapshot } from "./fixtures/balances";
 import { FIXED_NOW } from "./fixtures/fixed-time";
-import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
 
 // The hosted-runner tier also covers an idle laptop. A loaded shared machine stretches both marks
@@ -14,7 +12,7 @@ const BALANCES_PAINTED_WAIT_MS = 15_000;
 
 async function visibleBalanceRowLayout(page: Page) {
   return page.locator(
-    '[data-shell-panel]:not([hidden]) :is([data-balance-list], [data-money-summary]) [data-kind="balance"]',
+    '[aria-label="Your money"] [data-kind="balance"]',
   ).evaluateAll((rows) => rows.map((row) => {
     const bounds = row.getBoundingClientRect();
     return {
@@ -25,73 +23,6 @@ async function visibleBalanceRowLayout(page: Page) {
       height: bounds.height,
     };
   }));
-}
-
-function countVisibleBalanceRows() {
-  return document.querySelectorAll(
-    '[data-shell-panel]:not([hidden]) [data-balance-list] [data-kind="balance"]',
-  ).length;
-}
-
-async function openScrolledBalances(page: Page) {
-  await seedSignedInSession(page);
-  await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
-  await page.setViewportSize({ width: 390, height: 440 });
-  await page.goto("/balances");
-  await expect(page.getByRole("heading", { level: 1, name: "Your money" })).toBeVisible();
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThanOrEqual(10);
-  const freshCount = await page.evaluate(countVisibleBalanceRows);
-  await expect.poll(() => page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
-    return main ? main.scrollHeight - main.clientHeight : 0;
-  })).toBeGreaterThan(0);
-  const maxTop = await page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
-    return main ? Math.max(0, main.scrollHeight - main.clientHeight) : 0;
-  });
-  const target = await page.evaluate((max) => {
-    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
-    if (!main) return 0;
-    main.scrollTop = Math.min(max, Math.max(240, Math.round(max * 0.6)));
-    main.dispatchEvent(new Event("scroll", { bubbles: true }));
-    return main.scrollTop;
-  }, maxTop);
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBeGreaterThan(freshCount);
-  return {
-    target,
-    maxTop,
-    freshCount,
-    revealedCount: await page.evaluate(countVisibleBalanceRows),
-  };
-}
-
-async function openInvestAssetDetail(page: Page) {
-  await page.getByRole("button", { name: "Invest", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest$/);
-  await page.getByRole("button", { name: /^NVIDIA/ }).click();
-  await expect(page).toHaveURL(/\/invest\/nvdac$/);
-}
-
-async function expectBalancesRestored(
-  page: Page,
-  state: { target: number; maxTop: number; revealedCount: number },
-) {
-  await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() =>
-    document.querySelector<HTMLElement>("[data-app-main-authenticated]")?.scrollTop ?? 0,
-  )).toBe(state.target);
-  expect(state.target).toBeLessThanOrEqual(state.maxTop);
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBe(state.revealedCount);
-}
-
-function anchoredGroupOffset(page: Page) {
-  return page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
-    const group = document.getElementById("investments");
-    return main && group && main.scrollTop > 0
-      ? group.getBoundingClientRect().top - main.getBoundingClientRect().top
-      : null;
-  });
 }
 
 async function expectBalancesPaintedWithinBudget(page: Page) {
@@ -164,7 +95,7 @@ test("cold balances request and paint finish before delayed session verification
     await expect.poll(() => page.evaluate(() =>
       performance.getEntriesByName("session:verified", "mark").length,
     )).toBeGreaterThan(0);
-    await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]'))
+    await expect(page.locator('[aria-label="Total balance"]'))
       .not.toHaveAttribute("aria-busy", "true");
   } finally {
     fixtures.releaseBalances();
@@ -264,7 +195,7 @@ test("persisted balances paint before verification and settle without row shift"
   await expect.poll(() => page.evaluate(() =>
     performance.getEntriesByName("session:verified", "mark").length,
   )).toBeGreaterThan(0);
-  await expect(page.locator('[data-shell-panel]:not([hidden]) [aria-label="Total balance"]'))
+  await expect(page.locator('[aria-label="Total balance"]'))
     .not.toHaveAttribute("aria-busy", "true");
   expect(await visibleBalanceRowLayout(page)).toEqual(provisionalLayout);
   expect(hydrationErrors).toEqual([]);
@@ -330,7 +261,7 @@ test("cached Home balances paint before delayed verification and revalidation, t
     const returnStart = await page.evaluate(() => {
       const witness = window as typeof window & { balanceReturn?: { busy: boolean; observer: MutationObserver } };
       const wasBusy = () => Boolean(document.querySelector(
-        '[data-shell-panel]:not([hidden]) [aria-label="Updating…"], [data-shell-panel]:not([hidden]) [aria-label="Your money"][aria-busy="true"]',
+        '[aria-label="Updating…"], [aria-label="Your money"][aria-busy="true"]',
       ));
       const observer = new MutationObserver(() => {
         if (witness.balanceReturn && wasBusy()) witness.balanceReturn.busy = true;
@@ -355,73 +286,4 @@ test("cached Home balances paint before delayed verification and revalidation, t
     fixtures.releaseSession();
     fixtures.releaseBalances();
   }
-});
-
-test("browser Back restores the Balances reveal and scroll offset", async ({ page }) => {
-  const state = await openScrolledBalances(page);
-  await openInvestAssetDetail(page);
-  await page.goBack();
-  await expect(page).toHaveURL(/\/invest$/);
-  await page.goBack();
-  await expectBalancesRestored(page, state);
-});
-
-test("generic destination resets Balances to the top on browser Back", async ({ page }) => {
-  const state = await openScrolledBalances(page);
-  await page.getByRole("button", { name: "Invest", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest$/);
-  await page.goBack();
-  await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
-  await expect.poll(() => page.evaluate(() =>
-    document.querySelector<HTMLElement>("[data-app-main-authenticated]")?.scrollTop ?? 0,
-  )).toBe(0);
-  await expect.poll(() => page.evaluate(countVisibleBalanceRows)).toBe(state.freshCount);
-});
-
-test("cold and revalidated cached Balances stay anchored to the requested group", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await seedSignedInSession(page);
-  let serveChanged = false;
-  let releaseChanged = () => {};
-  const changedResponse = new Promise<void>((resolve) => { releaseChanged = resolve; });
-  let revalidatedReads = 0;
-  await installApiFixtures(page, { balances: scrollableBalancesSnapshot() });
-  await page.route((url) => url.pathname === "/api/balances", async (route) => {
-    const region = (new URL(route.request().url()).searchParams.get("region") ?? "US") as RegionId;
-    const snapshot = scrollableBalancesSnapshot(region);
-    if (!serveChanged) return json(route, snapshot);
-    revalidatedReads += 1;
-    await changedResponse;
-    return json(route, {
-      ...snapshot,
-      holdings: snapshot.holdings.map((holding) => holding.symbol === "USDC"
-        ? {
-            ...holding,
-            ...(holding.value.status === "priced"
-              ? { value: { ...holding.value, amount: { atoms: "1235", scale: 2 } } }
-              : {}),
-            ...(holding.cashValue?.status === "priced"
-              ? { cashValue: { ...holding.cashValue, amount: { atoms: "1235", scale: 2 } } }
-              : {}),
-          }
-        : holding),
-    });
-  });
-
-  await page.goto("/balances/investments");
-  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
-  await waitForSettledPersistedBalances(page);
-  await markPersistedQueriesStale(page);
-
-  serveChanged = true;
-  await page.reload();
-  await expect(
-    page.locator('[data-shell-panel]:not([hidden]) li', { hasText: "$12.34" }).first(),
-  ).toBeVisible();
-  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
-  await expect.poll(() => revalidatedReads).toBeGreaterThanOrEqual(1);
-  releaseChanged();
-  await expect(page.locator('[data-shell-panel]:not([hidden]) li', { hasText: "$12.35" }).first())
-    .toBeVisible();
-  await expect.poll(() => anchoredGroupOffset(page)).toBeGreaterThanOrEqual(14);
 });

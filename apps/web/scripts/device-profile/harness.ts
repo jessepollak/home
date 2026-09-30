@@ -144,8 +144,17 @@ function nav(name: string) {
   if (!el) throw new Error(`Missing ${name} navigation`);
   return el;
 }
+const pageContentSelector: Record<string, string> = {
+  "/home": "[data-money-summary]",
+  "/cash": "#cash-panel",
+  "/invest": "h1, h2",
+};
 function atPanel(path: string) {
-  return location.pathname === path && visible(document.querySelector('#navigation-panel [data-shell-panel]:not([hidden])'));
+  if (location.pathname !== path) return false;
+  const panel = document.querySelector<HTMLElement>("#navigation-panel");
+  if (!visible(panel)) return false;
+  const content = pageContentSelector[path];
+  return content === undefined || visible(panel.querySelector<HTMLElement>(content));
 }
 async function roundTrip(feedback: number[]) {
   await interaction(button("Open Cash"), () => atPanel("/cash"), feedback);

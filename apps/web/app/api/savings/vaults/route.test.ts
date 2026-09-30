@@ -54,17 +54,33 @@ await mock.module("@/server/morpho", () => ({
   ...actualMorpho,
   getMorphoVaultCandidates,
 }));
+const actualNextServer = { ...await import("next/server") };
+const connection = mock(async () => {});
+await mock.module("next/server", () => ({ ...actualNextServer, connection }));
 const { GET } = await import("./route");
 
 beforeEach(() => {
   getMorphoVaultCandidates.mockReset();
   getMorphoVaultCandidates.mockResolvedValue(vaults);
+  connection.mockClear();
 });
 afterAll(async () => {
   await mock.module("@/server/morpho", () => actualMorpho);
+  await mock.module("next/server", () => actualNextServer);
   mock.restore();
 });
 describe("GET /api/savings/vaults", () => {
+  test("opts out of prerendering by awaiting the request connection before the provider read", async () => {
+    let providerCalledBeforeConnection = false;
+    getMorphoVaultCandidates.mockImplementationOnce(async () => {
+      providerCalledBeforeConnection = connection.mock.calls.length === 0;
+      return vaults;
+    });
+    await GET();
+    expect(connection).toHaveBeenCalledTimes(1);
+    expect(providerCalledBeforeConnection).toBeFalse();
+  });
+
   test("returns public vault candidates that round-trip through the shared parser", async () => {
     const response = await GET();
 

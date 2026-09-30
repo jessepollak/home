@@ -73,26 +73,46 @@ export async function installFeed(page: Page, rows: number) {
 
 export async function fillFeed(session: Session, rows: number, filled: () => boolean, feedSection = section) {
   const { page } = session;
-  const main = page.locator("main[data-app-main-authenticated]");
   const end = page.locator(`${feedSection} [role="status"]`).filter({ hasText: "End of activity" });
   await setCpuRate(session, 1);
   try {
     const until = Date.now() + 120_000;
     while (Date.now() < until) {
       if (filled() && await end.isVisible()) return;
-      await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await page.evaluate(() => {
+        const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+        const root = document.scrollingElement ?? document.documentElement;
+        const scroller = main && ["auto", "scroll"].includes(getComputedStyle(main).overflowY) &&
+          main.scrollHeight > main.clientHeight + 1 ? main : root;
+        scroller.scrollTop = scroller.scrollHeight;
+      });
       await page.waitForTimeout(65);
     }
     throw new Error(`Feed fill timed out at ${rows} rows`);
   } finally { await setCpuRate(session, session.cpu.requested); }
 }
+export function feedScrollHost(position: { x: number; y: number }): { host: "document" | "main"; height: number; viewport: number } {
+  const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+  const bounds = main?.getBoundingClientRect();
+  if (main && bounds && ["auto", "scroll"].includes(getComputedStyle(main).overflowY) &&
+    main.scrollHeight - main.clientHeight > 64 && position.x >= bounds.left && position.x <= bounds.right &&
+    position.y >= bounds.top && position.y <= bounds.bottom)
+    return { host: "main", height: main.scrollHeight, viewport: main.clientHeight };
+  const root = document.scrollingElement ?? document.documentElement;
+  return { host: "document", height: root.scrollHeight, viewport: root.clientHeight };
+}
 
-export type Fling = { p95: number; over33: number; droppedPct: number; blockingMs: number; maxRows: number; settledRows: number; historyWrites: number; frames: number };
+export type Fling = { p95: number; over33: number; droppedPct: number; blockingMs: number; maxRows: number; settledRows: number; historyWrites: number; frames: number; scrollHost: "document" | "main" };
 export async function fling(session: Session): Promise<Fling> {
   const { page, cdp } = session;
-  const main = page.locator("main[data-app-main-authenticated]");
   await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
-  await main.evaluate((element) => { element.scrollTop = 0; });
+  const position = await page.evaluate(() => ({ x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2), gestureSourceType: "mouse" as const, speed: 4000 }));
+  const scroll = await page.evaluate(feedScrollHost, position);
+  if (scroll.height - scroll.viewport <= 64) throw new Error(`Fling selected non-scrollable ${scroll.host} scroll host`);
+  await page.evaluate((host) => {
+    if (host === "main") document.querySelector<HTMLElement>("main[data-app-main-authenticated]")!.scrollTo(0, 0);
+    else window.scrollTo(0, 0);
+  }, scroll.host);
   await twoFrames(page);
   await page.evaluate((selector) => {
     const w = window as typeof window & { __perfFling?: { frames: number[]; blocking: number[]; maxRows: number; stop: () => void } };
@@ -113,31 +133,23 @@ export async function fling(session: Session): Promise<Fling> {
     w.__perfFling = { frames, blocking, get maxRows() { return maxRows; }, stop: () => { running = false; observer.disconnect(); } };
   }, recentRowSelector);
   const before = await page.evaluate(() => (window as typeof window & { __perfHistory: number }).__perfHistory);
-  const bounds = await main.boundingBox();
-  if (!bounds) throw new Error("Missing feed scroll host");
-  const position = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2, gestureSourceType: "mouse" as const, speed: 4000 };
-  const height = await main.evaluate((element) => element.scrollHeight);
-  const viewport = await main.evaluate((element) => element.clientHeight);
-  const distance = Math.min(height, flingDistance);
-  const minimumScroll = Math.min(Math.max(64, (height - viewport) / 2), 500);
-  const scrollable = height - viewport > 64;
+  const distance = Math.min(scroll.height, flingDistance);
+  const minimumScroll = Math.min(Math.max(64, (scroll.height - scroll.viewport) / 2), 500);
   const browser = page.context().browser()!;
   await browser.startTracing(page, { categories: ["benchmark", "disabled-by-default-devtools.timeline.frame"] });
   await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: -distance });
-  if (scrollable) try {
-    await page.waitForFunction(({ host, minimum }) => {
-      const element = document.querySelector<HTMLElement>(host);
-      return element !== null && element.scrollTop >= minimum;
-    }, { host: "main[data-app-main-authenticated]", minimum: minimumScroll }, { timeout: 30_000, polling: 100 });
+  try {
+    await page.waitForFunction(({ host, minimum }) =>
+      (host === "main" ? document.querySelector<HTMLElement>("main[data-app-main-authenticated]")!.scrollTop : window.scrollY) >= minimum,
+    { host: scroll.host, minimum: minimumScroll }, { timeout: 30_000, polling: 100 });
   } catch (error) {
     throw new Error("Fling gesture did not scroll the feed", { cause: error });
   }
   await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: distance });
-  if (scrollable) try {
-    await page.waitForFunction((host) => {
-      const element = document.querySelector<HTMLElement>(host);
-      return element !== null && element.scrollTop <= 64;
-    }, "main[data-app-main-authenticated]", { timeout: 30_000, polling: 100 });
+  try {
+    await page.waitForFunction((host) =>
+      (host === "main" ? document.querySelector<HTMLElement>("main[data-app-main-authenticated]")!.scrollTop : window.scrollY) <= 64,
+    scroll.host, { timeout: 30_000, polling: 100 });
   } catch (error) {
     throw new Error("Fling did not return to the top of the feed", { cause: error });
   }
@@ -155,7 +167,7 @@ export async function fling(session: Session): Promise<Fling> {
   const dropped = trace.traceEvents.filter((event) => event.name === "DroppedFrame").length;
   const displayed = trace.traceEvents.filter((event) => event.name === "Display::FrameDisplayed").length;
   const droppedPct = dropped / Math.max(dropped + displayed, 1) * 100;
-  return page.evaluate(({ before, selector, droppedPct }) => {
+  return page.evaluate(({ before, selector, droppedPct, scrollHost }) => {
     const w = window as typeof window & { __perfHistory: number; __perfFling: { frames: number[]; blocking: number[]; maxRows: number; stop: () => void } };
     const data = w.__perfFling;
     data.stop();
@@ -165,14 +177,13 @@ export async function fling(session: Session): Promise<Fling> {
       over33: sorted.filter((value) => value > 33.4).length / Math.max(sorted.length, 1) * 100, droppedPct,
       blockingMs: data.blocking.reduce((sum, value) => sum + value, 0), maxRows: data.maxRows,
       settledRows: document.querySelectorAll(selector).length,
-      historyWrites: w.__perfHistory - before, frames: sorted.length,
+      historyWrites: w.__perfHistory - before, frames: sorted.length, scrollHost,
     };
-  }, { before, selector: recentRowSelector, droppedPct });
+  }, { before, selector: recentRowSelector, droppedPct, scrollHost: scroll.host });
 }
 
 export async function detailCycles(page: Page, count: number): Promise<number[]> {
-  const main = page.locator("main[data-app-main-authenticated]");
-  await main.evaluate((element) => { element.scrollTop = element.scrollHeight / 2; });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
   await twoFrames(page);
   const mounted = page.locator(`${section} ul > li[aria-posinset]:not([data-perf-clone])`);
   const first = mounted.nth(Math.floor(await mounted.count() / 2));

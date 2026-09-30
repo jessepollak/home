@@ -23,7 +23,7 @@ async function withBuildDir(run) {
 function staticRouteLine(route, dir) {
   const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
   const manifestPath = path.relative(repoRoot, path.join(dir, "prerender-manifest.json")).split(path.sep).join("/");
-  return `${route}: prerendered into the build output (${manifestPath}); every caller would receive the same static response. Its route handler must read the request at run time or declare \`export const dynamic = "force-dynamic"\`. See https://nextjs.org/docs/app/getting-started/route-handlers#with-cache-components\n`;
+  return `${route}: prerendered into the build output (${manifestPath}); every caller would receive the same static response. Its route handler must read the request at run time (the request argument, headers() or cookies()) or call connection(); Cache Components rejects a route segment dynamic export. See https://nextjs.org/docs/app/getting-started/route-handlers#with-cache-components\n`;
 }
 
 test("API prerenders include routes, dynamic routes and not-found routes, sorted and unique", () => {
@@ -44,6 +44,24 @@ test("a seeded static API response fails the build-output check and CLI with gui
     assert.equal(result.status, 1);
     assert.equal(result.stderr, staticRouteLine("/api/savings/vaults", dir));
     assert.equal(result.stdout, "");
+  });
+});
+
+test("a factory-bound GET passes the source half but still fails when its route is prerendered", async () => {
+  assert.deepEqual(routesWithoutDynamicSignal([
+    { path: "apps/web/app/api/balances/route.ts", content: "export const GET = createBalancesHandler({ authorize });" },
+  ]), []);
+  await withBuildDir(async (dir) => {
+    await writeFile(path.join(dir, "prerender-manifest.json"), JSON.stringify({
+      ...emptyManifest, routes: { "/api/balances": { routeType: "route" } },
+    }));
+    const result = await checkApiRoutes(dir);
+    assert.deepEqual(result.prerendered, ["/api/balances"]);
+    assert.deepEqual(result.staticSources, []);
+    const command = runCli(dir);
+    assert.equal(command.status, 1);
+    assert.equal(command.stderr, staticRouteLine("/api/balances", dir));
+    assert.equal(command.stdout, "");
   });
 });
 
@@ -139,6 +157,10 @@ test("source declarations, request parameters and request-time API calls are dyn
     "export const GET: RequestHandler = (request: Request) => Response.json({});",
     "export const POST: (request: Request) => Promise<Response> = async (request: Request) => Response.json({});",
     "export const DELETE = (request: Request) => Response.json({});",
+    "export const GET = createBalancesHandler({ authorize });",
+    "export const GET = handle;\nexport const HEAD = handle;",
+    "export const GET: RequestHandler = factories.read(options);",
+    "export const { GET, PUT } = createSettingsDomainHandlers();",
     ...["headers", "cookies", "connection", "draftMode", "noStore", "unstable_noStore"]
       .map((name) => `export async function GET() { ${name}(); }`),
   ]) {
@@ -189,8 +211,10 @@ test("static sources retain sorted display paths and force-static or unknown-for
     source('export const dynamic = "force-static"; export async function GET(request: Request) {}'),
     { path: "apps/web/app/api/bare/route.ts", content: "export async function GET( ) { return Response.json({}); }" },
     { path: "apps/web/app/api/arrow/route.ts", content: "export const GET = async () => Response.json({});" },
+    { path: "apps/web/app/api/async-call/route.ts", content: "export const GET = async\n() => Response.json({});" },
   ]), [
     { path: "apps/web/app/api/arrow/route.ts", reason: "no request-time read and no dynamic route segment" },
+    { path: "apps/web/app/api/async-call/route.ts", reason: "no request-time read and no dynamic route segment" },
     { path: "apps/web/app/api/bare/route.ts", reason: "no request-time read and no dynamic route segment" },
     { path: "apps/web/app/api/test/route.jsx", reason: "unrecognized route handler form; this gate models only route.ts" },
     { path: "apps/web/app/api/test/route.ts", reason: 'declares `export const dynamic = "force-static"`' },
