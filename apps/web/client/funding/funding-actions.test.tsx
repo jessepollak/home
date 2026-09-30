@@ -22,6 +22,11 @@ await mock.module("next/navigation", () => ({
 const { act, waitFor } = await import("@testing-library/react");
 const { hydrateRoot } = await import("react-dom/client");
 const { FundingActionsForWallet } = await import("./funding-actions");
+// The Add money sheet renders only after this deferred chunk is evaluated, which a loaded
+// shared runner can stretch past Bun's 5 s default watchdog inside a test. Warming the
+// chunk at file load keeps that cost out of the test windows without resolving the sheet's
+// shared loader, so this file's cold-open shell and handoff still run.
+await import("./add-money-dialog");
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 
