@@ -122,5 +122,8 @@ it("preserves exact ordering above safe integers and existing sub-attounit round
   fourth.value = priced("USD", "10000000000000000003", 19);
   const rows = selectOwnedInvestments(buildBalancesSnapshotFixture({ catalog: [fourth, second, third, first] }));
   expect(rows.map((row) => row.key)).toEqual([first.key, second.key, third.key, fourth.key]);
-  expect(rows[2]!.amount).toEqual(rows[3]!.amount);
+  const thirdRow = rows[2];
+  const fourthRow = rows[3];
+  if (!thirdRow || !fourthRow) throw new Error("Missing rounding-tie fixture rows");
+  expect(thirdRow.amount).toEqual(fourthRow.amount);
 });

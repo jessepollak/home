@@ -9,7 +9,7 @@ function rowList(key = "native") {
   label.dataset.holdingKey = key;
   button.append(label);
   list.append(button);
-  return { list, button };
+  return { list, button, label };
 }
 
 function pendingRefresh() {
@@ -20,7 +20,8 @@ function pendingRefresh() {
   panel.append(container);
   document.body.append(panel);
   before.button.focus();
-  const pending = preserveRowFocus(before.list)!;
+  const pending = preserveRowFocus(before.list);
+  if (pending === null) throw new Error("Focused fixture row did not schedule restoration");
   before.list.remove();
   const next = rowList();
   return { panel, container, pending, next };
@@ -59,7 +60,7 @@ for (const interruption of ["focus", "pointer", "keyboard", "hidden", "inert", "
     } else container.append(next.list);
     if (interruption === "failure") pending.cancel();
     if (interruption === "unmount") panel.remove();
-    if (interruption === "removed") next.button.querySelector("span")!.dataset.holdingKey = "other";
+    if (interruption === "removed") next.label.dataset.holdingKey = "other";
     pending.restore(next.list);
     expect(document.activeElement).toBe(document.body);
   });

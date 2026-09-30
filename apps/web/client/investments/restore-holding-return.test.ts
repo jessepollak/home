@@ -8,11 +8,11 @@ let notify = () => {};
 let disconnected = false;
 beforeEach(() => {
   disconnected = false;
-  globalThis.MutationObserver = class {
-    constructor(callback: () => void) { notify = callback; }
+  globalThis.MutationObserver = class extends originalObserver {
+    constructor(callback: MutationCallback) { super(callback); notify = () => callback([], this); }
     observe() {}
     disconnect() { disconnected = true; }
-  } as unknown as typeof MutationObserver;
+  };
 });
 afterEach(() => { globalThis.MutationObserver = originalObserver; });
 
