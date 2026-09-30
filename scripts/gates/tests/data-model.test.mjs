@@ -63,6 +63,40 @@ test("preserves quoted names and non-public schemas as distinct table identities
   assert.deepEqual(documentedTables(`${model}| \`private.actions\` | record | present |\n`), new Set(["private.actions"]));
 });
 
+test("CREATE SCHEMA qualifies bundled tables without affecting later statements or qualified names", () => {
+  const created = migrationTables([{
+    path: "bundled.sql",
+    content: `
+      CREATE SCHEMA bundled
+        CREATE TABLE customers (id int)
+        CREATE TABLE IF NOT EXISTS orders (id int)
+        CREATE TABLE private.other (id int)
+        CREATE TABLE public.explicit_public (id int);
+      CREATE TABLE after_bundle (id int);
+    `,
+  }]);
+  assert.deepEqual([...created.keys()], ["bundled.customers", "bundled.orders", "private.other", "explicit_public", "after_bundle"]);
+});
+
+test("CREATE SCHEMA supports conditional names, authorization roles, and exact public collapsing", () => {
+  for (const [declaration, expected] of [
+    ["private", "private.customers"],
+    ["IF NOT EXISTS private", "private.customers"],
+    ["private AUTHORIZATION owner", "private.customers"],
+    ['IF NOT EXISTS "Private" AUTHORIZATION "Owner"', "Private.customers"],
+    ["AUTHORIZATION owner", "owner.customers"],
+    ['AUTHORIZATION "Owner"', "Owner.customers"],
+    ["IF NOT EXISTS AUTHORIZATION owner", "owner.customers"],
+    ["PUBLIC", "customers"],
+    ['"public" AUTHORIZATION owner', "customers"],
+    ["AUTHORIZATION public", "customers"],
+    ['"PUBLIC"', "PUBLIC.customers"],
+  ]) {
+    const content = `CREATE SCHEMA ${declaration} CREATE TABLE customers (id int); CREATE TABLE later (id int);`;
+    assert.deepEqual([...migrationTables([{ path: "schemas.sql", content }]).keys()], [expected, "later"], declaration);
+  }
+});
+
 test("ignores SQL comments and single-quoted literals without joining tokens", () => {
   const created = migrationTables([{
     path: "comments.sql",
@@ -120,6 +154,34 @@ test("dollar-quoted bodies neither hide later SQL nor hide tables they create", 
     `,
   }]);
   assert.deepEqual([...created.keys()].sort(), ["after_function", "inside_do"]);
+});
+
+test("DO bodies with LANGUAGE before or after the body discover their tables", () => {
+  const created = migrationTables([
+    { path: "word.sql", content: "DO LANGUAGE plpgsql $$BEGIN CREATE TABLE hidden_word (id int); END$$;" },
+    { path: "quoted.sql", content: 'DO LANGUAGE "plpgsql" $$BEGIN CREATE TABLE hidden_quoted (id int); END$$;' },
+    { path: "string.sql", content: "DO LANGUAGE 'plpgsql' $$BEGIN CREATE TABLE hidden_string (id int); END$$;" },
+    { path: "dollar-language.sql", content: "DO LANGUAGE $$plpgsql$$ $b$BEGIN CREATE TABLE hidden_dollar_language (id int); END$b$;" },
+    { path: "after.sql", content: "DO $$BEGIN CREATE TABLE hidden_after (id int); END$$ LANGUAGE plpgsql;" },
+    { path: "literal.sql", content: "DO LANGUAGE plpgsql 'BEGIN CREATE TABLE hidden_literal (id int); END';" },
+  ]);
+  assert.deepEqual([...created.keys()].sort(), ["hidden_after", "hidden_dollar_language", "hidden_literal", "hidden_quoted", "hidden_string", "hidden_word"]);
+});
+
+test("quoted LANGUAGE names are not executable DO bodies", () => {
+  for (const language of [
+    "'CREATE TABLE language_data (id int); SET search_path = private; EXECUTE dynamic_sql;'",
+    "$$CREATE TABLE language_data (id int); SET search_path = private; EXECUTE dynamic_sql;$$",
+  ]) {
+    const scanned = analyzeMigrations([{
+      path: "language.sql",
+      content: `DO LANGUAGE ${language} $b$CREATE TABLE real (id int);$b$;`,
+    }]);
+    assert.deepEqual([...scanned.tables.keys()], ["real"], language);
+    assert.deepEqual(scanned.dynamicSql, [], language);
+    assert.deepEqual(scanned.searchPath, [], language);
+    assert.deepEqual(scanned.unreadable, [], language);
+  }
 });
 
 test("nested dollar-quoted bodies are scanned recursively", () => {
@@ -198,6 +260,203 @@ test("a single-quoted body reports the line of its EXECUTE", () => {
   assert.deepEqual(dynamic.dynamicSql, ["a.sql:2"]);
 });
 
+
+test("reports the SET line for schema and literal-parsing settings and function attributes", () => {
+  for (const content of [
+    "SELECT 1;\nSET search_path = private;",
+    'SELECT 1;\nset "SEARCH_PATH" TO private;',
+    'SELECT 1;\nSET\nLOCAL "search_path" = private;',
+    "SELECT 1;\nSET SESSION search_path TO private;",
+    "SELECT 1;\nSET SCHEMA 'private';",
+    "SELECT 1;\nSET LOCAL SCHEMA 'private';",
+    "SELECT 1;\nSET SESSION SCHEMA 'private';",
+    "SELECT 1;\nSET standard_conforming_strings = off;",
+    "SELECT 1;\nSET LOCAL standard_conforming_strings TO off;",
+    'SELECT 1;\nSET SESSION "STANDARD_CONFORMING_STRINGS" = off;',
+    "CREATE FUNCTION f() RETURNS void\nSET search_path = private AS $$BEGIN END$$ LANGUAGE plpgsql;",
+    'ALTER FUNCTION f()\nSET "Search_Path" = private;',
+  ]) {
+    assert.deepEqual(analyzeMigrations([{ path: "set.sql", content }]).searchPath, ["set.sql:2"], content);
+  }
+});
+
+test("reports set_config calls for protected settings or a non-literal first argument", () => {
+  for (const expression of [
+    "set_config('search_path', 'private', true)",
+    "pg_catalog.set_config(' SEARCH_PATH ', 'private', false)",
+    String.raw`set_config(E'search\x5fpath', 'private', true)`,
+    String.raw`set_config(E'search\u005fpath', 'private', true)`,
+    String.raw`set_config(E'search\U0000005fpath', 'private', true)`,
+    "set_config('standard_conforming_strings', 'off', true)",
+    "pg_catalog.set_config(' STANDARD_CONFORMING_STRINGS ', 'off', false)",
+    String.raw`set_config(E'standard\U0000005fconforming_strings', 'off', true)`,
+    "set_config(setting_name, 'private', true)",
+    "set_config(current_setting('app.setting'), 'private', true)",
+    "set_config($$search_path$$, 'private', true)",
+    "set_config('app.x' || suffix, 'private', true)",
+  ]) {
+    const content = `SELECT 1;\nSELECT ${expression};`;
+    assert.deepEqual(analyzeMigrations([{ path: "config.sql", content }]).searchPath, ["config.sql:2"], expression);
+  }
+});
+
+test("search_path changes in executable bodies retain their line numbers", () => {
+  const scanned = analyzeMigrations([
+    {
+      path: "do.sql",
+      content: "DO LANGUAGE 'plpgsql' $$BEGIN\nSET LOCAL search_path = private;\nPERFORM pg_catalog.set_config('search_path', 'private', true);\nEND$$;",
+    },
+    {
+      path: "function.sql",
+      content: "CREATE FUNCTION f() RETURNS void AS 'BEGIN\nSET SESSION search_path = private;\nPERFORM set_config(''search_path'', ''private'', true);\nEND' LANGUAGE plpgsql;",
+    },
+    {
+      path: "execute.sql",
+      content: "DO $$BEGIN\nEXECUTE 'SELECT 1;\nSET search_path = private;\nSELECT set_config(''search_path'', ''private'', true);';\nEND$$;",
+    },
+    {
+      path: "escaped.sql",
+      content: String.raw`DO $$BEGIN EXECUTE E'SELECT 1;\nSET search_path = private;'; END$$;`,
+    },
+  ]);
+  assert.deepEqual(scanned.searchPath, ["do.sql:2", "do.sql:3", "function.sql:2", "function.sql:3", "execute.sql:3", "execute.sql:4", "escaped.sql:2"]);
+  assert.deepEqual(scanned.dynamicSql, []);
+});
+
+test("UPDATE and conflict assignments do not change settings, but later SET statements do", () => {
+  const scanned = analyzeMigrations([{
+    path: "assignments.sql",
+    content: [
+      "UPDATE settings SET search_path = 'hello';",
+      "INSERT INTO settings(search_path) VALUES ('hello') ON CONFLICT (id) DO UPDATE SET search_path = 'hello';",
+      "UPDATE settings SET standard_conforming_strings = 'hello';",
+      "SET search_path = private;",
+      "CREATE FUNCTION f() RETURNS void SET search_path = private AS $$BEGIN",
+      "UPDATE settings SET search_path = 'hello';",
+      "SET LOCAL SCHEMA 'private';",
+      "END$$ LANGUAGE plpgsql;",
+      "ALTER FUNCTION f() SET search_path = private;",
+      "DO $$BEGIN SET standard_conforming_strings = off;",
+      "INSERT INTO settings(search_path) VALUES ('hello') ON CONFLICT (id) DO UPDATE SET search_path = 'hello';",
+      "SET SESSION search_path = private; END$$;",
+    ].join("\n"),
+  }]);
+  assert.deepEqual(scanned.searchPath, [
+    "assignments.sql:4", "assignments.sql:5", "assignments.sql:7",
+    "assignments.sql:9", "assignments.sql:10", "assignments.sql:12",
+  ]);
+});
+
+test("UPDATE names and locking clauses cannot hide protected SET statements", () => {
+  for (const content of [
+    "DO $$BEGIN IF EXISTS (SELECT 1 FROM t FOR UPDATE) THEN\nSET LOCAL search_path = private; END IF; END$$;",
+    "DO $$DECLARE r record; BEGIN FOR r IN SELECT id FROM t FOR UPDATE LOOP\nSET LOCAL search_path = private; END LOOP; END$$;",
+    "DO $$DECLARE r record; BEGIN FOR r IN SELECT id FROM t FOR NO KEY UPDATE LOOP\nSET LOCAL search_path = private; END LOOP; END$$;",
+    "CREATE FUNCTION private.update() RETURNS void\nSET search_path = private AS $$BEGIN END$$ LANGUAGE plpgsql;",
+    "CREATE FUNCTION f() RETURNS private.update\nSET search_path = private AS $$SELECT NULL::private.update$$ LANGUAGE sql;",
+    'CREATE FUNCTION f() RETURNS "update"\nSET search_path = private AS $$BEGIN END$$ LANGUAGE plpgsql;',
+  ]) {
+    assert.deepEqual(analyzeMigrations([{ path: "update-name.sql", content }]).searchPath, ["update-name.sql:2"], content);
+  }
+});
+
+test("UPDATE assignment detection accepts qualified names, inheritance markers, aliases, and MERGE", () => {
+  for (const content of [
+    "UPDATE ONLY s.t * AS a SET search_path = 'hello';",
+    'UPDATE ONLY "s"."t" * AS "a" SET standard_conforming_strings = \'hello\';',
+    "UPDATE private.update SET search_path = 'hello';",
+    "UPDATE only SET search_path = 'hello';",
+    'UPDATE "as" SET search_path = \'hello\';',
+    "MERGE INTO settings USING source ON settings.id = source.id WHEN MATCHED THEN UPDATE SET search_path = 'hello';",
+  ]) {
+    assert.deepEqual(analyzeMigrations([{ path: "assignments.sql", content }]).searchPath, [], content);
+  }
+});
+
+test("Unicode-escape literals and identifiers are unreadable in migration SQL", () => {
+  for (const content of [
+    String.raw`SELECT 1;
+SELECT U&'search\005fpath';`,
+    String.raw`SELECT 1;
+SELECT u&'standard_conforming_strings';`,
+    String.raw`SELECT 1;
+CREATE TABLE U&"hidden\005ftable" (id int);`,
+    String.raw`SELECT 1;
+CREATE TABLE u&"hidden\005ftable" (id int);`,
+    String.raw`SELECT 1;
+DO LANGUAGE U&'plpgsql' $$BEGIN END$$;`,
+  ]) {
+    assert.deepEqual(analyzeMigrations([{ path: "unicode.sql", content }]).unreadable, ["unicode.sql:2"], content);
+  }
+});
+
+test("Unicode escapes are unreadable inside recursively scanned bodies", () => {
+  const scanned = analyzeMigrations([
+    { path: "do.sql", content: String.raw`DO $$BEGIN
+PERFORM set_config(U&'search\005fpath', 'private', true); END$$;` },
+    { path: "function.sql", content: String.raw`CREATE FUNCTION f() RETURNS void AS 'BEGIN
+CREATE TABLE U&"hidden\005ftable" (id int); END' LANGUAGE plpgsql;` },
+    { path: "execute.sql", content: String.raw`DO $$BEGIN EXECUTE $s$SELECT 1;
+CREATE TABLE u&"hidden\005ftable" (id int);$s$; END$$;` },
+  ]);
+  assert.deepEqual(scanned.unreadable, ["do.sql:2", "function.sql:2", "execute.sql:2"]);
+});
+
+test("newline-concatenated literals are unreadable in data, names, and executable bodies", () => {
+  const scanned = analyzeMigrations([
+    { path: "data.sql", content: "SELECT 'a'\n'b';" },
+    { path: "body.sql", content: "DO 'CREATE '\n'TABLE hidden (id int);';" },
+    { path: "language.sql", content: "DO LANGUAGE 'pl'\n'pgsql' $$BEGIN END$$;" },
+    { path: "config.sql", content: "SELECT set_config('search'\n'_path', 'private', true);" },
+    { path: "execute.sql", content: "DO $$BEGIN EXECUTE 'CREATE '\n'TABLE hidden (id int);'; END$$;" },
+    { path: "function.sql", content: "CREATE FUNCTION f() RETURNS text AS $$SELECT 'a'\r\n'b';$$ LANGUAGE sql;" },
+    { path: "comment.sql", content: "SELECT 'a' /* separator\ncomment */ 'b';" },
+  ]);
+  assert.deepEqual(scanned.unreadable, [
+    "data.sql:2", "body.sql:2", "language.sql:2", "config.sql:2",
+    "execute.sql:2", "function.sql:2", "comment.sql:2",
+  ]);
+});
+
+test("plain literals, separate expressions, comments, and stored SQL text remain readable", () => {
+  const scanned = analyzeMigrations([{
+    path: "readable.sql",
+    content: String.raw`-- U&'ignored' and 'a'
+'ignored in comment'
+/* u&"ignored" and 'a'
+'ignored in comment' */
+SELECT 'a' 'b', 'c',
+'d';
+SELECT 'a' ||
+'b';
+SELECT 'U&''data''', $$U&"stored"$$;
+INSERT INTO templates(body) VALUES ($$SELECT 'a'
+'b';$$);
+DO LANGUAGE $$plpgsql$$ $b$BEGIN PERFORM 'plain'; END$b$;`,
+  }]);
+  assert.deepEqual(scanned.unreadable, []);
+});
+
+test("RESET, other literal settings, comments, string data, and column names are allowed", () => {
+  const scanned = analyzeMigrations([{
+    path: "allowed.sql",
+    content: `
+      RESET search_path;
+      SELECT set_config('app.x', 'value', true), pg_catalog.set_config('app.x', 'value', false);
+      SELECT set_config('app.it''s', 'value', true);
+      -- SET search_path = private; SELECT set_config(setting_name, 'private', true);
+      /* SET LOCAL "search_path" = private; SELECT set_config('search_path', 'private', true); */
+      SELECT 'SET search_path = private; SELECT set_config(''search_path'', ''private'', true);';
+      INSERT INTO templates(body) VALUES ($$SET search_path = private; SELECT set_config(setting_name, 'private', true);$$);
+      CREATE TABLE t ("search_path" text);
+      DO $$BEGIN PERFORM set_config('app.x', 'value', true);
+      INSERT INTO templates(body) VALUES ('SET search_path = private;'); END$$;
+      DO $$BEGIN EXECUTE 'SELECT set_config(''app.x'', ''value'', true);'; END$$;
+    `,
+  }]);
+  assert.deepEqual(scanned.searchPath, []);
+  assert.deepEqual([...scanned.tables.keys()], ["t"]);
+});
 
 test("skips partition children but retains their parent", () => {
   const created = migrationTables([{
@@ -292,9 +551,11 @@ test("only the exact public schema collapses onto an unqualified name", () => {
 });
 
 test("every migration-created table is documented in the repository", () => {
-  const { created, documented, dynamicSql } = repositoryDataModel(repositoryRoot);
+  const { created, documented, dynamicSql, searchPath, unreadable } = repositoryDataModel(repositoryRoot);
   assert.ok(created.size > 10, "migration scan should discover non-trivial table coverage");
   assert.deepEqual(dynamicSql, [], "use a literal EXECUTE or document the table it creates");
+  assert.deepEqual(searchPath, [], "schema-qualify tables instead of changing search_path");
+  assert.deepEqual(unreadable, [], "write plain literals and identifiers the gate can read");
   assert.deepEqual(created.get("funding_orders"), new Set(["apps/web/server/funding/migrations/002_funding_provider_seam.sql"]));
   assert.deepEqual(evaluateDataModel({ created, documented, exemptions: EXEMPTIONS }), {
     undocumented: [],

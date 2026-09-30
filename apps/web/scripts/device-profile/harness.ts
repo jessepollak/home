@@ -1,5 +1,5 @@
-import { frameProblem, partialFeedComplete, round, settledPages, detailPosition, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
-import { activityList, activityPartialSources, activityRecentRows, activityRowCount, activitySurfaces, mergePartialSources, visible } from "./activity-rows";
+import { frameProblem, feedChangeMarker, feedComplete, round, settledPages, unsettledMarker, detailPosition, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
+import { activityList, activityPartialSources, activityReadinessMarkers, activityRecentRows, activityRowCount, activitySurfaces, activityUnsettledSources, mergePartialSources, visible } from "./activity-rows";
 
 const raf = () => new Promise<number>((done, reject) => {
   const onHidden = () => {
@@ -11,10 +11,10 @@ const raf = () => new Promise<number>((done, reject) => {
   requestAnimationFrame((time) => { document.removeEventListener("visibilitychange", onHidden); done(time); });
 });
 const twoFrames = async () => { await raf(); return raf(); };
-async function until(check: () => boolean, seconds = 40, waiting = "expected page state") {
+async function until(check: () => boolean, seconds = 40, waiting: string | (() => string) = "expected page state") {
   const deadline = performance.now() + seconds * 1000;
   while (performance.now() < deadline) { if (check()) return; await raf(); }
-  throw new Error(`Timed out waiting for ${waiting}`);
+  throw new Error(`Timed out waiting for ${typeof waiting === "function" ? waiting() : waiting}`);
 }
 function badge(text: string) {
   let node = document.getElementById("home-device-profile-badge");
@@ -87,21 +87,36 @@ async function calibrate() {
 }
 async function fill() {
   const root = main();
-  await until(() => activitySurfaces(root).some((surface) => surface.querySelectorAll("li").length > 0), 60, "the first activity row to mount");
+  await until(() => activitySurfaces(root).some((surface) => surface.querySelectorAll("li").length > 0), 60, () => {
+    const pending = activityUnsettledSources(root);
+    return pending.length ? `the first activity row to mount (${pending.join(", ")} still loading)` : "the first activity row to mount";
+  });
   let listed = -1, settled = 0;
   await until(() => {
-    if ([...document.querySelectorAll<HTMLElement>('[role="status"]')].some((el) => visible(el) && el.textContent?.includes("End of activity"))) return true;
-    root.scrollTop = root.scrollHeight;
-    const rendered = activitySurfaces(root).reduce((count, surface) => count + surface.querySelectorAll("li").length, 0);
-    settled = settledPages(rendered, listed, settled); listed = rendered;
-    return partialFeedComplete(activityPartialSources(root).length, settled);
-  }, 75, "the activity feed to reach its end");
+    const pending = activityUnsettledSources(root);
+    const end = [...document.querySelectorAll<HTMLElement>('[role="status"]')].some((el) => visible(el) && el.textContent?.includes("End of activity"));
+    if (!end) {
+      root.scrollTop = root.scrollHeight;
+      const rendered = activitySurfaces(root).reduce((count, surface) => count + surface.querySelectorAll("li").length, 0);
+      settled = settledPages(rendered, listed, settled); listed = rendered;
+    }
+    return feedComplete({ pending, end, partialSourceCount: activityPartialSources(root).length, settled });
+  }, 75, () => {
+    const pending = activityUnsettledSources(root);
+    return pending.length ? `every activity source to settle (${pending.join(", ")} still loading)` : "the activity feed to reach its end";
+  });
   const rowsLoaded = activityRowCount(root), detailRows = activityRecentRows(root), partialSource = activityPartialSources(root);
+  partialSource.push(...activityReadinessMarkers(root));
   root.scrollTop = 0;
   await twoFrames();
   return { rowsLoaded, detailRows, partialSource };
 }
-function sourcePartials(before: string[]) { return mergePartialSources(before, activityPartialSources(main())); }
+async function sourcePartials(filled: { rowsLoaded: number; partialSource: string[] }, pending: string[]) {
+  await twoFrames();
+  const changed = feedChangeMarker(filled.rowsLoaded, activityRowCount(main()));
+  const settling = unsettledMarker(pending);
+  return mergePartialSources(filled.partialSource, [...activityPartialSources(main()), ...activityReadinessMarkers(main()), ...changed ? [changed] : [], ...settling ? [settling] : []]);
+}
 async function fling() {
   const root = main();
   for (const destination of [root.scrollHeight - root.clientHeight, 0]) {
@@ -210,14 +225,23 @@ async function probe(period: number) {
     try { traces.push(await measure(fling, period, true)); }
     finally { try { if (extra) root.removeEventListener("scroll", listener); } finally { phases.push(wrapped.finish()); } }
   }
+  const pending = activityUnsettledSources(main());
   const wrapped = wrapReplace();
   try { for (let i = 0; i < 200; i++) { try { history.replaceState(history.state, ""); } catch {} } }
   finally { phases.push(wrapped.finish()); }
-  const result = traces[1]!; result.replaceState = phases; result.scrollDriver = "js"; result.rowsLoaded = filled.rowsLoaded; const partialSource = sourcePartials(filled.partialSource); if (partialSource.length) result.partialSource = partialSource; return result;
+  const result = traces[1]!; result.replaceState = phases; result.scrollDriver = "js"; result.rowsLoaded = filled.rowsLoaded; const partialSource = await sourcePartials(filled, pending); if (partialSource.length) result.partialSource = partialSource; return result;
 }
 async function run(plan: Plan, period: number): Promise<Run> {
   if (plan.workload === "replace-state-probe") return probe(period);
-  if (plan.workload === "home-fling" || plan.workload === "activity-fling") { const filled = await fill(); const run = await measure(fling, period, true); run.scrollDriver = "js"; run.rowsLoaded = filled.rowsLoaded; const partialSource = sourcePartials(filled.partialSource); if (partialSource.length) run.partialSource = partialSource; return run; }
+  if (plan.workload === "home-fling" || plan.workload === "activity-fling") {
+    const filled = await fill();
+    const run = await measure(fling, period, true);
+    const pending = activityUnsettledSources(main());
+    run.scrollDriver = "js"; run.rowsLoaded = filled.rowsLoaded;
+    const partialSource = await sourcePartials(filled, pending);
+    if (partialSource.length) run.partialSource = partialSource;
+    return run;
+  }
   if (plan.workload === "nav-round-trips") {
     await until(() => { try { return !!button("Open Cash"); } catch { return false; } });
     await roundTrip([]);
@@ -230,7 +254,15 @@ async function run(plan: Plan, period: number): Promise<Run> {
       await until(() => !visible(document.querySelector('[role="dialog"]')));
     }
   }, period);
-  if (plan.workload === "activity-detail-open") { const filled = await fill(), run = await measure((feedback) => detail(feedback, filled.detailRows), period, true); run.rowsLoaded = filled.rowsLoaded; const partialSource = sourcePartials(filled.partialSource); if (partialSource.length) run.partialSource = partialSource; return run; }
+  if (plan.workload === "activity-detail-open") {
+    const filled = await fill();
+    const run = await measure((feedback) => detail(feedback, filled.detailRows), period, true);
+    const pending = activityUnsettledSources(main());
+    run.rowsLoaded = filled.rowsLoaded;
+    const partialSource = await sourcePartials(filled, pending);
+    if (partialSource.length) run.partialSource = partialSource;
+    return run;
+  }
   if (plan.workload === "chart-scrub") { const result = await measure(chart, period); return Object.assign(result, { feedback: result.feedbackMs.length ? "readout" : "none" }); }
   badge("Profile recording in 3…");
   await new Promise<void>((done) => setTimeout(done, 3000));

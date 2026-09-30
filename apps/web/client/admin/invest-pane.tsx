@@ -10,6 +10,7 @@ import { formatPresentationDate } from "@/shared/formatting";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseOperatorSettingsErrorResponse, parseSettingsResponse, type SettingsEntry } from "@/shared/operator-settings/contract";
 import { parseInvestSettings, parseInvestSettingsWrite, type InvestSettings } from "@/shared/operator-settings/invest";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
+import { readJson } from "@/shared/http/read-json";
 
 type InvestEntry = SettingsEntry<InvestSettings>["settings"];
 
@@ -77,7 +78,7 @@ export function InvestPane({ initialEntry, operator }: { initialEntry: InvestEnt
         headers,
         body: JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: baseline.revision, value: draft, operator }),
       });
-      const body: unknown = await response.json().catch(() => null);
+      const body: unknown = await readJson(response).catch(() => null);
       if (response.ok) {
         const next = readEntry(body);
         if (!next) throw new Error("Invalid settings response");

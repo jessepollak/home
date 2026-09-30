@@ -1,9 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import type { ReactElement } from "react";
-import { renderToString } from "react-dom/server";
-import type { Root } from "react-dom/client";
+import { hydrateServerRender } from "@/tests/helpers/hydration";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
@@ -20,8 +18,12 @@ await mock.module("next/navigation", () => ({
 }));
 
 const { act, waitFor } = await import("@testing-library/react");
-const { hydrateRoot } = await import("react-dom/client");
 const { FundingActionsForWallet } = await import("./funding-actions");
+// The Add money sheet renders only after this deferred chunk is evaluated, which a loaded
+// shared runner can stretch past Bun's 5 s default watchdog inside a test. Warming the
+// chunk at file load keeps that cost out of the test windows without resolving the sheet's
+// shared loader, so this file's cold-open shell and handoff still run.
+await import("./add-money-dialog");
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 
@@ -50,28 +52,6 @@ function verifiedWallet(): FundingWallet {
   };
 }
 
-async function hydrateFundingActions(element: ReactElement) {
-  const serverMarkup = renderToString(element);
-  const container = document.createElement("div");
-  container.innerHTML = serverMarkup;
-  document.body.append(container);
-  const hydrationErrors: unknown[] = [];
-  let root!: Root;
-
-  await act(async () => {
-    root = hydrateRoot(container, element, {
-      onRecoverableError: (error) => hydrationErrors.push(error),
-    });
-  });
-
-  return { container, hydrationErrors, root, serverMarkup };
-}
-
-async function unmount(root: Root, container: HTMLElement) {
-  await act(async () => root.unmount());
-  container.remove();
-}
-
 afterEach(() => {
   replaceCalls.length = 0;
   getHomeQueryClient().clear();
@@ -81,7 +61,7 @@ afterEach(() => {
 
 describe("FundingActions hydration", () => {
   test("hydrates a Coinbase return and settles on the Receive portal", async () => {
-    const fixture = await hydrateFundingActions(
+    const fixture = await hydrateServerRender(
       <FundingActionsForWallet wallet={verifiedWallet()} returnedFromProvider />,
     );
 
@@ -98,7 +78,7 @@ describe("FundingActions hydration", () => {
       expect(drawer?.textContent).toContain("0x1111…111111");
       expect(drawer?.closest(".action-row")).toBeNull();
     } finally {
-      await unmount(fixture.root, fixture.container);
+      await fixture.unmount();
     }
   });
 
@@ -111,7 +91,7 @@ describe("FundingActions hydration", () => {
       if (path.startsWith("/api/funding/orders?")) return { version: FUNDING_OPEN_ORDER_VERSION, order: { id: "11111111-1111-4111-8111-111111111111", providerId: "ripio", state: "awaiting-payment", fiatAmount: "1000", providerStatus: null, instructions: null } };
       throw new Error(`unexpected request: ${path}`);
     } };
-    const fixture = await hydrateFundingActions(<FundingActionsForWallet wallet={wallet} regionId="AR" />);
+    const fixture = await hydrateServerRender(<FundingActionsForWallet wallet={wallet} regionId="AR" />);
 
     try {
       expect(fixture.hydrationErrors).toEqual([]);
@@ -120,7 +100,7 @@ describe("FundingActions hydration", () => {
       await waitFor(() => expect(document.body.querySelector('[data-slot="drawer-popup"]')?.textContent).toContain("Deposit pending"));
       expect(requests.every((path) => path.startsWith("/api/funding/providers?") || path.startsWith("/api/funding/orders?"))).toBe(true);
     } finally {
-      await unmount(fixture.root, fixture.container);
+      await fixture.unmount();
       window.history.replaceState(null, "", "/home");
     }
   });
@@ -130,7 +110,7 @@ describe("FundingActions hydration", () => {
     const back = mock(() => {});
     const originalBack = window.history.back;
     Object.defineProperty(window.history, "back", { configurable: true, value: back });
-    const fixture = await hydrateFundingActions(
+    const fixture = await hydrateServerRender(
       <FundingActionsForWallet wallet={verifiedWallet()} initialFlow="add-money" />,
     );
 
@@ -150,7 +130,7 @@ describe("FundingActions hydration", () => {
       expect(`${window.location.pathname}${window.location.search}`).toBe("/home");
     } finally {
       Object.defineProperty(window.history, "back", { configurable: true, value: originalBack });
-      await unmount(fixture.root, fixture.container);
+      await fixture.unmount();
     }
   });
 });

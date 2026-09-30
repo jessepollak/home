@@ -153,6 +153,10 @@ export const frameProblem = (sampleCount: number) => sampleCount > 0 ? null : "N
 export const resultFailure = (result: Result) => result.error ?? (result.runs.length === result.plan.repeat ? null : `Incomplete result: ${result.runs.length}/${result.plan.repeat} runs`);
 export const settledPages = (listed: number, previous: number, settled: number) => listed === previous ? settled + 1 : 0;
 export const partialFeedComplete = (partialSourceCount: number, settled: number) => partialSourceCount > 0 && settled >= 2;
+export const feedComplete = (state: { pending: readonly string[]; end: boolean; partialSourceCount: number; settled: number }): boolean =>
+  state.pending.length === 0 && (state.end || partialFeedComplete(state.partialSourceCount, state.settled));
+export const feedChangeMarker = (before: number, after: number) => before === after ? null : `The measured activity feed changed during the run (${before} to ${after} rows)`;
+export const unsettledMarker = (pending: readonly string[]) => pending.length ? `The activity feed was still loading when the run ended (${pending.join(", ")})` : null;
 export function summarize(results: Result[], markdown = false) {
   const lines = ["Device | Workload | Rows | Period ms | Missed % | Long frames | p95 ms | Feedback median ms | Script/Style/Layout/Paint ms | replaceState errors | Partial | Status"];
   const cell = (text: string) => text.replace(/\s*[|\r\n]+\s*/g, " ").slice(0, 80);

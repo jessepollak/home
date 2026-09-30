@@ -8,6 +8,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { BALANCES_VERSION } from "@/shared/balances/types";
 import { dataOwnerKey } from "./owner-keys";
+import { hydrateServerRender } from "@/tests/helpers/hydration";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const { Suspense, startTransition, useEffect, useLayoutEffect, useState } = await import("react");
@@ -124,9 +125,13 @@ function sdk(overrides: Partial<AccountWalletSdkBoundary> = {}): AccountWalletSd
 }
 
 let observedClient: AccountWalletClient | null = null;
+const observedStatuses: string[] = [];
 function ClientProbe() {
   const client = useAccountWallet();
-  useEffect(() => { observedClient = client; }, [client]);
+  useEffect(() => {
+    observedClient = client;
+    if (!observedStatuses.includes(client.status)) observedStatuses.push(client.status);
+  }, [client]);
   return <output data-testid="status">{client.status}</output>;
 }
 
@@ -203,12 +208,35 @@ const triggerRows: Array<{
 afterEach(() => {
   cleanup();
   observedClient = null;
+  observedStatuses.length = 0;
   getHomeQueryClient().clear();
   window.sessionStorage.clear();
   window.localStorage.clear();
 });
 
 describe("owner generation fence", () => {
+  test("hydrates with a client-only SDK boundary without regenerating the client tree", async () => {
+    const sessionFetch = async () => Response.json(session("cdp-embedded"));
+    const owner = (boundary: AccountWalletSdkBoundary) => (
+      <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}>
+        <ClientProbe />
+      </AccountWalletSessionOwner>
+    );
+    const fixture = await hydrateServerRender(
+      owner(sdk({ isInitialized: false, isSignedIn: false, ownerKey: null })),
+      { clientElement: owner(sdk()) },
+    );
+
+    try {
+      expect(fixture.serverMarkup).toContain('<output data-testid="status">restoring</output>');
+      expect(fixture.hydrationErrors).toEqual([]);
+      await waitFor(() => expect(currentClient().status).toBe("verified"));
+      expect(observedStatuses).toContain("validating");
+    } finally {
+      await fixture.unmount();
+    }
+  });
+
   test("signs and submits the canonical SIWE message only for an unsupported connection", async () => {
     const loginChallenge = {
       nonce: "a".repeat(48),

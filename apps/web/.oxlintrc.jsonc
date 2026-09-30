@@ -235,9 +235,9 @@
         "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.ts",
-        "next.config.ts",
-        "proxy.ts"
+        "./instrumentation*.ts",
+        "./next.config.ts",
+        "./proxy.ts"
       ],
       "excludeFiles": [
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
@@ -256,21 +256,44 @@
         "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "next.config.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "proxy.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/tests/**",
         "**/testing/**",
         "**/explorations/**",
-        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-exploration-imports": "error",
+        "home/no-test-support-imports": "error",
         "home/no-full-portfolio-presentation": "error"
+      }
+    },
+    {
+      "files": ["{app,client,server}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**",
+        "**/*test-harness.{ts,tsx}",
+        "**/*smoke-fixture*.{ts,tsx}"
+      ],
+      "rules": {
+        "typescript/no-unsafe-assignment": "error",
+        "typescript/no-unsafe-return": "error"
       }
     },
     {
@@ -502,7 +525,7 @@
     {
       "files": [
         "{app,client,components,config,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.ts"
+        "./instrumentation*.ts"
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -533,9 +556,9 @@
     {
       "files": [
         "{app,client,components,config,lib,server,shared,types}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.ts",
-        "next.config.ts",
-        "proxy.ts"
+        "./instrumentation*.ts",
+        "./next.config.ts",
+        "./proxy.ts"
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",

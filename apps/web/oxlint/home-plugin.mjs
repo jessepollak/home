@@ -8,6 +8,7 @@ import {
   noServerClientImports,
   noSharedRuntimeImports,
   noStorybookImports,
+  noTestSupportImports,
 } from "./rules/imports.mjs";
 import { requireServerOnly } from "./rules/server-only.mjs";
 import { noDescendantHas, noImportantUtilities, noLiteralUtilityStyles } from "./rules/styles.mjs";
@@ -49,6 +50,7 @@ const homePlugin = {
   rules: {
     "no-storybook-imports": noStorybookImports,
     "no-exploration-imports": noExplorationImports,
+    "no-test-support-imports": noTestSupportImports,
     "no-client-server-imports": noClientServerImports,
     "no-server-client-imports": noServerClientImports,
     "no-shared-runtime-imports": noSharedRuntimeImports,

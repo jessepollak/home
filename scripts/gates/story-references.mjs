@@ -1,5 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join, relative, extname } from "node:path";
+
+const requireWeb = createRequire(new URL("../../apps/web/package.json", import.meta.url));
+const { loadCsf } = requireWeb("storybook/internal/csf-tools");
+const { babelParse, traverse, types: t } = requireWeb("storybook/internal/babel");
 
 const storyExtensions = new Set([".js", ".jsx", ".mjs", ".ts", ".tsx"]);
 export const storyGlobs = [
@@ -7,427 +12,420 @@ export const storyGlobs = [
   "../stories/**/*.stories.@(js|jsx|mjs|ts|tsx)",
 ];
 
-export function sanitize(value) {
-  return value.toLowerCase().replace(/[ ’–—―′¿'`~!@#$%^&*()_|+\-=?;:'",.<>\{\}\[\]\\\/]/gi, "-")
-    .replace(/-+/g, "-").replace(/^-+/, "").replace(/-+$/, "");
+function unwrapExpression(node) {
+  while (node && ["TSAsExpression", "TSSatisfiesExpression", "TSTypeAssertion", "TSNonNullExpression", "ParenthesizedExpression"].includes(node.type)) node = node.expression;
+  return node;
 }
 
-export function storyNameFromExport(key) {
-  return key.replace(/[_\-.]/g, " ").replace(/([^\n])([A-Z])([a-z])/g, "$1 $2$3")
-    .replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([a-z])([0-9])/gi, "$1 $2")
-    .replace(/([0-9])([a-z])/gi, "$1 $2").replace(/(\s|^)(\w)/g, (_, space, char) => space + char.toUpperCase())
-    .replace(/\s+/g, " ").trim();
+function memberNamed(node, name) {
+  return (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) && (node.computed
+    ? t.isStringLiteral(node.property, { value: name }) : t.isIdentifier(node.property, { name }));
 }
 
-export function toId(kind, exportName) {
-  return `${sanitize(kind)}--${sanitize(storyNameFromExport(exportName))}`;
+function safeParameters(node) {
+  return t.isObjectExpression(node) && node.properties.every((property) =>
+    !t.isSpreadElement(property) && !property.computed &&
+    !t.isIdentifier(property.key, { name: "__id" }) && !t.isStringLiteral(property.key, { value: "__id" }));
 }
 
-// Tokenize only the JavaScript structure needed for CSF: quoted content, comments,
-// and template literals cannot contribute braces or export declarations.
-function decodeStringLiteral(raw, closed) {
-  if (!closed || raw.length < 2) return null;
-  let value = "";
-  for (let i = 1; i < raw.length - 1; i++) {
-    const char = raw[i];
-    if (["\n", "\r", "\u2028", "\u2029"].includes(char)) return null;
-    if (char !== "\\") { value += char; continue; }
-    const escape = raw[++i];
-    if (["\n", "\u2028", "\u2029"].includes(escape)) continue;
-    if (escape === "\r") { if (raw[i + 1] === "\n") i++; continue; }
-    const simple = { "\\": "\\", "'": "'", '"': '"', n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", v: "\v" };
-    if (Object.hasOwn(simple, escape)) { value += simple[escape]; continue; }
-    if (escape === "0" && !/[0-9]/.test(raw[i + 1] ?? "")) { value += "\0"; continue; }
-    if (escape === "x" || escape === "u") {
-      if (escape === "u" && raw[i + 1] === "{") {
-        const end = raw.indexOf("}", i + 2);
-        const digits = raw.slice(i + 2, end);
-        if (end < 0 || !/^[0-9a-f]+$/i.test(digits)) return null;
-        const codePoint = Number.parseInt(digits, 16);
-        if (codePoint > 0x10ffff) return null;
-        value += String.fromCodePoint(codePoint);
-        i = end;
-      } else {
-        const digits = raw.slice(i + 1, i + (escape === "x" ? 3 : 5));
-        if (!(escape === "x" ? /^[0-9a-f]{2}$/i : /^[0-9a-f]{4}$/i).test(digits)) return null;
-        value += String.fromCharCode(Number.parseInt(digits, 16));
-        i += digits.length;
-      }
-      continue;
-    }
-    if (escape === undefined || /[0-9]/.test(escape)) return null;
-    value += escape;
+function indexerStoryNode(node) {
+  if (t.isTSAsExpression(node) && t.isTSSatisfiesExpression(node.expression)) return node.expression.expression;
+  if (t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node)) return node.expression;
+  return node;
+}
+
+function definitelyNotObject(node) {
+  const current = unwrapExpression(node);
+  return t.isLiteral(current) || t.isTemplateLiteral(current) || t.isArrayExpression(current) || t.isFunction(current) ||
+    t.isBinaryExpression(current) || t.isUnaryExpression(current) || t.isUpdateExpression(current);
+}
+
+function propertyName(property) {
+  return t.isIdentifier(property.key) ? property.key.name : t.isStringLiteral(property.key) ? property.key.value : null;
+}
+
+function identityWrite(target) {
+  for (let node = target; t.isMemberExpression(node) || t.isOptionalMemberExpression(node); node = unwrapExpression(node.object)) {
+    if (memberNamed(node, "parameters") || memberNamed(node, "story") || memberNamed(node, "__id")) return true;
+    if (node.computed && !t.isStringLiteral(node.property)) return true;
   }
-  return value;
+  return false;
 }
 
-const identifierStart = /[$_\p{ID_Start}]/u;
-const identifierContinue = /[$_\p{ID_Continue}]/u;
-
-function identifierEscape(source, start) {
-  const match = /^\\u(?:[0-9a-f]{4}|\{[0-9a-f]+\})/i.exec(source.slice(start));
-  if (!match) return null;
-  const raw = match[0];
-  const codePoint = Number.parseInt(raw.startsWith("\\u{") ? raw.slice(3, -1) : raw.slice(2), 16);
-  return codePoint <= 0x10ffff ? { value: String.fromCodePoint(codePoint), length: raw.length } : null;
-}
-
-const regexPrefixPunct = new Set("=!&|?+-*%^~<>,:;[({");
-const regexPrefixWords = new Set([
-  "return", "throw", "typeof", "case", "in", "of", "do", "else", "yield", "await", "void", "delete", "instanceof", "new",
-]);
-
-function typeParametersEnd(source, start) {
-  const first = /^<([A-Za-z_$][\w$]*)(?=\s*(?:,|extends\b|>))/.exec(source.slice(start));
-  if (!first) return null;
-  let depth = 1;
-  let braces = 0;
-  for (let i = start + first[0].length; i < source.length; i++) {
-    const char = source[i];
-    if (char === "'" || char === '"' || char === "`") {
-      const quote = char;
-      while (++i < source.length && source[i] !== quote) if (source[i] === "\\") i++;
-      if (i >= source.length) return null;
-    } else if (char === "{" && source.slice(start, i).trimEnd().endsWith("=")) return null;
-    else if (char === "{") braces++;
-    else if (char === "}" && --braces < 0) return null;
-    else if (char === "/") return null;
-    else if (braces === 0 && char === "<") depth++;
-    else if (braces === 0 && char === ">") {
-      if (--depth === 0) return /^\s*\(/.test(source.slice(i + 1)) ? i + 1 : null;
+function writtenBindings(programPath) {
+  const written = new Set();
+  const aliases = new Map();
+  const aliasSources = (node) => {
+    const current = unwrapExpression(node);
+    if (t.isIdentifier(current)) return [current];
+    if (t.isSequenceExpression(current) && current.expressions.length) return aliasSources(current.expressions.at(-1));
+    if (t.isConditionalExpression(current) || t.isLogicalExpression(current)) {
+      return [...aliasSources(current.consequent ?? current.left), ...aliasSources(current.alternate ?? current.right)];
     }
-  }
-  return null;
-}
-
-function jsxEnd(source, start) {
-  let i = start;
-  const elements = [];
-  while (i < source.length) {
-    if (source[i] === "<") {
-      const tag = /^<(\/?)((?:[A-Za-z_$][\w.$:-]*)?)/.exec(source.slice(i));
-      if (!tag) return null;
-      const [, closing, name] = tag;
-      if (!closing && !name && source[i + tag[0].length] !== ">") return null;
-      i += tag[0].length;
-      if (!closing && name && source[i] === "<") {
-        let depth = 0;
-        while (i < source.length) {
-          if (source[i] === "'" || source[i] === '"' || source[i] === "`") {
-            const quote = source[i++];
-            while (i < source.length && source[i] !== quote) i += source[i] === "\\" ? 2 : 1;
-            if (i >= source.length) return null;
-          } else if (source[i] === "<") depth++;
-          else if (source[i] === ">" && --depth === 0) { i++; break; }
-          i++;
-        }
-        if (depth !== 0) return null;
-      }
-      let selfClosing = false;
-      while (i < source.length) {
-        if (source.startsWith("/>", i) && !closing) { selfClosing = true; i += 2; break; }
-        if (source[i] === ">") { i++; break; }
-        if (closing || source[i] === "<") return null;
-        if (source[i] === "{") {
-          const end = tokens(source, i + 1, true);
-          if (end === null) return null;
-          i = end + 1;
-          continue;
-        }
-        if (source[i] === "'" || source[i] === '"') {
-          const quote = source[i++];
-          while (i < source.length && source[i] !== quote) i += source[i] === "\\" ? 2 : 1;
-          if (i >= source.length) return null;
-          i++;
-          continue;
-        }
-        if (!/[\s\w.$:=\-]/.test(source[i])) return null;
-        i++;
-      }
-      if (i > source.length || source[i - 1] !== ">") return null;
-      if (closing) {
-        if (elements.pop() !== name) return null;
-        if (elements.length === 0) return i;
-      } else if (!selfClosing) elements.push(name);
-      else if (elements.length === 0) return i;
-      continue;
-    }
-    if (source[i] === "{") {
-      const end = tokens(source, i + 1, true);
-      if (end === null) return null;
-      i = end + 1;
-    } else i++;
-  }
-  return null;
-}
-
-function tokens(source, offset = 0, stopAtBrace = false) {
-  const result = [];
-  const parens = [];
-  const braces = [];
-  let i = offset;
-  while (i < source.length) {
-    const start = i;
-    const char = source[i];
-    if (/\s/.test(char)) { i++; continue; }
-    if (source.startsWith("//", i)) { i = source.indexOf("\n", i + 2); if (i < 0) break; continue; }
-    if (source.startsWith("/*", i)) { const end = source.indexOf("*/", i + 2); i = end < 0 ? source.length : end + 2; continue; }
-    const previous = result.at(-1);
-    const expressionPosition = previous === undefined || previous.type === "punct" &&
-      (regexPrefixPunct.has(previous.value) || previous.value === ")" && previous.controlClose ||
-        previous.value === "}" && previous.blockClose || previous.value === "." && result.at(-2)?.value === "." && result.at(-3)?.value === ".") ||
-      previous.type === "word" && regexPrefixWords.has(previous.value) && result.at(-2)?.value !== ".";
-    if (char === "<" && expressionPosition && previous?.value !== "<" && /^<(?:[A-Za-z_$]|>)/.test(source.slice(i))) {
-      if (typeParametersEnd(source, i) === null) {
-        const end = jsxEnd(source, i);
-        if (end === null) { result.push({ value: null, type: "unmodeledJsx", start }); break; }
-        result.push({ value: null, type: "jsx", start });
-        i = end;
-        continue;
-      }
-    }
-    if (char === "/" && expressionPosition) {
-      i++;
-      let inClass = false;
-      let closed = false;
-      while (i < source.length && source[i] !== "\n") {
-        if (source[i] === "\\") { i += 2; continue; }
-        if (source[i] === "[") inClass = true;
-        if (source[i] === "]") inClass = false;
-        if (source[i++] === "/" && !inClass) { closed = true; break; }
-      }
-      while (i < source.length && /[a-z]/i.test(source[i])) i++;
-      const raw = source.slice(start, i);
-      const delimiter = closed ? raw.lastIndexOf("/") : -1;
-      result.push({ value: null, type: "regex", start, source: delimiter > 0 ? raw.slice(1, delimiter) : null, flags: delimiter > 0 ? raw.slice(delimiter + 1) : null });
-      continue;
-    }
-    if (char === "'" || char === '"' || char === "`") {
-      i++;
-      let closed = false;
-      while (i < source.length) {
-        if (source[i] === "\\") { i += 2; continue; }
-        if (source[i++] === char) { closed = true; break; }
-      }
-      const raw = source.slice(start, i);
-      result.push({ value: char === "`" ? null : decodeStringLiteral(raw, closed), type: char === "`" ? "template" : "string", start });
-      continue;
-    }
-    const first = String.fromCodePoint(source.codePointAt(i));
-    if (identifierStart.test(first) || char === "\\") {
-      let value = "";
-      let valid = true;
-      while (i < source.length) {
-        const escaped = source[i] === "\\";
-        const part = escaped ? identifierEscape(source, i) : { value: String.fromCodePoint(source.codePointAt(i)) };
-        if (!part) { valid = false; break; }
-        if (!(value ? identifierContinue : identifierStart).test(part.value)) {
-          if (escaped) valid = false;
-          break;
-        }
-        value += part.value;
-        i += escaped ? part.length : part.value.length;
-      }
-      if (!valid) {
-        result.push({ value: null, type: "invalidIdentifier", start });
-        i++;
-      } else result.push({ value, type: "word", start });
-      continue;
-    }
-    if (char === "}" && stopAtBrace && braces.length === 0) return i;
-    if (char === "(") parens.push(["if", "while", "for", "with"].includes(previous?.value));
-    const controlClose = char === ")" ? parens.pop() : false;
-    if (char === "{") braces.push(previous?.value === ")" && previous.controlClose ||
-      previous?.value === ")" && result.slice(-8).some((token) => token.value === "function") ||
-      ["else", "do", "try", "finally"].includes(previous?.value) ||
-      previous === undefined || previous?.value === ";" || previous?.blockClose);
-    const blockClose = char === "}" ? braces.pop() : false;
-    result.push({ value: char, type: "punct", start, controlClose, blockClose });
-    i++;
-  }
-  return stopAtBrace ? null : result;
-}
-
-function matchingEnd(items, start, open, close) {
-  let depth = 0;
-  for (let i = start; i < items.length; i++) {
-    if (items[i].value === open && items[i].type === "punct") depth++;
-    if (items[i].value === close && items[i].type === "punct" && --depth === 0) return i;
-  }
-  return -1;
-}
-
-function storyFilter(items) {
-  if (items.length === 1 && (items[0].type === "regex" || items[0].type === "string")) {
-    const { type, value, source, flags } = items[0];
-    if (type === "regex" && source === null || type === "string" && value === null) return { type: "unsupported" };
-    const pattern = type === "string" ? value : source;
-    try { new RegExp(pattern, type === "string" ? undefined : flags); } catch { return { type: "unsupported" }; }
-    return { type: "regex", source: pattern, flags: type === "string" ? undefined : flags };
-  }
-  if (items[0]?.value !== "[" || matchingEnd(items, 0, "[", "]") !== items.length - 1) return { type: "unsupported" };
-  const values = [];
-  for (let i = 1; i < items.length - 1;) {
-    if (items[i].type !== "string" || items[i].value === null) return { type: "unsupported" };
-    values.push(items[i++].value);
-    if (i === items.length - 1) break;
-    if (items[i++].value !== ",") return { type: "unsupported" };
-  }
-  return values;
-}
-
-function metaFields(items, start) {
-  const end = matchingEnd(items, start, "{", "}");
-  const fields = new Map();
-  // An unterminated regex literal can swallow the meta's closing brace; still name the filter
-  // that could not be modeled instead of reporting only a missing id or title.
-  if (end < 0) {
-    for (let i = start + 1; i < items.length - 2; i++) {
-      if (items[i].type === "word" && ["includeStories", "excludeStories"].includes(items[i].value) && items[i + 1]?.value === ":" &&
-        items[i + 2]?.type === "regex" && items[i + 2].source === null) {
-        fields.set(items[i].value, { type: "unsupported" });
-      }
-    }
-    return fields;
-  }
-  for (let i = start + 1; i < end;) {
-    const key = items[i];
-    if (items[i + 1]?.value !== ":" || key.type !== "word") {
-      if (key.type === "word" && ["includeStories", "excludeStories"].includes(key.value)) fields.set(key.value, { type: "unsupported" });
-      i++;
-      continue;
-    }
-    const valueStart = i + 2;
-    // Skip the entire value before inspecting the next top-level key.
-    i = valueStart;
-    i = valueStart;
-    const stack = [];
-    for (; i < end; i++) {
-      const token = items[i];
-      if (token.type !== "punct") continue;
-      if (["{", "[", "("].includes(token.value)) stack.push(token.value);
-      else if (["}", "]", ")"].includes(token.value)) stack.pop();
-      else if (token.value === "," && stack.length === 0) break;
-    }
-    if (["id", "title"].includes(key.value)) {
-      const value = items.slice(valueStart, i);
-      fields.set(key.value, value.length === 1 && value[0].type === "string" ? value[0].value : { type: "unsupported" });
-    }
-    if (["includeStories", "excludeStories"].includes(key.value)) fields.set(key.value, storyFilter(items.slice(valueStart, i)));
-    if (items[i]?.value === ",") i++;
-  }
-  return fields;
-}
-
-function variableDeclarators(items, start, source) {
-  const declarations = [];
-  let segment = start + 1;
-  let equals = -1;
-  let annotated = false;
-  let angleDepth = 0;
-  const stack = [];
-  const finish = (end) => {
-    if (items[segment]?.type === "word" && equals >= 0) {
-      declarations.push({ name: items[segment].value, objectStart: items[equals + 1]?.value === "{" ? equals + 1 : -1 });
-    }
-    segment = end + 1;
-    equals = -1;
-    annotated = false;
-    angleDepth = 0;
+    return [];
   };
-  for (let i = segment; i < items.length; i++) {
-    const token = items[i];
-    if (stack.length === 0 && angleDepth === 0 && equals >= 0 && i > equals + 1 &&
-      token.type === "word" && ["export", "const", "let", "var", "function", "class", "type", "interface"].includes(token.value) &&
-      !["=", ",", ".", "?", ":", "+", "-", "*", "/", "|", "&", "^", "<"].includes(items[i - 1].value) &&
-      !(items[i - 1].value === ">" && items[i - 2]?.value === "=") &&
-      /[\r\n\u2028\u2029]/.test(source.slice(items[i - 1].start, token.start))) {
-      finish(i - 1);
-      return { declarations, end: i - 1 };
+  const addAlias = (scope, left, right) => {
+    const target = unwrapExpression(left);
+    if (!t.isIdentifier(target)) return;
+    const targetBinding = scope.getBinding(target.name);
+    if (!targetBinding) return;
+    for (const source of aliasSources(right)) {
+      const sourceBinding = scope.getBinding(source.name);
+      if (!sourceBinding) continue;
+      for (const [from, to] of [[targetBinding, sourceBinding], [sourceBinding, targetBinding]]) {
+        const edges = aliases.get(from) ?? new Set();
+        edges.add(to);
+        aliases.set(from, edges);
+      }
     }
-    if (token.type !== "punct") continue;
-    if (annotated && stack.length === 0 && token.value === "<") angleDepth++;
-    else if (annotated && stack.length === 0 && token.value === ">" && items[i - 1]?.value !== "=" && angleDepth > 0) angleDepth--;
-    else if (["{", "[", "("].includes(token.value)) stack.push(token.value);
-    else if (["}", "]", ")"].includes(token.value)) stack.pop();
-    else if (stack.length === 0 && angleDepth === 0) {
-      if (token.value === ":" && i === segment + 1) annotated = true;
-      else if (token.value === "=" && equals < 0 && items[i + 1]?.value !== ">") { equals = i; annotated = false; }
-      else if (token.value === ";") { finish(i); return { declarations, end: i }; }
-      else if (token.value === "," && !annotated) finish(i);
+  };
+  const record = (path, node) => {
+    for (const target of memberWriteTargets(node)) {
+      if (!identityWrite(target)) continue;
+      let root = target;
+      while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) root = unwrapExpression(root.object);
+      if (!t.isIdentifier(root)) continue;
+      const binding = path.scope.getBinding(root.name);
+      if (binding) written.add(binding);
     }
+  };
+  programPath.traverse({
+    VariableDeclarator(path) { addAlias(path.scope, path.node.id, path.node.init); },
+    AssignmentExpression(path) { record(path, path.node.left); addAlias(path.scope, path.node.left, path.node.right); },
+    UpdateExpression(path) { record(path, path.node.argument); },
+    UnaryExpression(path) { if (path.node.operator === "delete") record(path, path.node.argument); },
+    "ForInStatement|ForOfStatement"(path) { record(path, path.node.left); },
+  });
+  const queue = [...written];
+  while (queue.length) {
+    for (const alias of aliases.get(queue.pop()) ?? []) if (!written.has(alias) && written.add(alias)) queue.push(alias);
   }
-  if (stack.length === 0) finish(items.length);
-  return { declarations, end: items.length - 1 };
+  return written;
 }
 
-function objectField(items, start, name) {
-  const end = matchingEnd(items, start, "{", "}");
-  if (end < 0) return null;
-  for (let i = start + 1; i < end;) {
-    const key = items[i];
-    const valueStart = i + 2;
-    let next = valueStart;
-    const stack = [];
-    for (; next < end; next++) {
-      const token = items[next];
-      if (token.type !== "punct") continue;
-      if (["{", "[", "("].includes(token.value)) stack.push(token.value);
-      else if (["}", "]", ")"].includes(token.value)) stack.pop();
-      else if (token.value === "," && stack.length === 0) break;
+// A local that is reassigned or mutated can gain an `__id` the static index cannot see.
+function unstableIdentifier(node, scope, written) {
+  const current = unwrapExpression(node);
+  if (!t.isIdentifier(current)) return false;
+  const binding = scope.getBinding(current.name);
+  return Boolean(binding) && (!binding.constant || written.has(binding));
+}
+
+// Resolve a chain of local aliases to the object literal it ends at, without recursing.
+function literalObject(node, scope, seen) {
+  const chain = [];
+  try {
+    let current = unwrapExpression(node);
+    while (!t.isObjectExpression(current)) {
+      if (!t.isIdentifier(current) || seen.has(current)) return null;
+      const binding = scope.getBinding(current.name);
+      if (!binding || seen.has(binding) || !binding.constant || !t.isVariableDeclarator(binding.path.node) ||
+        !t.isIdentifier(binding.path.node.id)) return null;
+      seen.add(binding);
+      chain.push(binding);
+      scope = binding.path.scope;
+      current = unwrapExpression(binding.path.node.init);
     }
-    if (key.type === "word" && key.value === name && items[i + 1]?.value === ":") return items.slice(valueStart, next);
-    i = next + 1;
+    return current;
+  } finally {
+    for (const binding of chain) seen.delete(binding);
   }
+}
+
+// Every object literal an initializer can evaluate to, or null when it cannot be analysed.
+function expressionObjects(node, scope, seen, written) {
+  const current = unwrapExpression(node);
+  if (t.isObjectExpression(current)) return [current];
+  if (t.isIdentifier(current)) {
+    const binding = scope.getBinding(current.name);
+    if (!binding || seen.has(binding) || written.has(binding) || !binding.constant || !t.isVariableDeclarator(binding.path.node) ||
+      !t.isIdentifier(binding.path.node.id)) return null;
+    seen.add(binding);
+    try {
+      return expressionObjects(binding.path.node.init, binding.path.scope, seen, written);
+    } finally {
+      seen.delete(binding);
+    }
+  }
+  if (t.isConditionalExpression(current) || t.isLogicalExpression(current)) {
+    const branches = [];
+    for (const branch of [current.consequent ?? current.left, current.alternate ?? current.right]) {
+      const resolved = expressionObjects(branch, scope, new Set(seen), written);
+      if (!resolved) return null;
+      branches.push(...resolved);
+    }
+    return branches;
+  }
+  if (t.isSequenceExpression(current) && current.expressions.length) return expressionObjects(current.expressions.at(-1), scope, seen, written);
   return null;
 }
 
-function storyOverride(items, objectStart) {
-  if (objectStart < 0) return null;
-  const parameters = objectField(items, objectStart, "parameters");
-  if (parameters?.[0]?.value !== "{") return null;
-  const override = objectField(parameters, 0, "__id");
-  if (!override) return null;
-  return override.length === 1 && override[0].type === "string" && override[0].value !== null
-    ? { id: override[0].value } : { unsupported: true };
+function cached(memo, tag, object, direct, compute) {
+  const entry = memo.get(object) ?? {};
+  const key = `${tag}${direct ? "d" : "i"}`;
+  if (!(key in entry)) entry[key] = compute();
+  memo.set(object, entry);
+  return entry[key];
 }
 
-function storyExports(items, source) {
-  const names = [];
-  for (let i = 0; i < items.length - 2; i++) {
-    if (items[i].value !== "export" || items[i].type !== "word") continue;
-    if (["const", "let", "var"].includes(items[i + 1].value)) {
-      const { declarations, end } = variableDeclarators(items, i + 1, source);
-      for (const { name, objectStart } of declarations) names.push({ name, objectStart });
-      i = end;
-      continue;
-    }
-    const functionStart = items[i + 1]?.value === "async" ? i + 2 : i + 1;
-    if (items[functionStart]?.value === "function") {
-      const name = items[functionStart + (items[functionStart + 1]?.value === "*" ? 2 : 1)];
-      if (name?.type === "word") names.push({ name: name.value, objectStart: -1 });
-    }
-    if (items[i + 1].value !== "{") continue;
-    const end = matchingEnd(items, i + 1, "{", "}");
-    if (end < 0) continue;
-    for (let j = i + 2; j < end;) {
-      if (items[j]?.value === "type" && ["word", "string"].includes(items[j + 1]?.type)) {
-        while (j < end && items[j].value !== ",") j++;
-        j++;
-        continue;
+// Storybook's static index reads `parameters.__id` only from a literal object with a bare
+// identifier key and a string value, while its runtime resolves the same field with `||`
+// and also reads the deprecated `story` annotation. Anything else can diverge.
+function parametersCarryId(object, scope, direct, written, seen, memo) {
+  if (seen.has(object)) return true;
+  seen.add(object);
+  try {
+    return cached(memo, "parameters", object, direct, () => {
+      let ids = 0;
+      for (const property of object.properties) {
+        if (t.isSpreadElement(property)) {
+          if (unstableIdentifier(property.argument, scope, written)) return true;
+          const spread = literalObject(property.argument, scope, seen);
+          if (!spread || seen.has(spread)) return true;
+          if (parametersCarryId(spread, scope, false, written, seen, memo)) return true;
+          continue;
+        }
+        if (property.computed) return true;
+        const name = propertyName(property);
+        if (name === "__proto__") return true;
+        if (name !== "__id") continue;
+        if (!t.isObjectProperty(property) || !direct || !t.isIdentifier(property.key) || ids++) return true;
+        const value = property.value;
+        if (unstableIdentifier(value, scope, written)) return true;
+        if (t.isNullLiteral(value) || t.isIdentifier(value, { name: "undefined" }) && !scope.getBinding("undefined")) continue;
+        if (!t.isStringLiteral(value) || (direct ? !value.value : Boolean(value.value))) return true;
       }
-      const local = items[j]?.value;
-      if (!local || !["word", "string"].includes(items[j].type)) { j++; continue; }
-      j++;
-      const exported = items[j]?.value === "as" ? items[j + 1]?.value : local;
-      if (exported && exported !== "default") names.push({ name: exported, objectStart: -1 });
-      j += items[j]?.value === "as" ? 2 : 0;
-      while (j < end && items[j].value !== ",") j++;
-      j++;
-    }
-    i = end;
+      return false;
+    });
+  } finally {
+    seen.delete(object);
   }
-  return names;
+}
+
+function hasInlineId(object) {
+  return object.properties.some((property) => t.isObjectProperty(property) && !property.computed && t.isIdentifier(property.key, { name: "__id" }));
+}
+
+// A modeled `__id` is only trustworthy when nothing later in the annotation replaces `parameters`.
+function laterReplacesParameters(properties, index) {
+  return properties.slice(index + 1).some((property) => t.isSpreadElement(property) || propertyName(property) === "parameters");
+}
+
+function annotationCarriesId(object, scope, direct, written, seen, memo) {
+  if (seen.has(object)) return true;
+  seen.add(object);
+  try {
+    return cached(memo, "annotation", object, direct, () => {
+      const properties = object.properties;
+      for (let index = 0; index < properties.length; index++) {
+        const property = properties[index];
+        if (t.isSpreadElement(property)) {
+          if (unstableIdentifier(property.argument, scope, written)) return true;
+          const spread = literalObject(property.argument, scope, seen);
+          if (!spread) continue;
+          if (annotationCarriesId(spread, scope, false, written, seen, memo)) return true;
+          continue;
+        }
+        if (property.computed) return true;
+        const name = propertyName(property);
+        if (name === "__proto__") return true;
+        if (name !== "parameters" && name !== "story") continue;
+        if (unstableIdentifier(property.value, scope, written)) return true;
+        const value = literalObject(property.value, scope, seen);
+        if (!value) {
+          if (definitelyNotObject(property.value)) continue;
+          return true;
+        }
+        if (name === "story") {
+          if (annotationCarriesId(value, scope, false, written, seen, memo)) return true;
+          continue;
+        }
+        const directParameters = direct && t.isIdentifier(property.key) && t.isObjectExpression(property.value);
+        if (parametersCarryId(value, scope, directParameters, written, seen, memo)) return true;
+        if (hasInlineId(value) && laterReplacesParameters(properties, index)) return true;
+      }
+      return false;
+    });
+  } finally {
+    seen.delete(object);
+  }
+}
+
+function inlineStoryIdFindings(csf, indexInputs, report) {
+  const names = new Set(indexInputs.map((story) => story.exportName));
+  traverse(csf._ast, {
+    Program(path) {
+      const bindings = new Map();
+      const declared = new Set();
+      const exportedNames = new Set();
+      const add = (local, exported, fromDeclaration) => {
+        const binding = path.scope.getBinding(local);
+        if (!names.has(exported) || !binding) return;
+        if (exportedNames.has(exported)) declared.delete(exported);
+        else {
+          exportedNames.add(exported);
+          if (fromDeclaration) declared.add(exported);
+        }
+        bindings.set(exported, binding);
+      };
+      for (const statement of path.node.body) {
+        if (!t.isExportNamedDeclaration(statement) || statement.source) continue;
+        if (statement.declaration) for (const name of Object.keys(t.getBindingIdentifiers(statement.declaration))) add(name, name, true);
+        for (const specifier of statement.specifiers) if (t.isExportSpecifier(specifier)) add(specifier.local.name, specifier.exported.name ?? specifier.exported.value, false);
+      }
+      const written = writtenBindings(path);
+      const memo = new Map();
+      const reported = new Set();
+      for (const [exported, binding] of bindings) {
+        const declaration = binding.path.node;
+        if (!t.isVariableDeclarator(declaration)) continue;
+        const annotations = expressionObjects(declaration.init, binding.path.scope, new Set(), written);
+        if (!annotations) {
+          // Calls and functions cannot be inspected here; every other unstatically resolvable
+          // initializer could be an object the index never saw.
+          const unwrapped = unwrapExpression(declaration.init);
+          if (!t.isCallExpression(unwrapped) && !definitelyNotObject(declaration.init)) report(declaration.init, "unmodeled story __id");
+          continue;
+        }
+        const direct = declared.has(exported) && t.isObjectExpression(indexerStoryNode(declaration.init));
+        for (const annotation of annotations) {
+          if (reported.has(annotation)) continue;
+          if (annotationCarriesId(annotation, binding.path.scope, direct, written, new Set(), memo)) {
+            reported.add(annotation);
+            report(annotation, "unmodeled story __id");
+          }
+        }
+      }
+    },
+  });
+}
+
+function memberWriteTargets(node) {
+  node = unwrapExpression(node);
+  if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) return [node];
+  if (t.isArrayPattern(node)) return node.elements.flatMap(memberWriteTargets);
+  if (t.isObjectPattern(node)) return node.properties.flatMap((property) =>
+    memberWriteTargets(t.isRestElement(property) ? property.argument : property.value));
+  if (t.isAssignmentPattern(node)) return memberWriteTargets(node.left);
+  if (t.isRestElement(node)) return memberWriteTargets(node.argument);
+  return [];
+}
+
+function storyAssignmentFindings(csf, indexInputs, report) {
+  const names = new Set(indexInputs.map((story) => story.exportName));
+  const exportedBindings = new Set();
+  const bindings = new Set();
+  const inlineIds = new Set();
+  const reported = new Set();
+  const reportWrite = (node) => {
+    if (reported.has(node)) return;
+    reported.add(node);
+    report(node, "unmodeled story __id");
+  };
+  const checkWrites = (path, left) => {
+    for (const target of memberWriteTargets(left)) {
+      const members = [];
+      let root = target;
+      while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) {
+        members.push(root);
+        root = unwrapExpression(root.object);
+      }
+      if (!t.isIdentifier(root)) continue;
+      const binding = path.scope.getBinding(root.name);
+      if (!bindings.has(binding)) continue;
+      const parameterField = members.at(-2);
+      if (members.length >= 2 && memberNamed(members.at(-1), "parameters") &&
+        ((!parameterField.computed && t.isIdentifier(parameterField.property)) || t.isStringLiteral(parameterField.property)) &&
+        !memberNamed(parameterField, "__id")) continue;
+      if (!members.some((member) => ["parameters", "story", "__id"].some((name) => memberNamed(member, name)) ||
+        (member.computed && !t.isStringLiteral(member.property)))) continue;
+      const safe = !inlineIds.has(binding) && members.length === 1 && memberNamed(target, "parameters") && !target.computed &&
+        t.isAssignmentExpression(path.node, { operator: "=" }) && unwrapExpression(path.node.left) === target &&
+        safeParameters(unwrapExpression(path.node.right));
+      if (!safe) reportWrite(path.node);
+    }
+  };
+  traverse(csf._ast, {
+    Program(path) {
+      const parents = new Map();
+      const find = (binding) => {
+        if (!parents.has(binding)) parents.set(binding, binding);
+        let root = binding;
+        while (parents.get(root) !== root) root = parents.get(root);
+        while (binding !== root) {
+          const parent = parents.get(binding);
+          parents.set(binding, root);
+          binding = parent;
+        }
+        return root;
+      };
+      const add = (local, exported) => {
+        const binding = path.scope.getBinding(local);
+        if (!names.has(exported) || !binding) return;
+        exportedBindings.add(binding);
+        find(binding);
+      };
+      for (const statement of path.node.body) {
+        if (!t.isExportNamedDeclaration(statement) || statement.source) continue;
+        if (statement.declaration) {
+          for (const name of Object.keys(t.getBindingIdentifiers(statement.declaration))) add(name, name);
+        }
+        for (const specifier of statement.specifiers) {
+          if (t.isExportSpecifier(specifier)) add(specifier.local.name, specifier.exported.name ?? specifier.exported.value);
+        }
+      }
+      const addAlias = (scope, target, source) => {
+        target = unwrapExpression(target);
+        source = unwrapExpression(source);
+        if (!t.isIdentifier(target) || !t.isIdentifier(source)) return;
+        const targetBinding = scope.getBinding(target.name);
+        const sourceBinding = scope.getBinding(source.name);
+        if (targetBinding && sourceBinding) parents.set(find(targetBinding), find(sourceBinding));
+      };
+      path.traverse({
+        VariableDeclarator(path) {
+          addAlias(path.scope, path.node.id, path.node.init);
+          const init = unwrapExpression(path.node.init);
+          if (!t.isIdentifier(path.node.id) || !t.isObjectExpression(init)) return;
+          const hasInlineId = init.properties.some((property) => {
+            if (!t.isObjectProperty(property) || property.computed ||
+              !(t.isIdentifier(property.key, { name: "parameters" }) || t.isStringLiteral(property.key, { value: "parameters" }))) return false;
+            const parameters = unwrapExpression(property.value);
+            return t.isObjectExpression(parameters) && parameters.properties.some((annotation) =>
+              !t.isSpreadElement(annotation) && !annotation.computed &&
+              (t.isIdentifier(annotation.key, { name: "__id" }) || t.isStringLiteral(annotation.key, { value: "__id" })));
+          });
+          const binding = path.scope.getBinding(path.node.id.name);
+          if (hasInlineId && binding) inlineIds.add(binding);
+        },
+        AssignmentExpression(path) {
+          addAlias(path.scope, path.node.left, path.node.right);
+        },
+      });
+      const trackedComponents = new Set([...exportedBindings].map(find));
+      const inlineComponents = new Set([...inlineIds].map(find));
+      for (const binding of parents.keys()) {
+        const component = find(binding);
+        if (trackedComponents.has(component)) bindings.add(binding);
+        if (inlineComponents.has(component)) inlineIds.add(binding);
+      }
+      for (const binding of bindings) {
+        for (const violation of binding.constantViolations) reportWrite(violation.node);
+      }
+    },
+    AssignmentExpression(path) {
+      checkWrites(path, path.node.left);
+    },
+    UpdateExpression(path) {
+      checkWrites(path, path.node.argument);
+    },
+    UnaryExpression(path) {
+      if (path.node.operator === "delete") checkWrites(path, path.node.argument);
+    },
+    "ForInStatement|ForOfStatement"(path) {
+      checkWrites(path, path.node.left);
+    },
+  });
 }
 
 function lineAt(content, offset) {
@@ -438,79 +436,63 @@ export function storyIdsFromFiles(files) {
   const ids = new Set();
   const findings = [];
   for (const file of files) {
-    const items = tokens(file.content);
-    const unmodeledJsx = items.find((item) => item.type === "unmodeledJsx");
-    if (unmodeledJsx) {
-      findings.push(`${file.path}:${lineAt(file.content, unmodeledJsx.start)}: unmodeled JSX or type-parameter syntax`);
+    const report = (node, message) => findings.push(`${file.path}:${node?.loc?.start?.line ?? lineAt(file.content, node?.start ?? 0)}: ${message}`);
+    const start = findings.length;
+    let csf;
+    let parseError;
+    try {
+      csf = loadCsf(file.content, { fileName: file.path, makeTitle: (title) => title });
+      traverse(csf._ast, {
+        ExportDeclaration(path) {
+          if (!path.parentPath.isProgram() || path.listKey !== "body") report(path.node, "unmodeled nested export");
+        },
+      });
+      if (findings.length !== start) continue;
+      csf.parse();
+    } catch (error) {
+      parseError = error;
+    }
+    if (t.isObjectExpression(csf?._metaNode)) {
+      if (csf._metaNode.properties.some((property) => t.isSpreadElement(property) || property.computed)) {
+        report(csf._metaNode, "unmodeled story meta");
+        continue;
+      }
+      for (const property of csf._metaNode.properties) {
+        const key = t.isIdentifier(property.key) ? property.key.name : property.key.value;
+        if (!["includeStories", "excludeStories"].includes(key)) continue;
+        const value = property.value;
+        if (!(t.isArrayExpression(value) && value.elements.every((element) => t.isStringLiteral(element))) &&
+          !t.isRegExpLiteral(value) && !t.isStringLiteral(value)) report(property, `unmodeled ${key} filter`);
+      }
+      const fields = csf._metaNode.properties.filter((property) =>
+        t.isIdentifier(property.key) && ["id", "title"].includes(property.key.name));
+      for (const field of fields) {
+        if (!t.isStringLiteral(field.value)) report(field, `story meta has nonliteral ${field.key.name}`);
+      }
+      if (findings.length === start && !fields.some((field) => field.value.value.trim())) {
+        report(csf._metaNode, "story meta has no literal id or title");
+      }
+    }
+    if (findings.length !== start) continue;
+    if (parseError) {
+      const message = parseError.message.split("\n")[0];
+      const line = parseError.loc?.line ?? /\bline (\d+)/.exec(message)?.[1];
+      findings.push(`${file.path}${line ? `:${line}` : ""}: ${message}`);
       continue;
     }
-    const invalid = items.find((item) => item.type === "invalidIdentifier");
-    if (invalid) {
-      findings.push(`${file.path}:${lineAt(file.content, invalid.start)}: unmodeled identifier escape`);
-      continue;
-    }
-    const topLevelConsts = new Set();
-    let depth = 0;
-    for (let i = 0; i < items.length; i++) {
-      const token = items[i];
-      if (depth === 0 && token.type === "word" && token.value === "const") topLevelConsts.add(i);
-      if (token.type !== "punct") continue;
-      if (["{", "(", "["].includes(token.value)) depth++;
-      else if (["}", ")", "]"].includes(token.value)) depth--;
-    }
-    let metaStart = -1;
-    for (let i = 0; i < items.length - 2; i++) {
-      if (items[i].value !== "export" || items[i].type !== "word") continue;
-      let name = null;
-      if (items[i + 1]?.value === "default") {
-        if (items[i + 2]?.value === "{") metaStart = i + 2;
-        else name = items[i + 2]?.value;
-      } else if (items[i + 1]?.value === "{") {
-        const end = matchingEnd(items, i + 1, "{", "}");
-        for (let j = i + 2; j < end; j++) {
-          if (items[j + 1]?.value === "as" && items[j + 2]?.value === "default") name = items[j].value;
-        }
-      }
-      if (name) {
-        for (let j = 0; j < i; j++) {
-          if (!topLevelConsts.has(j)) continue;
-          const { declarations, end } = variableDeclarators(items, j, file.content);
-          const declaration = declarations.find((candidate) => candidate.name === name && candidate.objectStart >= 0);
-          if (declaration) metaStart = declaration.objectStart;
-          j = end;
-        }
-      }
-      if (metaStart >= 0) break;
-    }
-    const meta = metaStart >= 0 ? metaFields(items, metaStart) : new Map();
-    for (const key of ["includeStories", "excludeStories"]) {
-      if (meta.get(key)?.type === "unsupported") findings.push(`${file.path}:1: unmodeled ${key} filter`);
-    }
-    const id = meta.get("id");
-    const title = meta.get("title");
-    for (const key of ["id", "title"]) {
-      if (meta.get(key)?.type === "unsupported") findings.push(`${file.path}:1: story meta has nonliteral ${key}`);
-    }
-    if (["id", "title"].some((key) => meta.get(key)?.type === "unsupported")) continue;
-    const kind = typeof id === "string" && id.trim() ? id : title;
-    if (!kind || !kind.trim() || id === null || title === null) { findings.push(`${file.path}:1: story meta has no literal id or title`); continue; }
-    if (["includeStories", "excludeStories"].some((key) => meta.get(key)?.type === "unsupported")) continue;
-    const matches = (name, filter) => filter?.type === "regex" ? name.match(new RegExp(filter.source, filter.flags)) !== null : filter.includes(name);
-    const include = meta.get("includeStories");
-    const exclude = meta.get("excludeStories");
-    const stories = storyExports(items, file.content);
-    const overrides = stories.map(({ objectStart }) => storyOverride(items, objectStart));
-    if (overrides.some((override) => override?.unsupported)) {
+    const indexInputs = csf.indexInputs;
+    if (indexInputs.some((story) => typeof story.__id !== "string")) {
       findings.push(`${file.path}:1: unmodeled story __id`);
       continue;
     }
-    for (let i = 0; i < stories.length; i++) {
-      const { name } = stories[i];
-      if (["__namedExportsOrder", "__esModule"].includes(name)) continue;
-      if (include && !matches(name, include)) continue;
-      if (exclude && matches(name, exclude)) continue;
-      ids.add(overrides[i]?.id ?? toId(kind, name));
+    // Both guards are static analyses of arbitrary user code, so an analyzer failure fails the file closed.
+    try {
+      storyAssignmentFindings(csf, indexInputs, report);
+      if (findings.length === start) inlineStoryIdFindings(csf, indexInputs, report);
+    } catch {
+      findings.push(`${file.path}:1: unmodeled story __id`);
     }
+    if (findings.length === start) for (const story of indexInputs) ids.add(story.__id);
   }
   return { ids, findings };
 }
@@ -521,6 +503,7 @@ export function storyReferenceFindings({ storyFiles, boards, docs }) {
   const report = (file, offset, message) => findings.push(`${file.path}:${lineAt(file.content, offset)}: ${message}`);
   for (const file of boards) {
     const board = JSON.parse(file.content);
+    if (boardFrames.has(board.id)) report(file, file.content.indexOf('"id"'), `duplicate board ${board.id}`);
     if (!ids.has(`review-boards--${board.id}`)) report(file, file.content.indexOf('"id"'), `unresolved board review-boards--${board.id}`);
     const frames = new Set();
     let cursor = 0;
@@ -533,7 +516,7 @@ export function storyReferenceFindings({ storyFiles, boards, docs }) {
         if (frame[key] && !ids.has(frame[key])) report(file, file.content.indexOf(`"${key}": "${frame[key]}"`, cursor), `unresolved ${key} ${frame[key]}`);
       }
     }
-    boardFrames.set(board.id, frames);
+    if (!boardFrames.has(board.id)) boardFrames.set(board.id, frames);
   }
   for (const file of [...storyFiles, ...boards, ...docs]) {
     for (const match of file.content.matchAll(/\?id=([^\s"'`<>)]*)/g)) {
@@ -596,20 +579,17 @@ function filesIn(root, dir, predicate) {
 }
 
 export function storyGlobFindings(configPath, configSource) {
-  const items = tokens(configSource);
   const declarations = [];
-  for (let i = 0; i < items.length - 1; i++) {
-    if (items[i].value !== "stories" || items[i + 1].value !== ":" || !["word", "string"].includes(items[i].type)) continue;
-    const start = i + 2;
-    const end = items[start]?.value === "[" ? matchingEnd(items, start, "[", "]") : -1;
-    if (end < 0) { declarations.push(null); continue; }
-    const values = [];
-    let literal = true;
-    for (let j = start + 1; j < end; j++) {
-      if (items[j].type === "string" && items[j].value !== null && (j === start + 1 || items[j - 1].value === ",")) values.push(items[j].value);
-      else if (items[j].value !== "," || items[j - 1]?.type !== "string") literal = false;
-    }
-    declarations.push(literal && [",", "}"].includes(items[end + 1]?.value) ? values : null);
+  try {
+    traverse(babelParse(configSource), {
+      ObjectProperty({ node }) {
+        if (node.computed || !(t.isIdentifier(node.key, { name: "stories" }) || t.isStringLiteral(node.key, { value: "stories" }))) return;
+        declarations.push(t.isArrayExpression(node.value) && node.value.elements.every((element) => t.isStringLiteral(element))
+          ? node.value.elements.map((element) => element.value) : null);
+      },
+    });
+  } catch {
+    declarations.push(null);
   }
   if (declarations.length !== 1 || !declarations[0] || declarations[0].length !== storyGlobs.length ||
     declarations[0].some((glob, index) => glob !== storyGlobs[index])) {

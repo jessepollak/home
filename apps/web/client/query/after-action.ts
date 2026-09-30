@@ -7,7 +7,8 @@ import {
   type BalanceSnapshot,
   type FreshUntilMovedClock,
 } from "./fresh-until-moved";
-import { ownerQueryKey, ownerQueryMeta } from "./query-client";
+import { ownerQueryKey } from "./query-client";
+import { ownerQuery } from "./query-options";
 import { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope, type OwnerQueryScope } from "./query-scopes";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types";
@@ -15,6 +16,7 @@ import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types
 export { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope } from "./query-scopes";
 
 export const afterActionScopes = [
+  "card-spending",
   "balances",
   "activity",
   "borrow",
@@ -26,6 +28,30 @@ export const afterActionScopes = [
 export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
 
 const activityWindowQuantumMs = 60_000;
+const activityWindowAdvancers = new WeakMap<object, Map<string, Set<() => Promise<void>>>>();
+
+export function registerActivityWindowAdvancer(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData" | "invalidateQueries">,
+  ownerKey: string,
+  advancer: () => Promise<void>,
+): () => void {
+  let owners = activityWindowAdvancers.get(queryClient);
+  if (!owners) {
+    owners = new Map();
+    activityWindowAdvancers.set(queryClient, owners);
+  }
+  let advancers = owners.get(ownerKey);
+  if (!advancers) {
+    advancers = new Set();
+    owners.set(ownerKey, advancers);
+  }
+  advancers.add(advancer);
+  return () => {
+    advancers.delete(advancer);
+    if (advancers.size === 0) owners.delete(ownerKey);
+    if (owners.size === 0) activityWindowAdvancers.delete(queryClient);
+  };
+}
 
 export function invalidateNetworkFeePolicy(queryClient: Pick<QueryClient, "invalidateQueries">): Promise<void> {
   return queryClient.invalidateQueries({
@@ -70,8 +96,10 @@ export async function invalidateAfterAction(
   dataOwnerKey: string,
   now = Date.now(),
 ): Promise<void> {
-  advanceActivityWindowEnd(queryClient, dataOwnerKey, now);
-  await Promise.all(afterActionScopes.map((scope) =>
+  const advancer = activityWindowAdvancers.get(queryClient)?.get(dataOwnerKey)?.values().next().value;
+  if (advancer) void advancer();
+  else advanceActivityWindowEnd(queryClient, dataOwnerKey, now);
+  await Promise.all(afterActionScopes.filter((scope) => !advancer || scope !== "activity").map((scope) =>
     queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, scope) })
   ));
 }
@@ -153,23 +181,26 @@ export async function startBalanceFreshness(input: {
         const region = balanceQuery.queryKey[2];
         if (typeof region !== "string") continue;
         const snapshot = await queryClient.fetchQuery({
-          queryKey: balanceQuery.queryKey,
-          staleTime: 0,
-          retry: false,
-          meta: ownerQueryMeta(dataOwnerKey, "owner"),
-          queryFn: async ({ signal }) => parseBalancesSnapshot(
-            await fetchVerifiedResource(
-              "/api/balances",
-              signal,
-              new URLSearchParams({ region }).toString(),
+          ...ownerQuery<BalancesSnapshot>({
+            owner: dataOwnerKey,
+            scope: "balances",
+            key: [region],
+            retry: false,
+            queryFn: async ({ signal }) => parseBalancesSnapshot(
+              await fetchVerifiedResource(
+                "/api/balances",
+                signal,
+                new URLSearchParams({ region }).toString(),
+              ),
+              {
+                subject: session.user.subject,
+                smartAccountAddress: session.smartAccount!.address,
+                chainId: 8453,
+              },
+              region as import("@/config/regions").RegionId,
             ),
-            {
-              subject: session.user.subject,
-              smartAccountAddress: session.smartAccount!.address,
-              chainId: 8453,
-            },
-            region as import("@/config/regions").RegionId,
-          ),
+          }),
+          staleTime: 0,
         });
         const found = selectAffectedBalances(snapshot, assetIds);
         for (const [key, value] of Object.entries(found)) {
@@ -233,7 +264,7 @@ export async function applyActionHandleEffects(input: {
 
 function affectedAssetIds(value: unknown, actionId: string): string[] {
   if (!isRecord(value) || !Array.isArray(value.actions)) return [];
-  const action = value.actions.find((item) => isRecord(item) && item.id === actionId);
+  const action: unknown = value.actions.find((item) => isRecord(item) && item.id === actionId);
   if (!isRecord(action) || !isRecord(action.summary) || !Array.isArray(action.summary.amounts)) return [];
   return Array.from(new Set(action.summary.amounts.flatMap((amount) =>
     isRecord(amount) && typeof amount.assetId === "string" ? [amount.assetId] : [],

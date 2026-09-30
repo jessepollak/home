@@ -18,6 +18,7 @@ import type { ActivityLedgerNextActionKind } from "./activity-ledger";
 import type { CashOutWithdrawJourney } from "./cash-out-withdraw-journey";
 import type { RegionId } from "@/config/regions";
 import { mergeActivityFeed, type ActivityFeedItem } from "./activity-feed";
+import { activitySourcesAttribute, sourceReadiness, transfersReadiness } from "./activity-sources";
 import { type UseActivityResult } from "./use-activity";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import type { ActivityPanelDensity, ActivityTransfer } from "./types";
@@ -33,7 +34,11 @@ export function ActivityPanelView({
   operations = EMPTY_OPERATIONS,
   orders = EMPTY_ORDERS,
   actionsStatus = "ready",
+  actionsRefreshing = false,
+  actionsFailed = false,
   ordersStatus = "ready",
+  ordersRefreshing = false,
+  ordersFailed = false,
   regionId = "GLOBAL",
   density = "page",
   header,
@@ -58,7 +63,11 @@ export function ActivityPanelView({
   operations?: readonly RecentMoneyActionOperation[];
   orders?: readonly ActivityOrder[];
   actionsStatus?: "loading" | "ready" | "error";
+  actionsRefreshing?: boolean;
+  actionsFailed?: boolean;
   ordersStatus?: "loading" | "ready" | "error";
+  ordersRefreshing?: boolean;
+  ordersFailed?: boolean;
   regionId?: RegionId;
   density?: ActivityPanelDensity;
   header?: ReactNode | null;
@@ -189,20 +198,22 @@ export function ActivityPanelView({
   const exhausted = activity.status !== "ready" || activity.page.nextCursor === null && activity.page.onchainStatus !== "unavailable";
   const plain = density === "feed";
   const onchainUnavailable = activity.status === "ready" && activity.page.onchainStatus === "unavailable";
+  const latestUnavailable = activity.status === "ready" && activity.latestUnavailable === true;
   const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
   const retryFailedSources = () => {
-    if (activity.status === "error" || onchainUnavailable) activity.retry();
+    if (activity.status === "error" || onchainUnavailable || latestUnavailable) activity.retry();
     if (actionsStatus === "error") retryActions?.();
     if (ordersStatus === "error") retryOrders?.();
     if (activity.status === "ready" && activity.loadMoreError) activity.retryLoadMore();
   };
   const inlineStatus = !plain;
 
-  const historyUnknown = activity.status === "error" || onchainUnavailable || actionsStatus === "error" || ordersStatus === "error";
+  const historyUnknown = activity.status === "error" || onchainUnavailable || latestUnavailable || actionsStatus === "error" || ordersStatus === "error";
+  const sources = activitySourcesAttribute({ transfers: transfersReadiness(activity), actions: sourceReadiness(actionsStatus, actionsRefreshing, actionsFailed), orders: sourceReadiness(ordersStatus, ordersRefreshing, ordersFailed) });
 
   if (activity.status === "unavailable" && !hasRows && actionsStatus !== "error" && ordersStatus !== "error") {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sources={sources} sectionRef={sectionRef}>
         <ActivityEmpty plain={plain} action={emptyAction} />
       </ActivitySurface>
     );
@@ -210,7 +221,7 @@ export function ActivityPanelView({
 
   if (sourcesPending || ordersStatus === "loading" && !hasRows) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sources={sources} sectionRef={sectionRef}>
         <ShimmerRows count={plain ? 3 : 4} />
         <span className="sr-only">Loading recent activity…</span>
       </ActivitySurface>
@@ -219,7 +230,7 @@ export function ActivityPanelView({
 
   if (historyUnknown && !hasRows && plain) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sources={sources} sectionRef={sectionRef}>
         <ActivityUnavailable message="Activity unavailable" onReload={retryFailedSources} />
       </ActivitySurface>
     );
@@ -227,7 +238,7 @@ export function ActivityPanelView({
 
   if (activity.status === "error" && !hasRows) {
     return (
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} sources={sources} sectionRef={sectionRef}>
         <LoadErrorCard
           tone="destructive"
           role="alert"
@@ -249,7 +260,7 @@ export function ActivityPanelView({
   ) : null;
   return (
     <>
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sources={sources} sectionRef={sectionRef}>
         {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date.</p> : null}
         {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -257,6 +268,14 @@ export function ActivityPanelView({
               Onchain transfers are unavailable. Other available activity is still shown.
             </p>
             <LoadRetryButton onRetry={activity.retry}>Retry onchain transfers</LoadRetryButton>
+          </div>
+        ) : null}
+        {inlineStatus && activity.status !== "error" && latestUnavailable && !onchainUnavailable ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p role="status" className="text-sm text-muted-foreground">
+              Latest activity didn&apos;t load. Earlier activity is still shown.
+            </p>
+            <LoadRetryButton onRetry={activity.retry}>Retry latest activity</LoadRetryButton>
           </div>
         ) : null}
         {inlineStatus && actionsStatus === "error" ? (
@@ -342,6 +361,7 @@ export function ActivitySurface({
   busy = false,
   plain = false,
   rows = false,
+  sources,
   sectionRef,
   children,
 }: {
@@ -351,6 +371,7 @@ export function ActivitySurface({
   busy?: boolean;
   plain?: boolean;
   rows?: boolean;
+  sources?: string;
   sectionRef?: Ref<HTMLElement>;
   children: ReactNode;
 }) {
@@ -363,6 +384,7 @@ export function ActivitySurface({
         aria-label={label}
         aria-busy={busy || undefined}
         data-activity-feed=""
+        data-activity-sources={sources}
       >
         <Card className="gap-3">
           {heading ? <CardHeader>{heading}</CardHeader> : null}
@@ -375,14 +397,14 @@ export function ActivitySurface({
   }
   if (rows) {
     return (
-      <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+      <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined} data-activity-sources={sources}>
         {heading ? <div className="mb-3">{heading}</div> : null}
         <div className="space-y-3">{children}</div>
       </section>
     );
   }
   return (
-    <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined}>
+    <section ref={sectionRef} tabIndex={-1} aria-labelledby={labelledBy} aria-label={label} aria-busy={busy || undefined} data-activity-sources={sources}>
       <Card>
         {heading ? <CardHeader>{heading}</CardHeader> : null}
         <CardContent inset="list">

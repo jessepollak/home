@@ -5,9 +5,9 @@ import type { ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
-import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { createCardAllowanceEligibility } from "@/server/cards/allowance/prepare";
 
 function parseLog(line: string): unknown {
@@ -1344,6 +1344,24 @@ describe("actions HTTP handlers", () => {
 
     expect(response.status).toBe(200);
     expect(resolverCalls).toBe(0);
+  });
+
+  test("the list response parses through the shared action parser for its owner", async () => {
+    const session = { user: { subject: "owner-a" }, smartAccount: { address: ADDRESS, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+    const stored: ActionRow = { ...row, summary: { ...row.summary,
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }] } };
+    const handler = createListActionsHandler({
+      authorize: authorize(),
+      store: { list: async () => [stored], recordHandle: async () => null, recordOutcome: recorded },
+      now: () => new Date("2026-09-12T12:00:30.000Z"),
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const parsed = parseRecentMoneyActions(await readJson(response), session);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.action).toMatchObject({ id: ID, kind: "send", title: "Send USDC",
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }] });
+    expect(parsed[0]?.status).toBe("pending");
   });
 
   test("list records a completed handle and derives status from its receipt", async () => {

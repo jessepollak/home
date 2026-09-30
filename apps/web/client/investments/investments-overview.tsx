@@ -21,6 +21,7 @@ import { formatExactPresentationTokenAmount, formatFiatAmount, formatPresentatio
 
 export type InvestmentsOverviewProps = {
   snapshot: BalancesSnapshot | null;
+  ownedRows?: OwnedInvestment[];
   balanceStatus: "ready" | "loading" | "failed";
   refreshFailed?: boolean;
   visibleCount: number;
@@ -77,7 +78,7 @@ function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
         : <CurrencyMark assetKey={holding.key} src={symbolMark?.imageUrl} symbol={symbolMark?.symbol} pending={symbolMark?.pending} size="sm" />;
 }
 
-export function InvestmentsOverview({ snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
+export function InvestmentsOverview({ ownedRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
   const loading = balanceStatus === "loading";
   const failed = balanceStatus === "failed" && !snapshot;
   const active = loading || failed ? null : snapshot;
@@ -85,7 +86,7 @@ export function InvestmentsOverview({ snapshot, balanceStatus, refreshFailed = f
     noteHomeNavigationContent("/investments", loading ? "loading" : failed || !active ? "unavailable" : "ready");
   });
   const summary = useMemo(() => active ? presentInvestmentTotal(active) : null, [active]);
-  const rows = useMemo(() => active ? selectOwnedInvestments(active) : [], [active]);
+  const rows = useMemo(() => active ? ownedRows ?? selectOwnedInvestments(active) : [], [active, ownedRows]);
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!sentinel.current || visibleCount >= rows.length || typeof IntersectionObserver === "undefined") return;

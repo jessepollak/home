@@ -1,13 +1,14 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { CashExperience } from "@/client/cash/cash-experience";
+import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready } from "@/shared/balances/fixtures";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
-import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
+import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
@@ -22,6 +23,9 @@ const held = buildBalancesSnapshotFixture({ registry: {
   usdc: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
   eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
   idrx: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000", 2) },
+  [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
+  [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
+  [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
 } });
 const zero = buildBalancesSnapshotFixture({ registry: { usdc: { balance: ready("0"), value: priced("USD", "0"), cashValue: pricedCash("USD", "0") } } });
 const now = "2026-09-10T12:00:00.000Z";
@@ -30,6 +34,7 @@ const candidate: MorphoVaultCandidate = { version: "v1", vaultAddress: MORPHO_V1
   asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 }, curatorAddress: null, grossApy: 0.045, netApy: 0.041, feeRate: 0.1, totalAssetsRaw: "1250000000000", liquidityRaw: "850000000000", stateAsOf: now, blockNumber: "51026404",
   source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: now } };
 const metadata: MorphoVaultsResult = { version: "v1", chainId: 8453, asset: candidate.asset, candidates: [candidate], source: candidate.source, stale: false };
+const prepared: unknown[] = [];
 
 type Scenario = "eur" | "idr" | "eur-row" | "save" | "empty" | "unavailable" | "no-route" | "expiry" | "back";
 function tradeAction(request: TradeActionParams, expired: boolean, owner: VerifiedAccountSession): PreparedMoneyAction {
@@ -67,6 +72,7 @@ function Surface({ scenario }: { scenario: Scenario }) {
           : { version: 2, status: "available", token: { assetId, address: currency.address.toLowerCase(), symbol: currency.symbol, decimals: currency.decimals }, buy: "available", balanceBaseUnits: "15000000" };
       }}
       prepareMoneyAction={async (_endpoint, input) => {
+        prepared.push(input);
         if (scenario === "no-route") throw { code: "TRADE_ROUTE_UNAVAILABLE" };
         return tradeAction(input as TradeActionParams, scenario === "expiry", owner);
       }} executeMoneyAction={async (action) => ({ id: action.id, status: "rejected" })} />
@@ -74,7 +80,7 @@ function Surface({ scenario }: { scenario: Scenario }) {
   </main></MoneyMotionProvider></PresentationRegionProvider>;
 }
 
-const meta = { title: "Journeys/Cash Convert", component: Surface, args: { scenario: "eur" }, beforeEach: () => pinClock(now) } satisfies Meta<typeof Surface>;
+const meta = { title: "Journeys/Cash Convert", component: Surface, args: { scenario: "eur" }, beforeEach: () => { prepared.length = 0; return pinClock(now); } } satisfies Meta<typeof Surface>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 const openDestination = async (canvasElement: HTMLElement, target: "Euro" | "Rupiah") => {
@@ -111,6 +117,47 @@ export const EmptyUsdBalance: Story = { args: { scenario: "empty" }, play: async
   await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));
   const body = within(canvasElement.ownerDocument.body);
   await waitFor(() => expect(within(body.getByRole("dialog", { name: "Convert to" })).getByText("No US dollars to convert.")).toBeVisible());
+} };
+export const SearchDestinations: Story = { play: async ({ canvasElement }) => {
+  await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));
+  const picker = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Convert to" }));
+  await userEvent.type(picker.getByRole("textbox", { name: "Search currencies" }), "real");
+  await expect(picker.getByRole("status")).toHaveTextContent("1 results");
+  await expect(picker.getAllByRole("listitem")).toHaveLength(1);
+  await waitFor(() => expect(picker.getByText("Brazilian real")).toBeVisible());
+  await userEvent.click(picker.getByRole("button", { name: "Clear search" }));
+  await expect(picker.getAllByRole("listitem")).toHaveLength(5);
+  for (const name of ["Euro", "Rupiah", "Argentine peso", "Brazilian real", "Colombian peso"]) await waitFor(() => expect(picker.getByText(name)).toBeVisible());
+} };
+export const NoMatchingDestinations: Story = { play: async ({ canvasElement }) => {
+  await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));
+  const picker = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Convert to" }));
+  await userEvent.type(picker.getByRole("textbox", { name: "Search currencies" }), "not-a-currency");
+  await waitFor(() => expect(picker.getByText("No currencies found", { exact: true })).toBeVisible());
+  await waitFor(() => expect(picker.getByText("No currencies found for “not-a-currency”.")).toBeVisible());
+  await expect(picker.queryByRole("listitem")).toBeNull();
+} };
+export const UnconvertibleDestinations: Story = { play: async ({ canvasElement }) => {
+  await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));
+  const body = within(canvasElement.ownerDocument.body);
+  const picker = within(await body.findByRole("dialog", { name: "Convert to" }));
+  for (const name of ["Argentine peso", "Brazilian real", "Colombian peso"]) {
+    const row = picker.getByText(name).closest("li")!;
+    await expect(row).toHaveTextContent(CASH_CONVERSION_UNAVAILABLE_REASON);
+    await expect(within(row).queryByRole("button")).toBeNull();
+    await fireEvent.click(row);
+    await waitFor(() => expect(body.getByRole("dialog", { name: "Convert to" })).toBeVisible());
+    await expect(body.queryByRole("textbox", { name: "Amount" })).toBeNull();
+  }
+  await expect(prepared).toHaveLength(0);
+} };
+export const ArgentinePesoDetail: Story = { play: async ({ canvasElement }) => {
+  const row = within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^Argentine peso/ });
+  await userEvent.click(row);
+  const detail = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Argentine peso" }));
+  await waitFor(() => expect(detail.getByRole("img", { name: "$123.45" })).toBeVisible());
+  await waitFor(() => expect(detail.getByText(CASH_CONVERSION_UNAVAILABLE_REASON)).toBeVisible());
+  await expect(detail.queryByRole("button", { name: "Convert" })).toBeNull();
 } };
 export const DestinationUnavailable: Story = { args: { scenario: "unavailable" }, play: async ({ canvasElement }) => {
   await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));

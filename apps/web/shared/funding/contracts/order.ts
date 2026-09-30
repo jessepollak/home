@@ -1,4 +1,4 @@
-import { type Instruction, type OrderState, type Quote } from "@/shared/funding/provider-contract";
+import { isFundingInstruction, type Instruction, type OrderState, type Quote } from "@/shared/funding/provider-contract";
 export type {
   Instruction,
 } from "@/shared/funding/provider-contract";
@@ -26,7 +26,9 @@ export type FundingOrderSummary = {
 const fiatAmountPattern = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 export function isFundingOrderSummary(value: unknown): value is FundingOrderSummary {
   return record(value) && typeof value.id === "string" && typeof value.providerId === "string" && typeof value.state === "string" &&
-    typeof value.fiatAmount === "string" && fiatAmountPattern.test(value.fiatAmount);
+    typeof value.fiatAmount === "string" && fiatAmountPattern.test(value.fiatAmount) &&
+    (value.providerStatus === null || typeof value.providerStatus === "string") &&
+    (value.instructions === null || isFundingInstruction(value.instructions));
 }
 export function readFundingOrder(value: unknown): FundingOrderSummary | null {
   const candidate = record(value) && record(value.order) ? value.order : null;

@@ -3,10 +3,12 @@
 import dynamic from "next/dynamic";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { VaultPositionsProvider } from "@/client/balances/vault-positions";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
+import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import { presentHomeBalances } from "@/shared/balances/present";
 import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey } from "@/shared/balances/types";
@@ -170,7 +172,7 @@ export function PortfolioHomeExperience({
         presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit",
   });
   const pendingCashout = usePendingCashoutEscrow(accountReady ? account.session : null, balances.snapshot,
-    (signal) => account.fetchAccountResource("/api/actions", { signal }));
+    (signal) => account.fetchAccountResource(recentActionsPath, { signal }));
   const interruptionStatus = useInterruption(
     balances.observation,
     account.status === "verified" && account.verification === "server" && !suppressBalances,
@@ -203,6 +205,7 @@ export function PortfolioHomeExperience({
   }, [balances.snapshot]);
 
   return (
+    <VaultPositionsProvider snapshot={snapshot}>
     <DashboardShell
       region={region}
       regionReady={regionReady}
@@ -236,5 +239,6 @@ export function PortfolioHomeExperience({
       showSmallBalances={showSmallBalances}
       onShowSmallBalancesChange={setShowSmallBalances}
     />
+    </VaultPositionsProvider>
   );
 }

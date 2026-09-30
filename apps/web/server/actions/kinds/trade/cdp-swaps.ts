@@ -2,6 +2,7 @@ import "server-only";
 
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import type { Address, Hex } from "@/shared/trading/server-types";
+import { readJson } from "@/shared/http/read-json";
 import { TradePreparationError } from "./permit2";
 import { classifyProviderRefusal } from "./provider-refusal";
 
@@ -118,13 +119,13 @@ export function createCdpSwapsClient({
       });
       if (controller.signal.aborted) unavailable();
       if (!response.ok) {
-        const body: unknown = await response.json().catch(() => null);
+        const body: unknown = await readJson(response).catch(() => null);
         const reason = classifyProviderRefusal(response.status, body);
         if (reason === "token-not-routed") throw new TradePreparationError(reason);
         if (reason) throw new CdpSwapsRefusalError(reason);
         unavailable();
       }
-      return await response.json();
+      return await readJson(response);
     } catch (error) {
       if (error instanceof TradePreparationError || error instanceof CdpSwapsRefusalError) throw error;
       unavailable();

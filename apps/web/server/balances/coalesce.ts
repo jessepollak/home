@@ -62,6 +62,7 @@ type Dependencies = {
     read: BalancesRead,
     region: RegionId,
     mode: ValuationMode,
+    signal?: AbortSignal,
   ) => Promise<PriceBalancesResult>;
   now?: () => Date;
   nowMs?: () => number;
@@ -131,8 +132,16 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
     const degraded = row !== null && needsFullObservation(readFromRow(row), current, borrowRetryMs);
     const required = signaled || expired || degraded;
+    let registryCompatible = true;
+    if (row) {
+      const registryIds = new Set((await readUniverse()).entries.map((entry) => entry.id));
+      const registryHoldings = row.holdings.filter((holding) => holding.source === "registry");
+      registryCompatible = registryHoldings.length === registryIds.size &&
+        new Set(registryHoldings.map((holding) => holding.id)).size === registryIds.size &&
+        registryHoldings.every((holding) => registryIds.has(holding.id));
+    }
 
-    if (row && !hot) {
+    if (row && !hot && registryCompatible) {
       if (required) scheduleRevalidation(owner, row, "background-full");
       else if (row.enumerationCursor) scheduleRevalidation(owner, row, "background-resume");
       return {
@@ -153,13 +162,13 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         (signaled || expired || needsFullObservation(observed, current, borrowRetryMs));
       if (refresh) scheduleRevalidation(owner, row!, "background-full");
       return {
-        read: winner ?? observed,
+        read: winner && registryCompatible ? winner : observed,
         stale: refresh,
         outcome: registryOnly ? "registry-only" : "full",
         durationMs,
       };
     } catch (error) {
-      if (!row) throw error;
+      if (!row || !registryCompatible) throw error;
       if (required) scheduleRevalidation(owner, row, "background-full");
       return {
         read: readFromRow(row),
@@ -278,13 +287,15 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     const borrow = await readBorrow(owner, registryRead.block);
     const withEnrichment = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, unavailableEnumeration()));
+    const registryHoldings = withEnrichment.holdings.filter((holding) => holding.source === "registry");
+    const registryKeys = new Set(registryHoldings.map((holding) => holding.key));
     return {
       ...withEnrichment,
       borrow: carryForwardBorrow(borrow, row.borrow, registryRead.block.number),
       observedAt: row.observedAt,
       holdings: [
-        ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
-        ...row.holdings.filter((holding) => holding.source !== "registry"),
+        ...registryHoldings,
+        ...row.holdings.filter((holding) => holding.source !== "registry" && !registryKeys.has(holding.key)),
       ],
       coverage: {
         registry: withEnrichment.coverage.registry,
@@ -299,7 +310,6 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     region: RegionId,
     signal?: AbortSignal,
   ): Promise<BalancesSnapshot> {
-    void signal;
     const startedAt = nowMs();
     let coverage: Extract<ObservabilityEvent, { kind: "balances-read" }>["coverage"] = {
       registry: "unknown",
@@ -313,6 +323,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         observed.read,
         region,
         observed.outcome === "full" ? "bootstrap" : "cached",
+        signal,
       );
       const priceDuration = Math.max(0, nowMs() - priceStartedAt);
       const snapshot = assembleBalancesSnapshot({

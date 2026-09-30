@@ -8,6 +8,8 @@ type Manifest = Parameters<typeof inventoryRouteContracts>[0]["manifest"];
 const roots: string[] = [];
 const route = "items/route.ts";
 const contract = "shared/items/contract.ts";
+const appRoute = "app/report/route.ts";
+const documentExemption = { kind: "document", reason: "This report is downloaded as a document and is never parsed by a Home client." };
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "home-route-contracts-"));
@@ -22,6 +24,7 @@ function fixture() {
   write("client/items.ts", 'import { parseItem } from "@/shared/items/contract"; export const loadItem = () => fetch("/api/items").then(parseItem);');
   const manifest: Manifest = {
     routes: { [route]: { contracts: [contract] } },
+    appRoutes: {},
     baseline: { routesWithoutVersionedParser: {}, unversionedContracts: [], parserlessContracts: [], handlerUnlinked: {}, clientUnlinked: {} },
   };
   const violations = () => inventoryRouteContracts({ root, manifest });
@@ -41,6 +44,118 @@ test("rejects a newly added unmapped route", () => {
   const { write, codes } = fixture();
   write("app/api/extra/route.ts", "export const GET = () => new Response(null);");
   expect(codes()).toContainEqual({ code: "route-unclassified", path: "extra/route.ts" });
+});
+
+test("rejects an unlisted api handler in a dot-directory", () => {
+  const { write, codes } = fixture();
+  write("app/api/.hidden/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([{ code: "route-unclassified", path: ".hidden/route.ts" }]);
+});
+
+for (const path of ["app/route.ts", ...["ts", "tsx", "js", "jsx"].map((extension) => `app/report/route.${extension}`)]) {
+  test(`rejects an unlisted non-api handler at ${path}`, () => {
+    const { write, codes } = fixture();
+    write(path, "export const GET = () => new Response(null);");
+    expect(codes()).toEqual([{ code: "route-unclassified", path }]);
+  });
+}
+
+test("rejects an unlisted non-api handler in a dot-directory", () => {
+  const { write, codes } = fixture();
+  const path = "app/.well-known/home-auth/route.ts";
+  write(path, "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([{ code: "route-unclassified", path }]);
+});
+
+test("ignores handlers inside a Next.js private folder", () => {
+  const { write, codes } = fixture();
+  write("app/_lib/route.ts", "export const GET = () => new Response(null);");
+  write("app/api/_lib/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([]);
+});
+
+test("ignores handlers below a nested private folder", () => {
+  const { write, codes } = fixture();
+  write("app/api/items/_private/nested/route.ts", "export const GET = () => new Response(null);");
+  write("app/_private/nested/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([]);
+});
+
+test("still inventories a folder whose name only contains an underscore", () => {
+  const { write, codes } = fixture();
+  write("app/api/item_library/route.ts", "export const GET = () => new Response(null);");
+  write("app/item_library/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([
+    { code: "route-unclassified", path: "app/item_library/route.ts" },
+    { code: "route-unclassified", path: "item_library/route.ts" },
+  ]);
+});
+
+test("a private-folder path in the manifest is not a route", () => {
+  const { write, manifest, codes } = fixture();
+  write("app/_lib/route.ts", "export const GET = () => new Response(null);");
+  manifest.appRoutes["app/_lib/route.ts"] = { exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-unknown", path: "app/_lib/route.ts" }]);
+});
+
+test("accepts a reviewed document exemption for a non-api handler in a dot-directory", () => {
+  const { write, manifest, violations } = fixture();
+  const path = "app/.well-known/home-auth/route.ts";
+  write(path, "export const GET = () => new Response(null);");
+  manifest.appRoutes[path] = { exempt: documentExemption };
+  expect(violations()).toEqual([]);
+});
+
+test("accepts a reviewed document exemption for a non-api handler", () => {
+  const { write, manifest, violations } = fixture();
+  write(appRoute, "export const GET = () => new Response(null);");
+  manifest.appRoutes[appRoute] = { exempt: documentExemption };
+  expect(violations()).toEqual([]);
+});
+
+test("rejects contracts on non-api handlers even with a reviewed exemption", () => {
+  const { write, manifest, codes } = fixture();
+  write(appRoute, "export const GET = () => new Response(null);");
+  manifest.appRoutes[appRoute] = { contracts: [contract], exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-contract-unsupported", path: appRoute }]);
+  manifest.appRoutes[appRoute]!.contracts = [];
+  expect(codes()).toEqual([{ code: "route-contract-unsupported", path: appRoute }]);
+});
+
+for (const [name, entry] of [
+  ["empty entry", {}],
+  ["unrecognized kind", { exempt: { ...documentExemption, kind: "internal" } }],
+  ["short trimmed reason", { exempt: { kind: "document", reason: "    Too short    " } }],
+] as const) {
+  test(`rejects a non-api exemption with ${name}`, () => {
+    const { write, manifest, codes } = fixture();
+    write(appRoute, "export const GET = () => new Response(null);");
+    manifest.appRoutes[appRoute] = entry;
+    expect(codes()).toEqual([{ code: "exempt-invalid", path: appRoute }]);
+  });
+}
+
+test("rejects a manifest app route without a handler", () => {
+  const { manifest, codes } = fixture();
+  manifest.appRoutes[appRoute] = { exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-unknown", path: appRoute }]);
+});
+
+test("requires app route keys to be sorted", () => {
+  const { write, manifest, codes } = fixture();
+  const alpha = "app/alpha/route.ts";
+  for (const path of [appRoute, alpha]) {
+    write(path, "export const GET = () => new Response(null);");
+    manifest.appRoutes[path] = { exempt: documentExemption };
+  }
+  expect(codes()).toEqual([{ code: "manifest-unsorted", path: "appRoutes" }]);
+});
+
+test("rejects an api handler listed in appRoutes", () => {
+  const { manifest, codes } = fixture();
+  const path = `app/api/${route}`;
+  manifest.appRoutes[path] = { exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-unknown", path }]);
 });
 
 test("inventories non-typescript route handlers", () => {

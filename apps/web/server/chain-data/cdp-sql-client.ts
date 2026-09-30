@@ -2,6 +2,7 @@ import "server-only";
 
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { isRecord, isUnknownArray } from "@/shared/guards";
+import { readJson } from "@/shared/http/read-json";
 import { ChainDataError } from "./errors";
 import type {
   CdpSqlResponse,
@@ -170,7 +171,7 @@ export function createCdpSqlHttpTransport({
         if (!response.ok) {
           throw responseError(response);
         }
-        const payload: unknown = await response.json();
+        const payload: unknown = await readJson(response);
         const envelope = parseCdpSqlResponseEnvelope(payload);
         if (!envelope) {
           throw new ChainDataError(

@@ -1,9 +1,11 @@
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
 const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-no-deferred-effect-setstate-"));
@@ -111,6 +113,7 @@ describe("no-deferred-effect-setstate", () => {
     `);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].message).toContain("useSyncExternalStore clock");
+    expect(diagnostics[0].message).toContain("useSyncExternalStore(subscribe, () => true, () => false)");
   });
 
   it("recognizes a useState or useReducer second-element setter without the set[A-Z] prefix", async () => {

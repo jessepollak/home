@@ -14,6 +14,7 @@ import {
 } from "@/shared/funding/contracts/order-resolution";
 import { assertFundingOpenOrderResponse, FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { emitUnknownFundingOrderRouteFailure } from "./event";
+import { readJson } from "@/shared/http/read-json";
 
 type FundingOrderPostDependencies = {
   authorize: FundingSessionAuthorizer;
@@ -61,7 +62,7 @@ export async function handleFundingOrderPost(
   }
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readJson(request);
   } catch {
     return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
   }
@@ -160,7 +161,7 @@ export async function handleFundingOrderResolutionPost(
   }
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readJson(request);
   } catch {
     return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
   }

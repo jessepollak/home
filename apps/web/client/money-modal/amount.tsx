@@ -39,6 +39,8 @@ import {
   type MoneyChipSet,
 } from "./amount-units";
 
+const isSizeArray: (value: readonly ResizeObserverSize[] | ResizeObserverSize) => value is readonly ResizeObserverSize[] = Array.isArray;
+
 const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
 const AMOUNT_MIN_FONT_SIZE_FALLBACK = 20;
 const AMOUNT_FIT_TOLERANCE_PX = 0.5;
@@ -151,10 +153,10 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
       for (const entry of entries) {
         if (entry.target === container) {
           const box = entry.contentBoxSize;
-          availableWidthRef.current = (Array.isArray(box) ? box[0] : box)?.inlineSize ?? entry.contentRect.width;
+          availableWidthRef.current = (isSizeArray(box) ? box[0] : box)?.inlineSize ?? entry.contentRect.width;
         } else if (entry.target === sizer) {
           const box = entry.borderBoxSize;
-          naturalWidthRef.current = (Array.isArray(box) ? box[0] : box)?.inlineSize ?? sizer.getBoundingClientRect().width;
+          naturalWidthRef.current = (isSizeArray(box) ? box[0] : box)?.inlineSize ?? sizer.getBoundingClientRect().width;
         }
       }
       flushSync(() => fitWidths(availableWidthRef.current, naturalWidthRef.current));

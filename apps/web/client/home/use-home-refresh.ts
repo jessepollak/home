@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { QueryKey } from "@tanstack/react-query";
 import { isVerifiedActivitySession } from "@/shared/activity/contract";
 import type { FetchActivity } from "@/client/activity/types";
-import { refreshLatestActivity } from "@/client/activity/use-activity";
+import { refreshActivityThroughController } from "@/client/activity/use-activity";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { activityWindowScope, initialActivityWindowEnd } from "@/client/query/after-action";
 import {
@@ -83,7 +83,7 @@ export function useHomeRefresh(input: {
     const attempted = [
       active(balancesKey),
       active(activityKey) || queryClient.getQueryCache().findAll({ queryKey: activityKey }).some((q) => q.state.data !== undefined),
-      active(actionsKey, true),
+      active(actionsKey),
       active(vaultsKey, true) || active(borrowKey, true),
     ];
     const refetch = (key: QueryKey, exact = false) => queryClient.refetchQueries(
@@ -91,11 +91,13 @@ export function useHomeRefresh(input: {
       { cancelRefetch: false, throwOnError: true },
     );
     setResult({ scope, state: { phase: "refreshing" } });
+    void queryClient.cancelQueries({ queryKey: actionsKey, type: "inactive" });
+    void queryClient.invalidateQueries({ queryKey: actionsKey, refetchType: "none" });
     const sources: readonly HomeRefreshSource[] = ["balances", "activity", "actions", "rates"];
     let ownedPrefetchKey: QueryKey | null = null;
     const promise = Promise.allSettled([
       refetch(balancesKey),
-      refreshLatestActivity({
+      refreshActivityThroughController({
         queryClient, ownerKey, session, regionId: input.regionId, fetchActivity: input.fetchActivity,
         isCurrent,
         onPrefetchKey: (key) => {
@@ -107,7 +109,7 @@ export function useHomeRefresh(input: {
           }
         },
       }),
-      refetch(actionsKey, true),
+      refetch(actionsKey),
       Promise.allSettled([refetch(vaultsKey, true), refetch(borrowKey, true)]).then((results) => {
         if (results.some((result) => result.status === "rejected")) throw new Error("Rates refresh failed.");
       }),

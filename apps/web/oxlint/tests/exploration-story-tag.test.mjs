@@ -1,9 +1,11 @@
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+applyRuleCheckTimeout();
 
 // Every case spawns an oxlint child and cleanup deletes its temporary mirror, so each phase gets its own
 // budget instead of sharing bun's 5 s default budget under concurrent load.

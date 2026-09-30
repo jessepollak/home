@@ -626,6 +626,39 @@ describe("combined Activity panel", () => {
     expect(tones).toEqual(["success", "default"]);
   });
 
+  test("shows a latest-activity retry while keeping earlier rows visible", () => {
+    const retry = mock(() => undefined);
+    const activity = { ...ready([transfer("earlier", 5)]), latestUnavailable: true, retry };
+    const view = render(<ActivityPanelView activity={activity} />);
+    expect(view.getByText("Latest activity didn't load. Earlier activity is still shown.").getAttribute("role")).toBe("status");
+    expect(view.getByRole("list")).toBeTruthy();
+    expect(view.queryByText(/Onchain transfers are unavailable/)).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Retry latest activity" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("uses the existing Home feed unavailable line to retry latest activity", () => {
+    const retry = mock(() => undefined);
+    const activity = { ...ready([transfer("earlier", 5)]), latestUnavailable: true, retry };
+    const view = render(<ActivityPanelView activity={activity} density="feed" />);
+    expect(view.getByText("Some activity is unavailable").getAttribute("role")).toBe("status");
+    expect(view.getByRole("list")).toBeTruthy();
+    expect(view.queryByText("Latest activity didn't load. Earlier activity is still shown.")).toBeNull();
+    fireEvent.click(view.getByRole("button", { name: "Reload activity" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not stack latest and onchain unavailable status lines", () => {
+    const activity = ready([transfer("earlier", 5)]);
+    if (activity.status !== "ready") throw new Error("Expected ready activity");
+    activity.latestUnavailable = true;
+    activity.page.onchainStatus = "unavailable";
+    const view = render(<ActivityPanelView activity={activity} />);
+    expect(view.getByText(/Onchain transfers are unavailable/)).toBeTruthy();
+    expect(view.queryByText("Latest activity didn't load. Earlier activity is still shown.")).toBeNull();
+    expect(view.queryByRole("button", { name: "Retry latest activity" })).toBeNull();
+  });
+
   test("keeps recorded actions visible and retries when onchain activity fails", () => {
     const retry = mock(() => undefined);
     const view = render(
@@ -1129,6 +1162,34 @@ describe("combined Activity panel", () => {
     expect(view.getByText("hashless-fallback")).toBeTruthy();
     expect(within(view.getByRole("list")).getAllByText("Received")).toHaveLength(1);
     expect(within(view.getByRole("list")).getAllByRole("button", { description: /transaction details/ })).toHaveLength(3);
+  });
+
+  test("reports readiness for every Activity source across surface states", () => {
+    const check = (activity: UseActivityResult, expected: string, statuses: { actionsStatus?: "loading" | "ready" | "error"; actionsRefreshing?: boolean; actionsFailed?: boolean; ordersStatus?: "loading" | "ready" | "error"; ordersRefreshing?: boolean; ordersFailed?: boolean } = {}) => {
+      const view = render(<ActivityPanelView activity={activity} {...statuses} />);
+      expect(view.container.querySelector("[data-activity-sources]")?.getAttribute("data-activity-sources")).toBe(expected);
+      view.unmount();
+    };
+    check(loading(), "transfers:loading actions:loading orders:ready", { actionsStatus: "loading" });
+    check(ready([transfer("onchain", 5)], "cursor-1"), "transfers:loading actions:ready orders:loading", { ordersStatus: "loading" });
+    check(ready([transfer("onchain", 5)]), "transfers:ready actions:ready orders:ready");
+    check(ready([transfer("onchain", 5)]), "transfers:ready actions:ready orders:error", { ordersStatus: "ready", ordersFailed: true });
+    check(ready([transfer("onchain", 5)]), "transfers:ready actions:error orders:ready", { actionsStatus: "ready", actionsFailed: true });
+    check(ready([transfer("onchain", 5)]), "transfers:ready actions:ready orders:loading", { ordersRefreshing: true });
+    check(ready([transfer("onchain", 5)]), "transfers:ready actions:loading orders:ready", { actionsRefreshing: true });
+    check(ready([transfer("onchain", 5)]), "transfers:ready actions:loading orders:ready", { actionsStatus: "error", actionsRefreshing: true });
+    check(ready([transfer("onchain", 5)]), "transfers:ready actions:ready orders:loading", { ordersStatus: "error", ordersRefreshing: true });
+    check({ ...ready([transfer("onchain", 5)]), refreshing: true }, "transfers:loading actions:ready orders:ready");
+    check(ready([transfer("onchain", 5)], "cursor-1", { loadMoreError: true }), "transfers:error actions:ready orders:ready");
+    const unavailable = ready([transfer("onchain", 5)]);
+    if (unavailable.status !== "ready") throw new Error("Expected ready Activity fixture");
+    unavailable.page.onchainStatus = "unavailable";
+    check(unavailable, "transfers:unavailable actions:ready orders:ready");
+    const latest = ready([transfer("onchain", 5)]);
+    if (latest.status !== "ready") throw new Error("Expected ready Activity fixture");
+    latest.latestUnavailable = true;
+    check(latest, "transfers:error actions:ready orders:ready");
+    check(failed(noop), "transfers:error actions:ready orders:ready");
   });
 });
 

@@ -1,9 +1,11 @@
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
 const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-no-real-waits-"));
@@ -126,13 +128,13 @@ describe("no-real-waits", () => {
     `, "test.ts")).toHaveLength(2);
   });
 
-  it("allows Date reads file-wide with a pinned system clock or fake timers with now", async () => {
+  it("allows Date reads only in scopes governed by a pinned system clock or fake timers with now", async () => {
     expect(await lint(`
       import { jest } from "bun:test";
       Date.now(); new Date; Date();
       beforeEach(() => jest.setSystemTime(FIXED));
       performance.now();
-    `, "test.ts")).toHaveLength(1);
+    `, "test.ts")).toHaveLength(4);
     expect(await lint(`
       import { jest } from "bun:test";
       Date.now(); new Date(); Date();
@@ -141,6 +143,195 @@ describe("no-real-waits", () => {
     `, "test.ts")).toHaveLength(1);
     expect(await lint(`import { setSystemTime } from "bun:test"; Date.now(); setSystemTime(FIXED);`, "test.ts"))
       .toHaveLength(0);
+  });
+
+  it("reports an unpinned sibling test but allows reads in the pinning test", async () => {
+    const wrappers = ["CALLBACK as () => void", "CALLBACK satisfies () => void", "CALLBACK!",
+      "<() => void>CALLBACK", "(CALLBACK)", "(CALLBACK as () => void)!"];
+    const wrap = (wrapper, callback) => wrapper.replace("CALLBACK", `(${callback})`);
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      test("pinned", () => { setSystemTime(FIXED); Date.now(); new Date(); Date(); });
+      test("unpinned", () => Date.now());
+      ${wrappers.map((wrapper) => `
+        test("pinned", ${wrap(wrapper, "() => { setSystemTime(FIXED); Date.now(); }")});
+        test("unpinned", ${wrap(wrapper, "() => Date.now()")});
+        describe("governed", ${wrap(wrapper, `() => {
+          beforeEach(${wrap(wrapper, "() => { setSystemTime(FIXED); Date.now(); }")});
+          test("local", ${wrap(wrapper, "() => Date.now()")});
+        }`)});
+      `).join("\n")}
+      Date.now();
+    `, "test.ts")).toHaveLength(wrappers.length + 2);
+  });
+
+  it("allows pre-hook governed reads without covering same-suite earlier hooks", async () => {
+    const hooks = ["beforeEach", "beforeAll", "before", "test.beforeEach", "it.beforeAll"];
+    const earlyHooks = ["beforeAll", "before"];
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      ${hooks.map((hook) => `
+        describe("${hook}", () => {
+          ${hook}(() => { setSystemTime(FIXED); Date.now(); });
+          test("outer", () => Date.now());
+          afterEach(() => Date.now());
+          describe("nested", () => {
+            test("inner", function () { return new Date(); });
+            beforeEach(() => Date.now());
+          });
+        });
+      `).join("\n")}
+      ${earlyHooks.map((hook) => `
+        describe("beforeEach pin", () => {
+          beforeEach(() => { setSystemTime(FIXED); Date.now(); });
+          ${hook}(() => Date.now());
+          test("governed", () => Date.now());
+          afterEach(() => Date.now());
+          afterAll(() => Date.now());
+          after(() => Date.now());
+          describe("nested", () => ${hook}(() => Date.now()));
+        });
+        describe("${hook} pin", () => {
+          ${hook}(() => { setSystemTime(FIXED); Date.now(); });
+          beforeAll(() => Date.now());
+          before(() => Date.now());
+          beforeEach(() => Date.now());
+          test("governed", () => Date.now());
+        });
+      `).join("\n")}
+    `, "test.ts")).toHaveLength(earlyHooks.length);
+  });
+
+  it("does not let a describe hook exempt a sibling describe or ancestor test", async () => {
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      describe("pinned", () => {
+        beforeEach(() => setSystemTime(FIXED));
+        test("local", () => Date.now());
+        describe("nested", () => test("inner", () => Date.now()));
+      });
+      describe("unpinned", () => test("sibling", () => Date.now()));
+      test("ancestor", () => Date.now());
+    `, "test.ts")).toHaveLength(2);
+  });
+
+  it("does not let top-level pre-hooks exempt program or describe scope reads", async () => {
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      beforeEach(() => setSystemTime(FIXED));
+      Date.now();
+      function helper() { return new Date(); }
+      const otherHelper = () => Date();
+      describe("suite", () => { Date.now(); test("governed", () => Date.now()); });
+    `, "test.ts")).toHaveLength(4);
+  });
+
+  it("does not let a program pin exempt a test or hook callback", async () => {
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      setSystemTime(FIXED);
+      Date.now();
+      test("unpinned", () => Date.now());
+      beforeEach(() => Date.now());
+    `, "test.ts")).toHaveLength(2);
+  });
+
+  it("allows post-hook reads only in the pinning hook", async () => {
+    const hooks = ["afterEach", "afterAll", "after", "test.afterEach", "it.afterAll"];
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      ${hooks.map((hook) => `
+        ${hook}(() => { setSystemTime(FIXED); Date.now(); });
+      `).join("\n")}
+      Date.now();
+      beforeEach(() => Date.now());
+    `, "test.ts")).toHaveLength(2);
+  });
+
+  it("recognizes modified test callbacks and skips non-callback functions", async () => {
+    const testCalls = ["test", "it", "test.only", "it.skip", "test.todo", "test.fixme",
+      "test.fail", "test.slow", "test.concurrent", "test.sequential", "test.each",
+      "test.each([1])", "test.each`value\n${1}`", "it.concurrent.only", "(test as typeof test).only",
+      "test.skipIf(true)", "test.runIf(true)", "test.if(true)", "test.todoIf(true)", "test.failIf(true)",
+      "test.fails", "test.failsIf(true)", "test.for([1])"];
+    expect(await lint(`
+      import { jest } from "bun:test";
+      ${testCalls.map((testCall) => `
+        ${testCall}("pinned", function () {
+          (() => jest.useFakeTimers({ now: FIXED }))();
+          [1].map(() => Date.now());
+        });
+      `).join("\n")}
+      Date.now();
+    `, "test.ts")).toHaveLength(1);
+  });
+
+  it("recognizes describe containers and aliased framework scopes", async () => {
+    const containers = ["describe", "describe.only", "describe.skip", "describe.each",
+      "describe.each([1])", "describe.each`value\n${1}`", "describe.runIf(true)", "describe.skipIf(true)",
+      "test.describe", "test.describe.only", "test.describe.serial", "test.describe.parallel",
+      "describe.concurrent", "describe.sequential", "describe.shuffle", "describe.todo"];
+    const frameworks = ["bun:test", "vitest", "@jest/globals"];
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      ${containers.map((container) => `
+        ${container}("pinned", () => {
+          beforeAll(() => setSystemTime(FIXED));
+          it("local", () => Date.now());
+        });
+      `).join("\n")}
+      describe("sibling", () => it("unpinned", () => Date.now()));
+      import { test as browserTest } from "@playwright/test";
+      browserTest.describe.serial("governed", () => {
+        browserTest.beforeEach(() => setSystemTime(FIXED));
+        browserTest.only("local", () => Date.now());
+        browserTest.describe("nested", () => browserTest("inner", () => Date.now()));
+      });
+      browserTest.describe.parallel("sibling", () => browserTest("unpinned", () => Date.now()));
+      browserTest("pinned", () => { setSystemTime(FIXED); Date.now(); });
+      browserTest.skip("unpinned", () => Date.now());
+      Date.now();
+    `, "test.ts")).toHaveLength(4);
+    for (const [index, framework] of frameworks.entries()) {
+      expect(await lint(`
+        import { setSystemTime } from "bun:test";
+        import { test as case${index}, describe as suite${index}, beforeEach as setup${index} } from "${framework}";
+        suite${index}.only("governed", () => {
+          setup${index}(() => setSystemTime(FIXED));
+          case${index}.only("local", () => Date.now());
+          suite${index}("nested", () => case${index}("inner", () => Date.now()));
+        });
+        suite${index}("sibling", () => case${index}("unpinned", () => Date.now()));
+        case${index}("pinned", () => { setSystemTime(FIXED); Date.now(); });
+        case${index}.skip("unpinned", () => Date.now());
+        suite${index}("body pin", () => { setSystemTime(FIXED); Date.now(); });
+        suite${index}.only("unpinned body", () => Date.now());
+      `, "test.ts")).toHaveLength(3);
+    }
+  });
+
+  it("uses only the last function argument as a test callback", async () => {
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      test("callbacks", () => setSystemTime(FIXED), () => Date.now());
+    `, "test.ts")).toHaveLength(1);
+  });
+
+  it("does not recognize computed or unrelated test modifiers", async () => {
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      test["only"]("not a scope", () => setSystemTime(FIXED));
+      fixture.only("not a scope", () => setSystemTime(FIXED));
+      test("unpinned", () => Date.now());
+    `, "test.ts")).toHaveLength(1);
+  });
+
+  it("keeps invalid pin sources reported even when a pre-hook governs their test", async () => {
+    expect(await lint(`
+      import { setSystemTime } from "bun:test";
+      beforeEach(() => setSystemTime(FIXED));
+      test("invalid", () => { setSystemTime(Date.now()); Date.now(); });
+    `, "test.ts")).toHaveLength(1);
   });
 
   it("rejects clock reads in system-time and fake-timer pin arguments file-wide", async () => {
@@ -204,6 +395,31 @@ describe("no-real-waits", () => {
       .toHaveLength(1);
     expect(await lint(`jest.setSystemTime(FIXED); await page.evaluate(() => Date.now());`))
       .toHaveLength(1);
+  });
+
+  it("does not let a Playwright test pin exempt a sibling page callback", async () => {
+    expect(await lint(`
+      test("pinned", async ({ page }) => {
+        await page.clock.setFixedTime(FIXED);
+        await page.evaluate(() => Date.now());
+      });
+      test("unpinned", async ({ page }) => {
+        await page.evaluate(() => Date.now());
+      });
+    `)).toHaveLength(1);
+  });
+
+  it("allows Playwright page reads governed by a pinning beforeEach but not Node reads", async () => {
+    expect(await lint(`
+      test.beforeEach(async ({ page }) => { await page.clock.install({ time: FIXED }); });
+      test("outer", async ({ page }) => {
+        await page.evaluate(() => Date.now());
+        Date.now();
+      });
+      test.describe("nested", () => {
+        test("inner", async ({ page }) => { await page.evaluate(() => new Date()); });
+      });
+    `)).toHaveLength(1);
   });
 
   it("rejects Playwright pin argument reads and does not exempt page callbacks", async () => {

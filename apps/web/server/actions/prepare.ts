@@ -28,6 +28,7 @@ import { prepareTradeAction, tradePreparationResponse } from "./kinds/trade/prep
 import { assertStockTradePrepareAllowed } from "./kinds/trade/stock-eligibility";
 import { isTradeErrorCode } from "@/shared/trading/contract";
 import { prepareCardAllowanceAction, CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
+import { readJson } from "@/shared/http/read-json";
 
 export function createPrepareActionHandler(dependencies: {
   authorize: ActionAuthorizer;
@@ -39,7 +40,7 @@ export function createPrepareActionHandler(dependencies: {
   return async function POST(request: Request): Promise<Response> {
     const session = await authorizeSession(request, dependencies.authorize);
     if (session instanceof Response) return session;
-    const body = await readJson(request);
+    const body = await readJson(request).catch(() => null);
     if (!isRecord(body) || !isActionKind(body.kind) || !isRecord(body.params)) {
       return privateError("INVALID_ACTION", "A valid action kind and parameters are required.", 400);
     }
@@ -153,9 +154,6 @@ async function prepare(
   throw new TypeError("Unsupported action kind.");
 }
 
-async function readJson(request: Request): Promise<unknown> {
-  try { return await request.json(); } catch { return null; }
-}
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }

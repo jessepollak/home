@@ -10,7 +10,7 @@ import { ownerQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { tradeAvailabilityScope } from "@/client/query/after-action";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
-import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
+import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
@@ -36,7 +36,7 @@ const fetchAccountResource = async (path: string) => {
 const calls: Array<{ endpoint: string; input: unknown }> = [];
 const prepare = async (endpoint: string, input: unknown): Promise<PreparedMoneyAction> => { calls.push({ endpoint, input }); throw { code: "TRADE_ROUTE_UNAVAILABLE" }; };
 const noop = () => undefined;
-function Surface({ source = "USD", kind = "convert", data = snapshot, resource = fetchAccountResource, best = null, balanceStale = false, depositEntryBlocked = false, historyBlocked = false, onSaveEntry = noop, prepareAction = prepare, executeAction = async () => ({ id: "fixture", status: "rejected" as const }) }: { source?: "USD" | "EUR"; kind?: "convert" | "currency"; data?: typeof snapshot; resource?: (path: string) => Promise<unknown>; best?: MorphoVaultCandidate | null; balanceStale?: boolean; depositEntryBlocked?: boolean; historyBlocked?: boolean; onSaveEntry?: () => void; prepareAction?: AccountWalletClient["prepareMoneyAction"]; executeAction?: AccountWalletClient["executeMoneyAction"] }) {
+function Surface({ source = "USD", kind = "convert", data = snapshot, resource = fetchAccountResource, best = null, balanceStale = false, depositEntryBlocked = false, historyBlocked = false, onSaveEntry = noop, prepareAction = prepare, executeAction = async () => ({ id: "fixture", status: "rejected" as const }) }: { source?: CashConversionCurrencyCode; kind?: "convert" | "currency"; data?: typeof snapshot; resource?: (path: string) => Promise<unknown>; best?: MorphoVaultCandidate | null; balanceStale?: boolean; depositEntryBlocked?: boolean; historyBlocked?: boolean; onSaveEntry?: () => void; prepareAction?: AccountWalletClient["prepareMoneyAction"]; executeAction?: AccountWalletClient["executeMoneyAction"] }) {
   const [open, setOpen] = useState(true);
   return <><button onClick={() => setOpen(true)}>Reopen</button><CashCurrencySheet open={open} entry={{ kind, source }} session={session} snapshot={data} best={best} balanceStale={balanceStale}
     depositEntryBlocked={depositEntryBlocked} historyBlocked={historyBlocked} onSaveEntry={onSaveEntry} fetchAccountResource={resource} prepareMoneyAction={prepareAction} executeMoneyAction={executeAction}
@@ -305,4 +305,132 @@ test("stale zero USD balance does not claim an empty wallet", () => {
   cleanup(); getHomeQueryClient().clear();
   const detail = render(<Surface kind="currency" data={zero} balanceStale />);
   expect(detail.getByText("Balance may be out of date.")).toBeTruthy();
+});
+
+const currencyRowNames = ["Argentine peso", "Brazilian real", "Colombian peso", "Euro", "Rupiah", "US dollar"];
+function listedCurrencies(view: ReturnType<typeof render>) {
+  return currencyRowNames.filter((name) => view.queryAllByText(name).length > 0);
+}
+
+test("the USD picker lists every local currency and search narrows by name, code and token symbol", async () => {
+  const view = render(<Surface />);
+  await view.findByRole("button", { name: /^Euro/ });
+  expect(listedCurrencies(view)).toEqual(["Argentine peso", "Brazilian real", "Colombian peso", "Euro", "Rupiah"]);
+  const search = view.getByRole("textbox", { name: "Search currencies" }) as HTMLInputElement;
+  for (const [query, expected] of [["argentine", "Argentine peso"], [" ARS ", "Argentine peso"], ["wbrl", "Brazilian real"]] as const) {
+    fireEvent.change(search, { target: { value: query } });
+    expect(listedCurrencies(view)).toEqual([expected]);
+    expect(view.getByRole("status").textContent).toBe("1 results");
+  }
+  fireEvent.change(search, { target: { value: "yen" } });
+  expect(view.getByText("No currencies found")).toBeTruthy();
+  expect(view.getByText("No currencies found for “yen”.")).toBeTruthy();
+  expect(view.getByRole("status").textContent).toBe("No results");
+  expect(listedCurrencies(view)).toEqual([]);
+  fireEvent.click(view.getByRole("button", { name: "Clear search" }));
+  expect(search.value).toBe("");
+  expect(listedCurrencies(view)).toEqual(["Argentine peso", "Brazilian real", "Colombian peso", "Euro", "Rupiah"]);
+});
+
+test("unoffered destinations show the reason, never activate, and never read trade availability", async () => {
+  const requested: string[] = [];
+  const view = render(<Surface resource={async (path) => {
+    const assetId = new URL(path, "https://example.test").searchParams.get("assetId");
+    if (assetId) requested.push(assetId);
+    return fetchAccountResource(path);
+  }} />);
+  await view.findByRole("button", { name: /^Euro/ });
+  expect(view.getAllByText(CASH_CONVERSION_UNAVAILABLE_REASON)).toHaveLength(3);
+  for (const name of ["Argentine peso", "Brazilian real", "Colombian peso"]) {
+    expect(view.queryByRole("button", { name: new RegExp(`^${name}`) })).toBeNull();
+    fireEvent.click(view.getByText(name));
+  }
+  expect(view.queryByRole("textbox", { name: "Amount" })).toBeNull();
+  expect(view.getByRole("dialog", { name: "Convert to" })).toBeTruthy();
+  expect(calls).toEqual([]);
+  const unoffered = cashConversionCurrencies.filter((currency) => !currency.convertOffered).map((currency) => currency.tradeAssetId);
+  expect(unoffered).toHaveLength(3);
+  expect(requested.length).toBeGreaterThan(0);
+  expect(requested.filter((assetId) => unoffered.includes(assetId))).toEqual([]);
+});
+
+test("an unoffered destination's cached error never offers retry or reads availability", async () => {
+  const unoffered = cashConversionCurrencies.find((currency) => currency.code === "BRL")!;
+  const key = ownerQueryKey(dataOwnerKey(session), tradeAvailabilityScope, unoffered.tradeAssetId);
+  await expect(getHomeQueryClient().fetchQuery({
+    queryKey: key,
+    queryFn: async () => { throw new Error("availability unavailable"); },
+    retry: false,
+  })).rejects.toThrow("availability unavailable");
+  const requested: string[] = [];
+  const view = render(<Surface resource={async (path) => {
+    const assetId = new URL(path, "https://example.test").searchParams.get("assetId");
+    if (assetId) requested.push(assetId);
+    return fetchAccountResource(path);
+  }} />);
+
+  await view.findByRole("button", { name: /^Euro/ });
+  await view.findByRole("button", { name: /^Rupiah/ });
+  expect(getHomeQueryClient().getQueryState(key)?.status).toBe("error");
+  expect(Boolean(view.queryByRole("button", { name: "Try again" }))).toBe(false);
+  expect(requested).not.toContain(unoffered.tradeAssetId);
+});
+
+test("retry refetches an errored offered destination without reading an errored unoffered destination", async () => {
+  const unoffered = cashConversionCurrencies.find((currency) => currency.code === "BRL")!;
+  const euro = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
+  const key = ownerQueryKey(dataOwnerKey(session), tradeAvailabilityScope, unoffered.tradeAssetId);
+  await expect(getHomeQueryClient().fetchQuery({
+    queryKey: key,
+    queryFn: async () => { throw new Error("availability unavailable"); },
+    retry: false,
+  })).rejects.toThrow("availability unavailable");
+  const requested: string[] = [];
+  let failing = true;
+  const view = render(<Surface resource={async (path) => {
+    const assetId = new URL(path, "https://example.test").searchParams.get("assetId");
+    if (assetId) requested.push(assetId);
+    if (assetId === euro.tradeAssetId && failing) throw new Error("availability unavailable");
+    return fetchAccountResource(path);
+  }} />);
+
+  const retry = await view.findByRole("button", { name: "Try again" });
+  expect(requested.filter((assetId) => assetId === euro.tradeAssetId)).toHaveLength(1);
+  expect(requested).not.toContain(unoffered.tradeAssetId);
+  failing = false;
+  fireEvent.click(retry);
+  await view.findByRole("button", { name: /^Euro/ });
+  expect(requested.filter((assetId) => assetId === euro.tradeAssetId)).toHaveLength(2);
+  expect(requested).not.toContain(unoffered.tradeAssetId);
+  expect(Boolean(view.queryByRole("button", { name: "Try again" }))).toBe(false);
+});
+
+test("an unoffered currency detail shows the reason instead of Convert while USD keeps Convert and Save", () => {
+  const peso = render(<Surface source="ARS" kind="currency" best={best} />);
+  expect(peso.getByRole("dialog", { name: "Argentine peso" })).toBeTruthy();
+  expect(peso.getByText(CASH_CONVERSION_UNAVAILABLE_REASON)).toBeTruthy();
+  expect(peso.queryByRole("button", { name: /^Convert$/ })).toBeNull();
+  expect(peso.queryByRole("button", { name: "Save" })).toBeNull();
+  cleanup(); getHomeQueryClient().clear();
+  const dollar = render(<Surface source="USD" kind="currency" best={best} />);
+  expect(dollar.getByRole("button", { name: /^Convert$/ })).toBeTruthy();
+  expect(dollar.getByRole("button", { name: "Save" })).toBeTruthy();
+  expect(dollar.queryByText(CASH_CONVERSION_UNAVAILABLE_REASON)).toBeNull();
+});
+
+test("a reopened picker starts with an empty search and Escape only blurs the field", async () => {
+  const view = render(<Surface />);
+  await view.findByRole("button", { name: /^Euro/ });
+  const search = view.getByRole("textbox", { name: "Search currencies" }) as HTMLInputElement;
+  search.focus();
+  fireEvent.change(search, { target: { value: "euro" } });
+  fireEvent.keyDown(search, { key: "Escape" });
+  expect(document.activeElement).not.toBe(search);
+  expect(view.getByRole("dialog", { name: "Convert to" })).toBeTruthy();
+  fireEvent.click(view.getByRole("button", { name: "Close conversion" }));
+  await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
+  fireEvent.click(view.getByRole("button", { name: "Reopen", hidden: true }));
+  const reopened = await view.findByRole("textbox", { name: "Search currencies" }) as HTMLInputElement;
+  expect(reopened.value).toBe("");
+  expect(listedCurrencies(view)).toHaveLength(5);
 });
