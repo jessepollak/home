@@ -6,7 +6,7 @@ import {
   type ActivityPanelDensity,
   type FetchActivity,
 } from "@/client/activity";
-import { activityOwnerKey, useActivity } from "@/client/activity/use-activity";
+import { activityOwnerKey, useActivity, type RetrySchedule } from "@/client/activity/use-activity";
 import { activityOrdersNeedPolling } from "@/client/activity/activity-feed";
 import { activityOrdersPath, activityOrdersQuery } from "@/client/activity/activity-orders-query";
 import { recentActionsQuery, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
@@ -74,6 +74,7 @@ export function ConnectedActivityPanel({
   regionId,
   emptyAction,
   onDetailsOpenChange,
+  scheduleContinuationRetry,
 }: {
   density: ActivityPanelDensity;
   header?: ReactNode | null;
@@ -83,6 +84,7 @@ export function ConnectedActivityPanel({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
+  scheduleContinuationRetry?: RetrySchedule;
 }) {
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
@@ -137,7 +139,7 @@ export function ConnectedActivityPanel({
     assetReturnRef.current = null;
   }, [routing?.rootRequest]);
   const cancelAttempt = useRef(0);
-  const activity = useActivity(activitySession, fetchActivity, regionId);
+  const activity = useActivity(activitySession, fetchActivity, regionId, { scheduleContinuationRetry });
   const actions = useHomeQuery({
     ...recentActionsQuery({ owner: ownerKey, session: activitySession, fetchOperations }),
     refetchInterval: (query) => {
