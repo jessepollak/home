@@ -43,6 +43,8 @@
     "server/customers/record-ids-backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",
     "live-login.ts!",
+    // Fixture server lifecycle CLI is run directly by its package script.
+    "scripts/fixture-server.ts!",
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
     "scripts/review-links.ts!",

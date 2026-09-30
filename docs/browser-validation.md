@@ -30,14 +30,11 @@ Use only `bun run ab --` from the repository root: it checks the local binary ag
 
 ### Fixture session on port 3199
 
-`HOME_FIXTURE_PORT` defaults to `3199` for the fixture server below. Export it to pin the fixture server and Playwright smoke to one assigned port. When it is unset, Playwright smoke binds a free ephemeral port, holds a reservation for it under the system temp directory keyed by port and owning process (another participating run skips a reserved port, and a reservation whose owner is gone is reclaimed), then exports the port to its workers and names it in the web-server log, so two worktrees can run the suite concurrently. The reservation coordinates only runs that use it: if a process outside the suite binds the chosen port before the dev server starts, the web server fails to start and the run needs a rerun. Wait only for the assigned port to be free, not for `3199`. Otherwise wait for `3199` to be free. Do not kill the port occupant. Start this server in the cleanup shell, retain its exact PID, and use only the fixture environment (no `.env.local`, provider or production credentials):
+`HOME_FIXTURE_PORT` defaults to `3199` for the fixture server below. Export it to pin the fixture server and Playwright smoke to one assigned port. When it is unset, Playwright smoke binds a free ephemeral port, holds a reservation for it under the system temp directory keyed by port and owning process (another participating run skips a reserved port, and a reservation whose owner is gone is reclaimed), then exports the port to its workers and names it in the web-server log, so two worktrees can run the suite concurrently. The reservation coordinates only runs that use it: if a process outside the suite binds the chosen port before the dev server starts, the web server fails to start and the run needs a rerun. Wait only for the assigned port to be free, not for `3199`. Otherwise wait for `3199` to be free. Do not kill the port occupant. The fixture-server helper runs the server in its own process group and records its leader, command, group members, and log under the system temp directory (`home-fixture-server/`), keyed by port; a per-port lifecycle lock keeps concurrent start and stop calls from interleaving. It fails loudly if a recorded group is already running, another lifecycle operation is in progress, or another process holds the port; it never kills the port occupant. The helper passes only the fixture environment to the server process - `HOME`, `PATH`, `NEXT_TELEMETRY_DISABLED=1`, `HOME_PLAYWRIGHT_SMOKE=1`, and `HOME_FIXTURE_PORT` - so no inherited provider or production credentials reach it. Next and Bun still load `apps/web` environment files at startup, so run the fixture server from a checkout without Next-loadable `.env` files (worktrees do not copy them):
 
 ```sh
 export HOME_FIXTURE_PORT="${HOME_FIXTURE_PORT:-3199}"
-export HOME_FIXTURE_SERVER_LOG="$(mktemp "${TMPDIR:-/tmp}/home-fixture-server.XXXXXX")"
-env -i HOME="$HOME" PATH="$PATH" NEXT_TELEMETRY_DISABLED=1 HOME_PLAYWRIGHT_SMOKE=1 HOME_FIXTURE_PORT="$HOME_FIXTURE_PORT" \
-  bun --cwd apps/web dev -- --port "$HOME_FIXTURE_PORT" >"$HOME_FIXTURE_SERVER_LOG" 2>&1 &
-export HOME_FIXTURE_SERVER_PID=$!
+bun run --cwd apps/web fixture-server start
 ```
 
 Do not use root `bun dev` (it migrates the database). In this same worktree, initialize a signed-in fixture browser with the minimal session setup helper:
@@ -53,16 +50,14 @@ The helper launches at `about:blank` with `open --init-script <private-path>` (n
 
 Large fixture route bodies go through `batch --bail` on stdin, never as argv: some managed macOS hosts kill a shell or Node script given one argument over about 1 KB. `bun run ab` runs the native agent-browser binary directly when available.
 
-Never commit fixture init files, cookies or browser transcripts. When done, `bun run ab -- --session home-796-send close`; remove the private fixture init file and terminate/wait **only** the captured owned server PID:
+Never commit fixture init files, cookies or browser transcripts. When done, `bun run ab -- --session home-796-send close`; remove the private fixture init file and stop the owned server with the helper. It verifies the recorded leader command, stops the whole process group, and confirms the port is free before reporting success:
 
 ```sh
 rm -f "$HOME/.home-verify/home-796-send.init.js"
-if kill -0 "$HOME_FIXTURE_SERVER_PID" 2>/dev/null; then kill "$HOME_FIXTURE_SERVER_PID"; fi
-wait "$HOME_FIXTURE_SERVER_PID" 2>/dev/null || true
-rm -f "$HOME_FIXTURE_SERVER_LOG"
+bun run --cwd apps/web fixture-server stop
 ```
 
-Apply this cleanup also on interruptions/failures. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the exact PID was terminated or already exited and waited for.
+Apply this cleanup also on interruptions/failures, using the same `HOME_FIXTURE_PORT` (or explicit `--port`) as start. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the recorded process group was stopped or already gone, and whether the helper confirmed the port was free. If another process holds the port after shutdown, the helper fails loudly instead of reporting success.
 
 ### Real Android device
 
