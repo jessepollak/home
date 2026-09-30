@@ -212,6 +212,13 @@
       "count": 1,
       "issue": "#1250",
       "reason": "Fixture port tests read only their own system-temp scratch lock files to verify port ownership."
+    },
+    {
+      "path": "apps/web/scripts/fixture-server.test.ts",
+      "rule": "home/no-source-reads",
+      "count": 1,
+      "issue": "#1463",
+      "reason": "Fixture server tests read only their own system-temp state and log files to verify the recorded group, its leader, and the freed port."
     }
   ]
 }
