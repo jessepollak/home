@@ -67,7 +67,32 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
 }) {
   const [granted, setGranted] = useState(false);
   const release = useRef<(() => void) | null>(null);
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
+  const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (visible) return;
+    const node = container.current;
+    if (!node) return;
+    const view = node.ownerDocument.defaultView!;
+    let observer: IntersectionObserver;
+    const observe = () => {
+      observer?.disconnect();
+      const height = node.getBoundingClientRect().height;
+      const tallThreshold = height > 0 ? Math.min(0.5, view.innerHeight / (2 * height)) : 0.5;
+      observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting && (entry.intersectionRatio >= 0.5 ||
+          entry.intersectionRect.height >= view.innerHeight / 2))) setVisible(true);
+      }, { threshold: [0, tallThreshold, 0.5] });
+      observer.observe(node);
+    };
+    observe();
+    const resize = new ResizeObserver(observe);
+    resize.observe(node);
+    view.addEventListener("resize", observe);
+    return () => { observer.disconnect(); resize.disconnect(); view.removeEventListener("resize", observe); };
+  }, [visible]);
+  useEffect(() => {
+    if (!visible) return;
     const frames = busy.current;
     frames.add(story.id);
     const cancel = slots.request(story.id, () => setGranted(true));
@@ -76,11 +101,10 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
       cancel();
     };
     return release.current;
-  }, [slots, busy, story.id]);
+  }, [slots, busy, story.id, visible]);
   const fullHeight = story.portals || story.layout === "fullscreen";
   const [height, setHeight] = useState(FRAME_MIN_HEIGHT);
   const [available, setAvailable] = useState(FRAME_WIDTH);
-  const container = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const node = container.current;
     if (!story.viewport || !node) return;
@@ -141,6 +165,16 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
   const slots = useMemo(() => createFrameSlots(3), []);
   const busy = useRef(new Set<string>());
   useFrameScrollGuard(root, busy);
+  const restored = useRef(false);
+  useLayoutEffect(() => {
+    if (!root || restored.current) return;
+    restored.current = true;
+    if (focused) {
+      const section = [...root.querySelectorAll<HTMLElement>("[data-library-section]")]
+        .find((node) => node.dataset.librarySection === focused);
+      section?.scrollIntoView({ block: "start", behavior: "instant" });
+    }
+  }, [root, focused]);
   const initialArgs = useMemo(() => new Map(stories.map((story) =>
     [story.id, storyArgs(propControls(story.argTypes, story.initialArgs), story.initialArgs, {})])), [stories]);
   return <>{stories.map((story) => {

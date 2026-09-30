@@ -1,12 +1,14 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { lexLibraryImports } from "../../.storybook/library-imports-plugin";
 import { frameReason, readPortalRule } from "@/stories/review/explorations/library/isolation";
 
 const { act, cleanup, render } = await import("@testing-library/react");
 const { VariantSheet } = await import("@/stories/review/explorations/library/sheet");
-afterEach(cleanup);
+const originalIntersection = globalThis.IntersectionObserver;
+beforeEach(() => { globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver; });
+afterEach(() => { cleanup(); globalThis.IntersectionObserver = originalIntersection; });
 
 for (const name of ["commented", "escaped"]) {
   test(`${name} executable import cannot mount its real portal in the parent document`, async () => {

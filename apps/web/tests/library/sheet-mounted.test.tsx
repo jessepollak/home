@@ -12,10 +12,12 @@ const { VariantSheet } = await import("@/stories/review/explorations/library/she
 
 const originalRequest = globalThis.requestAnimationFrame;
 const originalCancel = globalThis.cancelAnimationFrame;
+const originalIntersection = globalThis.IntersectionObserver;
 let next = 0;
 const callbacks = new Map<number, FrameRequestCallback>();
 beforeEach(() => {
   callbacks.clear();
+  globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
   globalThis.requestAnimationFrame = (callback) => { callbacks.set(++next, callback); return next; };
   globalThis.cancelAnimationFrame = (id) => { callbacks.delete(id); };
 });
@@ -23,6 +25,7 @@ afterEach(() => {
   cleanup();
   globalThis.requestAnimationFrame = originalRequest;
   globalThis.cancelAnimationFrame = originalCancel;
+  globalThis.IntersectionObserver = originalIntersection;
 });
 const tick = () => act(() => {
   for (const [id, callback] of [...callbacks]) { callbacks.delete(id); callback(0); }
