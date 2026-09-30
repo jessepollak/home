@@ -200,6 +200,7 @@ export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "saving
     ["**/api/savings/vaults", savingsVaultsBody(new Date(FIXED_NOW).toISOString(), new Date(FIXED_NOW).toISOString())],
     ["**/api/borrow", borrowOverview],
     ["**/api/cards", cardsBody()],
+    ["**/api/cards/spending", { version: 1, status: "available", setEnabled: true, spender: "0x2222222222222222222222222222222222222222", walletBaseUnits: "100000000", allowanceBaseUnits: "25000000", availableBaseUnits: "25000000", retired: [], blockNumber: "1", fetchedAt: new Date(FIXED_NOW).toISOString() }],
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
       : []),

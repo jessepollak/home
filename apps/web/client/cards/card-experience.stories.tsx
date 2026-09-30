@@ -6,6 +6,11 @@ import type { CardsResponse, CardState } from "@/shared/cards/contract";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
 import { CardScreen, type CardScreenData } from "./card-experience";
 import { CardRefreshError } from "./use-cards";
+import type { CardSpendingData, CardSpendingCommands } from "./card-spending";
+import type { CardAllowancePrepareParams } from "@/shared/cards/allowance-contract";
+import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
+import { ExpirySchedulerContext } from "@/client/actions/expiry";
 
 const actions = { onOpenVerification: fn(), onRetry: fn(), issue: fn(), setFrozen: fn() };
 const kycUrl = "https://bridge.withpersona.com/verify?inquiry-template-id=itmpl_story";
@@ -16,22 +21,47 @@ const twoCards: CardsResponse = { ...cardsBody("frozen"), cards: [
   { id: "ic_fixture4821", status: "active", last4: "4821" },
 ] };
 
-function CardStateStory({ state, initial, refreshFails = false, withReveal = true }: {
+const spendingSpender = "0x2222222222222222222222222222222222222222";
+const retiredSpender = "0x3333333333333333333333333333333333333333";
+const spendingReady: Extract<CardSpendingData, { status: "ready" }> = { status: "ready", response: {
+  version: 1, status: "available", setEnabled: true, spender: spendingSpender, walletBaseUnits: "100000000", allowanceBaseUnits: "25000000", availableBaseUnits: "25000000", retired: [], blockNumber: "1", fetchedAt: "2026-09-28T12:00:00.000Z",
+} };
+
+function preparedSpending(params: CardAllowancePrepareParams): PreparedMoneyAction {
+  return {
+    id: "card-allowance-story", kind: "card-allowance", title: "Card spending limit", calls: [], amounts: [], warnings: ["Allow card purchases from Cash."],
+    owner: { subject: "story-owner", address: "0x1111111111111111111111111111111111111111", chainId: 8453, accountProvider: "cdp-embedded" },
+    createdAt: "2026-09-28T12:00:00.000Z", expiresAt: "2026-09-28T12:05:00.000Z",
+    metadata: { product: "card", provider: "bridge", mode: "production", operation: params.operation === "set" ? "set-allowance" : "revoke-allowance", token: BASE_USDC_ADDRESS.toLowerCase() as `0x${string}`, spender: params.operation === "revoke" ? params.spender : spendingSpender, previousAllowanceBaseUnits: "25000000", allowanceBaseUnits: params.operation === "set" ? params.allowanceBaseUnits : "0", maximumBaseUnits: params.operation === "set" ? "1000000000" : null, source: { blockNumber: "1" } },
+  };
+}
+const spendingCommands: CardSpendingCommands = {
+  prepare: async (params) => preparedSpending(params),
+  execute: async () => ({ id: "card-allowance-story", status: "rejected" }),
+  fetchOperations: async () => ({ actions: [] }),
+};
+
+function CardStateStory({ state, initial, refreshFails = false, withReveal = true, spending }: {
   state: CardState | "loading" | "failed";
   initial?: CardsResponse;
   refreshFails?: boolean;
   withReveal?: boolean;
+  spending?: CardSpendingData;
 }) {
   const [response, setResponse] = useState(() => initial ?? (state === "loading" || state === "failed" ? null : cardsBody(state)));
   const [readFailed, setReadFailed] = useState(state === "failed");
   const cards: CardScreenData = readFailed ? { status: "failed" } : response ? { status: "ready", response } : { status: "loading" };
   return (
     <div className="mx-auto max-w-xl p-4">
+      <ExpirySchedulerContext value={{ now: () => Date.parse("2026-09-28T12:00:00.000Z"), setTimeout: () => 0, clearTimeout: () => {} }}>
       <CardScreen
         cards={cards}
         onRetry={() => { actions.onRetry(); if (refreshFails) setReadFailed(false); }}
         onOpenVerification={actions.onOpenVerification}
         reveal={withReveal ? reveal : undefined}
+        spending={spending}
+        spendingCommands={spendingCommands}
+        onSpendingRetry={actions.onRetry}
         commands={{
           enroll: async () => kycUrl,
           issue: async () => { actions.issue(); setResponse(cardsBody("active")); },
@@ -42,6 +72,7 @@ function CardStateStory({ state, initial, refreshFails = false, withReveal = tru
           },
         }}
       />
+      </ExpirySchedulerContext>
       <Toaster />
     </div>
   );
@@ -155,3 +186,53 @@ export const Unavailable: Story = {
   },
 };
 export const Loading: Story = { args: { state: "loading" } };
+
+export const SpendingReady: Story = {
+  args: { spending: spendingReady },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Turn off" }));
+    const dialog = within(await within(document.body).findByRole("dialog"));
+    await waitFor(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
+    await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Turn off" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
+  },
+};
+export const SpendingAfterCancel: Story = {
+  args: { state: "canceled", spending: spendingReady },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Your card was canceled")).toBeVisible();
+    await expect(canvas.getByRole("region", { name: "Spending" })).toBeVisible();
+    await expect(canvas.queryByText("Available to spend")).toBeNull();
+    await expect(canvas.queryByText("Spending limit")).toBeNull();
+    await expect(canvas.queryByRole("button", { name: "Change" })).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Turn off" }));
+    const dialog = within(await within(document.body).findByRole("dialog"));
+    await waitFor(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
+    await expect(dialog.getByRole("button", { name: "Turn off" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
+  },
+};
+export const SpendingNotSet: Story = {
+  args: { spending: { status: "ready", response: { ...spendingReady.response, allowanceBaseUnits: "0", availableBaseUnits: "0" } } },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Set limit" }));
+    const dialog = within(await within(document.body).findByRole("dialog"));
+    await userEvent.type(dialog.getByRole("textbox"), "25");
+    await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(dialog.getByText(spendingSpender)).toBeVisible());
+    await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Set limit" })).toHaveAttribute("data-money-action-id", "card-allowance-story");
+  },
+};
+export const SpendingDisabled: Story = { args: { spending: { status: "ready", response: { ...spendingReady.response, setEnabled: false } } } };
+export const SpendingNotConfigured: Story = { args: { spending: { status: "not-configured" } } };
+export const SpendingUnavailable: Story = { args: { spending: { status: "unavailable" } } };
+export const RetiredPermission: Story = {
+  args: { spending: { status: "ready", response: { ...spendingReady.response, retired: [{ spender: retiredSpender, allowanceBaseUnits: "10000000" }] } } },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Remove" }));
+    const dialog = within(await within(document.body).findByRole("dialog"));
+    await waitFor(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
+    await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
+  },
+};

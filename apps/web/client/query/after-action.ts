@@ -15,6 +15,7 @@ import { BALANCES_VERSION, type BalancesSnapshot } from "@/shared/balances/types
 export { activityWindowScope, networkFeePolicyScope, tradeAvailabilityScope } from "./query-scopes";
 
 export const afterActionScopes = [
+  "card-spending",
   "balances",
   "activity",
   "borrow",
