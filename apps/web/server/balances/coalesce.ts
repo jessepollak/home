@@ -62,6 +62,7 @@ type Dependencies = {
     read: BalancesRead,
     region: RegionId,
     mode: ValuationMode,
+    signal?: AbortSignal,
   ) => Promise<PriceBalancesResult>;
   now?: () => Date;
   nowMs?: () => number;
@@ -309,7 +310,6 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     region: RegionId,
     signal?: AbortSignal,
   ): Promise<BalancesSnapshot> {
-    void signal;
     const startedAt = nowMs();
     let coverage: Extract<ObservabilityEvent, { kind: "balances-read" }>["coverage"] = {
       registry: "unknown",
@@ -323,6 +323,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         observed.read,
         region,
         observed.outcome === "full" ? "bootstrap" : "cached",
+        signal,
       );
       const priceDuration = Math.max(0, nowMs() - priceStartedAt);
       const snapshot = assembleBalancesSnapshot({

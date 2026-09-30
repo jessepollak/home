@@ -127,6 +127,7 @@ function setup(options: {
   price?: (read: BalancesRead) => Holding[];
   pricedBorrow?: BalancesBorrow | ((read: BalancesRead) => BalancesBorrow);
   readBorrow?: (at: BalancesRead["block"]) => Promise<BorrowRead>;
+  onPriceSignal?: (signal?: AbortSignal) => void;
   log?: (event: ObservabilityEvent) => unknown;
 }) {
   const store = options.store ?? new MemoryBalanceSnapshotStore();
@@ -185,13 +186,16 @@ function setup(options: {
       borrowPins.push(at);
       return options.readBorrow?.(at) ?? readyBorrow();
     },
-    priceBalances: async (value) => ({
-      holdings: options.price?.(value) ?? priced(value.holdings),
-      borrow: typeof options.pricedBorrow === "function" ? options.pricedBorrow(value) :
-        options.pricedBorrow ?? { coverage: borrowReadComplete(value.borrow) ? "complete" : "partial", positions: [] },
-      revalidating: false,
-      durationMs: { store: 0, codex: 0, coinbase: 0 },
-    } as never),
+    priceBalances: async (value, _region, _mode, signal) => {
+      options.onPriceSignal?.(signal);
+      return {
+        holdings: options.price?.(value) ?? priced(value.holdings),
+        borrow: typeof options.pricedBorrow === "function" ? options.pricedBorrow(value) :
+          options.pricedBorrow ?? { coverage: borrowReadComplete(value.borrow) ? "complete" : "partial", positions: [] },
+        revalidating: false,
+        durationMs: { store: 0, codex: 0, coinbase: 0 },
+      } as never;
+    },
   });
   return {
     store,
@@ -207,6 +211,18 @@ function setup(options: {
 }
 
 describe("balance observations", () => {
+  test("passes the request abort signal to pricing without cancelling shared observations", async () => {
+    let received: AbortSignal | undefined;
+    const fixture = setup({ onPriceSignal: (signal) => { received = signal; } });
+    const controller = new AbortController();
+    controller.abort();
+    const snapshot = await fixture.service(owner, "US", controller.signal);
+    expect(received).toBe(controller.signal);
+    expect(received?.aborted).toBe(true);
+    expect(snapshot.holdings).toHaveLength(2);
+    expect(fixture.reads()).toBe(1);
+  });
+
   test("serves a fresh row with fetchedAt equal to observedAt", async () => {
     const fixture = setup({});
     await fixture.store.putObservation(observation());
