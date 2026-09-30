@@ -37,8 +37,11 @@ exemption for a production-path module that only stories or explorations
 reach, directly or through a chain of modules nothing else consumes:
 `bun run gates` fails it. `scripts/gates/knip-exemptions-baseline.json` is the
 reviewed exception surface, so an exemption passes only when the same change
-adds a baseline entry with a reason, and a baseline entry fails as
+adds a baseline entry with a reason and `kind`, and an exploration-only baseline entry fails as
 stale once a product screen imports the module, so remove both together.
+A new production-path module reachable only through a baselined
+`"exploration-only"` exemption fails the gate with the import chain from that
+exemption.
 
 While a design is being selected, a shared component `cva` variant or export
 that only stories and explorations use is reported, not blocked: `bun run gates`
