@@ -55,10 +55,11 @@ function setup(options: { failOrders?: boolean; failResolve?: boolean; fallback?
       return cashoutFixtureWithdraw as PreparedMoneyAction;
     },
   } as AccountWalletClient;
-  const routing = { state: {} as HomeInboundPanelState, popRevision: 0, rootRequest: null,
+  const routing = { state: {} as HomeInboundPanelState, activityReturn: null, popRevision: 0, rootRequest: null,
     openPanel: () => {}, setFlow: (flow: string, flowOptions: unknown) => {
       flows.push({ flow, options: flowOptions }); return true;
     }, clearFlow: () => {}, canOpenAssetDetail: () => false, openAssetDetail: () => false,
+    pushRoute: () => {}, leaveRoute: () => {},
   };
   const view = render(<ActivityProviders wallet={wallet} routing={routing}>
     <ConnectedActivityPanel density={options.density ?? "page"} activitySession={session}

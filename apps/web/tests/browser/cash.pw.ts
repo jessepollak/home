@@ -72,8 +72,8 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
 
   await main.hover();
   await page.mouse.wheel(0, 60);
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  const offset = await main.evaluate((element) => element.scrollTop);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const offset = await page.evaluate(() => window.scrollY);
   let release!: () => void;
   const deferred = new Promise<void>((resolve) => { release = resolve; });
   const holdApi = async (route: Route) => {
@@ -88,9 +88,9 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
       await expect(money).toBeVisible();
       await expect(activity).not.toHaveAttribute("aria-busy", "true");
       await expect(rows.first()).toBeVisible();
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeGreaterThanOrEqual(offset - 2);
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeLessThanOrEqual(offset + 2);
     };
     const expectCashPainted = async () => {

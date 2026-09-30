@@ -8,9 +8,7 @@ import { writeObservabilityEvent } from "@/server/observability/log";
 import { resolveCustomer } from "@/server/customers/resolve";
 import { readActivityCardPurchases } from "@/server/cards/transaction-refresh";
 
-export const runtime = "nodejs";
 export const maxDuration = 30;
-export const dynamic = "force-dynamic";
 
 export const GET = createActivityHandler({
   authorize: authorizeSession,

@@ -2,7 +2,9 @@
 - **Entry context**: home · `/home` · signed-in recommended; signed-out redirects to `/?account=signin` · signed-in seed + `/api/session`, `/api/balances` fixtures · the `.` landing `Open dashboard`/post-OTP `router.replace("/home")` (shell.tsx).
 
 - **Live**: read-only
-- **Owned paths**: `apps/web/app/home/**`, `apps/web/client/home/home-panel.tsx`, `apps/web/client/home/shell*.tsx`, `apps/web/server/balances/**`
+- **Owned paths**: `apps/web/app/(shell)/home/**`, `apps/web/app/(shell)/layout.tsx`, `apps/web/app/(shell)/[...shell]/page.tsx`, `apps/web/app/balances/**`, `apps/web/app/api/balances/**`, `apps/web/client/home/home-panel.tsx`, `apps/web/client/home/shell*.tsx`, `apps/web/client/home/panel-routing.ts`, `apps/web/client/home/use-shell-document-scroll-restoration.ts`, `apps/web/client/balances/**`, `apps/web/server/balances/**`
+- **Legacy redirects**: `/balances` and `/balances/cash` redirect to `/cash`, `/balances/investments` to `/investments`, and any other `/balances` path to `/home`, each keeping only allowlisted overlay query keys (`app/balances/[[...group]]/page.tsx`, asserted in shell-pages.pw.ts).
+- **Provider boundary**: `app/(shell)/layout.tsx` mounts `AccountRouteProvider` with `hideWhileLoading`, so the shell renders nothing while the lazily loaded account client resolves instead of flashing a loading wallet client.
 - **Reach**:
   1. `goto "/home"`
   2. `expect "Home"`
@@ -20,4 +22,4 @@
 - **Perf budgets (initial)**: `shell:paint` ≤ 1_500 ms; `session:verified` ≤ 3_000 ms; `balances:painted` ≤ 3_500 ms; `action:first-interactive` ≤ 3_500 ms.
 - **Live perf budgets**: `session:verified` ≤ 10_000 ms
 - **Owned by**: `apps/web/client/home/`, data `apps/web/server/balances/*`, `/api/balances` route.
-- **Unknowns**: the Home header status (`[data-home-status]`) appears only on a failed balances read or when no country is set; partial totals alone do not trigger it; Activity failures render inside the feed instead. `statusLabel` feeds the Balances panel and the no-country header status. `MountedShellPanel` sets inactive panels to `hidden`, `inert`, and `aria-hidden`.
+- **Unknowns**: the Home header status (`[data-home-status]`) appears only on a failed balances read or when no country is set; partial totals alone do not trigger it; Activity failures render inside the feed instead. `statusLabel` feeds the no-country header status. After a client navigation the shell keeps each recently visited page mounted but hidden under React Activity: its state survives while its effects are disconnected, so a hidden page runs no queries, polling or timers (re-check retention and hidden effects instead of reset-on-unmount). The shell keeps document scroll through `use-shell-document-scroll-restoration.ts` and mounts only chrome, routing, settings, and overlays.

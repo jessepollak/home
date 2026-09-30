@@ -26,7 +26,7 @@ const publicRoutes = new Set([
 const machineRoutes = new Set(["actions/[id]/paymaster/route.ts"]);
 const privateRoutes = routePaths.filter((path) => !publicRoutes.has(path) && !machineRoutes.has(path));
 const httpVerbs = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] as const;
-const allowedRouteExports = new Set(["runtime", "dynamic", "maxDuration", ...httpVerbs]);
+const allowedRouteExports = new Set(["maxDuration", ...httpVerbs]);
 
 type RouteModule = Record<string, unknown>;
 
@@ -51,19 +51,8 @@ describe("API route composition", () => {
     expect(route.maxDuration).toBe(30);
   });
 
-  test("keeps every public route dynamic and Node-only", async () => {
-    for (const path of publicRoutes) {
-      if (path === "savings/vaults/route.ts") continue; // pre-existing: static vault catalog
-      const route = await loadRoute(path);
-      expect(route.runtime, path).toBe("nodejs");
-      expect(route.dynamic, path).toBe("force-dynamic");
-    }
-  });
-
   test("keeps the wallet paymaster callback session-free but action-scoped", async () => {
     const route = await loadRoute("actions/[id]/paymaster/route.ts");
-    expect(route.runtime).toBe("nodejs");
-    expect(route.dynamic).toBe("force-dynamic");
     const handler = route.POST as (request: Request, context: { params: Promise<{ id: string }> }) => Promise<Response>;
     const response = await handler(new Request("https://home.test/api/actions/not-a-uuid/paymaster", { method: "POST", body: "{}" }), { params: Promise.resolve({ id: "not-a-uuid" }) });
     expect(response.status).toBe(400);
@@ -72,11 +61,9 @@ describe("API route composition", () => {
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   });
 
-  test("keeps every private route dynamic, Node-only, authenticated, and private", async () => {
+  test("keeps every private route authenticated and uncacheable", async () => {
     for (const path of privateRoutes) {
       const route = await loadRoute(path);
-      expect(route.runtime, path).toBe("nodejs");
-      expect(route.dynamic, path).toBe("force-dynamic");
       const verbs = httpVerbs.filter((verb) => typeof route[verb] === "function");
       expect(verbs.length, path).toBeGreaterThan(0);
 

@@ -1,8 +1,6 @@
 import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/runtime";
 import { handleFundingOrderResolutionPost } from "../../handler";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const dependencies = {
   authorize: authorizeFundingSession,

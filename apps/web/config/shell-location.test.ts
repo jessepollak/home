@@ -3,19 +3,17 @@ import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import { erc20AssetKey, nativeAssetKey } from "@/shared/balances/types";
 import {
   flowHref, homeHrefWithOverlays, isCanonicalShellPathname, legacyShellRedirectHref, parseInboundUrlIntent,
-  parseShellLocation, parseShellOverlayIntent, readClientHistoryFlag, searchParamsToString, shellHref, withoutFlowHref,
+  parseShellLocation, parseShellOverlayIntent, readClientHistoryFlag, readShellHistoryOrigin, searchParamsToString, shellHref, withoutFlowHref, writeShellHistoryOrigin,
   type ShellHistoryFlag, type ShellLocation,
 } from "./shell-location";
 
 const DYNAMIC_ASSET_ID = "base:0x1111111111111111111111111111111111111111";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 function location(panel: ShellLocation["panel"], rest: Partial<ShellLocation> = {}): ShellLocation {
-  return { panel, account: null, shelf: null, asset: null, group: null, market: null, cashView: null, holding: null, ...rest };
+  return { panel, account: null, shelf: null, asset: null, market: null, cashView: null, holding: null, ...rest };
 }
 const canonicalLocations: Array<[string, ShellLocation]> = [
-  ["/home", location("home")], ["/balances", location("balances")],
-  ["/balances/cash", location("balances", { group: "cash" })],
-  ["/balances/investments", location("balances", { group: "investments" })],
+  ["/home", location("home")],
   ["/activity", location("activity")], ["/cash", location("cash")],
   ["/cash/savings", location("cash", { cashView: "savings" })],
   ["/borrow", location("borrow")],
@@ -33,8 +31,8 @@ const canonicalLocations: Array<[string, ShellLocation]> = [
 const fallbackLocations: Array<[string, ShellLocation]> = [
   ["/", location("home")], ["/dashboard", location("home")],
   ["/unknown", location("home")], ["/dashboard/panel", location("home")],
-  ["/%zz", location("home")], ["/balances/grocery", location("balances")],
-  ["/balances/cash/extra", location("balances")], ["/borrow/not-a-market", location("borrow")],
+  ["/%zz", location("home")], ["/balances/grocery", location("home")],
+  ["/balances/cash/extra", location("home")], ["/borrow/not-a-market", location("borrow")],
   [`/borrow/0x${"ff".repeat(32)}`, location("borrow")],
   ["/investments/nope", location("investments")],
   ["/investments/native/extra", location("investments")],
@@ -60,15 +58,13 @@ describe("shell location", () => {
   test("keeps each history flag independent and recognizes every written key", () => {
     const onlyFunding = { __homeFundingFlowPushed: true };
     expect(readClientHistoryFlag("fundingFlowPushed", onlyFunding)).toBe(true);
-    const otherFlags: ShellHistoryFlag[] = ["cashSavingsFlowPushed", "cashSavingsOpenedInApp", "investmentsHoldingOpenedInApp"];
+    const otherFlags: ShellHistoryFlag[] = ["cashSavingsFlowPushed"];
     for (const flag of otherFlags) {
       expect(readClientHistoryFlag(flag, onlyFunding)).toBe(false);
     }
     const writtenState = {
       __homeFundingFlowPushed: true,
       __cashSavingsFlowPushed: true,
-      __cashSavingsOpenedInApp: true,
-      __investmentsHoldingOpenedInApp: true,
     };
     const flags: ShellHistoryFlag[] = ["fundingFlowPushed", ...otherFlags];
     for (const flag of flags) {
@@ -90,11 +86,9 @@ describe("shell location", () => {
       [{ panel: "cash" as const, cashView: "savings" as const }, "/cash/savings"],
       [{ panel: "investments" as const, holding: nativeAssetKey() }, "/investments/native"],
       [{ panel: "investments" as const, holding: erc20AssetKey(`0x${"AB".repeat(20)}`) }, `/investments/0x${"ab".repeat(20)}`],
-      [{ panel: "balances" as const, group: "cash" as const }, "/balances/cash"],
       [{ panel: "invest" as const, shelf: "stocks" }, "/invest/stocks"],
       ...BORROW_MARKETS.map((market) => [{ panel: "borrow" as const, market: market.marketId }, `/borrow/${market.marketId}`] as const),
       [{ account: "settings" as const }, "/home?account=settings"],
-      [{ panel: "balances" as const, group: "cash" as const, account: "settings" as const }, "/balances/cash?account=settings"],
       [{ panel: "invest" as const, asset: "cbbtc", shelf: "crypto" }, "/invest/cbbtc"],
       [{ panel: "borrow" as const, market: `0x${"ff".repeat(32)}` }, "/borrow"],
     ] as const;
@@ -113,10 +107,10 @@ describe("shell location", () => {
     expect(parseShellLocation("/invest/cbbtc")).toEqual(location("invest", { asset: "cbbtc" }));
   });
   test("combines pathname page state with allowlisted overlay query state", () => {
-    expect(parseInboundUrlIntent("/balances", new URLSearchParams(
+    expect(parseInboundUrlIntent("/cash", new URLSearchParams(
       `account=settings&flow=send&action=${ACTION_ID}&return=funding&add-money=1`,
     ))).toEqual({
-      kind: "inbound-url-intent", location: location("balances", { account: "settings" }),
+      kind: "inbound-url-intent", location: location("cash", { account: "settings" }),
       returnedFromFunding: true, addMoney: true, flow: "send", actionId: ACTION_ID,
     });
   });
@@ -156,7 +150,7 @@ describe("shell location", () => {
     expect(legacyShellRedirectHref("/saver", new URLSearchParams())).toBeNull();
   });
   test("recognizes the closed canonical shell route set", () => {
-    for (const pathname of ["/home", "/balances", "/balances/cash", "/cash", "/cash/savings", "/borrow/x", "/investments", "/investments/native", "/invest/cbbtc"]) {
+    for (const pathname of ["/home", "/cash", "/cash/savings", "/borrow/x", "/investments", "/investments/native", "/invest/cbbtc"]) {
       expect(isCanonicalShellPathname(pathname)).toBe(true);
     }
     for (const pathname of ["/", "/dashboard", "/account", "/fund", "/save", "/unknown", "/balancesx"]) {
@@ -164,14 +158,32 @@ describe("shell location", () => {
     }
   });
   test("adds and removes only allowlisted flow state without URL payloads", () => {
-    expect(flowHref("/balances", "send", null, new URLSearchParams("account=settings"))).toBe("/balances?account=settings&flow=send");
+    expect(flowHref("/cash", "send", null, new URLSearchParams("account=settings"))).toBe("/cash?account=settings&flow=send");
     expect(flowHref("/home", "send", ACTION_ID, new URLSearchParams())).toBe(`/home?flow=send&action=${ACTION_ID}`);
     expect(flowHref("/home", "receive", ACTION_ID, new URLSearchParams())).toBe("/home?flow=receive");
-    expect(withoutFlowHref("/balances/cash", new URLSearchParams(`flow=send&action=${ACTION_ID}`))).toBe("/balances/cash");
-    expect(withoutFlowHref("/balances", new URLSearchParams("return=funding&add-money=1&flow=send"))).toBe("/balances?return=funding&add-money=1");
+    expect(withoutFlowHref("/cash", new URLSearchParams(`flow=send&action=${ACTION_ID}`))).toBe("/cash");
+    expect(withoutFlowHref("/cash", new URLSearchParams("return=funding&add-money=1&flow=send"))).toBe("/cash?return=funding&add-money=1");
   });
   test("serializes a server page's searchParams, including repeated keys", () => {
     expect(searchParamsToString({ account: "signin", flow: "send", tags: ["a", "b"], missing: undefined })).toBe("account=signin&flow=send&tags=a&tags=b");
     expect(searchParamsToString({})).toBe("");
   });
 });
+  test("reads and writes the in-app history origin from entry state", () => {
+    const state: Record<string, unknown> = {};
+    const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {
+      history: {
+        get state() { return state; },
+        replaceState(next: Record<string, unknown>) { Object.assign(state, next); },
+      },
+    } });
+    try {
+      expect(readShellHistoryOrigin()).toBeNull();
+      writeShellHistoryOrigin("/home");
+      expect(readShellHistoryOrigin()).toBe("/home");
+    } finally {
+      if (original) Object.defineProperty(globalThis, "window", original);
+      else delete (globalThis as { window?: unknown }).window;
+    }
+  });

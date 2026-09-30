@@ -1,38 +1,7 @@
-import { createContext, useContext, type ReactNode } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { Item, ItemContent, ItemMedia } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyMark } from "@/components/currency-mark";
-
-export const ShellPanelActiveContext = createContext(true);
-
-export function useShellPanelActive() {
-  return useContext(ShellPanelActiveContext);
-}
-
-export function MountedShellPanel({
-  active,
-  children,
-  className,
-}: {
-  active: boolean;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <ShellPanelActiveContext value={active}>
-      <div
-        data-shell-panel=""
-        className={className}
-        hidden={!active}
-        inert={active ? undefined : true}
-        aria-hidden={active ? undefined : true}
-      >
-        {children}
-      </div>
-    </ShellPanelActiveContext>
-  );
-}
 
 export function ShimmerRows({ count = 0, variant = "rows" }: { count?: number; variant?: "rows" | "hero" }) {
   if (variant === "hero") {

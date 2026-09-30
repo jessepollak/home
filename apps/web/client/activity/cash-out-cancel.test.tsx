@@ -33,9 +33,10 @@ function setup(prepare: AccountWalletClient["prepareMoneyAction"], execute: Acco
   const routes: Array<{ flow: string; options: unknown }> = [];
   const wallet = { prepareMoneyAction: async (kind: string, params: unknown) => { calls.push({ kind, params }); return prepare(kind, params); },
     executeMoneyAction: async (action: PreparedMoneyAction) => { dispatches.push(action); return execute(action); } } as AccountWalletClient;
-  const routing = { state: {} as HomeInboundPanelState, popRevision: 0, rootRequest: null,
+  const routing = { state: {} as HomeInboundPanelState, activityReturn: null, popRevision: 0, rootRequest: null,
     openPanel: () => {}, canOpenAssetDetail: () => false, openAssetDetail: () => false,
     setFlow: (flow: string, options: unknown) => { routes.push({ flow, options }); return true; }, clearFlow: () => {},
+    pushRoute: () => {}, leaveRoute: () => {},
   };
   const panel = (owner = session) => <ActivityProviders wallet={wallet} routing={routing}>
     <ConnectedActivityPanel density="page" activitySession={owner} fetchActivity={async () => { throw new Error("Unavailable"); }}

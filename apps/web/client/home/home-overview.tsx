@@ -47,12 +47,17 @@ export function HomeOverview({
   useEffect(() => {
     const money = moneyRef.current;
     const main = money?.closest<HTMLElement>("[data-app-main-authenticated]");
+    const header = document.querySelector<HTMLElement>("header");
     if (!money || !main) return;
-    const updateFit = () => setStickyFits(money.scrollHeight + 48 <= main.clientHeight);
+    const updateFit = () => {
+      const stickyTop = Math.round(header?.getBoundingClientRect().height ?? 0) + 24;
+      money.style.setProperty("--home-money-sticky-top", `${stickyTop}px`);
+      setStickyFits(money.scrollHeight + 48 <= window.innerHeight - stickyTop);
+    };
     updateFit();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateFit);
     observer?.observe(money);
-    observer?.observe(main);
+    if (header) observer?.observe(header);
     window.addEventListener("resize", updateFit);
     return () => {
       observer?.disconnect();
@@ -61,7 +66,7 @@ export function HomeOverview({
   }, []);
   return (
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
-      <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-6" : ""}`}>
+      <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-(--home-money-sticky-top)" : ""}`}>
         <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
         <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
           {actions}

@@ -18,9 +18,9 @@ export async function measureRoute(session: Session, baseUrl: string, path: stri
   });
   const scripts = await session.page.evaluate((documentHtml) => {
     const delivered = new DOMParser().parseFromString(documentHtml, "text/html");
-    return [...delivered.querySelectorAll<HTMLScriptElement>("script[src]")]
+    return [...new Set([...delivered.querySelectorAll<HTMLScriptElement>("script[src]")]
       .map((script) => script.getAttribute("src")!)
-      .filter((src) => /^\/_next\/static\/.*\.js(?:\?.*)?$/.test(src));
+      .filter((src) => /^\/_next\/static\/.*\.js(?:\?.*)?$/.test(src)))];
   }, html);
   if (!scripts.length) throw new Error(`No initial JavaScript scripts in ${path} HTML`);
   const bodies = await session.page.evaluate(async (paths) => Promise.all(paths.map(async (path) => {

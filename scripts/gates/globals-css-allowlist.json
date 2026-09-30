@@ -192,15 +192,6 @@
     ]
   },
   "utilitiesLayer": {
-    ".shell-scroll-container": [
-      "scrollbar-gutter: stable",
-      "scrollbar-width: none"
-    ],
-    ".shell-scroll-container::-webkit-scrollbar": [
-      "display: none",
-      "height: 0",
-      "width: 0"
-    ],
     ".shell-scrollbar-compensated": [
       "padding-inline-end: var(--shell-scrollbar-width, 0px)"
     ]
@@ -261,22 +252,6 @@
         "#1137"
       ],
       "reason": "Standalone safe-area handling remains owned by shell work."
-    },
-    {
-      "entry": "@layer utilities/.shell-scroll-container",
-      "owner": [
-        "#1075",
-        "#1137"
-      ],
-      "reason": "Shell scrollbar remains owned by shell work."
-    },
-    {
-      "entry": "@layer utilities/.shell-scroll-container::-webkit-scrollbar",
-      "owner": [
-        "#1075",
-        "#1137"
-      ],
-      "reason": "Shell scrollbar remains owned by shell work."
     },
     {
       "entry": "@layer utilities/.shell-scrollbar-compensated",

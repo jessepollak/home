@@ -77,7 +77,7 @@ test("browser Back restores focus and viewport for a holding beyond row forty", 
   await expect(list.getByRole("button")).toHaveCount(51);
   const row = list.getByRole("button", { name: /^Extra investment 45 / });
   await row.scrollIntoViewIfNeeded();
-  const scrollBefore = await page.locator("[data-app-main-authenticated]").evaluate((main) => main.scrollTop);
+  const scrollBefore = await page.evaluate(() => window.scrollY);
   expect(scrollBefore).toBeGreaterThan(0);
   await row.click();
   await expect(page).toHaveURL(/\/investments\/0x[0-9a-f]{40}$/);
@@ -86,11 +86,8 @@ test("browser Back restores focus and viewport for a holding beyond row forty", 
   await expect(page).toHaveURL(/\/investments$/);
   await expect(row).toBeFocused();
   await expect.poll(() => row.evaluate((button) => {
-    const main = button.closest("[data-app-main-authenticated]");
-    if (!main) return false;
     const item = button.getBoundingClientRect();
-    const viewport = main.getBoundingClientRect();
-    return main.scrollTop > 0 && item.top >= viewport.top && item.bottom <= viewport.bottom;
+    return window.scrollY > 0 && item.top >= 0 && item.bottom <= window.innerHeight;
   })).toBe(true);
 });
 

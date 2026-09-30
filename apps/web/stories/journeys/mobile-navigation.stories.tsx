@@ -1,4 +1,4 @@
-import { useRef, useState, type ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { AppChromeProvider } from "@/components/app-chrome";
@@ -7,7 +7,6 @@ import { PrimaryNavigation } from "@/components/primary-navigation";
 import { isChromiumEngine, type EngineBrand } from "@/client/liquid-glass/lens-gate";
 import { ShellHeader } from "@/client/home/shell-chrome";
 import { HomeOverview, HomeSectionHeading } from "@/client/home/home-overview";
-import { BalancesPage } from "@/client/home/balances-panel";
 import { ActivityPanelView } from "@/client/activity";
 import type { UseActivityResult } from "@/client/activity/use-activity";
 import { AccountSettings } from "@/client/account/account-settings";
@@ -28,7 +27,7 @@ import { presentBalances } from "@/shared/balances/present";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultsResult } from "@/shared/savings/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { shellContentFrameClassName, shellNavigationClearanceClassName, shellScrollContainerClassName } from "@/components/shell-layout";
+import { shellContentFrameClassName, shellNavigationClearanceClassName } from "@/components/shell-layout";
 
 const noop = () => undefined;
 const unsupportedAction = async (): Promise<never> => { throw new Error("Money actions are unavailable in this preview."); };
@@ -85,7 +84,7 @@ const activity: UseActivityResult = {
 };
 
 type Props = {
-  initialPanel: "home" | "invest" | "investments" | "cash" | "balances" | "account";
+  initialPanel: "home" | "invest" | "investments" | "cash" | "account";
   homeIndicator: boolean;
   fallback: boolean;
   longLabels: boolean;
@@ -101,7 +100,6 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
   const [cashView, setCashView] = useState<"cash" | "savings">("cash");
   const [accountOpen, setAccountOpen] = useState(initialPanel === "account");
   const [country, setCountry] = useState<"US" | "FR">("US");
-  const mainRef = useRef<HTMLElement>(null);
   const snapshot = buildBalancesSnapshotFixture(balances === "empty" ? {} : {
     registry: {
       usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") },
@@ -115,14 +113,14 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
   const presentation = balances === "loading" ? presentBalances({ status: "loading", snapshot: null, error: null })
     : balances === "failed" ? presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" })
       : presentBalances({ status: "ready", snapshot, error: null });
-  const navigate = (id: NavigationId) => { setPanel(id); setCashView("cash"); mainRef.current?.scrollTo(0, 0); };
+  const navigate = (id: NavigationId) => { setPanel(id); setCashView("cash"); window.scrollTo(0, 0); };
   const content = (
     <>
-      <ShellHeader isAccountSettingsOpen={accountOpen} nestedChromeTitle={panel === "cash" ? cashView === "cash" ? "Cash" : "Savings" : panel === "investments" ? "Investments" : panel === "balances" ? "Your money" : null} nestedChromeBackLabel="Back"
+      <ShellHeader isAccountSettingsOpen={accountOpen} nestedChromeTitle={panel === "cash" ? cashView === "cash" ? "Cash" : "Savings" : panel === "investments" ? "Investments" : null} nestedChromeBackLabel="Back"
         onNestedChromeBack={() => { if (panel === "cash" && cashView === "savings") setCashView("cash"); else setPanel("home"); }} routeMode="dashboard" activeNavigation={panel} isVerified account={signedIn}
         onHome={() => setPanel("home")} onDashboard={() => setPanel("home")} onSignIn={noop} onSignOut={noop}
         onOpenSettings={() => setAccountOpen(true)} onCloseSettings={() => setAccountOpen(false)} />
-      <main ref={mainRef} id="navigation-panel" data-app-main-authenticated="" tabIndex={-1} className={`min-h-0 min-w-0 flex-1 overscroll-contain overflow-x-hidden outline-none ${shellScrollContainerClassName} ${shellNavigationClearanceClassName}`}>
+      <main id="navigation-panel" data-app-main-authenticated="" tabIndex={-1} className={`min-w-0 flex-1 outline-none ${shellNavigationClearanceClassName}`}>
         <div className={`${shellContentFrameClassName} py-4 sm:py-6`}>
           {accountOpen ? <AccountSettings regionId={country} onRegionChange={(value) => setCountry(value === "FR" ? "FR" : "US")}
             resolutionSource="explicit" preferenceMessage="" isPreferenceReady accountAddress={WALLET} accountOwnerKey="jesse.base.eth"
@@ -134,9 +132,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
                 actions={<><Button size="touch">Add money</Button><Button size="touch" variant="outline">Send</Button></>} activity={null} /></div>
               <div><ActivityPanelView activity={activity} regionId="US" density="feed"
                 header={<HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>} /></div>
-            </div> : panel === "balances" ? <BalancesPage active assetBalances={presentation} showSmallBalances
-              revealSmallBalances={false} onRevealSmallBalancesChange={noop} isChecking={false}
-              revealedCount={presentation.rows.length} onRevealMore={noop} />
+            </div>
               : panel === "invest" ? <InvestHub stockMarket={markets(stockAssets)} cryptoMarket={markets(cryptoAssets)} memeMarket={markets([])} onSeeAll={noop} onOpenAsset={noop} />
               : panel === "card" ? <HomeSectionHeading id="card-preview-title">Card</HomeSectionHeading>
                 : panel === "investments" ? <AccountWalletClientProvider client={createInvestmentsStoryWalletClient(snapshot)}><InvestmentsExperience holding={null} onOpenHolding={noop} onCloseHolding={noop}
@@ -148,7 +144,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
       <PrimaryNavigation activeNavigation={panel} onNavigate={navigate} cardsEnabled={cards} labels={longLabels ? { home: "Portfolio home overview", invest: "Investments & markets" } : undefined} />
     </>
   );
-  const shell = <div dir={rtl ? "rtl" : "ltr"} className="relative flex h-svh max-h-svh min-w-0 flex-col overflow-hidden bg-muted sm:h-dvh"
+  const shell = <div dir={rtl ? "rtl" : "ltr"} className="relative flex min-h-svh min-w-0 flex-col bg-muted"
     style={{
       "--shell-safe-area-bottom": homeIndicator ? "34px" : "0px",
       "--shell-navigation-offset": "max(calc(var(--shell-safe-area-bottom) - 0.75rem), 0.75rem)",
@@ -285,20 +281,6 @@ function withTransparencySwitch() {
   };
   return () => { window.matchMedia = matchMedia; reduceTransparency = null; };
 }
-async function verifyClearance(canvasElement: HTMLElement) {
-  const main = within(canvasElement).getByRole("main");
-  const nav = within(canvasElement).getByRole("navigation", { name: "Main navigation" });
-  await expect(within(main).getByRole("region", { name: "Your money" })).toBeVisible();
-  await expect(within(nav).getByRole("button", { name: "Home" })).toHaveAttribute("aria-current", "page");
-  const last = main.querySelector<HTMLElement>("[data-balance-list] li:last-child:last-of-type")!;
-  await expect(last).toBeInTheDocument();
-  main.scrollTop = main.scrollHeight;
-  await waitFor(() => expect(main.scrollTop).toBeGreaterThan(0));
-  await expect(last.getBoundingClientRect().bottom).toBeLessThanOrEqual(nav.getBoundingClientRect().top);
-  if (canvasElement.querySelector('[style*="34px"]')) {
-    await expect(Math.abs(window.innerHeight - nav.getBoundingClientRect().bottom - 22)).toBeLessThanOrEqual(1);
-  }
-}
 async function verifyRapidTabs(canvasElement: HTMLElement) {
   const nav = await verifyNav(canvasElement, "Home");
   for (const name of ["Invest", "Home", "Invest", "Home"] as const) {
@@ -345,12 +327,12 @@ async function showBusyContent(canvasElement: HTMLElement) {
   const avatar = row.querySelector<HTMLElement>("[data-slot='item-media']")!;
   const amount = row.querySelector<HTMLElement>("[data-slot='money-ticker']")!;
   const label = within(nav).getByRole("button", { name: "Invest" }).querySelector<HTMLElement>("span span")!;
-  main.scrollTop += amount.getBoundingClientRect().top - label.getBoundingClientRect().top;
+  window.scrollBy(0, amount.getBoundingClientRect().top - label.getBoundingClientRect().top);
   await waitFor(async () => {
     const avatarRect = avatar.getBoundingClientRect();
     const amountRect = amount.getBoundingClientRect();
     const labelRect = label.getBoundingClientRect();
-    await expect(main.scrollTop).toBeGreaterThan(0);
+    await expect(window.scrollY).toBeGreaterThan(0);
     await expect(avatarRect.top).toBeLessThan(labelRect.bottom);
     await expect(amountRect.top).toBeLessThan(labelRect.bottom);
     await expect(amountRect.bottom).toBeGreaterThan(labelRect.top);
@@ -381,12 +363,6 @@ export const NestedInvestments: Story = { play: async ({ canvasElement }) => {
   await expect(within(canvasElement).getByRole("heading", { name: "Investments", level: 1 })).toBeVisible();
   await expect(within(canvasElement).getByRole("region", { name: "Your investments" })).toBeVisible();
 } };
-export const NestedYourMoney: Story = { args: { initialPanel: "balances" }, play: async ({ canvasElement }) => {
-  await verifyNav(canvasElement, "Home");
-  await expect(within(canvasElement).getByRole("region", { name: "Your money" })).toBeVisible();
-} };
-export const LastRow: Story = { args: { initialPanel: "balances" }, play: async ({ canvasElement }) => { await verifyClearance(canvasElement); } };
-export const HomeIndicator: Story = { args: { initialPanel: "balances", homeIndicator: true }, play: async ({ canvasElement }) => { await verifyClearance(canvasElement); } };
 export const ActivityUnderCapsule: Story = { play: async ({ canvasElement }) => { await showBusyContent(canvasElement); } };
 export const ActionToast: Story = { args: { actionToast: true }, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
@@ -516,10 +492,9 @@ export const ScrollDuringDrag: Story = { play: async ({ canvasElement }) => {
   await verifySelectionGeometry(nav, "Home");
   const home = within(nav).getByRole("button", { name: "Home" });
   const invest = within(nav).getByRole("button", { name: "Invest" });
-  const main = within(canvasElement).getByRole("main");
   touch("pointerdown", home, centerOf(home));
-  main.scrollTop = main.scrollHeight;
-  await waitFor(() => expect(main.scrollTop).toBeGreaterThan(0));
+  window.scrollTo(0, document.documentElement.scrollHeight);
+  await waitFor(() => expect(window.scrollY).toBeGreaterThan(0));
   touch("pointermove", home, centerOf(invest));
   touch("pointerup", home, centerOf(invest));
   await waitFor(() => expect(invest).toHaveAttribute("aria-current", "page"));

@@ -1,21 +1,19 @@
 {
   "version": 1,
   "domNodes": {
-    "/home": 444,
-    "/activity": 449,
-    "/cash": 510,
-    "/invest": 687,
-    "/borrow": 425,
-    "/investments": 536,
-    "/balances": 526
+    "/home": 456,
+    "/activity": 275,
+    "/cash": 350,
+    "/invest": 513,
+    "/borrow": 251,
+    "/investments": 362
   },
   "initialJs": {
-    "/home": 613583,
-    "/activity": 613583,
-    "/cash": 613583,
-    "/invest": 613583,
-    "/borrow": 613583,
-    "/investments": 613583,
-    "/balances": 613583
+    "/home": 620837,
+    "/activity": 620837,
+    "/cash": 620837,
+    "/invest": 620837,
+    "/borrow": 620837,
+    "/investments": 620837
   }
 }

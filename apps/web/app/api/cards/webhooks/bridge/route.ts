@@ -6,8 +6,6 @@ import { createCardWebhookHandler, type CardWebhookResult } from "@/server/cards
 import { createCardEventStore } from "@/server/cards/store";
 import { emitServerEvent } from "@/server/observability/log";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 let cachedHandler: ReturnType<typeof createCardWebhookHandler> | undefined;
 

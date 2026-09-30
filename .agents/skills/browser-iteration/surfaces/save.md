@@ -1,7 +1,7 @@
 ### `save`
 - **Entry context**: Cash overview `/cash`, Savings detail `/cash/savings`, deep links `/cash/savings?flow=save-deposit` and `?flow=save-withdraw`; legacy `/save` redirects to `/cash/savings`, preserving allowlisted overlays. Fixture `HOME_PLAYWRIGHT_SMOKE=1` with `/api/savings/vaults` in `tests/browser/feature-map/fixtures.ts` and Playwright's kind-aware savings prepare in `installApiFixtures`; agent-browser sessions use `fixture-session --prepare savings-deposit` (or `savings-withdraw`) for a static 0.1 USDC review.
 - **Live**: confirm
-- **Owned paths**: `apps/web/app/[...shell]/**`, `apps/web/client/cash/**`, `apps/web/client/savings/**`, `apps/web/client/trading/**`, `apps/web/shared/savings/**`, `apps/web/shared/trading/**`, `apps/web/app/api/savings/**`, `apps/web/server/savings/**`, `apps/web/server/morpho/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
+- **Owned paths**: `apps/web/app/(shell)/**`, `apps/web/app/save/**`, `apps/web/client/cash/**`, `apps/web/client/savings/**`, `apps/web/client/trading/**`, `apps/web/shared/savings/**`, `apps/web/shared/trading/**`, `apps/web/app/api/savings/**`, `apps/web/server/savings/**`, `apps/web/server/morpho/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Deposit $<amount>", "Withdraw $<amount>", "Convert $<amount>", "Retry"
 - **Reach**:
   1. `goto "/cash/savings?flow=save-deposit"`

@@ -3,10 +3,9 @@ import type { ShellPanelId } from "@/config/navigation";
 import type { HomeRegionState } from "./use-home-region";
 import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { BalancesPresentation, HomeBalancesPresentation } from "@/shared/balances/present";
-import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import type { ShellLocation } from "@/config/shell-location";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
-import type { AssetKey, BalancesState } from "@/shared/balances/types";
+import type { AssetKey } from "@/shared/balances/types";
 
 export type HomeAssetBalancesPresentation = HomeBalancesPresentation;
 
@@ -18,7 +17,6 @@ export type InvestmentsContentProps = {
 
 export type HomeExperienceProps = {
   investContent?: ReactNode;
-  cardContent?: ReactNode;
   cardsEnabled?: boolean;
   cashContent?: (props: { view: "cash" | "savings"; onOpenSavings: () => void }) => ReactNode;
   investmentsContent?: (props: InvestmentsContentProps) => ReactNode;
@@ -27,8 +25,6 @@ export type HomeExperienceProps = {
   initialLocation?: ShellLocation;
   initialAccountSettingsOpen?: boolean;
   assetBalances?: HomeBalancesPresentation | BalancesPresentation;
-  balancesState?: BalancesState;
-  pendingCashout?: PendingCashoutEstimate;
   sendAvailability?: readonly TransferAssetAvailability[];
   canOpenAssetDetail?: (assetKey: string) => boolean;
   assetMarkResolution?: AssetMarkResolution;
@@ -36,7 +32,6 @@ export type HomeExperienceProps = {
   onShowSmallBalancesChange?: (value: boolean) => void;
   landingVisual?: ReactNode;
   routeMode?: "landing" | "dashboard";
-  balancesRevalidating?: boolean;
   interruption?: { kind: "offline" | "interrupted" } | null;
   interruptionAnnouncement?: "offline" | "interrupted" | null;
   onRetryInterruption?: () => void;

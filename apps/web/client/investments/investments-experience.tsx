@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState, type JSX } from "react";
+import { useEffect, useMemo, useState, type JSX } from "react";
 import type { UseInvestDiscoverResult } from "@/client/invest/use-invest-discover";
 import { PresentationQuoteProvider, presentationQuoteForRegion, usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { useMarketPrices } from "@/client/invest/use-market-prices";
 import { selectOwnedInvestments } from "@/shared/balances/owned-investments";
 import type { AssetKey, BalancesSnapshot } from "@/shared/balances/types";
+import { isRecord } from "@/shared/guards";
 import { InvestmentsOverview } from "./investments-overview";
 import { OwnedAssetDetail } from "./owned-asset-detail";
 
@@ -22,19 +23,43 @@ function countForHolding(snapshot: BalancesSnapshot | null, holding: AssetKey | 
   return Math.max(20, selectOwnedInvestments(snapshot).findIndex((row) => row.key === holding) + 1);
 }
 
+const visibleCountHistoryKey = "__homeInvestmentsVisibleCount";
+
+function readVisibleCount(snapshot: BalancesSnapshot | null, holding: AssetKey | null): number {
+  const base = countForHolding(snapshot, holding);
+  if (typeof window === "undefined" || !window.location.pathname.startsWith("/investments")) return base;
+  const state: unknown = window.history.state;
+  const saved = isRecord(state) ? state[visibleCountHistoryKey] : null;
+  return typeof saved === "number" && Number.isInteger(saved) && saved >= 20
+    ? Math.max(base, snapshot ? Math.min(selectOwnedInvestments(snapshot).length, saved) : saved)
+    : base;
+}
+
 export function InvestmentsExperience({ holding, onOpenHolding, onCloseHolding, balances, discover }: InvestmentsExperienceProps): JSX.Element {
-  const [visibleCount, setVisibleCount] = useState(() => countForHolding(balances.snapshot, holding));
+  const [visibleCount, setVisibleCount] = useState(() => readVisibleCount(balances.snapshot, holding));
   const [previousHolding, setPreviousHolding] = useState(holding);
   if (previousHolding !== holding) {
     setPreviousHolding(holding);
     if (previousHolding && !holding) setVisibleCount((count) => Math.max(count, countForHolding(balances.snapshot, previousHolding)));
   }
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onPop = () => setVisibleCount(readVisibleCount(balances.snapshot, holding));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [balances.snapshot, holding]);
+  const growVisibleCount = (next: number) => {
+    setVisibleCount(next);
+    if (window.location.pathname.startsWith("/investments")) {
+      window.history.replaceState({ ...window.history.state, [visibleCountHistoryKey]: next }, "");
+    }
+  };
   const regionId = usePresentationRegionId();
   const { fx, ...markets } = useMarketPrices();
   const quote = useMemo(() => presentationQuoteForRegion(regionId, fx), [regionId, fx]);
   const status = balances.status === "error" ? "failed" : balances.status === "ready" ? "ready" : "loading";
   return <PresentationQuoteProvider value={quote}>
     {holding ? <OwnedAssetDetail snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} onRetryBalances={() => void balances.retry()} assetKey={holding} catalog={discover.memeAssets} markets={{ ...markets, memeMarket: discover.memeMarket }} assetMarkResolution={discover.assetMarkResolution} onBack={onCloseHolding} />
-      : <InvestmentsOverview snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} visibleCount={visibleCount} onVisibleCountChange={setVisibleCount} onOpenAsset={onOpenHolding} onRetryBalances={() => void balances.retry()} />}
+      : <InvestmentsOverview snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} visibleCount={visibleCount} onVisibleCountChange={growVisibleCount} onOpenAsset={onOpenHolding} onRetryBalances={() => void balances.retry()} />}
   </PresentationQuoteProvider>;
 }
