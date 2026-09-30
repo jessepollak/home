@@ -396,6 +396,7 @@ function OwnerBoundSavingsJourney({
                 amount={amount}
                 maxDecimals={assetDecimals}
                 onAmountChange={changeAmount}
+                readOnly={preparing}
                 overAvailable={overAvailable}
                 onSubmit={canContinue ? () => void continueFromAmount() : undefined}
                 availableLabel={availableLabel}

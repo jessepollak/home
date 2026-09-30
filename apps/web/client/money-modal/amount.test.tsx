@@ -510,6 +510,14 @@ describe("priced amount toggle", () => {
     expect(page().getByLabelText("Native amount").textContent).toBe("0.001");
   });
 
+  test("a read-only priced amount locks the unit toggle", () => {
+    render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
+      initialAmount="0.001" availableAmount="0.02" maxDecimals={8} readOnly />);
+    expect((primaryToggle() as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(primaryToggle());
+    expect(amountInput().value).toBe("0.001");
+  });
+
   test("typing fiat emits exact floored native while retaining the typed fiat string", () => {
     render(<AmountHarness unit={pricedBtc} nativeSymbol="cbBTC" assetId="btc" assetLabel="cbBTC"
       availableAmount="0.05" availableLabel="0.05 cbBTC available" maxDecimals={8} />);

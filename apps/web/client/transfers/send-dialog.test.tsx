@@ -1155,13 +1155,18 @@ describe("SendDialog in-flight prepare", () => {
     fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
-    fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
+    const to = page().getByRole("textbox", { name: "To" }) as HTMLInputElement;
+    fireEvent.change(to, { target: { value: RECIPIENT } });
     const recent = await page().findByRole("button", { name: formatAddress(OTHER) });
     const cashOut = await page().findByRole("button", { name: /Send to Cash App/ });
+    act(() => { to.focus(); });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
 
     await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
-    expect((page().getByRole("textbox", { name: "To" }) as HTMLInputElement).disabled).toBe(true);
+    expect(to.readOnly).toBe(true);
+    expect(to.disabled).toBe(false);
+    expect(to.getAttribute("aria-readonly")).toBe("true");
+    expect(document.activeElement).toBe(to);
     expect((page().getByRole("button", { name: "Paste address" }) as HTMLButtonElement).disabled).toBe(true);
     expect((recent as HTMLButtonElement).disabled).toBe(true);
     expect((cashOut as HTMLButtonElement).disabled).toBe(true);
@@ -1172,7 +1177,7 @@ describe("SendDialog in-flight prepare", () => {
     expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
     expect(page().queryByRole("button", { name: "Send $1.00" })).toBeNull();
     expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
-    expect((page().getByRole("textbox", { name: "To" }) as HTMLInputElement).disabled).toBe(false);
+    expect(to.readOnly).toBe(false);
 
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await act(async () => { pending[1]!({ ...resumedAction(), calls: [{ to: TOKEN, data: encodeUsdcTransfer(OTHER, BigInt(1_000_000)), value: "0" }] }); });
@@ -1228,7 +1233,10 @@ describe("SendDialog in-flight prepare", () => {
 
     await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
     const amount = page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
-    expect(amount.disabled).toBe(true);
+    expect(amount.readOnly).toBe(true);
+    expect(amount.disabled).toBe(false);
+    expect(amount.getAttribute("aria-readonly")).toBe("true");
+    expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
     expect(page().queryByRole("combobox")).toBeNull();
     fireEvent.click(page().getByRole("button", { name: "Max" }));
     expect(amount.value).toBe("");

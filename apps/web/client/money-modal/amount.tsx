@@ -301,6 +301,7 @@ export function MoneyAmountDisplay({
       {unit.kind === "convertible" ? (
         <MoneyUnitToggle
           secondaryLabel={secondary}
+          disabled={disabled || readOnly}
           onToggle={() => setEntryState({ ...entryState, assetId, unitKind: unit.kind, mode: mode === "native" ? "fiat" : "native" })}
         />
       ) : null}
@@ -662,9 +663,11 @@ export function MoneyQuickChips({
 export function MoneyUnitToggle({
   secondaryLabel,
   onToggle,
+  disabled = false,
 }: {
   secondaryLabel: string;
   onToggle: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Button
@@ -672,6 +675,7 @@ export function MoneyUnitToggle({
       size="sm"
       className="h-11 md:pointer-fine:h-7"
       onClick={onToggle}
+      disabled={disabled}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >
       <ArrowDownUp className="size-4" aria-hidden="true" />

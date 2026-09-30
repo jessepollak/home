@@ -5,9 +5,9 @@ import { AddressField } from "@/components/address-field";
 
 const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9";
 
-function AddressFieldStory({ initialValue = "", disabled = false }: { initialValue?: string; disabled?: boolean }) {
+function AddressFieldStory({ initialValue = "", disabled = false, readOnly = false }: { initialValue?: string; disabled?: boolean; readOnly?: boolean }) {
   const [value, setValue] = useState(initialValue);
-  return <div className="w-80 max-w-full"><AddressField id="story-recipient" label="To" value={value} onChange={setValue} disabled={disabled} /></div>;
+  return <div className="w-80 max-w-full"><AddressField id="story-recipient" label="To" value={value} onChange={setValue} disabled={disabled} readOnly={readOnly} /></div>;
 }
 
 const meta = {
@@ -15,7 +15,7 @@ const meta = {
   title: "UI/Address Field",
   component: AddressField,
   args: { id: "story-recipient", label: "To", value: "", onChange: () => {} },
-  render: (args) => <AddressFieldStory initialValue={args.value} disabled={args.disabled} />,
+  render: (args) => <AddressFieldStory initialValue={args.value} disabled={args.disabled} readOnly={args.readOnly} />,
   parameters: {
     layout: "centered",
     a11y: { test: "error" },
@@ -63,6 +63,20 @@ export const Disabled: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole("textbox", { name: "To" })).toBeDisabled();
     await expect(canvas.getByPlaceholderText("0x…")).toHaveValue("");
+    await expect(canvas.getByRole("button", { name: "Paste address" })).toBeDisabled();
+  },
+};
+
+export const ReadOnly: Story = {
+  args: { value: RECIPIENT, readOnly: true },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = canvas.getByRole("textbox", { name: "To" });
+    await userEvent.click(input);
+    await expect(input).toHaveFocus();
+    await expect(input).toHaveAttribute("aria-readonly", "true");
+    await userEvent.type(input, "x");
+    await expect(input).toHaveValue(RECIPIENT);
     await expect(canvas.getByRole("button", { name: "Paste address" })).toBeDisabled();
   },
 };

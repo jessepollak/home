@@ -524,7 +524,7 @@ export function SendDialog({
       />
       {step !== "result" ? <MoneyModalBody hasFooter={["amount", "destination", "handle", "confirm", "error"].includes(step)} className="gap-4 pt-4">
         {step === "amount" ? <>
-          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={editAmount} disabled={preparing} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={unit.kind === "fiat" || unit.kind === "convertible" ? "quick-local" : "none"} unit={unit} nativeSymbol={selectedAsset?.symbol ?? ""}>
+          <MoneyAmountDisplay amount={amount} maxDecimals={selectedAsset?.decimals ?? 6} onAmountChange={editAmount} readOnly={preparing} overAvailable={overAvailable} onSubmit={canContinueAmount ? continueFromAmount : undefined} availableLabel={selectedAvailability ? `${selectedAvailability.balanceLabel} available` : undefined} availableAmount={sendCeiling} assetId={activeAssetId ?? undefined} assetLabel={selectedAsset?.symbol} assetControl="header" chipSet={unit.kind === "fiat" || unit.kind === "convertible" ? "quick-local" : "none"} unit={unit} nativeSymbol={selectedAsset?.symbol ?? ""}>
             {selectedAsset?.symbol.toUpperCase() === "USDC" && reserveFailed ? (
               <StatusMessage tone="error" role="alert">
                 Couldn&apos;t check the network fee. <Button variant="ghost" size="sm" onClick={retryReserve}>Retry</Button>
@@ -539,7 +539,7 @@ export function SendDialog({
             label="To"
             value={recipient}
             onChange={changeRecipient}
-            disabled={preparing}
+            readOnly={preparing}
             aria-describedby={resolvedRecipient || resolving || unresolved || recipientHint ? "send-recipient-status" : undefined}
           />
           <div id="send-recipient-status" className="grid gap-2">

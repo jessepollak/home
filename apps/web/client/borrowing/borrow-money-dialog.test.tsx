@@ -243,29 +243,28 @@ describe("Borrow action result", () => {
     expect(dialog.getByRole("heading", { name: "Confirm" })).toBeTruthy();
   });
 
-  test("preparing locks the amount and Max, and an edit drops the old review", async () => {
-    const finishers: Array<(value: PreparedMoneyAction) => void> = [];
+  test("preparing keeps focus on a read-only amount with Max disabled and ignores edits", async () => {
+    let finish!: (value: PreparedMoneyAction) => void;
     const intents: unknown[] = [];
-    const body = mount({ prepare: async (_kind, params) => { intents.push(params); return new Promise((resolve) => { finishers.push(resolve); }); } });
+    const body = mount({ prepare: async (_kind, params) => { intents.push(params); return new Promise((resolve) => { finish = resolve; }); } });
     const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
     const input = dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "1" } });
-    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
-    expect(input.disabled).toBe(true);
-    expect(dialog.getByRole("button", { name: "Max" }).closest("fieldset")?.disabled).toBe(true);
-    fireEvent.change(input, { target: { value: "2" } });
-    await act(async () => finishers[0]!(action));
-    expect(dialog.queryByRole("button", { name: "Confirm action" })).toBeNull();
-    expect(dialog.queryByText("1 USDC")).toBeNull();
-    expect(dialog.queryByRole("alert")).toBeNull();
+    act(() => { input.focus(); });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(dialog.getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
+    expect(input.readOnly).toBe(true);
     expect(input.disabled).toBe(false);
-    expect(dialog.getByRole("button", { name: "Max" }).closest("fieldset")?.disabled).toBe(false);
-    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
-    expect(intents).toHaveLength(2);
-    expect(intents[1]).toMatchObject({ amountBaseUnits: "2000000" });
-    await act(async () => finishers[1]!({ ...action, amounts: [{ ...action.amounts[0]!, amountBaseUnits: "2000000" }] }));
+    expect(input.getAttribute("aria-readonly")).toBe("true");
+    expect(document.activeElement).toBe(input);
+    expect((dialog.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "2" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    expect(input.value).toBe("1");
+    await act(async () => finish(action));
     expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
-    expect(dialog.getAllByText("2 USDC").length).toBeGreaterThan(0);
+    expect(dialog.getAllByText("1 USDC").length).toBeGreaterThan(0);
+    expect(intents).toHaveLength(1);
   });
 
   test("an owner change during prepare drops the old review", async () => {

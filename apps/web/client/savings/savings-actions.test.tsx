@@ -632,7 +632,7 @@ function ManagementHarness({ prepareMoneyAction }: {
     expect(page().getByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
   });
 
-  test("editing the amount during a preparation drops the stale review", async () => {
+  test("preparing keeps focus on a read-only amount with Max disabled and ignores edits", async () => {
     let resolveDeposit!: (action: PreparedMoneyAction) => void;
     render(
       <ReducedAmountJourney
@@ -643,16 +643,24 @@ function ManagementHarness({ prepareMoneyAction }: {
       />,
     );
     typeAmount("1");
-    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    const input = page().getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
+    act(() => { input.focus(); });
+    fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true"));
+    expect(input.readOnly).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(input.getAttribute("aria-readonly")).toBe("true");
+    expect(document.activeElement).toBe(input);
+    expect((page().getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
     typeAmount("2");
-    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Max" }));
+    expect(input.value).toBe("1");
+    expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
     await act(async () => {
       resolveDeposit(prepared("savings-deposit", "1000000"));
       await Promise.resolve();
     });
-    expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
-    expect(page().queryByRole("button", { name: "Deposit $1.00" })).toBeNull();
+    expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
   });
 
   test("keeps the amount step and reports a failed preparation there", async () => {
