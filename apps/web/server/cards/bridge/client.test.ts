@@ -18,6 +18,16 @@ describe("Bridge client", () => {
       await expect(createBridgeClient({ ...config!, bridgeApiKey: "incorrect" }, fetchFakeBridge).readCustomer(fixtureCustomer.id)).rejects.toThrow("404");
     } finally { await fake.stop(); }
   });
+  test("does not fetch a customer when the eligibility signal is already aborted", async () => {
+    let requests = 0;
+    const controller = new AbortController();
+    controller.abort();
+    const config = readCardJourneyConfig(env);
+    expect(config).not.toBeNull();
+    const client = createBridgeClient(config!, (async () => { requests++; return Response.json(fixtureCustomer); }) as unknown as typeof fetch);
+    await expect(client.readCustomer(fixtureCustomer.id, controller.signal)).rejects.toThrow();
+    expect(requests).toBe(0);
+  });
   test("parses documented customer and endorsement statuses, rejecting unknowns and malformed requirements", () => {
     for (const status of ["not_started", "incomplete", "awaiting_questionnaire", "awaiting_ubo", "under_review", "active", "rejected", "paused", "offboarded", "deposits_restricted"] as const) {
       expect(parseBridgeCustomer({ ...fixtureCustomer, status }).status).toBe(status);

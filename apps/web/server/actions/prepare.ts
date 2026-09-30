@@ -10,7 +10,7 @@ import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
 import { NETWORK_FEE_UNAVAILABLE_CODE } from "@/shared/money-actions/network-fee";
 import { authorizeSession } from "@/server/auth/authorize";
 import { buildVerifiedSendMoneyActionDraft } from "@/server/money-actions/prepare-send";
-import { issueMoneyAction } from "@/server/money-actions/issue";
+import { issueMoneyAction, MoneyActionIssueError } from "@/server/money-actions/issue";
 import { applyNetworkFee, NetworkFeeUnavailableError, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { privateError, privateJson } from "@/server/http/private-response";
@@ -27,11 +27,13 @@ import type { ActionAuthorizer } from "./handler";
 import { prepareTradeAction, tradePreparationResponse } from "./kinds/trade/prepare";
 import { assertStockTradePrepareAllowed } from "./kinds/trade/stock-eligibility";
 import { isTradeErrorCode } from "@/shared/trading/contract";
+import { prepareCardAllowanceAction, CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
 
 export function createPrepareActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   prepareSavings?: typeof prepareSavingsAction;
   prepareTrade?: typeof prepareTradeAction;
+  prepareCardAllowance?: typeof prepareCardAllowanceAction;
   applyFee?: typeof applyNetworkFee;
 }) {
   return async function POST(request: Request): Promise<Response> {
@@ -58,6 +60,10 @@ export function createPrepareActionHandler(dependencies: {
       const action = await prepare(session, body.kind, body.params, request, dependencies);
       return privateJson(action satisfies PrepareActionResponse, 201);
     } catch (error) {
+      if (error instanceof CardAllowancePreparationError) return fail(error.code, error.message, error.status);
+      if (body.kind === "card-allowance" && error instanceof MoneyActionIssueError) {
+        return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits changed. Prepare again.", 503);
+      }
       if (error instanceof NetworkFeeUnfundedError) return fail(error.code, error.message, 409);
       if (error instanceof NetworkFeeUnavailableError) return fail(NETWORK_FEE_UNAVAILABLE_CODE, error.message, 502);
       const tradeFailure = body.kind === "trade" ? tradePreparationResponse(error) : null;
@@ -99,10 +105,11 @@ async function prepare(
   kind: ActionKind,
   params: Record<string, unknown>,
   request: Request,
-  dependencies: { prepareSavings?: typeof prepareSavingsAction; prepareTrade?: typeof prepareTradeAction; applyFee?: typeof applyNetworkFee },
+  dependencies: { prepareSavings?: typeof prepareSavingsAction; prepareTrade?: typeof prepareTradeAction; prepareCardAllowance?: typeof prepareCardAllowanceAction; applyFee?: typeof applyNetworkFee },
 ) {
   const signal = request.signal;
   const issue = async (draft: MoneyActionDraft) => issueMoneyAction(session, await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request }));
+  if (kind === "card-allowance") return issue(await (dependencies.prepareCardAllowance ?? prepareCardAllowanceAction)(session, params, signal));
   if (kind === "send") {
     return issue(await buildVerifiedSendMoneyActionDraft(params as TransferRequest, new Date(), { signal }));
   }

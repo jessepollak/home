@@ -4,6 +4,7 @@ import type { CashoutQuote } from "@/shared/funding/cash-out-quote";
 
 export const ACTION_KINDS = [
   "send",
+  "card-allowance",
   "cash-out",
   "cash-out-withdraw",
   "savings-deposit",
@@ -115,7 +116,21 @@ export type SavingsMoneyActionMetadata = {
   };
 };
 
+export type CardAllowanceMoneyActionMetadata = {
+  product: "card";
+  operation: "set-allowance" | "revoke-allowance";
+  provider: "bridge";
+  mode: "sandbox" | "production";
+  token: `0x${string}`;
+  spender: `0x${string}`;
+  allowanceBaseUnits: string;
+  previousAllowanceBaseUnits: string;
+  maximumBaseUnits: string | null;
+  source: { blockNumber: string };
+};
+
 export type MoneyActionMetadata =
+  | CardAllowanceMoneyActionMetadata
   | BorrowMoneyActionMetadata
   | CashoutMoneyActionMetadata
   | SavingsMoneyActionMetadata

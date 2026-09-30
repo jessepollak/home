@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { encodeFunctionData, erc20Abi } from "viem";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import { SavingsActionError } from "@/server/savings/prepare";
 import { makePaymasterApproval, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
@@ -7,6 +8,8 @@ import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { setActionsStoreForTests, type ActionsStore } from "./store";
 import { TradePreparationError } from "./kinds/trade/permit2";
 import { createPrepareActionHandler } from "./prepare";
+import { CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
+import { parsePrepareActionErrorResponse } from "@/shared/actions/contracts/prepare";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
 const NOW = new Date("2026-09-28T12:00:00.000Z");
@@ -71,6 +74,42 @@ function authorized() {
 afterEach(() => { setActionsStoreForTests(null); setSystemTime(); });
 
 describe("prepare action handler", () => {
+  test.each([
+    ["invalid", "CARD_ALLOWANCE_INVALID", 400],
+    ["not-ready", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["unchanged", "CARD_ALLOWANCE_UNCHANGED", 409],
+    ["unavailable", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+  ] as const)("maps card allowance %s to %s", async (reason, code, status) => {
+    const handler = createPrepareActionHandler({ authorize: async () => authorized(),
+      prepareCardAllowance: async () => { throw new CardAllowancePreparationError(reason); } });
+    const response = await handler(request("card-allowance"));
+    expect(response.status).toBe(status);
+    const body = await response.json();
+    expect(body).toMatchObject({ error: { code } });
+    expect(parsePrepareActionErrorResponse(body)).toEqual(body);
+  });
+  test("maps a removed card spender at issue time to unavailable", async () => {
+    const before = process.env.BRIDGE_ENABLED;
+    process.env.BRIDGE_ENABLED = "0";
+    try {
+      const handler = createPrepareActionHandler({ authorize: async () => authorized(), applyFee: async (_session, draft) => draft,
+        prepareCardAllowance: async () => ({ kind: "card-allowance", title: "Set card spending limit", amounts: [], warnings: ["Card program spender"],
+          expiresAt: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
+          calls: [{ to: BASE_USDC_ADDRESS, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: ["0x65bf8b55EEDef53C094E40003a03390De744DF33", BigInt(25_000_000)] }),
+            value: "0", approval: { assetId: "usdc", spender: "0x65bf8b55eedef53c094e40003a03390de744df33" } }],
+          metadata: { product: "card", operation: "set-allowance", provider: "bridge", mode: "production",
+            token: BASE_USDC_ADDRESS.toLowerCase() as `0x${string}`, spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+            allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "0", maximumBaseUnits: "100000000", source: { blockNumber: "100" } },
+        }),
+      });
+      const response = await handler(request("card-allowance"));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: { code: "CARD_ALLOWANCE_UNAVAILABLE" } });
+    } finally {
+      if (before === undefined) delete process.env.BRIDGE_ENABLED;
+      else process.env.BRIDGE_ENABLED = before;
+    }
+  });
   test("refuses a stock buy before quoting even when params claim another country", async () => {
     let quoted = false;
     const handler = createPrepareActionHandler({

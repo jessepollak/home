@@ -72,6 +72,7 @@ const clientReasonRoutes = [
   "admin/audit/route.ts",
   "admin/session/route.ts",
   "admin/settings/route.ts",
+  "cards/spending/route.ts",
 ];
 
 test("accepts only frozen baseline identities", () => {
