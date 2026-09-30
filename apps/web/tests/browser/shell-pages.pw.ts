@@ -10,6 +10,21 @@ test.describe.configure({ timeout: 90_000 });
 
 const pages = ["/home", "/activity", "/cash", "/cash/savings", "/investments", "/borrow", "/invest"] as const;
 
+test("catch-all shell metadata renders without runtime prerender errors", async ({ page }) => {
+  const metadataErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && /generateMetadata|blocking-prerender-metadata/.test(message.text())) {
+      metadataErrors.push(message.text());
+    }
+  });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home/unrecognized?flow=send", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("dialog", { name: "Send" })).toBeVisible({ timeout: 20_000 });
+  await expect(page).toHaveTitle("Home · Home");
+  expect(metadataErrors).toEqual([]);
+});
+
 test("legacy Balances paths redirect to canonical pages without unrelated query keys", async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
@@ -36,6 +51,8 @@ for (const path of pages) {
     await page.getByRole("button", { name: "Close send dialog" }).click();
     await expect(page).toHaveURL(path);
     await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
+    const titles = ["Home", "Activity", "Cash", "Savings", "Investments", "Borrow", "Invest"];
+    await expect(page).toHaveTitle(`${titles[pages.indexOf(path)]} · Home`);
   });
 }
 
