@@ -15,6 +15,7 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/client/",
   "/components/",
   "/config/",
+  "/lib/",
   "/shared/",
 ] as const;
 

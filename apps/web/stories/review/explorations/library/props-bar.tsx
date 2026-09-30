@@ -7,12 +7,11 @@ import styles from "./library.module.css";
 
 export function PropsBar({ name, controls, values, onChange }: {
   name: string;
-  controls: PropControl[] | null;
+  controls: PropControl[];
   values: Record<string, unknown>;
   onChange: (name: string, value: PropValue | undefined) => void;
 }) {
   const id = useId();
-  if (!controls) return <div className={styles.propsBar} role="status">Loading props…</div>;
   if (!controls.length) return <div className={styles.propsBar} role="status">{name} has no editable props</div>;
   return <form className={styles.propsBar} aria-label={`${name} props`} onSubmit={(event) => event.preventDefault()}>
     {controls.map((control) => {

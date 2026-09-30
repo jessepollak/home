@@ -1,15 +1,12 @@
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import type { LibraryItem } from "@/stories/review/explorations/library/catalog";
 
 const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
-const { LibraryPreview } = await import("@/stories/review/explorations/library/preview");
+const { FrameSection } = await import("@/stories/review/explorations/library/preview");
 
-const item: LibraryItem = {
-  id: "ui-button", name: "Button", title: "UI/Button", story: "ui-button--default", storyName: "Default",
-  stories: 1, changed: false,
-};
+const item = { story: "ui-button--default" };
+const target = { story: item.story, component: "Button", label: "Default", changed: false };
 const originalRequest = globalThis.requestAnimationFrame;
 const originalCancel = globalThis.cancelAnimationFrame;
 let next = 0;
@@ -66,14 +63,16 @@ function child(iframe: HTMLIFrameElement) {
   return { updates, rendered, complete: () => { const run = pending; pending = undefined; run?.(); },
     listenerCount: () => [...listeners.values()].reduce((sum, handlers) => sum + handlers.size, 0) };
 }
+let settled = 0;
 const props = {
-  item, theme: "dark", args: { children: "RESTORED" }, annotating: false, frameSource: "blank" as const,
-  scale: 1, onPrepared: () => ({ children: "RESTORED" }), onExitAnnotate: () => {},
+  target, theme: "dark", args: { children: "RESTORED" }, annotating: false, frameSource: "blank" as const,
+  viewport: { width: 390, height: 560 }, onSettled: () => { settled += 1; }, onExitAnnotate: () => {},
 };
 
 for (const change of ["args", "theme", "both"]) {
   test(`restoration waits for the latest ${change} to finish before revealing`, () => {
-    const view = render(<LibraryPreview {...props} />);
+    settled = 0;
+    const view = render(<FrameSection {...props} />);
     const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
     const preview = child(iframe);
     fireEvent.load(iframe);
@@ -84,7 +83,7 @@ for (const change of ["args", "theme", "both"]) {
     expect(preview.updates.map(({ kind }) => kind)).toEqual(["globals", "args"]);
     const latest = { ...props, args: { children: change === "theme" ? "RESTORED" : "NEWER" },
       theme: change === "args" ? "dark" : "light" };
-    view.rerender(<LibraryPreview {...latest} />);
+    view.rerender(<FrameSection {...latest} />);
     preview.complete();
     tick();
     expect(view.queryByText("Loading Default…")).not.toBeNull();
@@ -101,6 +100,7 @@ for (const change of ["args", "theme", "both"]) {
       tick();
     }
     expect(view.queryByText("Loading Default…")).toBeNull();
+    expect(settled).toBe(1);
     expect(preview.rendered).toEqual({ args: latest.args, theme: latest.theme });
     expect(callbacks.size).toBe(0);
     expect(preview.listenerCount()).toBe(0);
@@ -108,14 +108,14 @@ for (const change of ["args", "theme", "both"]) {
 }
 
 test("a reload cancels obsolete restoration and applies the latest desired state to the new document", () => {
-  const view = render(<LibraryPreview {...props} />);
+  const view = render(<FrameSection {...props} />);
   const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
   const first = child(iframe);
   fireEvent.load(iframe);
   tick();
   expect(first.listenerCount()).toBeGreaterThan(0);
   const latest = { ...props, args: { children: "NEWER" }, theme: "light" };
-  view.rerender(<LibraryPreview {...latest} />);
+  view.rerender(<FrameSection {...latest} />);
   const reloaded = child(iframe);
   fireEvent.load(iframe);
   expect(first.listenerCount()).toBe(0);

@@ -125,15 +125,29 @@
   border-radius: 18px;
   background: var(--card);
 }
+.toolbar {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  padding: 12px 20px;
+}
+.pickers {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.pickerLabel {
+  color: var(--muted-foreground);
+}
 .propsBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 10px 24px;
-  min-height: 64px;
   margin: 0;
-  padding: 14px 24px;
   color: var(--muted-foreground);
 }
 .propField {
@@ -154,29 +168,140 @@
   width: 136px;
 }
 .stage {
-  display: grid;
-  place-items: center;
-  min-height: 0;
-  overflow: hidden;
-}
-.figure {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  min-height: 0;
   margin: 0;
+  padding: 4px 24px 20px;
+  overflow: hidden;
 }
 .device {
-  overflow: hidden;
+  position: relative;
+  flex: 0 1 844px;
+  width: 390px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   border-radius: 28px;
   background: var(--background);
+  color: var(--foreground);
   box-shadow: 0 0 0 1px var(--border), 0 18px 48px -20px rgb(0 0 0 / 22%);
   transition: box-shadow 120ms ease-out;
 }
 .device[data-annotating] {
   box-shadow: 0 0 0 2px var(--primary), 0 18px 48px -20px rgb(0 0 0 / 22%);
 }
+.section {
+  position: relative;
+  padding-block: 16px 20px;
+}
+.section:first-child {
+  padding-block-start: 20px;
+}
+.section::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: 20px;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px transparent;
+  transition: box-shadow 120ms ease-out;
+}
+.section[data-focused]::after {
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding-inline: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+}
+.sectionToggle {
+  margin-inline: -8px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  cursor: pointer;
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+@media (hover: hover) {
+  .sectionToggle:hover {
+    color: var(--foreground);
+    background: var(--muted);
+  }
+}
+.sectionToggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+}
+.sectionToggle[aria-pressed="true"] {
+  color: var(--primary);
+}
+.sectionNote {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+.sectionBody {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 56px;
+  padding-inline: 20px;
+}
+.sectionBody[data-layout="padded"] {
+  justify-content: flex-start;
+}
+.sectionBody[data-layout="fullscreen"] {
+  display: block;
+  padding-inline: 0;
+}
+.sectionPending {
+  min-height: 56px;
+  margin-inline: 20px;
+  border-radius: 12px;
+  background: var(--muted);
+}
+.sectionOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: 20px;
+  cursor: default;
+}
+.sectionOverlay:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.sectionMessage, .framePending {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 20px;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.sectionMessage {
+  min-height: 100%;
+}
+.framePending {
+  background: var(--muted);
+}
 .caption {
+  flex: none;
   color: var(--muted-foreground);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -200,7 +325,7 @@
   color: var(--primary-foreground);
 }
 @media (prefers-reduced-motion: reduce) {
-  .row, .device {
+  .row, .device, .section::after, .sectionToggle {
     transition: none;
   }
 }

@@ -14,6 +14,7 @@ describe("Storybook unexpected-request guard", () => {
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/mockServiceWorker.js`), ORIGIN)).toBeTrue();
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/client/activity/activity-ledger-sheet.tsx`), ORIGIN)).toBeTrue();
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/client/savings/savings-actions.tsx?t=1`), ORIGIN)).toBeTrue();
+    expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/lib/utils.ts`), ORIGIN)).toBeTrue();
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/client/savings/savings-actions.tsx`, { method: "POST" }), ORIGIN)).toBeFalse();
     for (const path of ["/currency-flags/us.svg", "/home-mark/Doto.ttf", "/network-marks/base.svg"]) {
       expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}${path}`), ORIGIN)).toBeTrue();

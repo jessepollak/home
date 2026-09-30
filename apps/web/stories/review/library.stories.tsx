@@ -7,27 +7,22 @@ const build = readReviewBuild(import.meta.env);
 
 const story = (id: string, title: string, name: string, importPath: string): StoryIndexEntry =>
   ({ id, title, name, importPath, type: "story" });
-const fixtureIndex: Record<string, StoryIndexEntry> = Object.fromEntries([
-  story("ui-button--default", "UI/Button", "Default", "./components/ui/button.stories.tsx"),
-  story("ui-button--variants", "UI/Button", "Variants", "./components/ui/button.stories.tsx"),
+const buttonStories = "./components/ui/button.stories.tsx";
+const fixtureEntries = [
+  story("ui-button--default", "UI/Button", "Default", buttonStories),
+  story("ui-button--variants", "UI/Button", "Variants", buttonStories),
+  story("ui-button--sizes", "UI/Button", "Sizes", buttonStories),
   story("ui-badge--default", "UI/Badge", "Default", "./components/ui/badge.stories.tsx"),
   story("ui-address-field--empty", "UI/Address Field", "Empty", "./components/address-field.stories.tsx"),
   story("review-boards--changes", "Review/Boards", "Changes", "./stories/review/review-boards.stories.tsx"),
-].map((entry) => [entry.id, entry]));
+];
+const indexOf = (entries: StoryIndexEntry[]) => Object.fromEntries(entries.map((entry) => [entry.id, entry]));
+const fixtureIndex = indexOf(fixtureEntries);
+const restoredIndex = indexOf([...fixtureEntries,
+  story("ui-button--loading", "UI/Button", "Loading", buttonStories)]);
 const fixtureBuild: ReviewBuild = {
   revision: "fixture", deployment: "", branch: "", repo: null, pr: null,
   changedFiles: ["apps/web/components/ui/button.tsx"],
-};
-const fixtureStories: Record<string, { argTypes: Record<string, unknown>; initialArgs: Record<string, unknown> }> = {
-  "ui-button--default": {
-    argTypes: { children: { control: { type: "text" } }, loading: { control: { type: "boolean" } },
-      onClick: { type: { name: "function" } } },
-    initialArgs: { children: "Continue" },
-  },
-  "ui-badge--default": {
-    argTypes: { variant: { control: { type: "select" }, options: ["default", "outline"] } },
-    initialArgs: { variant: "default" },
-  },
 };
 
 async function installPreview(canvas: ReturnType<typeof within>, title: string, id: string, controlled = false) {
@@ -52,8 +47,8 @@ async function installPreview(canvas: ReturnType<typeof within>, title: string, 
   const emit = (event: string, payload: unknown) => {
     for (const listener of listeners.get(event) ?? []) listener(payload);
   };
-  const render = { id, phase: "finished", story: { id, ...fixtureStories[id] } };
-  let args = { ...fixtureStories[id].initialArgs };
+  const render = { id, phase: "finished", story: { id } };
+  let args: Record<string, unknown> = {};
   let theme = "light";
   let pending: (() => void) | undefined;
   const updates: string[] = [];
@@ -106,93 +101,118 @@ export const Library: Story = {
   render: (args, { globals }) => <LibraryView {...args} theme={typeof globals.theme === "string" ? globals.theme : "light"} />,
 };
 
+const section = (canvas: ReturnType<typeof within>, name: string) =>
+  within(canvas.getByRole("heading", { name: new RegExp(`^${name}`) })).getByRole("button");
+const search = (canvasElement: HTMLElement) => new URL(canvasElement.ownerDocument.location.href).searchParams;
+
 export const Workspace: Story = {
   args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank" },
-  parameters: { a11y: { test: "error" } },
+  parameters: { a11y: { test: "error", context: { exclude: ["[data-library-story]"] } } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
+    const root = canvasElement.ownerDocument.documentElement;
     const list = await canvas.findByRole("listbox", { name: "Components" });
     await expect(canvas.getByText("1 change")).toBeVisible();
     const options = within(list).getAllByRole("option");
     await expect(options.map((option) => option.getAttribute("aria-label")))
-      .toEqual(["Badge, 1 story", "Button, 2 stories, changed in this build"]);
-    const { doc: badgeDoc } = await installPreview(canvas, "Badge · Default", "ui-badge--default");
-    const variant = await canvas.findByRole("combobox", { name: "Variant" });
-    await userEvent.selectOptions(variant, "outline");
-    await waitFor(() => expect(badgeDoc.body).toHaveTextContent("variant=outline"));
-    await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("props")).toBe('{"variant":"outline"}');
+      .toEqual(["Badge, 1 story", "Button, 3 stories, changed in this build"]);
+    await expect(await canvas.findByRole("heading", { name: "Default" })).toBeVisible();
 
     options[0].focus();
     await userEvent.keyboard("{ArrowDown}");
     await expect(options[1]).toHaveAttribute("aria-selected", "true");
     await expect(options[1]).toHaveFocus();
-    const { doc: buttonDoc } = await installPreview(canvas, "Button · Default", "ui-button--default");
-    const label = await canvas.findByRole("textbox", { name: "Children" });
-    await expect(canvas.queryByRole("combobox", { name: "Variant" })).not.toBeInTheDocument();
+    for (const name of ["Default", "Variants", "Sizes"]) {
+      await expect(await canvas.findByRole("heading", { name })).toBeVisible();
+    }
+    await expect(await canvas.findByRole("button", { name: "Destructive" })).toBeVisible();
+    await expect(canvas.queryByRole("form")).not.toBeInTheDocument();
+
+    await userEvent.click(canvas.getByRole("button", { name: "Dark" }));
+    await waitFor(() => expect(root).toHaveClass("dark"));
+    await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await expect(await canvas.findByRole("button", { name: "Destructive" })).toBeVisible();
+
+    await userEvent.click(section(canvas, "Default"));
+    await expect(section(canvas, "Default")).toHaveAttribute("aria-pressed", "true");
+    await expect(canvas.getByRole("form", { name: "Button · Default props" })).toBeVisible();
     await expect(canvas.queryByText("On click")).not.toBeInTheDocument();
+    const label = canvas.getByRole("textbox", { name: "Children" });
     await userEvent.clear(label);
     await userEvent.type(label, "Send");
-    await waitFor(() => expect(buttonDoc.body).toHaveTextContent("children=Send"));
-    await userEvent.click(canvas.getByRole("switch", { name: "Loading" }));
-    await waitFor(() => expect(buttonDoc.body).toHaveTextContent("loading=true"));
-    const url = new URL(canvasElement.ownerDocument.location.href);
-    await expect(url.searchParams.get("component")).toBe("ui-button");
-    await expect(JSON.parse(url.searchParams.get("props") ?? "{}")).toEqual({ children: "Send", loading: true });
+    await expect(await canvas.findByRole("button", { name: "Send" })).toBeVisible();
+    await expect(search(canvasElement).get("component")).toBe("ui-button");
+    await expect(search(canvasElement).get("story")).toBe("ui-button--default");
+    await expect(JSON.parse(search(canvasElement).get("props") ?? "{}")).toEqual({ children: "Send" });
+
+    await userEvent.keyboard("{Escape}");
+    await expect(section(canvas, "Default")).toHaveAttribute("aria-pressed", "false");
+    await expect(canvas.queryByRole("form")).not.toBeInTheDocument();
+    await expect(search(canvasElement).has("story")).toBe(false);
+    await expect(search(canvasElement).has("props")).toBe(false);
+    await expect(canvas.queryByRole("button", { name: "Send" })).not.toBeInTheDocument();
+
+    await userEvent.click(section(canvas, "Variants"));
+    await expect(search(canvasElement).get("story")).toBe("ui-button--variants");
+    await userEvent.click(section(canvas, "Variants"));
+    await expect(search(canvasElement).has("story")).toBe(false);
 
     const annotate = canvas.getByRole("button", { name: "Annotate" });
-    await expect(annotate).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(annotate);
     await expect(annotate).toHaveAttribute("aria-pressed", "true");
-    const anchor = canvas.getByRole("button", { name: "Button · Default · Changed · 390 × 844" });
-    await expect(anchor).toHaveAttribute("data-review-story", "ui-button--default");
-    await expect(canvas.getByTitle("Button · Default")).toHaveAttribute("inert");
+    const anchor = canvas.getByRole("button", { name: "Button · Sizes" });
+    await expect(anchor.closest("[data-review-story]")).toHaveAttribute("data-review-frame", "ui-button--sizes");
     anchor.focus();
     await userEvent.keyboard("{Enter}");
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
-    await expect(canvas.getByTitle("Button · Default")).not.toHaveAttribute("inert");
+    await userEvent.click(canvas.getByRole("button", { name: "Light" }));
+    await waitFor(() => expect(root).not.toHaveClass("dark"));
   },
 };
 
 export const RestoredPreview: Story = {
-  args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank", theme: "dark" },
+  args: { build: fixtureBuild, storyIndex: restoredIndex, frameSource: "blank", theme: "dark" },
   beforeEach: () => {
     const original = location.href;
     const url = new URL(original);
     url.searchParams.set("component", "ui-button");
+    url.searchParams.set("story", "ui-button--loading");
     url.searchParams.set("props", JSON.stringify({ children: "RESTORED" }));
     history.replaceState(history.state, "", url);
     return () => history.replaceState(history.state, "", original);
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
-    const first = await installPreview(canvas, "Button · Default", "ui-button--default", true);
+    const loading = "Loading Loading…";
+    await expect(await canvas.findByRole("heading", { name: "Loading Play function" })).toBeVisible();
+    await expect(section(canvas, "Loading")).toHaveAttribute("aria-pressed", "true");
+    const first = await installPreview(canvas, "Button · Loading", "ui-button--loading", true);
     await waitFor(() => expect(first.updates).toEqual(["globals"]));
-    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    await expect(canvas.getByText(loading)).toBeVisible();
     first.complete();
     await waitFor(() => expect(first.updates).toEqual(["globals", "args"]));
-    await expect(canvas.getByText("Loading Default…")).toBeVisible();
-    await expect(first.doc.body).toHaveTextContent("children=Continue");
+    await expect(canvas.getByText(loading)).toBeVisible();
     const label = await canvas.findByRole("textbox", { name: "Children" });
     await userEvent.clear(label);
     await userEvent.type(label, "NEWER");
     first.complete();
     await waitFor(() => expect(first.updates).toEqual(["globals", "args", "args"]));
-    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    await expect(canvas.getByText(loading)).toBeVisible();
     await expect(first.doc.body).toHaveTextContent("children=RESTORED");
     first.complete();
-    await waitFor(() => expect(canvas.queryByText("Loading Default…")).not.toBeInTheDocument());
+    await waitFor(() => expect(canvas.queryByText(loading)).not.toBeInTheDocument());
     await expect(first.doc.body).toHaveTextContent("children=NEWER");
     await expect(first.doc.documentElement).toHaveAttribute("data-theme", "dark");
     first.iframe.contentWindow!.location.reload();
     await waitFor(() => expect(first.iframe.contentDocument).not.toBe(first.doc));
-    const reloaded = await installPreview(canvas, "Button · Default", "ui-button--default", true);
+    const reloaded = await installPreview(canvas, "Button · Loading", "ui-button--loading", true);
     await waitFor(() => expect(reloaded.updates).toEqual(["globals"]));
-    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    await expect(canvas.getByText(loading)).toBeVisible();
     reloaded.complete();
     await waitFor(() => expect(reloaded.updates).toEqual(["globals", "args"]));
-    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    await expect(canvas.getByText(loading)).toBeVisible();
     reloaded.complete();
-    await waitFor(() => expect(canvas.queryByText("Loading Default…")).not.toBeInTheDocument());
+    await waitFor(() => expect(canvas.queryByText(loading)).not.toBeInTheDocument());
     await expect(reloaded.doc.body).toHaveTextContent("children=NEWER");
     await expect(reloaded.doc.documentElement).toHaveAttribute("data-theme", "dark");
   },

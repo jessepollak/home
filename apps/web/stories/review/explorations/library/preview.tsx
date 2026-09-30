@@ -1,22 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Positioned } from "../board/layout";
 import { LiveFrame } from "../board/live-frame";
-import { viewports } from "../board/manifest";
 import type { Metric } from "../board/use-frame-loading";
 import { startRenderDeadline } from "../board/render-deadline";
 import { watchStoryRender } from "../board/render-watcher";
-import type { LibraryItem } from "./catalog";
-import type { ArgType } from "./controls";
-import styles from "./library.module.css";
 
-export type PreparedPreview = { argTypes: Record<string, ArgType>; initialArgs: Record<string, unknown> };
+export type FrameSectionTarget = { story: string; component: string; label: string; changed: boolean };
 
 type PreviewApi = {
-  currentRender?: { id?: string; phase?: string; story?: { id?: string; argTypes?: Record<string, ArgType>; initialArgs?: Record<string, unknown> } };
+  currentRender?: { id?: string; phase?: string; story?: { id?: string } };
   onUpdateArgs?: (payload: { storyId: string; updatedArgs: Record<string, unknown> }) => unknown;
   onUpdateGlobals?: (payload: { globals: Record<string, unknown> }) => unknown;
 };
-
 
 function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
   try {
@@ -26,16 +21,19 @@ function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
   }
 }
 
-export function LibraryPreview({ item, theme, args, annotating, frameSource, scale, onPrepared, onExitAnnotate }: {
-  item: LibraryItem;
+export function FrameSection({ target, theme, args, annotating, frameSource, viewport, onSettled, onRendered,
+  onExitAnnotate }: {
+  target: FrameSectionTarget;
   theme: string;
-  args: Record<string, unknown> | null;
+  args: Record<string, unknown>;
   annotating: boolean;
   frameSource: "story" | "blank";
-  scale: number;
-  onPrepared: (prepared: PreparedPreview) => Record<string, unknown>;
+  viewport: { width: number; height: number };
+  onSettled: () => void;
+  onRendered?: (frame: HTMLIFrameElement) => void;
   onExitAnnotate: () => void;
 }) {
+  const item = useMemo(() => ({ id: target.story, story: target.story }), [target.story]);
   const frame = useRef<HTMLIFrameElement>(null);
   const [metric, setMetric] = useState<Metric>({ id: item.id, story: item.story, status: "loading" });
   const ready = metric.status === "rendered";
@@ -49,23 +47,29 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
   const stopDeadline = useRef<(() => void) | null>(null);
   const themeRef = useRef(theme);
   const argsRef = useRef(args);
-  const prepare = useRef(onPrepared);
+  const settled = useRef(onSettled);
+  const rendered = useRef(onRendered);
   useLayoutEffect(() => {
     themeRef.current = theme;
     argsRef.current = args;
-    prepare.current = onPrepared;
+    settled.current = onSettled;
+    rendered.current = onRendered;
   });
+  useEffect(() => {
+    if (metric.status === "rendered" && frame.current) rendered.current?.(frame.current);
+    if (metric.status === "rendered" || metric.status === "errored") settled.current();
+  }, [metric.status]);
   const position = useMemo<Positioned>(() => ({
     id: item.id,
     story: item.story,
-    section: item.name,
+    section: target.component,
     before: false,
     frame: {
-      id: item.id, story: item.story, label: item.storyName,
-      viewport: viewports.mobile, change: item.changed ? "changed" : "unchanged",
+      id: item.id, story: item.story, label: target.label,
+      viewport, change: target.changed ? "changed" : "unchanged",
     },
-    rect: { x: 0, y: 0, ...viewports.mobile },
-  }), [item]);
+    rect: { x: 0, y: 0, ...viewport },
+  }), [item, target.component, target.label, target.changed, viewport]);
   const cancel = useCallback(() => {
     generation.current += 1;
     if (animation.current !== null) cancelAnimationFrame(animation.current);
@@ -111,17 +115,15 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
       const iframe = frame.current;
       if (!iframe?.isConnected) return;
       const api = previewApi(iframe);
-      const story = api?.currentRender?.story;
-      if (!api || story?.id !== item.story || api.currentRender?.phase !== "finished") {
+      if (!api || api.currentRender?.story?.id !== item.story || api.currentRender?.phase !== "finished") {
         animation.current = requestAnimationFrame(poll);
         return;
       }
       try {
         if (!api.onUpdateGlobals || !api.onUpdateArgs) throw new Error("Preview props API unavailable");
-        const initial = prepare.current({ argTypes: story.argTypes ?? {}, initialArgs: story.initialArgs ?? {} });
         const reconcile = () => {
           if (generation.current !== load) return;
-          const latestArgs = argsRef.current ?? initial;
+          const latestArgs = argsRef.current;
           const serialized = JSON.stringify(latestArgs);
           const latestTheme = themeRef.current;
           const complete = (next: "rendered" | "errored" | "cancelled", renderError?: string) => {
@@ -165,7 +167,7 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
     });
   }, [ready, theme, fail]);
   useEffect(() => {
-    if (!ready || !args) return;
+    if (!ready) return;
     const serialized = JSON.stringify(args);
     if (serialized === applied.current) return;
     applied.current = serialized;
@@ -177,10 +179,7 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
     });
   }, [ready, args, item.story, fail]);
   const noop = useCallback(() => {}, []);
-  return <div className={styles.device} data-review-frame={item.id} data-review-story={item.story}
-    data-annotating={annotating || undefined}>
-    <LiveFrame position={position} metric={metric} loaded active={!annotating} frameSource={frameSource}
-      scale={scale} frameRef={frame} onMark={mark} onFinish={finish} onCancel={cancel}
-      onSelect={noop} onFit={noop} onInteract={onExitAnnotate} />
-  </div>;
+  return <LiveFrame position={position} metric={metric} loaded active={!annotating} frameSource={frameSource}
+    frameRef={frame} onMark={mark} onFinish={finish} onCancel={cancel}
+    onSelect={noop} onFit={noop} onInteract={onExitAnnotate} />;
 }
