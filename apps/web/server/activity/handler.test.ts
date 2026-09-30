@@ -107,6 +107,21 @@ describe("activity route handler", () => {
     const older = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
     expect(older.status).toBe(502);
   });
+  test.each([
+    ["throws", () => { throw new Error("sink failed"); }],
+    ["rejects", () => Promise.reject(new Error("sink failed"))],
+  ])("preserves an activity response when observation %s", async (_kind, observe) => {
+    const handler = createActivityHandler({
+      authorize: async () => sessionResponse(),
+      readActivity: async () => page(),
+      observe,
+      now: () => new Date(TO),
+    });
+    const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ version: ACTIVITY_CONTRACT_VERSION, ...page() });
+  });
+
   test("source resolution failure still returns first-page card rows as partial activity", async () => {
     const purchase = { id: "ipi_source", kind: "transaction" as const, amountMinor: "500", currency: "USD", merchantName: "Synthetic Shop",
       merchantCategory: null, status: "completed" as const, declineReasonCode: null, createdAt: TO, updatedAt: TO };
