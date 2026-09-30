@@ -61,6 +61,10 @@
     "transfers/recipient-name/route.ts": { "contracts": ["shared/transfers/contracts/recipients.ts"] },
     "webhooks/cdp/route.ts": { "exempt": { "kind": "webhook", "reason": "CDP sends signed provider-defined wallet activity; Home returns only webhook acknowledgement status." } }
   },
+  "appRoutes": {
+    "app/coverage.csv/route.ts": { "exempt": { "kind": "document", "reason": "The coverage CSV is downloaded as a document and is never parsed by a Home client." } },
+    "app/invite/[code]/route.ts": { "exempt": { "kind": "redirect", "reason": "Invite landing links answer with a 303 redirect to /home or / and return no parsed body." } }
+  },
   "baseline": {
     "routesWithoutVersionedParser": {
       "actions/[id]/confirm/route.ts": ["shared/actions/contracts/confirm.ts"],

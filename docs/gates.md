@@ -30,7 +30,7 @@ The full check suite also covers:
 - disposable PostgreSQL contracts discovered from tracked `apps/web/**/*postgres*.test.ts` files (including country preferences), run against CI's PostgreSQL 14 service
 - unit-test runtime budgets (per-test and summed per-file JUnit timings, with a checked-in outlier allowlist)
 - performance budgets (separate, non-required workflow: production fixture, structural gates, and report-only timings)
-- the API route contract inventory (`bun test` running `apps/web/app/api/route-contracts.contract.test.ts`), which requires every API route to declare a shared versioned parser contract or a reasoned machine/webhook/redirect/status exemption, checks handler and client linkage, and fails on new or stale baselined gaps
+- the route contract inventory (`bun test` running `apps/web/app/api/route-contracts.contract.test.ts`), which requires every route handler under `app/` to be classified with a shared versioned parser contract or a reasoned document/machine/webhook/redirect/status exemption (handlers outside `app/api` must be exempt), checks handler and client linkage, and fails on new or stale baselined gaps
 
 CI cancels in-progress runs only for pull requests. Each push to `main` runs in its own concurrency group keyed by commit, so no push cancels or replaces another and each gets its own verdict.
 
