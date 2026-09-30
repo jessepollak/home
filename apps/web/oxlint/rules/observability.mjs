@@ -244,7 +244,27 @@ function isTelemetrySinkCall(state, node, callee) {
   const variable = findVariable(state, callee);
   return Boolean(variable?.defs.some((definition) => definition.type === "Parameter"
     && isWithin(state.telemetryCallback, definition.node)
-    && !isWithin(definition.node, state.telemetryCallback)));
+    && !isWithin(definition.node, state.telemetryCallback)
+    && telemetryDelegationBody(state, definition.node)));
+}
+
+function telemetryDelegationBody(state, fn) {
+  const body = fn?.body;
+  if (!body) return false;
+  if (body.type !== "BlockStatement") return delegatedTelemetryCall(state, body);
+  if (body.body.length !== 1) return false;
+  const [statement] = body.body;
+  if (statement.type === "ExpressionStatement") return delegatedTelemetryCall(state, statement.expression);
+  return false;
+}
+
+function delegatedTelemetryCall(state, expression) {
+  const call = unwrapTransparent(expression);
+  if (call?.type !== "CallExpression") return false;
+  const imported = importedReportingHelper(state, call);
+  if (imported?.name !== "observeSafely" || imported.module !== "@/server/observability/log") return false;
+  return call.arguments.some((argument) => argument?.type !== "SpreadElement"
+    && isWithin(state.telemetryCallback, argument));
 }
 
 function finalizerInterruptsReturn(node) {
