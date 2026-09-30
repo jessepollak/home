@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CODEX_GRAPHQL_ENDPOINT } from "@/server/market-data/codex/config";
+import { createWriteOrder } from "@/server/cache/write-order";
 import {
   bucketWindow,
   ACTIVITY_CLOSE_STALE_RETENTION_MS,
@@ -25,6 +26,18 @@ function barsAt(...entries: [string, string][]) {
 function resultFor(reader: ReturnType<typeof createCodexHistoricalCloseReader>, contract: typeof TOKEN_A | typeof TOKEN_B, timestampSeconds: number) {
   const request = { contract, timestampSeconds };
   return reader([request]).then((results) => results.get(historicalCloseKey(request)));
+}
+
+function deferredResponse() {
+  return Promise.withResolvers<Response>();
+}
+
+function closeResponse(amount: string, count = 1) {
+  return Response.json({ data: Object.fromEntries(
+    Array.from({ length: count }, (_, index) => [
+      `b${index}`, barsAt(["2026-09-07T10:45:00.000Z", amount]),
+    ]),
+  ) });
 }
 
 describe("historical close selection", () => {
@@ -346,5 +359,171 @@ describe("Codex historical close reader", () => {
     expect(await resultFor(reader, TOKEN_A, early)).toEqual({ status: "none" });
     expect(await resultFor(reader, TOKEN_A, epoch("2026-09-07T11:30:00.000Z"))).toEqual({ status: "unavailable" });
     expect(calls).toBe(3);
+  });
+
+  test("write order prevents an older flight from repopulating an evicted newer close", async () => {
+    let nowMs = NOW().getTime();
+    const flights: ReturnType<typeof deferredResponse>[] = [];
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", now: () => new Date(nowMs), cacheMaxEntries: 1,
+      fetchImpl: () => { const flight = deferredResponse(); flights.push(flight); return flight.promise; },
+    });
+    const older = resultFor(reader, TOKEN_A, TRANSFER_AT);
+    nowMs += 900_000;
+    const newer = resultFor(reader, TOKEN_A, TRANSFER_AT);
+    await Promise.resolve();
+    expect(flights).toHaveLength(2);
+    flights[1]!.resolve(closeResponse("2"));
+    expect(await newer).toMatchObject({ close: { priceUsd: { atoms: "2" } } });
+    const eviction = resultFor(reader, TOKEN_B, TRANSFER_AT);
+    await Promise.resolve();
+    flights[2]!.resolve(closeResponse("3"));
+    await eviction;
+    flights[0]!.resolve(closeResponse("1"));
+    await older;
+    const reread = resultFor(reader, TOKEN_A, TRANSFER_AT);
+    await Promise.resolve();
+    flights[3]?.resolve(closeResponse("2"));
+    expect(await reread).toMatchObject({ close: { priceUsd: { atoms: "2" } } });
+    expect(flights).toHaveLength(4);
+  });
+
+  test("write order preserves same-tick in-flight sharing and one cached close", async () => {
+    const flight = deferredResponse();
+    const writeOrder = createWriteOrder();
+    let calls = 0;
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", now: NOW, cacheMaxEntries: 1, writeOrder,
+      fetchImpl: () => { calls += 1; return flight.promise; },
+    });
+    const first = resultFor(reader, TOKEN_A, TRANSFER_AT);
+    const second = resultFor(reader, TOKEN_A, TRANSFER_AT);
+    await Promise.resolve();
+    expect(calls).toBe(1);
+    const outstandingKeys = writeOrder.size;
+    flight.resolve(closeResponse("2"));
+    expect(await first).toEqual(await second);
+    expect(outstandingKeys).toBe(1);
+    expect(await resultFor(reader, TOKEN_A, TRANSFER_AT)).toMatchObject({ close: { priceUsd: { atoms: "2" } } });
+    expect(calls).toBe(1);
+    expect(writeOrder.size).toBe(0);
+  });
+
+  test("write order lets a flight started one second later across a bar boundary win", async () => {
+    let nowMs = Date.parse("2026-09-10T00:14:59.000Z");
+    const flights: ReturnType<typeof deferredResponse>[] = [];
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", now: () => new Date(nowMs), cacheMaxEntries: 1,
+      fetchImpl: () => { const flight = deferredResponse(); flights.push(flight); return flight.promise; },
+    });
+    const older = resultFor(reader, TOKEN_A, TRANSFER_AT);
+    nowMs += 1_000;
+    const newer = resultFor(reader, TOKEN_A, TRANSFER_AT);
+    await Promise.resolve();
+    expect(flights).toHaveLength(2);
+    flights[1]!.resolve(closeResponse("2"));
+    await newer;
+    flights[0]!.resolve(closeResponse("1"));
+    await older;
+    expect(await resultFor(reader, TOKEN_A, TRANSFER_AT)).toMatchObject({ close: { priceUsd: { atoms: "2" } } });
+    expect(flights).toHaveLength(2);
+  });
+
+  test("write order prevents a late joiner from rewriting its creator's completed flight", async () => {
+    let nowMs = NOW().getTime();
+    const flights: ReturnType<typeof deferredResponse>[] = [];
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", now: () => new Date(nowMs), cacheMaxEntries: 3,
+      fetchImpl: () => { const flight = deferredResponse(); flights.push(flight); return flight.promise; },
+    });
+    const key = { contract: TOKEN_A, timestampSeconds: TRANSFER_AT };
+    const creator = reader([key, { contract: TOKEN_B, timestampSeconds: TRANSFER_AT }]);
+    const joiner = reader([key, { contract: TOKEN_B, timestampSeconds: TRANSFER_AT - 3_600 }]);
+    await Promise.resolve();
+    expect(flights).toHaveLength(2);
+    flights[0]!.resolve(closeResponse("1", 2));
+    await creator;
+    const eviction = reader([
+      { contract: TOKEN_A, timestampSeconds: TRANSFER_AT - 3_600 },
+      { contract: TOKEN_A, timestampSeconds: TRANSFER_AT - 7_200 },
+    ]);
+    await Promise.resolve();
+    flights[2]!.resolve(closeResponse("4", 2));
+    await eviction;
+    nowMs += 900_000;
+    const newer = reader([key]);
+    await Promise.resolve();
+    flights[3]!.resolve(closeResponse("2"));
+    await newer;
+    flights[1]!.resolve(closeResponse("3"));
+    await joiner;
+    expect(await resultFor(reader, TOKEN_A, TRANSFER_AT)).toMatchObject({ close: { priceUsd: { atoms: "2" } } });
+    expect(flights).toHaveLength(4);
+  });
+
+  test("a clock failure while caching a settled flight rejects the read without an unhandled rejection", async () => {
+    const writeOrder = createWriteOrder();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      let nowCalls = 0;
+      const reader = createCodexHistoricalCloseReader({
+        apiKey: "fixture-key", writeOrder,
+        now: () => {
+          nowCalls += 1;
+          if (nowCalls === 3) throw new Error("settle clock failed");
+          return NOW();
+        },
+        fetchImpl: async () => closeResponse("1"),
+      });
+      await expect(resultFor(reader, TOKEN_A, TRANSFER_AT)).rejects.toThrow("settle clock failed");
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+      expect(writeOrder.size).toBe(0);
+      expect(await resultFor(reader, TOKEN_A, TRANSFER_AT)).toMatchObject({ close: { priceUsd: { atoms: "1" } } });
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  test("write order releases prepared flights after a later chunk's preparation throws", async () => {
+    const writeOrder = createWriteOrder();
+    const flights: ReturnType<typeof deferredResponse>[] = [];
+    let nowMs = NOW().getTime();
+    let nowCalls = 0;
+    let failed = false;
+    const reader = createCodexHistoricalCloseReader({
+      apiKey: "fixture-key", cacheMaxEntries: 1, writeOrder,
+      now: () => {
+        nowCalls += 1;
+        if (!failed && nowCalls === 3) { failed = true; throw new Error("preparation failed"); }
+        return new Date(nowMs);
+      },
+      fetchImpl: () => { const flight = deferredResponse(); flights.push(flight); return flight.promise; },
+    });
+    const requests = Array.from({ length: 26 }, (_, index) => ({
+      contract: `0x${index.toString(16).padStart(40, "0")}` as `0x${string}`, timestampSeconds: TRANSFER_AT,
+    }));
+    const firstKey = requests[0]!;
+    await expect(reader(requests)).rejects.toThrow("preparation failed");
+    expect(flights).toHaveLength(1);
+    const outstandingKeys = writeOrder.size;
+    const joined = reader([firstKey]);
+    flights[0]!.resolve(closeResponse("1", 25));
+    expect((await joined).get(historicalCloseKey(firstKey))).toMatchObject({ status: "found" });
+    expect(writeOrder.size).toBe(0);
+    expect(outstandingKeys).toBe(25);
+    const older = reader([firstKey]);
+    nowMs += 900_000;
+    const newer = reader([firstKey]);
+    await Promise.resolve();
+    expect(flights).toHaveLength(3);
+    flights[2]!.resolve(closeResponse("2"));
+    await newer;
+    flights[1]!.resolve(closeResponse("1"));
+    await older;
+    expect((await reader([firstKey])).get(historicalCloseKey(firstKey))).toMatchObject({ close: { priceUsd: { atoms: "2" } } });
+    expect(writeOrder.size).toBe(0);
   });
 });

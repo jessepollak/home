@@ -5,6 +5,7 @@ import { parseExactDecimal } from "@/shared/balances/math";
 import type { ExactDecimal } from "@/shared/balances/types";
 import type { FetchLike } from "@/server/market-data/codex/execute";
 import { createBoundedCache } from "@/server/cache/bounded";
+import { createWriteOrder } from "@/server/cache/write-order";
 
 export const COINBASE_DAILY_FX_ORIGIN = "https://api.coinbase.com" as const;
 export const ACTIVITY_FX_TIMEOUT_MS = 3_000;
@@ -39,11 +40,13 @@ export function createCoinbaseDailyFxReader(options: {
   now?: () => Date;
   timeoutMs?: number;
   cacheMaxEntries?: number;
+  writeOrder?: ReturnType<typeof createWriteOrder>;
 } = {}): DailyFxReader {
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? (() => new Date());
   const timeoutMs = options.timeoutMs ?? ACTIVITY_FX_TIMEOUT_MS;
   const cacheMaxEntries = options.cacheMaxEntries ?? ACTIVITY_FX_CACHE_MAX_ENTRIES;
+  const writeOrder = options.writeOrder ?? createWriteOrder();
   const cache = createBoundedCache<{ storedAt: number; value: NonNullable<DailyFxResult> }>({
     maxEntries: cacheMaxEntries, ttlMs: ACTIVITY_FX_SETTLED_TTL_MS, maxInFlight: 1,
     now: () => now().getTime(),
@@ -90,15 +93,22 @@ export function createCoinbaseDailyFxReader(options: {
             results.set(key, null);
             continue;
           }
-          const rate = await fetchDailyRate({ request, fetchImpl, timeoutMs, signal });
+          const provisional = request.date === today;
+          const rate = await writeOrder.settle(
+            key,
+            fetchDailyRate({ request, fetchImpl, timeoutMs, signal }),
+            (rate) => {
+              if (!rate) return false;
+              cache.set(key, { storedAt: now().getTime(), value: { rate, provisional } });
+              return true;
+            },
+          );
           if (!rate) {
             results.set(key, null);
             continue;
           }
-          const provisional = request.date === today;
           const value = { rate, provisional };
           results.set(key, value);
-          cache.set(key, { storedAt: now().getTime(), value });
         }
       },
     );

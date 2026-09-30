@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { createCoinbaseDailyFxReader, dailyFxKey } from "./coinbase-daily-fx";
+import { createWriteOrder } from "@/server/cache/write-order";
 
 function rateResponse(base: string, currency: string, amount: string) {
   return Response.json({ data: { amount, base, currency } });
+}
+
+function deferredResponse() {
+  return Promise.withResolvers<Response>();
 }
 
 describe("Coinbase daily FX reader", () => {
@@ -227,5 +232,96 @@ describe("Coinbase daily FX reader", () => {
     expect((await reader([request])).get(dailyFxKey(request))?.rate).toEqual({ atoms: "11", scale: 1 });
     await reader([request]);
     expect(calls).toBe(3);
+  });
+
+  test("write order prevents an older request from repopulating an evicted newer rate", async () => {
+    const flights: ReturnType<typeof deferredResponse>[] = [];
+    const reader = createCoinbaseDailyFxReader({
+      now: () => new Date("2026-09-10T12:00:00.000Z"), cacheMaxEntries: 1,
+      fetchImpl: () => { const flight = deferredResponse(); flights.push(flight); return flight.promise; },
+    });
+    const key = { base: "EUR", quote: "USD", date: "2026-09-01" } as const;
+    const older = reader([key]);
+    const newer = reader([key]);
+    expect(flights).toHaveLength(2);
+    flights[1]!.resolve(rateResponse("EUR", "USD", "2"));
+    expect((await newer).get(dailyFxKey(key))?.rate.atoms).toBe("2");
+    const eviction = reader([{ ...key, date: "2026-09-02" }]);
+    flights[2]!.resolve(rateResponse("EUR", "USD", "3"));
+    await eviction;
+    flights[0]!.resolve(rateResponse("EUR", "USD", "1"));
+    await older;
+    const reread = reader([key]);
+    flights[3]?.resolve(rateResponse("EUR", "USD", "2"));
+    expect((await reread).get(dailyFxKey(key))?.rate.atoms).toBe("2");
+    expect(flights).toHaveLength(4);
+  });
+
+  test("write order lets a later same-tick request win when it settles first", async () => {
+    const flights: ReturnType<typeof deferredResponse>[] = [];
+    const writeOrder = createWriteOrder();
+    const reader = createCoinbaseDailyFxReader({
+      now: () => new Date("2026-09-10T12:00:00.000Z"), cacheMaxEntries: 1, writeOrder,
+      fetchImpl: () => { const flight = deferredResponse(); flights.push(flight); return flight.promise; },
+    });
+    const key = { base: "EUR", quote: "USD", date: "2026-09-01" } as const;
+    const older = reader([key]);
+    const newer = reader([key]);
+    expect(flights).toHaveLength(2);
+    const outstandingKeys = writeOrder.size;
+    flights[1]!.resolve(rateResponse("EUR", "USD", "2"));
+    await newer;
+    const remainingKeys = writeOrder.size;
+    flights[0]!.resolve(rateResponse("EUR", "USD", "1"));
+    await older;
+    expect((await reader([key])).get(dailyFxKey(key))?.rate.atoms).toBe("2");
+    expect(outstandingKeys).toBe(1);
+    expect(remainingKeys).toBe(1);
+    expect(flights).toHaveLength(2);
+    expect(writeOrder.size).toBe(0);
+  });
+
+  test("write order releases the first worker after a later worker's preparation fails", async () => {
+    const writeOrder = createWriteOrder();
+    const pending: Promise<unknown>[] = [];
+    const settle = writeOrder.settle;
+    writeOrder.settle = (key, request, write) => {
+      const promise = settle(key, request, write);
+      pending.push(promise);
+      return promise;
+    };
+    const flights: ReturnType<typeof deferredResponse>[] = [];
+    let nowCalls = 0;
+    let failed = false;
+    const reader = createCoinbaseDailyFxReader({
+      cacheMaxEntries: 1, writeOrder,
+      now: () => {
+        nowCalls += 1;
+        if (!failed && nowCalls === 3) { failed = true; return new Date(NaN); }
+        return new Date("2026-09-10T12:00:00.000Z");
+      },
+      fetchImpl: () => { const flight = deferredResponse(); flights.push(flight); return flight.promise; },
+    });
+    const key = { base: "EUR", quote: "USD", date: "2026-09-01" } as const;
+    await expect(reader([key, { ...key, date: "2026-09-02" }])).rejects.toBeInstanceOf(RangeError);
+    expect(flights).toHaveLength(1);
+    const outstandingKeys = writeOrder.size;
+    flights[0]!.resolve(rateResponse("EUR", "USD", "1"));
+    await Promise.all(pending);
+    expect(writeOrder.size).toBe(0);
+    expect(outstandingKeys).toBe(1);
+    expect((await reader([key])).get(dailyFxKey(key))?.rate.atoms).toBe("1");
+    expect(flights).toHaveLength(1);
+    const eviction = reader([{ ...key, date: "2026-09-03" }]);
+    flights[1]!.resolve(rateResponse("EUR", "USD", "3"));
+    await eviction;
+    const older = reader([key]);
+    const newer = reader([key]);
+    flights[3]!.resolve(rateResponse("EUR", "USD", "2"));
+    await newer;
+    flights[2]!.resolve(rateResponse("EUR", "USD", "1"));
+    await older;
+    expect((await reader([key])).get(dailyFxKey(key))?.rate.atoms).toBe("2");
+    expect(writeOrder.size).toBe(0);
   });
 });
