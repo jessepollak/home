@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { libraryCatalog, monogram } from "../../stories/review/explorations/library/catalog";
-import { propControls, propLabel, storyArgs } from "../../stories/review/explorations/library/controls";
+import { inputPropValue, propControls, propLabel, storyArgs } from "../../stories/review/explorations/library/controls";
 import { readLibraryUrl, writeLibraryUrl } from "../../stories/review/explorations/library/url-state";
 import type { ReviewBuild, StoryIndexEntry } from "../../stories/review/explorations/board/review-build";
 
@@ -67,6 +67,20 @@ describe("library props", () => {
     const controls = propControls({ children: { control: "text" }, loading: { control: "boolean" } }, { children: "Continue" });
     expect(storyArgs(controls, { children: "Continue" }, { loading: true })).toEqual({ children: "Continue", loading: true });
     expect(storyArgs(controls, { children: "Continue" }, {})).toEqual({ children: "Continue", loading: undefined });
+  });
+
+  test("clearing enum-like inputs removes the override while text keeps empty strings", () => {
+    const controls = propControls({
+      variant: { control: "object", table: { defaultValue: { summary: '"default"' } } },
+      children: { control: "text" },
+    }, { children: "Continue" });
+    const variant = controls.find((control) => control.name === "variant")!;
+    const children = controls.find((control) => control.name === "children")!;
+    if (variant.kind !== "text" || children.kind !== "text") throw new Error("Missing text controls");
+    expect(inputPropValue(variant, "secondary")).toBe("secondary");
+    expect(inputPropValue(variant, "")).toBeUndefined();
+    expect(storyArgs(controls, { children: "Continue" }, {})).toEqual({ variant: undefined, children: "Continue" });
+    expect(inputPropValue(children, "")).toBe("");
   });
 
   test("labels props in sentence case", () => {

@@ -3,6 +3,8 @@ import type { Positioned } from "../board/layout";
 import { LiveFrame } from "../board/live-frame";
 import { viewports } from "../board/manifest";
 import type { Metric } from "../board/use-frame-loading";
+import { startRenderDeadline } from "../board/render-deadline";
+import { watchStoryRender } from "../board/render-watcher";
 import type { LibraryItem } from "./catalog";
 import type { ArgType } from "./controls";
 import styles from "./library.module.css";
@@ -10,12 +12,11 @@ import styles from "./library.module.css";
 export type PreparedPreview = { argTypes: Record<string, ArgType>; initialArgs: Record<string, unknown> };
 
 type PreviewApi = {
-  currentRender?: { id?: string; story?: { id?: string; argTypes?: Record<string, ArgType>; initialArgs?: Record<string, unknown> } };
+  currentRender?: { id?: string; phase?: string; story?: { id?: string; argTypes?: Record<string, ArgType>; initialArgs?: Record<string, unknown> } };
   onUpdateArgs?: (payload: { storyId: string; updatedArgs: Record<string, unknown> }) => unknown;
   onUpdateGlobals?: (payload: { globals: Record<string, unknown> }) => unknown;
 };
 
-const PREPARE_TIMEOUT_FRAMES = 600;
 
 function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
   try {
@@ -41,6 +42,11 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
   const applied = useRef<string | null>(null);
   const appliedTheme = useRef<string | null>(null);
   const preparing = useRef(false);
+  const generation = useRef(0);
+  const loads = useRef(0);
+  const animation = useRef<number | null>(null);
+  const stopRender = useRef<(() => void) | null>(null);
+  const stopDeadline = useRef<(() => void) | null>(null);
   const themeRef = useRef(theme);
   const prepare = useRef(onPrepared);
   useLayoutEffect(() => {
@@ -58,57 +64,103 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
     },
     rect: { x: 0, y: 0, ...viewports.mobile },
   }), [item]);
-  const mark = useCallback((_: string, patch: Partial<Metric>) => {
-    setMetric((current) => patch.status === "rendered" ? current : { ...current, ...patch });
-  }, []);
   const cancel = useCallback(() => {
+    generation.current += 1;
+    if (animation.current !== null) cancelAnimationFrame(animation.current);
+    animation.current = null;
+    stopRender.current?.();
+    stopRender.current = null;
+    stopDeadline.current?.();
+    stopDeadline.current = null;
     preparing.current = false;
-    setMetric((current) => ({ ...current, status: "loading" }));
+    applied.current = null;
+    appliedTheme.current = null;
   }, []);
+  const fail = useCallback((error?: string) => {
+    cancel();
+    setMetric((current) => ({ ...current, status: "errored", error }));
+  }, [cancel]);
+  const begin = useCallback(() => {
+    cancel();
+    setMetric({ id: item.id, story: item.story, status: "loading" });
+    const load = generation.current;
+    stopDeadline.current = startRenderDeadline((error) => {
+      if (generation.current === load) fail(error);
+    });
+  }, [cancel, fail, item.id, item.story]);
+  useLayoutEffect(() => {
+    const load = generation.current;
+    stopDeadline.current = startRenderDeadline((error) => {
+      if (generation.current === load) fail(error);
+    });
+    return cancel;
+  }, [cancel, fail]);
+  const mark = useCallback((_: string, patch: Partial<Metric>) => {
+    if (patch.status === "loaded" && loads.current++ > 0) begin();
+    if (patch.status !== "rendered") setMetric((current) => ({ ...current, ...patch }));
+  }, [begin]);
   const finish = useCallback((_: string, status: "rendered" | "errored", error?: string) => {
-    if (status === "errored") {
-      setMetric((current) => ({ ...current, status, error }));
-      return;
-    }
-    let frames = 0;
+    if (status === "errored") { fail(error); return; }
     if (preparing.current) return;
     preparing.current = true;
+    const load = generation.current;
     const poll = () => {
+      if (generation.current !== load) return;
       const iframe = frame.current;
       if (!iframe?.isConnected) return;
       const api = previewApi(iframe);
       const story = api?.currentRender?.story;
-      if (!api || story?.id !== item.story) {
-        frames += 1;
-        if (frames > PREPARE_TIMEOUT_FRAMES) setMetric((current) => ({ ...current, status: "errored",
-          error: `Couldn't read props for ${item.story}` }));
-        else requestAnimationFrame(poll);
+      if (!api || story?.id !== item.story || api.currentRender?.phase !== "finished") {
+        animation.current = requestAnimationFrame(poll);
         return;
       }
-      const initial = prepare.current({ argTypes: story.argTypes ?? {}, initialArgs: story.initialArgs ?? {} });
-      applied.current = JSON.stringify(initial);
-      appliedTheme.current = themeRef.current;
-      void Promise.all([
-        api.onUpdateGlobals?.({ globals: { theme: themeRef.current } }),
-        api.onUpdateArgs?.({ storyId: item.story, updatedArgs: initial }),
-      ]).catch(() => undefined).then(() => {
-        if (iframe.isConnected) setMetric((current) => ({ ...current, status: "rendered", renderedAt: performance.now() }));
-      });
+      try {
+        if (!api.onUpdateGlobals || !api.onUpdateArgs) throw new Error("Preview props API unavailable");
+        const initial = prepare.current({ argTypes: story.argTypes ?? {}, initialArgs: story.initialArgs ?? {} });
+        const preparedTheme = themeRef.current;
+        const complete = (next: "rendered" | "errored" | "cancelled", renderError?: string) => {
+          if (generation.current !== load) return;
+          if (next !== "rendered") { fail(renderError); return; }
+          applied.current = JSON.stringify(initial);
+          appliedTheme.current = preparedTheme;
+          stopDeadline.current?.();
+          stopDeadline.current = null;
+          setMetric((current) => ({ ...current, status: "rendered", renderedAt: performance.now() }));
+        };
+        stopRender.current = watchStoryRender(iframe, item.story, (next, renderError) => {
+          if (generation.current !== load) return;
+          if (next !== "rendered") { fail(renderError); return; }
+          stopRender.current = watchStoryRender(iframe, item.story, complete,
+            () => api.onUpdateArgs!({ storyId: item.story, updatedArgs: initial }));
+        }, () => api.onUpdateGlobals!({ globals: { theme: preparedTheme } }));
+      } catch (cause) {
+        if (generation.current === load) fail(cause instanceof Error ? cause.message : String(cause));
+      }
     };
-    requestAnimationFrame(poll);
-  }, [item.story]);
+    animation.current = requestAnimationFrame(poll);
+  }, [fail, item.story]);
   useEffect(() => {
     if (!ready || appliedTheme.current === theme) return;
     appliedTheme.current = theme;
-    void previewApi(frame.current)?.onUpdateGlobals?.({ globals: { theme } });
-  }, [ready, theme]);
+    const load = generation.current;
+    void Promise.resolve().then(() => {
+      if (generation.current === load) return previewApi(frame.current)?.onUpdateGlobals?.({ globals: { theme } });
+    }).catch((error: unknown) => {
+      if (generation.current === load) fail(error instanceof Error ? error.message : String(error));
+    });
+  }, [ready, theme, fail]);
   useEffect(() => {
     if (!ready || !args) return;
     const serialized = JSON.stringify(args);
     if (serialized === applied.current) return;
     applied.current = serialized;
-    void previewApi(frame.current)?.onUpdateArgs?.({ storyId: item.story, updatedArgs: args });
-  }, [ready, args, item.story]);
+    const load = generation.current;
+    void Promise.resolve().then(() => {
+      if (generation.current === load) return previewApi(frame.current)?.onUpdateArgs?.({ storyId: item.story, updatedArgs: args });
+    }).catch((error: unknown) => {
+      if (generation.current === load) fail(error instanceof Error ? error.message : String(error));
+    });
+  }, [ready, args, item.story, fail]);
   const noop = useCallback(() => {}, []);
   return <div className={styles.device} data-review-frame={item.id} data-review-story={item.story}
     data-annotating={annotating || undefined}>

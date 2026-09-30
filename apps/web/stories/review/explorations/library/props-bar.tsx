@@ -2,7 +2,7 @@ import { useId } from "react";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { propLabel, type PropControl, type PropValue } from "./controls";
+import { inputPropValue, propLabel, type PropControl, type PropValue } from "./controls";
 import styles from "./library.module.css";
 
 export function PropsBar({ name, controls, values, onChange }: {
@@ -38,11 +38,7 @@ export function PropsBar({ name, controls, values, onChange }: {
         <Input id={fieldId} className={styles.propInput} type={control.kind === "number" ? "number" : "text"}
           value={value === undefined ? "" : String(value)}
           placeholder={control.kind === "text" && control.enumLike ? control.initial : undefined}
-          onChange={(event) => {
-            const next = event.target.value;
-            if (control.kind === "number") onChange(control.name, next === "" ? undefined : Number(next));
-            else onChange(control.name, next);
-          }} />
+          onChange={(event) => onChange(control.name, inputPropValue(control, event.target.value))} />
       </span>;
     })}
   </form>;

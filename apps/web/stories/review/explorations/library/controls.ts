@@ -46,6 +46,11 @@ export function propControls(argTypes: Record<string, ArgType>, initialArgs: Rec
   });
 }
 
+export function inputPropValue(control: Extract<PropControl, { kind: "number" | "text" }>, value: string): PropValue | undefined {
+  if (control.kind === "number") return value === "" ? undefined : Number(value);
+  return control.enumLike && value === "" ? undefined : value;
+}
+
 export function propLabel(name: string): string {
   const words = name.replace(/[-_]+/g, " ").replace(/(?<=[a-z\d])(?=[A-Z])/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase();

@@ -30,7 +30,7 @@ const fixtureStories: Record<string, { argTypes: Record<string, unknown>; initia
   },
 };
 
-async function installPreview(canvas: ReturnType<typeof within>, title: string, id: string) {
+async function installPreview(canvas: ReturnType<typeof within>, title: string, id: string, controlled = false) {
   const iframe = await canvas.findByTitle(title) as HTMLIFrameElement;
   await waitFor(() => expect(iframe.contentDocument?.readyState).toBe("complete"));
   const view = iframe.contentWindow as unknown as { __STORYBOOK_PREVIEW__?: unknown };
@@ -40,13 +40,55 @@ async function installPreview(canvas: ReturnType<typeof within>, title: string, 
       textContent: Object.entries(args).map(([key, value]) => `${key}=${String(value)}`).join(" "),
     }));
   };
-  view.__STORYBOOK_PREVIEW__ = {
-    currentRender: { id, story: { id, ...fixtureStories[id] } },
-    onUpdateArgs: ({ updatedArgs }: { updatedArgs: Record<string, unknown> }) => paint(updatedArgs),
-    onUpdateGlobals: ({ globals }: { globals: Record<string, unknown> }) => doc.documentElement.setAttribute("data-theme", String(globals.theme)),
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const channel = {
+    on: (event: string, listener: (payload: unknown) => void) => {
+      const handlers = listeners.get(event) ?? new Set();
+      handlers.add(listener);
+      listeners.set(event, handlers);
+    },
+    off: (event: string, listener: (payload: unknown) => void) => { listeners.get(event)?.delete(listener); },
   };
+  const emit = (event: string, payload: unknown) => {
+    for (const listener of listeners.get(event) ?? []) listener(payload);
+  };
+  const render = { id, phase: "finished", story: { id, ...fixtureStories[id] } };
+  let args = { ...fixtureStories[id].initialArgs };
+  let theme = "light";
+  let pending: (() => void) | undefined;
+  const updates: string[] = [];
+  const complete = () => { const next = pending; pending = undefined; next?.(); };
+  const update = (kind: string) => {
+    updates.push(kind);
+    render.phase = "loading";
+    emit("storyRenderPhaseChanged", { storyId: id, newPhase: "loading" });
+    pending = () => {
+      paint(args);
+      doc.documentElement.setAttribute("data-theme", theme);
+      render.phase = "finished";
+      emit("storyRendered", id);
+    };
+    if (!controlled) iframe.ownerDocument.defaultView!.requestAnimationFrame(complete);
+  };
+  paint(args);
+  Object.assign(view, {
+    __STORYBOOK_ADDONS_CHANNEL__: channel,
+    __STORYBOOK_PREVIEW__: {
+      currentRender: render,
+      onUpdateArgs: ({ updatedArgs }: { updatedArgs: Record<string, unknown> }) => {
+        args = { ...args, ...updatedArgs };
+        update("args");
+        return Promise.resolve();
+      },
+      onUpdateGlobals: ({ globals }: { globals: Record<string, unknown> }) => {
+        theme = String(globals.theme);
+        update("globals");
+        return Promise.resolve();
+      },
+    },
+  });
   iframe.dispatchEvent(new Event("load"));
-  return doc;
+  return { doc, iframe, complete, updates };
 }
 
 const meta = {
@@ -74,7 +116,7 @@ export const Workspace: Story = {
     const options = within(list).getAllByRole("option");
     await expect(options.map((option) => option.getAttribute("aria-label")))
       .toEqual(["Badge, 1 story", "Button, 2 stories, changed in this build"]);
-    const badgeDoc = await installPreview(canvas, "Badge · Default", "ui-badge--default");
+    const { doc: badgeDoc } = await installPreview(canvas, "Badge · Default", "ui-badge--default");
     const variant = await canvas.findByRole("combobox", { name: "Variant" });
     await userEvent.selectOptions(variant, "outline");
     await waitFor(() => expect(badgeDoc.body).toHaveTextContent("variant=outline"));
@@ -84,7 +126,7 @@ export const Workspace: Story = {
     await userEvent.keyboard("{ArrowDown}");
     await expect(options[1]).toHaveAttribute("aria-selected", "true");
     await expect(options[1]).toHaveFocus();
-    const buttonDoc = await installPreview(canvas, "Button · Default", "ui-button--default");
+    const { doc: buttonDoc } = await installPreview(canvas, "Button · Default", "ui-button--default");
     const label = await canvas.findByRole("textbox", { name: "Children" });
     await expect(canvas.queryByRole("combobox", { name: "Variant" })).not.toBeInTheDocument();
     await expect(canvas.queryByText("On click")).not.toBeInTheDocument();
@@ -108,5 +150,43 @@ export const Workspace: Story = {
     await userEvent.keyboard("{Enter}");
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
     await expect(canvas.getByTitle("Button · Default")).not.toHaveAttribute("inert");
+  },
+};
+
+export const RestoredPreview: Story = {
+  args: { build: fixtureBuild, storyIndex: fixtureIndex, frameSource: "blank", theme: "dark" },
+  beforeEach: () => {
+    const original = location.href;
+    const url = new URL(original);
+    url.searchParams.set("component", "ui-button");
+    url.searchParams.set("props", JSON.stringify({ children: "RESTORED" }));
+    history.replaceState(history.state, "", url);
+    return () => history.replaceState(history.state, "", original);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    const first = await installPreview(canvas, "Button · Default", "ui-button--default", true);
+    await waitFor(() => expect(first.updates).toEqual(["globals"]));
+    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    first.complete();
+    await waitFor(() => expect(first.updates).toEqual(["globals", "args"]));
+    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    await expect(first.doc.body).toHaveTextContent("children=Continue");
+    first.complete();
+    await waitFor(() => expect(canvas.queryByText("Loading Default…")).not.toBeInTheDocument());
+    await expect(first.doc.body).toHaveTextContent("children=RESTORED");
+    await expect(first.doc.documentElement).toHaveAttribute("data-theme", "dark");
+    first.iframe.contentWindow!.location.reload();
+    await waitFor(() => expect(first.iframe.contentDocument).not.toBe(first.doc));
+    const reloaded = await installPreview(canvas, "Button · Default", "ui-button--default", true);
+    await waitFor(() => expect(reloaded.updates).toEqual(["globals"]));
+    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    reloaded.complete();
+    await waitFor(() => expect(reloaded.updates).toEqual(["globals", "args"]));
+    await expect(canvas.getByText("Loading Default…")).toBeVisible();
+    reloaded.complete();
+    await waitFor(() => expect(canvas.queryByText("Loading Default…")).not.toBeInTheDocument());
+    await expect(reloaded.doc.body).toHaveTextContent("children=RESTORED");
+    await expect(reloaded.doc.documentElement).toHaveAttribute("data-theme", "dark");
   },
 };
