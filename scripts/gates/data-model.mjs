@@ -23,10 +23,11 @@ const escapeLetters = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
 
 function decodeEscapes(raw) {
   return raw.replace(
-    /\\(?:x([0-9A-Fa-f]{1,2})|u([0-9A-Fa-f]{4})|([0-7]{1,3})|([\s\S]))/g,
-    (match, hex, unicode, octal, character) => {
+    /\\(?:x([0-9A-Fa-f]{1,2})|u([0-9A-Fa-f]{4})|U([0-9A-Fa-f]{8})|([0-7]{1,3})|([\s\S]))/g,
+    (match, hex, unicode, longUnicode, octal, character) => {
       if (hex) return String.fromCodePoint(parseInt(hex, 16));
       if (unicode) return String.fromCodePoint(parseInt(unicode, 16));
+      if (longUnicode) return String.fromCodePoint(parseInt(longUnicode, 16));
       if (octal) return String.fromCodePoint(parseInt(octal, 8));
       return escapeLetters[character] ?? character;
     },
@@ -37,6 +38,8 @@ function decodeEscapes(raw) {
 function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
   const streams = [[]];
   const dynamicSql = [];
+  const searchPath = [];
+  const unreadable = [];
   const [tokens] = streams;
   let pendingLine = null;
   let pendingLiteralLine = null;
@@ -55,7 +58,13 @@ function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
     if (!ends) dynamicSql.push(line);
   };
 
-  const push = (token) => {
+  const push = (token, at = index) => {
+    const previous = tokens[tokens.length - 1];
+    if (token.kind === "punctuation" && token.value === "string"
+      && previous?.kind === "punctuation" && previous.value === "string"
+      && /[\r\n]/.test(content.slice(previous.end, at))) {
+      unreadable.push(lineAt(content, at, linesBefore));
+    }
     settleLiteral(token);
     if (pendingLine !== null) {
       const line = pendingLine;
@@ -65,18 +74,23 @@ function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
       if (literal) pendingLiteralLine = line;
       else if (!triggerClause) dynamicSql.push(line);
     }
-    tokens.push(token);
+    tokens.push({ ...token, at });
   };
 
   const executable = () => {
     const previous = tokens[tokens.length - 1];
-    return previous?.kind === "word" && executableAfter.has(previous.value);
+    return (previous?.kind === "word" && executableAfter.has(previous.value))
+      || (keyword(tokens[tokens.length - 3], "do")
+        && keyword(tokens[tokens.length - 2], "language")
+        && (tableName(previous) !== null || (previous?.kind === "punctuation" && ["string", "dollar body"].includes(previous.value))));
   };
 
   const scanBody = (raw, at) => {
     const nested = scanSql(raw, { inBody: true, linesBefore: lineAt(content, at, linesBefore) - 1 });
     streams.push(...nested.streams);
     dynamicSql.push(...nested.dynamicSql);
+    searchPath.push(...nested.searchPath);
+    unreadable.push(...nested.unreadable);
   };
 
   while (index < content.length) {
@@ -100,6 +114,9 @@ function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
           index += 1;
         }
       }
+    } else if (/^[uU]&['"]/.test(content.slice(index, index + 3))) {
+      unreadable.push(lineAt(content, index, linesBefore));
+      index += 2;
     } else if (character === "'") {
       const escapes = content[index - 1] === "E" || content[index - 1] === "e";
       index += 1;
@@ -119,8 +136,10 @@ function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
         }
       }
       const body = content.slice(start, closed ? index - 1 : index);
-      if (executable()) scanBody(escapes ? decodeEscapes(body) : body, start);
-      push({ kind: "punctuation", value: "string" });
+      const unquoted = body.replaceAll("''", "'");
+      const text = escapes ? decodeEscapes(unquoted) : unquoted;
+      if (executable()) scanBody(text, start);
+      push({ kind: "punctuation", value: "string", text, end: index }, start - 1);
     } else if (character === '"') {
       const start = index++;
       while (index < content.length) {
@@ -130,7 +149,7 @@ function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
           break;
         }
       }
-      push({ kind: "quoted", value: content.slice(start + 1, index - 1).replaceAll('""', '"') });
+      push({ kind: "quoted", value: content.slice(start + 1, index - 1).replaceAll('""', '"') }, start);
     } else if (character === "$") {
       const delimiter = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(content.slice(index))?.[0];
       const end = delimiter ? content.indexOf(delimiter, index + delimiter.length) : -1;
@@ -149,7 +168,7 @@ function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
       // The E prefix of an E-string belongs to the literal, not to the tokens
       // before it, so a body after AS or EXECUTE still reads as executable.
       if (!(value === "e" && content[index] === "'")) {
-        push({ kind: "word", value });
+        push({ kind: "word", value }, start);
         if (inBody && value === "execute") pendingLine = lineAt(content, start, linesBefore);
       }
     } else {
@@ -158,7 +177,10 @@ function scanSql(content, { inBody = false, linesBefore = 0 } = {}) {
     }
   }
   settleLiteral(null);
-  return { streams, dynamicSql };
+  searchPath.push(...searchPathChanges(tokens).map((at) => lineAt(content, at, linesBefore)));
+  searchPath.sort((a, b) => a - b);
+  unreadable.sort((a, b) => a - b);
+  return { streams, dynamicSql, searchPath, unreadable };
 }
 
 function keyword(token, value) {
@@ -169,17 +191,59 @@ function tableName(token) {
   return token?.kind === "word" || token?.kind === "quoted" ? token.value : null;
 }
 
+const protectedSettings = new Set(["search_path", "standard_conforming_strings"]);
+
+function isUpdateAssignment(tokens, index) {
+  for (let offset = 1; offset <= 8 && index - offset >= 0; offset += 1) {
+    const token = tokens[index - offset];
+    const previous = tokens[index - offset - 1];
+    if (keyword(token, "update") && !(previous?.kind === "punctuation" && previous.value === ".")) {
+      return !keyword(previous, "for") && !keyword(previous, "key");
+    }
+    if (tableName(token) === null && !(token.kind === "punctuation" && [".", "*"].includes(token.value))) return false;
+  }
+  return false;
+}
+
+function searchPathChanges(tokens) {
+  const positions = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    let next = index + 1;
+    if (keyword(token, "set") && !isUpdateAssignment(tokens, index)) {
+      if (keyword(tokens[next], "session") || keyword(tokens[next], "local")) next += 1;
+      if (keyword(tokens[next], "schema") || protectedSettings.has(tableName(tokens[next])?.toLowerCase())) positions.push(token.at);
+    }
+    if (tableName(token)?.toLowerCase() !== "set_config"
+      || tokens[index + 1]?.kind !== "punctuation" || tokens[index + 1].value !== "(") continue;
+    const argument = tokens[index + 2];
+    const separator = tokens[index + 3];
+    const plainLiteral = argument?.kind === "punctuation" && argument.value === "string"
+      && separator?.kind === "punctuation" && [",", ")"].includes(separator.value);
+    if (!plainLiteral || protectedSettings.has(argument.text.trim().toLowerCase())) positions.push(token.at);
+  }
+  return positions;
+}
+
 function createdTables(tokens) {
   const names = [];
+  let schema = null;
   for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].kind === "punctuation" && tokens[index].value === ";") schema = null;
     if (!keyword(tokens[index], "create")) continue;
     let next = index + 1;
+    if (keyword(tokens[next], "schema")) {
+      next += 1;
+      if (keyword(tokens[next], "if") && keyword(tokens[next + 1], "not") && keyword(tokens[next + 2], "exists")) next += 3;
+      schema = tableName(tokens[keyword(tokens[next], "authorization") ? next + 1 : next]);
+      continue;
+    }
     if (["unlogged", "temp", "temporary"].some((value) => keyword(tokens[next], value))) next += 1;
     if (!keyword(tokens[next++], "table")) continue;
     if (keyword(tokens[next], "if") && keyword(tokens[next + 1], "not") && keyword(tokens[next + 2], "exists")) next += 3;
     const first = tableName(tokens[next++]);
     if (first === null) continue;
-    let name = first;
+    let name = schema === null || schema === "public" ? first : `${schema}.${first}`;
     if (tokens[next]?.kind === "punctuation" && tokens[next].value === ".") {
       const second = tableName(tokens[next + 1]);
       if (second === null) continue;
@@ -195,6 +259,8 @@ function createdTables(tokens) {
 export function analyzeMigrations(files) {
   const tables = new Map();
   const dynamicSql = [];
+  const searchPath = [];
+  const unreadable = [];
   for (const file of files) {
     const scanned = scanSql(file.content);
     for (const tokens of scanned.streams) {
@@ -204,8 +270,10 @@ export function analyzeMigrations(files) {
       }
     }
     dynamicSql.push(...scanned.dynamicSql.map((line) => `${file.path}:${line}`));
+    searchPath.push(...scanned.searchPath.map((line) => `${file.path}:${line}`));
+    unreadable.push(...scanned.unreadable.map((line) => `${file.path}:${line}`));
   }
-  return { tables, dynamicSql };
+  return { tables, dynamicSql, searchPath, unreadable };
 }
 
 export function migrationTables(files) {
@@ -269,6 +337,8 @@ export function repositoryDataModel(root) {
   return {
     created: scanned.tables,
     dynamicSql: scanned.dynamicSql,
+    searchPath: scanned.searchPath,
+    unreadable: scanned.unreadable,
     documented: documentedTables(readFileSync(join(root, "docs/architecture.md"), "utf8")),
   };
 }
