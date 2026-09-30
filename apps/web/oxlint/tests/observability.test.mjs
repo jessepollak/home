@@ -378,6 +378,305 @@ describe("no-silent-catch", () => {
     `, options)).toHaveLength(0);
   });
 
+  it("rejects telemetry sinks whose injected parameter is reassigned", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function reassigned(log: (error: unknown) => void) {
+        observeSafely(() => { log = () => {}; return log(error); });
+      }
+      function conditional(log: (error: unknown) => void, useFallback: boolean) {
+        observeSafely(() => { if (useFallback) log = () => {}; return log(error); });
+      }
+      function defaulted(log: (error: unknown) => void = () => {}) {
+        observeSafely(() => log(error));
+      }
+      function handle() {
+        try { run(); } catch (error) { reassigned(log); }
+        try { run(); } catch (error) { conditional(log, flag); }
+        try { run(); } catch (error) { defaulted(log); }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+  });
+
+  it("accepts a finalizer that always reports and rejects non-disposing finalizers", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { reportClientError(error); }
+        }
+        run().catch((error) => {
+          try { risky(); } finally { reportClientError(error); }
+        });
+        try { run(); } catch (error) {
+          try { throw error; } finally { emitServerEvent("x", { code: String(error) }); }
+        }
+        try { run(); } catch (error) {
+          observeSafely(() => { try { risky(); } finally { return emitServerEvent("x", { code: String(error) }); } });
+        }
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { await risky(); } finally { await emitServerEvent("x", { code: String(error) }); } });
+        }
+      }
+    `, options)).toHaveLength(0);
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      function handle() {
+        try { run(); } catch (error) {
+          observeSafely(() => { try { risky(); } finally { emitServerEvent("x", { code: String(error) }); } });
+        }
+        try { run(); } catch (error) {
+          observeSafely(() => { try { risky(); } finally { if (condition) return emitServerEvent("x", {}); } });
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { cleanup(); }
+        }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+  });
+
+  it("rejects generator rejection callbacks and yielding arms", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function* handle() {
+        try { run(); } catch (error) { try { yield 1; } finally { reportClientError(error); } }
+      }
+      run().catch(function* (error) { try { risky(); } finally { reportClientError(error); } });
+      run().then(ok, function* (error) { try { risky(); } finally { reportClientError(error); } });
+    `, options);
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() { try { run(); } catch (error) { try { risky(); } finally { reportClientError(error); } } }
+      run().catch((error) => { try { risky(); } finally { reportClientError(error); } });
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects a finalizer that declares a resource before reporting", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function report(error: unknown) {
+        observeSafely(async () => { try { risky(); } finally { { await using r = asyncResource; } await reportClientError(error); } });
+      }
+      function reportSync(error: unknown) {
+        observeSafely(async () => { try { risky(); } finally { { using r = resource; } await reportClientError(error); } });
+      }
+      function handle() {
+        try { run(); } catch (error) { report(error); }
+        try { run(); } catch (error) { reportSync(error); }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function report(error: unknown) {
+        observeSafely(async () => { try { risky(); } finally { await using r = asyncResource; await reportClientError(error); } });
+      }
+      function reportSync(error: unknown) {
+        observeSafely(async () => { try { risky(); } finally { using r = resource; await reportClientError(error); } });
+      }
+      function handle() {
+        try { run(); } catch (error) { report(error); }
+        try { run(); } catch (error) { reportSync(error); }
+        try { run(); } catch (error) {
+          observeSafely(async () => {
+            try { return await emitServerEvent("x", {}); } catch { return await emitServerEvent("x", {}); } finally { await using disposable = asyncResource; void disposable; }
+          });
+        }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects generator dispositions that never report", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function* reporting() { reportClientError("failed"); }
+      function plainReporting() { reportClientError("failed"); }
+      function handle() {
+        try { run(); } catch (error) { try { risky(); } finally { reporting(); } }
+        try { run(); } catch (error) { try { risky(); } finally { observeSafely(function* () { return reportClientError(error); }); } }
+        try { run(); } catch (error) { try { risky(); } finally { observeSafely(async function* () { return reportClientError(error); }); } }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function* reporting() { reportClientError("failed"); }
+      function plainReporting() { reportClientError("failed"); }
+      function handle() { try { run(); } catch (error) { try { risky(); } finally { plainReporting(); } } }
+    `, options)).toHaveLength(0);
+  });
+
+  it("applies the abrupt-completion guard to concise bodies", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      const conciseHelper = (error: unknown) => reportClientError(class { static { throw error; } });
+      function handle() {
+        try { run(); } catch (error) { try { risky(); } finally { observeSafely(() => reportClientError(class { static { throw error; } })); } }
+        try { run(); } catch (error) { try { risky(); } finally { conciseHelper(error); } }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      const conciseHelper = (error: unknown) => reportClientError(error);
+      function handle() {
+        try { run(); } catch (error) { try { risky(); } finally { observeSafely(() => reportClientError(error)); } }
+        try { run(); } catch (error) { try { risky(); } finally { conciseHelper(error); } }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects a finalizer whose report a conditional jump can skip", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { do { if (flag) break; reportClientError(error); } while (false); }
+        }
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { do { if (flag) break; await emitServerEvent("x", {}); } while (false); } });
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { outer: do { if (flag) break outer; reportClientError(error); } while (false); }
+        }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+  });
+
+  it("rejects a finalizer whose report an unsupported exit can skip", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { switch (flag) { case true: return; } reportClientError(error); }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { while (condition) { if (flag) return; } reportClientError(error); }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { for (const item of items) { if (flag) return; } reportClientError(error); }
+        }
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { while (condition) { if (flag) return; } await emitServerEvent("x", {}); } });
+        }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(4);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+  });
+
+  it("rejects a finalizer whose report a yield can skip", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function* first() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { yield; reportClientError(error); }
+        }
+      }
+      function* second() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { const pending = yield; reportClientError(pending); }
+        }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function* third() { try { run(); } catch (error) { try { risky(); } finally { reportClientError(error); } } }
+    `, options)).toHaveLength(0);
+  });
+
+  it("rejects a finalizer whose report an executed class body can skip", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { const C = class { static { throw error; } }; await emitServerEvent("x", {}); } });
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { const C = class { static { throw error; } }; reportClientError(error); }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { (class { static { throw error; } }); reportClientError(error); }
+        }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(await lint("no-silent-catch", `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { const line = build(); reportClientError(line); }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { const f = () => class { static { throw error; } }; reportClientError(error); }
+        }
+      }
+    `, options)).toHaveLength(0);
+  });
+
+  it("documents the loop-local jump bound", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { do { if (flag) break; } while (false); reportClientError(error); }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { do { reportClientError(error); } while (false); }
+        }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(1);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+  });
+
+  it("accepts a nested finalizer that reports on every path", async () => {
+    expect(await lint("no-silent-catch", `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { try { risky(); } finally { reportClientError(error); } }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally { try { risky(); } finally { try { risky(); } finally { reportClientError(error); } } }
+        }
+        try { run(); } catch {
+          do { if (flag) break; } while (false);
+          reportClientError(error);
+        }
+        run().catch(() => {
+          do { if (flag) break; } while (false);
+          reportClientError(error);
+        });
+      }
+    `, options)).toHaveLength(0);
+  });
+
   for (const { name, body, expected } of [
     {
       name: "rejects returned telemetry overridden by a returning finalizer",
@@ -529,6 +828,31 @@ describe("no-silent-catch", () => {
       `, options)).toHaveLength(expected);
     });
   }
+
+  it("rejects a returned telemetry write discarded by a same-scope using declaration", async () => {
+    const diagnostics = await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<unknown>) {
+        observeSafely(async () => { try { risky(); } finally { using r = resource; return log(error); } });
+      }
+      function reportAsync(log: (error: unknown) => Promise<unknown>) {
+        observeSafely(async () => { try { risky(); } finally { await using r = asyncResource; return log(error); } });
+      }
+      function handle() {
+        try { run(); } catch (error) { report(log); }
+        try { run(); } catch (error) { reportAsync(log); }
+      }
+    `, options);
+    expect(diagnostics).toHaveLength(2);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(await lint("no-silent-catch", `
+      import { observeSafely } from "@/server/observability/log";
+      function report(log: (error: unknown) => Promise<unknown>) {
+        observeSafely(async () => { try { risky(); } finally { using r = resource; return await log(error); } });
+      }
+      function handle() { try { run(); } catch (error) { report(log); } }
+    `, options)).toHaveLength(0);
+  });
 
   it("rejects discarded telemetry sink calls inside observeSafely callbacks", async () => {
     expect(await lint("no-silent-catch", `
