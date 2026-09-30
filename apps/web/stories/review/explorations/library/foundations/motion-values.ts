@@ -1,3 +1,4 @@
+import { selectorClasses } from "./candidates";
 import type { MotionUse } from "./usage";
 
 export type MotionValue = { property: string; value: string };
@@ -26,11 +27,7 @@ export function readMotionReference(uses: MotionUse[], owner: Document = documen
     const tokens = tokenNames.map((name) => ({ property: name, value: root.getPropertyValue(name).trim() || "Unavailable in the document scope" }));
     const utilities: MotionReference["utilities"] = Object.fromEntries(uses.map((use) => {
       probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none";
-      const matched = rules.filter(({ selector }) => use.classes.some((name) => {
-        const escaped = `.${CSS.escape(name)}`;
-        const offset = selector.indexOf(escaped);
-        return offset >= 0 && !/[\w\\-]/.test(selector[offset + escaped.length] ?? "");
-      }));
+      const matched = rules.filter(({ selector }) => use.classes.some((name) => selectorClasses(selector).has(owner.defaultView!.CSS.escape(name))));
       for (const { style } of matched) {
         for (const property of Array.from(style)) {
           if (property.startsWith("transition") || property.startsWith("--")) probe.style.setProperty(property, style.getPropertyValue(property));

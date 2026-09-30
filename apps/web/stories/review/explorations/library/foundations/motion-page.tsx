@@ -46,7 +46,7 @@ export function MotionPage() {
   if (!reference) return <p className={styles.note} role="status">Motion measurements unavailable.</p>;
   return <>
     <p className={styles.summary}>
-      Motion utilities passed directly to <code>className</code>, <code>cn</code>, <code>clsx</code> or <code>cva</code> in <code>components/</code>; utilities built inside helper functions are not counted.
+      Utilities Tailwind generates from component source, with the files they appear in. A complete utility token in a comparison or other literal counts too.
       Values are measured individually without state or breakpoint conditions, not composed component timings. Tokens come from loaded stylesheets and resolve in the document scope.
     </p>
     {reduced && <p className={styles.callout} role="status">Reduced motion is on. Previews jump to their end state, as Home does.</p>}
@@ -64,13 +64,13 @@ export function MotionPage() {
     <section className={styles.section} aria-labelledby="motion-utilities">
       <h3 id="motion-utilities" className={styles.sectionTitle}>Utilities<span className={styles.sectionCount}>{uses.length}</span></h3>
       <table className={`${styles.scaleTable} ${styles.motionTable}`}>
-        <thead><tr><th scope="col">Utility</th><th scope="col">Computed value</th><th scope="col">Uses / files</th></tr></thead>
+        <thead><tr><th scope="col">Utility</th><th scope="col">Computed value</th><th scope="col">Occurrences / files</th></tr></thead>
         <tbody>{uses.map((use) => <tr key={use.utility}>
           <th scope="row"><code>{use.utility}</code></th>
           <td>{reference.utilities[use.utility]?.map(({ property, value }) => <span key={property} className={styles.meta}>
             {property}<code className={styles.tokenName}>{value}</code>
           </span>) ?? <span className={styles.meta}>Unavailable</span>}</td>
-          <td className={styles.usedBy}>{use.count} {use.count === 1 ? "use" : "uses"}
+          <td className={styles.occurrences}>{use.count} {use.count === 1 ? "occurrence" : "occurrences"}
             {use.files.map((file) => <span key={file} className={styles.meta}>{file}</span>)}</td>
         </tr>)}</tbody>
       </table>

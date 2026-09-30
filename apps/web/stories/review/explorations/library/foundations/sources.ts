@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import globalsCss from "../../../../../app/globals.css?raw";
-import type { SourceFile } from "./usage";
+import type { SourceFile } from "./candidates";
 
 function componentModules(): Record<string, string> | null {
   if (!import.meta.env?.MODE && typeof import.meta.glob !== "function") return null;

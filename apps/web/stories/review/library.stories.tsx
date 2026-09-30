@@ -235,6 +235,8 @@ export const Foundations: Story = {
     const duration = within(surface).getByRole("row", { name: /^duration-180 / });
     await expect(duration).toHaveTextContent("0.18s");
     await expect(duration).toHaveTextContent("components/ui/drawer.tsx");
+    await expect(duration).toHaveTextContent(/\d+ occurrences/);
+    await expect(within(surface).getByText(/Utilities Tailwind generates from component source/)).toBeVisible();
     const easing = within(surface).getByRole("row", { name: /^ease-\[cubic-bezier\(0.22,1,0.36,1\)\]/ });
     await expect(easing).toHaveTextContent("cubic-bezier(0.22, 1, 0.36, 1)");
     await expect(within(surface).getByRole("heading", { name: /^Tokens/ })).toBeVisible();
@@ -242,7 +244,9 @@ export const Foundations: Story = {
 
     await userEvent.click(within(foundations).getByRole("option", { name: /^Type, / }));
     const leading = within(surface).getByText("leading-none").closest("li")!;
-    await expect(leading).toHaveTextContent(/16px · \d+ uses/);
+    await expect(leading).toHaveTextContent(/16px · \d+ occurrences/);
+    await userEvent.click(within(leading).getByText(/^Files \(/));
+    await expect(within(leading).getByText("components/ui/drawer.tsx")).toBeVisible();
 
     await userEvent.click(canvas.getByRole("option", { name: "Badge, 1 story" }));
     await expect(await canvas.findByRole("main", { name: "Badge preview" })).toBeVisible();
@@ -265,6 +269,8 @@ export const RestoredFoundation: Story = {
     await expect(within(surface).getByRole("heading", { name: "Radius & spacing", level: 2 })).toBeVisible();
     await expect(canvas.getByRole("option", { name: /^Radius & spacing, / })).toHaveAttribute("aria-selected", "true");
     await expect(within(surface).getByText("rounded-lg")).toBeVisible();
+    await expect(within(surface).getByText(/Utilities Tailwind generates from component source/)).toBeVisible();
+    await expect(within(surface).getByRole("columnheader", { name: "Occurrences / files" })).toBeVisible();
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/radius-spacing");
   },
 };

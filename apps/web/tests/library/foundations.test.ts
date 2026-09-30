@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { classOperands } from "../../stories/review/explorations/library/foundations/class-operands";
+import "@/client/account/dom-test-harness";
+import { confirmedCandidates, sourceCandidates, type SourceFile } from "../../stories/review/explorations/library/foundations/candidates";
 import { readMotionReference } from "../../stories/review/explorations/library/foundations/motion-values";
 import { measureColor, measurementSummary } from "../../stories/review/explorations/library/foundations/color-measurements";
 import { probeThemes, readThemeValues, toRgba, utilityValues } from "../../stories/review/explorations/library/foundations/probe";
@@ -133,75 +134,127 @@ describe("token parsing", () => {
   });
 });
 
-describe("usage scanning", () => {
-  const files = [{
+describe("Tailwind candidate usage", () => {
+  const names = [
+    "text-sm", "font-medium", "md:text-lg", "leading-snug", "tabular-nums", "text-[13px]",
+    "p-2", "gap-1.5", "-mt-px", "px-hairline", "rounded-lg", "data-[x]:rounded-t-xl", "rounded-full",
+    "transition-[transform,opacity]", "duration-350", "ease-[cubic-bezier(0.22,1,0.36,1)]",
+    "motion-reduce:duration-0!", "data-[immediate]:duration-0", "lg:duration-180",
+    "[transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_250ms]",
+    "transition", "transition-opacity", "transition-none", "duration-100", "duration-150", "duration-200",
+    "ease-in", "ease-out", "delay-75", "delay-0", "delay-[80ms]", "duration-[100ms]", "duration-[80ms]",
+    "md:duration-200", "hover:ease-out", "motion-reduce:duration-[80ms]",
+  ];
+  const stylesheet = names.map((name) => `.${CSS.escape(name)} { transition-duration: 80ms; }`).join("\n");
+  const scan = (files: SourceFile[], cssText = stylesheet) => {
+    const style = document.createElement("style");
+    style.textContent = cssText;
+    document.head.append(style);
+    try {
+      const owner = { styleSheets: [style.sheet!], defaultView: window } as unknown as Document;
+      const snapshot = confirmedCandidates(files, owner);
+      expect(snapshot.status).toBe("available");
+      return snapshot.files;
+    } finally { style.remove(); }
+  };
+  const motion = (source: string) => motionUsage(scan([{ path: "example.tsx", source }])).uses;
+  const files = scan([{
     path: "components/ui/sheet.tsx",
     source: `const a = "text-sm font-medium md:text-lg leading-snug tabular-nums text-[13px] text-muted-foreground";
 const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl rounded-full";
-<div className={cn("transition-[transform,opacity] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-0! data-[immediate]:duration-0", desktop && "lg:duration-180", "active:scale-[0.97] motion-reduce:active:scale-none")} />
+<div className={cn("transition-[transform,opacity] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:duration-0! data-[immediate]:duration-0", desktop && "lg:duration-180")} />
 <div className="[transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_250ms]" />`,
-  }];
+  }]);
+  const counts = (entries: { step: string; count: number }[]) => entries.map(({ step, count }) => ({ step, count }));
 
-  test("counts stock type utilities and flags off-scale sizes", () => {
+  test("counts confirmed type candidates, off-scale sizes and their files", () => {
     const usage = typeUsage(files);
-    expect(usage.sizes).toEqual([{ step: "sm", count: 1 }, { step: "lg", count: 1 }]);
-    expect(usage.weights).toEqual([{ step: "medium", count: 1 }]);
-    expect(usage.leadings).toEqual([{ step: "snug", count: 1 }]);
-    expect(usage.arbitrarySizes).toEqual([{ step: "13px", count: 1 }]);
-    expect(usage.tabular).toBe(1);
+    expect(counts(usage.sizes)).toEqual([{ step: "sm", count: 1 }, { step: "lg", count: 1 }]);
+    expect(counts(usage.weights)).toEqual([{ step: "medium", count: 1 }]);
+    expect(counts(usage.leadings)).toEqual([{ step: "snug", count: 1 }]);
+    expect(counts(usage.arbitrarySizes)).toEqual([{ step: "13px", count: 1 }]);
+    expect(usage.tabular).toEqual({ step: "tabular-nums", count: 1, files: ["components/ui/sheet.tsx"] });
+    expect(usage.sizes[1].files).toEqual(["components/ui/sheet.tsx"]);
   });
 
-  test("counts radius and spacing steps including named spacing", () => {
-    expect(radiusUsage(files)).toEqual([{ step: "lg", count: 1 }, { step: "xl", count: 1 }, { step: "full", count: 1 }]);
+  test("counts confirmed radius and spacing steps including named spacing", () => {
+    expect(counts(radiusUsage(files))).toEqual([{ step: "lg", count: 1 }, { step: "xl", count: 1 }, { step: "full", count: 1 }]);
     expect(spacingUsage(files, ["hairline"]).map((entry) => entry.step)).toEqual(["px", "1.5", "2", "hairline"]);
+    expect(radiusUsage(files)[0].files).toEqual(["components/ui/sheet.tsx"]);
   });
 
-  test("lists independent motion utilities, including arbitrary and reduced-motion values", () => {
+  test("preserves arbitrary values, commas and nested parentheses", () => {
     const { uses } = motionUsage(files);
     expect(uses.map(({ utility }) => utility)).toEqual([
       "[transition:transform_500ms_cubic-bezier(0.22,1,0.36,1),opacity_250ms]",
       "duration-0", "duration-350", "duration-180", "ease-[cubic-bezier(0.22,1,0.36,1)]", "transition-[transform,opacity]",
     ].sort((left, right) => left.localeCompare(right)));
     expect(uses.find(({ utility }) => utility === "duration-0")?.count).toBe(2);
+    expect(motion('"duration-[80ms]"')[0].utility).toBe("duration-[80ms]");
   });
 
-  test("ignores conditions, comparisons, metadata, keys and non-class strings", () => {
-    const source = `<div className={state === "transition" ? "text-sm" : "text-lg"} />
-      <div className={cn(state === "duration-999" && "duration-150", { "transition": true })} />
-      element.style.removeProperty("transition");
-      const variants = cva("text-sm", { variants: { "duration-888": { "ease-in": "duration-200" } },
-        defaultVariants: { size: "transition" }, compoundVariants: [{ size: "transition", class: "ease-out" }] });`;
-    expect(classOperands(source)).toEqual(["text-sm", "text-lg", "duration-150", "text-sm", "duration-200", "ease-out"]);
-    expect(motionUsage([{ path: "example.tsx", source }]).uses.map(({ utility }) => utility))
-      .toEqual(["duration-150", "duration-200", "ease-out"]);
-    expect(motionUsage([{ path: "refresh.tsx", source: 'element.style.removeProperty("transition")' }]).uses).toEqual([]);
-    expect(motionUsage([{ path: "example.tsx", source: '<div className={state === "transition" ? "text-sm" : "text-lg"} />' }]).uses).toEqual([]);
+  test("counts clsx object keys and real utilities in comparisons and metadata", () => {
+    expect(motion('clsx({"duration-200": enabled, "ease-out": true})').map(({ utility }) => utility))
+      .toEqual(["duration-200", "ease-out"]);
+    expect(motion('<div className={state === "transition" ? "text-sm" : "text-lg"} />').map(({ utility }) => utility))
+      .toEqual(["transition"]);
+    expect(motion('cva("text-sm", { defaultVariants: { size: "transition" } })')[0].utility).toBe("transition");
   });
 
-  test("counts cva alternatives separately without reconstructing a merged timing", () => {
-    const source = `const styles = cva("transition-opacity", { variants: { size: { small: "duration-100", large: "duration-200" } },
-      compoundVariants: [{ size: "small", className: "ease-in" }] });`;
-    expect(motionUsage([{ path: "button.tsx", source }]).uses.map(({ utility, count }) => ({ utility, count })))
-      .toEqual([{ utility: "duration-100", count: 1 }, { utility: "duration-200", count: 1 }, { utility: "ease-in", count: 1 },
-        { utility: "transition-opacity", count: 1 }]);
+  test("matches Tailwind text scanning: a complete interpolation string counts, not a dynamically assembled token", () => {
+    expect(motion('`not-${"duration-200"}`').map(({ utility }) => utility)).toEqual(["duration-200"]);
+    expect(motion('`duration-${200}`')).toEqual([]);
+    expect(motion('`not-duration-200`')).toEqual([]);
+    expect(motion('`transition-${kind}`')).toEqual([]);
   });
 
-  test("counts nested helpers once, separate identical operands twice and files once", () => {
+  test("finds complete tokens through balanced braces and nested templates without parsing operands", () => {
+    expect(motion('`${state === "transition" ? fn({x:1}) : "duration-200"}`').map(({ utility }) => utility))
+      .toEqual(["duration-200", "transition"]);
+    expect(motion('`${ready ? `duration-100` : `duration-200`}`').map(({ utility }) => utility))
+      .toEqual(["duration-100", "duration-200"]);
+  });
+
+  test("confirms exact escaped variant selectors through grouped and nested CSS rules", () => {
+    const cssText = `@media (min-width: 48rem) { .md\\:duration-200 { transition-duration: 200ms; } }
+      .hover\\:ease-out { &:hover { transition-timing-function: ease-out; } }
+      @media (prefers-reduced-motion: reduce) { .motion-reduce\\:duration-\\[80ms\\] { transition-duration: 80ms; } }`;
+    const uses = motionUsage(scan([{ path: "variants.tsx", source: '"md:duration-200 hover:ease-out motion-reduce:duration-[80ms]"' }], cssText)).uses;
+    expect(uses.map(({ utility }) => utility)).toEqual(["duration-[80ms]", "duration-200", "ease-out"]);
+    expect(uses.find(({ utility }) => utility === "duration-200")?.classes).toEqual(["md:duration-200"]);
+  });
+
+  test("excludes absent rules, selector prefixes and class-looking attribute values", () => {
+    const cssText = '.duration-2000 { transition-duration: 2s; } [data-label=".duration-200"] { color: red; }';
+    const files = scan([{ path: "unknown.tsx", source: '"duration-200 duration-999 text-sm rounded-lg p-2"' }], cssText);
+    expect(motionUsage(files).uses).toEqual([]);
+    expect(typeUsage(files).sizes).toEqual([]);
+    expect(radiusUsage(files)).toEqual([]);
+    expect(spacingUsage(files, [])).toEqual([]);
+  });
+
+  test("counts separate occurrences twice, single occurrences once and each file once", () => {
     const source = '<button className={cn(clsx("duration-150"))} /><button className={cn("duration-150")} />';
-    expect(motionUsage([{ path: "button.tsx", source }, { path: "other.tsx", source: 'clsx("duration-150")' }]).uses)
+    expect(motionUsage(scan([{ path: "button.tsx", source }, { path: "other.tsx", source: 'clsx("duration-150")' }])).uses)
       .toEqual([{ utility: "duration-150", count: 3, files: ["button.tsx", "other.tsx"], classes: ["duration-150"] }]);
+    expect(motion('cn(clsx("duration-150"))')[0].count).toBe(1);
+    expect(motion('cn([["duration-150"], ["duration-150"]])')[0].count).toBe(2);
   });
 
-  test("does not chase utilities constructed inside a class-return helper", () => {
+  test("counts helper-return tokens Tailwind can see without reconstructing composed timing", () => {
     const source = 'function labelClass() { return "delay-[80ms] duration-[100ms]"; } <div className={labelClass()} />';
-    expect(motionUsage([{ path: "navigation.tsx", source }]).uses).toEqual([]);
+    expect(motion(source).map(({ utility }) => utility)).toEqual(["delay-[80ms]", "duration-[100ms]"]);
+    expect(motion('cva("transition-opacity", { variants: { size: { small: "duration-100", large: "duration-200" } } })')
+      .map(({ utility, count }) => ({ utility, count })))
+      .toEqual([{ utility: "duration-100", count: 1 }, { utility: "duration-200", count: 1 }, { utility: "transition-opacity", count: 1 }]);
   });
 
-  test("reads only result operands in nested ternaries, logical expressions, arrays and templates", () => {
-    expect(classOperands('<div className={cn(state === "transition" ? ready ? "duration-100" : "duration-200" : "delay-75", enabled && "ease-out", fallback || "transition-none", ["delay-0"])} />'))
-      .toEqual(["duration-100", "duration-200", "delay-75", "ease-out", "transition-none", "delay-0"]);
-    expect(classOperands('<div className={`text-sm ${state === "transition" ? "duration-100" : "duration-200"}`} />'))
-      .toEqual(["text-sm ", "duration-100", "duration-200", ""]);
+  test("distinguishes inaccessible CSSOM, no stylesheets and available empty candidates", () => {
+    const denied = { styleSheets: [{ get cssRules() { throw new Error("Access denied"); } }] } as unknown as Document;
+    expect(confirmedCandidates([], denied)).toEqual({ status: "unavailable", files: [] });
+    expect(confirmedCandidates([], { styleSheets: [] } as unknown as Document)).toEqual({ status: "unavailable", files: [] });
+    expect(scan([{ path: "empty.tsx", source: "" }])).toEqual([{ path: "empty.tsx", candidates: [] }]);
+    expect(sourceCandidates('"duration-[80ms]"')).toContain("duration-[80ms]");
   });
 
   test("parses cubic-bezier and keyword easings", () => {

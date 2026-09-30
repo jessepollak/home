@@ -323,10 +323,10 @@
 .easingTable thead th:first-child {
   width: 60%;
 }
-.motionTable code, .usedBy, .stackRow code {
+.motionTable code, .occurrences, .stackRow code {
   overflow-wrap: anywhere;
 }
-.usedBy {
+.occurrences {
   color: var(--foundation-subtle);
   font-size: 12px;
   line-height: 18px;

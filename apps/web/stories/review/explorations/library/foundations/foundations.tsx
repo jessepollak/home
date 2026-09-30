@@ -40,11 +40,13 @@ export function FoundationsSurface({ page, theme: initialTheme }: { page: Founda
       <article className={styles.article} aria-labelledby="foundation-title">
         <h2 id="foundation-title" className={styles.title}>{name}</h2>
         {!foundations.sourcesAvailable && page !== "foundations/color" &&
-          <p className={styles.note} role="status">Component sources unavailable. Usage counts and motion declarations cannot be read.</p>}
+          <p className={styles.note} role="status">Component sources unavailable. Candidate counts cannot be read.</p>}
+        {foundations.sourcesAvailable && !foundations.candidatesAvailable && page !== "foundations/color" &&
+          <p className={styles.note} role="status">Stylesheets unavailable. Tailwind candidates cannot be confirmed.</p>}
         {page === "foundations/color" && <ColorPage snapshot={snapshot} />}
-        {page === "foundations/type" && foundations.sourcesAvailable && <TypePage />}
-        {page === "foundations/radius-spacing" && foundations.sourcesAvailable && <RadiusSpacingPage />}
-        {page === "foundations/motion" && foundations.sourcesAvailable && <MotionPage />}
+        {page === "foundations/type" && foundations.sourcesAvailable && foundations.candidatesAvailable && <TypePage />}
+        {page === "foundations/radius-spacing" && foundations.sourcesAvailable && foundations.candidatesAvailable && <RadiusSpacingPage />}
+        {page === "foundations/motion" && foundations.sourcesAvailable && foundations.candidatesAvailable && <MotionPage />}
       </article>
     </div>
   </main>;
