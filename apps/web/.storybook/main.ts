@@ -1,5 +1,6 @@
 import type { StorybookConfig } from "@storybook/nextjs-vite";
 import { reviewEnv } from "./review-env";
+import { libraryCandidates } from "./library-candidates";
 import { readReviewBuild } from "../stories/review/explorations/board/review-build";
 
 const buildEnv = reviewEnv();
@@ -47,6 +48,7 @@ const config: StorybookConfig = {
     name: "@storybook/nextjs-vite",
     options: {},
   },
+  viteFinal: (config) => ({ ...config, plugins: [...(config.plugins ?? []), libraryCandidates()] }),
   staticDirs: ["../public", "./static"],
   features,
   env: async (env) => ({ ...env, ...await buildEnv }),

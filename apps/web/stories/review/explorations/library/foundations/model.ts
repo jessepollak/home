@@ -1,11 +1,13 @@
 import { confirmedCandidates } from "./candidates";
-import { componentSourceSet, componentSources, globalsSource } from "./sources";
+import { componentCandidateSet, globalsSource } from "./sources";
 import { probeThemes } from "./probe";
 import { blockDeclarations, colorTokens, themeScale } from "./tokens";
 import { motionUsage, radiusUsage, spacingUsage, typeUsage } from "./usage";
 
 export type FoundationId = "foundations/color" | "foundations/type" | "foundations/radius-spacing" | "foundations/motion";
-const candidateSnapshot = typeof document === "undefined" ? null : confirmedCandidates(componentSources);
+const candidateSnapshot = typeof document === "undefined" ? null : confirmedCandidates(
+  componentCandidateSet.status === "available" ? componentCandidateSet.files : null,
+);
 const candidates = candidateSnapshot?.files ?? [];
 const motion = motionUsage(candidates);
 const themeNames = [...new Set([...blockDeclarations(globalsSource, ":root"), ...blockDeclarations(globalsSource, ".dark")]
@@ -20,8 +22,8 @@ export const foundations = {
   radius: { scale: themeScale(globalsSource, "radius"), usage: radiusUsage(candidates) },
   spacing: { named: themeScale(globalsSource, "spacing"), usage: spacingUsage(candidates, spacingNames) },
   motion,
-  scanned: componentSources.length,
-  sourcesAvailable: componentSourceSet.status === "available",
+  scanned: componentCandidateSet.files.length,
+  sourcesAvailable: componentCandidateSet.status === "available",
   candidatesAvailable: candidateSnapshot?.status === "available",
 };
 

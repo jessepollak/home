@@ -272,5 +272,9 @@ export const RestoredFoundation: Story = {
     await expect(within(surface).getByText(/Utilities Tailwind generates from component source/)).toBeVisible();
     await expect(within(surface).getByRole("columnheader", { name: "Occurrences / files" })).toBeVisible();
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/radius-spacing");
+    const spacing = within(surface).getByRole("row", { name: /^1\.5 / });
+    await expect(within(spacing).getAllByRole("cell")[0]).toHaveTextContent(/^35Files/);
+    await userEvent.click(within(spacing).getByText(/^Files \(/));
+    await expect(within(spacing).getByText("components/ui/field.tsx")).toBeVisible();
   },
 };

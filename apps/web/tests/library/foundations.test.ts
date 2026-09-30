@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import "@/client/account/dom-test-harness";
-import { confirmedCandidates, sourceCandidates, type SourceFile } from "../../stories/review/explorations/library/foundations/candidates";
+import { scanLibraryCandidates } from "../../.storybook/library-candidates";
+import { confirmedCandidates, type SourceFile } from "../../stories/review/explorations/library/foundations/candidates";
 import { readMotionReference } from "../../stories/review/explorations/library/foundations/motion-values";
 import { measureColor, measurementSummary } from "../../stories/review/explorations/library/foundations/color-measurements";
 import { probeThemes, readThemeValues, toRgba, utilityValues } from "../../stories/review/explorations/library/foundations/probe";
-import { sourceSet } from "../../stories/review/explorations/library/foundations/sources";
+import { componentCandidateSet, loadCandidateSet } from "../../stories/review/explorations/library/foundations/sources";
 import { composite, contrastRatio, formatRatio, relativeLuminance, toHex } from "../../stories/review/explorations/library/foundations/contrast";
 import { blockDeclarations, colorFamily, colorTokens, radiusSteps, themeScale, topLevelBlocks } from "../../stories/review/explorations/library/foundations/tokens";
 import { cubicBezier, motionUsage, radiusUsage, spacingUsage, typeUsage } from "../../stories/review/explorations/library/foundations/usage";
@@ -145,6 +146,7 @@ describe("Tailwind candidate usage", () => {
     "ease-in", "ease-out", "delay-75", "delay-0", "delay-[80ms]", "duration-[100ms]", "duration-[80ms]",
     "md:duration-200", "hover:ease-out", "motion-reduce:duration-[80ms]",
     "p-0.5", "text-[1.5rem]", "duration-[1.5s]", "[transition:opacity_.2s]",
+    "[[data-variant=legend]+&]:-mt-1.5", "[&[data-x]]:duration-200", "duration-(--duration)", "ease-(--curve)",
   ];
   const stylesheet = names.map((name) => `.${CSS.escape(name)} { transition-duration: 80ms; }`).join("\n");
   const scan = (files: SourceFile[], cssText = stylesheet) => {
@@ -152,8 +154,9 @@ describe("Tailwind candidate usage", () => {
     style.textContent = cssText;
     document.head.append(style);
     try {
-      const owner = { styleSheets: [style.sheet!], defaultView: window } as unknown as Document;
-      const snapshot = confirmedCandidates(files, owner);
+      const layer = { name: "utilities", cssText: "@layer utilities { }", cssRules: style.sheet!.cssRules };
+      const owner = { styleSheets: [{ cssRules: [layer] }], defaultView: window } as unknown as Document;
+      const snapshot = confirmedCandidates(scanLibraryCandidates(files), owner);
       expect(snapshot.status).toBe("available");
       return snapshot.files;
     } finally { style.remove(); }
@@ -225,9 +228,27 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
     expect(uses.find(({ utility }) => utility === "duration-200")?.classes).toEqual(["md:duration-200"]);
   });
 
-  test("counts Tailwind candidates after property-access dot boundaries", () => {
+  test("counts nested arbitrary variants and parenthesized custom-property utilities", () => {
+    const files = scan([{ path: "field.tsx", source: '"[[data-variant=legend]+&]:-mt-1.5 [&[data-x]]:duration-200 duration-(--duration) ease-(--curve)"' }]);
+    expect(spacingUsage(files, [])).toEqual([{ step: "1.5", count: 1, files: ["field.tsx"] }]);
+    expect(motionUsage(files).uses.map(({ utility }) => utility)).toEqual(["duration-(--duration)", "duration-200", "ease-(--curve)"]);
+  });
+
+  test("never confirms a foreign Storybook rule outside the utilities layer", () => {
+    const foreign = document.createElement("style");
+    foreign.textContent = ".duration-storybook { color: red; }";
+    document.head.append(foreign);
+    const utilities = { name: "utilities", cssText: "@layer utilities { }", cssRules: [] };
+    const owner = { styleSheets: [{ cssRules: [utilities] }, foreign.sheet!], defaultView: window } as unknown as Document;
+    try {
+      expect(confirmedCandidates(scanLibraryCandidates([{ path: "example.tsx", source: '"duration-storybook"' }]), owner))
+        .toEqual({ status: "available", files: [{ path: "example.tsx", candidates: [] }] });
+    } finally { foreign.remove(); }
+  });
+
+  test("follows oxide occurrence handling at property-access dot boundaries", () => {
     const source = 'indicator.style.transition = "none"; node.style.transition; "transition"';
-    expect(motion(source)).toEqual([{ utility: "transition", count: 3, files: ["example.tsx"], classes: ["transition"] }]);
+    expect(motion(source)).toEqual([{ utility: "transition", count: 2, files: ["example.tsx"], classes: ["transition"] }]);
   });
 
   test("keeps decimal steps and arbitrary values intact across dot boundaries", () => {
@@ -269,7 +290,7 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
     expect(confirmedCandidates([], denied)).toEqual({ status: "unavailable", files: [] });
     expect(confirmedCandidates([], { styleSheets: [] } as unknown as Document)).toEqual({ status: "unavailable", files: [] });
     expect(scan([{ path: "empty.tsx", source: "" }])).toEqual([{ path: "empty.tsx", candidates: [] }]);
-    expect(sourceCandidates('"duration-[80ms]"')).toContain("duration-[80ms]");
+    expect(confirmedCandidates(null)).toEqual({ status: "unavailable", files: [] });
   });
 
   test("parses cubic-bezier and keyword easings", () => {
@@ -377,10 +398,12 @@ describe("measurement availability and discovered scales", () => {
     expect(removed).toBe(true);
   });
 
-  test("distinguishes unavailable sources from an available empty set", () => {
-    expect(sourceSet(null)).toEqual({ status: "unavailable", files: [] });
-    expect(sourceSet({})).toEqual({ status: "available", files: [] });
-    expect(sourceSet({ "../../components/ui/example.tsx": "example" }).files)
-      .toEqual([{ path: "components/ui/example.tsx", source: "example" }]);
+  test("distinguishes a missing virtual module from an available empty inventory", async () => {
+    expect(componentCandidateSet).toEqual({ status: "unavailable", files: [] });
+    expect(await loadCandidateSet(async () => { throw new Error("Plugin unavailable"); }))
+      .toEqual({ status: "unavailable", files: [] });
+    expect(await loadCandidateSet(async () => ({ default: [] }))).toEqual({ status: "available", files: [] });
+    const files = [{ path: "components/ui/example.tsx", candidates: ["duration-200", "duration-200"] }];
+    expect(await loadCandidateSet(async () => ({ default: files }))).toEqual({ status: "available", files });
   });
 });
