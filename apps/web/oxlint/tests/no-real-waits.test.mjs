@@ -1,72 +1,56 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
-import { afterAll, describe, expect, it } from "bun:test";
-import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "bun:test";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
-const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-no-real-waits-"));
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-afterAll(() => rm(mirror, { recursive: true, force: true }));
-
-let fixtureIndex = 0;
-async function lint(code, suffix = "pw.ts") {
-  fixtureIndex += 1;
-  const fixture = `fixture-${fixtureIndex}.${suffix}`;
-  const config = `.oxlintrc-${fixtureIndex}.json`;
-  await writeFile(path.join(mirror, fixture), code);
-  await writeFile(path.join(mirror, config), JSON.stringify({
-    plugins: [],
-    categories: { correctness: "off" },
-    jsPlugins: ["./oxlint/home-plugin.mjs"],
-    rules: { "home/no-real-waits": "error" },
-  }));
-  const result = spawnSync(
-    path.join(appsWebDir, "node_modules", ".bin", "oxlint"),
-    ["-c", config, "--disable-nested-config", "-f", "json", fixture],
-    { cwd: mirror, encoding: "utf8" },
-  );
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  return JSON.parse(result.stdout).diagnostics.filter((diagnostic) =>
-    diagnostic.code === "home(no-real-waits)");
-}
+const { lint } = await createOxlintWorkspace("home-oxlint-no-real-waits-", {
+  path: (name) => `${name}.pw.ts`,
+  rules: ["no-real-waits"],
+});
 
 describe("no-real-waits", () => {
   it("rejects Playwright page and frame sleeps", async () => {
-    expect(await lint("page.waitForTimeout(10); frame['waitForTimeout'](20);"))
+    const results = await lint({
+      fixture1: "page.waitForTimeout(10); frame['waitForTimeout'](20);",
+    });
+    expect(results.fixture1)
       .toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("rejects promise-wrapped timeouts with direct and zero-argument resolver callbacks", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: `
       new Promise((resolve) => setTimeout(resolve, delay));
       new Promise(function (done) { setTimeout(done, 1); });
       new Promise((resolve) => setTimeout(() => resolve(), delay));
       new Promise((resolve) => setTimeout(() => { resolve(); }, delay));
-    `)).toHaveLength(4);
-  });
+    `,
+    });
+    expect(results.fixture1).toHaveLength(4);
+  }, budgetMs);
 
   it("documents destructured and aliased waitForTimeout as known non-detections", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: `
       const { waitForTimeout } = page;
       waitForTimeout(100);
       const browserPage = page;
       browserPage.waitForTimeout(100);
-    `)).toHaveLength(0);
-  });
+    `,
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts observable Playwright waits and unrelated promises", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: `
       await expect.poll(readStatus).toBe("ready");
       await page.getByRole("button").waitFor();
       new Promise((resolve) => subscribe(resolve));
-    `)).toHaveLength(0);
-  });
+    `,
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   const rejectedClocks = [
     ["Date.now call", "Date.now();", 1],
@@ -87,69 +71,89 @@ describe("no-real-waits", () => {
   ];
   for (const [shape, code, count] of rejectedClocks) {
     it(`rejects ${shape}`, async () => {
-      const diagnostics = await lint(code, "test.ts");
+      const results = await lint({
+        fixture1: { path: "fixture1.test.ts", code },
+      });
+      const diagnostics = results.fixture1;
       expect(diagnostics).toHaveLength(count);
       expect(diagnostics.every((diagnostic) => diagnostic.message.includes("tests must not read the wall clock")))
         .toBe(true);
-    });
+    }, budgetMs);
   }
 
   it("does not double-count clock calls", async () => {
-    expect(await lint(`Date.now(); performance.now();`, "test.ts")).toHaveLength(2);
-  });
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `Date.now(); performance.now();` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("accepts injected instants and fixed clock functions", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       const fixed = new Date("2026-01-01T00:00:00.000Z");
       const now = () => FIXED;
       Date.parse("2026-01-01"); Date.UTC(2026, 0, 1);
       new globalThis.Date(FIXED);
-    `, "test.ts")).toHaveLength(0);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 
   it("accepts local Date and performance bindings but still rejects global clock reads", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       Date.now(); performance.now();
       function run(Date, performance) {
         Date.now(); Date(); new Date(); performance.now();
         globalThis.Date.now(); globalThis.performance.now();
       }
-    `, "test.ts")).toHaveLength(4);
-    expect(await lint(`
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
       const Date = fakeDate;
       Date.now(); Date(); new Date(); globalThis.Date.now();
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    ` },
+      fixture3: { path: "fixture3.test.ts", code: `
       import Date from "./fake-date";
       function run(performance) {
         Date.now(); new Date(); performance.now();
         globalThis.Date.now(); globalThis.performance.now();
       }
-    `, "test.ts")).toHaveLength(2);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(4);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(2);
+  }, budgetMs);
 
   it("allows Date reads only in scopes governed by a pinned system clock or fake timers with now", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { jest } from "bun:test";
       Date.now(); new Date; Date();
       beforeEach(() => jest.setSystemTime(FIXED));
       performance.now();
-    `, "test.ts")).toHaveLength(4);
-    expect(await lint(`
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
       import { jest } from "bun:test";
       Date.now(); new Date(); Date();
       jest.useFakeTimers({ now: FIXED });
       performance.now();
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`import { setSystemTime } from "bun:test"; Date.now(); setSystemTime(FIXED);`, "test.ts"))
+    ` },
+      fixture3: { path: "fixture3.test.ts", code: `import { setSystemTime } from "bun:test"; Date.now(); setSystemTime(FIXED);` },
+    });
+    expect(results.fixture1).toHaveLength(4);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3)
       .toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("reports an unpinned sibling test but allows reads in the pinning test", async () => {
     const wrappers = ["CALLBACK as () => void", "CALLBACK satisfies () => void", "CALLBACK!",
       "<() => void>CALLBACK", "(CALLBACK)", "(CALLBACK as () => void)!"];
     const wrap = (wrapper, callback) => wrapper.replace("CALLBACK", `(${callback})`);
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       test("pinned", () => { setSystemTime(FIXED); Date.now(); new Date(); Date(); });
       test("unpinned", () => Date.now());
@@ -162,13 +166,16 @@ describe("no-real-waits", () => {
         }`)});
       `).join("\n")}
       Date.now();
-    `, "test.ts")).toHaveLength(wrappers.length + 2);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(wrappers.length + 2);
+  }, budgetMs);
 
   it("allows pre-hook governed reads without covering same-suite earlier hooks", async () => {
     const hooks = ["beforeEach", "beforeAll", "before", "test.beforeEach", "it.beforeAll"];
     const earlyHooks = ["beforeAll", "before"];
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       ${hooks.map((hook) => `
         describe("${hook}", () => {
@@ -199,11 +206,14 @@ describe("no-real-waits", () => {
           test("governed", () => Date.now());
         });
       `).join("\n")}
-    `, "test.ts")).toHaveLength(earlyHooks.length);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(earlyHooks.length);
+  }, budgetMs);
 
   it("does not let a describe hook exempt a sibling describe or ancestor test", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       describe("pinned", () => {
         beforeEach(() => setSystemTime(FIXED));
@@ -212,41 +222,52 @@ describe("no-real-waits", () => {
       });
       describe("unpinned", () => test("sibling", () => Date.now()));
       test("ancestor", () => Date.now());
-    `, "test.ts")).toHaveLength(2);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("does not let top-level pre-hooks exempt program or describe scope reads", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       beforeEach(() => setSystemTime(FIXED));
       Date.now();
       function helper() { return new Date(); }
       const otherHelper = () => Date();
       describe("suite", () => { Date.now(); test("governed", () => Date.now()); });
-    `, "test.ts")).toHaveLength(4);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(4);
+  }, budgetMs);
 
   it("does not let a program pin exempt a test or hook callback", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       setSystemTime(FIXED);
       Date.now();
       test("unpinned", () => Date.now());
       beforeEach(() => Date.now());
-    `, "test.ts")).toHaveLength(2);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("allows post-hook reads only in the pinning hook", async () => {
     const hooks = ["afterEach", "afterAll", "after", "test.afterEach", "it.afterAll"];
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       ${hooks.map((hook) => `
         ${hook}(() => { setSystemTime(FIXED); Date.now(); });
       `).join("\n")}
       Date.now();
       beforeEach(() => Date.now());
-    `, "test.ts")).toHaveLength(2);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
 
   it("recognizes modified test callbacks and skips non-callback functions", async () => {
     const testCalls = ["test", "it", "test.only", "it.skip", "test.todo", "test.fixme",
@@ -254,7 +275,8 @@ describe("no-real-waits", () => {
       "test.each([1])", "test.each`value\n${1}`", "it.concurrent.only", "(test as typeof test).only",
       "test.skipIf(true)", "test.runIf(true)", "test.if(true)", "test.todoIf(true)", "test.failIf(true)",
       "test.fails", "test.failsIf(true)", "test.for([1])"];
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { jest } from "bun:test";
       ${testCalls.map((testCall) => `
         ${testCall}("pinned", function () {
@@ -263,8 +285,10 @@ describe("no-real-waits", () => {
         });
       `).join("\n")}
       Date.now();
-    `, "test.ts")).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("recognizes describe containers and aliased framework scopes", async () => {
     const containers = ["describe", "describe.only", "describe.skip", "describe.each",
@@ -272,7 +296,25 @@ describe("no-real-waits", () => {
       "test.describe", "test.describe.only", "test.describe.serial", "test.describe.parallel",
       "describe.concurrent", "describe.sequential", "describe.shuffle", "describe.todo"];
     const frameworks = ["bun:test", "vitest", "@jest/globals"];
-    expect(await lint(`
+    const frameworkFixtures = {};
+    for (const [index, framework] of frameworks.entries()) {
+      frameworkFixtures[`framework${index}`] = { path: `framework${index}.test.ts`, code: `
+        import { setSystemTime } from "bun:test";
+        import { test as case${index}, describe as suite${index}, beforeEach as setup${index} } from "${framework}";
+        suite${index}.only("governed", () => {
+          setup${index}(() => setSystemTime(FIXED));
+          case${index}.only("local", () => Date.now());
+          suite${index}("nested", () => case${index}("inner", () => Date.now()));
+        });
+        suite${index}("sibling", () => case${index}("unpinned", () => Date.now()));
+        case${index}("pinned", () => { setSystemTime(FIXED); Date.now(); });
+        case${index}.skip("unpinned", () => Date.now());
+        suite${index}("body pin", () => { setSystemTime(FIXED); Date.now(); });
+        suite${index}.only("unpinned body", () => Date.now());
+      ` };
+    }
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       ${containers.map((container) => `
         ${container}("pinned", () => {
@@ -291,87 +333,106 @@ describe("no-real-waits", () => {
       browserTest("pinned", () => { setSystemTime(FIXED); Date.now(); });
       browserTest.skip("unpinned", () => Date.now());
       Date.now();
-    `, "test.ts")).toHaveLength(4);
-    for (const [index, framework] of frameworks.entries()) {
-      expect(await lint(`
-        import { setSystemTime } from "bun:test";
-        import { test as case${index}, describe as suite${index}, beforeEach as setup${index} } from "${framework}";
-        suite${index}.only("governed", () => {
-          setup${index}(() => setSystemTime(FIXED));
-          case${index}.only("local", () => Date.now());
-          suite${index}("nested", () => case${index}("inner", () => Date.now()));
-        });
-        suite${index}("sibling", () => case${index}("unpinned", () => Date.now()));
-        case${index}("pinned", () => { setSystemTime(FIXED); Date.now(); });
-        case${index}.skip("unpinned", () => Date.now());
-        suite${index}("body pin", () => { setSystemTime(FIXED); Date.now(); });
-        suite${index}.only("unpinned body", () => Date.now());
-      `, "test.ts")).toHaveLength(3);
+    ` },
+      ...frameworkFixtures,
+    });
+    expect(results.fixture1).toHaveLength(4);
+    for (const index of frameworks.keys()) {
+      expect(results[`framework${index}`]).toHaveLength(3);
     }
-  });
+  }, budgetMs);
 
   it("uses only the last function argument as a test callback", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       test("callbacks", () => setSystemTime(FIXED), () => Date.now());
-    `, "test.ts")).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("does not recognize computed or unrelated test modifiers", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       test["only"]("not a scope", () => setSystemTime(FIXED));
       fixture.only("not a scope", () => setSystemTime(FIXED));
       test("unpinned", () => Date.now());
-    `, "test.ts")).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("keeps invalid pin sources reported even when a pre-hook governs their test", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
       beforeEach(() => setSystemTime(FIXED));
       test("invalid", () => { setSystemTime(Date.now()); Date.now(); });
-    `, "test.ts")).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects clock reads in system-time and fake-timer pin arguments file-wide", async () => {
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(Date.now()); Date.now();`, "test.ts"))
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(Date.now()); Date.now();` },
+      fixture2: { path: "fixture2.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(new Date()); new Date();` },
+      fixture3: { path: "fixture3.test.ts", code: `import { jest } from "bun:test"; jest.useFakeTimers({ now: Date.now() }); Date.now();` },
+      fixture4: { path: "fixture4.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(Date.now); Date.now();` },
+      fixture5: { path: "fixture5.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(performance.now() - started); Date.now();` },
+      fixture6: { path: "fixture6.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(new Date("2026-01-01T00:00:00.000Z")); Date.now();` },
+      fixture7: { path: "fixture7.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(Date.now()); setSystemTime(FIXED);` },
+      fixture8: { path: "fixture8.test.ts", code: `import { setSystemTime } from "bun:test"; const instant = Date.now(); setSystemTime(instant); Date.now();` },
+      fixture9: { path: "fixture9.test.ts", code: `import { jest } from "bun:test"; const start = new Date(); const pin = { now: start }; jest.useFakeTimers(pin); new Date();` },
+      fixture10: { path: "fixture10.test.ts", code: `import { setSystemTime } from "bun:test"; const FIXED = Date.parse("2026-01-01T00:00:00.000Z"); setSystemTime(FIXED); Date.now();` },
+      fixture11: { path: "fixture11.test.ts", code: `import { jest, setSystemTime } from "bun:test"; jest.useFakeTimers({ now: FIXED }); const now = Date.now(); const pin = { now }; setSystemTime(pin.now);` },
+      fixture12: { path: "fixture12.test.ts", code: `import { jest } from "bun:test"; jest.useFakeTimers({ now: FIXED }); const now = Date.now(); expect(now).toBe(FIXED);` },
+    });
+    expect(results.fixture1)
       .toHaveLength(2);
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(new Date()); new Date();`, "test.ts"))
+    expect(results.fixture2)
       .toHaveLength(2);
-    expect(await lint(`import { jest } from "bun:test"; jest.useFakeTimers({ now: Date.now() }); Date.now();`, "test.ts"))
+    expect(results.fixture3)
       .toHaveLength(2);
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(Date.now); Date.now();`, "test.ts"))
+    expect(results.fixture4)
       .toHaveLength(2);
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(performance.now() - started); Date.now();`, "test.ts"))
+    expect(results.fixture5)
       .toHaveLength(2);
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(new Date("2026-01-01T00:00:00.000Z")); Date.now();`, "test.ts"))
+    expect(results.fixture6)
       .toHaveLength(0);
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(Date.now()); setSystemTime(FIXED);`, "test.ts"))
+    expect(results.fixture7)
       .toHaveLength(1);
-    expect(await lint(`import { setSystemTime } from "bun:test"; const instant = Date.now(); setSystemTime(instant); Date.now();`, "test.ts"))
+    expect(results.fixture8)
       .toHaveLength(2);
-    expect(await lint(`import { jest } from "bun:test"; const start = new Date(); const pin = { now: start }; jest.useFakeTimers(pin); new Date();`, "test.ts"))
+    expect(results.fixture9)
       .toHaveLength(2);
-    expect(await lint(`import { setSystemTime } from "bun:test"; const FIXED = Date.parse("2026-01-01T00:00:00.000Z"); setSystemTime(FIXED); Date.now();`, "test.ts"))
+    expect(results.fixture10)
       .toHaveLength(0);
-    expect(await lint(`import { jest, setSystemTime } from "bun:test"; jest.useFakeTimers({ now: FIXED }); const now = Date.now(); const pin = { now }; setSystemTime(pin.now);`, "test.ts"))
+    expect(results.fixture11)
       .toHaveLength(1);
-    expect(await lint(`import { jest } from "bun:test"; jest.useFakeTimers({ now: FIXED }); const now = Date.now(); expect(now).toBe(FIXED);`, "test.ts"))
+    expect(results.fixture12)
       .toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("keeps unpinned fake timers tied to the wall clock", async () => {
-    expect(await lint(`import { jest } from "bun:test"; jest.useFakeTimers(); Date.now(); new Date();`, "test.ts"))
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `import { jest } from "bun:test"; jest.useFakeTimers(); Date.now(); new Date();` },
+      fixture2: { path: "fixture2.test.ts", code: `import { jest } from "bun:test"; jest.useFakeTimers({ now: FIXED }); performance.now();` },
+      fixture3: { path: "fixture3.test.ts", code: `import { jest } from "bun:test"; jest.useFakeTimers({ legacyFakeTimers: true }); Date.now();` },
+    });
+    expect(results.fixture1)
       .toHaveLength(2);
-    expect(await lint(`import { jest } from "bun:test"; jest.useFakeTimers({ now: FIXED }); performance.now();`, "test.ts"))
+    expect(results.fixture2)
       .toHaveLength(1);
-    expect(await lint(`import { jest } from "bun:test"; jest.useFakeTimers({ legacyFakeTimers: true }); Date.now();`, "test.ts"))
+    expect(results.fixture3)
       .toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("allows pinned Playwright page reads but still rejects Node-side Date reads", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: `
       Date.now(); new Date();
       await page.clock.install({ time: FIXED });
       await page.evaluate(() => { Date.now(); new Date(); performance.now(); });
@@ -379,26 +440,34 @@ describe("no-real-waits", () => {
       await page.addInitScript(() => globalThis.Date.now());
       await page.waitForFunction(() => new Date());
       Date.now();
-    `)).toHaveLength(4);
-    expect(await lint(`
+    `,
+      fixture2: `
       await page.clock.setFixedTime(FIXED);
       await page.evaluate(() => Date.now());
       Date.now();
-    `)).toHaveLength(1);
-    expect(await lint(`
+    `,
+      fixture3: `
       await page.clock.setSystemTime(FIXED);
       await page.evaluate(() => new Date());
       Date.now();
-    `)).toHaveLength(1);
-    expect(await lint(`await page.evaluate(() => Date.now());`)).toHaveLength(1);
-    expect(await lint(`await page.clock.install(); await page.evaluate(() => Date.now());`))
+    `,
+      fixture4: `await page.evaluate(() => Date.now());`,
+      fixture5: `await page.clock.install(); await page.evaluate(() => Date.now());`,
+      fixture6: `jest.setSystemTime(FIXED); await page.evaluate(() => Date.now());`,
+    });
+    expect(results.fixture1).toHaveLength(4);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(1);
+    expect(results.fixture4).toHaveLength(1);
+    expect(results.fixture5)
       .toHaveLength(1);
-    expect(await lint(`jest.setSystemTime(FIXED); await page.evaluate(() => Date.now());`))
+    expect(results.fixture6)
       .toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("does not let a Playwright test pin exempt a sibling page callback", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { code: `
       test("pinned", async ({ page }) => {
         await page.clock.setFixedTime(FIXED);
         await page.evaluate(() => Date.now());
@@ -406,11 +475,14 @@ describe("no-real-waits", () => {
       test("unpinned", async ({ page }) => {
         await page.evaluate(() => Date.now());
       });
-    `)).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("allows Playwright page reads governed by a pinning beforeEach but not Node reads", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { code: `
       test.beforeEach(async ({ page }) => { await page.clock.install({ time: FIXED }); });
       test("outer", async ({ page }) => {
         await page.evaluate(() => Date.now());
@@ -419,129 +491,173 @@ describe("no-real-waits", () => {
       test.describe("nested", () => {
         test("inner", async ({ page }) => { await page.evaluate(() => new Date()); });
       });
-    `)).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+  }, budgetMs);
 
   it("rejects Playwright pin argument reads and does not exempt page callbacks", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: `
       await page.clock.install({ time: Date.now() });
       await page.evaluate(() => Date.now());
-    `)).toHaveLength(2);
-    expect(await lint(`
+    `,
+      fixture2: `
       await page.clock.setFixedTime(new Date());
       await page.evaluate(() => new Date());
-    `)).toHaveLength(2);
-    expect(await lint(`
+    `,
+      fixture3: `
       await page.clock.setSystemTime(new Date());
       await page.evaluate(() => Date.now());
-    `)).toHaveLength(2);
-    expect(await lint(`
+    `,
+      fixture4: `
       await page.clock.install({ time: new Date("2026-01-01T00:00:00.000Z") });
       await page.evaluate(() => Date.now());
       Date.now();
-    `)).toHaveLength(1);
-  });
+    `,
+    });
+    expect(results.fixture1).toHaveLength(2);
+    expect(results.fixture2).toHaveLength(2);
+    expect(results.fixture3).toHaveLength(2);
+    expect(results.fixture4).toHaveLength(1);
+  }, budgetMs);
 
   it("requires pin callees to resolve to supported test imports", async () => {
-    expect(await lint(`fixture.setSystemTime(FIXED); Date.now();`, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `fixture.setSystemTime(FIXED); Date.now();` },
+      fixture2: { path: "fixture2.test.ts", code: `
       const useFakeTimers = (options) => options;
       useFakeTimers({ now: FIXED });
       Date.now();
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    ` },
+      fixture3: { path: "fixture3.test.ts", code: `
       function setSystemTime() {}
       setSystemTime(FIXED);
       Date.now();
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    ` },
+      fixture4: { path: "fixture4.test.ts", code: `
       const jest = { useFakeTimers: (options) => options };
       jest.useFakeTimers({ now: FIXED });
       Date.now();
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    ` },
+      fixture5: { path: "fixture5.test.ts", code: `
       import { setSystemTime } from "./clock-helper";
       setSystemTime(FIXED);
       Date.now();
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`setSystemTime(FIXED); Date.now();`, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    ` },
+      fixture6: { path: "fixture6.test.ts", code: `setSystemTime(FIXED); Date.now();` },
+      fixture7: { path: "fixture7.test.ts", code: `
       import { setSystemTime as pin } from "bun:test";
       pin(FIXED);
       Date.now();
-    `, "test.ts")).toHaveLength(0);
-    expect(await lint(`
+    ` },
+      fixture8: { path: "fixture8.test.ts", code: `
       import { vi } from "vitest";
       vi.setSystemTime(FIXED);
       Date.now();
-    `, "test.ts")).toHaveLength(0);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(1);
+    expect(results.fixture4).toHaveLength(1);
+    expect(results.fixture5).toHaveLength(1);
+    expect(results.fixture6).toHaveLength(1);
+    expect(results.fixture7).toHaveLength(0);
+    expect(results.fixture8).toHaveLength(0);
+  }, budgetMs);
 
   it("verifies Playwright clock receivers before exempting page reads", async () => {
-    expect(await lint(`await fixture.clock.setSystemTime(FIXED); await page.evaluate(() => Date.now());`))
+    const results = await lint({
+      fixture1: `await fixture.clock.setSystemTime(FIXED); await page.evaluate(() => Date.now());`,
+      fixture2: `await clock.setSystemTime(FIXED); await page.evaluate(() => Date.now());`,
+      fixture3: `await page.clock.install({ time: FIXED }); await page.evaluate(() => Date.now());`,
+      fixture4: `await context.clock.setSystemTime(FIXED); await page.evaluate(() => new Date());`,
+    });
+    expect(results.fixture1)
       .toHaveLength(1);
-    expect(await lint(`await clock.setSystemTime(FIXED); await page.evaluate(() => Date.now());`))
+    expect(results.fixture2)
       .toHaveLength(1);
-    expect(await lint(`await page.clock.install({ time: FIXED }); await page.evaluate(() => Date.now());`))
+    expect(results.fixture3)
       .toHaveLength(0);
-    expect(await lint(`await context.clock.setSystemTime(FIXED); await page.evaluate(() => new Date());`))
+    expect(results.fixture4)
       .toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("honors locally bound clock qualifiers", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       const window = fakeGlobals;
       const globalThis = fakeGlobals;
       const self = fakeGlobals;
       window.Date.now(); window.performance.now(); window.Date(); new window.Date;
       globalThis.Date.now(); self.performance.now();
-    `, "test.ts")).toHaveLength(0);
-    expect(await lint(`
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
       function run(self) { return self.Date.now(); }
       self.Date.now();
-    `, "test.ts")).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(0);
+    expect(results.fixture2).toHaveLength(1);
+  }, budgetMs);
 
   it("treats unpinning arguments as no pin", async () => {
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(undefined); Date.now();`, "test.ts"))
-      .toHaveLength(1);
-    expect(await lint(`import { setSystemTime } from "bun:test"; setSystemTime(void 0); Date.now();`, "test.ts"))
-      .toHaveLength(1);
-    expect(await lint(`import { jest } from "bun:test"; jest.useFakeTimers({ now: undefined }); Date.now();`, "test.ts"))
-      .toHaveLength(1);
-    expect(await lint(`await page.clock.setSystemTime(undefined); await page.evaluate(() => Date.now());`))
-      .toHaveLength(1);
-    expect(await lint(`await page.clock.install({ time: undefined }); await page.evaluate(() => Date.now());`))
-      .toHaveLength(1);
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(undefined); Date.now();` },
+      fixture2: { path: "fixture2.test.ts", code: `import { setSystemTime } from "bun:test"; setSystemTime(void 0); Date.now();` },
+      fixture3: { path: "fixture3.test.ts", code: `import { jest } from "bun:test"; jest.useFakeTimers({ now: undefined }); Date.now();` },
+      fixture4: `await page.clock.setSystemTime(undefined); await page.evaluate(() => Date.now());`,
+      fixture5: `await page.clock.install({ time: undefined }); await page.evaluate(() => Date.now());`,
+      fixture6: { path: "fixture6.test.ts", code: `
       import { jest as testClock } from "bun:test";
       testClock.useFakeTimers({ now: FIXED });
       Date.now();
-    `, "test.ts")).toHaveLength(0);
-  });
+    ` },
+    });
+    expect(results.fixture1)
+      .toHaveLength(1);
+    expect(results.fixture2)
+      .toHaveLength(1);
+    expect(results.fixture3)
+      .toHaveLength(1);
+    expect(results.fixture4)
+      .toHaveLength(1);
+    expect(results.fixture5)
+      .toHaveLength(1);
+    expect(results.fixture6).toHaveLength(0);
+  }, budgetMs);
 
   it("allows direct and const-start performance measurements only", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       const started = performance.now();
       const elapsed = performance.now() - started;
       const reversed = started - performance.now();
       const direct = performance.now() - otherStart;
       const unrelated = performance.now();
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
       let started = performance.now();
       const elapsed = performance.now() - started;
-    `, "test.ts")).toHaveLength(1);
-    expect(await lint(`
+    ` },
+      fixture3: { path: "fixture3.test.ts", code: `
       const started = performance.now();
       function measure(started) { return performance.now() - started; }
-    `, "test.ts")).toHaveLength(1);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(1);
+  }, budgetMs);
 
   it("honors a reasoned oxlint-disable-next-line directive", async () => {
-    expect(await lint(`
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
       // oxlint-disable-next-line home/no-real-waits -- measuring external scheduling
       performance.now();
-    `, "test.ts")).toHaveLength(0);
-  });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
 });

@@ -1,72 +1,65 @@
 import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
-import { afterAll, describe, expect, it } from "bun:test";
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "bun:test";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
-const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-comments-"));
-await mkdir(path.join(mirror, "client"), { recursive: true });
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-await writeFile(path.join(mirror, ".oxlintrc.jsonc"), JSON.stringify({
-  plugins: [],
-  categories: { correctness: "off" },
-  jsPlugins: ["./oxlint/home-plugin.mjs"],
-  rules: { "home/no-comments": "error" },
-}));
-afterAll(() => rm(mirror, { recursive: true, force: true }));
-
-let fixtureIndex = 0;
-async function diagnostics(code, extension = "tsx") {
-  fixtureIndex += 1;
-  const fixture = `client/fixture-${fixtureIndex}.${extension}`;
-  await writeFile(path.join(mirror, fixture), code);
-  const result = spawnSync(
-    path.join(appsWebDir, "node_modules/.bin/oxlint"),
-    ["-c", ".oxlintrc.jsonc", "--disable-nested-config", "-f", "json", fixture],
-    { cwd: mirror, encoding: "utf8" },
-  );
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  return JSON.parse(result.stdout).diagnostics.filter((item) => item.code === "home(no-comments)");
-}
+const { lint } = await createOxlintWorkspace("home-oxlint-comments-", {
+  path: (name) => `client/${name}.ts`,
+  rules: ["no-comments"],
+});
 
 describe("home/no-comments", () => {
   it("rejects line, block, JSDoc, and JSX comments", async () => {
-    const found = await diagnostics(`
+    const found = await lint({
+      comments: { path: "client/comments.tsx", code: `
 // line
 /* block */
 /** JSDoc */
 export function Example() { return <div>{/* JSX */}</div>; }
-`);
-    expect(found).toHaveLength(4);
-  });
+` },
+    });
+    expect(found.comments).toHaveLength(4);
+  }, budgetMs);
 
   it("allows only one-line @public JSDoc with a reason on an export", async () => {
-    expect(await diagnostics("/** @public Shared contract consumed by external clones. */\nexport const shared = true;", "ts")).toHaveLength(0);
-    expect(await diagnostics("/** @public */\nexport const unexplained = true;", "ts")).toHaveLength(1);
-    expect(await diagnostics("/** @public Reason.\n * More detail. */\nexport const multiline = true;", "ts")).toHaveLength(1);
-    expect(await diagnostics("/** @public Not an export. */\nconst privateValue = true;", "ts")).toHaveLength(1);
-    expect(await diagnostics("/** @public Misplaced export annotation. */\nconst privateValue = true;\nexport const shared = privateValue;", "ts")).toHaveLength(1);
-  });
+    const found = await lint({
+      explained: "/** @public Shared contract consumed by external clones. */\nexport const shared = true;",
+      unexplained: "/** @public */\nexport const unexplained = true;",
+      multiline: "/** @public Reason.\n * More detail. */\nexport const multiline = true;",
+      privateValue: "/** @public Not an export. */\nconst privateValue = true;",
+      misplaced: "/** @public Misplaced export annotation. */\nconst privateValue = true;\nexport const shared = privateValue;",
+    });
+    expect(found.explained).toHaveLength(0);
+    expect(found.unexplained).toHaveLength(1);
+    expect(found.multiline).toHaveLength(1);
+    expect(found.privateValue).toHaveLength(1);
+    expect(found.misplaced).toHaveLength(1);
+  }, budgetMs);
 
   it("allows oxlint disable directives only when they carry a reason", async () => {
-    expect(await diagnostics("// oxlint-disable-next-line no-console -- console output is the fixture contract.\nconsole.log('ok');", "ts")).toHaveLength(0);
-    expect(await diagnostics("// oxlint-disable-next-line no-console\nconsole.log('no reason');", "ts")).toHaveLength(1);
-    expect(await diagnostics("// oxlint-disable-note -- not a directive\nexport {};", "ts")).toHaveLength(1);
-    expect(await diagnostics("export const node = <div>{/* oxlint-disable-next-line react/jsx-key -- upstream nodes have stable identity. */}</div>;" )).toHaveLength(0);
-  });
+    const found = await lint({
+      reasoned: "// oxlint-disable-next-line no-console -- console output is the fixture contract.\nconsole.log('ok');",
+      unreasoned: "// oxlint-disable-next-line no-console\nconsole.log('no reason');",
+      notADirective: "// oxlint-disable-note -- not a directive\nexport {};",
+      jsxReasoned: { path: "client/jsx-reasoned.tsx", code: "export const node = <div>{/* oxlint-disable-next-line react/jsx-key -- upstream nodes have stable identity. */}</div>;" },
+    });
+    expect(found.reasoned).toHaveLength(0);
+    expect(found.unreasoned).toHaveLength(1);
+    expect(found.notADirective).toHaveLength(1);
+    expect(found.jsxReasoned).toHaveLength(0);
+  }, budgetMs);
 
   it("allows triple-slash references", async () => {
-    expect(await diagnostics('/// <reference types="bun-types" />\nexport {};', "ts")).toHaveLength(0);
-  });
+    const found = await lint({ reference: '/// <reference types="bun-types" />\nexport {};' });
+    expect(found.reference).toHaveLength(0);
+  }, budgetMs);
 
   it("allows a third-party licence or notice only as a file header", async () => {
-    expect(await diagnostics("/* SPDX-License-Identifier: MIT */\nexport {};", "ts")).toHaveLength(0);
-    expect(await diagnostics("export {};\n/* SPDX-License-Identifier: MIT */", "ts")).toHaveLength(1);
-  });
+    const found = await lint({
+      header: "/* SPDX-License-Identifier: MIT */\nexport {};",
+      trailing: "export {};\n/* SPDX-License-Identifier: MIT */",
+    });
+    expect(found.header).toHaveLength(0);
+    expect(found.trailing).toHaveLength(1);
+  }, budgetMs);
 });

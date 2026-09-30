@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { budgetMs } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
@@ -52,7 +53,7 @@ class OxlintRuleTester {
     describe(name, () => {
       cases.valid.forEach((entry, index) => {
         it(`valid ${index + 1}`, async () =>
-          expect(await lint(typeof entry === "string" ? entry : entry.code, entry.extension)).toHaveLength(0));
+          expect(await lint(typeof entry === "string" ? entry : entry.code, entry.extension)).toHaveLength(0), budgetMs);
       });
       cases.invalid.forEach((entry, index) => {
         it(`invalid ${index + 1}`, async () => {
@@ -64,7 +65,7 @@ class OxlintRuleTester {
             expect(message).toContain(expectedMessage[expected.messageId]);
             if (expected.messageId === "detached") expect(message).not.toContain("local static class map");
           }
-        });
+        }, budgetMs);
       });
     });
   }
