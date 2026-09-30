@@ -2,7 +2,7 @@ import type { composeStory as ComposeStory, Preview } from "@storybook/nextjs-vi
 import type { ComponentType } from "react";
 import type { StoryIndexEntry } from "../board/review-build";
 import type { ArgType } from "./controls";
-import { componentModulePaths, frameReason, rendersPortal, type FrameReason, type StoryAnnotations } from "./isolation";
+import { frameReason, hasPinnedTheme, readPortalRule, type FrameReason, type PortalRule, type StoryAnnotations } from "./isolation";
 
 export type StoryModule = Record<string, unknown> & { default?: StoryAnnotations };
 
@@ -15,7 +15,7 @@ export type SheetStory = {
   layout: string;
   frame: FrameReason | null;
   portals: boolean;
-  pinnedTheme: string | undefined;
+  themePinned: boolean;
 };
 
 type Runtime = { composeStory: typeof ComposeStory; preview: Preview };
@@ -29,18 +29,15 @@ const modules = (() => {
 })();
 const sources = (() => {
   try {
-    return import.meta.glob("../../../../components/ui/*.tsx", { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
+    return import.meta.glob("../../../../components/ui/{*.tsx,*.ts,*/index.tsx}", { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
   } catch {
     return {};
   }
 })();
-const modulePortals = new WeakMap<StoryModule, boolean>();
+const modulePortals = new WeakMap<StoryModule, PortalRule>();
 
-async function loadPortalRule(key: string): Promise<boolean> {
-  const source = await sources[key]();
-  const paths = componentModulePaths(source, `components/ui/${key.split("/").at(-1)}`);
-  const components = await Promise.all(paths.map((path) => sources[`../../../../${path}`]()));
-  return components.some(rendersPortal);
+function loadPortalRule(key: string): Promise<PortalRule> {
+  return readPortalRule(key, sources);
 }
 let runtime: Runtime | undefined;
 let runtimeRequest: Promise<Runtime> | undefined;
@@ -93,6 +90,7 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
   if (cached) return cached;
   const meta = module.default ?? {};
   const component = meta as Parameters<typeof composeStory>[1];
+  const rule = modulePortals.get(module) ?? { portals: false, sourceReadable: false };
   const annotations = { ...preview, initialGlobals: { ...preview.initialGlobals, theme } };
   const exports = new Map(Object.entries(module).flatMap(([name, value]) => {
     if (name === "default" || !value || typeof value !== "object") return [];
@@ -103,7 +101,6 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
     const match = exports.get(entry.id);
     if (!match) return [];
     const { story, annotation } = match;
-    const pinned = { ...meta.globals, ...annotation.globals }.theme;
     return [{
       id: entry.id,
       name: entry.name,
@@ -111,9 +108,9 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
       argTypes: story.argTypes as Record<string, ArgType>,
       initialArgs: story.args,
       layout: typeof story.parameters.layout === "string" ? story.parameters.layout : "padded",
-      frame: frameReason(meta, annotation, modulePortals.get(module)),
-      portals: modulePortals.get(module) ?? false,
-      pinnedTheme: typeof pinned === "string" ? pinned : undefined,
+      frame: frameReason(meta, annotation, rule.portals, rule.sourceReadable),
+      portals: rule.portals || !rule.sourceReadable,
+      themePinned: hasPinnedTheme(meta, annotation),
     }];
   });
   byTheme.set(key, stories);

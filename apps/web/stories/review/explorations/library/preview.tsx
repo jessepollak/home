@@ -115,8 +115,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
       const doc = frame.current?.contentDocument;
       if (doc) {
         const load = generation.current;
-        const activate = () => {
-          if (generation.current === load && !interaction.current.annotating) interaction.current.onActivate?.();
+        const activate = (event: PointerEvent) => {
+          if (event.isTrusted && generation.current === load && !interaction.current.annotating) interaction.current.onActivate?.();
         };
         const escape = (event: KeyboardEvent) => {
           if (event.key !== "Escape") return;
@@ -127,11 +127,9 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
           });
         };
         doc.addEventListener("pointerdown", activate, true);
-        doc.addEventListener("focusin", activate, true);
         doc.addEventListener("keydown", escape);
         stopInteractions.current = () => {
           doc.removeEventListener("pointerdown", activate, true);
-          doc.removeEventListener("focusin", activate, true);
           doc.removeEventListener("keydown", escape);
         };
       }

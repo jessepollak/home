@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { frameReason, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import type { SheetStory } from "@/stories/review/explorations/library/stories";
 
@@ -30,7 +31,7 @@ const flush = () => act(async () => { await Promise.resolve(); });
 function story(id: string, Story: SheetStory["Story"], source = "", frame: SheetStory["frame"] = null): SheetStory {
   const portals = rendersPortal(source);
   return { id, name: id, Story, portals, frame: frame ?? frameReason({}, {}, portals),
-    argTypes: {}, initialArgs: {}, layout: "centered", pinnedTheme: undefined };
+    argTypes: {}, initialArgs: {}, layout: "centered", themePinned: false };
 }
 function sheet(stories: SheetStory[]) {
   const props = { root: null, component: "Fixture", changed: false, stories, theme: "light", focused: null,
@@ -50,6 +51,11 @@ function preview(iframe: HTMLIFrameElement, id: string) {
     __STORYBOOK_PREVIEW__: { currentRender, onUpdateGlobals: update, onUpdateArgs: update },
   } });
   return { complete: () => act(() => { complete?.(); complete = undefined; }) };
+}
+function trustedPointerDown(target: HTMLElement) {
+  const event = new PointerEvent("pointerdown", { bubbles: true });
+  Object.defineProperty(event, "isTrusted", { value: true });
+  fireEvent(target, event);
 }
 
 test("source-known portals never mount in the parent; unrelated nodes cannot frame plain neighbors", () => {
@@ -102,7 +108,7 @@ for (const portals of [true, false]) {
   });
 }
 
-test("child pointer/focus activates and only unconsumed Escape clears focus", async () => {
+test("only trusted child pointerdown activates; programmatic focus and untrusted events do not", async () => {
   const view = sheet([story("frame", () => null, "<Portal />")]);
   const activated: string[] = [];
   let escaped = 0;
@@ -112,9 +118,12 @@ test("child pointer/focus activates and only unconsumed Escape clears focus", as
   const doc = iframe.contentDocument!;
   const control = doc.createElement("button");
   doc.body.append(control);
+  control.focus();
   fireEvent.pointerDown(control);
   fireEvent.focusIn(control);
-  expect(activated).toEqual(["frame", "frame"]);
+  expect(activated).toEqual([]);
+  trustedPointerDown(control);
+  expect(activated).toEqual(["frame"]);
   const consume = (event: KeyboardEvent) => { if (event.key === "Escape") event.preventDefault(); };
   doc.addEventListener("keydown", consume);
   fireEvent.keyDown(control, { key: "Escape" });
@@ -126,10 +135,11 @@ test("child pointer/focus activates and only unconsumed Escape clears focus", as
   await flush();
   expect(escaped).toBe(1);
   view.update({ annotating: true });
+  trustedPointerDown(control);
   fireEvent.focusIn(control);
   fireEvent.keyDown(control, { key: "Escape" });
   await flush();
-  expect(activated).toHaveLength(2);
+  expect(activated).toHaveLength(1);
   expect(escaped).toBe(1);
 });
 
@@ -146,23 +156,60 @@ test("reload and unmount remove child listeners and fence pending Escape from th
   Object.defineProperty(replacement, "defaultView", { value: window });
   Object.defineProperty(iframe, "contentDocument", { configurable: true, value: replacement });
   fireEvent.load(iframe);
-  fireEvent.pointerDown(previous.body);
+  trustedPointerDown(previous.body);
   fireEvent.focusIn(previous.body);
   await flush();
   expect(activated).toBe(0);
   expect(escaped).toBe(0);
-  fireEvent.pointerDown(replacement.body);
+  trustedPointerDown(replacement.body);
   fireEvent.focusIn(replacement.body);
-  expect(activated).toBe(2);
+  expect(activated).toBe(1);
   fireEvent.keyDown(replacement.body, { key: "Escape" });
   view.unmount();
-  fireEvent.pointerDown(replacement.body);
+  trustedPointerDown(replacement.body);
   fireEvent.focusIn(replacement.body);
   fireEvent.keyDown(replacement.body, { key: "Escape" });
   await flush();
-  expect(activated).toBe(2);
+  expect(activated).toBe(1);
   expect(escaped).toBe(0);
   expect(callbacks.size).toBe(0);
+});
+
+test("a framed play focus preserves restored Default props until intentional activation", () => {
+  const stories = [story("default", ({ children }) => <button>{String(children)}</button>),
+    story("play", () => null, "", "Play function")];
+  const view = sheet(stories);
+  view.update({ focused: "default", focusedArgs: { children: "PERSISTED" },
+    onActivate: (id) => view.update({ focused: id, focusedArgs: null }) });
+  const iframe = view.getByTitle("Fixture · play") as HTMLIFrameElement;
+  fireEvent.load(iframe);
+  const control = iframe.contentDocument!.createElement("button");
+  iframe.contentDocument!.body.append(control);
+  act(() => control.focus());
+  expect(view.getByRole("button", { name: "PERSISTED" })).toBeTruthy();
+  expect(view.getByRole("button", { name: "default" }).getAttribute("aria-pressed")).toBe("true");
+  trustedPointerDown(control);
+  expect(view.getByRole("button", { name: "play" }).getAttribute("aria-pressed")).toBe("true");
+});
+
+test("JSX apostrophes do not let a portal escape into the Library document", () => {
+  const source = "const Content = () => <div>Don't miss <Primitive.Portal/> today's content</div>";
+  const Primitive = { Portal: () => createPortal(<p>Escaped overlay</p>, document.body) };
+  const Content = () => <div>{"Don't miss "}<Primitive.Portal />{" today's content"}</div>;
+  const view = sheet([story("apostrophe", Content, source)]);
+  expect(view.queryByText("Escaped overlay")).toBeNull();
+  expect(document.body.textContent).not.toContain("Escaped overlay");
+  expect(view.getByTitle("Fixture · apostrophe")).toBeTruthy();
+});
+
+test("hidden theme stories are disclosed once at the end of the sheet", () => {
+  const view = sheet([story("default", () => <p>Visible story</p>)]);
+  expect(view.queryByText(/theme-pinned/)).toBeNull();
+  view.update({ hiddenThemes: 2 });
+  expect(view.getByText("2 theme-pinned stories hidden · use Theme")).toBeTruthy();
+  expect(view.container.lastElementChild?.textContent).toBe("2 theme-pinned stories hidden · use Theme");
+  view.update({ hiddenThemes: 1 });
+  expect(view.getByText("1 theme-pinned story hidden · use Theme")).toBeTruthy();
 });
 
 test("a failed section recovers on args changes without remounting a healthy section", () => {

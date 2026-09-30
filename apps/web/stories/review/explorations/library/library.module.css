@@ -294,6 +294,12 @@
 .framePending {
   background: var(--muted);
 }
+.hiddenThemes {
+  margin: 0;
+  padding: 16px 20px 20px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
 .caption {
   flex: none;
   color: var(--muted-foreground);

@@ -1,7 +1,7 @@
 import "@/client/account/dom-test-harness";
 
 import { describe, expect, test } from "bun:test";
-import { componentModulePaths, frameReason, rendersPortal } from "@/stories/review/explorations/library/isolation";
+import { componentModulePaths, frameReason, hasPinnedTheme, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import {
   createFrameSlots, fittedFrameHeight, restoredFocus, toggleFocus,
 } from "@/stories/review/explorations/library/sheet-state";
@@ -23,25 +23,30 @@ describe("section isolation rules", () => {
     expect(frameReason({ beforeEach: () => undefined }, { play })).toBe("Setup hook");
     expect(frameReason({}, { play })).toBe("Play function");
     expect(frameReason({ play }, {})).toBe("Play function");
-    expect(frameReason({}, { globals: { theme: "dark" } })).toBe("Pinned globals");
+    expect(frameReason({}, { globals: { locale: "en" } })).toBe("Pinned globals");
+    expect(frameReason({ globals: { theme: "dark" } }, {})).toBeNull();
+    expect(frameReason({}, { globals: { theme: "dark" } })).toBeNull();
+    expect(frameReason({ globals: { locale: "en", theme: "dark" } }, {})).toBe("Pinned globals");
     expect(frameReason({ args: { defaultOpen: true } }, {})).toBe("Opens an overlay");
     expect(frameReason({}, { args: { open: true } })).toBe("Opens an overlay");
     expect(frameReason({ args: { open: true } }, { args: { open: false } })).toBeNull();
   });
 
-  test("portal detection recognizes JSX wrappers, namespace portals and createPortal calls", () => {
+  test("raw source detection conservatively frames portal text, comments and wrappers", () => {
     for (const source of [
       "const Content = () => <DialogPrimitive.Portal><Popup /></DialogPrimitive.Portal>",
       "const Content = () => <DrawerPortal />",
       "const Content = () => <Portal />",
       "const Content = () => createPortal(children, document.body)",
       "const Content = () => ReactDOM.createPortal(children, document.body)",
-    ]) expect(rendersPortal(source)).toBe(true);
-    for (const source of [
-      "const Content = () => <Button>Continue</Button>",
+      "const Content = () => <div>Don't miss <Primitive.Portal/> today's content</div>",
+      'const label = "Portal";',
       '// <Portal />\n/* createPortal(children, document.body) */',
       'const label = "<Portal />"; const tooltip = `createPortal()`;',
       "type Props = Primitive.Portal.Props; const Portal = 'placeholder'",
+    ]) expect(rendersPortal(source)).toBe(true);
+    for (const source of [
+      "const Content = () => <Button>Continue</Button>",
     ]) expect(rendersPortal(source)).toBe(false);
   });
 
@@ -54,8 +59,20 @@ describe("section isolation rules", () => {
       import { Modal } from '@/client/money-modal';
       import type { Props } from './unused';
     `, "components/ui/drawer.stories.tsx")).toEqual([
-      "components/ui/drawer.tsx", "components/ui/button.tsx", "components/ui/dialog.tsx",
+      "components/ui/drawer", "components/ui/button", "components/ui/dialog.tsx",
     ]);
+  });
+
+  test("theme pins at either annotation level are hidden, including when a story overrides meta", () => {
+    expect(hasPinnedTheme({}, {})).toBe(false);
+    expect(hasPinnedTheme({}, { globals: { locale: "en" } })).toBe(false);
+    expect(hasPinnedTheme({}, { globals: { theme: "dark" } })).toBe(true);
+    expect(hasPinnedTheme({ globals: { theme: "dark" } }, {})).toBe(true);
+    expect(hasPinnedTheme({ globals: { theme: "dark" } }, { globals: { theme: "light" } })).toBe(true);
+    const stories = [{ id: "default", annotation: {} }, { id: "dark", annotation: { globals: { theme: "dark" } } }];
+    const visible = stories.filter((story) => !hasPinnedTheme({}, story.annotation)).map((story) => story.id);
+    expect(restoredFocus("dark", visible)).toBeNull();
+    expect(restoredFocus("default", visible)).toBe("default");
   });
 
   test("per-story render overrides win over portal detection but not existing isolation rules", () => {
@@ -65,6 +82,9 @@ describe("section isolation rules", () => {
     expect(frameReason({}, { parameters: { library: { render: "invalid" } } }, true)).toBe("Portals outside the sheet");
     expect(frameReason({ parameters: { library: { render: "document" } } }, {}, true)).toBe("Portals outside the sheet");
     expect(frameReason({}, { play: () => {}, parameters: { library: { render: "document" } } }, true)).toBe("Play function");
+    expect(frameReason({}, {}, false, false)).toBe("Couldn't read component source");
+    expect(frameReason({}, { parameters: { library: { render: "document" } } }, false, false))
+      .toBe("Couldn't read component source");
   });
 });
 

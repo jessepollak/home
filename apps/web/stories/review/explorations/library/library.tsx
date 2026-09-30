@@ -100,7 +100,9 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   const item = catalog.items[position];
   const entries = useMemo(() => componentStories(index, item.title), [index, item.title]);
   const { module, failed } = useStoryModule(entries[0]?.importPath);
-  const stories = useMemo(() => module ? sheetStories(module, entries, theme) : null, [module, entries, theme]);
+  const allStories = useMemo(() => module ? sheetStories(module, entries, theme) : null, [module, entries, theme]);
+  const stories = useMemo(() => allStories?.filter((story) => !story.themePinned) ?? null, [allStories]);
+  const hiddenThemes = allStories ? allStories.length - (stories?.length ?? 0) : 0;
   const focused = stories ? restoredFocus(focus ?? undefined, stories.map((story) => story.id)) : focus;
   const focusedStory = stories?.find((story) => story.id === focused);
   const controls = useMemo(() => focusedStory ? propControls(focusedStory.argTypes, focusedStory.initialArgs) : null,
@@ -175,7 +177,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
           {stories ? <VariantSheet key={item.id} root={root} component={item.name} changed={item.changed}
             stories={stories} theme={theme} focused={focused} focusedArgs={args} annotating={annotating}
-            frameSource={frameSource} onToggle={toggle} onActivate={activate}
+            hiddenThemes={hiddenThemes} frameSource={frameSource} onToggle={toggle} onActivate={activate}
             onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} /> :
             <p className={styles.sectionMessage} role={failed ? "alert" : "status"}>
               {failed ? `Couldn't load ${item.name}'s stories. Reload to try again.` : `Loading ${item.name}…`}

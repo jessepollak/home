@@ -97,17 +97,18 @@ function QueuedFrame({ slots, busy, story, component, changed, theme, args, anno
       Queued {story.name}…
     </div>;
   }
-  return <FrameSection target={target} theme={story.pinnedTheme ?? theme} args={args} annotating={annotating}
+  return <FrameSection target={target} theme={theme} args={args} annotating={annotating}
     frameSource={frameSource} viewport={viewport} onSettled={() => release.current?.()} onRendered={measure}
     onActivate={onActivate} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />;
 }
 
-export function VariantSheet({ root, component, changed, stories, theme, focused, focusedArgs, annotating, frameSource,
+export function VariantSheet({ root, component, changed, stories, hiddenThemes = 0, theme, focused, focusedArgs, annotating, frameSource,
   onToggle, onActivate, onEscape, onExitAnnotate }: {
   root: HTMLElement | null;
   component: string;
   changed: boolean;
   stories: SheetStory[];
+  hiddenThemes?: number;
   theme: string;
   focused: string | null;
   focusedArgs: Record<string, unknown> | null;
@@ -151,5 +152,7 @@ export function VariantSheet({ root, component, changed, stories, theme, focused
         aria-label={`${component} · ${story.name}`}
         onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); onExitAnnotate(); } }} />}
     </section>;
-  })}</>;
+  })}{hiddenThemes > 0 && <p className={styles.hiddenThemes}>
+    {hiddenThemes} theme-pinned {hiddenThemes === 1 ? "story" : "stories"} hidden · use Theme
+  </p>}</>;
 }
