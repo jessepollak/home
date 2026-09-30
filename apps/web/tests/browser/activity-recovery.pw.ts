@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, RECIPIENT, seedSignedInSession } from "./fixtures/api";
+import { requestBackgroundRevalidation } from "./fixtures/background-revalidation";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 
@@ -97,8 +98,7 @@ test("background revalidation keeps loaded rows when onchain history is briefly 
   await page.goto("/home");
   await expect(rows).toHaveCount(3);
   await page.clock.fastForward(11_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-  await expect.poll(() => reads).toBeGreaterThan(1);
+  await requestBackgroundRevalidation(page, () => reads, 1);
   await page.clock.runFor(2_500);
   await expect(rows).toHaveCount(3);
   await expect(feed.getByText(warning)).toHaveCount(0);

@@ -74,6 +74,7 @@
     "server/funding/core/testing/**",
     "client/account/dom-test-harness.ts",
     "shared/balances/fixtures.ts",
+    "oxlint/tests/rule-check-timeout.mjs",
     // Deferred to #594: root layout will consume the brand resolver.
     "server/operator-settings/brand.ts",
     // Deferred to #686: home and activity surfaces still carry exports that

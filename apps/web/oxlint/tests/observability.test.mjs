@@ -1,14 +1,17 @@
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
 const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-observability-"));
 await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
 await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
+
 afterAll(() => rm(mirror, { recursive: true, force: true }));
 
 let fixtureIndex = 0;
