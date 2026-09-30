@@ -150,6 +150,11 @@ export const Workspace: Story = {
     await userEvent.keyboard("{Enter}");
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
     await expect(canvas.getByTitle("Button · Default")).not.toHaveAttribute("inert");
+    await userEvent.click(annotate);
+    await expect(annotate).toHaveAttribute("aria-pressed", "true");
+    canvas.getByRole("button", { name: "Button · Default · Changed · 390 × 844" }).focus();
+    await userEvent.keyboard(" ");
+    await expect(annotate).toHaveAttribute("aria-pressed", "false");
   },
 };
 

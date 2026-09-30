@@ -181,6 +181,6 @@ export function LibraryPreview({ item, theme, args, annotating, frameSource, sca
     data-annotating={annotating || undefined}>
     <LiveFrame position={position} metric={metric} loaded active={!annotating} frameSource={frameSource}
       scale={scale} frameRef={frame} onMark={mark} onFinish={finish} onCancel={cancel}
-      onSelect={noop} onFit={noop} onInteract={onExitAnnotate} />
+      onSelect={noop} onFit={onExitAnnotate} onInteract={onExitAnnotate} />
   </div>;
 }
