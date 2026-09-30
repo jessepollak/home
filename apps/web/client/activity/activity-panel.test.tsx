@@ -12,6 +12,7 @@ import {
   type ActivityResponse,
 } from "@/shared/activity/contract";
 import type { FetchActivity } from "./types";
+import type { RetrySchedule } from "./use-activity";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
@@ -27,11 +28,13 @@ function ActivityPanel({
   fetchActivity,
   fetchOperations = noOperations,
   density = "page",
+  scheduleContinuationRetry,
 }: {
   session: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
   density?: "page" | "feed";
+  scheduleContinuationRetry?: RetrySchedule;
 }) {
   return (
     <ConnectedActivityPanel
@@ -40,6 +43,7 @@ function ActivityPanel({
       fetchActivity={fetchActivity}
       fetchOperations={fetchOperations}
       regionId="US"
+      scheduleContinuationRetry={scheduleContinuationRetry}
     />
   );
 }
@@ -232,6 +236,25 @@ function installControlledObserver() {
 
 function requestedCursors(queries: readonly string[]): (string | null)[] {
   return queries.map((query) => new URLSearchParams(query).get("cursor"));
+}
+
+function queuedContinuationRetry() {
+  const delays: number[] = [];
+  const queued: (() => void)[] = [];
+  const schedule = (run: () => void, delayMs: number) => {
+    delays.push(delayMs);
+    queued.push(run);
+    return () => {
+      const index = queued.indexOf(run);
+      if (index >= 0) queued.splice(index, 1);
+    };
+  };
+  const runNext = async () => {
+    const run = queued.shift();
+    if (!run) throw new Error("no continuation retry is scheduled");
+    await act(async () => { run(); });
+  };
+  return { delays, queued, runNext, schedule };
 }
 
 async function waitForSentinel() {
@@ -786,10 +809,12 @@ describe("ConnectedActivityPanel", () => {
 
   test("keeps rows and the list node while retrying the exact cursor after automatic retries fail", async () => {
     installControlledObserver();
+    const retries = queuedContinuationRetry();
     const queries: string[] = [];
     const view = render(
       <ActivityPanel
         session={session("subject-a", WALLET_A)}
+        scheduleContinuationRetry={retries.schedule}
         fetchActivity={async (query) => {
           queries.push(query);
           if (queries.length === 1) {
@@ -817,9 +842,14 @@ describe("ConnectedActivityPanel", () => {
 
     const observer = await waitForSentinel();
     act(() => observer.intersect());
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
     const retry = await waitFor(() =>
       view.getByRole("button", { name: "Try again" }), waitedFor,
     );
+    expect(retries.delays).toEqual([1_000, 3_000]);
     const list = view.getByRole("list");
     expect(view.getByText("More activity could not be loaded. Your current results are unchanged.")).toBeTruthy();
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
@@ -890,10 +920,12 @@ describe("ConnectedActivityPanel", () => {
 
   test("rejects a repeated cursor without a request storm and offers only Retry", async () => {
     installControlledObserver();
+    const retries = queuedContinuationRetry();
     const queries: string[] = [];
     const view = render(
       <ActivityPanel
         session={session("subject-a", WALLET_A)}
+        scheduleContinuationRetry={retries.schedule}
         fetchActivity={async (query) => {
           queries.push(query);
           if (queries.length === 1) {
@@ -914,9 +946,48 @@ describe("ConnectedActivityPanel", () => {
 
     const observer = await waitForSentinel();
     act(() => observer.intersect());
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
     await waitFor(() => expect(view.getByRole("button", { name: "Try again" })).toBeTruthy(), waitedFor);
+    expect(retries.delays).toEqual([1_000, 3_000]);
     expect(requestedCursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
     expect(view.queryByText("End of activity")).toBeNull();
+  });
+
+  test("cancels the scheduled continuation retry when the sentinel leaves the viewport", async () => {
+    installControlledObserver();
+    const retries = queuedContinuationRetry();
+    const queries: string[] = [];
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        scheduleContinuationRetry={retries.schedule}
+        fetchActivity={async (query) => {
+          queries.push(query);
+          if (queries.length === 1) {
+            return pageFor(query, WALLET_A, {
+              id: "event-1",
+              blockNumber: "20",
+              nextCursor: "cursor-1",
+            });
+          }
+          throw new Error("later page unavailable");
+        }}
+      />,
+    );
+
+    const observer = await waitForSentinel();
+    act(() => observer.intersect());
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    expect(retries.delays).toEqual([1_000]);
+
+    act(() => observer.leave());
+    await waitFor(() => expect(retries.queued).toHaveLength(0));
+    expect(requestedCursors(queries)).toEqual([null, "cursor-1"]);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
+    expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });
