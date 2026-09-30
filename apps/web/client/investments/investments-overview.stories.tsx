@@ -63,8 +63,11 @@ async function assertSnapshot(element: HTMLElement, snapshot: BalancesSnapshot) 
   const rows = selectOwnedInvestments(snapshot);
   const region = canvas.queryByRole("region", { name: "Your investments" });
   if (!rows.length) { await expect(region).toBeNull(); return; }
-  const items = within(region!).getAllByRole("listitem");
-  await expect(items).toHaveLength(Math.min(20, rows.length));
+  const items = await waitFor(() => {
+    const rendered = within(region!).getAllByRole("listitem");
+    expect(rendered).toHaveLength(Math.min(20, rows.length));
+    return rendered;
+  });
   for (const [index, row] of rows.slice(0, 20).entries()) {
     await expect(items[index]).toHaveTextContent(row.holding.name || row.holding.symbol);
     await expect(within(items[index]!).getByRole("button").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -81,9 +84,10 @@ async function assertSnapshot(element: HTMLElement, snapshot: BalancesSnapshot) 
 }
 async function revealAll(element: HTMLElement) {
   const items = () => within(screen(element).getByRole("region", { name: "Your investments" })).getAllByRole("listitem");
-  items()[19]!.scrollIntoView();
+  await waitFor(() => expect(items()).toHaveLength(20));
+  items()[19]!.scrollIntoView({ block: "center", behavior: "instant" });
   await waitFor(() => expect(items()).toHaveLength(40));
-  items()[39]!.scrollIntoView();
+  items()[39]!.scrollIntoView({ block: "center", behavior: "instant" });
   await waitFor(() => expect(items()).toHaveLength(60));
   return items();
 }
