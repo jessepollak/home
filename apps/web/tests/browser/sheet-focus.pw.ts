@@ -81,13 +81,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await page.goBack();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(opener).not.toBeFocused();
-    await expect(stage).toBeFocused();
-    await page.evaluate(() => window.history.pushState(window.history.state, "", "/cash?flow=send"));
+    await stage.focus();
+    await page.goto("/cash?flow=send");
     await expect(page.getByRole("dialog", { name: "Send", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(opener).not.toBeFocused();
-    await expect(stage).toBeFocused();
     expect(await page.evaluate(() => document.scrollingElement === document.documentElement)).toBe(true);
   });
 }

@@ -249,13 +249,13 @@ function DashboardShellBody({
     pendingOriginRef.current = target.pathname === window.location.pathname || targetPanel === "home" || targetPanel === "invest"
       ? null : { origin: window.location.pathname, target: target.pathname };
     router.push(href);
-  }, [router]);
+  }, [router, setFlowOrigin, setAccountOpener]);
   const leaveRoute = useCallback((href: string) => {
     setFlowOrigin(null);
     setAccountOpener(null);
     if (readShellHistoryOrigin() !== null) router.back();
     else router.replace(href);
-  }, [router]);
+  }, [router, setFlowOrigin, setAccountOpener]);
 
   const navigateTo = useCallback((panel: ShellPanelId) => {
     setFlowOrigin(null);
@@ -271,7 +271,7 @@ function DashboardShellBody({
     const href = shellHref({ panel });
     if (window.location.pathname === href) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     if (`${window.location.pathname}${window.location.search}` !== href) pushRoute(href);
-  }, [pushRoute, activeNavigation, setUrlSearchOverride]);
+  }, [pushRoute, activeNavigation, setUrlSearchOverride, setFlowOrigin, setAccountOpener]);
   const setFlow = useCallback((flow: ShellFlow, options: { actionId?: string | null; mode?: "push" | "replace"; opener?: HTMLElement | null } = {}) => {
     const href = flowHref(window.location.pathname, flow, options.actionId ?? null,
       new URLSearchParams(window.location.search));
@@ -284,7 +284,7 @@ function DashboardShellBody({
         (flow === "save-deposit" || flow === "save-withdraw"),
     }, "");
     return pushed;
-  }, [setUrlSearchOverride]);
+  }, [setUrlSearchOverride, setFlowOrigin]);
   const clearFlow = useCallback((options: {
     mode?: "push" | "replace"; fundingReturn?: boolean; normalizeInbound?: boolean;
   } = {}) => {
@@ -299,7 +299,7 @@ function DashboardShellBody({
     if (options.fundingReturn) { next.searchParams.delete("return"); next.searchParams.delete("add-money"); }
     commitClientUrl(`${next.pathname}${next.search}`, options.mode ?? "replace");
     setUrlSearchOverride(next.search);
-  }, [overlay.flow, setUrlSearchOverride]);
+  }, [overlay.flow, setUrlSearchOverride, setFlowOrigin]);
   const openCashSavings = () => {
     pushRoute(shellHref({ panel: "cash", cashView: "savings" }));
   };
