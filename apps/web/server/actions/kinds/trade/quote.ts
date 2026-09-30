@@ -105,8 +105,8 @@ function parseExecution(data: Hex): { recipient: Address; buyToken: Address; min
   const n = Number(count);
   const bodyStart = 196;
   let cursor = bodyStart + n * 32;
-  const actions: Hex[] = Array(n);
-  const actionOffsets: number[] = Array(n);
+  const actions = Array<Hex>(n);
+  const actionOffsets = Array<number>(n);
   for (let index = 1; index < n; index++) {
     const offset = word(data, bodyStart + index * 32);
     if (offset !== BigInt(cursor - bodyStart)) throw new Error("invalid element offset");

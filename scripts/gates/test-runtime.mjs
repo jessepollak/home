@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const TEST_SECONDS = 5;
@@ -193,7 +193,7 @@ export function buildRuntimeReport(timings, current, base) {
   const old = base === undefined ? null : validateAllowlist(base);
   const findings = [...checked.findings];
   const notes = old?.findings.length ? [`Base allowlist unavailable or invalid: ${old.findings.join(" ")}`] : [];
-  const previousAllowlist = old && !old.findings.length ? old.allowlist : null;
+  const previousAllowlist = old && !old.findings.length && !checked.findings.length ? old.allowlist : null;
   const measuredTests = timings?.tests ?? [];
   const measuredFiles = timings?.files ?? [];
   const testFileEntries = new Map(checked.allowlist.testFiles.map((entry) => [entry.file, entry]));
@@ -251,6 +251,10 @@ function git(args) {
   return result.stdout.trim();
 }
 
+function cwdRelativeAllowlistPath(allowlistPath) {
+  return relative(process.cwd(), join(realpathSync(dirname(allowlistPath)), basename(allowlistPath)));
+}
+
 export function readBaseAllowlist(baseRef = "main", allowlistPath = ALLOWLIST_PATH, gitRunner = git) {
   const notes = [];
   if (baseRef.startsWith("-")) throw new Error(`Invalid base ref: ${baseRef}`);
@@ -266,7 +270,7 @@ export function readBaseAllowlist(baseRef = "main", allowlistPath = ALLOWLIST_PA
     }
   }
   if (!gitRunner(["ls-tree", "--name-only", base, "--", allowlistPath])) return { allowlist: emptyAllowlist(), notes };
-  return { allowlist: JSON.parse(gitRunner(["show", `${base}:${allowlistPath}`])), notes };
+  return { allowlist: JSON.parse(gitRunner(["show", `${base}:./${allowlistPath}`])), notes };
 }
 
 export function run(argv = process.argv.slice(2), env = process.env) {
@@ -292,7 +296,7 @@ export function run(argv = process.argv.slice(2), env = process.env) {
   catch (error) { findings.push(`Allowlist unavailable or invalid: ${error.message}`); }
   let base;
   try {
-    const result = readBaseAllowlist(env.BASE_REF || "main");
+    const result = readBaseAllowlist(env.BASE_REF || "main", cwdRelativeAllowlistPath(options["--allowlist"]));
     base = result.allowlist;
     notes.push(...result.notes);
   } catch (error) { notes.push(`Base allowlist unavailable or invalid: ${error.message}`); }

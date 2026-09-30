@@ -248,6 +248,7 @@ export function BorrowMoneyFlow({
         return;
       }
       void queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, "borrow") });
+      void queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, "borrow-market") });
       setSubmittedAt(new Date().toISOString());
       setSubmission("submitted");
       setStep("result");

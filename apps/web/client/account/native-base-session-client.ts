@@ -1,3 +1,4 @@
+import { readJson } from "@/shared/http/read-json";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import {
@@ -22,7 +23,7 @@ async function readSessionResponse(
   if (!response.ok) throw new Error("Native Base authentication failed.");
   let value: unknown;
   try {
-    value = await response.json();
+    value = await readJson(response);
   } catch {
     throw new Error("Native Base authentication failed.");
   }
@@ -78,7 +79,7 @@ export async function requestNativeBaseChallenge(
     throw new Error("Deployment access is required.");
   }
   if (!response.ok) throw new Error("Native Base authentication failed.");
-  const value = parseNativeBaseChallenge(await response.json().catch(() => null));
+  const value = parseNativeBaseChallenge(await readJson(response).catch(() => null));
   if (!value) throw new Error("Native Base authentication failed.");
   return value;
 }

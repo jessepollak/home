@@ -1,3 +1,4 @@
+import { readJson } from "@/shared/http/read-json";
 import { recordAuthDiagnostic } from "./auth-diagnostics";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
@@ -122,10 +123,12 @@ export async function validateAccountSession(
   }
 
   if (response.status === 403) {
-    const failure = await response.json().catch(() => null) as {
-      error?: { code?: unknown };
-    } | null;
-    if (failure?.error?.code === "BASE_ACCOUNT_DISABLED") {
+    const failure = await readJson(response).catch(() => null);
+    if (
+      typeof failure === "object" && failure !== null && "error" in failure &&
+      typeof failure.error === "object" && failure.error !== null && "code" in failure.error &&
+      failure.error.code === "BASE_ACCOUNT_DISABLED"
+    ) {
       throw new SessionValidationError("provider-disabled");
     }
   }
@@ -136,7 +139,7 @@ export async function validateAccountSession(
 
   let payload: unknown;
   try {
-    payload = await response.json();
+    payload = await readJson(response);
   } catch {
     recordAuthDiagnostic({ kind: "session", outcome: "invalid-json" });
     throw new SessionValidationError("invalid-response");

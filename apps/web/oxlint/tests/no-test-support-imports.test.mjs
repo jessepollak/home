@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { budgetMs } from "./helpers/oxlint-workspace.mjs";
 applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
@@ -41,14 +42,14 @@ describe("no-test-support-imports", () => {
   it("ignores checkout ancestry while rejecting test-support paths", async () => {
     expect(await lintTestFile("client/clean-relative.ts", 'export * from "./live";')).toHaveLength(0);
     expect(await lintTestFile("client/leak.ts", 'export * from "../../tests/helper";')).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("normalizes alias traversal and backslashes beneath a testing ancestor", async () => {
     expect(await lintTestFile("client/alias-traversal.ts", 'export * from "@/tests/../client/live";')).toHaveLength(0);
     expect(await lintTestFile("client/windows.ts", 'export type Helper = import("..\\\\tests\\\\helper").Helper;')).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("rejects test-harness targets beneath a testing ancestor", async () => {
     expect(await lintTestFile("client/harness-consumer.ts", 'export * from "./probe-test-harness";')).toHaveLength(1);
-  });
+  }, budgetMs);
 });

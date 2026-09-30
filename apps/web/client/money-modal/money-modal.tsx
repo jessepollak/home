@@ -19,6 +19,8 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 
+const isSizeArray: (value: readonly ResizeObserverSize[] | ResizeObserverSize | undefined) => value is readonly ResizeObserverSize[] = Array.isArray;
+
 const MoneyModalPendingContext = createContext({ pending: false, register: (_id: symbol, _pending: boolean) => {} });
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
 const MoneyModalExitContext = createContext<() => void>(() => {});
@@ -130,7 +132,7 @@ function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carrie
     const observer = !popup || typeof ResizeObserver === "undefined" ? null : new ResizeObserver((entries) => {
       if (track.animation) return;
       const box = entries[0]?.borderBoxSize;
-      const measuredHeight = (Array.isArray(box) ? box[0] : box)?.blockSize ?? popup.offsetHeight;
+      const measuredHeight = (isSizeArray(box) ? box[0] : box)?.blockSize ?? popup.offsetHeight;
       if (!previous.current || track.last === 0) {
         track.last = measuredHeight;
         return;

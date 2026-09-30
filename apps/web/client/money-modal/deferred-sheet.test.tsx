@@ -340,7 +340,7 @@ describe("deferSheet", () => {
   });
 
   test.each(["deferred", "standalone"])("%s sheet retains its activation-bound opener when an opening transition suspends and retries", async (kind) => {
-    let release!: () => void;
+    let release: () => void = () => { throw new Error("Suspense gate is not initialized"); };
     let ready = false;
     const openingRenders: boolean[] = [];
     const pending = new Promise<void>((resolve) => { release = () => { ready = true; resolve(); }; });
@@ -387,7 +387,7 @@ describe("deferSheet", () => {
   });
 
   test("returns focus to the opener when the drawer mounts already open after focus moved outside", async () => {
-    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    let resolve: (component: ComponentType<LoadingProps>) => void = () => { throw new Error("Sheet loader has not started"); };
     const Sheet = deferSheet<LoadingProps>(() => new Promise((done) => { resolve = done; }));
     function Journey() {
       const [open, setOpen] = useState(false);
@@ -439,7 +439,7 @@ describe("deferSheet", () => {
   });
 
   test("returns focus to a non-button opener when the drawer mounts already open", async () => {
-    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    let resolve: (component: ComponentType<LoadingProps>) => void = () => { throw new Error("Sheet loader has not started"); };
     const Sheet = deferSheet<LoadingProps>(() => new Promise((done) => { resolve = done; }));
     function Journey() {
       const [open, setOpen] = useState(false);
@@ -521,7 +521,7 @@ describe("deferSheet", () => {
           </MoneyModal>;
           return source === "context" ? <NullContext open={false} opener={null}>{sheet}</NullContext> : sheet;
         }
-        let resolve!: (component: ComponentType<LoadingProps>) => void;
+        let resolve: (component: ComponentType<LoadingProps>) => void = () => { throw new Error("Sheet loader has not started"); };
         const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
         if (preloaded) {
           const pending = Sheet.preload();
@@ -606,7 +606,7 @@ describe("deferSheet", () => {
     });
     let attachments = 0;
     let detachments = 0;
-    let release!: () => void;
+    let release: () => void = () => { throw new Error("Suspense gate is not initialized"); };
     let ready = false;
     const pending = new Promise<void>((resolve) => { release = () => { ready = true; resolve(); }; });
     function Gate({ suspend }: { suspend: boolean }) {
@@ -652,7 +652,7 @@ describe("deferSheet", () => {
   test("same-task unrelated clicks do not become a programmatic sibling sheet's opener", async () => {
     const sheets = [delayedSheet(async () => FocusSheet), delayedSheet(async () => FocusSheet)];
     await Promise.all(sheets.map((Sheet) => Sheet.preload()));
-    const control: { open?: (index: number | null) => void } = {};
+    const control = { open: (_index: number | null): void => { throw new Error("Sheet controls are not initialized"); } };
     render(<FocusSessions sheets={sheets.map((Sheet, index) => ({ id: String(index), Sheet }))} onReady={(open) => { control.open = open; }} />);
     const unrelated = visibleOpener(page().getByRole("button", { name: "Unrelated" }));
     const main = page().getByRole("main");
@@ -660,7 +660,7 @@ describe("deferSheet", () => {
       unrelated.focus();
       fireEvent.click(unrelated);
       main.focus();
-      control.open!(1);
+      control.open(1);
     });
     const dialog = await page().findByRole("dialog", { name: "Loaded money sheet" });
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
@@ -672,7 +672,7 @@ describe("deferSheet", () => {
   test("programmatic reopen replaces the previous interactive session and sibling captures", async () => {
     const sheets = [delayedSheet(async () => FocusSheet), delayedSheet(async () => FocusSheet)];
     await Promise.all(sheets.map((Sheet) => Sheet.preload()));
-    const control: { open?: (index: number | null) => void } = {};
+    const control = { open: (_index: number | null): void => { throw new Error("Sheet controls are not initialized"); } };
     render(<FocusSessions sheets={sheets.map((Sheet, index) => ({ id: String(index), Sheet }))} onReady={(open) => { control.open = open; }} />);
     const trigger = visibleOpener(page().getByRole("button", { name: "Open sheet 0" }));
     await act(async () => fireEvent.click(trigger));
@@ -681,7 +681,7 @@ describe("deferSheet", () => {
     await waitFor(() => expect(document.activeElement).toBe(trigger));
     for (const index of [0, 1]) {
       page().getByRole("main").focus();
-      await act(async () => control.open!(index));
+      await act(async () => control.open(index));
       const dialog = await page().findByRole("dialog", { name: "Loaded money sheet" });
       await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
       await act(async () => fireEvent.click(page().getByRole("button", { name: "Close loaded sheet" })));
@@ -706,7 +706,7 @@ describe("deferSheet", () => {
   });
 
   test("loading cancellation and delayed handoff replace the opener on a later session", async () => {
-    let resolve!: (component: ComponentType<LoadingProps>) => void;
+    let resolve: (component: ComponentType<LoadingProps>) => void = () => { throw new Error("Sheet loader has not started"); };
     const Sheet = delayedSheet(() => new Promise((done) => { resolve = done; }));
     render(<FocusSessions sheets={[{ id: "first", Sheet }, { id: "second", Sheet }]} />);
     const first = visibleOpener(page().getByRole("button", { name: "Open sheet 0" }));

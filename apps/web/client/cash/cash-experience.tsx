@@ -20,7 +20,7 @@ import { browserHomeQueryClient, getHomeQueryClient, useHomeQueryClient } from "
 import { queryViewState } from "@/client/query/query-view-state";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry, type SavingsJourneyProps } from "@/client/savings/savings-actions";
+import { preloadSavingsJourneyStep, SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry, type SavingsJourneyProps } from "@/client/savings/savings-actions";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
 import { invalidateAfterAction } from "@/client/query/after-action";
@@ -936,6 +936,7 @@ export function CashExperience({
           actionsAvailable={Boolean(session?.smartAccount)}
           onStartSaving={startSaving}
           onDepositVault={(candidate, element) => open("deposit", candidate, element)}
+          onDepositIntent={() => void preloadSavingsJourneyStep()}
           onManageVault={openManagement}
           onRetryVaults={() => void query.refetch()}
           onRetryBalances={onRetryBalances}

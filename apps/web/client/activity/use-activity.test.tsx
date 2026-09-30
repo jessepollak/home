@@ -1,7 +1,7 @@
 import "../account/dom-test-harness";
 
 import { clearOwnerQueryBoundary, getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActivityPage, ActivityTransfer, FetchActivity } from "./types";
 import {
@@ -170,7 +170,7 @@ function HookHarness({
   regionId?: RegionId;
   scheduleValuationRetry?: (run: () => void, delayMs: number) => () => void;
 }) {
-  const activity = useActivity(owner, fetchActivity, regionId, scheduleValuationRetry);
+  const activity = useActivity(owner, fetchActivity, regionId, { scheduleValuationRetry });
   return (
     <div>
       <output data-testid={`${testId}status`}>{activity.status}</output>
@@ -210,10 +210,10 @@ function HookHarness({
 }
 
 afterEach(() => {
-  jest.useRealTimers();
   notifyManager.setScheduler(defaultScheduler);
   cleanup();
   getHomeQueryClient().clear();
+  jest.useRealTimers();
 });
 
 describe("useActivity pagination", () => {
@@ -1141,6 +1141,10 @@ describe("mounted first-page recovery with an empty cache", () => {
 });
 
 describe("after-action activity windows", () => {
+  beforeEach(() => {
+    notifyManager.setScheduler((callback) => queueMicrotask(callback));
+  });
+
   for (const requestKind of ["after-action", "pull"] as const) {
     test.each([0, 1, 2, 3, 4, 5, 6])(`services a ${requestKind} request after %s settling microtasks`, async (gap) => {
       jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });

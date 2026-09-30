@@ -418,7 +418,7 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
     if (!key || !overview.data) return;
     for (const opportunity of overview.data.opportunities) {
       if (opportunity.availability.status !== "available") continue;
-      const detailKey = ownerQueryKey(key, "borrow", "detail", opportunity.market.id);
+      const detailKey = ownerQueryKey(key, "borrow-market", opportunity.market.id);
       if ((queryClient.getQueryState(detailKey)?.dataUpdatedAt ?? 0) > overview.dataUpdatedAt) continue;
       queryClient.setQueryData(detailKey, opportunity.availability.snapshot);
     }
@@ -431,8 +431,8 @@ function useBorrowDetail(session: VerifiedAccountSession | null, marketId: Borro
   const key = session?.smartAccount ? ownerDataKey(session) : null;
   return useHomeQuery(ownerQuery<BorrowMarketSnapshot>({
     owner: key && marketId ? key : null,
-    scope: "borrow",
-    key: key && marketId ? ["detail", marketId] : [],
+    scope: "borrow-market",
+    key: key && marketId ? [marketId] : [],
     enabled: Boolean(enabled && marketId && key && owner && fetchAccountResource),
     retry: false,
     refetchOnWindowFocus: true,

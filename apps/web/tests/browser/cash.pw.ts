@@ -6,6 +6,7 @@ import { buildBalancesSnapshotFixture, ready, priced, pricedCash } from "../../s
 import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "../../shared/trading/cash-conversion";
 import { canonicalUsdcAsset, verifiedLocalCashAssets } from "../../config/portfolio-assets";
 import { preparedConversionFixture } from "./feature-map/conversion-fixture";
+import { deferred } from "../helpers/async";
 
 test("warm Cash and Home paint with deferred API reads and restore Home scroll", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -73,8 +74,8 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
 
   await main.hover();
   await page.mouse.wheel(0, 60);
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  const offset = await main.evaluate((element) => element.scrollTop);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const offset = await page.evaluate(() => window.scrollY);
   let release!: () => void;
   const deferred = new Promise<void>((resolve) => { release = resolve; });
   const holdApi = async (route: Route) => {
@@ -89,9 +90,9 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
       await expect(money).toBeVisible();
       await expect(activity).not.toHaveAttribute("aria-busy", "true");
       await expect(rows.first()).toBeVisible();
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeGreaterThanOrEqual(offset - 2);
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeLessThanOrEqual(offset + 2);
     };
     const expectCashPainted = async () => {
@@ -144,6 +145,124 @@ test("Cash routes from Home through Savings and restores focus on Back", async (
   await expect(savings).toBeFocused();
   await page.getByRole("button", { name: "Back" }).click();
   await expect(page).toHaveURL(/\/home$/);
+});
+
+for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] as const) {
+  test(`cold Savings ${mode} focuses Amount after its deferred chunk loads`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    const chunk = deferred<void>();
+    const holdChunk = async (route: Route) => {
+      await chunk.promise;
+      return route.continue();
+    };
+    await page.route("**/_next/static/chunks/*savings*.js", holdChunk);
+    try {
+      await page.goto(`/cash/savings?flow=save-${mode}`);
+      const dialog = page.getByRole("dialog", { name: title, exact: true });
+      await expect(dialog.getByText("Loading", { exact: true })).toBeVisible();
+      await expect(dialog.getByRole("button", { name: `Close ${mode} dialog` })).toBeFocused();
+      await expect(dialog.getByRole("textbox", { name: "Amount" })).toHaveCount(0);
+      chunk.resolve();
+      await expect(dialog.getByRole("textbox", { name: "Amount" })).toBeFocused();
+      await expect(page.getByRole("dialog")).toHaveCount(1);
+      await dialog.getByRole("button", { name: `Close ${mode} dialog` }).click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await expect(page).toHaveURL(/\/cash\/savings$/);
+    } finally {
+      chunk.resolve();
+      await page.unroute("**/_next/static/chunks/*savings*.js", holdChunk);
+    }
+  });
+}
+
+for (const [dismissal, action, title] of [["Back", "Withdraw", "Withdraw"], ["Close", "Deposit more", "Deposit"]] as const) {
+  test(`Savings loading ${dismissal} retains focus after a late chunk`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await seedSignedInSession(page);
+    await installApiFixtures(page);
+    const chunk = deferred<void>();
+    const holdChunk = async (route: Route) => {
+      await chunk.promise;
+      return route.continue();
+    };
+    await page.route("**/_next/static/chunks/*savings*.js", holdChunk);
+    try {
+      await page.goto("/cash/savings");
+      const opener = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });
+      await opener.click();
+      const tray = page.getByRole("dialog", { name: "Gauntlet USDC Prime" });
+      const selected = tray.getByRole("button", { name: action });
+      await selected.click();
+      const loading = page.getByRole("dialog", { name: title, exact: true });
+      await expect(loading.getByText("Loading", { exact: true })).toBeVisible();
+      await loading.getByRole("button", { name: dismissal === "Back" ? "Back" : "Close deposit dialog", exact: true }).click();
+      const retained = dismissal === "Back" ? selected : opener;
+      await expect(retained).toBeFocused();
+      const chunkLoaded = page.waitForResponse((response) => response.url().includes("/_next/static/chunks/") && response.url().includes("savings") && response.ok());
+      chunk.resolve();
+      await chunkLoaded;
+      await expect(retained).toBeFocused();
+      await expect(page.getByRole("textbox", { name: "Amount" })).toHaveCount(0);
+      await expect(page.getByRole("dialog")).toHaveCount(dismissal === "Back" ? 1 : 0);
+      if (dismissal === "Back") await tray.getByRole("button", { name: "Close Gauntlet USDC Prime details" }).click();
+      await expect(opener).toBeFocused();
+    } finally {
+      chunk.resolve();
+      await page.unroute("**/_next/static/chunks/*savings*.js", holdChunk);
+    }
+  });
+}
+
+test("Savings amount Back restores the selected management action after routed history", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/cash/savings");
+  const opener = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });
+  await opener.click();
+  const tray = page.getByRole("dialog", { name: "Gauntlet USDC Prime" });
+  for (const [action, title, flow] of [["Withdraw", "Withdraw", "save-withdraw"], ["Deposit more", "Deposit", "save-deposit"]] as const) {
+    const selected = tray.getByRole("button", { name: action });
+    await selected.click();
+    await expect(page).toHaveURL(new RegExp(`/cash/savings\\?flow=${flow}$`));
+    const amount = page.getByRole("dialog", { name: title });
+    await expect(amount.getByRole("textbox", { name: "Amount" })).toBeVisible();
+    await amount.getByRole("button", { name: "Back" }).click();
+    await expect(page).toHaveURL(/\/cash\/savings$/);
+    await expect(tray).toBeVisible();
+    await expect(selected).toBeFocused();
+  }
+  await tray.getByRole("button", { name: "Close Gauntlet USDC Prime details" }).click();
+  await expect(opener).toBeFocused();
+});
+
+test("Savings Account settings Done restores Savings scroll and account focus", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 420 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/cash/savings");
+  const savings = page.getByRole("region", { name: "Savings", exact: true });
+  await expect(savings).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your savings" })).toBeVisible();
+  const scrollTop = () => page.evaluate(() => window.scrollY);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(40);
+  await page.evaluate(() => window.scrollTo({ top: 40, behavior: "auto" }));
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(38);
+  const offset = await scrollTop();
+  const account = page.getByRole("banner").getByRole("button", { name: "Account" });
+  await account.click();
+  await expect(page).toHaveURL(/\/cash\/savings\?account=settings$/);
+  await expect(page.getByRole("region", { name: "Account settings" })).toBeFocused();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expect(savings).toBeVisible();
+  await expect(account).toBeFocused();
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(offset - 2);
+  await expect.poll(scrollTop).toBeLessThanOrEqual(offset + 2);
 });
 
 test("Cash Add money closes to Cash and one browser Back returns Home", async ({ page }) => {

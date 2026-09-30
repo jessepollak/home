@@ -139,7 +139,7 @@ export function LandingShell({
         open={isAccountOpen}
         opener={accountOpener}
         onClose={closeAccount}
-        onVerified={() => router.replace("/home")}
+        onVerified={() => window.location.replace("/home")}
       />
     </div>
   );

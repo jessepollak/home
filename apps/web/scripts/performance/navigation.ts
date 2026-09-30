@@ -12,7 +12,7 @@ export async function ready(page: Page, path: string) {
   } else if (path === "/home") {
     await page.getByRole("button", { name: "Send", exact: true }).first().waitFor({ timeout: 20_000 });
   } else {
-    const name = path === "/investments" ? "Investments" : path === "/balances" ? "Your money"
+    const name = path === "/investments" ? "Investments"
       : path === "/invest" ? "Invest" : path === "/borrow" ? "Borrow" : "Cash";
     await page.locator("[data-shell-header-title]").first().getByText(name, { exact: true }).waitFor({ timeout: 20_000 });
   }
@@ -70,7 +70,7 @@ export async function runNavigation(session: Session, baseUrl: string, rows: num
   await ready(page, "/home");
   await fillFeed(session, rows, fixture.filled, "section[data-activity-feed]");
   fixture.verify();
-  await page.locator("main[data-app-main-authenticated]").evaluate((main) => { main.scrollTop = 0; });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await twoFrames(page);
   for (const path of paths) {
     await navigate(page, path);

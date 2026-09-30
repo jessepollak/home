@@ -25,10 +25,6 @@
       { "id": "deposit-desktop", "story": "journeys-savings-deposit--deposit", "label": "Deposit · desktop", "viewport": "desktop", "change": "unchanged" }
     ] },
     { "id": "components", "title": "Components", "note": "Current row treatments and edge states.", "frames": [
-      { "id": "row-normal", "story": "pilot-financial-row--normal", "label": "Financial row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
-      { "id": "row-loading", "story": "pilot-financial-row--loading", "label": "Loading row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
-      { "id": "row-unavailable", "story": "pilot-financial-row--unavailable-value", "label": "Unavailable value", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
-      { "id": "row-long", "story": "pilot-financial-row--long-label-large-amount", "label": "Long label · large amount", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
       { "id": "finance-balance", "story": "ui-finance-rows--balance", "label": "Balance row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" },
       { "id": "finance-activity", "story": "ui-finance-rows--activity", "label": "Activity row", "viewport": { "width": 420, "height": 320 }, "change": "unchanged" }
     ] }

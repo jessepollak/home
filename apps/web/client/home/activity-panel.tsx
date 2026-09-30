@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useContext, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import {
   ActivityPanelView,
   type ActivityPanelDensity,
   type FetchActivity,
 } from "@/client/activity";
-import { activityOwnerKey, useActivity } from "@/client/activity/use-activity";
+import { activityOwnerKey, useActivity, type RetrySchedule } from "@/client/activity/use-activity";
 import { activityOrdersNeedPolling } from "@/client/activity/activity-feed";
 import { activityOrdersPath, activityOrdersQuery } from "@/client/activity/activity-orders-query";
 import { recentActionsQuery, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
@@ -74,6 +74,7 @@ export function ConnectedActivityPanel({
   regionId,
   emptyAction,
   onDetailsOpenChange,
+  scheduleContinuationRetry,
 }: {
   density: ActivityPanelDensity;
   header?: ReactNode | null;
@@ -83,6 +84,7 @@ export function ConnectedActivityPanel({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
+  scheduleContinuationRetry?: RetrySchedule;
 }) {
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
@@ -106,38 +108,30 @@ export function ConnectedActivityPanel({
   const [reviewOpened, setReviewOpened] = useState(0);
   const [restoreDetailsRequest, setRestoreDetailsRequest] = useState(0);
   const [suspendDetailsRequest, setSuspendDetailsRequest] = useState(0);
-  const assetReturnRef = useRef<{ panel: string; path: string; opening: boolean; suspended: boolean } | null>(null);
-  const previousPopRevisionRef = useRef(routing?.popRevision);
-  const previousRootRevisionRef = useRef(routing?.rootRequest?.revision);
-  useLayoutEffect(() => {
-    if (previousPopRevisionRef.current === routing?.popRevision) return;
-    previousPopRevisionRef.current = routing?.popRevision;
-    const pending = assetReturnRef.current;
-    if (!pending) return;
-    if (routing?.state.panel === pending.panel && window.location.pathname === pending.path) {
-      if (pending.suspended) {
-        pending.suspended = false;
-        setRestoreDetailsRequest((request) => request + 1);
+  const [appliedPopRevision, setAppliedPopRevision] = useState(routing?.popRevision);
+  const [appliedRootRevision, setAppliedRootRevision] = useState(routing?.rootRequest?.revision);
+  if (routing && appliedPopRevision !== routing.popRevision) {
+    setAppliedPopRevision(routing.popRevision);
+    const pending = routing.getActivityReturn?.();
+    if (pending) {
+      if (routing.state.panel === pending.panel && window.location.pathname === pending.path) {
+        if (!pending.suspended) {
+          setRestoreDetailsRequest((request) => request + 1);
+        }
+      } else if (!pending.suspended) {
+        setSuspendDetailsRequest((request) => request + 1);
       }
-    } else if (!pending.suspended) {
-      pending.suspended = true;
+    }
+  }
+  if (routing && appliedRootRevision !== routing.rootRequest?.revision) {
+    setAppliedRootRevision(routing.rootRequest?.revision);
+    const pending = routing.getActivityReturn?.();
+    if (pending && !(pending.opening && routing.rootRequest?.panel === "investments") && !pending.suspended) {
       setSuspendDetailsRequest((request) => request + 1);
     }
-  }, [routing?.popRevision, routing?.state.panel]);
-  useLayoutEffect(() => {
-    if (previousRootRevisionRef.current === routing?.rootRequest?.revision) return;
-    previousRootRevisionRef.current = routing?.rootRequest?.revision;
-    const pending = assetReturnRef.current;
-    if (!pending) return;
-    if (pending.opening && routing?.rootRequest?.panel === "investments") {
-      pending.opening = false;
-      return;
-    }
-    if (!pending.suspended) setSuspendDetailsRequest((request) => request + 1);
-    assetReturnRef.current = null;
-  }, [routing?.rootRequest]);
+  }
   const cancelAttempt = useRef(0);
-  const activity = useActivity(activitySession, fetchActivity, regionId);
+  const activity = useActivity(activitySession, fetchActivity, regionId, { scheduleContinuationRetry });
   const actions = useHomeQuery({
     ...recentActionsQuery({ owner: ownerKey, session: activitySession, fetchOperations }),
     refetchInterval: (query) => {
@@ -190,6 +184,7 @@ export function ConnectedActivityPanel({
   const onOrderAction = async (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => {
     if (kind === "resume" || kind === "complete-payment") {
       if (order.kind === "funding" && order.resumable && order.region === regionId && routing?.setFlow("add-money", { mode: "push", opener: null })) {
+        routing.setActivityReturn?.(null);
         setReviewOpened((count) => count + 1);
       }
       return;
@@ -242,10 +237,10 @@ export function ConnectedActivityPanel({
       canOpenAsset={routing?.canOpenAssetDetail}
       onOpenAsset={(assetKey) => {
         if (!routing) return false;
-        const previous = assetReturnRef.current;
-        assetReturnRef.current = { panel: routing.state.panel, path: window.location.pathname, opening: true, suspended: true };
+        const previous = routing.getActivityReturn?.() ?? null;
+        if (previous) routing.setActivityReturn?.({ ...previous, opening: true, suspended: true });
         if (routing.openAssetDetail(assetKey)) return true;
-        assetReturnRef.current = previous;
+        routing.setActivityReturn?.(previous);
         return false;
       }}
       restoreDetailsRequest={restoreDetailsRequest}
@@ -256,10 +251,16 @@ export function ConnectedActivityPanel({
       fetchOperations={fetchOperations}
       onViewActivity={(close) => openPanelAfterClose(routing, "activity", close)}
       onDetailsOpenChange={onDetailsOpenChange}
+      initialDetailItem={ownerKey && routing?.activityReturn?.ownerKey === ownerKey &&
+        routing.activityReturn.path === window.location.pathname && !routing.activityReturn.suspended
+          ? routing.activityReturn.item : null}
+      onDetailsSelectionChange={(item) => {
+        routing?.setActivityReturn?.(item && ownerKey
+          ? { ownerKey, panel: routing.state.panel, path: window.location.pathname, item, opening: false, suspended: false }
+          : null);
+      }}
       onDetailsChange={(open) => {
-        assetReturnRef.current = open && routing
-          ? { panel: routing.state.panel, path: window.location.pathname, opening: false, suspended: false }
-          : null;
+        if (!open) routing?.setActivityReturn?.(null);
         cancelAttempt.current += 1;
         setCancelBusy(false);
         setCancelError(null);

@@ -189,7 +189,7 @@ describe("MoneyModal dismissal contract", () => {
   });
 
   test("standalone sibling drawers do not reuse unrelated focus or a previous interactive opener", async () => {
-    let programmaticOpen!: (index: number) => void;
+    let programmaticOpen: (index: number) => void = () => { throw new Error("Sheet controls are not initialized"); };
     function Harness({ initialActive = null }: { initialActive?: number | null }) {
       const [active, setActive] = useState<number | null>(initialActive);
       const [opener, setOpener] = useState<HTMLElement | null>(null);

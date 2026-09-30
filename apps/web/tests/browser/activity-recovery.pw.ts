@@ -94,7 +94,7 @@ async function setup(page: Page) {
         confirmedAt: createdAt,
         owner: { subject: sessionBody.user.subject, address: wallet, chainId: 8453, accountProvider: sessionBody.accountProvider },
       }] }) : route.fallback());
-  const feed = page.locator('[data-shell-panel]:not([hidden]) [data-activity-feed]');
+  const feed = page.locator("#navigation-panel [data-activity-feed]");
   return { feed, rows: feed.getByRole("button", { name: /^(Received|Sent) .*USDC$/ }) };
 }
 

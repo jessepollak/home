@@ -19,7 +19,10 @@ function RoutingFixture() {
   const routing: HomeShellRouting = {
     state: readHomeInboundPanelState(parseShellLocation(window.location.pathname), new URLSearchParams(window.location.search)),
     popRevision,
+    activityReturn: null,
     rootRequest: null,
+    pushRoute: () => {},
+    leaveRoute: () => {},
     openPanel: () => {},
     canOpenAssetDetail: () => false,
     openAssetDetail: () => false,

@@ -53,6 +53,8 @@ export function ActivityPanelView({
   fetchOperations,
   onViewActivity,
   onDetailsChange,
+  initialDetailItem = null,
+  onDetailsSelectionChange,
   onDetailsOpenChange,
   canOpenAsset,
   onOpenAsset,
@@ -82,15 +84,22 @@ export function ActivityPanelView({
   fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
   onViewActivity?: (close: () => void) => void;
   onDetailsChange?: (open: boolean) => void;
+  initialDetailItem?: ActivityLedgerItem | null;
+  onDetailsSelectionChange?: (item: ActivityLedgerItem | null) => void;
   onDetailsOpenChange?: (open: boolean) => void;
   canOpenAsset?: (assetKey: string) => boolean;
   onOpenAsset?: (assetKey: string) => boolean;
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
 }) {
-  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(() => initialDetailItem
+    ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null } : null);
+  const [detailsOpen, setDetailsOpen] = useState(initialDetailItem !== null);
   const [immediateClose, setImmediateClose] = useState(false);
+  if (initialDetailItem && !selection && !detailsOpen && activity.status === "ready") {
+    setSelection({ key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null });
+    setDetailsOpen(true);
+  }
   useEffect(() => {
     onDetailsOpenChange?.(detailsOpen);
     return () => { onDetailsOpenChange?.(false); };
@@ -124,9 +133,10 @@ export function ActivityPanelView({
     setImmediateClose(false);
     detailOpenerRef.current = opener;
     onDetailsChangeRef.current?.(true);
+    onDetailsSelectionChange?.(item);
     setSelection({ key: `${item.family}:${item.id}`, last: item, opener });
     setDetailsOpen(true);
-  }, []);
+  }, [onDetailsSelectionChange]);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
@@ -326,6 +336,7 @@ export function ActivityPanelView({
           setPendingReturn(false);
           setDetailsOpen(false);
           onDetailsChange?.(false);
+          onDetailsSelectionChange?.(null);
         }}
         onClosed={() => {
           if (pendingReturn || detailsOpen) return;
@@ -431,14 +442,12 @@ function ActivityContinuation({
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || typeof IntersectionObserver === "undefined") return;
-    const closestRoot = sentinel.closest("[data-app-main-authenticated]");
-    const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[entries.length - 1];
         if (entry) setSentinelVisible(entry.isIntersecting);
       },
-      { root, rootMargin: "0px 0px 240px 0px" },
+      { rootMargin: "0px 0px 240px 0px" },
     );
     observer.observe(sentinel);
     return () => {

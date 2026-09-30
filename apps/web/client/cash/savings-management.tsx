@@ -2,7 +2,7 @@
 
 import { useCallback, type RefObject, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import { MoneyModalActions, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
+import { MoneyModalActions, MoneyModalBody, MoneyModalHeader, moneySheetIntent } from "@/client/money-modal";
 import { getSavingsRateState } from "@/client/savings/portfolio-summary";
 import { ManagementFacts } from "@/components/management-facts";
 import { MoneyTicker } from "@/components/money-ticker";
@@ -100,7 +100,7 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, regionId
   };
 }
 
-export function SavingsManagementSheet({ management, titleId, detailsId, detailsOpen, onDetailsOpenChange, initialFocusRef, restoreAction, onDeposit, onWithdraw }: {
+export function SavingsManagementSheet({ management, titleId, detailsId, detailsOpen, onDetailsOpenChange, initialFocusRef, restoreAction, onDeposit, onWithdraw, onActionIntent }: {
   management: SavingsManagement;
   titleId: string;
   detailsId: string;
@@ -110,9 +110,11 @@ export function SavingsManagementSheet({ management, titleId, detailsId, details
   restoreAction: "deposit" | "withdraw" | null;
   onDeposit: () => void;
   onWithdraw: () => void;
+  onActionIntent?: () => void;
 }): ReactNode {
   const reason = management.deposit.reason ?? management.withdraw.reason;
   const restoreActionEnabled = restoreAction === "deposit" ? management.deposit.enabled : restoreAction === "withdraw" ? management.withdraw.enabled : false;
+  const actionIntent = onActionIntent ? moneySheetIntent(onActionIntent) : {};
   const attachInitialFocus = useCallback((node: HTMLElement | null) => {
     initialFocusRef.current = node;
   }, [initialFocusRef]);
@@ -136,8 +138,8 @@ export function SavingsManagementSheet({ management, titleId, detailsId, details
     <MoneyModalActions>
       {reason ? <p className="text-sm text-muted-foreground">{reason}</p> : null}
       <div className="grid grid-cols-2 gap-2">
-        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="default" ref={restoreActionEnabled && restoreAction === "deposit" ? attachInitialFocus : undefined} disabled={!management.deposit.enabled} onClick={onDeposit}>Deposit more</Button>
-        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="secondary" ref={restoreActionEnabled && restoreAction === "withdraw" ? attachInitialFocus : undefined} disabled={!management.withdraw.enabled} onClick={onWithdraw}>Withdraw</Button>
+        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="default" ref={restoreActionEnabled && restoreAction === "deposit" ? attachInitialFocus : undefined} disabled={!management.deposit.enabled} {...actionIntent} onClick={onDeposit}>Deposit more</Button>
+        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="secondary" ref={restoreActionEnabled && restoreAction === "withdraw" ? attachInitialFocus : undefined} disabled={!management.withdraw.enabled} {...actionIntent} onClick={onWithdraw}>Withdraw</Button>
       </div>
     </MoneyModalActions>
   </>;

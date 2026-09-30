@@ -65,9 +65,10 @@ type ContinuationState = {
   retryAt: number;
   generation: number;
   timer: ReturnType<typeof setTimeout> | null;
+  retryTimer: (() => void) | null;
 };
 
-type ScheduleValuationRetry = (run: () => void, delayMs: number) => () => void;
+export type RetrySchedule = (run: () => void, delayMs: number) => () => void;
 
 type ValuationRetryState = {
   attempts: number;
@@ -77,7 +78,7 @@ type ValuationRetryState = {
 
 const valuationRetries = new WeakMap<Query, ValuationRetryState>();
 
-function scheduleValuationRetryTimeout(run: () => void, delayMs: number): () => void {
+function scheduleRetryTimeout(run: () => void, delayMs: number): () => void {
   const timer = setTimeout(run, delayMs);
   return () => clearTimeout(timer);
 }
@@ -537,12 +538,21 @@ const subscribeWithoutOwner = () => () => {};
 const idleLatestState = Object.freeze<ActivityLatestState>({ failure: null, busy: false });
 const latestStateWithoutOwner = () => idleLatestState;
 
+export type ActivityRetrySchedules = {
+  scheduleValuationRetry?: RetrySchedule;
+  scheduleContinuationRetry?: RetrySchedule;
+};
+
 export function useActivity(
   session: VerifiedAccountSession | null,
   fetchActivity: FetchActivity,
   regionId: RegionId = "GLOBAL",
-  scheduleValuationRetry: ScheduleValuationRetry = scheduleValuationRetryTimeout,
+  schedules: ActivityRetrySchedules = {},
 ): UseActivityResult {
+  const {
+    scheduleValuationRetry = scheduleRetryTimeout,
+    scheduleContinuationRetry = scheduleRetryTimeout,
+  } = schedules;
   const currency = presentationMoneyMetadata(regionId).currency;
   const validSession = isVerifiedActivitySession(session) ? session : null;
   const ownerKey = validSession ? activityOwnerKey(validSession) : null;
@@ -661,6 +671,7 @@ export function useActivity(
     generation: 0,
     retryAt: 0,
     timer: null,
+    retryTimer: null,
   });
   const latestRef = useRef<ContinuationCursor>({
     fetchNextPage: query.fetchNextPage,
@@ -694,12 +705,27 @@ export function useActivity(
     }, delayMs);
   }, []);
 
+  const scheduleRetry = useCallback((delayMs: number) => {
+    const state = continuationRef.current;
+    if (state.scheduled || state.running) return;
+    state.scheduled = true;
+    const generation = state.generation;
+    state.retryTimer = scheduleContinuationRetry(() => {
+      const current = continuationRef.current;
+      current.retryTimer = null;
+      current.scheduled = false;
+      current.retryAt = 0;
+      if (generation !== current.generation) return;
+      void pumpRef.current();
+    }, delayMs);
+  }, [scheduleContinuationRetry]);
+
   const pump = useCallback(async () => {
     const state = continuationRef.current;
     if (state.running || state.failed || !state.visible || state.scheduled) return;
     const retryWaitMs = state.retryAt - Date.now();
     if (retryWaitMs > 0) {
-      schedule(retryWaitMs);
+      scheduleRetry(retryWaitMs);
       return;
     }
     const latest = latestRef.current;
@@ -733,7 +759,7 @@ export function useActivity(
         const delay = activityContinuationRetryDelaysMs[current.retries]!;
         current.retries += 1;
         current.retryAt = Date.now() + delay;
-        if (current.visible) schedule(delay);
+        if (current.visible) scheduleRetry(delay);
       }
       return;
     }
@@ -764,7 +790,7 @@ export function useActivity(
       if (nextCursor === null || !current.visible) return;
     }
     schedule(appended ? 0 : activityContinuationYieldMs);
-  }, [markContinuing, markFailed, schedule]);
+  }, [markContinuing, markFailed, schedule, scheduleRetry]);
   useEffect(() => {
     pumpRef.current = pump;
   });
@@ -785,6 +811,10 @@ export function useActivity(
       clearTimeout(state.timer);
       state.timer = null;
     }
+    if (state.retryTimer !== null) {
+      state.retryTimer();
+      state.retryTimer = null;
+    }
     return () => {
       state.generation += 1;
       state.visible = false;
@@ -794,6 +824,10 @@ export function useActivity(
       if (state.timer !== null) {
         clearTimeout(state.timer);
         state.timer = null;
+      }
+      if (state.retryTimer !== null) {
+        state.retryTimer();
+        state.retryTimer = null;
       }
     };
   }, [continuationScope]);
@@ -817,6 +851,10 @@ export function useActivity(
       if (state.timer !== null) {
         clearTimeout(state.timer);
         state.timer = null;
+      }
+      if (state.retryTimer !== null) {
+        state.retryTimer();
+        state.retryTimer = null;
       }
       state.scheduled = false;
       state.burst = 0;

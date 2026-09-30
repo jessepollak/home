@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseOperatorSettingsErrorResponse, parseSettingsResponse, type SettingsEntry } from "@/shared/operator-settings/contract";
 import { parseRegionSettings, type RegionSettings } from "@/shared/operator-settings/regions";
 import { DeploymentExpiredError, deploymentHeaders, throwIfDeploymentExpired } from "@/client/query/deployment-headers";
+import { readJson } from "@/shared/http/read-json";
 
 type RegionEntry = SettingsEntry<RegionSettings>["settings"];
 
@@ -93,7 +94,7 @@ export function RegionsPane({ initialEntry, operator }: { initialEntry: RegionEn
         headers,
         body: JSON.stringify({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: baseline.revision, value: draft, operator }),
       });
-      const body: unknown = await response.json().catch(() => null);
+      const body: unknown = await readJson(response).catch(() => null);
       if (response.ok) {
         const updated = readEntry(body);
         if (!updated) throw new Error("Invalid settings response");

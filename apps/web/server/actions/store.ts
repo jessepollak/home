@@ -607,7 +607,8 @@ export function ownerFromActionKey(key: string): MoneyActionOwner | null {
   try {
     const parsed: unknown = JSON.parse(key);
     if (!Array.isArray(parsed) || parsed.length !== 4) return null;
-    const [subject, address, chainId, accountProvider] = parsed;
+    const fields: unknown[] = parsed;
+    const [subject, address, chainId, accountProvider] = fields;
     if (typeof subject !== "string" || !subject.trim() || typeof address !== "string" ||
       !/^0x[0-9a-f]{40}$/.test(address) || chainId !== 8453 ||
       (accountProvider !== "base-account" && accountProvider !== "cdp-embedded")) return null;

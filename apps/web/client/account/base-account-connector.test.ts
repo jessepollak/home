@@ -505,6 +505,8 @@ describe("Base Account connector boundary", () => {
     for (const signInCapability of [
       undefined,
       null,
+      false,
+      0,
       {},
       { message: "missing signature" },
       { code: 4200 },

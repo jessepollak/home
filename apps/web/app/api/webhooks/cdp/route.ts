@@ -9,8 +9,6 @@ import { readBoundedWebhookBody } from "@/server/funding/core/webhook-body";
 import { emitServerEvent } from "@/server/observability/log";
 import { resolveSecretKeyring } from "@/server/secrets/at-rest";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const resolvedKeyring = resolveSecretKeyring(process.env);

@@ -12,6 +12,7 @@ import { baselineMismatches, compactNavigationBaseline, firstNextEnvFile, hasNav
   type NavigationSample, type Scenario, type Leg } from "./performance/navigation-samples";
 
 const defaultBaseline = join(import.meta.dir, "performance/navigation-baseline.json");
+const fixtureClock = "system" as const;
 const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 const flingChildren = new WeakSet<ChildProcess>();
 function killFlingGroup(child: ChildProcess) {
@@ -58,6 +59,10 @@ export function flingBrowserPidFromStderr(stderr: string): BrowserIdentity | nul
   if (!match) return null;
   const pid = Number(match[1]);
   return Number.isSafeInteger(pid) && pid > 0 ? { pid, profile: match[2]! } : null;
+}
+const flingCloseTimedOutMarker = "fling worker: close timed out";
+export function flingAttemptNeedsReap(failed: boolean, stderr: string): boolean {
+  return failed || stderr.split(/\r?\n/).includes(flingCloseTimedOutMarker);
 }
 export function reapFlingBrowser(processList: readonly ListedProcess[], browser: BrowserIdentity, signal: (pid: number) => void): number {
   const rows = processList.filter(({ pid }) => pid === browser.pid);
@@ -258,7 +263,7 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
   let routeFailure: Error | null = null;
   try {
     await seedSignedInSession(page);
-    await installApiFixtures(page);
+    await installApiFixtures(page, { clock: fixtureClock });
     await inlineFixtureMark(page);
     const fixture = await installFeed(page, rows);
     await page.route("**/api/client-performance**", async (route) => {
@@ -282,17 +287,21 @@ async function runSession(browser: Awaited<ReturnType<typeof webkit.launch>>, ba
     await page.goto(`${baseUrl}/home`, { waitUntil: "domcontentloaded" });
     console.log(`Session ${session}: Home loaded, filling feed`);
     await page.getByRole("button", { name: "Send", exact: true }).first().waitFor({ timeout: 30_000 });
-    const main = page.locator("main[data-app-main-authenticated]");
+    const scrollFeed = (bottom: boolean) => page.evaluate((toBottom) => {
+      const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+      const scroller = main && main.scrollHeight > main.clientHeight + 1 ? main : document.scrollingElement;
+      if (scroller) scroller.scrollTop = toBottom ? scroller.scrollHeight : 0;
+    }, bottom);
     const end = page.locator('section[data-activity-feed] [role="status"]').filter({ hasText: "End of activity" });
     const until = Date.now() + 120_000;
     while (!(fixture.filled() && await end.isVisible()) && Date.now() < until) {
       if (routeFailure) throw routeFailure;
-      await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await scrollFeed(true);
       await sleep(65);
     }
     if (!fixture.filled() || !await end.isVisible()) throw new Error(`Feed fill timed out at ${rows} rows`);
     fixture.verify();
-    await main.evaluate((element) => { element.scrollTop = 0; });
+    await scrollFeed(false);
     await twoFrames(page);
     if (routeFailure) throw routeFailure;
     if (capPatches !== 1) throw new Error(`Navigation recorder cap patched ${capPatches} times, expected 1`);
@@ -385,7 +394,7 @@ async function main() {
     let sessions: Awaited<ReturnType<typeof runSession>>[];
     const webkitVersion = webkitBrowser.version();
     const environment = { appSha: git(options.appDir, ["rev-parse", "HEAD"]), appDirty: git(options.appDir, ["status", "--porcelain"]) !== "",
-      harnessSha: git(import.meta.dir, ["rev-parse", "HEAD"]), webkit: webkitVersion,
+      harnessSha: git(import.meta.dir, ["rev-parse", "HEAD"]), webkit: webkitVersion, fixtureClock,
       cpu: cpus()[0]?.model ?? "unknown", cores: cpus().length, platform: platform(), headless: !options.headed };
     try {
       sessions = [];
@@ -425,7 +434,7 @@ async function main() {
         await stopTrackedChild(child);
         let strayChromiumReaped: number | null = null;
         let reapError: string | undefined;
-        const browser = failure ? flingBrowserPidFromStderr(errorOutput) : null;
+        const browser = flingAttemptNeedsReap(failure !== undefined, errorOutput) ? flingBrowserPidFromStderr(errorOutput) : null;
         if (browser) {
           strayChromiumReaped = 0;
           try { strayChromiumReaped = reapFlingBrowser(listedProcesses(), browser, (pid) => process.kill(pid, "SIGKILL")); }
@@ -508,6 +517,7 @@ async function flingWorker() {
     catch (error) {
       if (!(error instanceof Error) || error.message !== "Chromium close timed out after 5 s") throw error;
       console.error(error);
+      console.error(flingCloseTimedOutMarker);
     }
   }
   console.error("fling worker: writing result");

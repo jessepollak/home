@@ -261,7 +261,7 @@ test("desktop destinations other than Home stay in the 640px column", async ({ p
   await installApiFixtures(page);
   for (const path of ["/cash", "/invest", "/investments", "/investments/0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf"]) {
     await page.goto(path);
-    const panel = page.locator("[data-shell-panel]:not([hidden])");
+    const panel = page.locator("#navigation-panel > div");
     await expect(panel).toHaveCount(1);
     await expect.poll(() => panel.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThanOrEqual(640);
   }
@@ -504,16 +504,46 @@ test("representative canonical routes SSR and hydrate their selected panel", asy
   const hydrationErrors = trackHydrationErrors(page);
   const routes = [
     ["/home", ">Total balance<", "Home"],
-    ["/balances/investments", 'aria-label="Your money"', "Your money"],
+    ["/cash", 'id="cash-panel"', "Cash"],
     ["/invest/nvdac", 'aria-label="NVIDIA"', "NVIDIA"],
   ] as const;
   for (const [url, ssrMarker, title] of routes) {
     const html = await page.request.get(url).then((response) => response.text());
     expect(html).toContain(ssrMarker);
-    expect((html.match(/<div data-shell-panel=""[^>]*>/g) ?? [])
-      .filter((tag) => !tag.includes("hidden"))).toHaveLength(1);
+    expect(html).toContain("data-app-main-authenticated");
     await page.goto(url);
+    await expect(page.locator("main[data-app-main-authenticated]")).toHaveCount(1);
     await expect(page.locator("[data-shell-header-title]").first()).toHaveText(title);
   }
   expect(hydrationErrors).toEqual([]);
+});
+
+test("the Card route redirects Home while the card journey is disabled", async ({ page }) => {
+  test.skip(process.env.BRIDGE_CARDS_ENABLED === "1", "Card journey is enabled in this environment");
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/card", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/home");
+  await expect(page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Card", exact: true })).toHaveCount(0);
+  await page.goto("/card/extra", { waitUntil: "domcontentloaded" });
+  await expect.poll(() => new URL(page.url()).pathname).toBe("/home");
+  await expect(page.locator("main[data-app-main-authenticated]")).toHaveCount(1);
+});
+
+test("non-canonical shell paths render their canonical parent instead of 404", async ({ page }) => {
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  for (const [url, title] of [
+    ["/home/nope", "Home"],
+    ["/activity/nope", "Activity"],
+    ["/cash/nope", "Cash"],
+    ["/cash/savings/extra", "Cash"],
+    ["/unknown", "Home"],
+  ] as const) {
+    const response = await page.goto(url, { waitUntil: "domcontentloaded" });
+    expect(response?.status()).toBe(200);
+    await expect(page).toHaveURL(url);
+    await expect(page.locator("main[data-app-main-authenticated]")).toHaveCount(1);
+    await expect(page.locator("[data-shell-header-title]").first()).toHaveText(title);
+  }
 });

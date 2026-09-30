@@ -3,39 +3,21 @@ import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 
 const floatingNavigationOffset = 12;
 
-async function waitForHomeMark(page: Page) {
-  await expect.poll(() => page.evaluate(() =>
-    performance.getEntriesByName("action:first-interactive", "mark").length), {
-    timeout: process.env.CI ? 10_000 : 5_000,
-  }).toBeGreaterThan(0);
-}
-
 async function shellGeometry(page: Page) {
   return page.evaluate(() => {
-    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
+    const header = document.querySelector<HTMLElement>("header");
     const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');
-    if (!main || !nav || !main.parentElement) throw new Error("Signed-in shell is missing");
+    if (!header || !nav) throw new Error("shell header or navigation is missing");
     return {
-      innerHeight: window.innerHeight,
-      documentScrollHeight: document.documentElement.scrollHeight,
       scrollY: window.scrollY,
-      shellTop: main.parentElement.getBoundingClientRect().top,
+      documentHeight: document.documentElement.scrollHeight,
+      viewportHeight: window.innerHeight,
+      headerTop: header.getBoundingClientRect().top,
+      navGap: window.innerHeight - nav.getBoundingClientRect().bottom,
+      contentBottom: document.querySelector<HTMLElement>("[data-app-main-authenticated]")?.lastElementChild?.getBoundingClientRect().bottom ?? Infinity,
       navTop: nav.getBoundingClientRect().top,
-      navBottom: nav.getBoundingClientRect().bottom,
-      contentBottom: main.lastElementChild?.getBoundingClientRect().bottom ?? Number.POSITIVE_INFINITY,
-      mainScrollTop: main.scrollTop,
-      mainClientHeight: main.clientHeight,
-      mainScrollHeight: main.scrollHeight,
     };
   });
-}
-
-async function expectDocumentBounded(page: Page) {
-  await expect.poll(async () => {
-    const { innerHeight, documentScrollHeight, scrollY, navBottom } = await shellGeometry(page);
-    return documentScrollHeight <= innerHeight && scrollY === 0 &&
-      Math.abs(innerHeight - navBottom - floatingNavigationOffset) <= 1;
-  }).toBe(true);
 }
 
 test.beforeEach(async ({ page }) => {
@@ -43,52 +25,34 @@ test.beforeEach(async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
-  await waitForHomeMark(page);
   await expect(page.locator("#home-nav")).toHaveAttribute("aria-current", "page");
 });
 
-test("a residual document scroll offset cannot lift the mobile navigation", async ({ page }) => {
-  const resting = await shellGeometry(page);
-  expect(resting.documentScrollHeight).toBeLessThanOrEqual(resting.innerHeight);
-  expect(Math.abs(resting.innerHeight - resting.navBottom - floatingNavigationOffset)).toBeLessThanOrEqual(1);
-
-  await page.evaluate(() => {
-    const spacer = document.createElement("div");
-    spacer.style.height = "1200px";
-    document.body.append(spacer);
-    window.scrollTo({ top: 400, behavior: "instant" });
-  });
+test("document scroll keeps header and bottom navigation anchored", async ({ page }) => {
+  await expect.poll(async () => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(0);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(async () => (await shellGeometry(page)).scrollY).toBeGreaterThan(0);
-  const shifted = await shellGeometry(page);
-  expect(Math.abs(shifted.shellTop)).toBeLessThanOrEqual(1);
-  expect(Math.abs(shifted.innerHeight - shifted.navBottom - floatingNavigationOffset)).toBeLessThanOrEqual(1);
+  const geometry = await shellGeometry(page);
+  expect(geometry.headerTop).toBe(0);
+  expect(Math.abs(geometry.navGap - floatingNavigationOffset)).toBeLessThanOrEqual(1);
+  expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.navTop);
 });
 
-test("the document stays unscrollable across sheets and tab changes", async ({ page }) => {
+test("account flows and tab changes keep the document as the scroll owner", async ({ page }) => {
   await page.getByRole("button", { name: "Send" }).first().click();
   const dialog = page.getByRole("dialog", { name: "Send" });
   await expect(dialog).toBeVisible();
-  const amount = page.getByRole("textbox", { name: "Amount" });
-  await amount.focus();
-  await expect(amount).toBeFocused();
-  await amount.press("Escape");
-  await expect(dialog).toBeHidden();
-  await expectDocumentBounded(page);
+  await page.getByRole("button", { name: "Close send dialog" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page).toHaveURL(/\/home$/);
 
   await page.locator("#invest-nav").click();
   await expect(page.locator("#invest-nav")).toHaveAttribute("aria-current", "page");
-  await expectDocumentBounded(page);
-
   await page.locator("#home-nav").click();
   await expect(page.locator("#home-nav")).toHaveAttribute("aria-current", "page");
-  await expectDocumentBounded(page);
-
-  await page.locator("[data-app-main-authenticated]").evaluate((main) => {
-    main.scrollTop = main.scrollHeight;
-  });
-  await expect.poll(async () => {
-    const geometry = await shellGeometry(page);
-    return geometry.mainScrollTop + geometry.mainClientHeight >= geometry.mainScrollHeight - 1 &&
-      geometry.contentBottom <= geometry.navTop + 1;
-  }).toBe(true);
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const geometry = await shellGeometry(page);
+  expect(geometry.documentHeight).toBeGreaterThan(geometry.viewportHeight);
+  expect(geometry.scrollY).toBeGreaterThan(0);
+  expect(Math.abs(geometry.navGap - floatingNavigationOffset)).toBeLessThanOrEqual(1);
 });

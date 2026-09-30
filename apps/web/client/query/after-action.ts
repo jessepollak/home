@@ -20,12 +20,13 @@ export const afterActionScopes = [
   "balances",
   "activity",
   "borrow",
+  "borrow-market",
   "actions",
   tradeAvailabilityScope,
   "activity-orders",
 ] as const satisfies readonly OwnerQueryScope[];
 
-export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
+export const indexedScopes = ["activity", "borrow", "borrow-market", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
 
 const activityWindowQuantumMs = 60_000;
 const activityWindowAdvancers = new WeakMap<object, Map<string, Set<() => Promise<void>>>>();
@@ -264,7 +265,7 @@ export async function applyActionHandleEffects(input: {
 
 function affectedAssetIds(value: unknown, actionId: string): string[] {
   if (!isRecord(value) || !Array.isArray(value.actions)) return [];
-  const action = value.actions.find((item) => isRecord(item) && item.id === actionId);
+  const action: unknown = value.actions.find((item) => isRecord(item) && item.id === actionId);
   if (!isRecord(action) || !isRecord(action.summary) || !Array.isArray(action.summary.amounts)) return [];
   return Array.from(new Set(action.summary.amounts.flatMap((amount) =>
     isRecord(amount) && typeof amount.assetId === "string" ? [amount.assetId] : [],

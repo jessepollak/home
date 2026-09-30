@@ -14,6 +14,13 @@ const ownerKey = dataOwnerKey({
 });
 
 const fundingOrder = { id: "order-1", providerId: "provider-1", state: "confirmed", fiatAmount: "10", providerStatus: null, instructions: null };
+const fullFundingOrder = {
+  ...fundingOrder, region: "US", assetId: "base:usdc", paymentMethod: "ach",
+  quote: { providerQuoteId: "provider-quote", fiatAmount: "10", tokenAmountAtomic: "10000000", fees: [{ label: "Fee", amount: "0.50", currency: "USD" }], feesKnown: true, expiresAt: "2099-01-01T00:00:00.000Z" },
+  quoteToken: "signed-quote", sandbox: false, expectedTokenAmountAtomic: "10000000",
+  fees: [{ label: "Fee", amount: "0.50", currency: "USD" }], expiresAt: null,
+  transactionHash: `0x${"aB".repeat(32)}`, createdAt: "2026-09-18T00:00:00.000Z", updatedAt: "2026-09-18T00:00:00.000Z",
+};
 
 const activityWindowEnd = "2026-09-07T12:00:00.000Z";
 const activityWallet = "0x1111111111111111111111111111111111111111" as const;
@@ -80,7 +87,7 @@ describe("restored owner cache scope guards", () => {
   test("every persisted owner scope rejects malformed containers", () => {
     const ownerScopes = Object.entries(queryScopes).filter(([, policy]) =>
       policy.audience === "owner" && policy.persistence === "owner");
-    expect(ownerScopes).toHaveLength(9);
+    expect(ownerScopes).toHaveLength(10);
     for (const [scope, policy] of ownerScopes) {
       if (policy.audience !== "owner" || policy.persistence !== "owner") continue;
       expect(typeof policy.validateRestored).toBe("function");
@@ -151,6 +158,61 @@ describe("restored owner cache scope guards", () => {
     expect(policy.validateRestored(response, { ownerKey, queryKey: [ownerKey, "trade-availability", "cbbtc"] })).toBeNull();
   });
 
+  test("accepts a full funding order in both restored scopes and preserves region binding", () => {
+    const orderEntry = { ownerKey, queryKey: [ownerKey, "funding-order", fundingOrder.id] };
+    const openEntry = { ownerKey, queryKey: [ownerKey, "funding-open-order", "US"] };
+    expect(queryScopes["funding-order"].validateRestored(fullFundingOrder, orderEntry)?.data).toEqual(fullFundingOrder);
+    expect(queryScopes["funding-open-order"].validateRestored({ order: fullFundingOrder }, openEntry)?.data).toEqual({ order: fullFundingOrder });
+    expect(queryScopes["funding-open-order"].validateRestored({ order: { ...fullFundingOrder, region: "AR" } }, openEntry)).toBeNull();
+  });
+
+  test.each([
+    ["id", { id: null }],
+    ["providerId", { providerId: 1 }],
+    ["region", { region: 7 }],
+    ["assetId", { assetId: 123 }],
+    ["paymentMethod", { paymentMethod: 5 }],
+    ["state", { state: {} }],
+    ["fiatAmount", { fiatAmount: "not-money" }],
+    ["quote", { quote: {} }],
+    ["quote provider id", { quote: { ...fullFundingOrder.quote, providerQuoteId: null } }],
+    ["undefined quote provider id", { quote: { ...fullFundingOrder.quote, providerQuoteId: undefined } }],
+    ["quote fee certainty", { quote: { ...fullFundingOrder.quote, feesKnown: "true" } }],
+    ["undefined quote fee certainty", { quote: { ...fullFundingOrder.quote, feesKnown: undefined } }],
+    ["quote fiat amount", { quote: { ...fullFundingOrder.quote, fiatAmount: 10 } }],
+    ["quote token amount", { quote: { ...fullFundingOrder.quote, tokenAmountAtomic: null } }],
+    ["quote expiry", { quote: { ...fullFundingOrder.quote, expiresAt: null } }],
+    ["quote fees", { quote: { ...fullFundingOrder.quote, fees: "oops" } }],
+    ["quote fee", { quote: { ...fullFundingOrder.quote, fees: [{ label: "Fee", amount: 1, currency: "USD" }] } }],
+    ["quoteToken", { quoteToken: 1 }],
+    ["sandbox", { sandbox: "false" }],
+    ["expectedTokenAmountAtomic", { expectedTokenAmountAtomic: "1.5" }],
+    ["non-canonical atomic amount", { expectedTokenAmountAtomic: "01" }],
+    ["fees", { fees: "oops" }],
+    ["fee label", { fees: [{ label: 1, amount: "0.50", currency: "USD" }] }],
+    ["fee amount", { fees: [{ label: "Fee", amount: 1, currency: "USD" }] }],
+    ["fee currency", { fees: [{ label: "Fee", amount: "0.50", currency: null }] }],
+    ["non-decimal fee amount", { fees: [{ label: "Fee", amount: "not-money", currency: "USD" }] }],
+    ["expiresAt", { expiresAt: 1 }],
+    ["providerStatus", { providerStatus: undefined }],
+    ["instructions", { instructions: {} }],
+    ["sensitive instructions", { instructions: { kind: "redirect", url: "https://provider.example/pay" } }],
+    ["transactionHash", { transactionHash: `0x${"g".repeat(64)}` }],
+    ["short transactionHash", { transactionHash: "0x123" }],
+    ["createdAt", { createdAt: null }],
+    ["updatedAt", { updatedAt: 7 }],
+  ])("rejects malformed funding %s in both restored scopes", (_field, override) => {
+    const order = { ...fullFundingOrder, ...override };
+    expect(queryScopes["funding-order"].validateRestored(order, { ownerKey, queryKey: [ownerKey, "funding-order", fundingOrder.id] })).toBeNull();
+    expect(queryScopes["funding-open-order"].validateRestored({ order }, { ownerKey, queryKey: [ownerKey, "funding-open-order", "US"] })).toBeNull();
+  });
+
+  test.each(["region", "assetId", "paymentMethod", "quote", "quoteToken", "sandbox", "expectedTokenAmountAtomic", "fees", "expiresAt", "transactionHash", "createdAt", "updatedAt"])("accepts undefined optional funding %s in both restored scopes", (field) => {
+    const order = { ...fullFundingOrder, [field]: undefined };
+    expect(queryScopes["funding-order"].validateRestored(order, { ownerKey, queryKey: [ownerKey, "funding-order", fundingOrder.id] })?.data).toEqual(order);
+    expect(queryScopes["funding-open-order"].validateRestored({ order }, { ownerKey, queryKey: [ownerKey, "funding-open-order", "US"] })?.data).toEqual({ order });
+  });
+
   test("rejects a funding order whose presenter fields are wrong-shaped", () => {
     const policy = queryScopes["funding-order"];
     const orderEntry = { ownerKey, queryKey: [ownerKey, "funding-order", fundingOrder.id] };
@@ -177,12 +239,28 @@ describe("restored owner cache scope guards", () => {
     expect(policy.validateRestored(wire, overviewEntry)?.data).toEqual(overview);
     expect(policy.validateRestored(overview, overviewEntry)?.data).toEqual(overview);
     expect(policy.validateRestored({ ...overview, opportunities: [] }, overviewEntry)).toBeNull();
+    for (const queryKey of [
+      [ownerKey, "borrow"],
+      [ownerKey, "borrow", "detail", "market-1"],
+      [ownerKey, "borrow", "overview", "extra"],
+      [ownerKey, "borrow-market", "overview"],
+    ]) expect(policy.validateRestored(overview, { ownerKey, queryKey })).toBeNull();
     const available = overview.opportunities.flatMap((opportunity) =>
       opportunity.availability.status === "available" ? [opportunity.availability.snapshot] : []);
     expect(available.length).toBeGreaterThan(0);
-    const detailEntry = { ownerKey, queryKey: [ownerKey, "borrow", "detail", available[0]?.market.id] };
-    expect(policy.validateRestored(available[0], detailEntry)?.data).toEqual(available[0]);
-    expect(policy.validateRestored({ ...available[0], walletAddress: "0x2222222222222222222222222222222222222222" }, detailEntry)).toBeNull();
-    expect(policy.validateRestored(available[1], available[0] ? { ownerKey, queryKey: [ownerKey, "borrow", "detail", available[0].market.id] } : detailEntry)).toBeNull();
+    const marketPolicy = queryScopes["borrow-market"];
+    const detailEntry = { ownerKey, queryKey: [ownerKey, "borrow-market", available[0]?.market.id] };
+    expect(marketPolicy.validateRestored(available[0], detailEntry)?.data).toEqual(available[0]);
+    expect(marketPolicy.validateRestored({ ...available[0], walletAddress: "0x2222222222222222222222222222222222222222" }, detailEntry)).toBeNull();
+    expect(marketPolicy.validateRestored(available[1], detailEntry)).toBeNull();
+    expect(marketPolicy.validateRestored(overview, detailEntry)).toBeNull();
+    expect(policy.validateRestored(available[0], detailEntry)).toBeNull();
+    for (const queryKey of [
+      [ownerKey, "borrow-market"],
+      [ownerKey, "borrow-market", "other-market"],
+      [ownerKey, "borrow-market", available[0]?.market.id, "extra"],
+      [ownerKey, "borrow", "detail", available[0]?.market.id],
+      [ownerKey, "borrow", "overview"],
+    ]) expect(marketPolicy.validateRestored(available[0], { ownerKey, queryKey })).toBeNull();
   });
 });

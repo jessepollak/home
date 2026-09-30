@@ -4,8 +4,11 @@ import {
   createContext,
   createElement,
   useContext,
+  useEffect,
+  useRef,
   type ReactNode,
 } from "react";
+import type { ActivityLedgerItem } from "@/client/activity/activity-ledger";
 import type { ShellPanelId } from "@/config/navigation";
 import type { ShellFlow, ShellLocation } from "@/config/shell-location";
 import { parseShellOverlayIntent } from "@/config/shell-location";
@@ -21,12 +24,26 @@ export type HomeInboundPanelState = {
   actionId: string | null;
 };
 
+export type ActivityDetailReturn = {
+  ownerKey: string;
+  panel: ShellPanelId;
+  path: string;
+  item: ActivityLedgerItem;
+  opening: boolean;
+  suspended: boolean;
+};
+
 export type HomeShellRouting = {
+  activityReturn?: ActivityDetailReturn | null;
+  getActivityReturn?: () => ActivityDetailReturn | null;
+  setActivityReturn?: (value: ActivityDetailReturn | null) => void;
   state: HomeInboundPanelState;
   flowOpener?: HTMLElement | null;
   popRevision: number;
   rootRequest: { panel: ShellPanelId; revision: number } | null;
   openPanel: (panel: ShellPanelId) => void;
+  pushRoute: (href: string) => void;
+  leaveRoute: (href: string) => void;
   canOpenAssetDetail: (assetKey: string) => boolean;
   openAssetDetail: (assetKey: string) => boolean;
   setFlow: (
@@ -54,6 +71,19 @@ export function HomeShellRoutingProvider({
 
 export function useOptionalHomeShellRouting(): HomeShellRouting | null {
   return useContext(HomeShellRoutingContext);
+}
+
+export function useActivityReturnOwnerBoundary(
+  ownerKey: string | null,
+  routing: Pick<HomeShellRouting, "getActivityReturn" | "setActivityReturn">,
+): void {
+  const previousOwnerRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (ownerKey === null || ownerKey === previousOwnerRef.current) return;
+    previousOwnerRef.current = ownerKey;
+    if (routing.getActivityReturn?.()?.ownerKey === ownerKey) return;
+    routing.setActivityReturn?.(null);
+  }, [ownerKey, routing]);
 }
 
 export function openPanelAfterClose(
