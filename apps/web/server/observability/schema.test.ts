@@ -2,6 +2,26 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("activity source diagnostics use a closed code and valid HTTP status", () => {
+    const event = {
+      kind: "activity-read" as const, route: "/api/activity" as const,
+      outcome: "failed" as const, reason: "primary-source" as const, source: "cdp-sql" as const,
+      durationMs: 10, sourceDurationMs: 8, sourceAttemptCount: 1, pageCount: 0, rowCount: 0,
+      valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
+    };
+    expect(normalizeObservabilityEvent(event)).not.toHaveProperty("sourceError");
+    expect(normalizeObservabilityEvent(event)).not.toHaveProperty("upstreamStatus");
+    expect(normalizeObservabilityEvent({ ...event, sourceError: "rate-limited", upstreamStatus: 429 }))
+      .toMatchObject({ sourceError: "rate-limited", upstreamStatus: 429 });
+    for (const status of [99, 600, 502.5, Infinity, "private-status", null]) {
+      const line = normalizeObservabilityEvent({ ...event, sourceError: "private-error", upstreamStatus: status,
+        message: "private-body", cause: "private-token" } as never);
+      expect(line).toHaveProperty("sourceError", "unknown");
+      expect(line).not.toHaveProperty("upstreamStatus");
+      expect(JSON.stringify(line)).not.toMatch(/private-/);
+    }
+  });
+
   test("normalizes boundary parse failures without source metadata or sensitive payload", () => {
     const line = normalizeObservabilityEvent({
       kind: "balances-contract",

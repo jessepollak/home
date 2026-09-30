@@ -88,3 +88,7 @@ Verify after at least 200 balance reads or seven days, whichever is later. Captu
 ## Rollback
 
 Speed Insights and the Home custom reporter are independent additive signals. Remove or lower Speed Insights sampling if its traffic is unsuitable; set `NEXT_PUBLIC_HOME_INTERACTION_SAMPLE_RATE=0` and rebuild to disable navigation and scroll reporting independently. Remove the custom reporter independently if its endpoint traffic is unsuitable. If catalog convergence is too slow, cursor-driven foreground resume may be restored while retaining the soft page-start and hard in-flight-page bounds. Do not restore the eight-second whole-scan abort without new production evidence.
+
+## Activity source failures
+
+`activity-read` failures optionally include `sourceError`, a closed ChainDataError code or `unknown`, and `upstreamStatus`, an integer HTTP status from 100 through 599 when the typed error supplies one. Source selection and source reads use the same diagnostics, including when card rows preserve a partial response. Legacy and successful events omit these fields. Error messages, causes, provider bodies, SQL text, credentials, and account data are never copied into the event. These fields distinguish transport/configuration failures from invalid responses without changing the Activity response contract.

@@ -68,7 +68,9 @@ describe("Base ERC20 transfer query", () => {
 
     expect(sql).toContain("FROM base.events");
     expect(sql).toContain("GROUP BY log_id, address");
-    expect(sql).toContain("sum(toInt8(action)) AS net_action");
+    expect(sql).toContain("WHEN 'added' THEN '1'");
+    expect(sql).toContain("WHEN 'removed' THEN '-1'");
+    expect(sql).toContain("ELSE toString(action)");
     expect(sql).toContain("any(toString(parameters['from'])) AS from_address");
     expect(sql).toContain("any(toString(parameters['to'])) AS to_address");
     expect(sql).toContain("any(toString(parameters['value'])) AS amount_base_units");
@@ -192,7 +194,9 @@ describe("Base ERC20 transfer query", () => {
     expect(sql.length).toBeLessThanOrEqual(10_000);
     expect(sql).not.toContain("address IN (");
     expect(sql).not.toContain("lower(toString(address))");
-    expect(sql).toContain("sum(toInt8(action)) AS net_action");
+    expect(sql).toContain("WHEN 'added' THEN '1'");
+    expect(sql).toContain("WHEN 'removed' THEN '-1'");
+    expect(sql).toContain("ELSE toString(action)");
     expect(sql).toContain("WHERE net_action > 0");
     expect(sql).not.toMatch(/\bHAVING\b/);
     expect(sql).not.toMatch(/GROUP BY log_id[\s\S]*LIMIT 10000/);
