@@ -120,3 +120,55 @@ test("cold deep link beyond the first batch reveals and focuses its row on Back"
   await expect(row).toBeFocused();
   await expect(row).toBeInViewport();
 });
+
+test("a refreshed large investment list keeps its scroll geometry while selection is pending", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 440 });
+  await seedSignedInSession(page);
+  const snapshot = manyOwnedInvestmentsSnapshot(997);
+  let changed = false;
+  let changedReads = 0;
+  await installApiFixtures(page, { balances: snapshot });
+  await page.route("**/api/balances?*", (route) => {
+    if (changed) changedReads++;
+    return route.fulfill({ json: changed ? { ...snapshot, fetchedAt: new Date(Date.parse(snapshot.fetchedAt) + 1000).toISOString() } : snapshot });
+  });
+  await page.goto("/investments");
+  const list = page.getByRole("region", { name: "Your investments" });
+  await expect(list.getByRole("button")).toHaveCount(20);
+  await list.getByRole("button").last().scrollIntoViewIfNeeded();
+  await expect(list.getByRole("button")).toHaveCount(40);
+  await list.getByRole("button").nth(30).scrollIntoViewIfNeeded();
+  const main = page.locator("[data-app-main-authenticated]");
+  const focusedRow = list.getByRole("button").nth(30);
+  const focusedKey = await focusedRow.locator("[data-holding-key]").getAttribute("data-holding-key");
+  await focusedRow.focus();
+  const before = await main.evaluate((element) => element.scrollTop);
+  expect(before).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
+    if (!main) throw new Error("Missing Home scroll container");
+    const samples: { busy: boolean; scroll: number }[] = [];
+    const witness = window as typeof window & { investmentRefreshSamples?: typeof samples };
+    witness.investmentRefreshSamples = samples;
+    new MutationObserver(() => {
+      const section = main.querySelector('[aria-labelledby="investments-held-heading"]');
+      samples.push({ busy: section?.getAttribute("aria-busy") === "true", scroll: main.scrollTop });
+    }).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-busy"] });
+  });
+  await page.clock.install();
+  changed = true;
+  await page.clock.fastForward(16_000);
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(() => changedReads).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => {
+    const samples = (window as typeof window & { investmentRefreshSamples?: { busy: boolean; scroll: number }[] }).investmentRefreshSamples ?? [];
+    return samples.some((entry) => entry.busy) && samples.at(-1)?.busy === false;
+  })).toBe(true);
+  const pendingScrolls = await page.evaluate(() => (window as typeof window & {
+    investmentRefreshSamples?: { busy: boolean; scroll: number }[];
+  }).investmentRefreshSamples?.filter((entry) => entry.busy).map((entry) => entry.scroll) ?? []);
+  expect(pendingScrolls.length).toBeGreaterThan(0);
+  for (const scroll of pendingScrolls) expect(scroll).toBeCloseTo(before, 0);
+  await expect(list.getByRole("button").filter({ has: page.locator(`[data-holding-key="${focusedKey}"]`) })).toBeFocused();
+  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
+});

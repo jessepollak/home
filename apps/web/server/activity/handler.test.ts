@@ -3,6 +3,7 @@ import { activityAssets, type ActivityPage } from "@/shared/activity/types";
 import { ACTIVITY_CONTRACT_VERSION, parseActivityPage } from "@/shared/activity/contract";
 import { createBaseErc20TransferHistory } from "@/server/chain-data/base-erc20-transfers";
 import { createCdpSqlHttpTransport } from "@/server/chain-data/cdp-sql-client";
+import { normalizeObservabilityEvent, ACTIVITY_SOURCE_ERRORS } from "@/server/observability/schema";
 import { ChainDataError } from "@/server/chain-data/errors";
 import { createActivityHandler as createHandler } from "./handler";
 import { createActivityReader } from "./reader";
@@ -66,6 +67,30 @@ function expectPrivate(response: Response) {
 }
 
 describe("activity route handler", () => {
+  test("records only typed source failures and HTTP status for both failure boundaries", async () => {
+    for (const boundary of ["source", "read"] as const) {
+      for (const code of ACTIVITY_SOURCE_ERRORS) {
+        const error = code === "unknown"
+          ? new Error("private-provider-body")
+          : new ChainDataError(code, "private-provider-body", { status: 503, cause: "private-token" });
+        const observations: unknown[] = [];
+        const handler = createActivityHandler({
+          authorize: async () => sessionResponse(),
+          source: () => { if (boundary === "source") throw error; return "cdp-sql"; },
+          readActivity: async () => { throw error; },
+          observe: (event) => { observations.push(normalizeObservabilityEvent(event)); },
+          now: () => new Date(TO),
+        });
+        const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
+        expect(response.status).toBeGreaterThanOrEqual(400);
+        expect(observations.at(-1)).toMatchObject({ outcome: "failed", sourceError: code });
+        if (code === "unknown") expect(observations.at(-1)).not.toHaveProperty("upstreamStatus");
+        else expect(observations.at(-1)).toHaveProperty("upstreamStatus", 503);
+        expect(JSON.stringify(observations)).not.toMatch(/private-|subject-a|11111111/);
+      }
+    }
+  });
+
   test("cards fail while onchain succeeds without losing the onchain page", async () => {
     let calls = 0;
     const handler = createActivityHandler({ authorize: async () => sessionResponse(), readActivity: async () => page(),

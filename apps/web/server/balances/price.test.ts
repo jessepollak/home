@@ -160,6 +160,47 @@ function rates(includeEur = true) {
 }
 
 describe("balances pricing", () => {
+  test("cached large inventories bind reversed observations to exact keys without reading providers", async () => {
+    const holdings = Array.from({ length: 300 }, (_, index) =>
+      holding(`0x${(index + 1).toString(16).padStart(40, "0")}`, `token:${index}`, "catalog"));
+    const store = new MemoryPriceObservationStore();
+    await store.putMany(holdings.map(({ key }, index) => ({
+      assetKey: key, unitPrice: { atoms: String(index + 1), scale: 0 },
+      asOf: source.asOf!, fetchedAt: source.fetchedAt,
+    })).reverse());
+    let providerCalls = 0;
+    const price = createTestPricer({
+      priceStore: store,
+      readPrices: async () => { providerCalls += 1; throw new Error("must not read provider"); },
+      readExchangeRates: async () => { providerCalls += 1; throw new Error("must not read FX"); },
+    });
+    const result = await price({ ...read, holdings }, "US", "cached");
+    expect(providerCalls).toBe(0);
+    expect(result.holdings.map(({ key }) => key)).toEqual(holdings.map(({ key }) => key));
+    expect(result.holdings.map(({ value }) => value)).toEqual(holdings.map((_row, index) => ({
+      status: "priced", currency: "USD", amount: { atoms: (BigInt(index + 1) * BigInt(10) ** BigInt(18)).toString(), scale: 18 }, asOf: source.asOf,
+    })));
+    expect(result.holdings.map(({ unitValue }) => unitValue?.amount)).toEqual(
+      holdings.map((_row, index) => ({ atoms: String(index + 1), scale: 0 })),
+    );
+    expect(result.durationMs.index).toBeGreaterThanOrEqual(0);
+    expect(result.durationMs.compute).toBeGreaterThanOrEqual(0);
+  });
+
+  test.each(["fresh", "stale"] as const)("bootstrap uses the first usable %s quote even when the provider repeats a key", async (status) => {
+    const price = createTestPricer({
+      readPrices: async () => [
+        quote(dust.key, "missing"),
+        { ...quote(dust.key, status), unitPrice: { atoms: "5", scale: 0 } },
+        { ...quote(dust.key, "fresh"), unitPrice: { atoms: "9", scale: 0 } },
+      ],
+    });
+    const result = await price({ ...read, holdings: [dust] }, "US");
+    expect(result.holdings[0]?.value).toEqual(status === "fresh"
+      ? { status: "priced", currency: "USD", amount: { atoms: "5000000000000000000", scale: 18 }, asOf: source.asOf }
+      : { status: "unpriced", reason: "price-stale" });
+  });
+
   test("checkpoints background waves before continuing and a new pricer resumes only unfinished keys", async () => {
     const holdings = Array.from({ length: 225 }, (_, index) =>
       holding(`0x${(index + 1).toString(16).padStart(40, "0")}`, `token:${index}`, "registry"));

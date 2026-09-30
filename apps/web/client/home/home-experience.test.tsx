@@ -327,6 +327,18 @@ function InvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: Investme
       </section>;
 }
 
+function PendingInvestmentsFixture({ holding, onOpenHolding, onCloseHolding }: InvestmentsContentProps) {
+  const [ready, setReady] = useState(true);
+  useNestedAppChrome(holding ? { title: "Ethereum holding", backLabel: "Back", onBack: onCloseHolding } : null);
+  if (holding) return <section aria-label="Holding detail">Selected {holding}</section>;
+  return <section aria-labelledby="investments-held-heading" aria-busy={!ready || undefined}>
+    <h2 id="investments-held-heading">Your investments</h2>
+    {ready ? <button onClick={() => { setReady(false); onOpenHolding(INVESTMENT_HOLDING); }}>
+      <span data-holding-key={INVESTMENT_HOLDING}>Ethereum row</span>
+    </button> : <button onClick={() => setReady(true)}>Finish selection</button>}
+  </section>;
+}
+
 function ActivityHoldingFixture({ holding, onCloseHolding }: InvestmentsContentProps) {
   useNestedAppChrome(holding ? { title: "Bitcoin", backLabel: "Back", onBack: onCloseHolding } : null);
   return holding ? <section aria-label="Holding detail">Selected {holding}</section> : null;
@@ -1203,6 +1215,43 @@ describe("Home shell routing and intents", () => {
       expect(window.location.pathname).toBe("/investments");
       await waitFor(() => expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" })));
       expect(historyEntries).toContain(INVESTMENT_PATH);
+    });
+  }
+
+  for (const back of ["header", "browser"] as const) {
+    test(`restores holding focus and history scroll after asynchronous ${back} Back rows arrive`, async () => {
+      const originalObserver = globalThis.MutationObserver;
+      const callbacks = new Set<() => void>();
+      globalThis.MutationObserver = class {
+        callback: () => void;
+        constructor(callback: () => void) { this.callback = callback; }
+        observe() { callbacks.add(this.callback); }
+        disconnect() { callbacks.delete(this.callback); }
+      } as unknown as typeof MutationObserver;
+      try {
+      render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+        assetBalances={fundedInvestments()} investmentsContent={PendingInvestmentsFixture} />);
+      await waitForVerifiedShell();
+      fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+      const main = page().getByRole("main");
+      main.scrollTop = 180;
+      fireEvent.scroll(main);
+      fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
+      await page().findByRole("heading", { level: 1, name: "Ethereum holding" });
+      if (back === "header") fireEvent.click(page().getByRole("button", { name: "Back" }));
+      else act(() => popHistory());
+      expect(page().getByRole("region", { name: "Your investments" }).getAttribute("aria-busy")).toBe("true");
+      expect(main.scrollTop).toBe(0);
+      fireEvent.click(page().getByRole("button", { name: "Finish selection" }));
+      act(() => { for (const callback of [...callbacks]) callback(); });
+      expect(document.activeElement).toBe(page().getByRole("button", { name: "Ethereum row" }));
+      expect(main.scrollTop).toBe(180);
+      const homeButton = within(tabsNavigation()).getByRole("button", { name: "Home" });
+      homeButton.focus();
+      act(() => main.setAttribute("aria-busy", "false"));
+      act(() => { for (const callback of [...callbacks]) callback(); });
+      expect(document.activeElement).toBe(homeButton);
+      } finally { globalThis.MutationObserver = originalObserver; }
     });
   }
 

@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState, type JSX } from "react";
 import type { UseInvestDiscoverResult } from "@/client/invest/use-invest-discover";
 import { PresentationQuoteProvider, presentationQuoteForRegion, usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { useMarketPrices } from "@/client/invest/use-market-prices";
-import { selectOwnedInvestments, type OwnedInvestment } from "@/shared/balances/owned-investments";
+import { type OwnedInvestment } from "@/shared/balances/owned-investments";
 import type { AssetKey, BalancesSnapshot } from "@/shared/balances/types";
 import { isRecord } from "@/shared/guards";
 import { InvestmentsOverview } from "./investments-overview";
 import { OwnedAssetDetail } from "./owned-asset-detail";
+import { scheduleInvestmentSelection } from "./selection-task";
 
 export type InvestmentsExperienceProps = {
   holding: AssetKey | null;
@@ -20,51 +21,55 @@ export type InvestmentsExperienceProps = {
 
 const EMPTY_ROWS: OwnedInvestment[] = [];
 
-type Selection = { snapshot: BalancesSnapshot; rows: OwnedInvestment[] };
+type Selection = { snapshot: BalancesSnapshot; rows: OwnedInvestment[]; attempt: number; failed: boolean };
 
 export function useInvestmentRows(snapshot: BalancesSnapshot | null, enabled: boolean) {
-  const [selection, setSelection] = useState<Selection | null>(() => enabled && snapshot
-    ? { snapshot, rows: selectOwnedInvestments(snapshot) } : null);
-  if ((selection !== null && selection.snapshot !== snapshot) || (selection === null && enabled && snapshot !== null)) {
-    const next = enabled && snapshot ? { snapshot, rows: selectOwnedInvestments(snapshot) } : null;
-    setSelection(next);
-    return next?.rows ?? EMPTY_ROWS;
-  }
-  return selection?.rows ?? EMPTY_ROWS;
-}
-
-function countForHolding(snapshot: BalancesSnapshot | null, holding: AssetKey | null) {
-  if (!snapshot || !holding) return 20;
-  return Math.max(20, selectOwnedInvestments(snapshot).findIndex((row) => row.key === holding) + 1);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  if (selection && selection.snapshot !== snapshot) setSelection(null);
+  const current = selection?.snapshot === snapshot && selection.attempt === attempt ? selection : null;
+  useEffect(() => {
+    if (!enabled || !snapshot || current) return;
+    const controller = new AbortController();
+    scheduleInvestmentSelection(snapshot, controller.signal,
+      (rows) => setSelection({ snapshot, rows, attempt, failed: false }),
+      () => setSelection({ snapshot, rows: EMPTY_ROWS, attempt, failed: true }));
+    return () => controller.abort();
+  }, [snapshot, enabled, current, attempt]);
+  return { rows: current?.rows ?? EMPTY_ROWS, pending: !!snapshot && !current,
+    failed: current?.failed ?? false, retry: () => setAttempt((value) => value + 1) };
 }
 
 const visibleCountHistoryKey = "__homeInvestmentsVisibleCount";
 
-function readVisibleCount(snapshot: BalancesSnapshot | null, holding: AssetKey | null): number {
-  const base = countForHolding(snapshot, holding);
-  if (typeof window === "undefined" || !window.location.pathname.startsWith("/investments")) return base;
+function readVisibleCount(): number {
+  if (typeof window === "undefined" || !window.location.pathname.startsWith("/investments")) return 20;
   const state: unknown = window.history.state;
   const saved = isRecord(state) ? state[visibleCountHistoryKey] : null;
-  return typeof saved === "number" && Number.isInteger(saved) && saved >= 20
-    ? Math.max(base, snapshot ? Math.min(selectOwnedInvestments(snapshot).length, saved) : saved)
-    : base;
+  return typeof saved === "number" && Number.isInteger(saved) && saved >= 20 ? saved : 20;
 }
 
 export function InvestmentsExperience({ holding, onOpenHolding, onCloseHolding, balances, discover }: InvestmentsExperienceProps): JSX.Element {
   const active = balances.status === "loading" || (balances.status === "error" && !balances.snapshot) ? null : balances.snapshot;
-  const rows = useInvestmentRows(active, holding === null);
-  const [visibleCount, setVisibleCount] = useState(() => readVisibleCount(balances.snapshot, holding));
+  const selection = useInvestmentRows(active, holding === null);
+  const rows = selection.rows;
+  const [returnKey, setReturnKey] = useState<AssetKey | null>(null);
+  const [visibleCount, setVisibleCount] = useState(readVisibleCount);
   const [previousHolding, setPreviousHolding] = useState(holding);
   if (previousHolding !== holding) {
     setPreviousHolding(holding);
-    if (previousHolding && !holding) setVisibleCount((count) => Math.max(count, rows.findIndex((row) => row.key === previousHolding) + 1));
+    setReturnKey(previousHolding && !holding ? previousHolding : null);
+  }
+  if (returnKey && !selection.pending && !selection.failed) {
+    setVisibleCount((count) => Math.max(count, rows.findIndex((row) => row.key === returnKey) + 1));
+    setReturnKey(null);
   }
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const onPop = () => setVisibleCount(readVisibleCount(balances.snapshot, holding));
+    const onPop = () => setVisibleCount(readVisibleCount());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [balances.snapshot, holding]);
+  }, []);
   const growVisibleCount = (next: number) => {
     setVisibleCount(next);
     if (window.location.pathname.startsWith("/investments")) {
@@ -77,6 +82,6 @@ export function InvestmentsExperience({ holding, onOpenHolding, onCloseHolding, 
   const status = balances.status === "error" ? "failed" : balances.status === "ready" ? "ready" : "loading";
   return <PresentationQuoteProvider value={quote}>
     {holding ? <OwnedAssetDetail snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} onRetryBalances={() => void balances.retry()} assetKey={holding} catalog={discover.memeAssets} markets={{ ...markets, memeMarket: discover.memeMarket }} assetMarkResolution={discover.assetMarkResolution} onBack={onCloseHolding} />
-      : <InvestmentsOverview ownedRows={rows} snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} visibleCount={visibleCount} onVisibleCountChange={growVisibleCount} onOpenAsset={onOpenHolding} onRetryBalances={() => void balances.retry()} />}
+      : <InvestmentsOverview ownedRows={rows} rowsPending={selection.pending} rowsFailed={selection.failed} onRetryRows={selection.retry} snapshot={balances.snapshot} balanceStatus={status} refreshFailed={balances.refreshError} visibleCount={Math.max(visibleCount, returnKey ? rows.findIndex((row) => row.key === returnKey) + 1 : 0)} onVisibleCountChange={growVisibleCount} onOpenAsset={onOpenHolding} onRetryBalances={() => void balances.retry()} />}
   </PresentationQuoteProvider>;
 }

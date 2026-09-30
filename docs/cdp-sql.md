@@ -14,7 +14,7 @@ The balance-history change log (`server/balances/history/sql-transfers.ts`, [Bal
 - A fixed Base mainnet ERC-20 `Transfer(address,address,uint256)` history template over `base.events`.
 - Runtime validation for a session-verified wallet address, optional operator-supplied asset allowlists, all-contract wallet scope, a maximum 31-day time window, page sizes of 1–200, and cache ages of 500–900,000 ms. Activity's SQL fallback uses all-contract mode with `includeUnknownAssets: true` and no static asset IDs.
 - Deterministic descending keyset pagination by Ethereum chain-log position: block number, numeric block-scoped log index, transaction hash, token address, and CDP log ID. This matches the public Activity order `(blockNumber, logIndex, transactionHash, id)`.
-- Re-org-aware event selection using `sum(toInt8(action)) AS net_action` in the grouped subquery and `WHERE net_action > 0` outside it. CoinbaSeQL's published `selectStatement` is `GROUP BY` followed by optional `ORDER BY` / `LIMIT`, with no `HAVING`: #46 nested `ORDER BY … LIMIT` after `HAVING`, #73 left `HAVING`, and production returned 502 `ACTIVITY_UNAVAILABLE` (#70), so filter net action in the outer `WHERE` and page only with the outer `LIMIT`. The adapter does not filter naively to added rows.
+- Re-org-aware event selection using a normalized net-action sum as `net_action` in the grouped subquery and `WHERE net_action > 0` outside it. CoinbaSeQL's published `selectStatement` is `GROUP BY` followed by optional `ORDER BY` / `LIMIT`, with no `HAVING`: #46 nested `ORDER BY … LIMIT` after `HAVING`, #73 left `HAVING`, and production returned 502 `ACTIVITY_UNAVAILABLE` (#70), so filter net action in the outer `WHERE` and page only with the outer `LIMIT`. The adapter does not filter naively to added rows.
 - Numeric ordering and cursor comparisons use distinct internal aliases before block numbers and log indexes are cast to lossless public strings. Runtime parsing rejects numeric block/index values. Numeric token amounts are rejected in allowlist mode and omitted as unclassified in all-contract mode, so already-rounded JavaScript numbers are never accepted as base units.
 - Response validation matches official CDP `OnchainDataResult`: empty page is `result: []`, or live CoinbaSeQL `result: null` with `metadata.rowCount === 0`. `schema` and `metadata` plus every metadata field are optional. Present metadata is type-checked; missing `cached` / timestamp / duration default to uncached, fetch time, and `0`. `rowCount` may equal the page or exceed it on a truncated page. Partial derived `schema` is ignored, not a 502. A 200 **without** a `result` field stays `invalid-response` — do not invent an empty list from an error-shaped body. `result: null` with a non-zero or missing `rowCount` also stays invalid. Returned participants must still match the verified wallet. Allowlist mode also requires every returned contract to match the requested allowlist. In all-contract mode, valid-envelope rows with a present decoded amount that is null, empty, numeric, or non-decimal are treated as unclassified/NFT-like and omitted without failing the page; an omitted `amount_base_units` response field and malformed addresses, hashes, log IDs, timestamps, or wallet scope still fail closed. Pagination cursors come from the last limited source row even when that row is omitted.
 - Separate `cached` and `stale` source flags plus CDP's execution timestamp, execution duration, and the local fetch timestamp.
@@ -78,7 +78,7 @@ Follow [SQL performance](sql-performance.md) for provider index/pruning fields, 
 
 The template uses the currently documented `base.events` columns: `log_id`, block fields, transaction hash, log index, event signature, contract `address`, decoded `parameters`, and `action`. CDP documents `parameters` as a variant map and describes an event as active when actions for a log ID sum above zero. Values from `parameters['value']` are cast to strings in SQL. The schema documents `log_id` only as `String`, without a character-set guarantee, so row and cursor validation use the same non-empty 256-character local bound rather than rejecting otherwise safe string characters.
 
-The live basic-table response reported `action` as a string field, but its actual value was intentionally not inspected or retained. The transfer template currently uses `sum(toInt8(action))`; whether live values are numeric strings compatible with that expression is unresolved. Do not silently change this to an `added`-only filter: the operator must inspect only the minimum action value/type needed to validate CDP's documented net-action semantics.
+The [CDP SQL FAQ](https://docs.cdp.coinbase.com/data/sql-api/faq) documents action values as `1` / `added` and `-1` / `removed`. The transfer template converts the named values to numeric strings before `toInt8`, while preserving numeric values. This supports string, integer, and Enum8 representations and retains net-action summation per log ID, including removed-log cancellation. Unknown nonnumeric values still fail rather than becoming active history. The prior Enum8 conversion succeeded in the September 7 live probe below; a production failure caused by string conversion has not been established.
 
 The query covers decoded ERC-20 transfer events only. It relies on the provider's decoded `from`, `to`, and `value` parameter names. Non-standard ERC-20 events that use names such as WETH-style `src`, `dst`, and `wad` may therefore be omitted until provider decoding behavior for those contracts is verified. No live probe for those non-standard parameter names was run as part of the all-contract Activity change.
 
@@ -117,6 +117,14 @@ Implemented and mocked:
 - signed-JWT callback request binding;
 - timeout and single-attempt 429 behavior;
 - credential/upstream-body redaction.
+
+Verified with synthetic ClickHouse execution:
+
+- the full generated query cancels added/removed logs and retains re-added logs for named strings, numeric strings, Int8, and Enum8;
+- numeric ordering, wallet/token/time/event scope, and keyset pagination remain correct after cancellation;
+- unknown actions fail rather than produce an empty successful history.
+
+The committed tests and their required CI job are described in [SQL query behavior](gates.md#sql-query-behavior). This is engine-level coverage; live CDP acceptance and scan/index performance need separate evidence.
 
 Verified live by the parent on 2026-09-07:
 

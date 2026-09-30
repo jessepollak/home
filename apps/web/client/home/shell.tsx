@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { restoreHoldingReturn } from "@/client/investments/restore-holding-return";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { AccountSettings } from "@/client/account/account-settings";
@@ -202,10 +203,17 @@ function DashboardShellBody({
     if (previous.cashView === "savings" && location.panel === "cash" && location.cashView === null) {
       mainRef.current?.querySelector<HTMLButtonElement>('[aria-labelledby="cash-savings-heading"] button')?.focus({ preventScroll: true });
     }
-    if (previous.holding && location.panel === "investments" && !location.holding) {
-      mainRef.current?.querySelector<HTMLElement>(`[data-holding-key="${CSS.escape(previous.holding)}"]`)
-        ?.closest("button")?.focus({ preventScroll: true });
+    const main = mainRef.current;
+    if (!previous.holding || location.panel !== "investments" || location.holding || !main) return;
+    const row = main.querySelector<HTMLElement>(`[data-holding-key="${CSS.escape(previous.holding)}"]`);
+    if (row || !main.querySelector('[aria-labelledby="investments-held-heading"][aria-busy="true"]')) {
+      row?.closest("button")?.focus({ preventScroll: true });
+      return;
     }
+    return restoreHoldingReturn(main, previous.holding, (restored) => {
+      restored?.closest("button")?.focus({ preventScroll: true });
+      restored?.scrollIntoView({ block: "center", behavior: "auto" });
+    });
   }, [location]);
   useEffect(() => {
     if (previousPanelRef.current !== activeNavigation) {
