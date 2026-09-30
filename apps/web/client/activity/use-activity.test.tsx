@@ -13,7 +13,7 @@ import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 import { ResourceFailure } from "@/client/account/resource-failure";
 import { activityWindowScope, invalidateAfterAction, nextActivityWindowEnd } from "@/client/query/after-action";
 import { initialActivityWindowEnd } from "@/client/query/after-action";
-import { defaultScheduler, notifyManager, type InfiniteData } from "@tanstack/react-query";
+import { defaultScheduler, notifyManager, type InfiniteData, type QueryKey } from "@tanstack/react-query";
 import { transfersReadiness } from "./activity-sources";
 
 const { act, cleanup, fireEvent, render, renderHook, waitFor } = await import(
@@ -187,6 +187,7 @@ function HookHarness({
           <output data-testid={`${testId}latest-unavailable`}>{String(activity.latestUnavailable === true)}</output>
           <output data-testid={`${testId}currency`}>{activity.page.currency}</output>
           <output data-testid={`${testId}card-ids`}>{activity.page.cards?.rows.map((row) => row.id).join(",") ?? ""}</output>
+          <output data-testid={`${testId}card-statuses`}>{activity.page.cards?.rows.map((row) => row.status).join(",") ?? ""}</output>
           <button type="button" data-testid={`${testId}refetch`} onClick={activity.retry}>refetch</button>
           <output data-testid="loading-more">
             {String(activity.loadingMore)}
@@ -1119,6 +1120,11 @@ describe("mounted first-page recovery with an empty cache", () => {
     await flushMountedRecovery();
     expect(view.getByTestId("status").textContent).toBe("ready");
     expect(view.getByTestId("ids").textContent).toBe("kept");
+    const queryClient = getHomeQueryClient();
+    const ownerKey = activityOwnerKey(session("subject-a", WALLET_A));
+    const windowEnd = queryClient.getQueryData<string>(ownerQueryKey(ownerKey, activityWindowScope))!;
+    const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, "USD");
+    const updatedAt = queryClient.getQueryState(currentKey)!.dataUpdatedAt;
     fireEvent.click(view.getByText("refetch"));
     await flushMountedRecovery();
     for (const delay of activityFirstPageRetryDelaysMs) {
@@ -1129,7 +1135,8 @@ describe("mounted first-page recovery with an empty cache", () => {
     expect(view.getByTestId("status").textContent).toBe("ready");
     expect(view.getByTestId("ids").textContent).toBe("kept");
     expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
-    expect(view.getByTestId("card-ids").textContent).toBe("");
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
   });
 });
 
@@ -2186,16 +2193,27 @@ describe("first-page onchain recovery", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+      ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_cached" }] } }],
+    });
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const prefetchedKeys: QueryKey[] = [];
     let calls = 0;
     const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
-      fetchActivity: async (query) => { calls++; return partialPage(query, WALLET_A); },
-      isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+      fetchActivity: async (query) => { calls++; return partialPage(query, WALLET_A, [cardPurchase]); },
+      isCurrent: () => true, onPrefetchKey: (key) => { if (key) prefetchedKeys.push(key); } }).catch((error: unknown) => error);
     await flushRecovery();
     for (const delay of activityFirstPageRetryDelaysMs) await advanceFirstPageRetry(delay);
     expect((await pending as Error).message).toBe("Activity onchain history is unavailable.");
     expect(calls).toBe(3);
     expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD"))?.pages[0]?.onchainStatus).toBeUndefined();
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toBe(current);
+    expect(current.pages[0]?.cards?.rows.map((row) => row.id)).toEqual(["ipi_cached"]);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+    expect(prefetchedKeys).toHaveLength(1);
+    expect(scope.queryClient.getQueryState(prefetchedKeys[0]!)).toBeUndefined();
   });
 
   test("abort during the retry delay stops further first-page requests", async () => {
@@ -2215,6 +2233,7 @@ describe("first-page onchain recovery", () => {
     expect(signal?.aborted).toBe(true);
     expect(calls).toBe(1);
   });
+
   test("healthy history stays intact after exhausted transient background failures", async () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
@@ -2284,5 +2303,257 @@ describe("first-page onchain recovery", () => {
     expect(await pending).toBeInstanceOf(ResourceFailure);
     expect(cursors(queries)).toEqual([null, "cursor-1"]);
     expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+  });
+});
+
+describe("mounted same-window card retention", () => {
+  test("a fresh partial replaces cached card statuses and drops absent rows without renewing stale timing", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
+    const cachedCards = { status: "ready" as const, rows: [
+      { ...cardPurchase, status: "pending" as const }, { ...cardPurchase, id: "ipi_absent" },
+    ] };
+    scope.queryClient.setQueryData(currentKey, {
+      pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null), cards: cachedCards }],
+      pageParams: [null],
+    } satisfies InfiniteData<ActivityPage>);
+    const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      return partialPage(request, WALLET_A, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("card-ids").textContent).toBe(`${cardPurchase.id},ipi_absent`);
+    expect(view.getByTestId("card-statuses").textContent).toBe("pending,completed");
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(view.getByTestId("card-statuses").textContent).toBe("completed");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+    expect(current.pages[0]!.cards).toEqual(cachedCards);
+  });
+
+  test("a partial before the final transient failure still replaces same-window cards", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
+    scope.queryClient.setQueryData(currentKey, {
+      pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null),
+        cards: { status: "ready", rows: [{ ...cardPurchase, status: "pending" }] } }],
+      pageParams: [null],
+    } satisfies InfiniteData<ActivityPage>);
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      if (calls === 1) return partialPage(request, WALLET_A, [cardPurchase]);
+      throw new ResourceFailure("network");
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(view.getByTestId("card-statuses").textContent).toBe("completed");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+  });
+
+  test("a card-only write after the partial is not overwritten when later retries reject", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
+    scope.queryClient.setQueryData(currentKey, {
+      pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null),
+        cards: { status: "ready", rows: [{ ...cardPurchase, status: "pending" }] } }],
+      pageParams: [null],
+    } satisfies InfiniteData<ActivityPage>);
+    const secondAttempt = deferred<unknown>();
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      if (calls === 1) return partialPage(request, WALLET_A, [cardPurchase]);
+      if (calls === 2) return secondAttempt.promise;
+      throw new ResourceFailure("network");
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    await act(async () => { await advanceFirstPageRetry(activityFirstPageRetryDelaysMs[0]); });
+    expect(calls).toBe(2);
+    const state = scope.queryClient.getQueryState(currentKey)!;
+    const newerCard = { ...cardPurchase, id: "ipi_newer" };
+    await act(async () => {
+      scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+        ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [newerCard] } }, ...old.pages.slice(1)],
+      }, { updatedAt: state.dataUpdatedAt });
+    });
+    const newer = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const newerState = scope.queryClient.getQueryState(currentKey)!;
+    expect(newerState.dataUpdatedAt).toBe(state.dataUpdatedAt);
+    expect(newerState.dataUpdateCount).toBe(state.dataUpdateCount + 1);
+    await act(async () => {
+      secondAttempt.reject(new ResourceFailure("network"));
+      await flushRecovery();
+    });
+    await act(async () => { await advanceFirstPageRetry(activityFirstPageRetryDelaysMs[1]); });
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("card-ids").textContent).toBe(newerCard.id);
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toBe(newer);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(newerState.dataUpdatedAt);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdateCount).toBe(newerState.dataUpdateCount);
+  });
+
+  test("a cold start partial before exhausted transient failures still fails", async () => {
+    jest.useFakeTimers();
+    getHomeQueryClient().clear();
+    let calls = 0;
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={async (request) => {
+      calls++;
+      if (calls === 1) return partialPage(request, WALLET_A, [cardPurchase]);
+      throw new ResourceFailure("network");
+    }} />);
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("error");
+    expect(calls).toBe(3);
+  });
+
+  test("canceling during a partial retry delay leaves same-window cards unchanged", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+      ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_cached" }] } }],
+    });
+    const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    let calls = 0;
+    let signal: AbortSignal | undefined;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request, currentSignal) => {
+      calls++;
+      signal = currentSignal;
+      return partialPage(request, WALLET_A, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    expect(calls).toBe(1);
+    await act(async () => { await scope.queryClient.cancelQueries({ queryKey: currentKey, exact: true }); });
+    await act(async () => { await advanceFirstPageRetry(2_000); });
+    await flushMountedRecovery();
+    expect(signal?.aborted).toBe(true);
+    expect(calls).toBe(1);
+    expect(view.getByTestId("card-ids").textContent).toBe("ipi_cached");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toEqual(current);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+  });
+
+  test("a card-only write during the final attempt is not overwritten even with the same updatedAt", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const finalPage = deferred<unknown>();
+    const queries: string[] = [];
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      queries.push(request);
+      return queries.length === 3 ? finalPage.promise : partialPage(request, WALLET_A, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    expect(queries).toHaveLength(3);
+    const state = scope.queryClient.getQueryState(currentKey)!;
+    const newerCard = { ...cardPurchase, id: "ipi_newer" };
+    await act(async () => {
+      scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+        ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [newerCard] } }, ...old.pages.slice(1)],
+      }, { updatedAt: state.dataUpdatedAt });
+    });
+    const newer = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const newerState = scope.queryClient.getQueryState(currentKey)!;
+    expect(newerState.dataUpdatedAt).toBe(state.dataUpdatedAt);
+    expect(newerState.dataUpdateCount).toBe(state.dataUpdateCount + 1);
+    await act(async () => {
+      finalPage.resolve(partialPage(queries[2]!, WALLET_A, [cardPurchase]));
+      await flushRecovery();
+    });
+    await flushMountedRecovery();
+    expect(view.getByTestId("card-ids").textContent).toBe(newerCard.id);
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toBe(newer);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(newerState.dataUpdatedAt);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdateCount).toBe(newerState.dataUpdateCount);
+  });
+
+  test("owner B's partial updates only owner B's same-window cache", async () => {
+    jest.useFakeTimers();
+    const otherScope = recoveryWindow(session("subject-a", WALLET_A));
+    const otherKey = ownerQueryKey(otherScope.ownerKey, "activity", otherScope.windowEnd, "USD");
+    otherScope.queryClient.setQueryData<InfiniteData<ActivityPage>>(otherKey, (old) => old && {
+      ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_ownerA" }] } }],
+    });
+    const other = otherScope.queryClient.getQueryData<InfiniteData<ActivityPage>>(otherKey)!;
+    const otherState = otherScope.queryClient.getQueryState(otherKey)!;
+    const owner = session("subject-b", WALLET_B);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      return partialPage(request, WALLET_B, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)?.pages[0]?.cards?.rows).toEqual([cardPurchase]);
+    expect(otherScope.queryClient.getQueryData<InfiniteData<ActivityPage>>(otherKey)).toBe(other);
+    expect(other.pages[0]?.cards?.rows.map((row) => row.id)).toEqual(["ipi_ownerA"]);
+    expect(otherScope.queryClient.getQueryState(otherKey)!.dataUpdatedAt).toBe(otherState.dataUpdatedAt);
+    expect(otherScope.queryClient.getQueryState(otherKey)!.dataUpdateCount).toBe(otherState.dataUpdateCount);
   });
 });
