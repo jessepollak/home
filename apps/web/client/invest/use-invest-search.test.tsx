@@ -3,10 +3,9 @@ import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import { assetResolutionFixture, searchFixture, nonTrendingAddress } from "@/tests/browser/feature-map/search-fixtures";
+import { hydrateServerRender } from "@/tests/helpers/hydration";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
-const { renderToString } = await import("react-dom/server");
-const { hydrateRoot } = await import("react-dom/client");
 const { useInvestSearch } = await import("./use-invest-search");
 const { InvestExperience } = await import("./invest-experience");
 
@@ -86,17 +85,16 @@ describe("Invest search", () => {
   test("hydrates a hub entry with a saved query without a mismatch, then restores the query", async () => {
     globalThis.fetch = fixtureFetch as typeof fetch;
     window.history.replaceState(null, "", "/invest");
-    const container = document.createElement("div");
-    container.innerHTML = renderToString(<InvestExperience />);
-    window.history.replaceState({ investSearchQuery: "ORB" }, "", "/invest");
-    document.body.append(container);
-    const hydrationErrors: unknown[] = [];
-    const root = await act(async () => hydrateRoot(container, <InvestExperience />, { onRecoverableError: (error) => hydrationErrors.push(error) }));
-    await waitFor(() => expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("ORB"));
-    await waitFor(() => expect(page().getAllByRole("button", { name: /Orbit/ })).toHaveLength(3));
-    expect(hydrationErrors).toEqual([]);
-    act(() => root.unmount());
-    container.remove();
+    const fixture = await hydrateServerRender(<InvestExperience />, {
+      beforeHydrate: () => window.history.replaceState({ investSearchQuery: "ORB" }, "", "/invest"),
+    });
+    try {
+      await waitFor(() => expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("ORB"));
+      await waitFor(() => expect(page().getAllByRole("button", { name: /Orbit/ })).toHaveLength(3));
+      expect(fixture.hydrationErrors).toEqual([]);
+    } finally {
+      await fixture.unmount();
+    }
   });
 
   test("restores results after detail Back and resolves non-trending deep link", async () => {
