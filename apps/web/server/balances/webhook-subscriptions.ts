@@ -2,7 +2,7 @@ import "server-only";
 
 import { parseAddress } from "@/shared/chain/hex";
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
-import { emitServerEvent } from "@/server/observability/log";
+import { emitServerEvent, observeSafely } from "@/server/observability/log";
 import { resolveSecretKeyring, type SecretKeyring } from "@/server/secrets/at-rest";
 import { isRecord, isUnknownArray } from "@/shared/guards";
 import { canOpenWebhookSecret } from "./webhook-secret";
@@ -236,8 +236,8 @@ export function createCdpWebhookSubscriptions(options: {
       }
       try {
         await ensure(parseAddress(address) ?? invalidSubscriptionAddress());
-      } catch (error) { // oxlint-disable-line home/no-silent-catch -- the injected subscription-failure logger reports the failure; subscription setup never fails the webhook response
-        logFailure(error instanceof Error ? error.message : "subscription-failed");
+      } catch (error) {
+        reportSubscriptionFailureSafely(logFailure, error instanceof Error ? error.message : "subscription-failed");
       }
     },
   };
@@ -406,6 +406,10 @@ function targetOrigin(value: string): string | null {
 function stringField(value: Record<string, unknown>, ...keys: string[]): string | null {
   for (const key of keys) if (typeof value[key] === "string") return value[key];
   return null;
+}
+
+function reportSubscriptionFailureSafely(log: (reason: string) => void, reason: string): void {
+  observeSafely(() => log(reason));
 }
 
 function observeSubscriptionFailure(reason: string): void {

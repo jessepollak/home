@@ -59,6 +59,17 @@ describe("CDP balance webhook subscriptions", () => {
     expect(failures).toEqual(["cdp-webhooks-invalid-list"]);
   });
 
+  test("subscription setup failure log throws without rejecting the subscription", async () => {
+    const reasons: string[] = [];
+    const manager = createCdpWebhookSubscriptions({
+      env, store: persistentStore(), generateJwtImpl: jwt,
+      logFailure: (reason) => { reasons.push(reason); throw new Error("sink failed"); },
+      fetchImpl: async () => Response.json({ subscriptions: "not-an-array" }),
+    });
+    await expect(manager.ensureAddressSubscribed(ADDRESS)).resolves.toBeUndefined();
+    expect(reasons).toEqual(["cdp-webhooks-invalid-list"]);
+  });
+
   test("does not update a legacy subscription with non-array event_filters", async () => {
     const requests: string[] = [];
     const manager = createCdpWebhookSubscriptions({

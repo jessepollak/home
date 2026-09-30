@@ -9,6 +9,7 @@ import {
   type SessionAuthorizer,
 } from "@/server/auth/authorize";
 import { ChainDataError } from "@/server/chain-data/errors";
+import { observeSafely } from "@/server/observability/log";
 import type {
   ActivityReadSource,
   ActivityReadValuation,
@@ -280,12 +281,7 @@ function emitActivityObservation(
   observe: ActivityObservationSink,
   event: ActivityReadObservation,
 ): void {
-  try {
-    const result = observe(event);
-    void Promise.resolve(result).catch(() => { // oxlint-disable-line home/no-silent-catch -- activity observation failures must not change the read response
-    });
-  } catch { // oxlint-disable-line home/no-silent-catch -- the activity observation sink is isolated so reporting cannot change the read response
-  }
+  observeSafely(() => observe(event));
 }
 
 function throwIfAborted(signal: AbortSignal): void {

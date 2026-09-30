@@ -83,6 +83,21 @@ describe("balances handler", () => {
     }]);
   });
 
+  test.each([
+    ["throwing", () => { throw new Error("sink failed"); }],
+    ["rejecting", () => Promise.reject(new Error("sink failed"))],
+  ])("returns the same 502 when the read-failure log is %s", async (_kind, log) => {
+    const handler = createBalancesHandler({
+      authorize: async () => verified,
+      readBalances: async () => { throw new Error("down"); },
+      log,
+    });
+    const response = await handler(new Request("https://home.test/api/balances?region=US"));
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({
+      error: { code: "BALANCES_UNAVAILABLE", message: "Balances are temporarily unavailable." },
+    });
+  });
   test("rejects another owner's snapshot with a boundary event", async () => {
     const events: unknown[] = [];
     const handler = createBalancesHandler({

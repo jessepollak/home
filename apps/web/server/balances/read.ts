@@ -12,7 +12,7 @@ import {
   resolveBaseRpcUrl,
   type BaseRpcCall,
 } from "@/server/chain/rpc";
-import { writeObservabilityEvent } from "@/server/observability/log";
+import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import type { HoldingBalance } from "@/shared/balances/types";
 import {
@@ -409,17 +409,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function emitHostedGuard(
   log: (event: ObservabilityEvent) => unknown,
 ): void {
-  try {
-    log({
-      kind: "portfolio-balance-source",
-      route: "/api/balances",
-      source: "configured-base-rpc",
-      stage: "inventory",
-      outcome: "unavailable",
-      reason: "not-configured",
-    });
-  } catch { // oxlint-disable-line home/no-silent-catch -- the hosted-guard log sink is isolated so observability cannot change the read result
-  }
+  observeSafely(() => log({
+    kind: "portfolio-balance-source",
+    route: "/api/balances",
+    source: "configured-base-rpc",
+    stage: "inventory",
+    outcome: "unavailable",
+    reason: "not-configured",
+  }));
 }
 
 async function withDeadline<T>(
