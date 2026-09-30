@@ -54,6 +54,8 @@ describe("authenticated account resources", () => {
       .toBe("/api/invites/link");
     expect(() => normalizeAccountResourcePath("/api/invites/private"))
       .toThrow();
+    expect(normalizeAccountResourcePath("/api/support/messages")).toBe("/api/support/messages");
+    expect(() => normalizeAccountResourcePath("/api/supporter")).toThrow();
     expect(normalizeAccountResourcePath("/api/activity/orders")).toBe("/api/activity/orders");
   });
 });

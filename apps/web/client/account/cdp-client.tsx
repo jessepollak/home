@@ -64,6 +64,7 @@ export type AccountWalletClient = {
   ) => Promise<unknown>;
   fetchActivity: (query: string, signal?: AbortSignal) => Promise<unknown>;
   fetchAccountResource: (path: string, options?: AccountResourceOptions) => Promise<unknown>;
+  fetchAccountResponse: (path: string, options: { body: string; signal?: AbortSignal }) => Promise<Response>;
   fetchCountryPreference: (signal?: AbortSignal) => Promise<unknown>;
   prepareMoneyAction: (kind: string, params: unknown) => Promise<PreparedMoneyAction>;
   resumeMoneyAction: (id: string) => Promise<PreparedMoneyAction>;
@@ -134,6 +135,7 @@ export function createBlockedAccountWalletClient(
     fetchBalances: async () => { throw new Error("Balances are unavailable."); },
     fetchActivity: async () => { throw new Error("Activity is unavailable."); },
     fetchAccountResource: async () => { throw new Error("Authenticated resource is unavailable."); },
+    fetchAccountResponse: async () => { throw new Error("Authenticated resource is unavailable."); },
     fetchCountryPreference: async () => { throw new Error("Country preference is unavailable."); },
     prepareMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },
     resumeMoneyAction: async () => { throw new TransferExecutionError("unavailable"); },

@@ -1,9 +1,10 @@
 "use client";
 
+import { useOptionalSupport } from "@/client/support/support-provider";
 import { CircleAlertIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { Alert, AlertIcon, AlertDescription } from "@/components/ui/alert";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldLabel, FieldTitle } from "@/components/ui/field";
@@ -96,6 +97,7 @@ export function FundingOrderFlow({
   const [busy, setBusy] = useState(false);
   const [resolvingAmbiguous, setResolvingAmbiguous] = useState(false);
   const [resolutionError, setResolutionError] = useState<string | null>(null);
+  const support = useOptionalSupport();
   const [clearedOrderId, setClearedOrderId] = useState<string | null>(null);
   const [confirmationAttempted, setConfirmationAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -324,8 +326,9 @@ export function FundingOrderFlow({
       <MoneyModalBody hasFooter={!pendingStarted && !blocked} className="gap-4 pt-4">
         {pendingStarted ? <FundingNotice tone="neutral">Verification is pending. Return here after Ripio completes its review. Home will not issue another hosted link automatically.</FundingNotice> : null}
         {reserving ? <FundingNotice tone="neutral">Provider setup is still being created. Home will not start another request.</FundingNotice> : null}
-        {ambiguous ? <FundingNotice tone="error" role="alert">Home could not confirm the provider setup result. Do not try again until the operator reconciles it.</FundingNotice> : null}
-        {rejected ? <FundingNotice tone="error" role="alert">The provider rejected this setup. Home will not retry it automatically. Ask the operator to reconcile the provider result before restarting setup.</FundingNotice> : null}
+        {ambiguous ? <FundingNotice tone="error" role="alert">Home could not confirm the provider setup result. Do not try again until support checks the provider result.</FundingNotice> : null}
+        {rejected ? <FundingNotice tone="error" role="alert">The provider rejected this setup. Home will not retry it automatically. Message support before restarting setup.</FundingNotice> : null}
+        {(ambiguous || rejected) && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport()}>Message support</Button> : null}
         {!pendingStarted && !blocked ? <Field>
           <FieldLabel htmlFor="funding-customer-email">Email</FieldLabel>
           <Input
@@ -566,6 +569,7 @@ export function OpenOrderPrompt({
   onContinue: () => void;
   onStartNew: () => void;
 }) {
+  const support = useOptionalSupport();
   return (
     <>
       <MoneyModalBody hasFooter className="gap-4 pt-4">
@@ -591,6 +595,7 @@ export function OpenOrderPrompt({
         {order.state === "dispatch-ambiguous" ? (
           <FundingNotice>Home can&apos;t confirm this deposit yet. Continue to check it before starting another.</FundingNotice>
         ) : null}
+        {order.state === "dispatch-ambiguous" && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport({ kind: "funding_order", id: order.id })}>Message support</Button> : null}
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel="Continue deposit"
@@ -617,6 +622,8 @@ function OrderStatus({
   resolutionError?: string | null;
   cleared?: boolean;
 }) {
+  const support = useOptionalSupport();
+  const needsSupport = ["failed", "dispatch-ambiguous", "sent-unverified"].includes(order.state) && !(order.sandbox && order.state === "sent-unverified");
   const copy = cleared
     ? {
         title: "Order cleared",
@@ -629,6 +636,7 @@ function OrderStatus({
         <h3 className="text-lg font-semibold">{copy.title}</h3>
         {order.sandbox ? <SandboxBadge /> : null}
         {copy.body ? <FundingNotice>{copy.body}</FundingNotice> : null}
+        {needsSupport && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport({ kind: "funding_order", id: order.id })}>Message support</Button> : null}
         <SettledAmounts binding={binding} order={order} />
         {order.instructions &&
         (order.instructions.kind !== "embed" || order.state === "awaiting-payment") ? (

@@ -117,6 +117,7 @@ export const SERVER_EVENT_KINDS = [
   "balances-signal",
   "balances-valuation",
   "operator-registry",
+  "support",
   "upstream-call",
 ] as const;
 export const SERVER_EVENT_OUTCOMES = [
@@ -272,6 +273,7 @@ export type ObservabilityEvent =
       region?: string;
       sandbox?: boolean;
       ownerHash?: string;
+      assistant?: "replied" | "handoff" | "failed" | "discarded";
       durationMs: number;
     };
 
@@ -441,6 +443,7 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         region?: string;
         sandbox?: boolean;
         ownerHash?: string;
+        assistant?: "replied" | "handoff" | "failed" | "discarded";
         durationMs: number;
       }
   );
@@ -713,6 +716,7 @@ export function normalizeObservabilityEvent(
       ...(region ? { region } : {}),
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
+      ...(event.kind === "support" && event.assistant && ["replied", "handoff", "failed", "discarded"].includes(event.assistant) ? { assistant: event.assistant } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
     };
   }

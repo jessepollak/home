@@ -1,5 +1,10 @@
 {
-  "tests": [],
+  "tests": [
+    { "file": "client/operator-support/operator-support-inbox.test.tsx", "test": "a poll drops rows another operator moved out of the filter and keeps deeper pages", "maxSeconds": 9, "reason": "single CI sample 6.90 s x 1.25" },
+    { "file": "client/operator-support/operator-support-inbox.test.tsx", "test": "resolving removes the conversation from the open list", "maxSeconds": 11, "reason": "single CI sample 8.34 s x 1.25" },
+    { "file": "client/operator-support/operator-support-inbox.test.tsx", "test": "returning to a tab drops a resolved deeper row even when the first page is unchanged", "maxSeconds": 8, "reason": "single CI sample 5.79 s x 1.25" },
+    { "file": "client/support/support-chat.test.tsx", "test": "a shifted page boundary resets loaded history instead of hiding a message", "maxSeconds": 8, "reason": "single CI sample 6.10 s x 1.25" }
+  ],
   "files": [],
   "testFiles": [
     { "file": "oxlint/tests/accessibility-react-rules.test.mjs", "maxSeconds": 60, "reason": "Each case spawns a pinned Oxlint process with a 60 s per-case budget declared in apps/web/oxlint/tests/helpers/oxlint-workspace.mjs and a 20 s file default in apps/web/oxlint/tests/rule-check-timeout.mjs, so loaded runners must not enforce the 5 s unit-test default." },

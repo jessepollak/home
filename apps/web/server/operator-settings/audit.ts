@@ -6,7 +6,7 @@ import { validCursor, type AuditEntry } from "@/shared/operator-settings/contrac
 import { OperatorSettingsValidationError } from "./store";
 
 type AuditRow = {
-  id: string; occurred_at: Date; actor: `0x${string}`; action: "settings.update" | "customer.read";
+  id: string; occurred_at: Date; actor: `0x${string}`; action: "settings.update" | "support.credential.update" | "support.credential.delete" | "customer.read";
   target_kind: "settings" | "customer"; target_id: string; purpose: string | null; before: unknown; after: unknown;
 };
 
@@ -28,9 +28,16 @@ export class AdminAuditLog {
       const actor = parseAddress(row.actor);
       if (!actor) throw new Error("Stored audit actor is not a canonical address");
       const common = { id: row.id, occurredAt: row.occurred_at.toISOString(), actor };
-      return row.action === "settings.update"
-        ? { ...common, action: "settings.update", target: { kind: "settings", id: row.target_id }, before: row.before, after: row.after }
-        : { ...common, action: "customer.read", target: { kind: "customer", id: row.target_id }, purpose: row.purpose! };
+      if (row.action === "customer.read") {
+        if (row.target_kind !== "customer" || row.purpose === null) throw new Error("Stored customer read audit row is malformed");
+        return { ...common, action: "customer.read", target: { kind: "customer", id: row.target_id }, purpose: row.purpose };
+      }
+      if (row.target_kind !== "settings") throw new Error("Stored settings audit row is malformed");
+      const target = { kind: "settings" as const, id: row.target_id };
+      if (row.action === "settings.update") return { ...common, action: "settings.update", target, before: row.before, after: row.after };
+      if (row.action === "support.credential.update") return { ...common, action: "support.credential.update", target, before: row.before, after: row.after };
+      if (row.action === "support.credential.delete") return { ...common, action: "support.credential.delete", target, before: row.before, after: row.after };
+      throw new Error("Stored audit action is not recognised");
     });
     return { entries, nextCursor: result.rows.length > limit ? entries.at(-1)!.id : null };
   }

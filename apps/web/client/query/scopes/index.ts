@@ -23,6 +23,8 @@ import { networkFeePolicy } from "./network-fee-policy";
 import { priceHistory } from "./price-history";
 import { savingsVaults } from "./savings-vaults";
 import { stockTradeEligibility } from "./stock-trade-eligibility";
+import { supportConversation } from "./support-conversation";
+import { supportSummary } from "./support-summary";
 import { tradeAvailability } from "./trade-availability";
 
 export const queryScopes = {
@@ -51,5 +53,7 @@ export const queryScopes = {
   "price-history": priceHistory,
   "savings-vaults": savingsVaults,
   "stock-trade-eligibility": stockTradeEligibility,
+  "support-conversation": supportConversation,
+  "support-summary": supportSummary,
   "trade-availability": tradeAvailability,
 } as const;

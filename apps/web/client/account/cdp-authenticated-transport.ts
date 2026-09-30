@@ -29,7 +29,7 @@ import { ResourceFailure, type ResourceFailureKind } from "./resource-failure";
 
 type MoneyActionApiFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
-const walletFreeAccountResourcePrefixes = ["/api/account/country-preference"] as const;
+const walletFreeAccountResourcePrefixes = ["/api/account/country-preference", "/api/support"] as const;
 
 const accountResourcePrefixes = [
   ...walletFreeAccountResourcePrefixes,
@@ -222,15 +222,15 @@ export function useAuthenticatedTransport({
     state: freshnessState.current,
   }), [fetchVerifiedResource, queryClient, session]);
 
-  const fetchAccountResource = useCallback(
-    async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
+  const requestAccountResource = useCallback(
+    async (path: string, options: { method: "GET" | "POST" | "PUT"; body?: string; accept: string; signal?: AbortSignal }): Promise<{ response: Response; assertActive: () => void }> => {
       const safePath = normalizeAccountResourcePath(path);
       const pathname = new URL(safePath, "https://home.invalid").pathname;
       const walletFree = walletFreeAccountResourcePrefixes.some(
         (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
       );
-      if (!session || status !== "verified" || verification !== "server" || !ownerKey ||
-          (!walletFree && !session.smartAccount)) {
+      if (!session || status !== "verified" || verification !== "server" ||
+          (!walletFree && (!ownerKey || !session.smartAccount))) {
         throw new TransferExecutionError("stale-session");
       }
       const identity = ownerFence.capture();
@@ -243,7 +243,7 @@ export function useAuthenticatedTransport({
       const accessToken = await getAccessToken();
       assertActive();
       if (authentication === "cdp" && !accessToken) throw new TransferExecutionError("stale-session");
-      const method = options.method ?? "GET";
+      const method = options.method;
       if (method === "GET" && options.body !== undefined) {
         throw new TransferExecutionError("invalid-request");
       }
@@ -254,12 +254,12 @@ export function useAuthenticatedTransport({
           method,
           headers: {
             ...skewHeaders,
-            Accept: "application/json",
+            Accept: options.accept,
             ...(method !== "GET" ? { "Content-Type": "application/json" } : {}),
             ...(authentication === "cdp" ? { Authorization: `Bearer ${accessToken}` } : {}),
             [ACCOUNT_PROVIDER_HEADER]: session.accountProvider,
           },
-          ...(method !== "GET" ? { body: JSON.stringify(options.body ?? {}) } : {}),
+          ...(method !== "GET" ? { body: options.body ?? "{}" } : {}),
           cache: "no-store",
           credentials: "same-origin",
           redirect: "error",
@@ -289,6 +289,21 @@ export function useAuthenticatedTransport({
         Object.assign(failure, { kind: "http" satisfies ResourceFailureKind, status: response.status, ...details });
         throw failure;
       }
+      return { response, assertActive };
+    },
+    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, session, sessionFetch, status, verification],
+  );
+
+  const fetchAccountResource = useCallback(
+    async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
+      const safePath = normalizeAccountResourcePath(path);
+      const { response, assertActive } = await requestAccountResource(path, {
+        method: options.method ?? "GET",
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        accept: "application/json",
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      if (!session) throw new TransferExecutionError("stale-session");
       try {
         const value = await readJson(response);
         assertActive();
@@ -308,7 +323,20 @@ export function useAuthenticatedTransport({
         throw Object.assign(new TransferExecutionError("unavailable", error), { kind: "parse" satisfies ResourceFailureKind });
       }
     },
-    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, startActionBalanceFreshness, status, verification],
+    [queryClient, requestAccountResource, session, startActionBalanceFreshness],
+  );
+
+  const fetchAccountResponse = useCallback(
+    async (path: string, options: { body: string; signal?: AbortSignal }): Promise<Response> => {
+      const { response } = await requestAccountResource(path, {
+        method: "POST",
+        body: options.body,
+        accept: "text/event-stream",
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      return response;
+    },
+    [requestAccountResource],
   );
 
   const fetchMoneyActionApi = useCallback<MoneyActionApiFetch>(
@@ -344,6 +372,7 @@ export function useAuthenticatedTransport({
     fetchBalances,
     fetchActivity,
     fetchAccountResource,
+    fetchAccountResponse,
     fetchCountryPreference,
     fetchMoneyActionApi,
     reset,

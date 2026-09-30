@@ -314,6 +314,8 @@ export async function installApiFixtures(
       return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: options.countryPreferenceRegion ?? null });
     }
     if (path === "/api/invites/link") return json(route, { version: 1, code: "abcdefghjk" });
+    if (path === "/api/support/summary") return json(route, { version: 2, unreadCount: 0 });
+    if (path === "/api/support" && request.method() === "GET") return json(route, { version: 2, conversation: null, assistant: { available: true, handoff: false } });
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});
   });

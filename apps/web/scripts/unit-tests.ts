@@ -7,7 +7,7 @@ const extensions = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"
 const testName = /(?:\.test\.|_test\.|\.spec\.|_spec\.)/;
 const countNames = ["tests", "assertions", "failures", "skipped", "time"] as const;
 const valueFlags = new Set(["-t", "--test-name-pattern", "--timeout", "--retry", "--rerun-each", "--seed", "--path-ignore-patterns"]);
-export const DEFAULT_BATCH_SIZE = 25;
+export const DEFAULT_BATCH_SIZE = 5;
 export const DEFAULT_MAX_RSS_MB = 3072;
 const unsupportedFlags = ["--watch", "--hot", "--bail"];
 

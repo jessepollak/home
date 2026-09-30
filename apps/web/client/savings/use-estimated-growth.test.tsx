@@ -130,6 +130,33 @@ describe("Save estimated-growth owner", () => {
     expect(view.container.textContent).not.toBe("1000000000000000000");
   });
 
+  test("an inactive panel that becomes active while the document is hidden waits for visibility", async () => {
+    const scheduler = manualSamplingScheduler();
+    let wall = 2_000_000_060_000;
+    const now = jest.fn(() => wall);
+    const value = anchor("hidden-panel", BigInt("1000000000000000000"), wall - 60_000);
+    const panel = (active: boolean) => (
+      <MountedShellPanel active={active}>
+        <Harness value={value} now={now} />
+      </MountedShellPanel>
+    );
+    const view = render(panel(true));
+    await scheduler.fire(250);
+    expect(now).toHaveBeenCalledTimes(1);
+    const sampled = view.container.textContent;
+    view.rerender(panel(false));
+    wall += 60_000;
+    hidden = true;
+    view.rerender(panel(true));
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(view.container.textContent).toBe(sampled);
+    expect(scheduler.pending).toHaveLength(0);
+    hidden = false;
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
+    expect(now).toHaveBeenCalledTimes(2);
+    expect(view.container.textContent).not.toBe(sampled);
+  });
+
   test("pauses growth in an inactive shell panel and samples right after return", async () => {
     const scheduler = manualSamplingScheduler();
     let wall = 2_000_000_060_000;

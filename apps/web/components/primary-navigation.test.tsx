@@ -2,8 +2,13 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
-const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
+import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { PrimaryNavigation } = await import("./primary-navigation");
+const { SupportProvider } = await import("@/client/support/support-provider");
+const unusedStream: AccountWalletClient["fetchAccountResponse"] = async () => { throw new Error("Unexpected support stream"); };
 
 const storageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
 
@@ -48,6 +53,36 @@ describe("PrimaryNavigation", () => {
     view.rerender(<PrimaryNavigation layout="rail" activeNavigation="card" cardsEnabled account={account} onNavigate={(id) => navigations.push(id)} />);
     fireEvent.click(view.getByRole("button", { name: "Card" }));
     expect(navigations).toEqual(["invest", "card"]);
+  });
+
+  test("rail Account announces unread support messages and shows the unread indicator", async () => {
+    const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => {
+      if (path === "/api/support/summary") return { version: 2, unreadCount: 2 };
+      throw new Error(`Unexpected request: ${path}`);
+    };
+    const view = render(<SupportProvider ownerKey="rail-unread" fetchAccountResource={fetchAccountResource} fetchAccountResponse={unusedStream}>
+      <PrimaryNavigation layout="rail" activeNavigation="home" account={account} onNavigate={() => {}} />
+    </SupportProvider>);
+    expect(await view.findByRole("button", { name: "Account settings, 2 unread support messages" })).toBeTruthy();
+    expect(view.container.querySelector("[data-support-unread]")).not.toBeNull();
+  });
+
+  test("rail Account remains plain while the summary is pending or fails without data", async () => {
+    let rejectSummary: (error: Error) => void = () => {};
+    const pending = new Promise<never>((_resolve, reject) => { rejectSummary = reject; });
+    const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => {
+      if (path === "/api/support/summary") return pending;
+      throw new Error(`Unexpected request: ${path}`);
+    };
+    const view = render(<SupportProvider ownerKey="rail-unknown" fetchAccountResource={fetchAccountResource} fetchAccountResponse={unusedStream}>
+      <PrimaryNavigation layout="rail" activeNavigation="home" account={account} onNavigate={() => {}} />
+    </SupportProvider>);
+    expect(view.getByRole("button", { name: "Account settings" })).toBeTruthy();
+    expect(view.container.querySelector("[data-support-unread]")).toBeNull();
+    await act(async () => { rejectSummary(new Error("Summary unavailable")); });
+    await waitFor(() => expect(getHomeQueryClient().getQueryState(ownerQueryKey("rail-unknown", "support-summary"))?.status).toBe("error"));
+    expect(view.getByRole("button", { name: "Account settings" })).toBeTruthy();
+    expect(view.container.querySelector("[data-support-unread]")).toBeNull();
   });
 
   test("rail gives Account sole current state, ignores repeat presses and disables it while checking", () => {

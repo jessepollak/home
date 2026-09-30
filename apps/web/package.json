@@ -37,6 +37,8 @@
     "profile:modals": "bun run scripts/modal-open-profile.ts"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "4.0.96",
+    "@ai-sdk/react": "4.0.121",
     "@base-org/account": "2.5.10",
     "@base-ui/react": "1.8.0",
     "@coinbase/cdp-core": "0.0.123",
@@ -53,6 +55,7 @@
     "@vercel/speed-insights": "2.0.0",
     "@zkp2p/cash": "0.5.3",
     "@zkp2p/sdk": "0.14.1",
+    "ai": "7.0.118",
     "class-variance-authority": "0.7.1",
     "cn": "0.3.0",
     "input-otp": "1.5.0",

@@ -10,9 +10,10 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { RailNavItem } from "@/components/ui/rail-nav";
 import { Separator } from "@/components/ui/separator";
 import { brand } from "@/config/brand";
+import { fetchOperatorSupportSummary } from "@/client/operator-support/api";
 import { operatorNavigation } from "@/config/operator-navigation";
 
-function SectionLinks({ pathname, sectionRoute, onNavigate }: { pathname: string; sectionRoute: boolean; onNavigate?: (href: string) => void }) {
+function SectionLinks({ pathname, sectionRoute, onNavigate, supportUnread }: { pathname: string; sectionRoute: boolean; onNavigate?: (href: string) => void; supportUnread: number }) {
   return (
     <nav aria-label="Operator sections" className="grid gap-1">
       {operatorNavigation.map((item, index) => (
@@ -23,6 +24,7 @@ function SectionLinks({ pathname, sectionRoute, onNavigate }: { pathname: string
             label={item.label}
             icon={item.icon}
             current={sectionRoute && (pathname === item.href || (item.href !== "/admin" && pathname.startsWith(`${item.href}/`)))}
+            unreadCount={"unreadBadge" in item ? supportUnread ?? 0 : 0}
             onClick={onNavigate && (() => onNavigate(item.href))}
           />
         </div>
@@ -72,6 +74,20 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
   const sectionRoute = useSelectedLayoutSegments().includes("(sections)");
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { shellRef.current?.setAttribute("data-hydrated", "true"); }, []);
+  const [supportUnread, setSupportUnread] = useState<number | null>(0);
+  useEffect(() => {
+    let active = true;
+    const poll = () => {
+      if (document.hidden) return;
+      void fetchOperatorSupportSummary().then((summary) => { if (active) setSupportUnread(summary.unreadConversations); }).catch(() => { if (active) setSupportUnread(null); return null; });
+    };
+    poll();
+    const timer = window.setInterval(poll, 30_000);
+    document.addEventListener("visibilitychange", poll);
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", poll); };
+  }, []);
   const previousPath = useRef(pathname);
   const menuNavigationPending = useRef(false);
   const updateAddress = useCallback((nextAddress: `0x${string}`) => {
@@ -147,10 +163,10 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
 
   return (
     <OperatorAddressContext.Provider value={updateAddress}>
-      <div className="min-h-dvh bg-background text-foreground md:flex">
+      <div ref={shellRef} data-operator-shell="" className="min-h-dvh bg-background text-foreground md:flex">
         <aside aria-label="Operator sidebar" className="hidden w-64 shrink-0 flex-col overflow-y-auto border-e md:sticky md:top-0 md:flex md:h-dvh">
           <div className="px-4 py-6 text-lg font-semibold">{brand.name}</div>
-          <SectionLinks pathname={pathname} sectionRoute={sectionRoute} />
+          <SectionLinks pathname={pathname} sectionRoute={sectionRoute} supportUnread={supportUnread ?? 0} />
           <div className="mt-auto grid gap-3 border-t px-4 py-5">
             <Link href="/home" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
               <ArrowLeft className="size-4 rtl:-scale-x-100" aria-hidden="true" />Back to Home
@@ -168,7 +184,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
           <DrawerContent aria-label="Sections" finalFocus={restoreFocusTarget}>
             <DrawerHeader><DrawerTitle>Sections</DrawerTitle></DrawerHeader>
             <div className="overflow-y-auto px-3 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-              <SectionLinks pathname={pathname} sectionRoute={sectionRoute} onNavigate={navigateFromMenu} />
+              <SectionLinks pathname={pathname} sectionRoute={sectionRoute} onNavigate={navigateFromMenu} supportUnread={supportUnread ?? 0} />
               <Separator className="my-3" />
               <Link href="/home" onClick={() => navigateFromMenu("/home")} className="flex min-h-11 items-center gap-2 px-4 text-sm font-medium text-primary outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
                 <ArrowLeft className="size-4 rtl:-scale-x-100" aria-hidden="true" />Back to Home

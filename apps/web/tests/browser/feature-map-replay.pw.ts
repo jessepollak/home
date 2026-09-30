@@ -9,7 +9,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/surfaces"));
 const replaySurfaceIds = [
   "landing", "sign-in", "home-panel", "balances", "activity", "save", "invest", "investments",
-  "send", "account-settings", "coverage",
+  "send", "account-settings", "coverage", "support-chat",
 ];
 const fixtureSkips: Record<string, string> = {
   "operator-console": "manual: signed native operator session and allowlist required; covered by admin.pw.ts",

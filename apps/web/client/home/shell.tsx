@@ -13,6 +13,7 @@ import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { AccountSettings } from "@/client/account/account-settings";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { SupportProvider } from "@/client/support/support-provider";
 import { useAppearance } from "@/client/appearance/use-appearance";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketId } from "@/shared/borrowing/config";
@@ -1006,6 +1007,7 @@ function DashboardShellBody({
 
   return (
     <HomeShellRoutingProvider value={routingValue}>
+      <SupportProvider ownerKey={isVerified && account.session ? `${account.session.accountProvider}\u0000${account.session.user.subject}` : null} fetchAccountResource={account.fetchAccountResource} fetchAccountResponse={account.fetchAccountResponse}>
       <div
         ref={shellRef}
         className="fixed inset-x-0 top-0 flex h-svh max-h-svh flex-col overflow-hidden bg-muted [--shell-scrollbar-width:0px] lg:flex-row"
@@ -1253,6 +1255,7 @@ function DashboardShellBody({
         />
         </div>
       </div>
+      </SupportProvider>
     </HomeShellRoutingProvider>
   );
 }
