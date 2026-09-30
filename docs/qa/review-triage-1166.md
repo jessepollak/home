@@ -10,10 +10,10 @@ The rows are the merged-PR review threads whose first comment carries the P1 bad
 
 | Disposition | Meaning | Count |
 | --- | --- | --- |
-| fixed-later | The requested behavior holds on current `main`. | 20 |
+| fixed-later | The requested behavior holds on current `main`. | 19 |
 | vanished | The code or document no longer exists, or its replacement cannot reach the reported state. | 11 |
 | not-a-defect | The premise did not hold, the behavior is a recorded product decision, or the finding is a process or copy preference. | 4 |
-| live | The reported behavior still exists; each row has a reproduction or current code trace and a tracking issue or follow-up. | 13 |
+| live | The reported behavior still exists; each row has a reproduction or current code trace and a tracking issue or follow-up. | 14 |
 
 ## Ledger
 
@@ -50,7 +50,7 @@ Line references are to `main` at `e3e10e77`. Paths are relative to `apps/web/` u
 | F27 | #226 | Clear balances invalidated by a confirmed action | live | `client/query/after-action.ts:68-76,147-185`; `client/balances/use-balances.ts:175-187`; `client/cash/cash-overview.tsx:228-242` | When every post-action refresh fails, the pre-action snapshot stays `ready` with only a `stale` flag, and Savings renders the old total without a qualifier. Follow-up B. |
 | F28 | #226 | Announce vault loading only once | fixed-later | `client/cash/cash-overview.tsx:869-887` | The replacement detail has one loading status (#1076). |
 | F29 | #262 | Revalidate checkpointed pages before completion | fixed-later | `server/balances/coalesce.ts:377-405` | A resumed incomplete cursor keeps catalog coverage incomplete until a fresh complete first-page scan. Test at `server/balances/coalesce.test.ts:729-819`. |
-| F30 | #262 | Align the page budget with the inventory deadline | fixed-later | `server/balances/coalesce.ts:239-249`; `server/balances/read.ts:93-123` | CDP enumeration and the pinned vault read run concurrently with independent deadlines. |
+| F30 | #262 | Align the page budget with the inventory deadline | live | `server/balances/enumerate-cdp.ts:14-15,145-158,200-212`; `server/balances/coalesce.ts:242-249` | Running the registry read concurrently imposes no deadline on enumeration. The 2.5-second budget is checked only before a page starts, and each page then gets a fresh 4-second ceiling that also covers its retry, so a page started just before 2.5 seconds keeps enumeration running until about 6.5 seconds. The full observation awaits enumeration in `Promise.all`, and nothing bounds the phase as a whole. Follow-up H. |
 | F31 | #272 | Retry readiness after transient migration contention | fixed-later | `server/actions/store.ts:163-181`; `server/db/sql.ts:79-88` | The actions store has no cached readiness promise or per-request migration. |
 | F32 | #284 | Preserve fee-bearing Ripio quotes | live | `server/funding/providers/ripio/adapter.ts:88`; `server/funding/core/service.ts:367-371` | A quote for 2100 with `finalFromAmount` 2110 (the fixture shape at `server/funding/providers/ripio/client.test.ts:90-100`) returns `fiatAmount` 2110, and core rejects it as `INVALID_PROVIDER_QUOTE`. Fails closed. Follow-up D. |
 | F33 | #284 | Recover reservations left in `reserving` | live | `server/funding/core/service.ts:400-406,414-461,470,579` | If `completeDispatch` fails after a successful provider order, the row stays `reserving` forever: refresh skips it, and a new quote token is only blocked by `dispatch-ambiguous`, so it can create a second provider order. Follow-up E. |
@@ -81,4 +81,5 @@ Each live row has an existing tracking issue or one of these follow-ups, filed a
 - **E** — #1383 `fix(funding): recover orders left reserving after provider dispatch` (F33).
 - **F** — filed with this record under `ops(ci): budget Neon branch pruning on total project usage` (F07).
 - **G** — filed with this record under `fix(balances): bound balances pricing within the route deadline` (F39).
+- **H** — filed with this record under `fix(balances): bound Token Balances enumeration by one inventory deadline` (F30).
 - Existing: #1348 (F11) and #1223 (F38), whose acceptance requires handler output to pass the shared parser. #1181 converts the quote contract (F47); its scope does not yet name the quote error codes, so F47 stays open until that scope includes them.
