@@ -85,6 +85,7 @@ export const AlignmentAndRetry: Story = {
 };
 
 export const NarrowEnlargedText: Story = {
+  parameters: { library: { render: "frame" } },
   args: { width: 320 },
   play: async ({ args, canvasElement }) => {
     const root = canvasElement.ownerDocument.documentElement;

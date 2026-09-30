@@ -173,8 +173,9 @@ async function playSheet(canvasElement: HTMLElement) {
   await expect(actions.getCard).toHaveBeenCalledTimes(1);
   await expect(actions.notNow).toHaveBeenCalledTimes(1);
 }
-export const Sheet: Story = { args: { presentation: "sheet" }, play: async ({ canvasElement }) => playSheet(canvasElement) };
+export const Sheet: Story = { args: { presentation: "sheet" }, parameters: { library: { render: "frame" } }, play: async ({ canvasElement }) => playSheet(canvasElement) };
 export const SheetPending: Story = {
+  parameters: { library: { render: "frame" } },
   args: { presentation: "sheet", content: { ...card, primary: { ...card.primary, pending: true } } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -198,6 +199,7 @@ export const SheetPending: Story = {
   },
 };
 export const SheetUnavailable: Story = {
+  parameters: { library: { render: "frame" } },
   args: { presentation: "sheet", content: { ...card, availability: verification } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

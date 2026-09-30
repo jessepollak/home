@@ -88,6 +88,7 @@ export const Interactive: Story = {
 };
 
 export const KeyboardFocus: Story = {
+  parameters: { library: { render: "frame" } },
   args: { phase: "idle" },
   render: () => <InteractivePreview onRefresh={() => {}} />,
   play: async ({ canvasElement }) => {

@@ -41,6 +41,7 @@ export const Stacked: Story = {
 };
 
 export const Success: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => (
     <>
       <Button onClick={() => toast.add({ type: "success", title: "Deposit confirmed", description: "25.00 USDC on Base" })}>Show success</Button>
@@ -55,6 +56,7 @@ export const Success: Story = {
 export const Dark: Story = { ...Success, globals: { theme: "dark" } };
 
 export const Info: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => (
     <>
       <Button onClick={() => toast.add({ type: "info", title: "Balance updated", description: "Your latest balance is ready." })}>Show info</Button>
@@ -67,6 +69,7 @@ export const Info: Story = {
 };
 
 export const Warning: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => (
     <>
       <Button onClick={() => toast.add({ type: "warning", title: "Vault rates stale", description: "Retry to load the latest rates." })}>Show warning</Button>
@@ -79,6 +82,7 @@ export const Warning: Story = {
 };
 
 export const ErrorWithRetry: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => (
     <>
       <Button onClick={() => toast.add({ type: "error", title: "Account check unavailable", description: "Retry to check your account.", actionProps: { children: "Retry", onClick: () => {} } })}>Show error</Button>
@@ -91,6 +95,7 @@ export const ErrorWithRetry: Story = {
 };
 
 export const Loading: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => (
     <>
       <Button onClick={() => toast.add({ type: "loading", title: "Checking account", description: "This may take a moment." })}>Show loading</Button>

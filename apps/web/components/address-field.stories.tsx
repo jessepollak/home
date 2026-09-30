@@ -35,6 +35,7 @@ export const Empty: Story = {
 };
 
 export const Focused: Story = {
+  parameters: { library: { render: "frame" } },
   args: { value: RECIPIENT },
   play: async ({ canvasElement }) => {
     const input = within(canvasElement).getByRole("textbox", { name: "To" });
@@ -68,6 +69,7 @@ export const Disabled: Story = {
 };
 
 export const Paste: Story = {
+  parameters: { library: { render: "frame" } },
   beforeEach: () => {
     const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => `  ${RECIPIENT}  ` } });

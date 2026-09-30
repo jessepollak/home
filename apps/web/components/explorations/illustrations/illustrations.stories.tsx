@@ -288,6 +288,7 @@ export const FeatureIntroInline: Story = {
 };
 
 export const FeatureIntroSheet: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => <SheetIntro />,
   play: async ({ canvasElement }) => {
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Explore the Home Card" }));

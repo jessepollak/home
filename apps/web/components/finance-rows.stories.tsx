@@ -101,6 +101,7 @@ export const Activity: Story = {
 };
 
 export const Disclosure: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => <DisclosureRows />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -237,6 +238,7 @@ export const LongValueAtNormalText: Story = {
 };
 
 export const LongValueAtEnlargedText: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => <LongValueRows />,
   play: async ({ canvasElement }) => {
     const root = canvasElement.ownerDocument.documentElement;
@@ -251,6 +253,7 @@ export const LongValueAtEnlargedText: Story = {
 };
 
 export const RtlLongValueAtEnlargedText: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => <div dir="rtl"><LongValueRows /></div>,
   play: async ({ canvasElement }) => {
     const root = canvasElement.ownerDocument.documentElement;
