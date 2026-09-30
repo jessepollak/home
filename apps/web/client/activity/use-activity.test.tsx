@@ -13,7 +13,7 @@ import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 import { ResourceFailure } from "@/client/account/resource-failure";
 import { activityWindowScope } from "@/client/query/after-action";
 import { initialActivityWindowEnd } from "@/client/query/after-action";
-import type { InfiniteData } from "@tanstack/react-query";
+import { defaultScheduler, notifyManager, type InfiniteData } from "@tanstack/react-query";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
   "@testing-library/react"
@@ -24,7 +24,6 @@ const WALLET_A = "0x1111111111111111111111111111111111111111" as const;
 const WALLET_B = "0x2222222222222222222222222222222222222222" as const;
 const OTHER = "0x3333333333333333333333333333333333333333" as const;
 const waitedFor = { timeout: 5_000 };
-const recoveryWait = { timeout: 7_000 };
 
 function session(
   subject: string,
@@ -133,6 +132,30 @@ function cursors(queries: readonly string[]): (string | null)[] {
   return queries.map((query) => new URLSearchParams(query).get("cursor"));
 }
 
+const paginationRetryNow = Date.parse("2026-09-28T12:00:00.000Z");
+
+async function flushContinuation() {
+  for (let index = 0; index < 12; index++) await Promise.resolve();
+}
+
+async function settleContinuation() {
+  await act(async () => {
+    await flushContinuation();
+  });
+}
+
+async function advanceContinuation(delayMs: number) {
+  await act(async () => {
+    jest.advanceTimersByTime(delayMs);
+    await flushContinuation();
+  });
+}
+
+function controlPaginationClock() {
+  jest.useFakeTimers({ now: paginationRetryNow });
+  notifyManager.setScheduler((callback) => queueMicrotask(callback));
+}
+
 function HookHarness({
   owner,
   fetchActivity,
@@ -184,6 +207,7 @@ function HookHarness({
 
 afterEach(() => {
   jest.useRealTimers();
+  notifyManager.setScheduler(defaultScheduler);
   cleanup();
   getHomeQueryClient().clear();
 });
@@ -424,6 +448,7 @@ describe("useActivity pagination", () => {
   });
 
   test("recovers a transient later-page failure without showing Retry and continues to exhaustion", async () => {
+    controlPaginationClock();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
@@ -435,15 +460,21 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-10", "10")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     const errors: string[] = [];
     const observer = new MutationObserver(() => { errors.push(view.queryByTestId("load-more-error")?.textContent ?? ""); });
     observer.observe(view.container, { subtree: true, childList: true, characterData: true });
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(queries).toHaveLength(2));
-    await waitFor(() => expect(view.getByTestId("continuing").textContent).toBe("true"));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
+    expect(view.getByTestId("continuing").textContent).toBe("true");
     expect(view.getByTestId("ids").textContent).toBe("event-30");
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), recoveryWait);
+    await advanceContinuation(1_000);
+    expect(queries).toHaveLength(3);
+    await advanceContinuation(0);
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     observer.disconnect();
     expect(errors).not.toContain("true");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-2"]);
@@ -452,30 +483,39 @@ describe("useActivity pagination", () => {
   });
 
   test("keeps the retry backoff when the sentinel leaves and returns during the wait", async () => {
+    controlPaginationClock();
     const queries: string[] = [];
     const requestedAt: number[] = [];
-    const started = performance.now();
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
-      requestedAt.push(performance.now() - started);
+      requestedAt.push(Date.now() - paginationRetryNow);
       if (queries.length === 1) return page(query, WALLET_A, [transfer(query, WALLET_A, "event-30", "30")], "cursor-1");
       if (queries.length === 2) throw new Error("transient later page failure");
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(queries).toHaveLength(2));
-    await act(async () => { await Promise.resolve(); });
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     fireEvent.click(view.getByText("sentinel hidden"));
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), recoveryWait);
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
+    await advanceContinuation(999);
+    expect(queries).toHaveLength(2);
+    await advanceContinuation(1);
+    expect(queries).toHaveLength(3);
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1"]);
     expect(requestedAt[2]! - requestedAt[1]!).toBeGreaterThanOrEqual(900);
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
   });
 
   test("exhausts two automatic retries, preserves rows, then manually retries the exact cursor", async () => {
+    controlPaginationClock();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
@@ -484,12 +524,22 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(queries).toHaveLength(2));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
     expect(view.getByTestId("continuing").textContent).toBe("true");
-    await waitFor(() => expect(view.getByTestId("load-more-error").textContent).toBe("true"), recoveryWait);
+    await advanceContinuation(1_000);
+    expect(queries).toHaveLength(3);
+    expect(view.getByTestId("load-more-error").textContent).toBe("false");
+    await advanceContinuation(2_999);
+    expect(queries).toHaveLength(3);
+    await advanceContinuation(1);
+    expect(queries).toHaveLength(4);
+    await settleContinuation();
+    expect(view.getByTestId("load-more-error").textContent).toBe("true");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getByTestId("ids").textContent).toBe("event-30");
     expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
@@ -497,11 +547,14 @@ describe("useActivity pagination", () => {
     fireEvent.click(view.getByText("sentinel visible"));
     expect(queries).toHaveLength(4);
     fireEvent.click(view.getByText("manual retry"));
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"));
+    await advanceContinuation(0);
+    await settleContinuation();
+    expect(queries).toHaveLength(5);
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getByTestId("ids").textContent).toBe("event-30,event-20");
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
-  }, 10_000);
+  });
 
   test("a next-page request joined to an in-flight refetch does not consume the cursor", async () => {
     const refetch = deferred<unknown>();
@@ -529,6 +582,7 @@ describe("useActivity pagination", () => {
   });
 
   test("a joined failed background refetch uses the same bounded retry budget", async () => {
+    controlPaginationClock();
     const refetch = deferred<unknown>();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
@@ -538,19 +592,27 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("refetch"));
-    await waitFor(() => expect(queries).toHaveLength(2));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     fireEvent.click(view.getByText("sentinel visible"));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     await act(async () => { refetch.reject(new Error("background refetch unavailable")); await refetch.promise.catch(() => undefined); });
+    await settleContinuation();
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
     expect(view.getByTestId("continuing").textContent).toBe("true");
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), recoveryWait);
+    await advanceContinuation(1_000);
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     expect(cursors(queries)).toEqual([null, null, "cursor-1"]);
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
   });
 
   test("bounds non-advancing cursor retries without losing earlier rows", async () => {
+    controlPaginationClock();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
@@ -560,13 +622,23 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], "cursor-1");
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(view.getByTestId("load-more-error").textContent).toBe("true"), recoveryWait);
+    await settleContinuation();
+    expect(view.getByTestId("load-more-error").textContent).toBe("false");
+    await advanceContinuation(1_000);
+    expect(queries).toHaveLength(3);
+    expect(view.getByTestId("load-more-error").textContent).toBe("false");
+    await advanceContinuation(2_999);
+    expect(queries).toHaveLength(3);
+    await advanceContinuation(1);
+    await settleContinuation();
+    expect(view.getByTestId("load-more-error").textContent).toBe("true");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getByTestId("ids").textContent).toBe("event-30");
     expect(view.getByTestId("continuing").textContent).toBe("false");
-  }, 10_000);
+  });
 
   test("rejects a cyclic cursor without issuing a further request", async () => {
     const queries: string[] = [];
