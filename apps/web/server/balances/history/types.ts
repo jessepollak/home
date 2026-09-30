@@ -106,6 +106,8 @@ export type ChangeSums = {
 
 export type ChunkCommit = "committed" | "conflict";
 
+export type HistoryWriteOptions = { timeoutMs?: number };
+
 export interface HistoryStore {
   enroll(input: {
     chainId: number;
@@ -115,7 +117,7 @@ export interface HistoryStore {
     enrolledBlock: bigint;
   }): Promise<HistoryAddress | null>;
   getAddress(chainId: number, address: HexAddress): Promise<HistoryAddress | null>;
-  markDirty(chainId: number, addresses: readonly HexAddress[], at: Date): Promise<number>;
+  markDirty(chainId: number, addresses: readonly HexAddress[], at: Date, options?: HistoryWriteOptions): Promise<number>;
   appendReplayChanges(input: { addressId: number; changes: readonly BalanceChange[]; invalidateAboveBlock: bigint }): Promise<number>;
   commitBackfillChunk(input: {
     addressId: number;

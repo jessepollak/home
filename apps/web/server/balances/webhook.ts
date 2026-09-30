@@ -10,6 +10,8 @@ import type { WebhookSubscriptionStore } from "./webhook-subscription-store";
 
 const SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
 const SUBSCRIPTION_CACHE_MS = 60_000;
+const HISTORY_DIRTY_ACK_TIMEOUT_MS = 2_000;
+const HISTORY_DIRTY_WRITE_TIMEOUT_MS = 2_500;
 const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ADDRESS_FIELDS = new Set(["address", "matchedAddress", "from", "to", "transaction_from", "transaction_to"]);
 const MATCHED_ADDRESS_FIELDS = new Set(["address", "matchedAddress"]);
@@ -103,12 +105,25 @@ export function createCdpWebhookHandler(dependencies: {
         observe("unavailable", "WEBHOOK_SETTLE_UNAVAILABLE", startedAt);
       }
     }
-    try {
-      await dependencies.history?.markDirty(HISTORY_CHAIN_ID, addresses, current);
-    } catch {
-      emitServerEvent("balances-webhook", {
-        route: "/api/webhooks/cdp", code: "WEBHOOK_HISTORY_DIRTY_FAILED", outcome: "failed", durationMs: Date.now() - startedAt,
+    const history = dependencies.history;
+    let historyDirtyTimeout: ReturnType<typeof setTimeout> | undefined;
+    if (history) {
+      const acknowledgement = new Promise<"timeout">((resolve) => {
+        historyDirtyTimeout = setTimeout(() => resolve("timeout"), HISTORY_DIRTY_ACK_TIMEOUT_MS);
       });
+      try {
+        const outcome = await Promise.race([
+          history.markDirty(HISTORY_CHAIN_ID, addresses, current, { timeoutMs: HISTORY_DIRTY_WRITE_TIMEOUT_MS }),
+          acknowledgement,
+        ]);
+        if (outcome === "timeout") observe("unavailable", "WEBHOOK_HISTORY_DIRTY_TIMEOUT", startedAt);
+      } catch {
+        emitServerEvent("balances-webhook", {
+          route: "/api/webhooks/cdp", code: "WEBHOOK_HISTORY_DIRTY_FAILED", outcome: "failed", durationMs: Date.now() - startedAt,
+        });
+      } finally {
+        if (historyDirtyTimeout !== undefined) clearTimeout(historyDirtyTimeout);
+      }
     }
     observe("accepted", "WEBHOOK_ACCEPTED", startedAt);
     return Response.json({ accepted: true }, { status: 200 });
