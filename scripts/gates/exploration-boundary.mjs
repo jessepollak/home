@@ -3,6 +3,7 @@ import { lstatSync } from "node:fs";
 export const FENCED_LAYERS = ["app", "client", "components", "config", "lib", "server", "shared", "types"];
 export const BOUNDARY_RULE = "home/no-exploration-imports";
 export const BOUNDARY_RULES = [BOUNDARY_RULE, "home/no-test-support-imports", "home/no-full-portfolio-presentation"];
+const ENFORCING_SEVERITIES = new Set(["deny", "error", "warn", 1, 2]);
 export const BOUNDARY_EXTENSIONS_GLOB = "{js,jsx,mjs,cjs,ts,tsx,mts,cts}";
 export const BOUNDARY_EXTENSIONS = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"];
 export const BOUNDARY_EXCLUDED_FILES = [
@@ -48,13 +49,17 @@ export function evaluateBoundaryConfig({ overrides, ignorePatterns, exemptRootFi
   const exclusions = new Set();
   const severities = [];
   const declaredRules = new Set();
+  const unenforcedRules = new Set();
   let owners = 0;
   const normalize = (pattern) => pattern.replace(/^\.\//, "");
   for (const override of Array.isArray(overrides) ? overrides : []) {
     if (override?.rules === null || typeof override?.rules !== "object" || !BOUNDARY_RULES.some((rule) => Object.hasOwn(override.rules, rule))) continue;
     owners += 1;
     for (const rule of BOUNDARY_RULES) {
-      if (Object.hasOwn(override.rules, rule)) declaredRules.add(rule);
+      if (!Object.hasOwn(override.rules, rule)) continue;
+      declaredRules.add(rule);
+      const setting = override.rules[rule];
+      if (!ENFORCING_SEVERITIES.has(Array.isArray(setting) ? setting[0] : setting)) unenforcedRules.add(rule);
     }
     if (Object.hasOwn(override.rules, BOUNDARY_RULE)) severities.push(override.rules[BOUNDARY_RULE]);
     for (const pattern of Array.isArray(override.files) ? override.files : []) {
@@ -72,6 +77,7 @@ export function evaluateBoundaryConfig({ overrides, ignorePatterns, exemptRootFi
     owners,
     severities: severities.sort(),
     missingRules: BOUNDARY_RULES.filter((rule) => !declaredRules.has(rule)).sort(),
+    unenforcedRules: [...unenforcedRules].sort(),
     missing: [...expected].filter((pattern) => !patterns.has(pattern)).sort(),
     unexpected: [...patterns].filter((pattern) => !expected.has(pattern)).sort(),
     missingExclusions: [...expectedExclusions].filter((pattern) => !exclusions.has(pattern)).sort(),

@@ -11,6 +11,12 @@
       "kind": "suppression",
       "count": 2,
       "reason": "Two reviewed home/no-silent-catch disables with reasons: a stale preparation and a stale dispatch fenced by a newer journey generation have no state to report. Both moved unchanged with the deferred step."
+    },
+    {
+      "path": "apps/web/components/ui/field.tsx",
+      "kind": "suppression",
+      "count": 1,
+      "reason": "FieldLabel forwards htmlFor and children to the owned Label, which the label rule now recognizes; consumers associate the control."
     }
   ]
 }
