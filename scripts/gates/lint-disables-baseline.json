@@ -208,20 +208,6 @@
   },
   "exceptions": [
     {
-      "path": "apps/web/gmail.test.ts",
-      "rule": "home/no-source-reads",
-      "count": 1,
-      "issue": "#1649",
-      "reason": "Lock fixtures import only filesystem mutators for their own system-temp scratch files to verify permissions, symlinks, stale leases, and failed metadata writes; they do not read source files."
-    },
-    {
-      "path": "apps/web/live-login.test.ts",
-      "rule": "home/no-source-reads",
-      "count": 1,
-      "issue": "#1649",
-      "reason": "Login fixtures import only filesystem mutators for their own system-temp scratch files to verify private-state retention and symlink safety; they do not read source files."
-    },
-    {
       "path": "apps/web/scripts/fixture-port.test.ts",
       "rule": "home/no-source-reads",
       "count": 1,
