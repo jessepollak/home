@@ -63,9 +63,9 @@ async function assertSnapshot(element: HTMLElement, snapshot: BalancesSnapshot) 
   const rows = selectOwnedInvestments(snapshot);
   const region = canvas.queryByRole("region", { name: "Your investments" });
   if (!rows.length) { await expect(region).toBeNull(); return; }
-  const items = await waitFor(() => {
+  const items = await waitFor(async () => {
     const rendered = within(region!).getAllByRole("listitem");
-    expect(rendered).toHaveLength(Math.min(20, rows.length));
+    await expect(rendered).toHaveLength(Math.min(20, rows.length));
     return rendered;
   });
   for (const [index, row] of rows.slice(0, 20).entries()) {
