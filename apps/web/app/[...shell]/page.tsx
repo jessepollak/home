@@ -6,9 +6,7 @@ import { PortfolioHomeExperience } from "@/client/home/portfolio-home-experience
 import { legacyShellRedirectHref, parseShellLocation, searchParamsToString } from "@/config/shell-location";
 import { readRequestCountry } from "@/server/region/request-country";
 import { readRenderSession } from "@/server/auth/render-session";
-import { readCountryPreferenceForRender } from "@/server/preferences/country";
-import { readRegionOfferForRender } from "@/server/operator-settings/regions";
-import { readInvestSettingsForRender } from "@/server/operator-settings/invest";
+import { readShellPolicyForRender } from "@/server/operator-settings/shell-policy";
 import { cardJourneyEnabled } from "@/server/cards/bridge/journey-config";
 
 const shellTitles: Record<ShellPanelId, string> = {
@@ -49,15 +47,11 @@ export default async function ShellPage({
   const cardsEnabled = cardJourneyEnabled();
   if (initialLocation.panel === "card" && !cardsEnabled) redirect("/home");
   const rendered = readRenderSession(await cookies());
-  const preference = rendered ? await readCountryPreferenceForRender(rendered.session) : null;
-  const accountPreference = rendered && preference
-    ? { accountProvider: rendered.session.accountProvider, subject: rendered.session.user.subject, regionId: preference.regionId }
-    : null;
-  const investVisibility = await readInvestSettingsForRender();
+  const { accountPreference, investVisibility, regionOffer } = await readShellPolicyForRender(rendered?.session ?? null);
   return (
     <PortfolioHomeExperience
       detectedCountry={readRequestCountry(await headers())}
-      regionOffer={await readRegionOfferForRender()}
+      regionOffer={regionOffer}
       accountPreference={accountPreference}
       initialLocation={initialLocation}
       cardsEnabled={cardsEnabled}
