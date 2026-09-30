@@ -32,7 +32,7 @@
     "cards/[id]/unfreeze/route.ts": { "contracts": ["shared/cards/contract.ts"] },
     "cards/enrollment/route.ts": { "contracts": ["shared/cards/contract.ts"] },
     "cards/route.ts": { "contracts": ["shared/cards/contract.ts"] },
-    "cards/spending/route.ts": { "contracts": ["shared/cards/allowance-contract.ts"], "client": "No Home client fetches the card spending read yet; the card UI that consumes it has not landed." },
+    "cards/spending/route.ts": { "contracts": ["shared/cards/allowance-contract.ts"] },
     "cards/webhooks/bridge/route.ts": { "exempt": { "kind": "webhook", "reason": "Bridge sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/immersve/[topic]/route.ts": { "exempt": { "kind": "webhook", "reason": "Immersve sends provider-defined event notifications; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/stripe/route.ts": { "exempt": { "kind": "webhook", "reason": "Stripe sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
