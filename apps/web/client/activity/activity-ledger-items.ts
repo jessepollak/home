@@ -341,6 +341,7 @@ function cashoutItem(
 ): ActivityLedgerItem {
   const base = actionItem(operation, [], options);
   const view = presentCashout(operation, withdraw, options);
+  const prospective = view.stage === "waiting" || view.stage === "paying";
   const money = (atoms: string) => cashoutMoney(atoms, view.decimals, options.regionId);
   const status = cashoutStatus[view.stage];
   const title = `Cash out to ${view.app}`;
@@ -351,10 +352,10 @@ function cashoutItem(
   if (view.metadata) {
     facts.push(
       { label: "Payout handle", value: view.metadata.canonicalHandle },
-      { label: "You receive", value: formatCashoutReceive(reviewedQuote(view.metadata).receive, view.metadata.platformLabel) },
+      { label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(reviewedQuote(view.metadata).receive, view.metadata.platformLabel) },
     );
   }
-  if (view.stage === "waiting" || view.stage === "paying") {
+  if (prospective) {
     const arrival = view.metadata ? reviewedQuote(view.metadata).arrival
       : cashoutQuoteFromLegacy({ approximateFiatAmount: "0", currency: "USD", etaSeconds: operation.cashout?.etaSeconds }).arrival;
     facts.push({ label: "Arrives", value: formatCashoutArrival(arrival) });
@@ -429,6 +430,8 @@ function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActi
   const action = cashoutOrderAction(order, withdraw);
   const returning = withdraw !== undefined && withdraw.status !== "failed" &&
     ["waiting-provider", "waiting-chain", "reversed", "ambiguous"].includes(order.status);
+  const prospective = order.status === "waiting-provider" && !returning &&
+    ["submitted", "awaiting-buyer", "matched", "delivering"].includes(order.state);
   const money = (atoms: string) => cashoutMoney(atoms, order.decimals, options.regionId);
   const title = `Cash out to ${order.platformLabel}`;
   const step = returning || order.status === "waiting-chain" ? "Returning to your balance"
@@ -440,9 +443,8 @@ function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActi
   const metadata = reviewed?.action.metadata;
   if (reviewed?.action.kind === "cash-out" && metadata?.product === "cashout" && metadata.operation === "deposit") {
     const quote = reviewedQuote(metadata);
-    facts.push({ label: "You receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) });
-    if (order.status === "waiting-provider" && !returning &&
-      ["submitted", "awaiting-buyer", "matched", "delivering"].includes(order.state)) {
+    facts.push({ label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) });
+    if (prospective) {
       facts.push({ label: "Arrives", value: formatCashoutArrival(quote.arrival) });
     }
   }
