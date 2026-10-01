@@ -265,6 +265,85 @@ const fixtures = {
   "server/cdp/sdk-any.ts": 'import "server-only"; declare function readSdk(): any; export const address = readSdk().address;',
   "server/cdp/sdk-typed-clean.ts": 'import "server-only"; declare function readSdk(): { address: string }; export const address = readSdk().address;',
   "server/cdp/sdk-boundary-clean.ts": 'import "server-only"; declare const value: unknown; export function address(){ if (!value || typeof value !== "object" || !("address" in value)) return null; return value.address; }',
+  "server/request-json-inline.ts": 'import "server-only"; export async function read(request: Request) { return await request.json(); }',
+  "server/request-json-clean.ts": 'import "server-only"; export function read() { return Response.json({ ok: true }); }',
+  "shared/http/request-json-helper.ts": 'export async function read(body: Request | Response) { return await body.json(); }',
+  "client/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "server/manual-abort-timeout.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/manual-abort-timeout-clean.ts": 'import "server-only"; export function schedule(resolve: () => void) { return setTimeout(resolve, 1000); }',
+  "server/http/manual-abort-timeout.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/paymaster/client.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "client/manual-abort-timeout.ts": 'export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "client/fetch-get.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/fetch-post-clean.ts": 'export async function save(body: string) { return await fetch("/api/thing", { method: "POST", body }); }',
+  "client/fetch-passthrough-clean.ts": 'export const send = (url: string, init: RequestInit) => fetch(url, init);',
+  "server/fetch-get.ts": 'import "server-only"; export async function load() { return await fetch("/api/thing"); }',
+  "client/query-key-inline.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/query-key-alias.ts": 'const key = ["balances"]; export const options = { queryKey: key, queryFn: async () => 1 };',
+  "client/query-key-factory-clean.ts": 'export function options(owner: string) { return { queryKey: ownerQueryKey(owner, "balances"), queryFn: async () => 1 }; }',
+  "server/query-key-inline.ts": 'import "server-only"; export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "shared/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "shared/address-literal-clean.ts": 'export const zeroAddress = /^0x0{40}$/i; export const hashPattern = /^0x[0-9a-fA-F]{64}$/;',
+  "shared/formatting/address.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "shared/address-literal.test.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "app/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "shared/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "server/request-json-inline.test.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "shared/request-json-inline.stories.tsx": 'export async function read(request: Request) { return await request.json(); }',
+  "shared/request-json-inline.stories.fixture.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "shared/request-json-inline.test.variant.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "tests/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "shared/testing/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "shared/explorations/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "server/manual-abort-timeout.test.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "components/fetch-get.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/fetch-get.test.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/fetch-get.stories.tsx": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/explorations/fetch-get.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "components/fetch-get.stories.fixture.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "components/query-key-inline.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/query-key-inline.test.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/query-key-inline.stories.tsx": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/explorations/query-key-inline.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "app/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "client/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "components/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "server/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "config/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "oxlint/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "shared/address-literal.stories.tsx": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "shared/explorations/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "server/address-literal.stories.fixture.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "client/address-literal.test.variant.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "client/address-literal-test-harness.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "server/explorations/manual-abort-timeout.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/testing/manual-abort-timeout.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/manual-abort-timeout.stories.tsx": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/manual-abort-timeout.stories.fixture.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/manual-abort-timeout.test.variant.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/manual-abort-timeout-test-harness.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/request-json-inline-test-harness.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "server/testing/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "client/testing/fetch-get.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/fetch-get.test.variant.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/fetch-get.stories.fixture.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/fetch-get-test-harness.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/testing/query-key-inline.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/query-key-inline.test.variant.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/query-key-inline.stories.fixture.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/query-key-inline-test-harness.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "shared/testing/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "client/address-literal-test-harness.probe.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
+  "server/http/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "server/tests/request-json-inline.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "server/request-json-inline-test-harness.probe.ts": 'export async function read(request: Request) { return await request.json(); }',
+  "server/manual-abort-timeout-test-harness.probe.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "server/tests/manual-abort-timeout.ts": 'import "server-only"; export function schedule(controller: AbortController) { return setTimeout(() => controller.abort(), 1000); }',
+  "client/tests/fetch-get.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/fetch-get-test-harness.probe.ts": 'export async function load() { return await fetch("/api/thing"); }',
+  "client/tests/query-key-inline.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "client/query-key-inline-test-harness.probe.ts": 'export const options = { queryKey: ["balances"], queryFn: async () => 1 };',
+  "shared/tests/address-literal.ts": 'export const addressPattern = /^0x[0-9a-fA-F]{40}$/;',
   "node_modules/ignored.ts": 'const x: any = 1;',
   ".next/ignored.ts": 'const x: any = 1;',
   "storybook-static/ignored.ts": 'const x: any = 1;'
@@ -454,6 +533,37 @@ const contracts = [
   ["production unsafe rules exclude test and story fixtures", () => { assertClean("client/unsafe-values.test.ts"); assertClean("client/unsafe-values.stories.tsx"); }],
   ["type-aware SDK boundary rejects unsafe member flow", () => assertHits("server/cdp/sdk-any.ts", "typescript(no-unsafe-member-access)")],
   ["type-aware SDK boundary accepts typed and parsed values", () => { assertClean("server/cdp/sdk-typed-clean.ts"); assertClean("server/cdp/sdk-boundary-clean.ts"); }],
+  ["inline request JSON parsing is rejected outside the approved helpers", () => { assertHits("server/request-json-inline.ts", "home(no-inline-request-json)"); assertHits("server/request-json-clean.ts", "home(no-inline-request-json)", 0); assertHits("shared/http/request-json-helper.ts", "home(no-inline-request-json)", 0); assertHits("client/request-json-inline.ts", "home(no-inline-request-json)", 0); }],
+  ["manual abort deadlines are rejected outside the shared HTTP helpers and the shrinking baseline", () => { assertHits("server/manual-abort-timeout.ts", "home(no-manual-abort-timeout)"); assertHits("server/manual-abort-timeout-clean.ts", "home(no-manual-abort-timeout)", 0); assertHits("server/http/manual-abort-timeout.ts", "home(no-manual-abort-timeout)", 0); assertHits("server/paymaster/client.ts", "home(no-manual-abort-timeout)", 0); assertHits("client/manual-abort-timeout.ts", "home(no-manual-abort-timeout)", 0); }],
+  ["client GETs are rejected while mutations and pass-through transports pass", () => { assertHits("client/fetch-get.ts", "home(no-fetch-in-client-components)"); assertHits("client/fetch-post-clean.ts", "home(no-fetch-in-client-components)", 0); assertHits("client/fetch-passthrough-clean.ts", "home(no-fetch-in-client-components)", 0); assertHits("server/fetch-get.ts", "home(no-fetch-in-client-components)", 0); }],
+  ["query keys come from the registered scope factories", () => { assertHits("client/query-key-inline.ts", "home(query-key-factory)"); assertHits("client/query-key-alias.ts", "home(query-key-factory)"); assertHits("client/query-key-factory-clean.ts", "home(query-key-factory)", 0); assertHits("server/query-key-inline.ts", "home(query-key-factory)", 0); }],
+  ["handwritten address validators are rejected except the canonical helper and the registered baseline", () => { assertHits("shared/address-literal.ts", "home(no-address-literal-regex)"); assertHits("shared/address-literal-clean.ts", "home(no-address-literal-regex)", 0); assertHits("shared/formatting/address.ts", "home(no-address-literal-regex)", 0); assertHits("shared/address-literal.test.ts", "home(no-address-literal-regex)", 0); }],
+  ["every documented production layer is covered by the new rules", () => {
+    assertHits("app/request-json-inline.ts", "home(no-inline-request-json)");
+    assertHits("server/request-json-inline.ts", "home(no-inline-request-json)");
+    assertHits("shared/request-json-inline.ts", "home(no-inline-request-json)");
+    assertHits("server/manual-abort-timeout.ts", "home(no-manual-abort-timeout)");
+    assertHits("client/fetch-get.ts", "home(no-fetch-in-client-components)");
+    assertHits("components/fetch-get.ts", "home(no-fetch-in-client-components)");
+    assertHits("client/query-key-inline.ts", "home(query-key-factory)");
+    assertHits("components/query-key-inline.ts", "home(query-key-factory)");
+    for (const layer of ["app", "client", "components", "config", "server", "shared"]) assertHits(`${layer}/address-literal.ts`, "home(no-address-literal-regex)");
+  }],
+  ["every documented non-production exclusion is honored by the new rules", () => {
+    for (const file of ["server/request-json-inline.test.ts", "shared/request-json-inline.stories.tsx", "shared/request-json-inline.stories.fixture.ts", "shared/request-json-inline.test.variant.ts", "tests/request-json-inline.ts", "shared/testing/request-json-inline.ts", "shared/explorations/request-json-inline.ts", "shared/http/request-json-helper.ts", "client/request-json-inline.ts"]) assertHits(file, "home(no-inline-request-json)", 0);
+    for (const file of ["server/request-json-inline-test-harness.ts", "server/testing/request-json-inline.ts"]) assertHits(file, "home(no-inline-request-json)", 0);
+    for (const file of ["server/manual-abort-timeout.test.ts", "client/manual-abort-timeout.ts", "server/http/manual-abort-timeout.ts", "server/explorations/manual-abort-timeout.ts", "server/testing/manual-abort-timeout.ts", "server/manual-abort-timeout.stories.tsx", "server/manual-abort-timeout.stories.fixture.ts", "server/manual-abort-timeout.test.variant.ts", "server/manual-abort-timeout-test-harness.ts"]) assertHits(file, "home(no-manual-abort-timeout)", 0);
+    for (const file of ["client/fetch-get.test.ts", "client/fetch-get.stories.tsx", "client/explorations/fetch-get.ts", "components/fetch-get.stories.fixture.ts", "server/fetch-get.ts", "client/testing/fetch-get.ts", "client/fetch-get.test.variant.ts", "client/fetch-get.stories.fixture.ts", "client/fetch-get-test-harness.ts"]) assertHits(file, "home(no-fetch-in-client-components)", 0);
+    for (const file of ["client/query-key-inline.test.ts", "client/query-key-inline.stories.tsx", "client/explorations/query-key-inline.ts", "server/query-key-inline.ts", "client/testing/query-key-inline.ts", "client/query-key-inline.test.variant.ts", "client/query-key-inline.stories.fixture.ts", "client/query-key-inline-test-harness.ts"]) assertHits(file, "home(query-key-factory)", 0);
+    for (const file of ["oxlint/address-literal.ts", "shared/address-literal.stories.tsx", "shared/explorations/address-literal.ts", "server/address-literal.stories.fixture.ts", "client/address-literal.test.variant.ts", "client/address-literal-test-harness.ts"]) assertHits(file, "home(no-address-literal-regex)", 0);
+    for (const file of ["server/http/request-json-inline.ts", "server/tests/request-json-inline.ts", "server/request-json-inline-test-harness.probe.ts"]) assertHits(file, "home(no-inline-request-json)", 0);
+    assertHits("server/manual-abort-timeout-test-harness.probe.ts", "home(no-manual-abort-timeout)", 0);
+    assertHits("server/tests/manual-abort-timeout.ts", "home(no-manual-abort-timeout)", 0);
+    for (const file of ["client/tests/fetch-get.ts", "client/fetch-get-test-harness.probe.ts"]) assertHits(file, "home(no-fetch-in-client-components)", 0);
+    for (const file of ["client/tests/query-key-inline.ts", "client/query-key-inline-test-harness.probe.ts"]) assertHits(file, "home(query-key-factory)", 0);
+    assertHits("shared/tests/address-literal.ts", "home(no-address-literal-regex)", 0);
+    for (const file of ["shared/testing/address-literal.ts", "client/address-literal-test-harness.probe.ts"]) assertHits(file, "home(no-address-literal-regex)", 0);
+  }],
 ];
 
 assert.ok(contracts.length > 0, "Oxlint contracts must not be empty");
