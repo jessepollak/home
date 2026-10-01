@@ -107,13 +107,13 @@ describe("activity route handler", () => {
   test("preserves the closed SQL rejection reason through the route and log boundary", async () => {
     const observations: unknown[] = [];
     const transport = createCdpSqlHttpTransport({ auth: { mode: "client-api-key", clientApiKey: "private-key" },
-      fetch: async () => Response.json({ errorType: "invalid_request", errorMessage: "MAX_BYTES_TO_READ private-body" }, { status: 400 }) });
+      fetch: async () => Response.json({ errorType: "invalid_request", errorMessage: "MAX_BYTES_TO_READ private-body", correlationId: "41deb8d59a9dc9a7-IAD" }, { status: 400 }) });
     const handler = createActivityHandler({ authorize: async () => sessionResponse(),
       now: () => new Date(TO), observe: (event) => { observations.push(normalizeObservabilityEvent(event)); },
       readActivity: async () => { await transport.run({ sql: "SELECT 1" }); return page(); } });
     const response = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
     expect(response.status).toBe(502);
-    expect(observations.at(-1)).toMatchObject({ requestPage: "first", upstreamStatus: 400, sqlRejectionReason: "resource-limit" });
+    expect(observations.at(-1)).toMatchObject({ requestPage: "first", upstreamStatus: 400, sqlRejectionReason: "resource-limit", cdpCorrelationId: "41deb8d59a9dc9a7-IAD" });
     expect(JSON.stringify(observations)).not.toContain("private-");
     expect(await response.text()).not.toContain("private-");
   });

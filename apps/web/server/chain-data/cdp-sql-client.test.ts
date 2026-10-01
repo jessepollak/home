@@ -31,6 +31,15 @@ function successResponse() {
 }
 
 describe("CDP SQL HTTP transport", () => {
+  test.each(["41deb8d59a9dc9a7-IAD", "private-owner", "a".repeat(200), null])("retains only a bounded provider correlation ID: %s", async (correlationId) => {
+    const transport = createCdpSqlHttpTransport({ auth: { mode: "client-api-key", clientApiKey: "key" },
+      fetch: async () => Response.json({ errorType: "invalid_request", errorMessage: "private-query", correlationId }, { status: 400 }) });
+    const error = await transport.run({ sql: "SELECT 1" }).catch((error: unknown) => error);
+    expect(error).toMatchObject({ status: 400, sqlRejectionReason: "invalid-request",
+      cdpCorrelationId: correlationId === "41deb8d59a9dc9a7-IAD" ? correlationId : null });
+    expect(JSON.stringify(error)).not.toContain("private-");
+  });
+
   for (const [payload, reason] of [
     [{ errorType: "invalid_request", errorMessage: "MAX_BYTES_TO_READ private-wallet" }, "resource-limit"],
     [{ errorType: "invalid_request", errorMessage: "SYNTAX_ERROR private-query" }, "invalid-query"],

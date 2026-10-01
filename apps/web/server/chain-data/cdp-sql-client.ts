@@ -173,7 +173,7 @@ export function createCdpSqlHttpTransport({
           if (response.status === 400) {
             throw new ChainDataError("upstream-error", "CDP SQL rejected the query.", {
               status: 400,
-              sqlRejectionReason: await readSqlRejection(response, controller.signal),
+              ...await readSqlRejection(response, controller.signal),
             });
           }
           throw responseError(response);

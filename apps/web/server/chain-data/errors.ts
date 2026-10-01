@@ -16,6 +16,7 @@ export class ChainDataError extends Error {
   readonly code: ChainDataErrorCode;
   readonly status: number | null;
   readonly retryAfterMs: number | null;
+  readonly cdpCorrelationId: string | null;
   readonly sqlRejectionReason: SqlRejectionReason | null;
 
   constructor(
@@ -25,6 +26,7 @@ export class ChainDataError extends Error {
       status?: number | null;
       retryAfterMs?: number | null;
       cause?: unknown;
+      cdpCorrelationId?: string;
       sqlRejectionReason?: SqlRejectionReason;
     } = {},
   ) {
@@ -33,6 +35,7 @@ export class ChainDataError extends Error {
     this.code = code;
     this.status = options.status ?? null;
     this.retryAfterMs = options.retryAfterMs ?? null;
+    this.cdpCorrelationId = options.cdpCorrelationId ?? null;
     this.sqlRejectionReason = options.sqlRejectionReason ?? null;
   }
 }

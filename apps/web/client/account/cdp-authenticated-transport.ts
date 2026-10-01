@@ -142,6 +142,7 @@ export function useAuthenticatedTransport({
       signal?: AbortSignal,
       query?: string,
       allowProvisionalRead = false,
+      onStage?: (stage: "fetch" | "response") => void,
     ): Promise<unknown> => {
       const provisionalRead = allowProvisionalRead &&
         (endpoint === "/api/balances" || endpoint === "/api/account/country-preference") &&
@@ -166,6 +167,7 @@ export function useAuthenticatedTransport({
       const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
+        onStage?.("fetch");
         response = await (sessionFetch ?? fetch)(
           query ? `${endpoint}?${query}` : endpoint,
           {
@@ -185,6 +187,7 @@ export function useAuthenticatedTransport({
         if (signal?.aborted) throw error;
         throw new ResourceFailure("network");
       }
+      onStage?.("response");
       assertCurrent();
       if (await redirectOnAccessRequired(response, accessNavigation)) {
         assertCurrent();
@@ -326,12 +329,13 @@ export function useAuthenticatedTransport({
     [fetchVerifiedResource],
   );
   const fetchBalances = useCallback(
-    (region: import("@/config/regions").RegionId, signal?: AbortSignal) =>
+    (region: import("@/config/regions").RegionId, signal?: AbortSignal, onStage?: (stage: "fetch" | "response") => void) =>
       fetchVerifiedResource(
         "/api/balances",
         signal,
         new URLSearchParams({ region }).toString(),
         true,
+        onStage,
       ),
     [fetchVerifiedResource],
   );
