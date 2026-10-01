@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { manyOwnedInvestmentsSnapshot } from "./fixtures/balances";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 const title = (page: Page) => page.locator("[data-shell-header-title]").first();
 const homeInvestments = (page: Page) => page.getByRole("region", { name: "Your money" })
@@ -16,13 +17,13 @@ async function openHoldings(page: Page) {
   const rowValue = await row.getByRole("img").getAttribute("aria-label");
   expect(rowValue).toBeTruthy();
   await row.click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(title(page)).toHaveText("Investments");
   await expect(page.getByLabel("Investments balance").getByRole("img")).toHaveAttribute("aria-label", rowValue!);
 }
 
 async function expectBitcoinDetail(page: Page) {
-  await expect(page).toHaveURL(holdingUrl);
+  await expectNavigation(page, holdingUrl);
   await expect(title(page)).toHaveText("Bitcoin");
   await expect(page.getByRole("button", { name: "Buy", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sell", exact: true })).toBeVisible();
@@ -36,16 +37,16 @@ test("Home holdings, detail history and header Back restore focus", async ({ pag
   await bitcoin(page).click();
   await expectBitcoinDetail(page);
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(bitcoin(page)).toBeFocused();
 
   await bitcoin(page).click();
   await expectBitcoinDetail(page);
   await page.goBack();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(bitcoin(page)).toBeFocused();
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(homeInvestments(page)).toBeVisible();
 });
 
@@ -58,7 +59,7 @@ test("refreshed holding detail returns to the list without leaving Home", async 
   await expectBitcoinDetail(page);
   const historyLength = await page.evaluate(() => window.history.length);
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   expect(await page.evaluate(() => window.history.length)).toBe(historyLength);
   await expect(bitcoin(page)).toBeFocused();
   await expect(page.getByRole("region", { name: "Your investments" })).toBeVisible();
@@ -80,10 +81,10 @@ test("browser Back restores focus and viewport for a holding beyond row forty", 
   const scrollBefore = await page.evaluate(() => window.scrollY);
   expect(scrollBefore).toBeGreaterThan(0);
   await row.click();
-  await expect(page).toHaveURL(/\/investments\/0x[0-9a-f]{40}$/);
+  await expectNavigation(page, /\/investments\/0x[0-9a-f]{40}$/);
   await expect(title(page)).toHaveText("Extra investment 45");
   await page.goBack();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(row).toBeFocused();
   await expect.poll(() => row.evaluate((button) => {
     const item = button.getBoundingClientRect();
@@ -98,7 +99,7 @@ test("Invest tab opens discovery, not owned holdings", async ({ page }) => {
   await expect(homeInvestments(page)).toBeVisible();
   await page.getByRole("navigation", { name: "Main navigation" })
     .getByRole("button", { name: "Invest", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect(title(page)).toHaveText("Invest");
   for (const shelf of ["Stocks", "Crypto", "Memes"]) {
     await expect(page.getByRole("region", { name: shelf })).toBeVisible();
@@ -115,7 +116,7 @@ test("cold deep link beyond the first batch reveals and focuses its row on Back"
   await page.goto(`/investments/${holding.contractAddress}`);
   await expect(title(page)).toHaveText("Extra investment 45");
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   const row = page.getByRole("region", { name: "Your investments" }).getByRole("button", { name: /^Extra investment 45 / });
   await expect(row).toBeFocused();
   await expect(row).toBeInViewport();

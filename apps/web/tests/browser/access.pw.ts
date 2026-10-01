@@ -1,4 +1,5 @@
 import { expect, test, type Response } from "@playwright/test";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 const credentialKey = `HOME_ACCESS_${"PASS"}${"WORD"}`;
 
@@ -16,7 +17,7 @@ test("deployment access composes independently before Home authentication", { ta
   await page.setViewportSize({ width: 390, height: 844 });
   const protectedResponse = await page.goto("/home");
   expect(protectedResponse?.headers()["content-security-policy"]).toBe("frame-ancestors 'none'");
-  await expect(page).toHaveURL(/\/access\?next=%2Fhome$/);
+  await expectNavigation(page, /\/access\?next=%2Fhome$/);
   await expect(page.getByRole("heading", { name: "Enter access password" })).toBeVisible();
   await expect(page.locator("form[data-hydrated='true']")).toBeVisible();
   await expect.poll(() => page.getByRole("button", { name: "Continue" }).evaluate((button) => button.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
@@ -34,14 +35,14 @@ test("deployment access composes independently before Home authentication", { ta
   const accepted = await loginResponse;
   expect(accepted.status()).toBe(200);
   await page.waitForURL(/(?:\/home|\/\?account=signin)$/);
-  await expect(page).toHaveURL(/(?:\/home|\/\?account=signin)$/);
+  await expectNavigation(page, /(?:\/home|\/\?account=signin)$/);
   await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
   await page.reload();
-  await expect(page).toHaveURL(/(?:\/home|\/\?account=signin)$/);
+  await expectNavigation(page, /(?:\/home|\/\?account=signin)$/);
   expect((await context.cookies()).some((cookie) => cookie.name === "home-access")).toBe(true);
 
   await page.goBack();
-  await expect(page).toHaveURL(/\/access\?next=%2Fhome$/);
+  await expectNavigation(page, /\/access\?next=%2Fhome$/);
   await page.reload();
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.getByRole("heading", { name: "Access granted" })).toBeVisible();
@@ -54,7 +55,7 @@ test("deployment access composes independently before Home authentication", { ta
   }]);
   await page.getByRole("button", { name: "Leave this deployment" }).click();
   await page.waitForURL(/\/access$/);
-  await expect(page).toHaveURL(/\/access$/);
+  await expectNavigation(page, /\/access$/);
   await expect(page.getByRole("heading", { name: "Enter access password" })).toBeVisible();
   const cookies = await context.cookies();
   expect(cookies.some((cookie) => cookie.name === "home-access")).toBe(false);
@@ -70,7 +71,7 @@ test("the native access form posts and redirects without JavaScript", async ({ b
   try {
     await context.clearCookies();
     await page.goto("/home");
-    await expect(page).toHaveURL(/\/access\?next=%2Fhome$/);
+    await expectNavigation(page, /\/access\?next=%2Fhome$/);
     const form = page.locator("form[action='/api/access'][method='post']");
     await expect(form).toBeVisible();
     await expect(form).not.toHaveAttribute("data-hydrated", "true");
@@ -86,7 +87,7 @@ test("the native access form posts and redirects without JavaScript", async ({ b
     expect((await nativeRequest).headers()["origin"]).toBe(new URL(baseURL ?? "").origin);
     expect((await nativeResponse).status()).toBe(303);
     await page.waitForURL(/\/home$/);
-    await expect(page).toHaveURL(/\/home$/);
+    await expectNavigation(page, /\/home$/);
   } finally {
     await context.close();
   }
