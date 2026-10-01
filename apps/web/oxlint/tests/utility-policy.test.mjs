@@ -149,7 +149,7 @@ describe("home/no-important-utilities", () => {
     expect(hits(results.outside, important)).toHaveLength(1);
   }, budgetMs);
 
-  it("keeps money drawer desktop overrides scoped to the exact file and token", async () => {
+  it("rejects the retired money drawer desktop overrides in every file", async () => {
     const tokens = [
       "lg:data-ending-style:duration-180!",
       "lg:top-[calc((100dvh+var(--sheet-keyboard-top,0px)-var(--sheet-keyboard-inset,0px))/2)]!",
@@ -163,17 +163,13 @@ describe("home/no-important-utilities", () => {
       "lg:motion-reduce:data-starting-style:transform-[translate3d(-50%,-50%,0)]!",
       "lg:motion-reduce:data-ending-style:transform-[translate3d(-50%,-50%,0)]!"
     ];
-    const source = tokens.map((token, index) => `export const value${index} = <div className="${token}" />;`).join("\n");
+    const source = perToken(tokens);
     const results = await lint({
       drawer: { path: "components/ui/drawer.tsx", code: source },
       outside: { path: "client/fixture.tsx", code: source },
     });
-    expect(hits(results.drawer, important)).toHaveLength(0);
-    const outside = hits(results.outside, important);
-    expect(outside).toHaveLength(tokens.length);
-    for (const token of tokens) {
-      expect(outside.some((item) => item.message.includes(token))).toBe(true);
-    }
+    expect(quoted(hits(results.drawer, important))).toEqual([...tokens].sort());
+    expect(quoted(hits(results.outside, important))).toEqual([...tokens].sort());
   }, budgetMs);
 
   it("keeps money-modal padding overrides scoped to the exact file and token", async () => {

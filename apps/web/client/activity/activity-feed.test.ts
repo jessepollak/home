@@ -117,18 +117,19 @@ describe("combined Activity feed", () => {
     { status: "waiting-chain" as const, state: "returned" as const },
     { status: "refunded" as const, state: "returned" as const },
     { status: "confirmed" as const, state: "delivered" as const },
-  ])("keeps the quote but omits arrival for $status orders", ({ status, state }) => {
+  ])("labels the quote as historical and omits arrival for $status orders", ({ status, state }) => {
     const order = { ...cashoutOrder, status, state };
     const feed = mergeActivityFeed({ transfers: [], operations: [quotedCashout], orders: [order], loadedThrough: null });
     const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
     expect(item).toMatchObject({ family: "cash-out-order", status });
     expect(item?.detail.family === "cash-out-order" && item.detail.facts).toContainEqual(
-      { label: "You receive", value: "≈ $50.00 to Cash App" },
+      { label: "Quoted receive", value: "≈ $50.00 to Cash App" },
     );
     expect(item?.detail.family === "cash-out-order" && item.detail.facts?.some(({ label }) => label === "Arrives")).toBe(false);
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts?.some(({ label }) => label === "You receive")).toBe(false);
   });
 
-  test("omits arrival when a linked withdrawal is returning the order", () => {
+  test("labels the quote as historical when a linked withdrawal is returning the order", () => {
     const withdrawal: RecentMoneyActionOperation = {
       ...operation("withdraw", cashoutOrder.createdAt), status: "pending",
       action: { ...operation("withdraw", cashoutOrder.createdAt).action, kind: "cash-out-withdraw",
@@ -144,9 +145,37 @@ describe("combined Activity feed", () => {
     const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
     expect(item).toMatchObject({ family: "cash-out-order", status: "waiting-chain" });
     expect(item?.detail.family === "cash-out-order" && item.detail.facts).toContainEqual(
-      { label: "You receive", value: "≈ $50.00 to Cash App" },
+      { label: "Quoted receive", value: "≈ $50.00 to Cash App" },
     );
     expect(item?.detail.family === "cash-out-order" && item.detail.facts?.some(({ label }) => label === "Arrives")).toBe(false);
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts?.some(({ label }) => label === "You receive")).toBe(false);
+  });
+
+  test("shows quoted receive, paid and returned facts for a partially paid then returned order", () => {
+    const order: ActivityCashoutOrder = {
+      ...cashoutOrder, status: "refunded", state: "returned", filledAtomic: "25000000",
+      returnedAtomic: "25000000", remainingAtomic: "0", withdrawable: false, settledAt: cashoutOrder.updatedAt,
+    };
+    const feed = mergeActivityFeed({ transfers: [], operations: [quotedCashout], orders: [order], loadedThrough: null });
+    const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
+    expect(item).toMatchObject({ family: "cash-out-order", status: "refunded" });
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts).toEqual([
+      { label: "Quoted receive", value: "≈ $50.00 to Cash App" },
+      { label: "Paid", value: "$25" },
+      { label: "Returned", value: "$25" },
+    ]);
+  });
+
+  test.each(["matched", "delivering"] as const)("keeps prospective receive and arrival for a partially paid %s order", (state) => {
+    const order = { ...cashoutOrder, state, filledAtomic: "25000000", remainingAtomic: "25000000" };
+    const feed = mergeActivityFeed({ transfers: [], operations: [quotedCashout], orders: [order], loadedThrough: null });
+    const [item] = presentActivityLedgerItems(feed, { regionId: "US", timeZone: "UTC" });
+    expect(item).toMatchObject({ family: "cash-out-order", status: "waiting-provider" });
+    expect(item?.detail.family === "cash-out-order" && item.detail.facts).toEqual([
+      { label: "You receive", value: "≈ $50.00 to Cash App" },
+      { label: "Arrives", value: "Usually within 10 minutes" },
+      { label: "Paid", value: "$25" },
+    ]);
   });
 
   test("keeps a paid cash-out visible while its provider update is newer than the loaded boundary", () => {
