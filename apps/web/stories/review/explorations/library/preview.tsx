@@ -3,7 +3,7 @@ import type { Positioned } from "../board/layout";
 import { LiveFrame } from "../board/live-frame";
 import type { Metric } from "../board/use-frame-loading";
 import { startRenderDeadline } from "../board/render-deadline";
-import { watchFrameLoaded } from "./frame-loading";
+import { watchFrameFailure, watchFrameLoaded } from "./frame-loading";
 
 export type FrameSectionTarget = { story: string; component: string; label: string; changed: boolean };
 
@@ -45,6 +45,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   const generation = useRef(0);
   const loads = useRef(0);
   const stopRender = useRef<(() => void) | null>(null);
+  const stopFailure = useRef<(() => void) | null>(null);
+  const released = useRef(false);
   const stopDeadline = useRef<(() => void) | null>(null);
   const stopInteractions = useRef<(() => void) | null>(null);
   const interaction = useRef({ annotating, onUserInput, onEscape });
@@ -57,7 +59,10 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   });
   useEffect(() => {
     if (metric.status === "rendered" && frame.current) rendered.current?.(frame.current);
-    if (metric.status === "rendered" || metric.status === "errored") settled.current();
+    if ((metric.status === "rendered" || metric.status === "errored") && !released.current) {
+      released.current = true;
+      settled.current();
+    }
   }, [metric.status]);
   const position = useMemo<Positioned>(() => ({
     id: item.id,
@@ -74,6 +79,8 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     generation.current += 1;
     stopRender.current?.();
     stopRender.current = null;
+    stopFailure.current?.();
+    stopFailure.current = null;
     stopDeadline.current?.();
     stopDeadline.current = null;
     stopInteractions.current?.();
@@ -83,7 +90,7 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   }, []);
   const fail = useCallback((error?: string) => {
     cancel();
-    setMetric((current) => ({ ...current, status: "errored", error }));
+    setMetric((current) => current.status === "errored" ? current : { ...current, status: "errored", error });
   }, [cancel]);
   const startDeadline = useCallback(() => {
     if (stopDeadline.current) return;
@@ -94,6 +101,7 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   }, [fail]);
   const begin = useCallback(() => {
     cancel();
+    released.current = false;
     setMetric({ id: item.id, story: item.story, status: "loading" });
     startDeadline();
   }, [cancel, startDeadline, item.id, item.story]);
@@ -132,6 +140,9 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     if (patch.status === "loaded") {
       stopRender.current?.();
       const load = generation.current;
+      stopFailure.current = watchFrameFailure(frame.current!, item.story, (error) => {
+        if (generation.current === load) fail(error);
+      });
       stopRender.current = watchFrameLoaded(frame.current!, item.story, (status, error) => {
         if (generation.current !== load) return;
         if (status !== "rendered") { fail(error); return; }
