@@ -17,6 +17,9 @@ import {
   sinceArgument,
   summarizeFixCommits,
 } from "../caught-by-report.mjs";
+import { applyGitFixtureEnv, gitFixtureEnv } from "./git-fixture-env.mjs";
+
+applyGitFixtureEnv();
 
 const cli = fileURLToPath(new URL("../caught-by-report.mjs", import.meta.url));
 
@@ -27,7 +30,7 @@ const repo = mkdtempSync(path.join(tmpdir(), "caught-by-report-"));
 after(() => rmSync(repo, { recursive: true, force: true }));
 
 function git(args, options = {}) {
-  const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", ...options });
+  const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", ...options, env: { ...gitFixtureEnv(), ...options.env } });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
@@ -48,7 +51,7 @@ function commit(key, { subject, body = null, files, date }) {
   git(["add", "--", ...Object.keys(files)]);
   const message = body === null ? subject : `${subject}\n\n${body}`;
   git(["commit", "-q", "-m", message], {
-    env: { ...process.env, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    env: { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
   });
   shas[key] = git(["rev-parse", "HEAD"]);
 }
@@ -374,7 +377,7 @@ test("marks fixes that predate the policy commit and reports the excluded count"
 test("collectReport passes through PR body lookup, includes recovered candidates and unavailable count", () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-pr-recovery-"));
   const localGit = (args) => {
-    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
   };
@@ -414,7 +417,7 @@ test("collectReport passes through PR body lookup, includes recovered candidates
 test("collectReport bounds default PR lookups, retaining memoized bodies after the deadline", () => {
   const fixture = mkdtempSync(path.join(tmpdir(), "caught-by-lookup-budget-"));
   const localGit = (args) => {
-    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8" });
+    const result = spawnSync("git", args, { cwd: fixture, encoding: "utf8", env: gitFixtureEnv() });
     assert.equal(result.status, 0, result.stderr);
   };
   try {
@@ -459,21 +462,21 @@ test("collectReport bounds default PR lookups, retaining memoized bodies after t
 });
 
 test("the CLI prints JSON for a range and the markdown summary otherwise", () => {
-  const jsonRun = spawnSync(process.execPath, [cli, "--range", `${shas.bot}..HEAD`, "--json"], { cwd: repo, encoding: "utf8" });
+  const jsonRun = spawnSync(process.execPath, [cli, "--range", `${shas.bot}..HEAD`, "--json"], { cwd: repo, encoding: "utf8", env: gitFixtureEnv() });
   assert.equal(jsonRun.status, 0, jsonRun.stderr);
   const report = JSON.parse(jsonRun.stdout);
   assert.equal(report.total, 5);
   assert.equal(report.candidates.length, 2);
   assert.equal(report.candidates[0].sha.length, 40);
 
-  const markdownRun = spawnSync(process.execPath, [cli, "--since", "90.days"], { cwd: repo, encoding: "utf8" });
+  const markdownRun = spawnSync(process.execPath, [cli, "--since", "90.days"], { cwd: repo, encoding: "utf8", env: gitFixtureEnv() });
   assert.equal(markdownRun.status, 0, markdownRun.stderr);
   assert.match(markdownRun.stdout, /^# Caught-by report\n/);
   assert.ok(markdownRun.stdout.includes("Fix commits: 7"));
 });
 
 test("the CLI reports failures without a non-zero exit", () => {
-  const run = spawnSync(process.execPath, [cli, "--range", "no-such-ref..HEAD", "--json"], { cwd: repo, encoding: "utf8" });
+  const run = spawnSync(process.execPath, [cli, "--range", "no-such-ref..HEAD", "--json"], { cwd: repo, encoding: "utf8", env: gitFixtureEnv() });
   assert.equal(run.status, 0);
   assert.equal(run.stdout, "");
   assert.match(run.stderr, /^caught-by-report: /);
