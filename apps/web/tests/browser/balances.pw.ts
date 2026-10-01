@@ -3,6 +3,7 @@ import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 // The hosted-runner tier also covers an idle laptop. A loaded shared machine stretches both marks
 // together, so the persisted paint may take twice the machine's own shell paint, never less than the tier.
@@ -258,7 +259,7 @@ test("cached Home balances paint before delayed verification and revalidation, t
     await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
 
     await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /Borrow Cash/ }).click();
-    await expect(page).toHaveURL(/\/borrow$/, { timeout: 10_000 });
+    await expectNavigation(page, /\/borrow$/);
     const returnStart = await page.evaluate(() => {
       const witness = window as typeof window & { balanceReturn?: { busy: boolean; observer: MutationObserver } };
       const wasBusy = () => Boolean(document.querySelector(
@@ -273,7 +274,7 @@ test("cached Home balances paint before delayed verification and revalidation, t
       return performance.getEntriesByName("balances:return-start", "mark")[0]!.startTime;
     });
     await page.getByRole("button", { name: "Home", exact: true }).first().click();
-    await expect(page).toHaveURL(/\/home$/);
+    await expectNavigation(page, /\/home$/);
     await expect(page.getByLabel("Total balance")).toContainText("$91.55");
     await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
     const { returnMs, busy } = await page.evaluate((started) => {

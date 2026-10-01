@@ -4,6 +4,7 @@ import { requestBackgroundRevalidation } from "./fixtures/background-revalidatio
 import { sessionBody } from "./fixtures/bodies";
 import { cashoutFixtureAction, cashoutFixtureProgress } from "./feature-map/cashout-fixture";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   test(`Activity anchors older rows at ${viewport.width}x${viewport.height}`, async ({ page }) => {
@@ -460,14 +461,14 @@ test("mobile Activity keeps 300 paginated rows bounded and restores keyboard foc
   await expect.poll(async () => (await visibleHomeRow())?.index ?? 0).toBeGreaterThan(60);
   const beforeHome = (await visibleHomeRow())!;
   await page.goBack();
-  await expect(page).toHaveURL(/\/activity$/);
+  await expectNavigation(page, /\/activity$/);
   await expect(rows.first()).toBeVisible();
   await expect.poll(async () => {
     await page.evaluate(() => window.scrollTo(0, 2200));
     return rows.first().getAttribute("aria-posinset");
   }).not.toBe("1");
   await page.goForward();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(homeRows.first()).toBeVisible();
   await expect.poll(async () => (await visibleHomeRow())?.index ?? 0).toBeGreaterThan(60);
   await expect.poll(async () => Math.abs(((await visibleHomeRow())?.index ?? Number.POSITIVE_INFINITY) - beforeHome.index)).toBeLessThanOrEqual(1);
