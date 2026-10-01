@@ -242,10 +242,11 @@ function requestFingerprint(session: VerifiedAccountSession, request: ActivityRe
     .digest("hex").slice(0, 32) };
 }
 
-function sourceFailure(error: unknown): Pick<ActivityReadObservation, "sourceError" | "upstreamStatus" | "sqlRejectionReason"> {
+function sourceFailure(error: unknown): Pick<ActivityReadObservation, "sourceError" | "upstreamStatus" | "sqlRejectionReason" | "cdpCorrelationId"> {
   if (!(error instanceof ChainDataError)) return { sourceError: "unknown" };
   return {
     sourceError: error.code,
+    ...(error.cdpCorrelationId === null ? {} : { cdpCorrelationId: error.cdpCorrelationId }),
     ...(error.sqlRejectionReason === null ? {} : { sqlRejectionReason: error.sqlRejectionReason }),
     ...(error.status === null ? {} : { upstreamStatus: error.status }),
   };

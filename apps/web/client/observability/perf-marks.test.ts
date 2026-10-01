@@ -32,6 +32,42 @@ function fixture() {
 }
 
 describe("Home startup recorder", () => {
+  test("reports the presented balance read separately from an unrelated restored cache", () => {
+    const value = fixture();
+    value.recorder.start("/home");
+    value.recorder.setCache("restored");
+    value.at(20); value.recorder.mark("shell:paint");
+    value.at(30); value.recorder.mark("session:verified");
+    value.recorder.setBalance({ balanceCache: "cold", balanceFetchMs: 40, balanceResponseMs: 80, balanceParsedMs: 90 });
+    value.at(100); value.recorder.mark("balances:painted");
+    expect(value.sent[0]).toMatchObject({ cache: "restored", balanceCache: "cold", balanceFetchMs: 40,
+      balanceResponseMs: 80, balanceParsedMs: 90, balancesMs: 100 });
+    value.recorder.setBalance({ balanceCache: "restored" });
+    expect(value.sent).toHaveLength(1);
+    expect(value.sent[0]?.balanceCache).toBe("cold");
+  });
+  test("first painted restored balances keep their provenance while session validation waits", () => {
+    const value = fixture();
+    value.recorder.start("/home");
+    value.at(20); value.recorder.mark("shell:paint");
+    value.recorder.setBalance({ balanceCache: "restored" });
+    value.at(100); value.recorder.mark("balances:painted");
+    value.recorder.setBalance({ balanceCache: "cold", balanceFetchMs: 500, balanceResponseMs: 650, balanceParsedMs: 700 });
+    value.at(1000); value.recorder.mark("session:verified");
+    expect(value.sent[0]).toMatchObject({ balanceCache: "restored", balancesMs: 100, sessionMs: 1000 });
+    expect(value.sent[0]).not.toHaveProperty("balanceFetchMs");
+    expect(value.sent[0]).not.toHaveProperty("balanceParsedMs");
+  });
+  test("drops balance details when startup becomes signed out", () => {
+    const value = fixture();
+    value.recorder.start("/home");
+    value.recorder.setBalance({ balanceCache: "restored", balanceFetchMs: 10 });
+    value.recorder.mark("shell:paint");
+    value.recorder.terminate("signed-out");
+    expect(value.sent[0]).not.toHaveProperty("balanceCache");
+    expect(value.sent[0]).not.toHaveProperty("balanceFetchMs");
+  });
+
   test("emits the shell ready once and preserves observed numeric order", () => {
     const value = fixture();
     value.recorder.setCache("restored");

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { parseCdpCorrelationId } from "@/shared/observability/cdp-correlation";
+
 import {
   sanitizeIdentifier,
   sanitizeRoutePath,
@@ -45,6 +47,7 @@ export type ActivitySourceError = (typeof ACTIVITY_SOURCE_ERRORS)[number];
 export const SQL_REJECTION_REASONS = ["resource-limit", "invalid-query", "invalid-request", "unknown"] as const;
 type ActivityRequestDiagnostics = {
   requestKey?: string;
+  cdpCorrelationId?: string;
   requestPage?: "first" | "cursor";
   windowEndAgeSeconds?: number;
   windowEndAlignment?: "whole-second" | "sub-second";
@@ -302,6 +305,10 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         shellMs: number;
         sessionMs?: number;
         balancesMs?: number;
+        balanceCache?: HomeStartupReport["balanceCache"];
+        balanceFetchMs?: number;
+        balanceResponseMs?: number;
+        balanceParsedMs?: number;
         interactiveMs?: number;
         totalMs: number;
       }
@@ -486,6 +493,10 @@ export function normalizeObservabilityEvent(
       version: 1,
       outcome: event.outcome,
       cache: event.cache,
+      ...(event.balanceCache === undefined ? {} : { balanceCache: allowedValue(event.balanceCache, ["restored", "cold", "unknown"] as const, "unknown") }),
+      ...(event.balanceFetchMs === undefined ? {} : { balanceFetchMs: boundedInteger(event.balanceFetchMs, 60_000) }),
+      ...(event.balanceResponseMs === undefined ? {} : { balanceResponseMs: boundedInteger(event.balanceResponseMs, 60_000) }),
+      ...(event.balanceParsedMs === undefined ? {} : { balanceParsedMs: boundedInteger(event.balanceParsedMs, 60_000) }),
       shellMs: boundedInteger(event.shellMs, 60_000),
       ...(event.sessionMs === undefined
         ? {}
@@ -637,6 +648,7 @@ export function normalizeObservabilityEvent(
   }
 
   if (event.kind === "activity-read") {
+    const cdpCorrelationId = parseCdpCorrelationId(event.cdpCorrelationId);
     const outcome = allowedValue(event.outcome, ACTIVITY_READ_OUTCOMES, "failed");
     return {
       ...base,
@@ -647,6 +659,7 @@ export function normalizeObservabilityEvent(
       outcome,
       reason: allowedValue(event.reason, ACTIVITY_READ_REASONS, "none"),
       source: allowedValue(event.source, ACTIVITY_READ_SOURCES, "none"),
+      ...(cdpCorrelationId ? { cdpCorrelationId } : {}),
       ...(typeof event.requestKey === "string" && /^[a-f0-9]{32}$/.test(event.requestKey) ? { requestKey: event.requestKey } : {}),
       ...(event.requestPage === "first" || event.requestPage === "cursor" ? { requestPage: event.requestPage } : {}),
       ...(typeof event.windowEndAgeSeconds === "number" && Number.isFinite(event.windowEndAgeSeconds)

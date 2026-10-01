@@ -17,6 +17,7 @@ import {
   type QueryCacheNotifyEvent,
 } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
+import { recordRestoredBalance } from "@/client/observability/balance-performance";
 import { recordHomeStartupCache } from "@/client/observability/perf-marks";
 import { recordHomeCachePersistence } from "@/client/observability/interaction-performance";
 import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
@@ -346,6 +347,12 @@ export function restoreOwnerQueries(
     return false;
   }
   hydrate(queryClient, { mutations: [], queries });
+  for (const query of queries) {
+    if (query.queryKey[1] === "balances" && typeof query.state.data === "object" && query.state.data !== null &&
+      queryClient.getQueryData(query.queryKey) === query.state.data) {
+      recordRestoredBalance(query.state.data);
+    }
+  }
   return true;
 }
 
