@@ -123,7 +123,7 @@ export default defineConfig({
     baseURL: fixtureBaseUrl,
     headless: true,
     trace: "retain-on-failure",
-    video: "off",
+    video: productionNavigation ? "retain-on-failure" : "off",
     screenshot: "only-on-failure",
     storageState: {
       cookies: [{
