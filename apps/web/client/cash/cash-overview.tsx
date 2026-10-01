@@ -86,7 +86,6 @@ export type SavingsDetailProps = Omit<
   pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
   pendingActionsLoading?: boolean;
   pendingActionsError?: boolean;
-  depositEntryBlocked?: boolean;
   onRetryActions?: () => void;
   depositFailed?: boolean;
   onStartSaving: () => void;
@@ -754,7 +753,6 @@ export function SavingsDetail({
   pendingDeposits = [],
   pendingActionsLoading = false,
   pendingActionsError = false,
-  depositEntryBlocked = false,
   onRetryActions,
   depositFailed = false,
 }: SavingsDetailProps) {
@@ -812,8 +810,7 @@ export function SavingsDetail({
     balanceStatus === "failed" ||
     activeSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       .status !== "ready" ||
-    vaultStatus !== "ready" ||
-    depositEntryBlocked;
+    vaultStatus !== "ready";
   const startSavingRef = useRef<HTMLButtonElement>(null);
   const recovery = (
     <Empty>
@@ -916,6 +913,7 @@ export function SavingsDetail({
           ) : null}
         </CardContent>
       </Card> : null}
+      {depositFailed && verifiedEmpty ? <Alert variant="destructive" role="alert"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>Your deposit didn&apos;t go through. Try again.</AlertDescription></Alert> : null}
       {pendingActionsLoading && verifiedEmpty && !pendingEmpty ? (
         <Card aria-busy="true"><CardContent><Skeleton className="h-24 w-full" /><span className="sr-only">Loading savings</span></CardContent></Card>
       ) : actionHistoryUnresolved ? (
@@ -939,7 +937,6 @@ export function SavingsDetail({
         </Empty>
       ) : firstUse ? (
         <>
-          {depositFailed ? <Alert variant="destructive" role="alert"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>Your deposit didn&apos;t go through. Try again.</AlertDescription></Alert> : null}
           <FeatureIntro
             size="compact"
             illustration="savings"
@@ -1009,7 +1006,7 @@ export function SavingsDetail({
       ) : null}
       {!balanceFailed &&
       vaultStatus !== "failed" &&
-      !verifiedEmpty &&
+      (!verifiedEmpty || pendingEmpty) &&
       (vaultStatus === "loading" || other.length) ? (
         <section
           aria-labelledby="more-savings-heading"

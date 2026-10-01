@@ -25,7 +25,7 @@ import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { presentationRegions, type RegionId } from "@/config/regions";
-import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
+import { readFundingProvidersResponse, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
 import { canonicalizeCashPayee, cashPayeeLabels } from "@/shared/funding/cash-payee";
 import {
   readRecentTransferRecipientsResponse,
@@ -272,7 +272,11 @@ export function SendDialog({
     let cancelled = false;
     const requestedBoundary = resourceBoundary;
     void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
-      .then((value) => { if (!cancelled) setOfframps(readProviderBindings(value).filter((binding): binding is FundingOfframpBinding => binding.direction === "offramp")); })
+      .then((value) => {
+        if (cancelled) return;
+        const bindings = readFundingProvidersResponse(value, "offramp");
+        setOfframps(bindings?.filter((binding): binding is FundingOfframpBinding => binding.direction === "offramp") ?? null);
+      })
       .catch(() => { if (!cancelled) setOfframps(null); }) // oxlint-disable-line home/no-silent-catch -- a failed provider read clears the list; finally marks this request loaded
       .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
     return () => { cancelled = true; };

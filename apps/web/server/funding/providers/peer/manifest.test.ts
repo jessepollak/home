@@ -18,6 +18,7 @@ test("Peer euro-area bindings match exactly the configured EUR countries", () =>
   expect(euroBindings.every((binding) => binding.assetId === "base:usdc" &&
     binding.directions.offramp?.paymentMethods.length === 1 &&
     binding.directions.offramp.paymentMethods[0]?.id === "revolut" &&
-    binding.directions.offramp.env.includes("PEER_OFFRAMP_ENABLED") &&
+    binding.directions.offramp.legacyOfferedEnv === "PEER_OFFRAMP_ENABLED" &&
+    binding.directions.offramp.env.length === 0 &&
     !("onramp" in binding.directions))).toBe(true);
 });

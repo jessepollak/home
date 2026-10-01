@@ -1319,33 +1319,27 @@ describe("SavingsMoneyFlow embedded in a MoneyModal", () => {
     expect(page().getByRole("dialog", { name: "Deposit" })).toBeTruthy();
   });
 
-  test("a host-reported blocked action history holds Continue and the confirm control at depth one", async () => {
+  test("an embedded deposit prepares and confirms without host action history", async () => {
     const noop = () => undefined;
     let prepares = 0;
     let executions = 0;
-    function Host({ blocked }: { blocked: boolean }) {
+    function Host() {
       return <MoneyModal open immediate labelledBy="savings-action-title" onCancel={noop} onClose={noop}>
-        <SavingsMoneyFlow depth={1} mode="deposit" session={session} candidate={candidate} historyBlocked={blocked}
+        <SavingsMoneyFlow depth={1} mode="deposit" session={session} candidate={candidate}
           prepareMoneyAction={async () => { prepares += 1; return prepared(); }}
           executeMoneyAction={async (action) => { executions += 1; return { id: action.id, status: "submitted" }; }} />
       </MoneyModal>;
     }
-    const view = render(<Host blocked />);
+    render(<Host />);
     await typeAmount("1");
-    const blocked = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
-    expect(blocked.disabled).toBe(true);
-    fireEvent.click(blocked);
-    expect(prepares).toBe(0);
-    view.rerender(<Host blocked={false} />);
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(await page().findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
     expect(prepares).toBe(1);
-    view.rerender(<Host blocked />);
     const late = page().getByRole("button", { name: "Deposit $1.00" }) as HTMLButtonElement;
-    expect(late.disabled).toBe(true);
+    expect(late.disabled).toBe(false);
     fireEvent.click(late);
-    expect(executions).toBe(0);
+    await waitFor(() => expect(executions).toBe(1));
   });
 
   test("a mode change during preparation restarts the embedded amount step", async () => {

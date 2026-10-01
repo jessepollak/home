@@ -60,7 +60,6 @@ export type SavingsJourneyStepProps = {
   candidate: MorphoVaultCandidate;
   availableLabel?: string;
   destinationLabel?: string;
-  historyBlocked?: boolean;
   availableBaseUnits?: string | null;
   availableStale?: boolean;
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
@@ -83,7 +82,6 @@ export function SavingsJourneyStep({
   candidate,
   availableLabel,
   destinationLabel,
-  historyBlocked = false,
   availableBaseUnits,
   availableStale = false,
   fetchAccountResource,
@@ -211,7 +209,6 @@ export function SavingsJourneyStep({
     if (!mode || !candidate || preparing) return;
     const generation = ++preparation.current;
     try {
-      if (historyBlocked) return;
       if (!assetRouteConfigured) {
         throw new SavingsActionClientError(
           `${assetLabel} is available for presentation review only. Savings actions remain ${candidate.asset.symbol}-only.`,
@@ -267,7 +264,6 @@ export function SavingsJourneyStep({
   async function confirm() {
     if (!mode || !candidate || !preparedAction || !preparedReview || step !== "confirm") return;
     if (confirmingGeneration.current === preparation.current) return;
-    if (historyBlocked) return;
     if (preparedReview.operation !== mode || preparedReview.vaultAddress.toLowerCase() !== candidate.vaultAddress.toLowerCase()) return;
     if (recheckExpired()) {
       setError(`This ${mode} expired. Go back and continue again.`);
@@ -411,7 +407,7 @@ export function SavingsJourneyStep({
     </MoneyModalBody>
 
     {step === "amount" ? (
-      <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinue || historyBlocked} primaryLoading={preparing} onPrimary={() => void continueFromAmount()} />
+      <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinue} primaryLoading={preparing} onPrimary={() => void continueFromAmount()} />
     ) : null}
 
     {(step === "confirm" || step === "pending") && preparedAction ? (
@@ -419,7 +415,7 @@ export function SavingsJourneyStep({
         actionExpired={actionExpired}
         submitting={step === "pending"}
         primaryLabel={attemptedAction ? "Retry" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
-        primaryDisabled={!preparedReview || historyBlocked || (actionExpired && !attemptedAction)}
+        primaryDisabled={!preparedReview || (actionExpired && !attemptedAction)}
         onPrimary={() => void confirm()}
         secondaryLabel="Back"
         onSecondary={goBack}

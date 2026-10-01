@@ -9,13 +9,14 @@ import type {
   Quote,
   QuoteIntent,
 } from "@/shared/funding/provider-contract";
-import { MemoryFundingOrderStore } from "./store";
+import { MemoryFundingOrderStore, type FundingReservation } from "./store";
 import {
   ambiguousOrderRecoveryAvailableAt,
   FundingCore,
   resolveClientIp,
   isPrivateIp,
   type FundingOrderTransitionEvent,
+  type FundingCoreDependencies,
 } from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
 import { FundingQuoteRejectedError } from "./quote-rejection";
@@ -25,6 +26,8 @@ import { fundingProviders } from "@/server/funding/providers";
 import { euroAreaPeerCountries } from "@/server/funding/providers/peer/manifest";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
+const sessionAddress = session.smartAccount?.address;
+if (!sessionAddress) throw new Error("fixture session must declare a smart account");
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
 const discoveryCatalog: OfframpCatalog = {
   asOf: "2026-09-12T00:00:00.000Z", maxAgeSeconds: 300,
@@ -43,7 +46,7 @@ function discoveryProvider(id: string, capabilities: NonNullable<FundingProvider
 beforeEach(() => setObservabilityLogWriterForTests(() => undefined));
 afterEach(() => setObservabilityLogWriterForTests());
 
-function customerSetup() {
+function customerSetup(readOffering?: FundingCoreDependencies["readOffering"], env: Readonly<Record<string, string>> = { FIXTURE_KEY: "set" }) {
   let creates = 0;
   const customerManifest = {
     ...manifest,
@@ -74,7 +77,8 @@ function customerSetup() {
   const core = new FundingCore({
     providers: [provider],
     store: new MemoryFundingOrderStore(),
-    env: { FIXTURE_KEY: "set" },
+    env,
+    readOffering,
     currentBaseBlock: async () => "1",
     verifyReceipt: async () => null,
   });
@@ -83,7 +87,7 @@ function customerSetup() {
 
 function setup(
   outcome: "created" | "ambiguous" | "rejected" = "created",
-  options: { sandbox?: boolean; providerSandbox?: boolean } = {},
+  options: { sandbox?: boolean; providerSandbox?: boolean; readOffering?: FundingCoreDependencies["readOffering"] } = {},
 ) {
   let dispatches = 0;
   let blockReads = 0;
@@ -112,11 +116,245 @@ function setup(
       },
     },
   };
-  const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, logOrderTransition: (event) => transitionEvents.push(event), now: () => date });
+  const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, readOffering: options.readOffering, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, logOrderTransition: (event) => transitionEvents.push(event), now: () => date });
   return { core, store, transitionEvents, dispatches: () => dispatches, blockReads: () => blockReads, receiptVerifications: () => receiptVerifications, getOrderSandboxes: () => getOrderSandboxes, staleSignals: () => staleSignals, advance(minutes: number) { date = new Date(date.getTime() + minutes * 60_000); }, observe(state: typeof observation) { observation = state; date = new Date(date.getTime() + 10_000); }, throwStatus() { statusThrows = true; date = new Date(date.getTime() + 10_000); }, sent() { observation = "sent"; date = new Date(date.getTime() + 10_000); } };
 }
 
 describe("FundingCore", () => {
+  test("reads offering once per provider listing and hides paused onramp and offramp corridors", async () => {
+    let reads = 0;
+    const readOffering = async () => { reads++; return { source: "saved" as const, isSelected: () => false, isOffered: () => false }; };
+    const onramp: FundingProvider = { manifest, onramp: {
+      createOrder: async () => ({ outcome: "ambiguous" }),
+      getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }),
+    } };
+    const core = new FundingCore({ providers: [onramp, discoveryProvider("offramp", async () => discoveryCatalog)],
+      store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set", OFFRAMP_ENABLED: "1" },
+      readOffering, currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      now: () => new Date("2026-09-12T00:00:01.000Z") });
+    expect(await core.listProviders("ID", session)).toEqual([]);
+    expect(await core.listProviders("US", session, "offramp")).toEqual([]);
+    expect(reads).toBe(2);
+  });
+
+  test("a paused onramp lists only for its owner's open order while blocking new quotes", async () => {
+    let offered = true;
+    const fixture = setup("created", { readOffering: async () => ({ source: "saved", isSelected: () => offered, isOffered: () => offered }) });
+    const originalListOpen = fixture.store.listOpen.bind(fixture.store);
+    let openReads = 0;
+    fixture.store.listOpen = async (owner, region) => { openReads++; return originalListOpen(owner, region); };
+    expect(await fixture.core.listProviders("ID", session)).toHaveLength(1);
+    expect(openReads).toBe(0);
+    offered = false;
+    expect(await fixture.core.listProviders("ID", session)).toEqual([]);
+    expect(openReads).toBe(1);
+    offered = true;
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const order = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(order.state).toBe("awaiting-payment");
+    offered = false;
+    expect(await fixture.core.listProviders("ID", session)).toEqual([expect.objectContaining({ providerId: "fixture", region: "ID" })]);
+    expect(openReads).toBe(2);
+    await expect(fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example"))
+      .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409 });
+    expect(await fixture.core.listProviders("ID", { ...session, user: { subject: "another-user" } })).toEqual([]);
+    expect(openReads).toBe(3);
+  });
+
+  test("an older paused provider stays listed beside a newer provider, only for the owner of its open order", async () => {
+    const older: FundingReservation = {
+      id: "11111111-1111-4111-8111-111111111111", owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+      destination: sessionAddress, providerId: "fixture", region: "ID", assetId: "base:idrx",
+      paymentMethod: "bank", fiatAmount: "20000", intentDigest: "older-intent",
+      quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      quoteToken: "older-token", customerRef: null, sandbox: false, creationBlock: "1", createdAt: "2026-09-12T00:00:00.000Z",
+    };
+    const newer = { ...older, id: "22222222-2222-4222-8222-222222222222", providerId: "newer", intentDigest: "newer-intent", createdAt: "2026-09-13T00:00:00.000Z" };
+    const store = new MemoryFundingOrderStore();
+    await store.reserve(older);
+    await store.reserve(newer);
+    const provider = (id: string): FundingProvider => ({ manifest: { ...manifest, id }, onramp: {
+      createOrder: async () => ({ outcome: "ambiguous" }), getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }),
+    } });
+    const core = new FundingCore({ providers: [provider("fixture"), provider("newer")], store, env: { FIXTURE_KEY: "set" },
+      readOffering: async () => ({ source: "saved", isSelected: () => true, isOffered: (id) => id === "newer" }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null });
+    const listed = await core.listProviders("ID", session);
+    expect(listed.map(({ providerId }) => providerId)).toEqual(["fixture", "newer"]);
+    expect(listed).toEqual([
+      expect.objectContaining({ providerId: "fixture", resumeOnly: true }),
+      expect.objectContaining({ providerId: "newer", resumeOnly: false }),
+    ]);
+    expect(await core.listProviders("ID", { ...session, user: { subject: "someone-else" } })).toEqual([
+      expect.objectContaining({ providerId: "newer", resumeOnly: false }),
+    ]);
+    const pausedWithoutOrder = new FundingCore({ providers: [provider("fixture"), provider("newer")], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set" },
+      readOffering: async () => ({ source: "saved", isSelected: () => true, isOffered: (id) => id === "newer" }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null });
+    expect((await pausedWithoutOrder.listProviders("ID", session)).map(({ providerId }) => providerId)).toEqual(["newer"]);
+  });
+
+  test("only the matching method binding in a paused multi-binding corridor can resume", async () => {
+    const store = new MemoryFundingOrderStore();
+    await store.reserve({
+      id: "11111111-1111-4111-8111-111111111111", owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+      destination: sessionAddress, providerId: "fixture", region: "ID", assetId: "base:idrx", paymentMethod: "bank",
+      fiatAmount: "20000", intentDigest: "bank-intent", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      quoteToken: "bank-token", customerRef: null, sandbox: false, creationBlock: "1", createdAt: "2026-09-12T00:00:00.000Z",
+    });
+    const provider: FundingProvider = {
+      manifest: { ...manifest, bindings: [...manifest.bindings, {
+        region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: {
+          paymentMethods: [{ id: "qris", label: "QRIS" }], env: ["FIXTURE_KEY"],
+        } },
+      }] },
+      onramp: { createOrder: async () => ({ outcome: "ambiguous" }), getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }) },
+    };
+    let offered = false;
+    const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set" },
+      readOffering: async () => ({ source: "saved", isSelected: () => true, isOffered: () => offered }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null });
+    expect(await core.listProviders("ID", session)).toEqual([
+      expect.objectContaining({ paymentMethods: [{ id: "bank", label: "Bank" }], resumeOnly: true }),
+    ]);
+    offered = true;
+    expect((await core.listProviders("ID", session)).map((binding) => ({ methods: binding.paymentMethods.map((method) => method.id), resumeOnly: binding.direction === "onramp" && binding.resumeOnly }))).toEqual([
+      { methods: ["bank"], resumeOnly: false }, { methods: ["qris"], resumeOnly: false },
+    ]);
+  });
+
+  test("a paused binding whose asset changed does not advertise an older order as resumable", async () => {
+    const store = new MemoryFundingOrderStore();
+    await store.reserve({
+      id: "11111111-1111-4111-8111-111111111111", owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+      destination: sessionAddress, providerId: "fixture", region: "ID", assetId: "base:idrx", paymentMethod: "bank",
+      fiatAmount: "20000", intentDigest: "old-asset-intent", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      quoteToken: "old-asset-token", customerRef: null, sandbox: false, creationBlock: "1", createdAt: "2026-09-12T00:00:00.000Z",
+    });
+    const provider: FundingProvider = {
+      manifest: { ...manifest, bindings: [{ region: "ID", assetId: "base:usdc", currency: "USD", directions: { onramp: {
+        paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"],
+      } } }] },
+      onramp: { createOrder: async () => ({ outcome: "ambiguous" }), getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }) },
+    };
+    const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set" },
+      readOffering: async () => ({ source: "saved", isSelected: () => true, isOffered: () => false }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null });
+    expect(await core.listProviders("ID", session)).toEqual([]);
+  });
+
+  test("a paused onramp lists for the owner of a dispatch-ambiguous order without allowing new quotes", async () => {
+    let offered = true;
+    const fixture = setup("ambiguous", { readOffering: async () => ({ source: "saved", isSelected: () => offered, isOffered: () => offered }) });
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const order = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    expect(order.state).toBe("dispatch-ambiguous");
+    expect((await fixture.store.getOpen({ subject: session.user.subject, accountProvider: session.accountProvider }, "ID"))?.id).toBe(order.id);
+
+    offered = false;
+    expect(await fixture.core.listProviders("ID", session)).toEqual([expect.objectContaining({ providerId: "fixture", region: "ID" })]);
+    expect(await fixture.core.listProviders("ID", { ...session, user: { subject: "another-user" } })).toEqual([]);
+    await expect(fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example"))
+      .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409 });
+  });
+
+  test("a pause rejects new quotes and pre-pause quote orders but preserves an existing order replay", async () => {
+    let offered = true;
+    let reads = 0;
+    const fixture = setup("created", { readOffering: async () => { reads++; return { source: "saved", isSelected: () => offered, isOffered: () => offered }; } });
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    offered = false;
+    await expect(fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example"))
+      .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409, publicMessage: "Fixture is no longer offered here." });
+    const pending = setup("created", { readOffering: async () => ({ source: "saved", isSelected: () => false, isOffered: () => false }) });
+    await expect(pending.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example"))
+      .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409 });
+    const beforeReplay = reads;
+    expect(await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example")).toEqual(created);
+    expect(reads).toBe(beforeReplay);
+    expect(fixture.dispatches()).toBe(1);
+  });
+
+  test("a settings read failure blocks entries but never exits", async () => {
+    let broken = false;
+    let reads = 0;
+    const readOffering = async () => { reads++; if (broken) throw new Error("settings unavailable"); return { source: "saved" as const, isSelected: () => true, isOffered: () => true }; };
+    const fixture = setup("ambiguous", { readOffering });
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const order = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    fixture.advance(25 * 60);
+    broken = true;
+    await expect(fixture.core.listProviders("ID", session)).rejects.toMatchObject({ code: "PROVIDERS_UNAVAILABLE", status: 503 });
+    await expect(fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example"))
+      .rejects.toMatchObject({ code: "QUOTE_UNAVAILABLE", status: 503 });
+    const fresh = setup("created", { readOffering: async () => { throw new Error("settings unavailable"); } });
+    await expect(fresh.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example"))
+      .rejects.toMatchObject({ code: "ORDER_UNAVAILABLE", status: 503 });
+    const beforeExits = reads;
+    await fixture.core.getOrder(session, order.id);
+    await fixture.core.getOpenOrder(session, "ID");
+    await fixture.core.listOrderHistory(session);
+    await fixture.core.listProviderCustomers(session, "ID");
+    await fixture.core.handleWebhook("fixture", new Uint8Array(), new Headers());
+    fixture.advance(24 * 60);
+    await fixture.core.resolveAmbiguousOrder(session, order.id);
+    expect(reads).toBe(beforeExits);
+  });
+
+  test("returns the owner's stored order when a corridor lost its credentials", async () => {
+    const fixture = setup();
+    const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
+    const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
+    const deconfigured = new FundingCore({
+      providers: [{ manifest, onramp: {
+        async createOrder() { throw new Error("Must not create while disconnected."); },
+        async getOrder() { throw new Error("Must not reach a disconnected provider."); },
+      } }],
+      store: fixture.store, env: {},
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      now: () => new Date("2026-09-12T00:00:20.000Z"),
+    });
+    expect(await deconfigured.getOpenOrder(session, "ID")).toMatchObject({ id: created.id, state: "awaiting-payment" });
+    expect(await deconfigured.getOrder(session, created.id)).toMatchObject({ id: created.id, state: "awaiting-payment" });
+  });
+
+  test("verification start is blocked by a pause or a settings read failure before customer creation", async () => {
+    const paused = customerSetup(async () => ({ source: "saved", isSelected: () => false, isOffered: () => false }));
+    const input = { providerId: "fixture", region: "ID", email: "alice@example.com" };
+    await expect(paused.core.startProviderCustomerVerification(session, input, "https://home.example"))
+      .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409, publicMessage: "Fixture is no longer offered here." });
+    expect(paused.creates()).toBe(0);
+    const failing = customerSetup(async () => { throw new Error("settings unavailable"); });
+    await expect(failing.core.startProviderCustomerVerification(session, input, "https://home.example"))
+      .rejects.toMatchObject({ code: "VERIFICATION_UNAVAILABLE", status: 503 });
+    expect(failing.creates()).toBe(0);
+    let reads = 0;
+    const existing = customerSetup(async () => { reads++; if (reads > 1) throw new Error("settings unavailable"); return { source: "saved", isSelected: () => true, isOffered: () => true }; });
+    await existing.core.startProviderCustomerVerification(session, input, "https://home.example");
+    expect(await existing.core.listProviderCustomers(session, "ID")).toEqual([expect.objectContaining({ state: "pending" })]);
+    expect(reads).toBe(1);
+    const pausedBrokenMode = customerSetup(async () => ({ source: "saved", isSelected: () => false, isOffered: () => false }), { FIXTURE_KEY: "set", FUNDING_SANDBOX: "" });
+    await expect(pausedBrokenMode.core.startProviderCustomerVerification(session, input, "https://home.example"))
+      .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409 });
+    expect(pausedBrokenMode.creates()).toBe(0);
+  });
+
+  test("a paused corridor refuses a quote before parsing its mode configuration", async () => {
+    const core = new FundingCore({
+      providers: [{ manifest, onramp: {
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      } }],
+      store: new MemoryFundingOrderStore(),
+      env: { FIXTURE_KEY: "set", FUNDING_SANDBOX: "", FUNDING_QUOTE_SECRET: "s".repeat(32) },
+      readOffering: async () => ({ source: "saved", isSelected: () => false, isOffered: () => false }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+    });
+    await expect(core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example"))
+      .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409 });
+  });
+
   test("lists only the bound EUR Revolut cash-out corridor in each euro-area country", async () => {
     const core = new FundingCore({
       providers: fundingProviders,
@@ -339,6 +577,91 @@ describe("FundingCore", () => {
       code: "FUNDING_SANDBOX_MIGRATION_REQUIRED",
     }]);
     expect(JSON.stringify(events)).not.toContain("secret-value");
+  });
+
+  test("omits a saved-off disconnected corridor silently but reports deployment credential failure", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    let source: "saved" | "deployment" = "saved";
+    const core = new FundingCore({
+      providers: [{ manifest, onramp: {
+        createOrder: async () => ({ outcome: "ambiguous" }),
+        getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }),
+      } }],
+      store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "" },
+      readOffering: async () => ({ source, isSelected: () => false, isOffered: () => false }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+    expect(await core.listProviders("ID", session)).toEqual([]);
+    expect(events).toEqual([]);
+    source = "deployment";
+    await expect(core.listProviders("ID", session)).rejects.toMatchObject({ code: "PROVIDERS_UNAVAILABLE", status: 503 });
+    expect(events).toEqual([{ providerId: "fixture", reason: "configuration", code: "FUNDING_BINDING_ENVIRONMENT_MISSING" }]);
+  });
+
+  test("a saved-off connected corridor is omitted before its mode configuration is parsed", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    let offered = true;
+    const core = new FundingCore({
+      providers: [{ manifest, onramp: {
+        createOrder: async () => ({ outcome: "ambiguous" }),
+        getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }),
+      } }],
+      store: new MemoryFundingOrderStore(),
+      env: { FIXTURE_KEY: "set", FUNDING_SANDBOX: "" },
+      readOffering: async () => ({ source: "saved", isSelected: () => offered, isOffered: () => offered }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+    offered = false;
+    expect(await core.listProviders("ID", session)).toEqual([]);
+    expect(events).toEqual([]);
+    offered = true;
+    await expect(core.listProviders("ID", session)).rejects.toMatchObject({ code: "PROVIDERS_UNAVAILABLE", status: 503 });
+    expect(events).toEqual([{ providerId: "fixture", reason: "configuration", code: "FUNDING_SANDBOX_MIGRATION_REQUIRED" }]);
+  });
+
+  test("a paused provider's unusable mode value leaves an offered provider listed", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    const modeManifest = { ...manifest, onramp: { ...manifest.onramp, modeEnv: "FIXTURE_ONRAMP_MODE" } } as const satisfies FundingProviderManifest;
+    const provider = (id: string, value: FundingProviderManifest = manifest): FundingProvider => ({ manifest: { ...value, id }, onramp: {
+      createOrder: async () => ({ outcome: "ambiguous" }),
+      getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }),
+    } });
+    const core = new FundingCore({
+      providers: [provider("fixture", modeManifest), provider("newer")],
+      store: new MemoryFundingOrderStore(),
+      env: { FIXTURE_KEY: "set", FIXTURE_ONRAMP_MODE: "production" },
+      readOffering: async () => ({ source: "saved", isSelected: (id) => id === "newer", isOffered: (id) => id === "newer" }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+    expect((await core.listProviders("ID", session)).map((binding) => binding.providerId)).toEqual(["newer"]);
+    expect(events).toEqual([]);
+  });
+
+  test("a resumable paused corridor still fails closed on an unusable mode value", async () => {
+    const events: Array<{ providerId: string; reason: string; code: string }> = [];
+    const store = new MemoryFundingOrderStore();
+    await store.reserve({
+      id: "11111111-1111-4111-8111-111111111111", owner: { subject: session.user.subject, accountProvider: session.accountProvider },
+      destination: sessionAddress, providerId: "fixture", region: "ID", assetId: "base:idrx",
+      paymentMethod: "bank", fiatAmount: "20000", intentDigest: "resumable-mode-intent",
+      quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      quoteToken: "resumable-mode-token", customerRef: null, sandbox: false, creationBlock: "1", createdAt: "2026-09-12T00:00:00.000Z",
+    });
+    const core = new FundingCore({
+      providers: [{ manifest, onramp: {
+        createOrder: async () => ({ outcome: "ambiguous" }),
+        getOrder: async () => ({ state: "unknown", providerStatus: "unknown" }),
+      } }],
+      store, env: { FIXTURE_KEY: "set", FUNDING_SANDBOX: "" },
+      readOffering: async () => ({ source: "saved", isSelected: () => false, isOffered: () => false }),
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+      logProviderDiscoveryFailure: (event) => { events.push(event); },
+    });
+    await expect(core.listProviders("ID", session)).rejects.toMatchObject({ code: "PROVIDERS_UNAVAILABLE", status: 503 });
+    expect(events).toEqual([{ providerId: "fixture", reason: "configuration", code: "FUNDING_SANDBOX_MIGRATION_REQUIRED" }]);
   });
 
   test("withholds a matched corridor whose binding environment is missing and stays quiet for other regions", async () => {

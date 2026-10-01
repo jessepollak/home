@@ -7,6 +7,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { formatAddress } from "@/shared/formatting";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { SendDialog } = await import("./send-dialog");
@@ -80,7 +81,7 @@ function resultRow(action: PreparedMoneyAction, status: "pending" | "confirmed" 
 }
 const feeResponse = { version: 1, usdcReserveBaseUnits: "20000" };
 const offrampResponse = {
-  version: 2,
+  version: FUNDING_PROVIDERS_VERSION,
   direction: "offramp",
   providers: [{
     direction: "offramp", providerId: "peer", displayName: "Peer", region: "US", assetId: "base:usdc",
@@ -414,9 +415,43 @@ describe("SendDialog Peer cash-out", () => {
     await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().queryByText("Cash out isn't available in Australia yet.")).toBeNull();
-    await act(async () => { resolveProviders({ version: 2, direction: "offramp", providers: [] }); await pendingProviders; });
+    await act(async () => { resolveProviders({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }); await pendingProviders; });
     expect(page().getByRole("status").textContent).toBe("Cash out isn't available in Australia yet.");
     expect(page().getByLabelText("To")).toBeTruthy();
+  });
+
+  test.each([
+    ["unsupported version", { ...offrampResponse, version: 2 }],
+    ["unsupported direction", { ...offrampResponse, direction: "invalid", providers: [] }],
+    ["missing direction", { version: FUNDING_PROVIDERS_VERSION, providers: [] }],
+    ["mismatched direction", { ...offrampResponse, direction: "onramp", providers: [] }],
+    ["mismatched entry direction", { ...offrampResponse, providers: [...offrampResponse.providers, { ...offrampResponse.providers[0], direction: "onramp", quotes: true, paymentMethods: [{ id: "bank_transfer", label: "Bank transfer" }] }] }],
+    ["missing entry direction", { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], direction: undefined }] }],
+    ["malformed entry among valid providers", { ...offrampResponse, providers: [...offrampResponse.providers, {}] }],
+  ])("offers retry for %s instead of an empty cash-out corridor", async (_label, invalid) => {
+    let reads = 0;
+    const usdc = getTransferAsset("usdc");
+    if (!usdc) throw new Error("expected the USDC transfer asset");
+    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-invalid-cashout" regionId="US"
+      availableAssets={[{ ...usdc, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => {
+        if (url === "/api/actions/network-fee") return feeResponse;
+        if (url.startsWith("/api/funding/providers")) return ++reads === 1 ? invalid : offrampResponse;
+        return { version: 1, recipients: [] };
+      }}
+      prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect(page().getByRole<HTMLButtonElement>("button", { name: "Continue" }).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(await page().findByText("Cash out is unavailable right now.")).toBeTruthy();
+    expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(page().queryByText(/Cash out isn't available/)).toBeNull();
+    expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
+    expect(await page().findByRole("button", { name: /Send to Cash App/ })).toBeTruthy();
+    expect(reads).toBe(2);
+    expect(page().queryByText("Cash out is unavailable right now.")).toBeNull();
   });
 
   test("does not report an unavailable corridor when the selected asset is not USDC", async () => {
@@ -711,7 +746,7 @@ describe("SendDialog Peer cash-out", () => {
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,
     );
 
-    await act(async () => { resolveProviders({ version: 2, direction: "offramp", providers: [] }); await providerRead; });
+    await act(async () => { resolveProviders({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }); await providerRead; });
     expect(page().getByText("No catalog balance is available to send.")).toBeTruthy();
     expect(requests).toEqual([]);
   });
@@ -721,7 +756,7 @@ describe("SendDialog Peer cash-out", () => {
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-no-order-recovery" regionId="US"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
-          ? { version: 2, direction: "offramp", providers: [] }
+          ? { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }
           : { version: 1, recipients: [] }}
         prepareMoneyAction={async () => withdrawAction()}
         resumeMoneyAction={async () => withdrawAction()}
@@ -1015,7 +1050,7 @@ describe("SendDialog resume", () => {
       <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-no-recovery" regionId="US"
         availableAssets={[]}
         fetchAccountResource={async (url) => { requests.push(url); return url.startsWith("/api/funding/providers")
-          ? { version: 2, direction: "offramp", providers: [] }
+          ? { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }
           : { version: 1, recipients: [] }; }}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />,

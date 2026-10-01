@@ -145,6 +145,60 @@ function importedReportingHelper(state, node) {
   return binding ? { name: binding.node.imported.name, module: sourceValue(binding.parent.source) } : null;
 }
 
+function enclosingFunction(node) {
+  let current = node;
+  while (current) {
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+function enclosingStatement(node) {
+  let current = node;
+  while (current.parent && !["Program", "BlockStatement", "StaticBlock", "SwitchCase"].includes(current.parent.type)) current = current.parent;
+  return current;
+}
+
+function readByLaterClosure(rejectionCall, read) {
+  const callerFunction = enclosingFunction(rejectionCall);
+  let closure = null;
+  for (let current = enclosingFunction(read); current && current !== callerFunction;
+    current = enclosingFunction(current.parent)) closure = current;
+  if (!closure || closure.type === "FunctionDeclaration"
+    || (callerFunction && !isWithin(closure, callerFunction))) return false;
+  return closure.start > enclosingStatement(rejectionCall).end;
+}
+
+function observesOuterValue(state, reference, span) {
+  const read = reference.identifier;
+  if (!reference.isRead() || read.start <= span.end) return false;
+  if (!state.rejectionCall) return true;
+  if (readByLaterClosure(state.rejectionCall, read)) return true;
+  let current = state.rejectionCall;
+  while (current.parent) {
+    const parent = current.parent;
+    if (transparentWrappers.has(parent.type)) {
+      current = parent;
+      continue;
+    }
+    if (parent.type === "AwaitExpression" && parent.argument === current) {
+      return read.start > parent.end && enclosingFunction(read) === enclosingFunction(parent);
+    }
+    if (parent.type !== "MemberExpression" || parent.object !== current) return false;
+    const method = staticMemberName(parent);
+    const call = parent.parent;
+    if (!["then", "finally", "catch"].includes(method)
+      || call?.type !== "CallExpression" || call.callee !== parent) return false;
+    const callback = unwrapTransparent(call.arguments[0]);
+    if ((method === "then" || method === "finally")
+      && (callback?.type === "ArrowFunctionExpression" || callback?.type === "FunctionExpression")
+      && !callback.generator && enclosingFunction(read) === callback) return true;
+    current = call;
+  }
+  return false;
+}
+
 function assignsOuterValue(state, node) {
   if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier"
     || isUndefinedValue(node.right)) return false;
@@ -152,7 +206,7 @@ function assignsOuterValue(state, node) {
   if (!variable) return false;
   const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause));
   return !declaredInside && variable.references.some((reference) =>
-    reference.identifier.start > state.catchClause.end && reference.isRead());
+    observesOuterValue(state, reference, state.catchClause));
 }
 
 function walkAssignments(node, visit) {
@@ -192,7 +246,7 @@ function retainsPreInitializedFallback(state, protectedRegion, statementSpan) {
       || !["let", "var"].includes(declaration.kind) || !declarator.init
       || isUndefinedValue(declarator.init) || !(declarator.start < statementSpan.start)) return false;
     return variable.references.some((reference) =>
-      reference.identifier.start > statementSpan.end && reference.isRead());
+      observesOuterValue(state, reference, statementSpan));
   });
 }
 
@@ -306,12 +360,23 @@ function blockDeclaresUsing(block) {
     && (statement.kind === "using" || statement.kind === "await using"));
 }
 
+function declaresUsing(node) {
+  return node?.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using");
+}
+
+function loopHeaderDeclaresUsing(loop, body) {
+  if (loop.body !== body) return false;
+  if (loop.type === "ForStatement") return declaresUsing(loop.init);
+  return (loop.type === "ForOfStatement" || loop.type === "ForInStatement") && declaresUsing(loop.left);
+}
+
 function pendingUsingScope(node) {
   let current = node;
   while (current.parent) {
     const parent = current.parent;
     if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
     if (parent.type === "BlockStatement" && blockDeclaresUsing(parent)) return true;
+    if (loopHeaderDeclaresUsing(parent, current)) return true;
     current = parent;
   }
   return false;
@@ -648,6 +713,7 @@ export const noSilentCatch = {
           const state = {
             sourceCode: context.sourceCode,
             catchClause: node,
+            rejectionCall: statementSpan,
             reportingHelpers,
             reportingModules,
             localFunctions,

@@ -36,10 +36,10 @@ const fetchAccountResource = async (path: string) => {
 const calls: Array<{ endpoint: string; input: unknown }> = [];
 const prepare = async (endpoint: string, input: unknown): Promise<PreparedMoneyAction> => { calls.push({ endpoint, input }); throw { code: "TRADE_ROUTE_UNAVAILABLE" }; };
 const noop = () => undefined;
-function Surface({ source = "USD", kind = "convert", data = snapshot, resource = fetchAccountResource, best = null, balanceStale = false, depositEntryBlocked = false, historyBlocked = false, onSaveEntry = noop, prepareAction = prepare, executeAction = async () => ({ id: "fixture", status: "rejected" as const }) }: { source?: CashConversionCurrencyCode; kind?: "convert" | "currency"; data?: typeof snapshot; resource?: (path: string) => Promise<unknown>; best?: MorphoVaultCandidate | null; balanceStale?: boolean; depositEntryBlocked?: boolean; historyBlocked?: boolean; onSaveEntry?: () => void; prepareAction?: AccountWalletClient["prepareMoneyAction"]; executeAction?: AccountWalletClient["executeMoneyAction"] }) {
+function Surface({ source = "USD", kind = "convert", data = snapshot, resource = fetchAccountResource, best = null, balanceStale = false, prepareAction = prepare, executeAction = async () => ({ id: "fixture", status: "rejected" as const }) }: { source?: CashConversionCurrencyCode; kind?: "convert" | "currency"; data?: typeof snapshot; resource?: (path: string) => Promise<unknown>; best?: MorphoVaultCandidate | null; balanceStale?: boolean; prepareAction?: AccountWalletClient["prepareMoneyAction"]; executeAction?: AccountWalletClient["executeMoneyAction"] }) {
   const [open, setOpen] = useState(true);
   return <><button onClick={() => setOpen(true)}>Reopen</button><CashCurrencySheet open={open} entry={{ kind, source }} session={session} snapshot={data} best={best} balanceStale={balanceStale}
-    depositEntryBlocked={depositEntryBlocked} historyBlocked={historyBlocked} onSaveEntry={onSaveEntry} fetchAccountResource={resource} prepareMoneyAction={prepareAction} executeMoneyAction={executeAction}
+    fetchAccountResource={resource} prepareMoneyAction={prepareAction} executeMoneyAction={executeAction}
     onCancel={() => setOpen(false)} onClosed={noop} onAddMoney={noop} onConfirmed={noop} /></>;
 }
 function preparedTrade(request: TradeActionParams): PreparedMoneyAction {
@@ -79,9 +79,6 @@ function preparedDeposit(amountBaseUnits: string): PreparedMoneyAction {
   };
 }
 
-function SaveGateSurface({ blocked, onArm, onPrepare, onExecute }: { blocked: boolean; onArm: () => void; onPrepare: AccountWalletClient["prepareMoneyAction"]; onExecute: AccountWalletClient["executeMoneyAction"] }) {
-  return <Surface source="USD" kind="currency" best={best} historyBlocked={blocked} onSaveEntry={onArm} prepareAction={onPrepare} executeAction={onExecute} />;
-}
 
 beforeEach(() => setSystemTime(new Date(NOW)));
 afterEach(() => { setSystemTime(); cleanup(); getHomeQueryClient().clear(); calls.length = 0; });
@@ -180,36 +177,24 @@ test("Save appears on the USD row only with a ready balance and a vault candidat
   cleanup();
   const euro = render(<Surface source="EUR" kind="currency" best={best} />);
   expect(euro.queryByRole("button", { name: "Save" })).toBeNull();
-  cleanup();
-  const blocked = render(<Surface source="USD" kind="currency" best={best} depositEntryBlocked />);
-  expect(blocked.queryByRole("button", { name: "Save" })).toBeNull();
 });
 
-test("the embedded Save arms the host floor and holds its steps while the host reports a blocked history", async () => {
-  let arms = 0;
+test("the embedded Save prepares and confirms without a host history gate", async () => {
   let prepares = 0;
   let executions = 0;
   const onPrepare: AccountWalletClient["prepareMoneyAction"] = async () => { prepares += 1; return preparedDeposit("1000000"); };
   const onExecute: AccountWalletClient["executeMoneyAction"] = async (action) => { executions += 1; return { id: action.id, status: "submitted" }; };
-  const props = { onArm: () => { arms += 1; }, onPrepare, onExecute };
-  const view = render(<SaveGateSurface blocked {...props} />);
+  const view = render(<Surface source="USD" kind="currency" best={best} prepareAction={onPrepare} executeAction={onExecute} />);
   fireEvent.click(view.getByRole("button", { name: "Save" }));
-  expect(arms).toBe(1);
   fireEvent.input(await view.findByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
-  const blocked = (await view.findByRole("button", { name: "Continue" })) as HTMLButtonElement;
-  expect(blocked.disabled).toBe(true);
-  fireEvent.click(blocked);
-  expect(prepares).toBe(0);
-  view.rerender(<SaveGateSurface blocked={false} {...props} />);
   await waitFor(() => expect((view.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(view.getByRole("button", { name: "Continue" }));
   expect(await view.findByRole("button", { name: "Deposit $1.00" })).toBeTruthy();
   expect(prepares).toBe(1);
-  view.rerender(<SaveGateSurface blocked {...props} />);
   const late = view.getByRole("button", { name: "Deposit $1.00" }) as HTMLButtonElement;
-  expect(late.disabled).toBe(true);
+  expect(late.disabled).toBe(false);
   fireEvent.click(late);
-  expect(executions).toBe(0);
+  await waitFor(() => expect(executions).toBe(1));
 });
 
 test("Back retains an entered amount for the same destination and clears it for a different one", async () => {

@@ -347,9 +347,7 @@ function recoveryContext(provider: FundingProvider, record: CashoutOrderRow, env
     : record.environment === "sandbox";
   const deployment = sandbox ? provider.manifest.offramp?.sandbox : provider.manifest.offramp?.production;
   if (!deployment || (escrow && deployment.contracts.escrow.toLowerCase() !== escrow)) throw new Error("Cash-out deployment unavailable.");
-  const source = env ?? process.env;
-  const recoveryEnv = { ...source, ...Object.fromEntries(binding.directions.offramp!.env.filter((name) => name.endsWith("_ENABLED")).map((name) => [name, "1"])) };
-  return createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "offramp", paymentMethodId: method.id, env: recoveryEnv, sandbox });
+  return createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "offramp", paymentMethodId: method.id, env: env ?? process.env, sandbox });
 }
 
 async function readTransactionReceipt(hash: `0x${string}`, signal: AbortSignal): Promise<Pick<TransactionReceipt, "logs">> {

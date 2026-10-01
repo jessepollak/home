@@ -2,7 +2,8 @@ import "@/client/account/dom-test-harness";
 
 import { getHomeQueryClient, ownerQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
-import { afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, spyOn, test } from "bun:test";
+import * as homePerformance from "@/client/observability/perf-marks";
 import { useState, useSyncExternalStore, type ComponentProps } from "react";
 import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
@@ -117,7 +118,7 @@ await mock.module("next/navigation", () => ({
 const { act, cleanup, fireEvent, render, waitFor, within } = await import(
   "@testing-library/react"
 );
-const { CdpAccountProvider } = await import("@/client/account/cdp-client");
+const { CdpAccountProvider, AccountWalletContext, createBlockedAccountWalletClient } = await import("@/client/account/cdp-client");
 const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session-lifecycle");
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
@@ -520,7 +521,31 @@ describe("pushed funding history", () => {
   });
 });
 
+function renderLandingAccount(account: ReturnType<typeof createBlockedAccountWalletClient>) {
+  return render(<AccountWalletContext.Provider value={account}><LandingShell /></AccountWalletContext.Provider>);
+}
+
 describe("Home shell auth and privacy", () => {
+  for (const status of ["signed-out", "unavailable"] as const) test(`landing startup settles as ${status} instead of waiting for a timeout`, async () => {
+    const outcome = spyOn(homePerformance, "markHomeStartupOutcome").mockImplementation(() => {});
+    try {
+      const account = { ...createBlockedAccountWalletClient("unconfigured"), status };
+      renderLandingAccount(account);
+      await page().findByRole("heading", { name: "One home for your money." });
+      expect(outcome).toHaveBeenCalledWith(status);
+    } finally { outcome.mockRestore(); }
+  });
+
+  test("landing records a server-verified session before handing off to the dashboard", async () => {
+    const mark = spyOn(homePerformance, "markHomePerformance").mockImplementation(() => {});
+    try {
+      const account = { ...createBlockedAccountWalletClient("unconfigured"),
+        status: "verified" as const, verification: "server" as const, session: session() };
+      renderLandingAccount(account);
+      await page().findByRole("heading", { name: "One home for your money." });
+      expect(mark).toHaveBeenCalledWith("session:verified");
+    } finally { mark.mockRestore(); }
+  });
   test("gates dashboard content while signed out and opens the shared sign-in flow", async () => {
     render(<HomeHarness accountSdk={sdk()} routeMode="landing" />);
 

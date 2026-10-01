@@ -1,3 +1,5 @@
+import { nativeBaseOwnerKey } from "./owner-keys";
+import { ACCOUNT_RESTORE_STAGE_TIMEOUT_MS } from "./restore-stage";
 import { readJson } from "@/shared/http/read-json";
 import { deploymentHeaders } from "@/client/query/deployment-headers";
 import { redirectOnAccessRequired, type AccessNavigation } from "./access-response";
@@ -7,6 +9,27 @@ import {
 } from "@/shared/account/session-types";
 import { parseNativeBaseChallenge, type NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
+
+type RestoreValidation = {
+  session: VerifiedAccountSession;
+  ownerKey: string;
+  receivedAt: number;
+  signal?: AbortSignal;
+};
+let restoreValidations = new WeakMap<VerifiedAccountSession, RestoreValidation>();
+
+export function takeNativeRestoreValidation(
+  candidate: VerifiedAccountSession | null | undefined,
+  ownerKey: string,
+  signal: AbortSignal,
+): VerifiedAccountSession | null {
+  if (!candidate) return null;
+  const restored = restoreValidations.get(candidate);
+  restoreValidations.delete(candidate);
+  if (!restored || signal.aborted || restored.signal?.aborted || restored.ownerKey !== ownerKey ||
+    performance.now() - restored.receivedAt > ACCOUNT_RESTORE_STAGE_TIMEOUT_MS) return null;
+  return restored.session;
+}
 
 export type NativeBaseFetch = (
   input: RequestInfo | URL,
@@ -37,6 +60,7 @@ export async function restoreNativeBaseSession(
   signal?: AbortSignal,
   accessNavigation?: AccessNavigation,
 ): Promise<VerifiedAccountSession | null> {
+  const validationGeneration = restoreValidations;
   let response: Response;
   try {
     response = await fetchImpl("/api/session", {
@@ -57,7 +81,14 @@ export async function restoreNativeBaseSession(
     throw new Error("Deployment access is required.");
   }
   if (response.status === 401) return null;
-  return readSessionResponse(response, accessNavigation);
+  const session = await readSessionResponse(response, accessNavigation);
+  if (restoreValidations === validationGeneration) restoreValidations.set(session, {
+    session: { ...session, user: { ...session.user }, smartAccount: session.smartAccount ? { ...session.smartAccount } : null },
+    ownerKey: nativeBaseOwnerKey(session),
+    receivedAt: performance.now(),
+    signal,
+  });
+  return session;
 }
 
 export async function requestNativeBaseChallenge(
@@ -113,6 +144,7 @@ export async function clearNativeBaseSession(
   fetchImpl: NativeBaseFetch = fetch,
   accessNavigation?: AccessNavigation,
 ): Promise<void> {
+  restoreValidations = new WeakMap();
   const response = await fetchImpl("/api/auth/base/logout", {
     method: "POST",
     headers: { Accept: "application/json" },

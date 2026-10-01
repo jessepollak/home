@@ -90,3 +90,7 @@ Before #392, a configured CDP project selected a separate CDP SIWE hop while clo
 - Base Account provider methods: https://docs.base.org/base-account/reference/core/provider-rpc-methods
 - Base Account signature verification guide: https://docs.base.org/base-account/guides/verify-signatures
 - viem ERC-7846 connect action: https://viem.sh/experimental/erc7846/connect
+
+### Native restore validation handoff
+
+A successful native `/api/session` restore hands its parsed server result to the matching lifecycle once, within the existing restore-stage deadline. The candidate object, SDK owner key, and originating and consuming abort signals must match a live read; render hints and unregistered provisional sessions still perform a fresh session GET. Sign-out discards unused handoffs. Validation retries cannot reuse a consumed handoff. The lifecycle still restores the wallet connection, verifies its address, checks the owner-generation fence, and lets each protected server route reauthorize its session. This removes the immediate duplicate native session GET without trusting persistent browser hints or changing CDP validation.
