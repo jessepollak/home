@@ -42,6 +42,7 @@ import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
 import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives, noTransientMoneyCopy, noUnownedLoading } from "./rules/money-modal.mjs";
 import { explorationStoryTag } from "./rules/exploration-story-tag.mjs";
+import { ownerIdentityHelper } from "./rules/owner-identity.mjs";
 import { noDeferredEffectSetstate } from "./rules/react-effects.mjs";
 import { noFullPortfolioPresentation } from "./rules/portfolio-presentation.mjs";
 
@@ -95,6 +96,7 @@ const homePlugin = {
     "no-unowned-loading": noUnownedLoading,
     "no-transient-money-copy": noTransientMoneyCopy,
     "exploration-story-tag": explorationStoryTag,
+    "owner-identity-helper": ownerIdentityHelper,
     "no-deferred-effect-setstate": noDeferredEffectSetstate,
     "no-full-portfolio-presentation": noFullPortfolioPresentation,
   },

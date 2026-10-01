@@ -6,6 +6,7 @@ import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
+import { countryPreferenceOwnerKey } from "@/client/account/owner-keys";
 import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import { presentHomeBalances } from "@/shared/balances/present";
 import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
@@ -54,9 +55,7 @@ export function PortfolioHomeExperience({
   const accountReady = account.status === "verified" && account.verification === "server";
   const provisionalPreference = account.status === "validating" && account.verification === "provisional" &&
     Boolean(account.session?.smartAccount);
-  const livePreferenceIdentity = (accountReady || provisionalPreference) && account.ownerKey && account.session
-    ? `${account.ownerKey}\u0000${account.session.accountProvider}\u0000${account.session.user.subject}`
-    : null;
+  const livePreferenceIdentity = accountReady || provisionalPreference ? countryPreferenceOwnerKey(account) : null;
   const preferenceIdentity = accountReady ? livePreferenceIdentity : null;
   const readOwner = account.status === "signed-out" ? null : account.ownerKey;
   const seedApplies = accountPreference !== null && account.status !== "signed-out" && (!account.session ||

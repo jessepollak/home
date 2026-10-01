@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PiggyBank } from "lucide-react";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { savingsJourneyOwnerKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   MoneyModal,
@@ -24,7 +25,6 @@ import type { OperationResult } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import { StatusMessage } from "./savings-status-message";
 import { useSavingsDialogFixture } from "./savings-dialog-fixture";
-import { savingsDialogOwnerIdentity } from "./savings-owner-identity";
 import type { SavingsJourneyStepProps } from "./savings-journey-step";
 
 const SavingsJourneyStep = deferStep<SavingsJourneyStepProps>(() => import("./savings-journey-step").then((module) => module.SavingsJourneyStep));
@@ -80,14 +80,14 @@ export type SavingsMoneyFlowProps = Pick<SavingsJourneyProps, "session" | "avail
 };
 
 export function SavingsJourney(props: SavingsJourneyProps) {
-  return <OwnerBoundSavingsJourney key={savingsDialogOwnerIdentity(props.session)} {...props} />;
+  return <OwnerBoundSavingsJourney key={savingsJourneyOwnerKey(props.session)} {...props} />;
 }
 
 /** @public Embeddable Save deposit and withdrawal steps for a MoneyModal host. */
 export function SavingsMoneyFlow({ depth = 0, onBack, onDone, ...props }: SavingsMoneyFlowProps) {
   const exit = useMoneyModalExit();
   const titleId = "savings-action-title";
-  return <SavingsJourneyStep key={`${savingsDialogOwnerIdentity(props.session)}:${props.mode}:${props.candidate.vaultAddress}`} open entry={onBack ? "management" : "amount"}
+  return <SavingsJourneyStep key={`${savingsJourneyOwnerKey(props.session)}:${props.mode}:${props.candidate.vaultAddress}`} open entry={onBack ? "management" : "amount"}
     management={null} titleId={titleId} depth={depth} {...props}
     onBackToManagement={onBack ?? (() => {})} onClose={onDone ?? exit}
     fallback={renderSavingsLoading.bind(null, props.mode, titleId, onBack, depth)} />;

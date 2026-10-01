@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { nativeBaseOwnerKey } from "./owner-keys";
 import { jsonResponse } from "@/tests/helpers/http";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
 import {
@@ -7,6 +8,7 @@ import {
   restoreNativeBaseSession,
   verifyNativeBaseChallenge,
   type NativeBaseFetch,
+  takeNativeRestoreValidation,
 } from "./native-base-session-client";
 
 const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
@@ -20,6 +22,45 @@ function session() {
 }
 
 describe("native Base session restoration", () => {
+  test("hands a server-restored session to only the matching owner once", async () => {
+    const restored = await restoreNativeBaseSession(async () => jsonResponse(session()));
+    if (!restored) throw new Error("Expected restored session");
+    const signal = new AbortController().signal;
+    expect(takeNativeRestoreValidation({ ...restored }, nativeBaseOwnerKey(restored), signal)).toBeNull();
+    expect(takeNativeRestoreValidation(restored, nativeBaseOwnerKey(restored), signal)).toEqual(session());
+    expect(takeNativeRestoreValidation(restored, nativeBaseOwnerKey(restored), signal)).toBeNull();
+  });
+  test("a restore started before logout cannot publish a handoff after logout", async () => {
+    let finish: ((response: Response) => void) | undefined;
+    const pending = restoreNativeBaseSession(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    await clearNativeBaseSession(async () => new Response(null, { status: 204 }));
+    if (!finish) throw new Error("Expected pending restoration");
+    finish(jsonResponse(session()));
+    const restored = await pending;
+    if (!restored) throw new Error("Expected restored result");
+    expect(takeNativeRestoreValidation(restored, nativeBaseOwnerKey(restored), new AbortController().signal)).toBeNull();
+  });
+  test("expired restoration and render hints require fresh validation", async () => {
+    const clock = spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const restored = await restoreNativeBaseSession(async () => jsonResponse(session()));
+      if (!restored) throw new Error("Expected native restore");
+      clock.mockReturnValue(60_000);
+      expect(takeNativeRestoreValidation(restored, nativeBaseOwnerKey(restored), new AbortController().signal)).toBeNull();
+      expect(takeNativeRestoreValidation(session(), nativeBaseOwnerKey(restored), new AbortController().signal)).toBeNull();
+    } finally { clock.mockRestore(); }
+  });
+  test.each(["owner-switch", "restore-abort", "validation-abort", "logout"] as const)("does not reuse restore proof after %s", async (invalidated) => {
+    const restore = new AbortController();
+    const validation = new AbortController();
+    const restored = await restoreNativeBaseSession(async () => jsonResponse(session()), restore.signal);
+    if (!restored) throw new Error("Expected restored session");
+    if (invalidated === "restore-abort") restore.abort();
+    if (invalidated === "validation-abort") validation.abort();
+    if (invalidated === "logout") await clearNativeBaseSession(async () => new Response(null, { status: 204 }));
+    expect(takeNativeRestoreValidation(restored, invalidated === "owner-switch" ? "another-owner" : nativeBaseOwnerKey(restored), validation.signal)).toBeNull();
+  });
+
   test("restores only the native provider through a private same-origin request", async () => {
     let input: RequestInfo | URL | undefined;
     let init: RequestInit | undefined;

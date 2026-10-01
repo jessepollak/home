@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, HomeQueryClientProvider, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
-import { HomeShellRoutingProvider, type HomeInboundPanelState } from "@/client/home/panel-routing";
+import { HomeShellRoutingProvider, readHomeInboundPanelState, type HomeInboundPanelState, type HomeShellRouting } from "@/client/home/panel-routing";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
@@ -24,6 +24,8 @@ const { act, cleanup, fireEvent, render, waitFor, within } = await import("@test
 const { AuthenticatedCashExperience, CashExperience, savingsEntryRefreshInterval } = await import("./cash-experience");
 const { AccountWalletContext } = await import("@/client/account/cdp-client");
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+const { createBlockedAccountWalletClient } = await import("@/client/account/cdp-client");
+const { OwnerBoundary } = await import("@/client/account/owner-boundary");
 const { savingsWithdrawTargets } = await import("./savings-withdraw-targets");
 const { savingsManagement } = await import("./savings-management");
 import type { CashExperienceProps } from "./cash-experience";
@@ -33,8 +35,10 @@ const NOW_ISO = "2026-09-10T12:04:00.000Z";
 const NOW = Date.parse(NOW_ISO);
 let restoreClock = () => {};
 const now = () => NOW;
-const session: VerifiedAccountSession = { user: { subject: "cash-test" }, smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 }, accountProvider: "cdp-embedded" };
-const sessionB: VerifiedAccountSession = { user: { subject: "cash-test-b" }, smartAccount: { address: "0x2222222222222222222222222222222222222222", chainId: 8453 }, accountProvider: "cdp-embedded" };
+const sessionAccount: NonNullable<VerifiedAccountSession["smartAccount"]> = { address: "0x1111111111111111111111111111111111111111", chainId: 8453 };
+const sessionBAccount: NonNullable<VerifiedAccountSession["smartAccount"]> = { address: "0x2222222222222222222222222222222222222222", chainId: 8453 };
+const session: VerifiedAccountSession = { user: { subject: "cash-test" }, smartAccount: sessionAccount, accountProvider: "cdp-embedded" };
+const sessionB: VerifiedAccountSession = { user: { subject: "cash-test-b" }, smartAccount: sessionBAccount, accountProvider: "cdp-embedded" };
 function vault(vaultAddress: MorphoVaultCandidate["vaultAddress"], name: string, netApy: number): MorphoVaultCandidate {
   return { version: "v1", vaultAddress, name, symbol: "USDC vault", listed: true, chainId: 8453,
     asset: { address: BASE_USDC_ADDRESS, symbol: "USDC", decimals: 6 }, curatorAddress: null,
@@ -76,12 +80,49 @@ const fetchAccountResource = async (path: string) => {
 function Surface({ view = "savings", snapshot = held, status = "ready", stale = false, owner = session, session: currentSession, onAddMoney = noop, onOpenSavings = noop, onRetryBalances = noop, nowFn = now, onPrepare = prepareMoneyAction, onExecute = executeMoneyAction, fetchVaults, fetchAccountResource }: { view?: "cash" | "savings"; snapshot?: BalancesSnapshot | null; status?: "ready" | "loading" | "failed"; stale?: boolean; owner?: VerifiedAccountSession | null; session?: CashExperienceProps["session"]; onAddMoney?: CashExperienceProps["onAddMoney"]; onOpenSavings?: () => void; onRetryBalances?: () => void; nowFn?: () => number; onPrepare?: CashExperienceProps["prepareMoneyAction"]; onExecute?: CashExperienceProps["executeMoneyAction"]; fetchVaults?: CashExperienceProps["fetchVaults"]; fetchAccountResource?: CashExperienceProps["fetchAccountResource"] }) {
   return <main><CashExperience view={view} snapshot={snapshot} balanceStatus={status} balanceStale={stale} session={currentSession ?? owner} now={nowFn} fetchVaults={fetchVaults} fetchAccountResource={fetchAccountResource} onOpenSavings={onOpenSavings} onAddMoney={onAddMoney} onRetryBalances={onRetryBalances} prepareMoneyAction={onPrepare} executeMoneyAction={onExecute} /></main>;
 }
+const blockedCashWallet = createBlockedAccountWalletClient("unconfigured");
+const ownedA = { ...single, owner: { address: sessionAccount.address, chainId: 8453 as const } };
+const ownedB = { ...empty, owner: { address: sessionBAccount.address, chainId: 8453 as const } };
+function cashWallet(active: VerifiedAccountSession | null): AccountWalletClient {
+  return active ? { ...blockedCashWallet, status: "verified", verification: "server", ownerKey: active.user.subject, session: active,
+    fetchBalances: async () => active.user.subject === session.user.subject ? ownedA : ownedB,
+    fetchAccountResource: async () => metadata,
+    prepareMoneyAction, executeMoneyAction,
+  } : blockedCashWallet;
+}
+const walletA = cashWallet(session);
+const walletB = cashWallet(sessionB);
+function AuthenticatedOwnerSurface({ active }: { active: VerifiedAccountSession | null }) {
+  return <AccountWalletContext.Provider value={active === session ? walletA : active === sessionB ? walletB : blockedCashWallet}>
+    <PresentationRegionProvider regionId="US"><main><AuthenticatedCashExperience view="savings" onOpenSavings={noop} pendingCashout={null} /></main></PresentationRegionProvider>
+  </AccountWalletContext.Provider>;
+}
+function RoutedAuthenticatedOwnerSurface({ active, deferClear = false }: { active: VerifiedAccountSession | null; deferClear?: boolean }) {
+  const [flow, setFlow] = useState<HomeInboundPanelState["flow"]>(null);
+  const [popRevision, setPopRevision] = useState(0);
+  const routing: HomeShellRouting = {
+    state: readHomeInboundPanelState({ panel: "cash", account: null, shelf: null, asset: null, market: null }, new URLSearchParams(flow ? { flow } : {})),
+    popRevision, rootRequest: null, openPanel: noop,
+    pushRoute: noop, leaveRoute: noop,
+    canOpenAssetDetail: () => false, openAssetDetail: () => false,
+    setFlow: (next) => { setFlow(next); return true; },
+    clearFlow: ({ mode, normalizeInbound } = {}) => { routeCalls.push(`clear:${mode}`); if (!deferClear || normalizeInbound) setFlow(null); },
+  };
+  return <HomeShellRoutingProvider value={routing}>
+    <button onClick={() => setFlow(null)}>Acknowledge routed flow</button>
+    <button onClick={() => { setFlow("save-deposit"); setPopRevision((revision) => revision + 1); }}>Land a stale routed flow</button>
+    <AuthenticatedOwnerSurface active={active} />
+  </HomeShellRoutingProvider>;
+}
+
 function OwnerSwitchSurface({ snapshot }: { snapshot: BalancesSnapshot }) {
   const [active, setActive] = useState(session);
   return (
     <main>
       <button onClick={() => setActive(sessionB)}>Switch verified account</button>
+      <AccountWalletContext.Provider value={active === session ? walletA : walletB}><OwnerBoundary>
       <CashExperience view="savings" snapshot={snapshot} balanceStatus="ready" session={active} now={now} onOpenSavings={noop} onAddMoney={noop} onRetryBalances={noop} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />
+      </OwnerBoundary></AccountWalletContext.Provider>
     </main>
   );
 }
@@ -1656,6 +1697,108 @@ describe("Cash L2", () => {
     expect(management.absent).toBe(false);
     expect(management.savedBaseUnits).toBeNull();
     expect(management.withdraw.reason).toBe("Couldn't check this balance.");
+  });
+  test("an owner switch clears the routed save flow before remounting it", async () => {
+    cached();
+    const view = render(<RoutedAuthenticatedOwnerSurface active={session} />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
+    await page().findByRole("textbox", { name: "Amount" });
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={sessionB} />);
+    await waitFor(() => expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull());
+    expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1);
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={session} />);
+    await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
+    expect(page().queryByRole("dialog", { name: "Deposit" })).toBeNull();
+  });
+  test("an owner switch clears a still-pending routed flow once until routing acknowledges it", async () => {
+    cached();
+    const view = render(<RoutedAuthenticatedOwnerSurface active={session} deferClear />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
+    await page().findByRole("textbox", { name: "Amount" });
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={sessionB} deferClear />);
+    await waitFor(() => expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1));
+    expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={sessionB} deferClear />);
+    expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1);
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={session} deferClear />);
+    expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1);
+    expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Acknowledge routed flow" }));
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
+    await page().findByRole("textbox", { name: "Amount" });
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={sessionB} deferClear />);
+    await waitFor(() => expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(2));
+  });
+  test("signing out and back in does not reopen the previous owner's routed save flow", async () => {
+    cached();
+    const view = render(<RoutedAuthenticatedOwnerSurface active={session} deferClear />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
+    await page().findByRole("textbox", { name: "Amount" });
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={null} deferClear />);
+    await waitFor(() => expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1));
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={session} deferClear />);
+    await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
+    expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
+    expect(page().queryByRole("dialog", { name: "Deposit" })).toBeNull();
+    expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1);
+  });
+  test("signing out and in as another owner does not reopen the previous owner's routed save flow", async () => {
+    cached();
+    const view = render(<RoutedAuthenticatedOwnerSurface active={session} deferClear />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
+    await page().findByRole("textbox", { name: "Amount" });
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={null} deferClear />);
+    await waitFor(() => expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1));
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={sessionB} deferClear />);
+    await waitFor(() => expect(page().queryByRole("dialog")).toBeNull());
+    expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
+    expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1);
+  });
+  test("a traversal that lands on a stale routed flow releases Save for the signed-back-in owner", async () => {
+    cached();
+    const view = render(<RoutedAuthenticatedOwnerSurface active={session} deferClear />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
+    await page().findByRole("textbox", { name: "Amount" });
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={null} deferClear />);
+    await waitFor(() => expect(routeCalls.filter((call) => call === "clear:replace")).toHaveLength(1));
+    view.rerender(<RoutedAuthenticatedOwnerSurface active={session} deferClear />);
+    await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
+    fireEvent.click(page().getByRole("button", { name: "Land a stale routed flow" }));
+    await waitFor(() => expect(page().queryByRole("dialog", { name: "Deposit" })).toBeNull());
+    expect(page().queryByRole("textbox", { name: "Amount" })).toBeNull();
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit more" }));
+    await page().findByRole("textbox", { name: "Amount" });
+  });
+  test("a selected vault and its data do not follow A to B to A", async () => {
+    cached();
+    const view = render(<AuthenticatedOwnerSurface active={session} />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    await page().findByRole("dialog", { name: "Gauntlet USDC Prime" });
+    view.rerender(<AuthenticatedOwnerSurface active={sessionB} />);
+    await waitFor(() => expect(page().queryByRole("dialog", { name: "Gauntlet USDC Prime" })).toBeNull());
+    expect(page().queryByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" })).toBeNull();
+    view.rerender(<AuthenticatedOwnerSurface active={session} />);
+    await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
+    expect(page().queryByRole("dialog", { name: "Gauntlet USDC Prime" })).toBeNull();
+  });
+  test("a selected vault is fresh after sign-out and signing back in", async () => {
+    cached();
+    const view = render(<AuthenticatedOwnerSurface active={session} />);
+    fireEvent.click(await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" }));
+    await page().findByRole("dialog", { name: "Gauntlet USDC Prime" });
+    view.rerender(<AuthenticatedOwnerSurface active={null} />);
+    await waitFor(() => expect(page().queryByRole("dialog", { name: "Gauntlet USDC Prime" })).toBeNull());
+    view.rerender(<AuthenticatedOwnerSurface active={session} />);
+    await page().findByRole("button", { name: /^Gauntlet USDC Prime/, description: "Manage Gauntlet USDC Prime" });
+    expect(page().queryByRole("dialog", { name: "Gauntlet USDC Prime" })).toBeNull();
   });
   test("an account change clears the selected tray instead of reopening it for the new owner", async () => {
     cached();
