@@ -12,8 +12,9 @@ import {
   statSync,
   unlinkSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertPinnedBrowserReady, repairPinnedBrowser } from "../verify/pinned-agent-browser.mjs";
 
 export const BOOTSTRAP_COMMAND = "bun run worktree:bootstrap";
 export const COPY_ENV_FLAG = "--copy-env";
@@ -389,6 +390,11 @@ export function bootstrap(root, { git = gitCommand, run = runCommand, log = cons
   } else if (dependencies.state === "verified") {
     log("worktree: dependencies already match bun.lock");
   }
+  const browser = repairPinnedBrowser(root);
+  if (browser.state === "repaired") {
+    log(`worktree: restored the executable bit on ${relative(root, browser.binary)}`);
+  }
+  assertPinnedBrowserReady(root);
   const base = baseStatus(root, git);
   log(`worktree: base ${baseSummary(base)}`);
   if (base.state === "behind" || base.state === "diverged") {
@@ -404,7 +410,7 @@ export function bootstrap(root, { git = gitCommand, run = runCommand, log = cons
   }
   const summary = `worktree ready: dependencies ${dependencies.state}; base ${baseSummary(base)}; env ${env.status}`;
   log(summary);
-  return { dependencies, base, env, summary };
+  return { dependencies, browser, base, env, summary };
 }
 
 if (executedAsScript(import.meta.url)) {
