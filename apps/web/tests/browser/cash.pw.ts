@@ -2,6 +2,7 @@ import { expect, test, type Route } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+import { expectNavigation } from "./fixtures/navigation-budget";
 import { buildBalancesSnapshotFixture, ready, priced, pricedCash } from "../../shared/balances/fixtures";
 import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "../../shared/trading/cash-conversion";
 import { canonicalUsdcAsset, verifiedLocalCashAssets } from "../../config/portfolio-assets";
@@ -66,10 +67,10 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
   await expect(activity).not.toHaveAttribute("aria-busy", "true");
   await expect(rows.first()).toBeVisible();
   await cashRow.click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(balance).toContainText(/\$[\d,.]+/);
   await back.click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(rows.first()).toBeVisible();
 
   await main.hover();
@@ -86,7 +87,7 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
   await page.route("**/api/**", holdApi);
   try {
     const expectHomeRestored = async () => {
-      await expect(page).toHaveURL(/\/home$/);
+      await expectNavigation(page, /\/home$/);
       await expect(money).toBeVisible();
       await expect(activity).not.toHaveAttribute("aria-busy", "true");
       await expect(rows.first()).toBeVisible();
@@ -96,7 +97,7 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
         .toBeLessThanOrEqual(offset + 2);
     };
     const expectCashPainted = async () => {
-      await expect(page).toHaveURL(/\/cash$/);
+      await expectNavigation(page, /\/cash$/);
       await expect(cash).toBeVisible();
       await expect(balance).toContainText(/\$[\d,.]+/);
       await expect(balance).not.toHaveAttribute("aria-busy", "true");
@@ -124,11 +125,11 @@ test("Cash routes from Home through Savings and restores focus on Back", async (
   await page.goto("/home");
   await page.waitForFunction(() => performance.getEntriesByName("session:verified", "mark").length > 0);
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/, { timeout: 10_000 });
+  await expectNavigation(page, /\/cash$/);
   await expect(page.getByRole("region", { name: "Cash" })).toBeVisible();
   const savings = page.getByRole("region", { name: "Savings" }).getByRole("button", { name: /^US dollar/ });
   await savings.click();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(page.getByRole("region", { name: "Savings", exact: true })).toBeVisible();
   const opener = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });
   await expect(opener).toHaveAccessibleDescription("Manage Gauntlet USDC Prime");
@@ -136,16 +137,16 @@ test("Cash routes from Home through Savings and restores focus on Back", async (
   const tray = page.getByRole("dialog", { name: "Gauntlet USDC Prime" });
   await expect(tray).toBeVisible();
   await tray.getByRole("button", { name: "Deposit more" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings\?flow=save-deposit$/);
+  await expectNavigation(page, /\/cash\/savings\?flow=save-deposit$/);
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
   await page.getByRole("button", { name: "Close deposit dialog" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(opener).toBeFocused();
   await page.getByRole("button", { name: "Back" }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(savings).toBeFocused();
   await page.getByRole("button", { name: "Back" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
 });
 
 for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] as const) {
@@ -171,7 +172,7 @@ for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] a
       await expect(page.getByRole("dialog")).toHaveCount(1);
       await dialog.getByRole("button", { name: `Close ${mode} dialog` }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(page).toHaveURL(/\/cash\/savings$/);
+      await expectNavigation(page, /\/cash\/savings$/);
       await expect(page.locator("[data-shell-back] button:not(:disabled)")).toBeFocused();
     } finally {
       chunk.resolve();
@@ -229,11 +230,11 @@ test("Savings amount Back restores the selected management action after routed h
   for (const [action, title, flow] of [["Withdraw", "Withdraw", "save-withdraw"], ["Deposit more", "Deposit", "save-deposit"]] as const) {
     const selected = tray.getByRole("button", { name: action });
     await selected.click();
-    await expect(page).toHaveURL(new RegExp(`/cash/savings\\?flow=${flow}$`));
+    await expectNavigation(page, new RegExp(`/cash/savings\\?flow=${flow}$`));
     const amount = page.getByRole("dialog", { name: title });
     await expect(amount.getByRole("textbox", { name: "Amount" })).toBeVisible();
     await amount.getByRole("button", { name: "Back" }).click();
-    await expect(page).toHaveURL(/\/cash\/savings$/);
+    await expectNavigation(page, /\/cash\/savings$/);
     await expect(tray).toBeVisible();
     await expect(selected).toBeFocused();
   }
@@ -257,10 +258,10 @@ test("Savings Account settings Done restores Savings scroll and account focus", 
   const offset = await scrollTop();
   const account = page.getByRole("banner").getByRole("button", { name: "Account" });
   await account.click();
-  await expect(page).toHaveURL(/\/cash\/savings\?account=settings$/);
+  await expectNavigation(page, /\/cash\/savings\?account=settings$/);
   await expect(page.getByRole("region", { name: "Account settings" })).toBeFocused();
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(savings).toBeVisible();
   await expect(account).toBeFocused();
   await expect.poll(scrollTop).toBeGreaterThanOrEqual(offset - 2);
@@ -273,16 +274,16 @@ test("Cash Add money closes to Cash and one browser Back returns Home", async ({
   await installApiFixtures(page);
   await page.goto("/home");
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   const addMoney = page.getByRole("region", { name: "Cash" }).getByRole("button", { name: "Add money" });
   await addMoney.click();
-  await expect(page).toHaveURL(/\/cash\?flow=add-money$/);
+  await expectNavigation(page, /\/cash\?flow=add-money$/);
   await expect(page.getByRole("dialog", { name: "Add money" })).toBeVisible();
   await page.getByRole("button", { name: "Close add money" }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(addMoney).toBeFocused();
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
 });
 
 test("Home activity Add money returns focus to its empty-state button", async ({ page }) => {
@@ -307,9 +308,9 @@ test("Home activity Add money returns focus to its empty-state button", async ({
   await expect(activity.getByText("No activity yet")).toBeVisible();
   const addMoney = activity.getByRole("button", { name: "Add money" });
   await addMoney.click();
-  await expect(page).toHaveURL(/\/home\?flow=add-money$/);
+  await expectNavigation(page, /\/home\?flow=add-money$/);
   await page.getByRole("button", { name: "Close add money" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(addMoney).toBeFocused();
 });
 
@@ -321,19 +322,19 @@ test("legacy Save redirects to Savings with the Deposit sheet and refresh preser
   );
   await page.goto("/save?flow=save-deposit&untrusted=private");
   expect((await legacyResponse).headers().location).toBe("/cash/savings?flow=save-deposit");
-  await expect(page).toHaveURL(/\/cash\/savings\?flow=save-deposit$/);
+  await expectNavigation(page, /\/cash\/savings\?flow=save-deposit$/);
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
   await page.getByRole("button", { name: "Close deposit dialog" }).click();
   await page.reload();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(page.getByRole("region", { name: "Savings", exact: true })).toBeVisible();
   const held = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });
   await expect(held).toHaveAccessibleDescription("Manage Gauntlet USDC Prime");
   await held.click();
   await page.getByRole("dialog", { name: "Gauntlet USDC Prime" }).getByRole("button", { name: "Deposit more" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings\?flow=save-deposit$/);
+  await expectNavigation(page, /\/cash\/savings\?flow=save-deposit$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await page.goForward();
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
   await page.reload();

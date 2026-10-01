@@ -149,6 +149,8 @@ The required **Chromium smoke** job runs 7 tagged essential fixture-backed Playw
 
 Smoke uses two workers, a 75-second CI-wide Playwright timeout, and an elapsed-job budget of 110 seconds before artifact upload, reserving 10 seconds for upload and cleanup. Only the full regression command runs the broad admin browser warm-up. Fast smoke serially compiles two navigation targets over HTTP inside its existing global/job budget. CI retains one diagnostic retry; `failOnFlakyTests` still fails a retry-only pass. Failure traces and screenshots replace continuous video recording, and JSON test timings upload on successful and failed runs. The required check name is unchanged. See [smoke performance analysis](ci-smoke-performance.md) for the measured baseline, deleted coverage, retained journeys and tradeoffs.
 
+Route-arrival assertions in the browser suite wait with the shared 15-second navigation budget instead of Playwright's 5-second expectation default, and the long admin boundary cases carry an explicit 90-second test timeout, so a loaded machine tolerates slower navigation while a route that never arrives still fails within the budget.
+
 The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright smoke on every hosted preview. That hosted-preview smoke target is not implemented yet; current PR/main fixture smoke must not be described as hosted-preview verification.
 
 Deployment configuration, credentials, and production promotion remain operator decisions; a green local or CI run is not funded-wallet or production authorization.

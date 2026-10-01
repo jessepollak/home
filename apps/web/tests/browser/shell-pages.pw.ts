@@ -4,6 +4,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { isRecord } from "../../shared/guards";
 import { borrowOverviewBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 /** Hosted CI runners cold-compile each route in dev; give overlay assertions a CI-sized budget. */
 test.describe.configure({ timeout: 90_000 });
@@ -57,7 +58,7 @@ test("production: warm Home, Cash and Invest taps avoid document and RSC request
     } else {
       await mainNavigation(page, target).click();
     }
-    await expect(page).toHaveURL(destinations[target].path);
+    await expectNavigation(page, destinations[target].path);
     await expect(destinations[target].ready).toBeVisible();
   };
   for (const target of ["Cash", "Invest", "Home"] as const) await navigate(target);
@@ -90,7 +91,7 @@ test("a left Savings page makes no vault requests while hidden for two fake minu
   await expect(page.getByRole("region", { name: "Savings", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Your savings" })).toBeVisible();
   await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Invest", exact: true }).last().click();
-  await expect(page).toHaveURL("/invest");
+  await expectNavigation(page, "/invest");
   await page.clock.install();
   let vaultReads = 0;
   page.on("request", (request) => {
@@ -126,7 +127,7 @@ for (const [path, ready] of [
     await page.clock.runFor(60_000);
     await expect.poll(() => orders.count).toBeGreaterThan(0);
     await mainNavigation(page, "Invest").click();
-    await expect(page).toHaveURL("/invest");
+    await expectNavigation(page, "/invest");
     orders.count = 0;
     await page.clock.runFor(120_000);
     expect(orders.count).toBe(0);
@@ -144,7 +145,7 @@ test("a left Investments page stops rechecking market prices while hidden", asyn
   await page.clock.runFor(600_000);
   await expect.poll(() => prices.count).toBeGreaterThan(0);
   await mainNavigation(page, "Home").click();
-  await expect(page).toHaveURL("/home");
+  await expectNavigation(page, "/home");
   prices.count = 0;
   await page.clock.runFor(600_000);
   expect(prices.count).toBe(0);
@@ -160,12 +161,12 @@ test("a hidden holding detail keeps its own route and chart range across Home an
   await expect(ranges.getByRole("button", { name: "1M", exact: true })).toHaveAttribute("aria-pressed", "true");
   await ranges.evaluate((element) => { element.setAttribute("data-mount-probe", "kept"); });
   await mainNavigation(page, "Home").click();
-  await expect(page).toHaveURL("/home");
+  await expectNavigation(page, "/home");
   await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
   await expect(page.locator("[data-mount-probe=kept]")).toHaveCount(1);
   await expect(page.locator("[data-holding-key]")).toHaveCount(0);
   await page.goBack();
-  await expect(page).toHaveURL(/\/investments\/0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf$/i);
+  await expectNavigation(page, /\/investments\/0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf$/i);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Bitcoin");
   await expect(page.locator("[data-mount-probe=kept]")).toBeVisible();
   await expect(ranges.getByRole("button", { name: "1M", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -202,9 +203,9 @@ test("Activity transaction detail returns after visiting its owned Bitcoin holdi
   const detail = page.getByRole("dialog", { name: "Received" });
   await expect(detail).toBeVisible();
   await detail.getByRole("button", { name: "Bitcoin Asset" }).click();
-  await expect(page).toHaveURL(`/investments/${bitcoin}`);
+  await expectNavigation(page, `/investments/${bitcoin}`);
   await page.goBack();
-  await expect(page).toHaveURL("/activity");
+  await expectNavigation(page, "/activity");
   await expect(page.getByRole("dialog", { name: "Received" })).toBeVisible();
   await expect(page.getByRole("dialog", { name: "Received" })).toContainText("cbBTC");
 });
@@ -212,7 +213,7 @@ test("Activity transaction detail returns after visiting its owned Bitcoin holdi
 test("settled signed-out fixture cannot access a shell page", async ({ page }) => {
   await installApiFixtures(page);
   await page.goto("/cash");
-  await expect(page).toHaveURL(/\/\?account=signin$/);
+  await expectNavigation(page, /\/\?account=signin$/);
   await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Cash" })).toHaveCount(0);
 });
@@ -230,7 +231,7 @@ for (const path of ["/home"] as const) {
       const dialog = page.getByRole("dialog", { name: dialogName });
       await expect(dialog).toBeVisible({ timeout: 20_000 });
       await dialog.getByRole("button", { name: closeName }).click();
-      await expect(page).toHaveURL(path);
+      await expectNavigation(page, path);
       await expect(dialog).toHaveCount(0);
     });
   }
@@ -241,7 +242,7 @@ for (const path of ["/home"] as const) {
     await expect(page.getByRole("region", { name: "Account settings" })).toBeVisible();
     await expect.poll(() => page.evaluate(() => performance.getEntriesByName("session:verified", "mark").length)).toBeGreaterThan(0);
     await page.getByRole("button", { name: "Done" }).click();
-    await expect(page).toHaveURL(path);
+    await expectNavigation(page, path);
     await expect(page.getByRole("region", { name: "Account settings" })).toHaveCount(0);
   });
 }
@@ -251,14 +252,14 @@ test("shell Back reuses the existing entry through browser Back and Forward", as
   await installApiFixtures(page);
   await page.goto("/home");
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash / }).click();
-  await expect(page).toHaveURL("/cash");
+  await expectNavigation(page, "/cash");
   await page.goBack();
-  await expect(page).toHaveURL("/home");
+  await expectNavigation(page, "/home");
   await page.goForward();
-  await expect(page).toHaveURL("/cash");
+  await expectNavigation(page, "/cash");
   const entries = await page.evaluate(() => window.history.length);
   await page.getByRole("banner").getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL("/home");
+  await expectNavigation(page, "/home");
   expect(await page.evaluate(() => window.history.length)).toBe(entries);
 });
 
@@ -281,7 +282,7 @@ test("closing a deep-linked Borrow market reuses the overview history entry", as
   const entries = await page.evaluate(() => window.history.length);
   if (await dialog.isVisible()) await dialog.getByRole("button", { name: "Close Borrow action" }).click();
   else await back.click();
-  await expect(page).toHaveURL("/borrow");
+  await expectNavigation(page, "/borrow");
   expect(await page.evaluate(() => window.history.length)).toBe(entries);
 });
 
@@ -300,10 +301,10 @@ test("browser Back between pages records one history navigation sample", async (
   });
   await page.goto("/home");
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect.poll(() => reports.filter((report) => report.kind === "home-navigation").length).toBe(1);
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect.poll(() => reports.filter((report) => report.kind === "home-navigation")
     .map(({ route, from, trigger }) => `${String(from)}>${String(route)}:${String(trigger)}`)).toEqual(["/home>/cash:in-app", "/cash>/home:history"]);
 });
