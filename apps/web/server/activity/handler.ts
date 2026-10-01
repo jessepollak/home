@@ -238,7 +238,7 @@ export function createActivityHandler(dependencies: {
 function requestFingerprint(session: VerifiedAccountSession, request: ActivityReadRequest, key: string | undefined): { requestKey?: string } {
   if (!key) return {};
   return { requestKey: createHmac("sha256", key).update("home-activity-request-v1\0")
-    .update(JSON.stringify([session.accountProvider, session.user.subject, session.smartAccount?.address.toLowerCase(), request.to, request.cursor, request.currency]))
+    .update(JSON.stringify([session.accountProvider, session.user.subject, session.smartAccount?.address.toLowerCase(), request.to, request.cursor, request.currency, request.history ?? "recent"]))
     .digest("hex").slice(0, 32) };
 }
 
@@ -333,18 +333,21 @@ function parseActivityRequest(
   now: Date,
 ): ActivityReadRequest | null {
   const parameters = new URL(request.url).searchParams;
-  const allowed = new Set(["to", "cursor", "currency"]);
+  const allowed = new Set(["to", "cursor", "currency", "history"]);
   for (const key of parameters.keys()) {
     if (!allowed.has(key)) return null;
   }
   if (
     parameters.getAll("to").length !== 1 ||
     parameters.getAll("cursor").length > 1 ||
-    parameters.getAll("currency").length > 1
+    parameters.getAll("currency").length > 1 ||
+    parameters.getAll("history").length > 1
   ) {
     return null;
   }
 
+  const history = parameters.get("history");
+  if (history !== null && history !== "all") return null;
   const to = parameters.get("to");
   const cursor = parameters.get("cursor");
   const currency = parameters.get("currency") ?? "USD";
@@ -359,7 +362,7 @@ function parseActivityRequest(
   ) {
     return null;
   }
-  return { to, cursor, currency };
+  return { to, cursor, currency, ...(history === "all" ? { history } : {}) };
 }
 
 function activityReadError(error: unknown): Response {

@@ -1017,7 +1017,7 @@ function recoveryWindow(owner: VerifiedAccountSession, prior: "healthy" | "parti
   const current = prior === "partial" ? partialPage(query, owner.smartAccount!.address as typeof WALLET_A | typeof WALLET_B)
     : page(query, owner.smartAccount!.address as typeof WALLET_A | typeof WALLET_B, [], null);
   queryClient.setQueryData(windowKey, windowEnd);
-  queryClient.setQueryData(ownerQueryKey(ownerKey, "activity", windowEnd, "USD"),
+  queryClient.setQueryData(ownerQueryKey(ownerKey, "activity", windowEnd, "USD", "all"),
     { pages: [current], pageParams: [null] } satisfies InfiniteData<ActivityPage>);
   return { queryClient, ownerKey, windowKey, windowEnd };
 }
@@ -1124,7 +1124,7 @@ describe("mounted first-page recovery with an empty cache", () => {
     const queryClient = getHomeQueryClient();
     const ownerKey = activityOwnerKey(session("subject-a", WALLET_A));
     const windowEnd = queryClient.getQueryData<string>(ownerQueryKey(ownerKey, activityWindowScope))!;
-    const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, "USD");
+    const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, "USD", "all");
     const updatedAt = queryClient.getQueryState(currentKey)!.dataUpdatedAt;
     fireEvent.click(view.getByText("refetch"));
     await flushMountedRecovery();
@@ -1429,7 +1429,7 @@ describe("after-action activity windows", () => {
     expect(view.getByTestId("card-ids").textContent).toBe("");
     expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
     const attemptedEnd = new URLSearchParams(queries[1]).get("to")!;
-    expect(queryClient.getQueryCache().find({ queryKey: ownerQueryKey(ownerKey, "activity", attemptedEnd, "USD"), exact: true })).toBeUndefined();
+    expect(queryClient.getQueryCache().find({ queryKey: ownerQueryKey(ownerKey, "activity", attemptedEnd, "USD", "all"), exact: true })).toBeUndefined();
     fail = false;
     fireEvent.click(view.getByText("refetch"));
     await flushMountedRecovery();
@@ -1581,7 +1581,7 @@ describe("after-action activity windows", () => {
     await flushMountedRecovery();
     const windowEnd = queryClient.getQueryData<string>(windowKey)!;
     await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
-    const prefetchKey = ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD");
+    const prefetchKey = ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD", "all");
     await act(async () => { await advanceFirstPageRetry(activityLatestReadTimeoutMs - 1); });
     expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
     expect(hungSignal?.aborted).toBe(false);
@@ -1675,7 +1675,7 @@ describe("after-action activity windows", () => {
     await flushMountedRecovery();
     expect(signal?.aborted).toBe(true);
     expect(queryClient.getQueryData<string>(windowKey)).not.toBe(windowEnd);
-    expect(queryClient.getQueryCache().find({ queryKey: ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD"), exact: true })).toBeUndefined();
+    expect(queryClient.getQueryCache().find({ queryKey: ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD", "all"), exact: true })).toBeUndefined();
     if (change === "owner-change") {
       expect(view.getByTestId("ids").textContent).toBe("new-owner");
       expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
@@ -1836,7 +1836,7 @@ describe("after-action activity windows", () => {
     const windowEnd = queryClient.getQueryData<string>(windowKey)!;
     await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
     await flushMountedRecovery();
-    const prefetchKey = ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD");
+    const prefetchKey = ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD", "all");
     expect(queryClient.getQueryCache().find({ queryKey: prefetchKey, exact: true })).toBeDefined();
     first.unmount();
     expect(signal?.aborted).toBe(false);
@@ -2036,8 +2036,8 @@ describe("latest activity concurrent windows", () => {
     expect(reads).toBe(1);
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
     expect(nextEnd).not.toBe(scope.windowEnd);
-    expect(prefetchKeys).toEqual([ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"), null]);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.transfers[0]?.logId).toBe("latest");
+    expect(prefetchKeys).toEqual([ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"), null]);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.transfers[0]?.logId).toBe("latest");
   });
 
   test("controller fallback preserves isCurrent and skips when no current rows or view exist", async () => {
@@ -2075,7 +2075,7 @@ describe("latest activity concurrent windows", () => {
     expect(await Promise.all([first, second])).toEqual(["advanced", "superseded"]);
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
     expect(nextEnd).not.toBe(scope.windowEnd);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.transfers[0]?.logId).toBe("latest");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.transfers[0]?.logId).toBe("latest");
   });
 
   test("a failed refresh does not cancel or remove a next key that became live", async () => {
@@ -2088,7 +2088,7 @@ describe("latest activity concurrent windows", () => {
       fetchActivity: async (request) => { query = request; return latest.promise; },
       isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
     const nextEnd = new URLSearchParams(query).get("to")!;
-    const nextKey = ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD");
+    const nextKey = ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all");
     scope.queryClient.setQueryData(nextKey, { pages: [page(query, WALLET_A, [priced(transfer(query, WALLET_A, "live", "30"))], null)], pageParams: [null] });
     scope.queryClient.setQueryData(scope.windowKey, nextEnd);
     latest.reject(new Error("Read failed"));
@@ -2121,7 +2121,7 @@ describe("first-page onchain recovery", () => {
     expect(queries).toHaveLength(4);
     expect(new Set(queries).size).toBe(1);
     expect([...new URLSearchParams(queries[0]).entries()]).toEqual([
-      ["to", "2026-09-28T12:00:00.000Z"], ["currency", "USD"],
+      ["to", "2026-09-28T12:00:00.000Z"], ["history", "all"], ["currency", "USD"],
     ]);
   });
   test("retries transient first-page failures after 500 ms and recovers without a partial warning", async () => {
@@ -2144,7 +2144,7 @@ describe("first-page onchain recovery", () => {
     expect(calls).toHaveLength(2);
     expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(500);
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
-    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"));
+    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"));
     expect(next?.pages[0]?.transfers[0]?.logId).toBe("recovered");
     expect(next?.pages[0]?.onchainStatus).toBeUndefined();
   });
@@ -2180,7 +2180,7 @@ describe("first-page onchain recovery", () => {
     await pending;
     expect(calls).toBe(2);
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBeUndefined();
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.onchainStatus).toBeUndefined();
   });
 
   test("after two retries a partial first page remains available when there is no healthy history", async () => {
@@ -2196,7 +2196,7 @@ describe("first-page onchain recovery", () => {
     await pending;
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
     expect(calls).toBe(3);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBe("unavailable");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.onchainStatus).toBe("unavailable");
   });
 
   test.each(["parse", "http-400", "session", "access"] as const)("does not retry a %s first-page failure", async (failure) => {
@@ -2221,7 +2221,7 @@ describe("first-page onchain recovery", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
       ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_cached" }] } }],
     });
@@ -2266,7 +2266,7 @@ describe("first-page onchain recovery", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
     current.pages[0]!.transfers = [transfer(`to=${encodeURIComponent(scope.windowEnd)}&currency=USD`, WALLET_A, "kept", "30")];
     let calls = 0;
@@ -2288,7 +2288,7 @@ describe("first-page onchain recovery", () => {
       fetchActivity: async (query) => page(query, WALLET_A, [transfer(query, WALLET_A, "recovered", "30")], null),
       isCurrent: () => true, onPrefetchKey: () => {} });
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
-    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"));
+    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"));
     expect(next?.pages[0]?.transfers[0]?.logId).toBe("recovered");
     expect(next?.pages[0]?.onchainStatus).toBeUndefined();
   });
@@ -2307,7 +2307,7 @@ describe("first-page onchain recovery", () => {
     await pending;
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
     expect(calls).toBe(3);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBe("unavailable");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.onchainStatus).toBe("unavailable");
   });
 
   test("a cursor-page failure never uses the first-page retry budget", async () => {
@@ -2315,7 +2315,7 @@ describe("first-page onchain recovery", () => {
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
     const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
-    scope.queryClient.setQueryData(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD"), {
+    scope.queryClient.setQueryData(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all"), {
       pages: [page(query, WALLET_A, [transfer(query, WALLET_A, "newer", "30")], "cursor-1"),
         page(query, WALLET_A, [transfer(query, WALLET_A, "older", "20")], null)],
       pageParams: [null, "cursor-1"],
@@ -2339,7 +2339,7 @@ describe("mounted same-window card retention", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
     const cachedCards = { status: "ready" as const, rows: [
       { ...cardPurchase, status: "pending" as const }, { ...cardPurchase, id: "ipi_absent" },
@@ -2379,7 +2379,7 @@ describe("mounted same-window card retention", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
     scope.queryClient.setQueryData(currentKey, {
       pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null),
@@ -2413,7 +2413,7 @@ describe("mounted same-window card retention", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
     scope.queryClient.setQueryData(currentKey, {
       pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null),
@@ -2482,7 +2482,7 @@ describe("mounted same-window card retention", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
       ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_cached" }] } }],
     });
@@ -2514,7 +2514,7 @@ describe("mounted same-window card retention", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     const finalPage = deferred<unknown>();
     const queries: string[] = [];
     const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
@@ -2555,7 +2555,7 @@ describe("mounted same-window card retention", () => {
   test("owner B's partial updates only owner B's same-window cache", async () => {
     jest.useFakeTimers();
     const otherScope = recoveryWindow(session("subject-a", WALLET_A));
-    const otherKey = ownerQueryKey(otherScope.ownerKey, "activity", otherScope.windowEnd, "USD");
+    const otherKey = ownerQueryKey(otherScope.ownerKey, "activity", otherScope.windowEnd, "USD", "all");
     otherScope.queryClient.setQueryData<InfiniteData<ActivityPage>>(otherKey, (old) => old && {
       ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_ownerA" }] } }],
     });
@@ -2563,7 +2563,7 @@ describe("mounted same-window card retention", () => {
     const otherState = otherScope.queryClient.getQueryState(otherKey)!;
     const owner = session("subject-b", WALLET_B);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     let calls = 0;
     const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
       calls++;

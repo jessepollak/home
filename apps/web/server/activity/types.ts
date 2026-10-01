@@ -13,6 +13,7 @@ export type ActivityReadRequest = {
   to: string;
   cursor: string | null;
   currency: FiatCurrencyCode;
+  history?: "all";
 };
 
 export type ActivityReader = (
