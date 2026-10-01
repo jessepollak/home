@@ -184,11 +184,12 @@ test("persisted balances paint before verification and settle without row shift"
   expect(fixtures.balancesReads()).toBeGreaterThan(balancesReadsBeforeReload);
   const provisionalLayout = await visibleBalanceRowLayout(page);
   await expectBalancesPaintedWithinBudget(page);
-  const provisionalPaint = await page.evaluate(() => ({
-    balances: performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Infinity,
-    verified: performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Infinity,
+  const provisionalMarks = await page.evaluate(() => ({
+    balances: performance.getEntriesByName("balances:painted", "mark").length,
+    verified: performance.getEntriesByName("session:verified", "mark").length,
   }));
-  expect(provisionalPaint.balances).toBeLessThan(provisionalPaint.verified);
+  expect(provisionalMarks.balances).toBeGreaterThan(0);
+  expect(provisionalMarks.verified).toBe(0);
 
   fixtures.releaseBalances();
   fixtures.releaseSession();
