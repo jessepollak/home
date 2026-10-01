@@ -54,6 +54,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await seedSignedInSession(page);
     await installApiFixtures(page);
     await page.goto("/home");
+    await expect.poll(() => page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark").length)).toBeGreaterThan(0);
     const homeOpener = page.getByRole("button", { name: "Add money", exact: true });
     await homeOpener.click();
     await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible();
@@ -83,7 +85,10 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await expect(opener).not.toBeFocused();
     await stage.focus();
     await page.goto("/cash?flow=send");
+    await expect.poll(() => page.evaluate(() =>
+      performance.getEntriesByName("session:verified", "mark").length)).toBeGreaterThan(0);
     await expect(page.getByRole("dialog", { name: "Send", exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Amount", exact: true })).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(opener).not.toBeFocused();
