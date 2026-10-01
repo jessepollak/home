@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { installApiFixtures } from "./fixtures/api";
+import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
 
 async function signIn(page: Page) {
@@ -31,4 +31,23 @@ test("IDRX funding reaches payment instructions and receipt", { tag: "@smoke" },
   await page.getByRole("button", { name: "View payment instructions" }).click();
   await expect(page.getByText("123456789012", { exact: true })).toBeVisible();
   await expect(page.getByText("Money received")).toBeVisible({ timeout: 7_000 });
+});
+
+test("Add money before hydration navigates to the IDRX funding flow", { tag: "@smoke" }, async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page, "ID");
+  await installApiFixtures(page);
+  await page.route("**/_next/**/*.js", (route) => route.abort());
+  await page.goto("/home");
+  const trigger = page.getByRole("button", { name: "Add money", exact: true });
+  await expect(page.getByRole("button", { name: "Account", exact: true })).toBeDisabled();
+  await expect(trigger).toHaveAttribute("href", "/home?flow=add-money");
+  await page.unroute("**/_next/**/*.js");
+  await trigger.click();
+  await expect(page).toHaveURL("/home?flow=add-money");
+  await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible();
+  const method = page.getByRole("button", { name: /Deposit IDR/ });
+  await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
+  await method.click();
+  await expect(page.getByRole("textbox", { name: "Amount" })).toBeVisible();
 });

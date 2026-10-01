@@ -55,7 +55,7 @@ export function FundingActionsForWallet({
   wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
 }) {
   const pathname = usePathname();
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLAnchorElement>(null);
   const routing = useOptionalHomeShellRouting();
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
@@ -125,7 +125,7 @@ export function FundingActionsForWallet({
         const before = document.activeElement;
         onClosed?.();
         const trigger = triggerRef.current;
-        if (before === document.activeElement && trigger?.isConnected && !trigger.disabled) {
+        if (before === document.activeElement && trigger?.isConnected) {
           trigger.focus({ preventScroll: true });
         }
       }}
@@ -141,10 +141,13 @@ export function FundingActionsForWallet({
   return (
     <>
       {showTrigger ? <Button
-        ref={triggerRef}
         size="touch"
+        nativeButton={false}
+        render={<a ref={triggerRef} href={flowHref(pathname, "add-money", null, new URLSearchParams())}>Add money</a>}
         {...intent}
-        onClick={() => {
+        onClick={(event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
           void preloadAddMoneySheet();
           setDismissed(false);
           setUserOpen(true);

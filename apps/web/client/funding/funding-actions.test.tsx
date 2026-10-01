@@ -115,8 +115,9 @@ describe("FundingActions hydration", () => {
     );
 
     try {
-      const trigger = Array.from(fixture.container.querySelectorAll("button"))
+      const trigger = Array.from(fixture.container.querySelectorAll<HTMLAnchorElement>("a"))
         .find((button) => button.textContent?.includes("Add money"));
+      expect(trigger?.getAttribute("href")).toBe("/home?flow=add-money");
       await act(async () => trigger?.click());
       expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
       const close = await waitFor(() => {
