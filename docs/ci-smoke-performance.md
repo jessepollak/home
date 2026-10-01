@@ -51,23 +51,24 @@ The remaining distinct browser regressions run with `bun run --cwd apps/web test
 
 The hosted 15-case trial exceeded the 75s suite budget. The final 9-case selection removes six detailed/overlapping gate journeys while preserving them in regression; it keeps the existing budget rather than extending it.
 
-The fast suite uses two workers, no admin global warm-up, one diagnostic retry, failure screenshots and retained failure traces. Traces still record attempted actions and DOM/network evidence; continuous video encoding is removed. CI installs the pinned Chromium headless shell only, using Chromium shared libraries already provided by the Ubuntu hosted image. Successful runs also retain JSON test timings. The existing required check name remains **Chromium smoke**.
+The fast suite uses two workers and serial HTTP compilation of only `/admin/settings/funding`, `/borrow`, and `/cash/savings` before workers start. This avoids concurrent first-navigation compilation; it uses isolated fixture cookies, rejects redirects/non-200 responses, disposes the request context, and remains inside the same global/job budgets. The broad admin browser warm-up is reserved for regression. Smoke keeps one diagnostic retry, failure screenshots and retained failure traces. Traces still record attempted actions and DOM/network evidence; continuous video encoding is removed. CI installs the pinned Chromium headless shell only, using Chromium shared libraries already provided by the Ubuntu hosted image. Successful runs also retain JSON test timings. The existing required check name remains **Chromium smoke**.
 
 ## Runtime budget and remaining options
 
-The first 13-case local CI-mode run passed without retries in 46.0s including Playwright server startup, using a previously compiled local Next dev cache. That is not a cold GitHub-runner result. The 15-case warm run passed without retries in 42.4s. The final isolated empty-cache run passed all 15 without retries in 57.3s. The first hosted run exposed additional cold Cash/Borrow navigation assertions exceeding 5s; those use the same 10s cold-navigation allowance, and Cash waits for verified client readiness. Retry-only passes remained red. Hosted complete-job measurement belongs in PR evidence before claiming the target achieved.
+The final 9-case isolated empty-cache run passed without retries in **51.9s**, including server startup and serial compilation: funding settings 4.4s, Borrow 10.5s, Savings 3.0s. Hosted trials without serial compilation exposed pending cold RSC requests beyond even 10s URL deadlines. Reducing test count alone did not fix this contention; compiling the three navigation targets before workers removes that competition without excluding the time from the budget. Hosted complete-job measurement belongs in PR evidence before claiming the target achieved.
 
 The target is the complete Chromium job, not all CI or queue time. Playwright has a 75s global timeout in CI smoke; the job checks elapsed time before artifact upload against 110s, leaving 10s for artifact upload and cleanup. A three-minute Actions timeout is only a last-resort kill, not acceptance. Queue time and extreme artifact/upload delay remain outside a deterministic runtime guarantee.
 
 | Option | Expected effect | Decision |
 | --- | --- | --- |
 | Small essential suite, two workers | Removes most of the ~13m serial workload | Implemented; measure cold hosted runtime. |
+| Serial compilation of three cold navigation targets | Prevents workers racing over Next dev compilation; local 17.8s counted inside the 51.9s cold suite | Implemented; no cross-run cache needed. |
 | Delete duplicate matrices | Removes ~100s of old full-suite work and repeated flake opportunities | Implemented, with retained behavior mapping above. |
 | Install only headless shell; remove video encoding | Less download and per-context recording work | Implemented; no browser-version change. |
 | Avoid redundant apt installation on hosted Ubuntu | First hosted install spent ~49s on apt metadata, unrelated font downloads and graphics-library upgrades; browser download was ~2s | Implemented: use existing shared libraries; missing dependencies still fail browser launch. |
 | Browser/dependency caches | At most tens of seconds; cache transfer may rival the 6s dependency install | Not necessary for the first measured target; add only if setup dominates hosted results. |
 | More workers or sharding the entire suite | ~818s / 2 = 409s before setup; cannot reach two minutes by itself | Keep detailed regressions separate; avoid aggressive CPU contention. |
-| Longer retries/global timeouts or accepting flaky passes | Adds delay or turns an intermittent failure green | Not used; targeted route URL assertions allows measured cold compilation, while suite budget and flaky rejection remain strict. |
+| Longer retries/global timeouts or accepting flaky passes | Adds delay or turns an intermittent failure green | Not used; targeted route URL assertions allow measured cold compilation, while suite budget and flaky rejection remain strict. |
 | Production build for every smoke job | Better fidelity, but adds a build to the critical path | Keep the existing production-navigation/performance checks for now. |
 | Reusable build artifacts or fixture-only Vite entry | Could remove Next cold-compilation variance | Follow-up only if cold hosted smoke misses the budget; preserve a separate Next SSR/auth contract. |
 

@@ -90,7 +90,7 @@ process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
 process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
-  globalSetup: regression ? "./tests/browser/global-setup.ts" : undefined,
+  globalSetup: regression ? "./tests/browser/global-setup.ts" : productionNavigation ? undefined : "./tests/browser/smoke-setup.ts",
   testDir: "./tests/browser",
   testMatch: "**/*.pw.ts",
   fullyParallel: !regression && !productionNavigation,
