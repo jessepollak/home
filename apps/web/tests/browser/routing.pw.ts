@@ -3,7 +3,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
 import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
 
-test("canonical routing preserves the shell and one balances read", async ({ page }) => {
+test("canonical routing preserves the shell and one balances read", { tag: "@smoke" }, async ({ page }) => {
   await seedSignedInSession(page);
   const fixtures = await installApiFixtures(page);
   await page.goto("/home");
@@ -438,7 +438,7 @@ test("Account settings moves focus into the view and restores it to the account 
   await readPrimaryNavigationTargets();
 });
 
-test("sign-in returns to Cash through the signed-in shell", async ({ page }) => {
+test("sign-in returns to Cash through the signed-in shell", { tag: "@smoke" }, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installApiFixtures(page);
   await page.goto("/cash");
@@ -493,7 +493,7 @@ test("sign-in code slots accept paste, editing and scripted autofill", async ({ 
   await expect(page).toHaveURL(/\/home$/);
 });
 
-test("representative canonical routes SSR and hydrate their selected panel", async ({ page }) => {
+test("representative canonical routes SSR and hydrate their selected panel", { tag: "@smoke" }, async ({ page }) => {
   await seedSignedInSession(page, "GB");
   await page.addInitScript(() => {
     for (const key of Object.keys(localStorage)) {

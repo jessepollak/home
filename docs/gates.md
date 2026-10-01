@@ -145,9 +145,9 @@ The **Storybook review links** workflow (`.github/workflows/storybook-review-lin
 
 ## Browser-smoke boundary
 
-The current **Chromium smoke** job runs the per-surface fixture-backed Playwright suite (`apps/web/tests/browser/*.pw.ts`, with shared responses under `fixtures/`) in GitHub Actions for every pull request and every push to `main`. It starts a CI-local fixture server; it does not exercise the hosted Vercel preview deployment.
+The required **Chromium smoke** job runs 15 tagged essential fixture-backed Playwright cases for every pull request and push to `main`. It starts a CI-local `next dev` server; it does not exercise the hosted Vercel preview deployment. The complete fixture regression suite remains available through `bun run --cwd apps/web test:browser-regression` and the on-demand **Browser regressions** workflow. Detailed regressions are not part of every smoke run.
 
-A global setup requests the routes the admin smoke first visits so `next dev` compiles them before any test timer starts. CI still runs against `next dev` with unchanged timeouts and two retries for diagnostic traces. `failOnFlakyTests` makes the job fail when any test passes only on retry, rather than treating that run as green. The job prints each test's final outcome and per-attempt timing, plus flaky tests and the slowest tests. Traces and videos from failed attempts remain in the test results and upload with the existing failure artifact. Outside CI, smoke runs without retries.
+Smoke uses two workers, a 75-second CI-wide Playwright timeout, and an elapsed-job budget of 110 seconds before artifact upload, reserving 10 seconds for upload and cleanup. Only the full regression command runs the admin route warm-up. CI retains one diagnostic retry; `failOnFlakyTests` still fails a retry-only pass. Failure traces and screenshots replace continuous video recording, and JSON test timings upload on successful and failed runs. The required check name is unchanged. See [smoke performance analysis](ci-smoke-performance.md) for the measured baseline, deleted coverage, retained journeys and tradeoffs.
 
 The Jesse-locked [architecture](architecture.md#quality-bar) targets Playwright smoke on every hosted preview. That hosted-preview smoke target is not implemented yet; current PR/main fixture smoke must not be described as hosted-preview verification.
 

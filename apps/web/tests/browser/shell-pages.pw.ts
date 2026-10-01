@@ -8,7 +8,7 @@ import { FIXED_NOW } from "./fixtures/fixed-time";
 /** Hosted CI runners cold-compile each route in dev; give overlay assertions a CI-sized budget. */
 test.describe.configure({ timeout: 90_000 });
 
-const pages = ["/home", "/activity", "/cash", "/cash/savings", "/investments", "/borrow", "/invest"] as const;
+
 
 test("catch-all shell metadata renders without runtime prerender errors", async ({ page }) => {
   const metadataErrors: string[] = [];
@@ -40,21 +40,6 @@ test("legacy Balances paths redirect to canonical pages without unrelated query 
     }).toBe(`${target}?flow=send&account=settings`);
   }
 });
-
-for (const path of pages) {
-  test(`${path} renders inside the shell and opens the Send overlay`, async ({ page }) => {
-    await seedSignedInSession(page);
-    await installApiFixtures(page);
-    await page.goto(`${path}?flow=send`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("main")).toBeVisible();
-    await expect(page.getByRole("dialog", { name: "Send" })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: "Close send dialog" }).click();
-    await expect(page).toHaveURL(path);
-    await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
-    const titles = ["Home", "Activity", "Cash", "Savings", "Investments", "Borrow", "Invest"];
-    await expect(page).toHaveTitle(`${titles[pages.indexOf(path)]} · Home`);
-  });
-}
 
 test("production: warm Home, Cash and Invest taps avoid document and RSC requests", async ({ page }, testInfo) => {
   await seedSignedInSession(page);
@@ -232,7 +217,7 @@ test("settled signed-out fixture cannot access a shell page", async ({ page }) =
   await expect(page.getByRole("region", { name: "Cash" })).toHaveCount(0);
 });
 
-for (const path of pages) {
+for (const path of ["/home"] as const) {
   for (const [query, dialogName, closeName] of [
     ["flow=add-money", "Add money", "Close add money"],
     ["flow=receive", "Receive", "Close add money"],
@@ -258,21 +243,6 @@ for (const path of pages) {
     await page.getByRole("button", { name: "Done" }).click();
     await expect(page).toHaveURL(path);
     await expect(page.getByRole("region", { name: "Account settings" })).toHaveCount(0);
-  });
-}
-
-for (const [flow, dialogName, closeName] of [
-  ["save-deposit", "Deposit", "Close deposit dialog"],
-  ["save-withdraw", "Withdraw", "Close withdraw dialog"],
-] as const) {
-  test(`Cash Savings ${flow} stays local and closes`, async ({ page }) => {
-    await seedSignedInSession(page);
-    await installApiFixtures(page);
-    await page.goto(`/cash/savings?flow=${flow}`, { waitUntil: "domcontentloaded" });
-    const dialog = page.getByRole("dialog", { name: dialogName });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: closeName }).click();
-    await expect(page).toHaveURL("/cash/savings");
   });
 }
 

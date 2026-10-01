@@ -201,7 +201,7 @@ test("persisted balances paint before verification and settle without row shift"
   expect(hydrationErrors).toEqual([]);
 });
 
-test("cached Home balances paint before delayed verification and revalidation, then survive Borrow navigation", async ({ page }) => {
+test("cached Home balances paint before delayed verification and revalidation, then survive Borrow navigation", { tag: "@smoke" }, async ({ page }) => {
   await seedSignedInSession(page);
   const fixtures = await installApiFixtures(page, { countryPreferenceRegion: "US" });
   await page.goto("/home");

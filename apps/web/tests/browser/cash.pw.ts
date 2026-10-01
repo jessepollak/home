@@ -117,7 +117,7 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
   }
 });
 
-test("Cash routes from Home through Savings and restores focus on Back", async ({ page }) => {
+test("Cash routes from Home through Savings and restores focus on Back", { tag: "@smoke" }, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
   await installApiFixtures(page);
