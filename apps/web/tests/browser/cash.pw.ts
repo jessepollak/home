@@ -172,6 +172,7 @@ for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] a
       await dialog.getByRole("button", { name: `Close ${mode} dialog` }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(page).toHaveURL(/\/cash\/savings$/);
+      await expect(page.locator("[data-shell-back] button:not(:disabled)")).toBeFocused();
     } finally {
       chunk.resolve();
       await page.unroute("**/_next/static/chunks/*savings*.js", holdChunk);
