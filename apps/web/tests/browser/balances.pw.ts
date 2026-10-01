@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
+import { decodeOwnerCache } from "../../client/query/owner-cache-codec";
+import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owner-cache";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
@@ -11,9 +13,9 @@ const BALANCES_PAINTED_LOAD_FACTOR = 2;
 const BALANCES_PAINTED_WAIT_MS = 15_000;
 
 async function visibleBalanceRowLayout(page: Page) {
-  return page.locator(
-    '[aria-label="Your money"] [data-kind="balance"]',
-  ).evaluateAll((rows) => rows.map((row) => {
+  const rows = page.getByRole("region", { name: "Your money", exact: true }).locator('[data-kind="balance"]');
+  await expect(rows).toHaveCount(3);
+  return rows.evaluateAll((rows) => rows.map((row) => {
     const bounds = row.getBoundingClientRect();
     return {
       text: row.textContent?.replace(/\s+/g, " ").trim() ?? "",
@@ -42,17 +44,13 @@ async function expectBalancesPaintedWithinBudget(page: Page) {
 async function waitForSettledPersistedBalances(page: Page) {
   let previousQueries: string | null = null;
   await expect.poll(async () => {
-    const queries = await page.evaluate(() => {
-      const key = Object.keys(localStorage)
-        .find((candidate) => candidate.startsWith("home.query.v1:"));
-      if (!key) return null;
-      const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
-        clientState?: { queries?: Array<{ queryKey?: unknown[] }> };
-      } | null;
-      const persistedQueries = persisted?.clientState?.queries;
-      if (!persistedQueries?.some((query) => query.queryKey?.[1] === "balances")) return null;
-      return JSON.stringify(persistedQueries);
-    });
+    const value = await readIndexedOwnerCache(page);
+    const persisted = value ? JSON.parse(await decodeOwnerCache(value)) as {
+      clientState?: { queries?: Array<{ queryKey?: unknown[] }> };
+    } : null;
+    const persistedQueries = persisted?.clientState?.queries;
+    const queries = persistedQueries?.some((query) => query.queryKey?.[1] === "balances")
+      ? JSON.stringify(persistedQueries) : null;
     const settled = queries !== null && queries === previousQueries;
     previousQueries = queries;
     return settled;
@@ -60,17 +58,15 @@ async function waitForSettledPersistedBalances(page: Page) {
 }
 
 async function markPersistedQueriesStale(page: Page) {
-  await page.evaluate((fixedNow) => {
-    const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
-    if (!key) throw new Error("Persisted owner cache is missing");
-    const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
-      clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
-    };
-    for (const query of persisted.clientState?.queries ?? []) {
-      if (query.state) query.state.dataUpdatedAt = fixedNow - 60_000;
-    }
-    localStorage.setItem(key, JSON.stringify(persisted));
-  }, FIXED_NOW);
+  const value = await readIndexedOwnerCache(page);
+  if (!value) throw new Error("Persisted owner cache is missing");
+  const persisted = JSON.parse(await decodeOwnerCache(value)) as {
+    clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
+  };
+  for (const query of persisted.clientState?.queries ?? []) {
+    if (query.state) query.state.dataUpdatedAt = FIXED_NOW - 60_000;
+  }
+  await replaceIndexedOwnerCache(page, value, JSON.stringify(persisted));
 }
 
 test("cold balances request and paint finish before delayed session verification", async ({ page }) => {
@@ -106,6 +102,7 @@ test("cold balances request and paint finish before delayed session verification
 test("cold Home balance value paints before delayed verification without a persisted query cache", async ({ page }) => {
   await seedSignedInSession(page);
   await page.addInitScript(() => {
+    indexedDB.deleteDatabase("home-query-cache");
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith("home.query.v1:")) localStorage.removeItem(key);
     }
@@ -189,6 +186,9 @@ test("persisted balances paint before verification and settle without row shift"
     verified: performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Infinity,
   }));
   expect(provisionalPaint.balances).toBeLessThan(provisionalPaint.verified);
+  const summaryPaint = await page.evaluate(() => performance.getEntriesByName("balances:summary-painted", "mark")[0]?.startTime);
+  expect(summaryPaint).toBeDefined();
+  expect(summaryPaint).toBeLessThanOrEqual(provisionalPaint.balances);
 
   fixtures.releaseBalances();
   fixtures.releaseSession();
