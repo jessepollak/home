@@ -430,7 +430,7 @@ describe("useHomeRefresh", () => {
     ]);
     const newEnd = getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window"));
     expect(newEnd).not.toBe(f.oldEnd);
-    const data = getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", newEnd, "USD"));
+    const data = getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", newEnd, "USD", "all"));
     expect(data?.pages).toHaveLength(2);
     expect(data?.pageParams).toEqual([null, "new-cursor"]);
     expect(view.getByTestId("activity").textContent).toBe("event-40,event-30,event-20");
@@ -452,12 +452,12 @@ describe("useHomeRefresh", () => {
     });
     const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
     await loadTwoFullPages(view, f);
-    const oldData = getHomeQueryClient().getQueryData<{ pages: ActivityPage[] }>(ownerQueryKey(f.key, "activity", f.oldEnd, "USD"));
+    const oldData = getHomeQueryClient().getQueryData<{ pages: ActivityPage[] }>(ownerQueryKey(f.key, "activity", f.oldEnd, "USD", "all"));
     expect(oldData?.pages).toHaveLength(2);
     await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
     const end = getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window"));
     expect(end).not.toBe(f.oldEnd);
-    const data = getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", end, "USD"));
+    const data = getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", end, "USD", "all"));
     expect(data?.pages).toHaveLength(4);
     expect(data?.pageParams).toEqual([null, "new-1", "new-2", "new-3"]);
     expect(f.calls.activity.map((query) => new URLSearchParams(query).get("cursor"))).toEqual([
@@ -478,15 +478,15 @@ describe("useHomeRefresh", () => {
     });
     const view = render(<Harness owner={f.owner} reads={f.reads} fetchActivity={f.fetchActivity} capture={f.capture} />);
     await loadTwoFullPages(view, f);
-    const oldData = getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", f.oldEnd, "USD"));
+    const oldData = getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", f.oldEnd, "USD", "all"));
     let outcome: unknown;
     await act(async () => { outcome = await f.current().refresh(); });
     expect(outcome).toEqual({ phase: "partial", failed: ["activity"] });
     expect(f.calls.activity).toHaveLength(14);
     const nextEnd = new URLSearchParams(f.calls.activity[2]!).get("to");
-    expect(getHomeQueryClient().getQueryData(ownerQueryKey(f.key, "activity", nextEnd, "USD"))).toBeUndefined();
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(f.key, "activity", nextEnd, "USD", "all"))).toBeUndefined();
     expect(getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window"))).toBe(f.oldEnd);
-    expect(getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", f.oldEnd, "USD"))).toBe(oldData);
+    expect(getHomeQueryClient().getQueryData<{ pages: ActivityPage[]; pageParams: unknown[] }>(ownerQueryKey(f.key, "activity", f.oldEnd, "USD", "all"))).toBe(oldData);
     expect(view.getByTestId("activity").textContent).toBe("event-50,event-40,event-30,event-20");
     expect(view.getByTestId("cursor").textContent).toBe("old-after20");
   });
@@ -512,7 +512,7 @@ describe("useHomeRefresh", () => {
     await ready(view);
     act(() => view.getByText("load more").click());
     await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"));
-    const oldData = getHomeQueryClient().getQueryData(ownerQueryKey(f.key, "activity", f.oldEnd, "USD"));
+    const oldData = getHomeQueryClient().getQueryData(ownerQueryKey(f.key, "activity", f.oldEnd, "USD", "all"));
     const failing: FetchActivity = async (query, signal) => {
       if (new URLSearchParams(query).get("to") !== f.oldEnd) throw new Error("activity offline");
       return f.fetchActivity(query, signal);
@@ -522,7 +522,7 @@ describe("useHomeRefresh", () => {
     await act(async () => { outcome = await f.current().refresh(); });
     expect(outcome).toEqual({ phase: "partial", failed: ["activity"] });
     expect(getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window")) === f.oldEnd).toBe(true);
-    expect(getHomeQueryClient().getQueryData(ownerQueryKey(f.key, "activity", f.oldEnd, "USD")) === oldData).toBe(true);
+    expect(getHomeQueryClient().getQueryData(ownerQueryKey(f.key, "activity", f.oldEnd, "USD", "all")) === oldData).toBe(true);
     expect(view.getByTestId("activity").textContent).toBe("event-30,event-20");
     expect(view.getByTestId("cursor").textContent).toBe("end");
   });
@@ -541,7 +541,7 @@ describe("useHomeRefresh", () => {
     await ready(view);
     await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });
     const end = getHomeQueryClient().getQueryData<string>(ownerQueryKey(f.key, "activity-window"));
-    const data = getHomeQueryClient().getQueryData<{ pages: ActivityPage[] }>(ownerQueryKey(f.key, "activity", end, "USD"));
+    const data = getHomeQueryClient().getQueryData<{ pages: ActivityPage[] }>(ownerQueryKey(f.key, "activity", end, "USD", "all"));
     expect(data?.pages[0]?.transfers.find((row) => row.logId === "event-30")?.valuation.status).toBe("priced");
   });
 
@@ -588,7 +588,7 @@ describe("useHomeRefresh", () => {
     act(() => { oldCycle = f.current().refresh(); });
     await waitFor(() => expect(oldSignal).toBeDefined());
     const ownerB = session("subject-b", walletB);
-    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(ownerB), "activity-window"), "1900-01-01T00:00:00.000Z");
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(ownerB), "activity-window"), "2024-01-01T00:00:00.000Z");
     const fetchB: FetchActivity = async (query) => page(query, walletB, [], null);
     view.rerender(<Harness owner={ownerB} reads={f.reads} fetchActivity={fetchB} capture={f.capture} />);
     await waitFor(() => expect(view.getByTestId("activity").textContent).toBe(""));

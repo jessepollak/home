@@ -705,3 +705,29 @@ describe("activity route handler", () => {
     });
   });
 });
+
+
+test("all-history opt-in reaches the reader and remains parseable while malformed history modes fail closed", async () => {
+  const seen: ActivityReadRequest[] = [];
+  const handler = createActivityHandler({ authorize: async () => sessionResponse(), now: () => new Date(TO),
+    readActivity: async (_account, request) => {
+      seen.push(request);
+      return { ...page(), window: { from: request.history === "all" ? "2023-01-01T00:00:00.000Z" : page().window.from, to: TO } };
+    },
+  });
+  const all = await handler(new Request(`http://localhost/api/activity?to=${TO}&history=all`));
+  expect(all.status).toBe(200);
+  expectPrivate(all);
+  const wire: unknown = await all.json();
+  const parsed = parseActivityPage(wire, { user: { subject: "subject-a" }, smartAccount: { address: VERIFIED, chainId: 8453 }, accountProvider: "cdp-embedded" }, TO);
+  expect(parsed.window.from).toBe("2023-01-01T00:00:00.000Z");
+  expect(seen[0]?.history).toBe("all");
+  const recent = await handler(new Request(`http://localhost/api/activity?to=${TO}`));
+  expect(recent.status).toBe(200);
+  expect(seen[1]?.history).toBeUndefined();
+  for (const suffix of ["&history=", "&history=unknown", "&history=all&history=all"]) {
+    const response = await handler(new Request(`http://localhost/api/activity?to=${TO}${suffix}`));
+    expect(response.status).toBe(400);
+  }
+  expect(seen).toHaveLength(2);
+});

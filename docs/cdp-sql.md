@@ -12,7 +12,7 @@ The balance-history change log (`server/balances/history/sql-transfers.ts`, [Bal
 `apps/web/server/chain-data` provides:
 
 - A fixed Base mainnet ERC-20 `Transfer(address,address,uint256)` history template over `base.events`.
-- Runtime validation for a session-verified wallet address, optional operator-supplied asset allowlists, all-contract wallet scope, a maximum 31-day time window, page sizes of 1–200, and cache ages of 500–900,000 ms. Activity's SQL fallback uses all-contract mode with `includeUnknownAssets: true` and no static asset IDs.
+- Runtime validation for a session-verified wallet address, optional operator-supplied asset allowlists, all-contract wallet scope, a supported history range from 2023 with an independently enforced seven-day maximum per SQL scan, page sizes of 1–200, and cache ages of 500–900,000 ms. Activity's SQL fallback uses all-contract mode with `includeUnknownAssets: true` and no static asset IDs.
 - Deterministic descending keyset pagination by Ethereum chain-log position: block number, numeric block-scoped log index, transaction hash, token address, and CDP log ID. This matches the public Activity order `(blockNumber, logIndex, transactionHash, id)`.
 - Re-org-aware event selection using a normalized net-action sum as `net_action` in the grouped subquery and `WHERE net_action > 0` outside it. CoinbaSeQL's published `selectStatement` is `GROUP BY` followed by optional `ORDER BY` / `LIMIT`, with no `HAVING`: #46 nested `ORDER BY … LIMIT` after `HAVING`, #73 left `HAVING`, and production returned 502 `ACTIVITY_UNAVAILABLE` (#70), so filter net action in the outer `WHERE` and page only with the outer `LIMIT`. The adapter does not filter naively to added rows.
 - Numeric ordering and cursor comparisons use distinct internal aliases before block numbers and log indexes are cast to lossless public strings. Runtime parsing rejects numeric block/index values. Numeric token amounts are rejected in allowlist mode and omitted as unclassified in all-contract mode, so already-rounded JavaScript numbers are never accepted as base units.
@@ -73,6 +73,18 @@ Do not run the smoke command in CI or during ordinary local tests. The parent/op
 ## Performance requirements
 
 Follow [SQL performance](sql-performance.md) for provider index/pruning fields, bounded read-only evidence and cold-query validation. A decoded wallet filter plus LIMIT does not prove a bounded events scan; narrowing output after net-action aggregation must not hide scan costs. Home cannot add indexes to CDP-owned tables.
+
+## Bounded Activity scans
+
+The current client opts into full onchain history with `history=all` and a separate owner-query cache dimension. The full-history lower bound is conservatively January 1, 2023, before Base mainnet history. Older clients without the parameter keep their fixed 31-day window. The version-1 wire shape stays the same; the newer parser accepts historical windows down to that supported bound. Card reads remain a separate recent-window source and are not expanded by this onchain change.
+
+Each SQL request scans only the current seven-day chunk (the oldest may be shorter), using half-open timestamp bounds. A row continuation stays in its chunk; after exhaustion, the opaque cursor advances to the adjacent older chunk. Empty chunks with continuations are not the end of history: the existing visible sentinel continues automatically, including before any transfer is found. Each HTTP page makes one SQL call with the existing timeout and cancellation. Client continuation yields after a bounded burst and stops when the sentinel leaves the viewport; older activity is not discarded to impose a total-page cutoff. Long empty histories may require many sequential reads and remain a reason to prefer an indexed address-history access path once its production semantics/performance are verified.
+
+Window cursors bind the verified wallet, token scope and full history bounds, and validate the chunk position before a provider call. Existing row-only cursors remain an ordering ceiling across newer empty chunks during deployment skew, so upgrading does not duplicate already-loaded rows. Errors retain the same cursor for a bounded retry. Reorg net-action aggregation, self-transfer semantics and all-contract coverage remain unchanged. The address-history alternative also accepts the supported full-history range while preserving its existing three-call page budget; it does not use the SQL chunk cursor.
+
+The query builder independently rejects scans above seven days, including one-row requests. `home/bounded-cdp-event-query` rejects literal, template and statically concatenated `base.events` reads outside the bounded adapter, including SQL comment variants. It is a targeted ownership guard, not SQL plan analysis; dynamically assembled table names still require review. The existing SQL-performance PR gate requires explicit provider evidence or a not-verified disposition.
+
+Case-insensitive decoded wallet predicates remain until the provider's stored casing is verified. No indexed-wallet claim is made. Splitting sent/received scans or narrowing to curated contracts is not part of this fix: the former needs measured evidence and self-transfer handling, while the latter would omit unknown-token activity. Seven days supplies headroom relative to the reported month-wide scan-cap failure, but uncached provider validation is still required and growth may require smaller chunks or an indexed access path.
 
 ## Schema and correctness notes
 
