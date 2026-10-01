@@ -164,7 +164,7 @@ describe("owner query hydration lifecycle", () => {
       <BalanceProbe />
     </AccountWalletSessionOwner>);
     await waitFor(() => expect(view.getByTestId("balances").textContent).toBe(ADDRESS_A));
-    expect(getHomeQueryClient().getQueryData(key)).toEqual(snapshot);
+    expect(getHomeQueryClient().getQueryData<typeof snapshot>(key)).toEqual(snapshot);
     expect({ sessionReads, tokenReads }).toEqual({ sessionReads: 0, tokenReads: 0 });
     expect(observedClient).toMatchObject({ status: "restoring", verification: "provisional", ownerKey: null });
     await expect(observedClient?.fetchAccountResource("/api/actions"))

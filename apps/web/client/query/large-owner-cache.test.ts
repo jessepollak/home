@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { balanceStartupDetails } from "@/client/observability/balance-performance";
 import { buildBalancesSnapshotFixture, walletHolding } from "@/shared/balances/fixtures";
@@ -82,6 +82,48 @@ describe("large owner cache", () => {
     expect(await persister?.restoreClientAsync()).toEqual(newer);
   });
 
+  test("pending compression cannot overwrite another tab's newer write or cache removal", async () => {
+    for (const next of ["write", "remove"] as const) {
+      const storage = quotaStorage();
+      const oldTab = createOwnerQueryPersister(storage, owner);
+      const newTab = createOwnerQueryPersister(storage, owner);
+      const newer = { timestamp: now + 1, buster: "home-query-v4", clientState: { queries: [], mutations: [] } };
+      newTab?.persistClient(newer);
+      await newTab?.flush();
+      oldTab?.persistClient(persistedValue());
+      const older = oldTab?.flush();
+      if (next === "write") {
+        newTab?.persistClient({ ...newer, timestamp: now + 2 });
+        await newTab?.flush();
+      } else newTab?.removeClient();
+      await older;
+      expect(await newTab?.restoreClientAsync()).toEqual(next === "write" ? { ...newer, timestamp: now + 2 } : undefined);
+    }
+  });
+
+  test("persistence blocking telemetry excludes the asynchronous compression wait", async () => {
+    const storage = quotaStorage();
+    const value = persistedValue();
+    let clock = 0;
+    const timings: { start: number; duration: number }[] = [];
+    const nowSpy = spyOn(performance, "now").mockImplementation(() => clock);
+    try {
+      const timedStorage = { ...storage, setItem: (key: string, value: string) => {
+        clock += 10;
+        storage.setItem(key, value);
+      } };
+      const persister = createOwnerQueryPersister(timedStorage, owner, 250,
+        (start, duration) => timings.push({ start, duration }));
+      persister?.persistClient(() => { clock += 5; return value; });
+      const writing = persister?.flush();
+      clock = 10_000;
+      await writing;
+      expect(timings).toEqual([{ start: 0, duration: 5 }, { start: 10_000, duration: 10 }]);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   test("a pending restore cannot hydrate after owner cancellation or a memory boundary clear", async () => {
     for (const stop of ["cancel", "memory", "boundary"] as const) {
       const storage = quotaStorage();
@@ -136,7 +178,27 @@ describe("large owner cache", () => {
     const newer = buildBalancesSnapshotFixture();
     restored.setQueryData(key, newer, { updatedAt: now + 1 });
     expect(await restoreOwnerQueriesAsync(restored, storage, owner, () => true)).toBe(true);
-    expect(restored.getQueryData(key)).toBe(newer);
+    expect(restored.getQueryData<typeof snapshot>(key)).toBe(newer);
+    restored.clear();
+  });
+
+  test("expired restore preserves a newer write between decode completion and hydration", async () => {
+    const storage = quotaStorage();
+    const persister = createOwnerQueryPersister(storage, owner);
+    persister?.persistClient({ ...persistedValue(), timestamp: now - ownerQueryCacheTtlMs - 1 });
+    await persister?.flush();
+    const storageKey = ownerQueryStorageKey(owner);
+    if (!storageKey) throw new Error("Fixture owner must have a storage key.");
+    const newer = JSON.stringify({ timestamp: now, buster: "home-query-v4", clientState: { queries: [], mutations: [] } });
+    let reads = 0;
+    const concurrentStorage = { ...storage, getItem: (key: string) => {
+      const value = storage.getItem(key);
+      if (++reads === 2) queueMicrotask(() => storage.setItem(storageKey, newer));
+      return value;
+    } };
+    const restored = createHomeQueryClient();
+    expect(await restoreOwnerQueriesAsync(restored, concurrentStorage, owner, () => true)).toBe(false);
+    expect(storage.getItem(storageKey)).toBe(newer);
     restored.clear();
   });
 });

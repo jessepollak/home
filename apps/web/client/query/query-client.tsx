@@ -113,6 +113,14 @@ export function createOwnerQueryPersister(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pending: PersistedOwnerClient | (() => PersistedOwnerClient) | null = null;
   let revision = 0;
+  let restoredValue: string | null = null;
+  const reportWrite = (startedAt: number) => {
+    try {
+      onWrite?.(startedAt, performance.now() - startedAt);
+    } catch {
+      return undefined;
+    }
+  };
   const writePending = async () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
@@ -120,19 +128,23 @@ export function createOwnerQueryPersister(
     const value = pending;
     pending = null;
     const writeRevision = revision;
-    const startedAt = performance.now();
+    let startedAt = performance.now();
     try {
+      const previous = storage.getItem(key);
       const serialized = JSON.stringify(typeof value === "function" ? value() : value);
-      const encoded = serialized.length >= ownerCacheCompressionThreshold && typeof CompressionStream !== "undefined"
-        ? await encodeOwnerCache(serialized) : serialized;
-      if (revision === writeRevision) storage.setItem(key, encoded);
+      let encoded = serialized;
+      if (serialized.length >= ownerCacheCompressionThreshold && typeof CompressionStream !== "undefined") {
+        reportWrite(startedAt);
+        try {
+          encoded = await encodeOwnerCache(serialized);
+        } finally {
+          startedAt = performance.now();
+        }
+      }
+      if (revision === writeRevision && storage.getItem(key) === previous) storage.setItem(key, encoded);
     } catch { // oxlint-disable-line home/no-silent-catch -- persisted owner queries are a best-effort cache; quota or privacy failures cannot block the app
     } finally {
-      try {
-        onWrite?.(startedAt, performance.now() - startedAt);
-      } catch {
-        return undefined;
-      }
+      reportWrite(startedAt);
     }
   };
   return {
@@ -155,6 +167,7 @@ export function createOwnerQueryPersister(
       let value: string | null = null;
       try {
         value = storage.getItem(key);
+        restoredValue = value;
         if (!value) return undefined;
         const decoded: unknown = JSON.parse(await decodeOwnerCache(value));
         return storage.getItem(key) === value ? decoded : undefined;
@@ -165,6 +178,13 @@ export function createOwnerQueryPersister(
           return undefined;
         }
         return undefined;
+      }
+    },
+    isRestoreCurrent(): boolean {
+      try {
+        return storage.getItem(key) === restoredValue;
+      } catch {
+        return false;
       }
     },
     removeClient() {
@@ -352,7 +372,7 @@ export async function restoreOwnerQueriesAsync(
   const persister = createOwnerQueryPersister(storage, ownerKey);
   const persisted = await persister?.restoreClientAsync();
   persister?.cancel();
-  if (!isCurrent() || ownerRestoreRevisions.get(queryClient) !== revision) return false;
+  if (!isCurrent() || ownerRestoreRevisions.get(queryClient) !== revision || !persister?.isRestoreCurrent()) return false;
   return hydrateOwnerClient(queryClient, persister, persisted, Date.now(), ownerKey);
 }
 
