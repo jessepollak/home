@@ -112,7 +112,7 @@ test("the preload margin follows scrolling viewport height rather than its width
     const nearby = observers().nearby;
     expect(nearby.options?.rootMargin).toBe("760px 0px");
     height = 640;
-    act(() => window.dispatchEvent(new Event("resize")));
+    act(() => { window.dispatchEvent(new Event("resize")); });
     expect(nearby.disconnected).toBe(true);
     expect(Intersection.instances.filter((observer) => observer.options?.rootMargin).at(-1)?.options?.rootMargin).toBe("640px 0px");
     expect(deadlines.size).toBe(0);
