@@ -137,8 +137,7 @@ test("a partial revalidation keeps its fresh card purchases when the remaining r
   await expect(rows).toHaveCount(3);
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
   await page.clock.fastForward(11_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-  await expect.poll(() => reads).toBeGreaterThan(1);
+  await requestBackgroundRevalidation(page, () => reads, 1);
   await expect.poll(async () => {
     await page.clock.runFor(1_000);
     return reads;

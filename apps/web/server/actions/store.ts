@@ -16,7 +16,7 @@ import {
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
-import { RECENT_ACTIONS_LIMIT } from "@/shared/actions/contracts/list";
+import { RECENT_ACTIONS_LIMIT, RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
@@ -581,6 +581,24 @@ export class ActionsStore {
            confirmed_at DESC LIMIT ${RECENT_ACTIONS_LIMIT}
        ) ranked ORDER BY confirmed_at DESC`,
       [key],
+      { timeoutMs: 5_000 },
+    );
+    return result.rows.flatMap((row) => {
+      const normalized = normalizeActionRowOrNull(row);
+      return normalized ? [normalized] : [];
+    });
+  }
+
+  async listRetainedSavingsDeposits(owner: MoneyActionOwner): Promise<ActionRow[]> {
+    const result = await this.sql.query<RawActionRow>(
+      `SELECT * FROM actions
+       WHERE owner_key = $1 AND kind = 'savings-deposit' AND confirmed_at IS NOT NULL
+         AND confirmed_at < now() - interval '23 hours'
+         AND confirmed_at >= now() - interval '30 days'
+         AND (outcome IS NULL OR outcome_recorded_at >= now() - interval '24 hours')
+         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
+       ORDER BY (outcome IS NULL) DESC, (confirmed_at < now() - interval '24 hours') DESC, confirmed_at DESC LIMIT ${RETAINED_SAVINGS_DEPOSITS_LIMIT}`,
+      [actionOwnerKey(owner)],
       { timeoutMs: 5_000 },
     );
     return result.rows.flatMap((row) => {
