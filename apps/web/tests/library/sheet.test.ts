@@ -1,6 +1,6 @@
 import "@/client/account/dom-test-harness";
 
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { componentModulePaths, frameReason, hasPinnedTheme, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import {
   createFrameSlots, declaredViewport, fittedFrameHeight, restoredFocus, scaledViewport, toggleFocus,
@@ -113,44 +113,17 @@ describe("frame fallback scheduling", () => {
     expect(() => createFrameSlots(0)).toThrow();
   });
 
-  test("visible tickets evict oldest speculative work before newer, farther work", () => {
-    const clock = spyOn(performance, "now");
-    try {
-      const slots = createFrameSlots(2);
-      const evicted: string[] = [];
-      const grant = () => {};
-      clock.mockReturnValue(1);
-      slots.request("old", grant, { visible: () => false, distance: () => 10, evict: () => evicted.push("old") });
-      clock.mockReturnValue(2);
-      slots.request("far", grant, { visible: () => false, distance: () => 100, evict: () => evicted.push("far") });
-      slots.request("visible", grant, { visible: () => true, distance: () => 0, evict: () => evicted.push("visible") });
-      expect(evicted).toEqual(["old"]);
-    } finally { clock.mockRestore(); }
-  });
-
-  test("equally old preloads evict the farthest and protect visible and settled frames", () => {
-    const clock = spyOn(performance, "now").mockReturnValue(1);
-    try {
-      const slots = createFrameSlots(3);
-      const evicted: string[] = [];
-      const grant = () => {};
-      const priority = (id: string, distance: number, visible = false) => ({
-        visible: () => visible, distance: () => distance, evict: () => evicted.push(id),
-      });
-      const finish = slots.request("finished", grant, priority("finished", 1000));
-      finish();
-      slots.request("visible", grant, priority("visible", 1000, true));
-      slots.request("near", grant, priority("near", 10));
-      slots.request("far", grant, priority("far", 100));
-      slots.request("next", grant, priority("next", 0, true));
-      expect(evicted).toEqual(["far"]);
-      slots.request("last", grant, priority("last", 0, true));
-      expect(evicted).toEqual(["far", "near"]);
-      const queued: string[] = [];
-      slots.request("blocked", () => queued.push("blocked"), priority("blocked", 0, true));
-      expect(queued).toEqual([]);
-      expect(evicted).toEqual(["far", "near"]);
-    } finally { clock.mockRestore(); }
+  test("visible waiting tickets take the next free slot without evicting admitted frames", () => {
+    const slots = createFrameSlots(2);
+    const granted: string[] = [];
+    const release = slots.request("first", () => granted.push("first"));
+    slots.request("second", () => granted.push("second"));
+    slots.request("preload", () => granted.push("preload"), { visible: () => false });
+    slots.request("visible", () => granted.push("visible"), { visible: () => true });
+    slots.prioritize();
+    expect(granted).toEqual(["first", "second"]);
+    release();
+    expect(granted).toEqual(["first", "second", "visible"]);
   });
 
   test("frames fit their measured content within the phone height", () => {

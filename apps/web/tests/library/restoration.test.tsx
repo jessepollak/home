@@ -24,112 +24,115 @@ afterEach(() => {
 const tick = () => act(() => {
   for (const [id, callback] of [...callbacks]) { callbacks.delete(id); callback(0); }
 });
+const flush = () => act(async () => { await Promise.resolve(); });
 function child(iframe: HTMLIFrameElement) {
-  const listeners = new Map<string, Set<(payload: unknown) => void>>();
-  const updates: Array<{ kind: string; value: unknown }> = [];
-  const currentRender = { id: item.story, phase: "finished", story: {
-    id: item.story, argTypes: {}, initialArgs: { children: "Continue" },
-  } };
-  const rendered = { args: { children: "Continue" } as Record<string, unknown>, theme: "light" };
-  let pending: (() => void) | undefined;
-  const emit = (event: string, payload: unknown) => {
-    for (const listener of listeners.get(event) ?? []) listener(payload);
-  };
-  const update = (kind: string, value: unknown, paint: () => void) => {
-    updates.push({ kind, value });
-    currentRender.phase = "loading";
-    emit("storyRenderPhaseChanged", { storyId: item.story, newPhase: "loading" });
-    pending = () => { paint(); currentRender.phase = "finished"; };
-  };
+  const currentRender = { id: item.story, phase: "rendering", story: { id: item.story } };
+  const updates: Array<{ kind: string; value: unknown; phase: string }> = [];
   Object.defineProperty(iframe, "contentWindow", { configurable: true, value: {
-    __STORYBOOK_ADDONS_CHANNEL__: {
-      on(event: string, listener: (payload: unknown) => void) {
-        const handlers = listeners.get(event) ?? new Set();
-        handlers.add(listener);
-        listeners.set(event, handlers);
-      },
-      off(event: string, listener: (payload: unknown) => void) { listeners.get(event)?.delete(listener); },
-    },
     __STORYBOOK_PREVIEW__: {
       currentRender,
       onUpdateGlobals: ({ globals }: { globals: { theme: string } }) => {
-        update("globals", globals.theme, () => { rendered.theme = globals.theme; });
+        updates.push({ kind: "globals", value: globals.theme, phase: currentRender.phase });
       },
       onUpdateArgs: ({ updatedArgs }: { updatedArgs: Record<string, unknown> }) => {
-        update("args", updatedArgs, () => { rendered.args = updatedArgs; });
+        updates.push({ kind: "args", value: updatedArgs, phase: currentRender.phase });
       },
     },
   } });
-  return { updates, rendered, complete: () => { const run = pending; pending = undefined; run?.(); },
-    listenerCount: () => [...listeners.values()].reduce((sum, handlers) => sum + handlers.size, 0) };
+  return { updates, currentRender };
 }
 let settled = 0;
 const props = {
-  target, theme: "dark", args: { children: "RESTORED" }, annotating: false, frameSource: "blank" as const,
+  target, theme: "dark", args: { children: "RESTORED" }, annotating: false, frameSource: "story" as const,
   viewport: { width: 390, height: 560 }, onSettled: () => { settled += 1; }, onExitAnnotate: () => {},
 };
 
 for (const change of ["args", "theme", "both"]) {
-  test(`restoration waits for the latest ${change} to finish before revealing`, () => {
+  test(`restoration applies the latest ${change} while play is running`, async () => {
     settled = 0;
     const view = render(<FrameSection {...props} />);
     const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
     const preview = child(iframe);
     fireEvent.load(iframe);
     tick();
-    expect(preview.updates.map(({ kind }) => kind)).toEqual(["globals"]);
-    preview.complete();
+    await flush();
+    expect(preview.updates).toEqual([]);
+    expect(view.getByRole("status").textContent).toBe("Loading Default…");
+    preview.currentRender.phase = "playing";
     tick();
-    expect(preview.updates.map(({ kind }) => kind)).toEqual(["globals", "args"]);
+    await flush();
+    expect(preview.updates).toEqual([
+      { kind: "globals", value: "dark", phase: "playing" },
+      { kind: "args", value: { children: "RESTORED" }, phase: "playing" },
+    ]);
+    expect(view.queryByRole("status")).toBeNull();
+    expect(settled).toBe(1);
     const latest = { ...props, args: { children: change === "theme" ? "RESTORED" : "NEWER" },
       theme: change === "args" ? "dark" : "light" };
     view.rerender(<FrameSection {...latest} />);
-    preview.complete();
-    tick();
-    expect(view.queryByText("Loading Default…")).not.toBeNull();
-    expect(preview.rendered.args.children).toBe("RESTORED");
-    if (change !== "args") {
-      expect(preview.updates.at(-1)).toEqual({ kind: "globals", value: "light" });
-      preview.complete();
-      tick();
-      if (change === "both") expect(view.queryByText("Loading Default…")).not.toBeNull();
-    }
-    if (change !== "theme") {
-      expect(preview.updates.at(-1)).toEqual({ kind: "args", value: { children: "NEWER" } });
-      preview.complete();
-      tick();
-    }
-    expect(view.queryByText("Loading Default…")).toBeNull();
+    await flush();
+    if (change !== "args") expect(preview.updates).toContainEqual({ kind: "globals", value: "light", phase: "playing" });
+    if (change !== "theme") expect(preview.updates).toContainEqual({ kind: "args", value: { children: "NEWER" }, phase: "playing" });
+    expect(preview.currentRender.phase).toBe("playing");
     expect(settled).toBe(1);
-    expect(preview.rendered).toEqual({ args: latest.args, theme: latest.theme });
+    view.unmount();
     expect(callbacks.size).toBe(0);
-    expect(preview.listenerCount()).toBe(0);
   });
 }
 
-test("a reload cancels obsolete restoration and applies the latest desired state to the new document", () => {
+test("reload fences pending restoration and applies the latest state only to the new generation", async () => {
   const view = render(<FrameSection {...props} />);
   const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
   const first = child(iframe);
   fireEvent.load(iframe);
+  first.currentRender.phase = "playing";
   tick();
-  expect(first.listenerCount()).toBeGreaterThan(0);
   const latest = { ...props, args: { children: "NEWER" }, theme: "light" };
   view.rerender(<FrameSection {...latest} />);
   const reloaded = child(iframe);
   fireEvent.load(iframe);
-  expect(first.listenerCount()).toBe(0);
-  first.complete();
+  await flush();
+  expect(first.updates).toEqual([]);
+  expect(reloaded.updates).toEqual([]);
+  expect(view.getByRole("status").textContent).toBe("Loading Default…");
+  reloaded.currentRender.phase = "playing";
   tick();
-  expect(view.queryByText("Loading Default…")).not.toBeNull();
-  reloaded.complete();
-  tick();
-  expect(view.queryByText("Loading Default…")).not.toBeNull();
-  reloaded.complete();
-  tick();
-  expect(view.queryByText("Loading Default…")).toBeNull();
-  expect(reloaded.rendered).toEqual({ args: latest.args, theme: latest.theme });
+  await flush();
+  expect(reloaded.updates).toEqual([
+    { kind: "globals", value: "light", phase: "playing" },
+    { kind: "args", value: { children: "NEWER" }, phase: "playing" },
+  ]);
+  expect(view.queryByRole("status")).toBeNull();
   view.unmount();
   expect(callbacks.size).toBe(0);
-  expect(reloaded.listenerCount()).toBe(0);
+});
+
+test("a running play that later errors still fails the loaded frame", async () => {
+  const view = render(<FrameSection {...props} />);
+  const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
+  const preview = child(iframe);
+  fireEvent.load(iframe);
+  preview.currentRender.phase = "playing";
+  tick();
+  await flush();
+  expect(view.queryByRole("status")).toBeNull();
+  preview.currentRender.phase = "errored";
+  tick();
+  expect(view.getByRole("alert").textContent).toBe(`Story failed to render: ${item.story}`);
+});
+
+test("a rejected args restoration fails rather than silently dropping the restored state", async () => {
+  const view = render(<FrameSection {...props} />);
+  const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
+  Object.defineProperty(iframe, "contentWindow", { configurable: true, value: {
+    __STORYBOOK_PREVIEW__: {
+      currentRender: { id: item.story, story: { id: item.story }, phase: "playing" },
+      onUpdateGlobals: () => {},
+      onUpdateArgs: () => Promise.reject(new Error("Could not apply args")),
+    },
+  } });
+  fireEvent.load(iframe);
+  tick();
+  await flush();
+  expect(view.getByRole("alert").textContent).toBe("Could not apply args");
 });

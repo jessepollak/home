@@ -3,12 +3,15 @@ import "@/client/account/dom-test-harness";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import type { SheetStory } from "@/stories/review/explorations/library/stories";
 
-const { act, cleanup, render } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render } = await import("@testing-library/react");
 const { VariantSheet } = await import("@/stories/review/explorations/library/sheet");
 const originalIntersection = globalThis.IntersectionObserver;
 const originalResize = globalThis.ResizeObserver;
 const originalTimeout = globalThis.setTimeout;
 const originalClear = globalThis.clearTimeout;
+const originalRequest = globalThis.requestAnimationFrame;
+const originalCancel = globalThis.cancelAnimationFrame;
+const callbacks = new Map<number, FrameRequestCallback>();
 const deadlines = new Map<number, () => void>();
 let next = 0;
 
@@ -46,6 +49,9 @@ class Resize {
 beforeEach(() => {
   Intersection.instances = [];
   Resize.instances = [];
+  callbacks.clear();
+  globalThis.requestAnimationFrame = (callback) => { callbacks.set(++next, callback); return next; };
+  globalThis.cancelAnimationFrame = (id) => { callbacks.delete(id); };
   globalThis.ResizeObserver = Resize as unknown as typeof ResizeObserver;
   deadlines.clear();
   globalThis.IntersectionObserver = Intersection as unknown as typeof IntersectionObserver;
@@ -65,6 +71,8 @@ afterEach(() => {
   globalThis.ResizeObserver = originalResize;
   globalThis.setTimeout = originalTimeout;
   globalThis.clearTimeout = originalClear;
+  globalThis.requestAnimationFrame = originalRequest;
+  globalThis.cancelAnimationFrame = originalCancel;
 });
 
 function story(id: string, frame: SheetStory["frame"] = "Library override"): SheetStory {
@@ -89,8 +97,69 @@ function show(index = 0) {
   visible.emit(0.5, 300);
   nearby.emit(0.5, 300);
 }
+const tick = () => act(() => {
+  for (const [id, callback] of [...callbacks]) { callbacks.delete(id); callback(0); }
+});
+function preview(iframe: HTMLIFrameElement, id: string, phase = "rendering") {
+  const currentRender = { id, story: { id }, phase };
+  Object.defineProperty(iframe, "contentWindow", { configurable: true, value: {
+    __STORYBOOK_PREVIEW__: { currentRender, onUpdateGlobals: () => {}, onUpdateArgs: () => {} },
+  } });
+  fireEvent.load(iframe);
+  return currentRender;
+}
 
-test("one-screen-ahead admission mounts offscreen frames without starting their deadline", () => {
+test("playing clears its deadline, releases a slot and stays live without finishing play", () => {
+  const view = sheet([1, 2, 3, 4].map((id) => story(String(id))));
+  for (let index = 0; index < 4; index++) observers(index).nearby.emit(0.01, 1);
+  expect(view.container.querySelectorAll("iframe")).toHaveLength(3);
+  expect(deadlines.size).toBe(3);
+  const frame = view.getByTitle("Fixture · 1") as HTMLIFrameElement;
+  const currentRender = preview(frame, "1");
+  tick();
+  expect(view.queryByTitle("Fixture · 4")).toBeNull();
+  const deadline = [...deadlines.keys()][0];
+  currentRender.phase = "playing";
+  tick();
+  expect(view.getByTitle("Fixture · 4")).toBeTruthy();
+  expect(deadlines.size).toBe(3);
+  expect(view.container.querySelector('[data-library-section="1"] [role="status"]')).toBeNull();
+  expect(deadlines.has(deadline)).toBe(false);
+  act(() => { for (const run of [...deadlines.values()]) run(); });
+  expect(view.container.querySelector('[data-library-section="1"] [role="alert"]')).toBeNull();
+  expect(view.getByTitle("Fixture · 1")).toBe(frame);
+  expect(currentRender.phase).toBe("playing");
+});
+
+test("a true rendering hang times out from mount at 20 seconds even while offscreen", () => {
+  const view = sheet();
+  observers().nearby.emit(0.01, 1);
+  const frame = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
+  const currentRender = preview(frame, "frame");
+  const deadline = [...deadlines.values()][0];
+  tick();
+  expect(currentRender.phase).toBe("rendering");
+  expect(view.queryByRole("alert")).toBeNull();
+  act(deadline);
+  expect(view.getByRole("alert").textContent).toBe("Story did not finish rendering in 20 s");
+  expect(deadlines.size).toBe(0);
+});
+
+for (const phase of ["errored", "aborted"]) {
+  test(`${phase} fails and releases the loading slot`, () => {
+    const view = sheet([1, 2, 3, 4].map((id) => story(String(id))));
+    for (let index = 0; index < 4; index++) observers(index).nearby.emit(0.01, 1);
+    const frame = view.getByTitle("Fixture · 1") as HTMLIFrameElement;
+    preview(frame, "1", phase);
+    tick();
+    expect(view.getByRole("alert").textContent).toBe("Story failed to render: 1");
+    expect(view.getByTitle("Fixture · 4")).toBeTruthy();
+    expect(view.queryByTitle("Fixture · 1")).toBeNull();
+  });
+}
+
+
+test("one-screen-ahead admission starts the render deadline at mount, before visibility", () => {
   const root = document.createElement("div");
   Object.defineProperty(root, "clientHeight", { value: window.innerHeight });
   document.body.append(root);
@@ -105,15 +174,13 @@ test("one-screen-ahead admission mounts offscreen frames without starting their 
     nearby.emit(0.01, 1);
     const frame = view.getByTitle("Fixture · frame");
     expect(nearby.disconnected).toBe(true);
-    expect(deadlines.size).toBe(0);
-    visible.emit(0.49, 200);
-    expect(deadlines.size).toBe(0);
-    visible.emit(0.5, 200);
     expect(deadlines.size).toBe(1);
-    expect(visible.disconnected).toBe(true);
+    const deadline = [...deadlines.keys()][0];
+    visible.emit(0.49, 200);
+    visible.emit(0.5, 200);
     visible.emit(0, 0);
     expect(view.getByTitle("Fixture · frame")).toBe(frame);
-    expect(deadlines.size).toBe(1);
+    expect([...deadlines.keys()]).toEqual([deadline]);
     act(() => [...deadlines.values()][0]());
     expect(view.getByRole("alert").textContent).toBe("Story did not finish rendering in 20 s");
     expect(deadlines.size).toBe(0);
@@ -147,20 +214,6 @@ test("a frame already visible starts its deadline at mount", () => {
   expect(deadlines.size).toBe(1);
 });
 
-test("tall frames start their deadline at half the viewport height below half the frame", () => {
-  const rect = spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 2000 } as DOMRect);
-  try {
-    const view = sheet();
-    const { nearby, visible } = observers();
-    expect(visible.options?.threshold).toContain(window.innerHeight / 4000);
-    nearby.emit(0.2, 100);
-    expect(view.getByTitle("Fixture · frame")).toBeTruthy();
-    visible.emit(0.2, window.innerHeight / 2 - 1);
-    expect(deadlines.size).toBe(0);
-    visible.emit(0.2, window.innerHeight / 2);
-    expect(deadlines.size).toBe(1);
-  } finally { rect.mockRestore(); }
-});
 
 test("without IntersectionObserver, admission and the mount deadline start immediately", () => {
   globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
@@ -217,34 +270,8 @@ test("in-document stories render offscreen without observers or deadlines", () =
   expect(deadlines.size).toBe(0);
 });
 
-test("visible work evicts the oldest never-visible preload and the evicted frame re-requests", () => {
-  const view = sheet([1, 2, 3, 4].map((id) => story(String(id))));
-  const initial = [0, 1, 2, 3].map(observers);
-  for (const { nearby } of initial) nearby.emit(0.01, 1);
-  for (const { visible } of initial.slice(0, 3)) visible.emit(0, 0);
-  expect(deadlines.size).toBe(0);
-  const evicted = view.getByTitle("Fixture · 1");
-  initial[3].visible.emit(0.5, 500);
-  expect(view.container.querySelectorAll("iframe")).toHaveLength(3);
-  expect(view.getByTitle("Fixture · 4")).toBeTruthy();
-  expect(view.queryByTitle("Fixture · 1")).toBeNull();
-  expect(evicted.isConnected).toBe(false);
-  expect(view.container.querySelector('[data-library-section="1"] [role="status"]')?.textContent).toBe("Queued 1…");
-  expect(deadlines.size).toBe(1);
-  const retry = Intersection.instances.findLast((observer) => observer.options?.rootMargin &&
-    observer.target === initial[0].nearby.target)!;
-  retry.emit(0, 0);
-  expect(view.queryByTitle("Fixture · 1")).toBeNull();
-  retry.emit(0.01, 1);
-  expect(retry.disconnected).toBe(true);
-  initial[0].visible.emit(0.5, 500);
-  expect(view.getByTitle("Fixture · 1")).not.toBe(evicted);
-  expect(view.container.querySelectorAll("iframe")).toHaveLength(3);
-  expect(view.getByTitle("Fixture · 4")).toBeTruthy();
-  expect(deadlines.size).toBe(2);
-});
 
-test("a tall frame filling a short scrolling root starts its visibility deadline", () => {
+test("a tall frame filling a short scrolling root qualifies for priority admission", () => {
   const root = document.createElement("div");
   Object.defineProperty(root, "clientHeight", { value: 300 });
   document.body.append(root);
@@ -252,13 +279,16 @@ test("a tall frame filling a short scrolling root starts its visibility deadline
   const windowHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
   Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
   try {
-    const view = sheet(undefined, null, root);
-    const { nearby, visible } = observers();
+    const view = sheet([story("first"), story("second"), story("third"), story("preload"), story("visible")], null, root);
+    const { nearby, visible } = observers(4);
     expect(visible.options?.threshold).toContain(300 / (2 * 844));
+    for (let index = 0; index < 4; index++) observers(index).nearby.emit(0.01, 1);
     nearby.emit(300 / 844, 300);
     visible.emit(300 / 844, 300);
-    expect(view.getByTitle("Fixture · frame")).toBeTruthy();
-    expect(deadlines.size).toBe(1);
+    expect(view.queryByTitle("Fixture · visible")).toBeNull();
+    act(() => [...deadlines.values()][0]());
+    expect(view.getByTitle("Fixture · visible")).toBeTruthy();
+    expect(view.queryByTitle("Fixture · preload")).toBeNull();
   } finally {
     rect.mockRestore();
     if (windowHeight) Object.defineProperty(window, "innerHeight", windowHeight);
@@ -278,7 +308,7 @@ test("root-only and window resizes recompute the visibility threshold", () => {
     const { nearby, visible } = observers();
     nearby.emit(0.1, 100);
     visible.emit(0.2, 200);
-    expect(deadlines.size).toBe(0);
+    expect(deadlines.size).toBe(1);
     expect(visible.options?.threshold).toContain(600 / (2 * 844));
     height = 300;
     for (const resize of Resize.instances) resize.emit(root);

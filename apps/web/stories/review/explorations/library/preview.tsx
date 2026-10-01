@@ -3,7 +3,7 @@ import type { Positioned } from "../board/layout";
 import { LiveFrame } from "../board/live-frame";
 import type { Metric } from "../board/use-frame-loading";
 import { startRenderDeadline } from "../board/render-deadline";
-import { watchStoryRender } from "../board/render-watcher";
+import { watchFrameLoaded } from "./frame-loading";
 
 export type FrameSectionTarget = { story: string; component: string; label: string; changed: boolean };
 
@@ -21,7 +21,7 @@ function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
   }
 }
 
-export function FrameSection({ target, theme, args, annotating, frameSource, viewport, scale = 1, visible = true, onSettled, onRendered,
+export function FrameSection({ target, theme, args, annotating, frameSource, viewport, scale = 1, onSettled, onRendered,
   onUserInput, onEscape, onExitAnnotate }: {
   target: FrameSectionTarget;
   theme: string;
@@ -30,7 +30,6 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   frameSource: "story" | "blank";
   viewport: { width: number; height: number };
   scale?: number;
-  visible?: boolean;
   onSettled: () => void;
   onRendered?: (frame: HTMLIFrameElement) => void;
   onUserInput?: () => void;
@@ -43,26 +42,18 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   const ready = metric.status === "rendered";
   const applied = useRef<string | null>(null);
   const appliedTheme = useRef<string | null>(null);
-  const preparing = useRef(false);
   const generation = useRef(0);
   const loads = useRef(0);
-  const animation = useRef<number | null>(null);
   const stopRender = useRef<(() => void) | null>(null);
   const stopDeadline = useRef<(() => void) | null>(null);
   const stopInteractions = useRef<(() => void) | null>(null);
   const interaction = useRef({ annotating, onUserInput, onEscape });
-  const visibleRef = useRef(visible);
-  const themeRef = useRef(theme);
-  const argsRef = useRef(args);
   const settled = useRef(onSettled);
   const rendered = useRef(onRendered);
   useLayoutEffect(() => {
-    themeRef.current = theme;
-    argsRef.current = args;
     settled.current = onSettled;
     rendered.current = onRendered;
     interaction.current = { annotating, onUserInput, onEscape };
-    visibleRef.current = visible;
   });
   useEffect(() => {
     if (metric.status === "rendered" && frame.current) rendered.current?.(frame.current);
@@ -81,15 +72,12 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   }), [item, target.component, target.label, target.changed, viewport]);
   const cancel = useCallback(() => {
     generation.current += 1;
-    if (animation.current !== null) cancelAnimationFrame(animation.current);
-    animation.current = null;
     stopRender.current?.();
     stopRender.current = null;
     stopDeadline.current?.();
     stopDeadline.current = null;
     stopInteractions.current?.();
     stopInteractions.current = null;
-    preparing.current = false;
     applied.current = null;
     appliedTheme.current = null;
   }, []);
@@ -98,7 +86,7 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     setMetric((current) => ({ ...current, status: "errored", error }));
   }, [cancel]);
   const startDeadline = useCallback(() => {
-    if (!visibleRef.current || stopDeadline.current) return;
+    if (stopDeadline.current) return;
     const load = generation.current;
     stopDeadline.current = startRenderDeadline((error) => {
       if (generation.current === load) fail(error);
@@ -113,9 +101,6 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     startDeadline();
     return cancel;
   }, [cancel, startDeadline]);
-  useLayoutEffect(() => {
-    if (metric.status !== "rendered" && metric.status !== "errored") startDeadline();
-  }, [visible, metric.status, startDeadline]);
   const mark = useCallback((_: string, patch: Partial<Metric>) => {
     if (patch.status === "loaded" && loads.current++ > 0) begin();
     if (patch.status === "loaded") {
@@ -144,65 +129,31 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
         };
       }
     }
+    if (patch.status === "loaded") {
+      stopRender.current?.();
+      const load = generation.current;
+      stopRender.current = watchFrameLoaded(frame.current!, item.story, (status, error) => {
+        if (generation.current !== load) return;
+        if (status !== "rendered") { fail(error); return; }
+        stopDeadline.current?.();
+        stopDeadline.current = null;
+        setMetric((current) => ({ ...current, status: "rendered", renderedAt: performance.now() }));
+      });
+    }
     if (patch.status !== "rendered") setMetric((current) => ({ ...current, ...patch }));
-  }, [begin]);
+  }, [begin, fail, item.story]);
   const finish = useCallback((_: string, status: "rendered" | "errored", error?: string) => {
-    if (status === "errored") { fail(error); return; }
-    if (preparing.current) return;
-    preparing.current = true;
-    const load = generation.current;
-    const poll = () => {
-      if (generation.current !== load) return;
-      const iframe = frame.current;
-      if (!iframe?.isConnected) return;
-      const api = previewApi(iframe);
-      if (!api || api.currentRender?.story?.id !== item.story || api.currentRender?.phase !== "finished") {
-        animation.current = requestAnimationFrame(poll);
-        return;
-      }
-      try {
-        if (!api.onUpdateGlobals || !api.onUpdateArgs) throw new Error("Preview props API unavailable");
-        const reconcile = () => {
-          if (generation.current !== load) return;
-          const latestArgs = argsRef.current;
-          const serialized = JSON.stringify(latestArgs);
-          const latestTheme = themeRef.current;
-          const complete = (next: "rendered" | "errored" | "cancelled", renderError?: string) => {
-            if (generation.current !== load) return;
-            if (next !== "rendered") { fail(renderError); return; }
-            reconcile();
-          };
-          if (appliedTheme.current !== latestTheme) {
-            stopRender.current = watchStoryRender(iframe, item.story, (next, renderError) => {
-              if (generation.current !== load) return;
-              if (next === "rendered") appliedTheme.current = latestTheme;
-              complete(next, renderError);
-            }, () => api.onUpdateGlobals!({ globals: { theme: latestTheme } }));
-          } else if (applied.current !== serialized) {
-            stopRender.current = watchStoryRender(iframe, item.story, (next, renderError) => {
-              if (generation.current !== load) return;
-              if (next === "rendered") applied.current = serialized;
-              complete(next, renderError);
-            }, () => api.onUpdateArgs!({ storyId: item.story, updatedArgs: latestArgs }));
-          } else {
-            stopDeadline.current?.();
-            stopDeadline.current = null;
-            setMetric((current) => ({ ...current, status: "rendered", renderedAt: performance.now() }));
-          }
-        };
-        reconcile();
-      } catch (cause) {
-        if (generation.current === load) fail(cause instanceof Error ? cause.message : String(cause));
-      }
-    };
-    animation.current = requestAnimationFrame(poll);
-  }, [fail, item.story]);
+    if (status === "errored") fail(error);
+  }, [fail]);
   useEffect(() => {
     if (!ready || appliedTheme.current === theme) return;
     appliedTheme.current = theme;
     const load = generation.current;
     void Promise.resolve().then(() => {
-      if (generation.current === load) return previewApi(frame.current)?.onUpdateGlobals?.({ globals: { theme } });
+      if (generation.current !== load) return;
+      const api = previewApi(frame.current);
+      if (!api?.onUpdateGlobals) throw new Error("Preview props API unavailable");
+      return api.onUpdateGlobals({ globals: { theme } });
     }).catch((error: unknown) => {
       if (generation.current === load) fail(error instanceof Error ? error.message : String(error));
     });
@@ -214,7 +165,10 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     applied.current = serialized;
     const load = generation.current;
     void Promise.resolve().then(() => {
-      if (generation.current === load) return previewApi(frame.current)?.onUpdateArgs?.({ storyId: item.story, updatedArgs: args });
+      if (generation.current !== load) return;
+      const api = previewApi(frame.current);
+      if (!api?.onUpdateArgs) throw new Error("Preview props API unavailable");
+      return api.onUpdateArgs({ storyId: item.story, updatedArgs: args });
     }).catch((error: unknown) => {
       if (generation.current === load) fail(error instanceof Error ? error.message : String(error));
     });

@@ -94,7 +94,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
     return () => { observer.disconnect(); resize.disconnect(); view.removeEventListener("resize", observe); };
   }, [nearby, root]);
   useEffect(() => {
-    if (visible) return;
+    if (typeof IntersectionObserver === "undefined") return;
     const node = container.current;
     if (!node) return;
     const view = node.ownerDocument.defaultView!;
@@ -105,8 +105,8 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
       const viewportHeight = root ? root.clientHeight : view.innerHeight;
       const tallThreshold = height > 0 ? Math.min(0.5, viewportHeight / (2 * height)) : 0.5;
       observer = new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting && (entry.intersectionRatio >= 0.5 ||
-          entry.intersectionRect.height >= viewportHeight / 2))) setVisible(true);
+        setVisible(entries.some((entry) => entry.isIntersecting && (entry.intersectionRatio >= 0.5 ||
+          entry.intersectionRect.height >= viewportHeight / 2)));
       }, { root, threshold: [0, tallThreshold, 0.5] });
       observer.observe(node);
     };
@@ -116,23 +116,13 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
     if (root) resize.observe(root);
     view.addEventListener("resize", observe);
     return () => { observer.disconnect(); resize.disconnect(); view.removeEventListener("resize", observe); };
-  }, [visible, root]);
+  }, [root]);
   useEffect(() => {
     if (!nearby) return;
     const frames = busy.current;
     frames.add(story.id);
     const cancel = slots.request(story.id, () => setGranted(true), {
       visible: () => visibleRef.current,
-      distance: () => {
-        const rect = container.current!.getBoundingClientRect();
-        const bounds = root?.getBoundingClientRect();
-        return Math.max(0, (bounds?.top ?? 0) - rect.bottom, rect.top - (bounds?.bottom ?? window.innerHeight));
-      },
-      evict: () => {
-        frames.delete(story.id);
-        setGranted(false);
-        setNearby(false);
-      },
     });
     release.current = () => {
       frames.delete(story.id);
@@ -174,7 +164,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
       Queued {story.name}…
     </div> : <FrameSection target={target} theme={theme} args={args} annotating={annotating}
       frameSource={frameSource} viewport={viewport} scale={fitted.scale} onSettled={() => release.current?.()} onRendered={measure}
-      visible={visible} onUserInput={onUserInput} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />}
+      onUserInput={onUserInput} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />}
     {story.viewport && <p className={styles.viewportCaption}>
       <a href={storyCanvasUrl(story.id)} target="_blank" rel="noreferrer">
         {viewport.width} × {viewport.height}{fitted.scale < 1 ? " · scaled" : ""}
