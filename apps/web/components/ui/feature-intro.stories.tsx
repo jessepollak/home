@@ -175,7 +175,6 @@ async function playSheet(canvasElement: HTMLElement) {
 }
 export const Sheet: Story = { args: { presentation: "sheet" }, parameters: { library: { render: "frame" } }, play: async ({ canvasElement }) => playSheet(canvasElement) };
 export const SheetPending: Story = {
-  parameters: { library: { render: "frame" } },
   args: { presentation: "sheet", content: { ...card, primary: { ...card.primary, pending: true } } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
