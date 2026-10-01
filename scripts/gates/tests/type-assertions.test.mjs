@@ -7,6 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { assertionDebtReport, assertionExceptions, changedProductionTypeScript, changedScopedTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, isTestOrStoryTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
+import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
 const file = "apps/web/shared/ratchet-fixture.ts";
 const original = "export const value = input as string;";
@@ -302,7 +303,7 @@ test("a rewritten rename keeps its source's counts", () => {
 test("real git includes non-ASCII production additions and rename destinations", (t) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" };
+  const env = gitFixtureEnv();
   const gitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const git = (...args) => gitRunner(args);
   const source = "apps/web/shared/source.ts";
@@ -331,7 +332,7 @@ test("real git includes non-ASCII production additions and rename destinations",
 test("real git compares changed test TypeScript only in its own scope", (t) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-tests-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" };
+  const env = gitFixtureEnv();
   const gitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const git = (...args) => gitRunner(args);
   const testFile = "apps/web/client/example.test.ts";
@@ -356,7 +357,7 @@ test("real git compares changed test TypeScript only in its own scope", (t) => {
 test("real git debt report enforces test and story increases with rename and exception inheritance", (t) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-report-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" };
+  const env = gitFixtureEnv();
   const realGitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const git = (...args) => realGitRunner(args);
   const testFile = "apps/web/client/example.test.ts";
@@ -408,7 +409,7 @@ test("real git debt report enforces test and story increases with rename and exc
 test("real git reads base exceptions padded beyond 1 MiB without re-granting inherited debt", (t) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-large-base-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" };
+  const env = gitFixtureEnv();
   const realGitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
   const git = (...args) => realGitRunner(args);
   const testFile = "apps/web/client/inherited.test.ts";
@@ -449,7 +450,7 @@ test("real git reads base exceptions padded beyond 1 MiB without re-granting inh
 test("real git fails closed when the base tree lists an exceptions file with a missing blob", (t) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-missing-blob-"));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
-  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" };
+  const env = gitFixtureEnv();
   const git = (...args) => execFileSync("git", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
   const testFile = "apps/web/client/inherited.test.ts";
   const productionExceptions = "scripts/gates/type-assertions-exceptions.json";
