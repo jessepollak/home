@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { containsSql, sqlPerformanceReport } from "../sql-performance.mjs";
+import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
 const gateModule = new URL("../sql-performance.mjs", import.meta.url).href;
 const path = "apps/web/server/example/store.ts";
@@ -14,7 +15,7 @@ const change = (content = select, baseContent = "", file = path) => ({ path: fil
 function createGitFixture(t, callerEnv = process.env) {
   const dir = mkdtempSync(join(tmpdir(), "home-sql-gate-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const env = { ...Object.fromEntries(Object.entries(callerEnv).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.hooksPath", GIT_CONFIG_VALUE_0: "/dev/null" };
+  const env = gitFixtureEnv(callerEnv);
   const run = (...args) => execFileSync("git", args, { cwd: dir, env, stdio: "pipe" });
   const read = (base) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "--eval", `const { changedSqlCandidates } = await import(${JSON.stringify(gateModule)}); process.stdout.write(JSON.stringify(changedSqlCandidates(${JSON.stringify(base)})));`], { cwd: dir, env, encoding: "utf8" }));
   const write = (file, source) => { mkdirSync(join(dir, file, ".."), { recursive: true }); writeFileSync(join(dir, file), source); };
