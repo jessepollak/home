@@ -210,10 +210,15 @@ function HookHarness({
   );
 }
 
-afterEach(() => {
+async function drainTeardownMicrotasks() {
+  for (let index = 0; index < 32; index++) await Promise.resolve();
+}
+
+afterEach(async () => {
   notifyManager.setScheduler(defaultScheduler);
   cleanup();
   getHomeQueryClient().clear();
+  await drainTeardownMicrotasks();
   jest.useRealTimers();
 });
 
