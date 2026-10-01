@@ -75,7 +75,7 @@ export const Workspace: Story = {
     await userEvent.keyboard("{Enter}");
     await expect(canvas.queryByRole("form")).not.toBeInTheDocument();
     await userEvent.click(canvas.getByRole("button", { name: "Dark" }));
-    await waitFor(() => expect(canvasElement.ownerDocument.documentElement).toHaveClass("dark"));
+    await waitFor(() => expect(search(canvasElement).get("theme")).toBe("dark"));
     await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
     await expect(await canvas.findByRole("button", { name: "Destructive" })).toBeVisible();
 
@@ -117,7 +117,8 @@ export const Workspace: Story = {
     await userEvent.keyboard(" ");
     await expect(annotate).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(canvas.getByRole("button", { name: "Light" }));
-    await waitFor(() => expect(canvasElement.ownerDocument.documentElement).not.toHaveClass("dark"));
+    await expect(canvas.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(search(canvasElement).get("theme")).toBe("light"));
   },
 };
 
@@ -143,7 +144,8 @@ export const RestoredPreview: Story = {
     await userEvent.clear(label);
     await userEvent.type(label, "NEWER");
     await expect(canvas.getByRole("button", { name: "NEWER" })).toHaveAttribute("aria-busy", "true");
-    await expect(canvasElement.ownerDocument.documentElement).toHaveClass("dark");
+    await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await expect(search(canvasElement).get("theme")).toBe("dark");
     await expect(JSON.parse(search(canvasElement).get("props") ?? "{}")).toEqual({ children: "NEWER" });
   },
 };

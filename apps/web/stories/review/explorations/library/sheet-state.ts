@@ -6,28 +6,44 @@ export function restoredFocus(linked: string | undefined, stories: readonly stri
   return linked && stories.includes(linked) ? linked : null;
 }
 
-export type FrameSlots = { request: (id: string, grant: () => void) => () => void };
+type FramePriority = { visible: () => boolean; distance: () => number; evict: () => void };
+export type FrameSlots = {
+  request: (id: string, grant: () => void, priority?: FramePriority) => () => void;
+  prioritize: () => void;
+};
 
 export function createFrameSlots(limit: number): FrameSlots {
   if (!Number.isInteger(limit) || limit < 1) throw new Error("Frame slots must be positive");
-  const active = new Set<string>();
-  const waiting: Array<{ id: string; grant: () => void }> = [];
+  type Ticket = { id: string; grant: () => void; priority?: FramePriority; admitted: number };
+  const active = new Map<string, Ticket>();
+  const waiting: Ticket[] = [];
   const drain = () => {
-    while (active.size < limit && waiting.length) {
-      const next = waiting.shift()!;
-      active.add(next.id);
+    while (waiting.length) {
+      const visible = waiting.findIndex((ticket) => ticket.priority?.visible());
+      if (active.size >= limit) {
+        if (visible < 0) return;
+        const candidate = [...active.values()].filter((ticket) => ticket.priority && !ticket.priority.visible())
+          .sort((a, b) => a.admitted - b.admitted || b.priority!.distance() - a.priority!.distance())[0];
+        if (!candidate) return;
+        active.delete(candidate.id);
+        candidate.priority!.evict();
+      }
+      const [next] = waiting.splice(visible < 0 ? 0 : visible, 1);
+      next.admitted = performance.now();
+      active.set(next.id, next);
       next.grant();
     }
   };
   return {
-    request(id, grant) {
-      const ticket = { id, grant };
+    prioritize: drain,
+    request(id, grant, priority) {
+      const ticket = { id, grant, priority, admitted: 0 };
       waiting.push(ticket);
       drain();
       return () => {
         const index = waiting.indexOf(ticket);
         if (index >= 0) waiting.splice(index, 1);
-        else if (active.delete(id)) drain();
+        else if (active.get(id) === ticket) { active.delete(id); drain(); }
       };
     },
   };

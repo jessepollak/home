@@ -71,6 +71,8 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
   const release = useRef<(() => void) | null>(null);
   const [nearby, setNearby] = useState(() => typeof IntersectionObserver === "undefined");
   const [visible, setVisible] = useState(() => typeof IntersectionObserver === "undefined");
+  const visibleRef = useRef(visible);
+  useLayoutEffect(() => { visibleRef.current = visible; }, [visible]);
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (nearby) return;
@@ -82,7 +84,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
       observer?.disconnect();
       observer = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting)) setNearby(true);
-      }, { root, rootMargin: `${root?.clientHeight || view.innerHeight}px 0px`, threshold: 0 });
+      }, { root, rootMargin: `${root ? root.clientHeight : view.innerHeight}px 0px`, threshold: 0 });
       observer.observe(node);
     };
     observe();
@@ -100,16 +102,18 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
     const observe = () => {
       observer?.disconnect();
       const height = node.getBoundingClientRect().height;
-      const tallThreshold = height > 0 ? Math.min(0.5, view.innerHeight / (2 * height)) : 0.5;
+      const viewportHeight = root ? root.clientHeight : view.innerHeight;
+      const tallThreshold = height > 0 ? Math.min(0.5, viewportHeight / (2 * height)) : 0.5;
       observer = new IntersectionObserver((entries) => {
         if (entries.some((entry) => entry.isIntersecting && (entry.intersectionRatio >= 0.5 ||
-          entry.intersectionRect.height >= view.innerHeight / 2))) setVisible(true);
+          entry.intersectionRect.height >= viewportHeight / 2))) setVisible(true);
       }, { root, threshold: [0, tallThreshold, 0.5] });
       observer.observe(node);
     };
     observe();
     const resize = new ResizeObserver(observe);
     resize.observe(node);
+    if (root) resize.observe(root);
     view.addEventListener("resize", observe);
     return () => { observer.disconnect(); resize.disconnect(); view.removeEventListener("resize", observe); };
   }, [visible, root]);
@@ -117,13 +121,26 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
     if (!nearby) return;
     const frames = busy.current;
     frames.add(story.id);
-    const cancel = slots.request(story.id, () => setGranted(true));
+    const cancel = slots.request(story.id, () => setGranted(true), {
+      visible: () => visibleRef.current,
+      distance: () => {
+        const rect = container.current!.getBoundingClientRect();
+        const bounds = root?.getBoundingClientRect();
+        return Math.max(0, (bounds?.top ?? 0) - rect.bottom, rect.top - (bounds?.bottom ?? window.innerHeight));
+      },
+      evict: () => {
+        frames.delete(story.id);
+        setGranted(false);
+        setNearby(false);
+      },
+    });
     release.current = () => {
       frames.delete(story.id);
       cancel();
     };
     return release.current;
-  }, [slots, busy, story.id, nearby]);
+  }, [slots, busy, story.id, nearby, root]);
+  useEffect(() => { if (visible) slots.prioritize(); }, [visible, nearby, slots]);
   const fullHeight = story.portals || story.layout === "fullscreen";
   const [height, setHeight] = useState(FRAME_MIN_HEIGHT);
   const [available, setAvailable] = useState(FRAME_WIDTH);
