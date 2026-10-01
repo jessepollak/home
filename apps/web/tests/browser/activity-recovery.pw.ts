@@ -76,11 +76,15 @@ function activityResponse(url: URL, partial: boolean, freshCard = false) {
   };
 }
 
+test.beforeEach(async ({ page }) => {
+  await page.clock.install({ time: FIXED_NOW });
+});
+
 async function setup(page: Page) {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await seedSignedInSession(page);
-  await installApiFixtures(page, { clock: "playwright" });
+  await installApiFixtures(page, { clock: "system" });
   const createdAt = new Date(FIXED_NOW - 5 * 60_000).toISOString();
   await page.route("**/api/actions*", (route) =>
     new URL(route.request().url()).pathname === "/api/actions"
@@ -101,18 +105,35 @@ async function setup(page: Page) {
 test("background revalidation keeps loaded rows and shows fresh card purchases when onchain history is briefly unavailable", async ({ page }) => {
   const { feed, rows } = await setup(page);
   let reads = 0;
-  await page.route("**/api/activity*", (route) => {
+  let releaseFirstRead = () => {};
+  const firstReadHeld = new Promise<void>((resolve) => { releaseFirstRead = resolve; });
+  await page.route("**/api/activity*", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
     reads++;
+    if (reads === 1) await firstReadHeld;
     return json(route, activityResponse(url, reads > 1, reads > 1));
   });
   await page.goto("/home");
-  await expect(rows).toHaveCount(3);
+  await expect.poll(() => reads).toBeGreaterThan(0);
+  // Hold the first read open and pause the page clock before it settles; the pause margin only
+  // has to outlast the evaluate/pause round trip, so it does not consume the retry budget
+  // below. Drive the first paint with small clock steps because the feed needs frames, then
+  // advance 11s to cross the 10s stale time while staying short of the 15s valuation retry,
+  // so only the visibility-triggered refetch can satisfy the handshake. Resume afterward so
+  // the refetch's recovery retries can run.
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 30_000));
+  releaseFirstRead();
+  await expect.poll(async () => {
+    await page.clock.runFor(100);
+    return rows.count();
+  }, { timeout: 10_000 }).toBe(3);
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
   await page.clock.fastForward(11_000);
+  expect(reads).toBe(1);
   await requestBackgroundRevalidation(page, () => reads, 1);
   await page.clock.runFor(2_500);
+  await page.clock.resume();
   await expect(rows).toHaveCount(3);
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(feed.getByText(warning)).toHaveCount(0);
@@ -137,8 +158,7 @@ test("a partial revalidation keeps its fresh card purchases when the remaining r
   await expect(rows).toHaveCount(3);
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
   await page.clock.fastForward(11_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-  await expect.poll(() => reads).toBeGreaterThan(1);
+  await requestBackgroundRevalidation(page, () => reads, 1);
   await expect.poll(async () => {
     await page.clock.runFor(1_000);
     return reads;
