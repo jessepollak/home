@@ -317,7 +317,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install Chromium
-        run: bun run --cwd apps/web playwright install --with-deps --only-shell chromium
+        # Ubuntu's hosted image already supplies Chromium's shared libraries.
+        # Avoid apt's unrelated font downloads and graphics-library upgrades.
+        run: bun run --cwd apps/web playwright install --only-shell chromium
 
       - name: Test Chromium smoke
         run: bun run --cwd apps/web test:browser-smoke

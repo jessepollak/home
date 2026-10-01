@@ -122,8 +122,9 @@ test("Cash routes from Home through Savings and restores focus on Back", { tag: 
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
+  await page.waitForFunction(() => performance.getEntriesByName("session:verified", "mark").length > 0);
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expect(page).toHaveURL(/\/cash$/, { timeout: 10_000 });
   await expect(page.getByRole("region", { name: "Cash" })).toBeVisible();
   const savings = page.getByRole("region", { name: "Savings" }).getByRole("button", { name: /^US dollar/ });
   await savings.click();

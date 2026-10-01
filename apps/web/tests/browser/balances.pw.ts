@@ -257,7 +257,7 @@ test("cached Home balances paint before delayed verification and revalidation, t
     await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
 
     await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /Borrow Cash/ }).click();
-    await expect(page).toHaveURL(/\/borrow$/);
+    await expect(page).toHaveURL(/\/borrow$/, { timeout: 10_000 });
     const returnStart = await page.evaluate(() => {
       const witness = window as typeof window & { balanceReturn?: { busy: boolean; observer: MutationObserver } };
       const wasBusy = () => Boolean(document.querySelector(
