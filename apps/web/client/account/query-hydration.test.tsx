@@ -5,7 +5,7 @@ import { dehydrate } from "@tanstack/react-query";
 import type { AccountWalletClient, AccountWalletSdkBoundary } from "./cdp-client";
 import type { VerifiedAccountSession } from "./session-client";
 import type { AccountRenderSeed } from "@/shared/account/session-types";
-import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
+import { balancesSnapshotFixture, buildBalancesSnapshotFixture, walletHolding } from "@/shared/balances/fixtures";
 import { TRADE_AVAILABILITY_CONTRACT_VERSION } from "@/shared/trading/contract";
 import { useBalances } from "@/client/balances/use-balances";
 import {
@@ -86,7 +86,7 @@ function persistValuation(ownerKey: string, value: string): void {
       shouldDehydrateQuery: (query) => shouldPersistOwnerQuery(query, ownerKey),
     }),
   });
-  persister?.flush();
+  void persister?.flush();
 }
 
 let observedClient: AccountWalletClient | null = null;
@@ -138,6 +138,39 @@ afterEach(() => {
 });
 
 describe("owner query hydration lifecycle", () => {
+  test("compressed balances paint before SDK restore without granting account authority", async () => {
+    const seededSession = verifiedSession("subject-a", ADDRESS_A);
+    const seededOwnerKey = dataOwnerKey(seededSession);
+    const snapshot = buildBalancesSnapshotFixture({ owner: ADDRESS_A, catalog: Array.from({ length: 1_000 }, (_, index) =>
+      walletHolding({ address: `0x${(index + 100).toString(16).padStart(40, "0")}`,
+        name: `Synthetic token ${index}`, symbol: "TOKEN", decimals: 18 }, "1",
+      { status: "unpriced", reason: "price-unavailable" })) });
+    const client = createHomeQueryClient();
+    const key = ownerQueryKey(seededOwnerKey, "balances", "US");
+    client.setQueryDefaults(key, { meta: ownerQueryMeta(seededOwnerKey) });
+    client.setQueryData(key, snapshot);
+    const persister = createOwnerQueryPersister(window.localStorage, seededOwnerKey);
+    persister?.persistClient({ timestamp: NOW, buster: "home-query-v4", clientState: dehydrate(client) });
+    await persister?.flush();
+    client.clear();
+    let sessionReads = 0;
+    let tokenReads = 0;
+    const view = render(<AccountWalletSessionOwner
+      sdk={{ ...sdk(null), isInitialized: false, getAccessToken: async () => { tokenReads += 1; return "token"; } }}
+      renderSeed={{ session: seededSession, source: "cdp-hint" }}
+      sessionFetch={async () => { sessionReads += 1; return new Promise<Response>(() => {}); }}
+    >
+      <HydrationProbe fetchValuation={async () => ({})} />
+      <BalanceProbe />
+    </AccountWalletSessionOwner>);
+    await waitFor(() => expect(view.getByTestId("balances").textContent).toBe(ADDRESS_A));
+    expect(getHomeQueryClient().getQueryData(key)).toEqual(snapshot);
+    expect({ sessionReads, tokenReads }).toEqual({ sessionReads: 0, tokenReads: 0 });
+    expect(observedClient).toMatchObject({ status: "restoring", verification: "provisional", ownerKey: null });
+    await expect(observedClient?.fetchAccountResource("/api/actions"))
+      .rejects.toMatchObject({ reason: "stale-session" });
+  });
+
   test("render seed paints signed cache before SDK restore without gaining authority", async () => {
     const seededSession = verifiedSession("subject-a", ADDRESS_A);
     const seededOwnerKey = dataOwnerKey(seededSession);

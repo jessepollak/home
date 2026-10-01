@@ -107,7 +107,7 @@ const holdingSchema = z.object({
   return h.source !== "borrow" && h.kind === "erc20" && h.contractAddress !== null &&
     h.id === (h.source === "catalog" ? catalogHoldingId(h.contractAddress) : walletHoldingId(h.contractAddress)) &&
     h.key === erc20AssetKey(h.contractAddress) &&
-    ![...expectedRegistryHoldings().values()].some((item) => item.key === h.key) &&
+    !registryAssetKeys().has(h.key) &&
     h.cashCurrency === null && h.underlying === undefined && h.underlyingBalance === undefined &&
     h.cashValue === undefined && h.balance.status === "ready" && h.balance.baseUnits !== "0";
 }));
@@ -223,6 +223,12 @@ type RegistryExpectation = {
   cashCurrency: FiatCurrencyCode | null;
 };
 let registryExpectations: Map<string, RegistryExpectation> | null = null;
+let registryKeys: ReadonlySet<string> | null = null;
+
+function registryAssetKeys(): ReadonlySet<string> {
+  registryKeys ??= new Set([...expectedRegistryHoldings().values()].map((holding) => holding.key));
+  return registryKeys;
+}
 
 export function expectedRegistryHoldings(): ReadonlyMap<string, RegistryExpectation> {
   if (registryExpectations) return registryExpectations;

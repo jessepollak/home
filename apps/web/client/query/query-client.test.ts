@@ -105,7 +105,7 @@ describe("owner query cache boundary", () => {
     const storage = memoryStorage();
     const persister = createOwnerQueryPersister(storage, ownerKey);
     persister?.persistClient({ timestamp: NOW, buster: "home-query-v4", clientState: state });
-    persister?.flush();
+    void persister?.flush();
     const restored = createHomeQueryClient();
 
     expect(state.queries).toHaveLength(1);
@@ -136,7 +136,7 @@ describe("owner query cache boundary", () => {
       buster: "home-query-v4",
       clientState: dehydrateOwnerQueries(client, ownerKey, now),
     });
-    persister.flush();
+    void persister.flush();
     const restored = createHomeQueryClient();
     expect(restoreOwnerQueries(restored, storage, ownerKey, now)).toBe(true);
     expect(restored.getQueryData<typeof balancesSnapshotFixture>(ownerQueryKey(ownerKey, "balances", "US")))
@@ -165,7 +165,7 @@ describe("owner query cache boundary", () => {
       buster: "home-query-v4",
       clientState: dehydrateOwnerQueries(client, ownerKey, now),
     });
-    persister.flush();
+    void persister.flush();
 
     const restored = createHomeQueryClient();
     expect(restoreOwnerQueries(restored, storage, ownerKey, now + 2)).toBe(true);
@@ -185,7 +185,7 @@ describe("owner query cache boundary", () => {
 
     expect(() => {
       persister?.persistClient({ timestamp: NOW, buster: "home-query-v4", clientState: { mutations: [], queries: [] } });
-      persister?.flush();
+      void persister?.flush();
     }).not.toThrow();
     expect(restoreOwnerQueries(client, storage, "owner-a")).toBe(false);
     expect(client.getQueryCache().getAll()).toHaveLength(0);
@@ -388,7 +388,7 @@ describe("owner query cache boundary", () => {
       buster: "home-query-v4",
       clientState: dehydrated,
     });
-    persister?.flush();
+    void persister?.flush();
     const restored = createHomeQueryClient();
     expect(restoreOwnerQueries(restored, storage, ownerKey)).toBe(true);
     expect(restored.getQueryData<typeof balancesSnapshotFixture>(ownerQueryKey(ownerKey, "balances", "US")))
