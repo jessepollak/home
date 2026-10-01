@@ -1,0 +1,28 @@
+// Pre-existing sites tracked by #1187/#1188/#1189/#1190. Delete an entry when its file adopts
+// the shared upstream deadline; the pinned count and size may only go down.
+export const manualAbortTimeoutExceptions = new Map([
+  ["server/actions/follow-through.ts", 1],
+  ["server/actions/handler.ts", 1],
+  ["server/actions/kinds/trade/cdp-swaps.ts", 1],
+  ["server/actions/receipt.ts", 1],
+  ["server/actions/reconcile.ts", 1],
+  ["server/activity/token-metadata-rpc.ts", 1],
+  ["server/activity/valuation/coinbase-daily-fx.ts", 1],
+  ["server/balances/enumerate-cdp.ts", 2],
+  ["server/balances/price.ts", 1],
+  ["server/balances/read.ts", 1],
+  ["server/cards/immersve/immersve-client.ts", 1],
+  ["server/chain-data/cdp-address-history.ts", 1],
+  ["server/chain-data/cdp-sql-client.ts", 1],
+  ["server/chain-data/cdp-sql-rejection.ts", 1],
+  ["server/chain/coinbase-smart-account.ts", 1],
+  ["server/db/sql.ts", 1],
+  ["server/funding/core/provider-context.ts", 1],
+  ["server/funding/offering.ts", 1],
+  ["server/morpho-markets/rpc.ts", 1],
+  ["server/operator-settings/invest.ts", 1],
+  ["server/operator-settings/regions.ts", 1],
+  ["server/paymaster/client.ts", 1],
+  ["server/preferences/country.ts", 1],
+  ["server/savings/rpc.ts", 1],
+]);
