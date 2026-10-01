@@ -36,7 +36,7 @@ The attempt sum is useful because the old suite used one worker. The ~58s residu
 
 ## Changes and coverage
 
-`test:browser-smoke` selects 15 tagged cases. It checks deployment access and rejection, OTP sign-in, shell/history and one balances read, SSR/hydration, cached balances before verification and Borrow navigation, Savings deposit/withdraw review, Cash focus restoration, Buy review through Invest, partial/full Sell review, Send retry/dispatch/reload, IDRX funding through receipt, currency conversion review, immediate Back/Forward scroll preservation, and the operator funding-settings link. Existing unit, story, SQL and PostgreSQL checks continue unchanged.
+`test:browser-smoke` selects 9 tagged cases. It checks deployment access and rejection, OTP sign-in, shell/history and one balances read, cached balances before verification and Borrow navigation, Savings deposit review, Buy review through Invest, partial/full Sell review, Send retry/dispatch/reload, IDRX funding through receipt, and the operator funding-settings link. Six additional detailed journeys (Cash focus, conversion, sign-in destination, three-route SSR replay, Savings withdrawal review, and immediate scroll/Forward) remain in the 163-case regression suite. They overlap shared flow primitives or extend the smoke contract into detailed regression coverage. Existing unit, story, SQL and PostgreSQL checks continue unchanged.
 
 42 expanded cases are removed:
 
@@ -48,6 +48,8 @@ The attempt sum is useful because the old suite used one worker. The ~58s residu
 | Feature-map inventory assertion and manual-disposition skips | 9 | Existing feature-map unit inventory/parser tests; actual surface journeys remain. |
 
 The remaining distinct browser regressions run with `bun run --cwd apps/web test:browser-regression`, including smoke. The **Browser regressions** workflow can run that suite on demand. They no longer run on every PR/main push. This is an explicit tradeoff: a regression outside the selected journeys is found by its unit/story check, a targeted regression run, or manual full regression, rather than every smoke run.
+
+The hosted 15-case trial exceeded the 75s suite budget. The final 9-case selection removes six detailed/overlapping gate journeys while preserving them in regression; it keeps the existing budget rather than extending it.
 
 The fast suite uses two workers, no admin global warm-up, one diagnostic retry, failure screenshots and retained failure traces. Traces still record attempted actions and DOM/network evidence; continuous video encoding is removed. CI installs the pinned Chromium headless shell only, using Chromium shared libraries already provided by the Ubuntu hosted image. Successful runs also retain JSON test timings. The existing required check name remains **Chromium smoke**.
 
@@ -65,7 +67,7 @@ The target is the complete Chromium job, not all CI or queue time. Playwright ha
 | Avoid redundant apt installation on hosted Ubuntu | First hosted install spent ~49s on apt metadata, unrelated font downloads and graphics-library upgrades; browser download was ~2s | Implemented: use existing shared libraries; missing dependencies still fail browser launch. |
 | Browser/dependency caches | At most tens of seconds; cache transfer may rival the 6s dependency install | Not necessary for the first measured target; add only if setup dominates hosted results. |
 | More workers or sharding the entire suite | ~818s / 2 = 409s before setup; cannot reach two minutes by itself | Keep detailed regressions separate; avoid aggressive CPU contention. |
-| Longer retries/global timeouts or accepting flaky passes | Adds delay or turns an intermittent failure green | Not used; one route URL assertion allows measured cold compilation, while suite budget and flaky rejection remain strict. |
+| Longer retries/global timeouts or accepting flaky passes | Adds delay or turns an intermittent failure green | Not used; targeted route URL assertions allows measured cold compilation, while suite budget and flaky rejection remain strict. |
 | Production build for every smoke job | Better fidelity, but adds a build to the critical path | Keep the existing production-navigation/performance checks for now. |
 | Reusable build artifacts or fixture-only Vite entry | Could remove Next cold-compilation variance | Follow-up only if cold hosted smoke misses the budget; preserve a separate Next SSR/auth contract. |
 

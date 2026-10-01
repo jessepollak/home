@@ -145,7 +145,7 @@ The **Storybook review links** workflow (`.github/workflows/storybook-review-lin
 
 ## Browser-smoke boundary
 
-The required **Chromium smoke** job runs 15 tagged essential fixture-backed Playwright cases for every pull request and push to `main`. It starts a CI-local `next dev` server; it does not exercise the hosted Vercel preview deployment. The complete fixture regression suite remains available through `bun run --cwd apps/web test:browser-regression` and the on-demand **Browser regressions** workflow. Detailed regressions are not part of every smoke run.
+The required **Chromium smoke** job runs 9 tagged essential fixture-backed Playwright cases for every pull request and push to `main`. It starts a CI-local `next dev` server; it does not exercise the hosted Vercel preview deployment. The complete fixture regression suite remains available through `bun run --cwd apps/web test:browser-regression` and the on-demand **Browser regressions** workflow. Detailed regressions are not part of every smoke run.
 
 Smoke uses two workers, a 75-second CI-wide Playwright timeout, and an elapsed-job budget of 110 seconds before artifact upload, reserving 10 seconds for upload and cleanup. Only the full regression command runs the admin route warm-up. CI retains one diagnostic retry; `failOnFlakyTests` still fails a retry-only pass. Failure traces and screenshots replace continuous video recording, and JSON test timings upload on successful and failed runs. The required check name is unchanged. See [smoke performance analysis](ci-smoke-performance.md) for the measured baseline, deleted coverage, retained journeys and tradeoffs.
 

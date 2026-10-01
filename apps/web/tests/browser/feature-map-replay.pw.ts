@@ -70,7 +70,7 @@ for (const surfaceId of replaySurfaceIds) {
 
 for (const key of Object.keys(variantFixtures)) {
   const [surfaceId, name] = key.split(":");
-  test(`feature map: ${surfaceId} (${name})`, { tag: "@smoke" }, async ({ page }) => {
+  test(`feature map: ${surfaceId} (${name})`, async ({ page }) => {
     const variant = (await mapPromise).surfaces.get(surfaceId)?.variants.find((entry) => entry.name === name);
     expect(variant, `${key}: mapped replay Reach`).toBeDefined();
     if (!variant) return;

@@ -15,7 +15,7 @@ test("canonical routing preserves the shell and one balances read", { tag: "@smo
   await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
 
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expect(page).toHaveURL(/\/cash$/, { timeout: 10_000 });
   await page.getByRole("button", { name: "Invest", exact: true }).click();
   await expect(page).toHaveURL(/\/invest$/);
   await page.evaluate(() => {
@@ -438,7 +438,7 @@ test("Account settings moves focus into the view and restores it to the account 
   await readPrimaryNavigationTargets();
 });
 
-test("sign-in returns to Cash through the signed-in shell", { tag: "@smoke" }, async ({ page }) => {
+test("sign-in returns to Cash through the signed-in shell", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installApiFixtures(page);
   await page.goto("/cash");
@@ -493,7 +493,7 @@ test("sign-in code slots accept paste, editing and scripted autofill", async ({ 
   await expect(page).toHaveURL(/\/home$/);
 });
 
-test("representative canonical routes SSR and hydrate their selected panel", { tag: "@smoke" }, async ({ page }) => {
+test("representative canonical routes SSR and hydrate their selected panel", async ({ page }) => {
   await seedSignedInSession(page, "GB");
   await page.addInitScript(() => {
     for (const key of Object.keys(localStorage)) {

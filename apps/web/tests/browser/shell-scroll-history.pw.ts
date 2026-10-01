@@ -98,7 +98,7 @@ test("Back and Forward restore document scroll after Activity navigation", async
   await expectRestored(page, target);
 });
 
-test("immediate browser Back preserves a scrolled Home entry for Forward", { tag: "@smoke" }, async ({ page }) => {
+test("immediate browser Back preserves a scrolled Home entry for Forward", async ({ page }) => {
   await setupLongActivity(page);
   await page.locator("#home-nav").click();
   await expect(page).toHaveURL(/\/home$/);
