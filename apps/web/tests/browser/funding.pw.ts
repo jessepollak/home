@@ -17,7 +17,7 @@ test("IDRX funding reaches payment instructions and receipt", { tag: "@smoke" },
   await page.addInitScript(() => localStorage.setItem("home.country.v2", "ID"));
   await installApiFixtures(page);
   await signIn(page);
-  await page.getByRole("button", { name: "Add money" }).click();
+  await page.getByRole("link", { name: "Add money", exact: true }).click();
   const method = page.getByRole("button", { name: /Deposit IDR/ });
   await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();
@@ -39,8 +39,9 @@ test("Add money before hydration navigates to the IDRX funding flow", { tag: "@s
   await installApiFixtures(page);
   await page.route("**/_next/**/*.js", (route) => route.abort());
   await page.goto("/home");
-  const trigger = page.getByRole("button", { name: "Add money", exact: true });
+  const trigger = page.getByRole("link", { name: "Add money", exact: true });
   await expect(page.getByRole("button", { name: "Account", exact: true })).toBeDisabled();
+  await expect(trigger).toBeVisible();
   await expect(trigger).toHaveAttribute("href", "/home?flow=add-money");
   await page.unroute("**/_next/**/*.js");
   await trigger.click();

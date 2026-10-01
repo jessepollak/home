@@ -465,7 +465,7 @@ describe("pushed funding history", () => {
       throw new Error(`Unexpected read: ${path}`);
     };
     render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} sessionFetch={sessionFetch} />);
-    const prompt = await page().findByRole("button", { name: "Add money" });
+    const prompt = await page().findByRole("link", { name: "Add money" });
     await page().findByText("No activity yet");
     const activity = page().getByRole("region", { name: "Activity" });
     const emptyPrompt = within(activity).getByRole("button", { name: "Add money" });
@@ -1587,7 +1587,7 @@ describe("Home shell routing and intents", () => {
       />,
     );
 
-    fireEvent.click(await page().findByRole("button", { name: "Add money" }));
+    fireEvent.click(await page().findByRole("link", { name: "Add money" }));
     await page().findByRole("dialog", { name: "Add money" });
 
     await act(async () => {
@@ -1750,7 +1750,7 @@ describe("Home refresh wiring", () => {
     await waitFor(() => expect(fixture.calls.activity).toBe(1));
     const target = page().getByRole("heading", { name: "Your money" });
     expect(page().getByRole("button", { name: "Refresh Home" })).toBeTruthy();
-    fireEvent.click(page().getAllByRole("button", { name: "Add money" })[0]!);
+    fireEvent.click(page().getByRole("link", { name: "Add money" }));
     const dialog = await page().findByRole("dialog", { name: "Add money" });
     expectSheetOpen(dialog);
     expect(page().queryByRole("button", { name: "Refresh Home" })).toBeNull();
@@ -1983,7 +1983,7 @@ describe("walletless country preference read", () => {
     const country = await page().findByRole("combobox", { name: "Country" });
     expect(country.getAttribute("value")).not.toContain("Mexico");
     fireEvent.click(page().getByRole("button", { name: "Done" }));
-    fireEvent.click(page().getByRole("button", { name: "Add money" }));
+    fireEvent.click(page().getByRole("link", { name: "Add money" }));
     const dialog = await page().findByRole("dialog", { name: "Add money" });
     expect(within(dialog).getByRole("button", { name: /Receive crypto/ })).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: /Deposit/ })).toBeNull();

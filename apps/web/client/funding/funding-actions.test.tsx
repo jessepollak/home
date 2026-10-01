@@ -17,7 +17,7 @@ await mock.module("next/navigation", () => ({
   usePathname: () => "/home",
 }));
 
-const { act, waitFor } = await import("@testing-library/react");
+const { act, waitFor, within } = await import("@testing-library/react");
 const { FundingActionsForWallet } = await import("./funding-actions");
 // The Add money sheet renders only after this deferred chunk is evaluated, which a loaded
 // shared runner can stretch past Bun's 5 s default watchdog inside a test. Warming the
@@ -110,15 +110,22 @@ describe("FundingActions hydration", () => {
     const back = mock(() => {});
     const originalBack = window.history.back;
     Object.defineProperty(window.history, "back", { configurable: true, value: back });
+    const serverLinks: HTMLElement[] = [];
     const fixture = await hydrateServerRender(
       <FundingActionsForWallet wallet={verifiedWallet()} initialFlow="add-money" />,
+      {
+        beforeHydrate: () => {
+          serverLinks.push(within(document.body).getByRole("link", { name: "Add money" }));
+        },
+      },
     );
 
     try {
-      const trigger = Array.from(fixture.container.querySelectorAll<HTMLAnchorElement>("a"))
-        .find((button) => button.textContent?.includes("Add money"));
-      expect(trigger?.getAttribute("href")).toBe("/home?flow=add-money");
-      await act(async () => trigger?.click());
+      const trigger = within(fixture.container).getByRole("link", { name: "Add money", hidden: true });
+      expect(serverLinks).toHaveLength(1);
+      expect(serverLinks[0]).toBe(trigger);
+      expect(trigger.getAttribute("href")).toBe("/home?flow=add-money");
+      await act(async () => trigger.click());
       expect(`${window.location.pathname}${window.location.search}`).toBe("/home?flow=add-money");
       const close = await waitFor(() => {
         const button = document.body.querySelector<HTMLButtonElement>('[data-slot="drawer-popup"] button[aria-label="Close add money"]');

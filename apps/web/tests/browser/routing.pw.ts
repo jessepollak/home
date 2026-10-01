@@ -290,8 +290,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
       performance.getEntriesByName("action:first-interactive", "mark").length), {
       timeout: process.env.CI ? 10_000 : 5_000,
     }).toBeGreaterThan(0);
-    const addMoney = page.getByRole("button", { name: "Add money", exact: true }).first();
-    await expect(addMoney).toBeEnabled();
+    const addMoney = page.getByRole("link", { name: "Add money", exact: true }).first();
+    await expect(addMoney).toBeVisible();
     await addMoney.click();
     const addDialog = page.getByRole("dialog", { name: "Add money" });
     await expect(addDialog).toBeVisible();

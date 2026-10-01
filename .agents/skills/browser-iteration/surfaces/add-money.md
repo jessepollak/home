@@ -1,5 +1,5 @@
 ### `add-money` (funding)
-- **Entry context**: funding · overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) · signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) · provider fixture (`/api/funding/providers`); IDRX path in funding.pw.ts · `Add money` button (funding-actions.tsx); while providers load, a noninteractive deposit-method row reserves space beside clickable Receive crypto; with no local onramp, a country-specific deposit status appears after providers load.
+- **Entry context**: funding · overlay on any shell route: `?flow=add-money` or `?flow=receive`; `/fund` redirects to `/home?add-money=1` (app/fund/page.tsx) · signed-in for methods; signed-out shows `Sign in` link (add-money-dialog.tsx) · provider fixture (`/api/funding/providers`); IDRX path in funding.pw.ts · `Add money` link with a Plus icon (funding-actions.tsx); while providers load, a noninteractive deposit-method row reserves space beside clickable Receive crypto; with no local onramp, a country-specific deposit status appears after providers load.
 
 - **Live**: up-to-review
 - **Owned paths**: `apps/web/client/funding/**`, `apps/web/app/api/funding/**`, `apps/web/server/funding/**`, `apps/web/shared/funding/**`
