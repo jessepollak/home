@@ -5,8 +5,8 @@ const attemptTimingReporter = resolve(__dirname, "attempt-timing-reporter.ts");
 
 export function browserSmokeCiPolicy(ci: boolean): Pick<PlaywrightTestConfig, "retries" | "failOnFlakyTests" | "reporter"> {
   return {
-    retries: ci ? 2 : 0,
+    retries: ci ? 1 : 0,
     failOnFlakyTests: ci,
-    reporter: ci ? [["list"], [attemptTimingReporter]] : "list",
+    reporter: ci ? [["list"], [attemptTimingReporter], ["json", { outputFile: resolve(__dirname, "../../test-results/smoke-timings.json") }]] : "list",
   };
 }

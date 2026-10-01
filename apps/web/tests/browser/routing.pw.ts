@@ -15,7 +15,7 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
 
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expect(page).toHaveURL(/\/cash$/, { timeout: 10_000 });
   await page.getByRole("button", { name: "Invest", exact: true }).click();
   await expect(page).toHaveURL(/\/invest$/);
   await page.evaluate(() => {

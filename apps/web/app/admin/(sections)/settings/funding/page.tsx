@@ -3,6 +3,8 @@ import { readFundingOfferingView } from "@/server/funding/offering";
 import { readOperatorPageDecision } from "@/server/operator/page";
 import { authorizedOperatorAddress, OperatorSection } from "../../../section-content";
 
+export const instant = false;
+
 export default async function FundingSettingsPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);

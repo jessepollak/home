@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { installApiFixtures, RECIPIENT, seedSignedInSession } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
 
-test("submitted send shows a pending result and clears its review route before reload", async ({ page }) => {
+test("submitted send shows a pending result and clears its review route before reload", { tag: "@smoke" }, async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await seedSignedInSession(page);
   await installApiFixtures(page);

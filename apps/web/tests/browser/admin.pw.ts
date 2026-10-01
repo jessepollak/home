@@ -201,11 +201,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
   });
 }
 
-test("settings links to money in and out", async ({ page, context }) => {
+test("settings links to money in and out", { tag: "@smoke" }, async ({ page, context }) => {
   await setSession(context, admin);
   await page.goto("/admin/settings");
+  await expect(page.locator("[data-operator-ready=true]")).toBeVisible();
   await page.getByRole("link", { name: "Money in and out" }).click();
-  await expect(page).toHaveURL(/\/admin\/settings\/funding$/);
+  // A first dev-server navigation compiles this authenticated route on demand.
+  await expect(page).toHaveURL(/\/admin\/settings\/funding$/, { timeout: 10_000 });
   await expect(page.getByRole("heading", { name: "Money in and out", exact: true })).toBeVisible();
 });
 

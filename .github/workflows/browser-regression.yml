@@ -1,0 +1,45 @@
+name: Browser regressions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-regression:
+    name: Chromium regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DISABLE_CDP_USAGE_TRACKING: "true"
+      DISABLE_CDP_ERROR_REPORTING: "true"
+      CDP_SQL_AUTH_MODE: client-api-key
+      HOME_PLAYWRIGHT_ACCESS_CREDENTIAL: chromium-smoke-access-credential-fixture
+      HOME_PLAYWRIGHT_ACCESS_SIGNING_SECRET: chromium-smoke-signing-secret-fixture
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.12
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Install Chromium
+        run: bun run --cwd apps/web playwright install --with-deps --only-shell chromium
+      - name: Test Chromium regressions
+        run: bun run --cwd apps/web test:browser-regression
+      - name: Upload Playwright timings and failure traces
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-regression-results
+          path: apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
