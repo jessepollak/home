@@ -466,7 +466,7 @@ describe("ConnectedActivityPanel", () => {
     const owner = session("subject-a", WALLET_A);
     const ownerKey = dataOwnerKey(owner);
     const source = createHomeQueryClient();
-    const activityKey = [ownerKey, "activity", new Date(NOW).toISOString(), "USD"];
+    const activityKey = [ownerKey, "activity", new Date(NOW).toISOString(), "USD", "all"];
     const actionsKey = [ownerKey, "actions"];
     source.setQueryData(activityKey, { pages: [{ transfers: [{}] }], pageParams: [null] });
     source.setQueryData(actionsKey, { actions: [null] });
@@ -746,6 +746,29 @@ describe("ConnectedActivityPanel", () => {
     );
     expect(view.getByText("Recent Base activity timed out. Try again.")).toBeTruthy();
     expect(view.queryByText("No transfer history was inferred from this error.")).toBeNull();
+  });
+
+  test("an empty recent time chunk continues to older activity before showing an empty history", async () => {
+    installControlledObserver();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const page = pageFor(query, WALLET_A, queries.length < 6
+        ? { empty: true, nextCursor: `chunk-${queries.length}` }
+        : { id: "older-event", blockNumber: "10" });
+      return { ...page, window: { from: "2023-01-01T00:00:00.000Z", to: page.window.to },
+        transfers: page.transfers.map((transfer) => ({ ...transfer, blockTimestamp: new Date(NOW - 40 * 86_400_000).toISOString() })) };
+    };
+    const view = render(<ActivityPanel session={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    const observer = await waitForSentinel();
+    expect(view.queryByText("End of activity")).toBeNull();
+    act(() => observer.intersect());
+    await waitFor(() => expect(queries).toHaveLength(6), waitedFor);
+    await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy(), waitedFor);
+    expect(new URLSearchParams(queries[1]).get("cursor")).toBe("chunk-1");
+    expect(new URLSearchParams(queries[2]).get("cursor")).toBe("chunk-2");
+    for (const query of queries) expect(new URLSearchParams(query).get("history")).toBe("all");
+    expect(view.queryByText("Loading older activity")).toBeNull();
   });
 
   test("continues automatically through advancing empty pages without manual controls", async () => {

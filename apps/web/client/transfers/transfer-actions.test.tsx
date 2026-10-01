@@ -4,6 +4,7 @@ import { page } from "@/tests/helpers/dom";
 import { afterEach, expect, test } from "bun:test";
 import type { ComponentProps } from "react";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 
 const { act, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { TransferActionsForWallet } = await import("./transfer-actions");
@@ -23,7 +24,7 @@ function wallet(subject: string, address: `0x${string}`): Wallet {
     fetchAccountResource: async (path) => {
       if (path === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
       if (path === "/api/transfers/recent-recipients") return { version: 1, recipients: [] };
-      if (path.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
+      if (path.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
       throw new Error(`Unexpected account resource: ${path}`);
     },
     prepareMoneyAction: async () => { throw new Error("Unexpected prepare"); },

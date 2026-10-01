@@ -146,7 +146,7 @@ export function AddMoneyDialog({
         <OpenOrderPrompt
           binding={selectedBinding}
           order={promptOrder}
-          startNewAllowed={startNewAllowed}
+          startNewAllowed={startNewAllowed && (selectedBinding.direction !== "onramp" || selectedBinding.resumeOnly !== true)}
           onContinue={onContinueOrder}
           onStartNew={onStartNewOrder}
         />
@@ -249,7 +249,8 @@ export function MethodBody({
                   hint="Open deposit flow"
                   disabled={
                     providerBindingsDisabled ||
-                    (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding))
+                    (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding) &&
+                      !(binding.direction === "onramp" && binding.resumeOnly === true))
                   }
                   onSelect={() => onSelectBinding(binding)}
                 />

@@ -1,10 +1,11 @@
 import { link, mkdir, realpath, unlink, writeFile, readdir } from "node:fs/promises";
 import { resolve, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { fixtureRoutes } from "../../tests/browser/feature-map/fixtures";
 import { activityPage, syntheticActivity } from "./synthetic-activity";
 import { syntheticPriceHistory } from "./synthetic-prices";
-import { artifactName, integer, routeFor, validPlan, validResult, workloads, type Plan } from "./model";
+import { artifactName, assertProxyToolkit, integer, routeFor, validPlan, validResult, workloads, type Plan } from "./model";
 
 export type ProxyOptions = { port: number; host: string; upstream: string; rows: number; outDir: string };
 export const defaults = (): ProxyOptions => ({ port: 4199, host: "127.0.0.1", upstream: `http://127.0.0.1:${process.env.HOME_FIXTURE_PORT ?? 3199}`, rows: 300, outDir: resolve(tmpdir(), "home-device-profile") });
@@ -81,7 +82,7 @@ async function boundedBody(request: Request, limit: number) {
   }
   return Buffer.concat(chunks).toString("utf8");
 }
-export function createHandler(options: ProxyOptions, harness: string, now = () => Date.now()) {
+export function createHandler(options: ProxyOptions, harness: string, toolkit: string, now = () => Date.now()) {
   const origin = new URL(options.upstream);
   const anchor = now() - 120_000;
   const handle = async (request: Request, clientAddress: string | null): Promise<Response> => {
@@ -114,7 +115,7 @@ export function createHandler(options: ProxyOptions, harness: string, now = () =
       const since = integer(url.searchParams.get("since") ?? "0", 0, Number.MAX_SAFE_INTEGER);
       if (since === null) return bad("Invalid since");
       const files = (await readdir(options.outDir)).filter((file) => /^\d+-[a-zA-Z0-9_-]+-[a-zA-Z0-9_-]+\.json$/.test(file) && Number(file.split("-")[0]) >= since).sort();
-      return json(isLoopbackAddress(clientAddress) ? { outDir: options.outDir, files } : { files });
+      return json(isLoopbackAddress(clientAddress) ? { toolkit, outDir: options.outDir, files } : { toolkit, files });
     }
     if (path.startsWith("/__device-profile/")) return bad("Not found", 404);
     if (path.startsWith("/api/")) {
@@ -136,11 +137,32 @@ export function createHandler(options: ProxyOptions, harness: string, now = () =
     catch (error) { console.error(`Device profile proxy request failed: ${String(error)}`); return bad("Device profile proxy failed", 500); }
   };
 }
-export async function startProxy(options: ProxyOptions) {
-  await assertOutsideWorktree(options.outDir);
+export async function buildToolkit(): Promise<{ harness: string; toolkit: string }> {
   const build = await Bun.build({ entrypoints: [resolve(import.meta.dir, "harness.ts")], target: "browser", minify: true });
   if (!build.success) throw new Error(build.logs.map(String).join("\n"));
-  const handler = createHandler(options, await build.outputs[0]!.text());
+  const proxy = await Bun.build({ entrypoints: [resolve(import.meta.dir, "proxy.ts")], target: "bun", minify: true });
+  if (!proxy.success) throw new Error(proxy.logs.map(String).join("\n"));
+  const harness = await build.outputs[0]!.text();
+  const toolkit = createHash("sha256").update(JSON.stringify([harness, await proxy.outputs[0]!.text()])).digest("hex");
+  return { harness, toolkit };
+}
+export async function probeProxy(port: number, toolkit: string, timeoutMs = 3000): Promise<"absent" | "reuse"> {
+  const response = await fetch(`http://127.0.0.1:${port}/__device-profile/status?since=0`, { signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
+  if (!response?.ok) return "absent";
+  let text: string;
+  try { text = await response.text(); }
+  catch (error) { throw new Error(`Reading the device-profile proxy status on port ${port} failed: ${String(error)}`); }
+  let status: unknown;
+  try { status = JSON.parse(text); }
+  catch { status = null; }
+  assertProxyToolkit(status, toolkit, port);
+  return "reuse";
+}
+
+export async function startProxy(options: ProxyOptions, built?: Awaited<ReturnType<typeof buildToolkit>>) {
+  await assertOutsideWorktree(options.outDir);
+  const { harness, toolkit } = built ?? await buildToolkit();
+  const handler = createHandler(options, harness, toolkit);
   const server = Bun.serve({ port: options.port, hostname: options.host, development: false, error: () => bad("Device profile proxy failed", 500), fetch: (request, peer) => handler(request, peer.requestIP(request)?.address ?? null) });
   if (options.host === "0.0.0.0") console.warn("Warning: fixture server is LAN-visible; do not expose it to the internet.");
   console.log(`Device profile proxy: http://${options.host}:${server.port}/__device-profile/`);

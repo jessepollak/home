@@ -7,6 +7,7 @@ import { SendDialog } from "@/client/transfers/send-dialog";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111" as const;
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
@@ -55,7 +56,7 @@ function SendKeyboardJourney() {
   const [open, setOpen] = useState(false);
   const [opener, setOpener] = useState<HTMLElement | null>(null);
   const fetchAccountResource = useCallback<AccountWalletClient["fetchAccountResource"]>(async (url) => {
-    if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
+    if (url.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
     if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
     if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [] };
     if (url.startsWith("/api/actions/network-fee")) return { version: 1, usdcReserveBaseUnits: null };

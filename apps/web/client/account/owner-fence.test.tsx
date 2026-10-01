@@ -7,7 +7,8 @@ import type { VerifiedAccountSession } from "./session-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { BALANCES_VERSION } from "@/shared/balances/types";
-import { dataOwnerKey } from "./owner-keys";
+import { restoreNativeBaseSession } from "./native-base-session-client";
+import { dataOwnerKey, nativeBaseOwnerKey } from "./owner-keys";
 import { hydrateServerRender } from "@/tests/helpers/hydration";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
@@ -215,6 +216,33 @@ afterEach(() => {
 });
 
 describe("owner generation fence", () => {
+  test.each([false, true])("native restore removes the duplicate GET and preserves the wallet address check (mismatch=%s)", async (mismatch) => {
+    let reads = 0;
+    const sessionFetch = async () => { reads++; return Response.json(session("base-account")); };
+    const restored = await restoreNativeBaseSession(sessionFetch);
+    if (!restored) throw new Error("Expected native restore");
+    let disconnected = false;
+    render(<AccountWalletSessionOwner
+      sdk={sdk({ authentication: "native-base", ownerKey: nativeBaseOwnerKey(restored), provisionalSession: restored, getAccessToken: async () => null })}
+      sessionFetch={sessionFetch}
+      baseAccountEnabled
+      baseAccountRestorer={async () => ({
+        address: mismatch ? ADDRESS_B : ADDRESS_A,
+        kind: "unsupported",
+        assertUnchanged: async () => {},
+        signMessage: async () => "0x1234",
+        signTypedData: async () => "0x1234",
+        sendCalls: async () => ACTION_ID,
+        getCallsStatus: async () => { throw new Error("Unexpected status request"); },
+        disconnect: async () => { disconnected = true; },
+      })}
+    ><ClientProbe /></AccountWalletSessionOwner>);
+    await waitFor(() => expect(currentClient().status).toBe(mismatch ? "signed-out" : "verified"));
+    expect(reads).toBe(1);
+    expect(disconnected).toBe(mismatch);
+    if (mismatch) expect(currentClient().session).toBeNull();
+  });
+
   test("hydrates with a client-only SDK boundary without regenerating the client tree", async () => {
     const sessionFetch = async () => Response.json(session("cdp-embedded"));
     const owner = (boundary: AccountWalletSdkBoundary) => (

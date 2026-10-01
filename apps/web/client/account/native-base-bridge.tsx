@@ -14,9 +14,9 @@ import type { VerifiedAccountSession } from "./session-client";
 import type { AccountRenderSeed } from "@/shared/account/session-types";
 import { markHomeAuthRestore, startHomeAuthRestore } from "@/client/observability/auth-performance";
 import { readHomeAuthRestoreHint } from "./cdp-wallet-provider-capabilities";
+import { nativeBaseOwnerKey } from "./owner-keys";
 import {
   clearNativeBaseSession,
-  nativeOwnerKey,
   requestNativeBaseChallenge,
   restoreNativeBaseSession,
   verifyNativeBaseChallenge,
@@ -88,7 +88,7 @@ export function useNativeBaseIdentity(
     retryInitialization: enabled ? restore : undefined,
     isInitialized: isSettled,
     isSignedIn: availableIdentity !== null,
-    ownerKey: availableIdentity ? nativeOwnerKey(availableIdentity) : null,
+    ownerKey: availableIdentity ? nativeBaseOwnerKey(availableIdentity) : null,
     provisionalSession: availableIdentity,
     signInWithEmail: async () => { throw new Error("Email authentication requires a CDP project."); },
     verifyEmailOTP: async () => { throw new Error("Email authentication requires a CDP project."); },

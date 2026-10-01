@@ -288,7 +288,7 @@ jobs:
   browser-smoke:
     name: Chromium smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 3
     env:
       DISABLE_CDP_USAGE_TRACKING: "true"
       DISABLE_CDP_ERROR_REPORTING: "true"
@@ -296,6 +296,9 @@ jobs:
       HOME_PLAYWRIGHT_ACCESS_CREDENTIAL: chromium-smoke-access-credential-fixture
       HOME_PLAYWRIGHT_ACCESS_SIGNING_SECRET: chromium-smoke-signing-secret-fixture
     steps:
+      - name: Start smoke budget
+        run: echo "HOME_SMOKE_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -314,14 +317,21 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install Chromium
-        # Uses the pinned @playwright/test CLI; bare `bunx playwright` downloads the latest CLI and mismatched browser builds.
-        run: bun run --cwd apps/web test:browser-install
+        # Ubuntu's hosted image already supplies Chromium's shared libraries.
+        # Avoid apt's unrelated font downloads and graphics-library upgrades.
+        run: bun run --cwd apps/web playwright install --only-shell chromium
 
       - name: Test Chromium smoke
         run: bun run --cwd apps/web test:browser-smoke
 
-      - name: Upload Playwright traces on failure
-        if: failure()
+      - name: Enforce smoke job budget
+        run: |
+          elapsed=$(( $(date +%s) - HOME_SMOKE_STARTED_AT ))
+          echo "Chromium smoke: ${elapsed}s before artifact upload (110s budget; 10s reserved for cleanup)."
+          test "$elapsed" -le 110
+
+      - name: Upload Playwright timings and failure traces
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-smoke-results

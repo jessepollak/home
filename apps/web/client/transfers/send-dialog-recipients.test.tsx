@@ -5,6 +5,7 @@ import { page } from "@/tests/helpers/dom";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { formatAddress } from "@/shared/formatting";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { SendDialog } = await import("./send-dialog");
@@ -76,7 +77,7 @@ function renderDialog({
       fetchAccountResource={async (url) => {
         requested.push(url);
         if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
-        if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
+        if (url.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
         if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: recent };
         const name = new URL(url, "https://home.test").searchParams.get("name") ?? "";
         const gate = gates.get(name);
@@ -255,7 +256,7 @@ describe("SendDialog recipient names", () => {
     const requested: string[] = [];
     const fetchAccountResource = async (url: string) => {
       requested.push(url);
-      if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
+      if (url.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
       if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [{ address: RECIPIENT, name: "example.base.eth" }] };
       return {};
     };

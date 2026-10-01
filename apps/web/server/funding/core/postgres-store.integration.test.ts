@@ -94,6 +94,31 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     expect(rows[0].column_default ?? "").toMatch(/false/);
   });
 
+  test("lists open orders and reads a specific provider only for their owner", async () => {
+    const first = { ...reservation(), owner: { subject: "pg-provider-scope", accountProvider: "base-account" as const } };
+    const second = { ...reservation(), owner: first.owner, providerId: "coinbase", createdAt: "2026-09-13T00:00:00.000Z" };
+    const otherMethod = { ...reservation(), owner: first.owner, paymentMethod: "bank", createdAt: "2026-09-12T01:00:00.000Z" };
+    await store.reserve(first);
+    await store.reserve(otherMethod);
+    await store.reserve(second);
+    expect((await store.listOpen(first.owner, "ID")).map((order) => order.id)).toEqual([second.id, otherMethod.id, first.id]);
+    expect((await store.getOpenForProvider(first.owner, "ID", "idrx"))?.id).toBe(otherMethod.id);
+    expect((await store.getOpenForProvider(first.owner, "ID", "idrx", "qris"))?.id).toBe(first.id);
+    expect((await store.getOpenForProvider(first.owner, "ID", "idrx", "bank"))?.id).toBe(otherMethod.id);
+    expect(await store.getOpenForProvider(first.owner, "ID", "idrx", "card")).toBeNull();
+    expect((await store.getOpenForProvider(first.owner, "ID", "coinbase"))?.id).toBe(second.id);
+    expect(await store.listOpen({ subject: "pg-other", accountProvider: "base-account" }, "ID")).toEqual([]);
+    expect(await store.getOpenForProvider({ subject: "pg-other", accountProvider: "base-account" }, "ID", "idrx", "qris")).toBeNull();
+    expect(await store.getOpenForProvider(first.owner, "US", "idrx")).toBeNull();
+    const otherAsset = { ...reservation(), owner: first.owner, assetId: "base:usdc", createdAt: "2026-09-14T00:00:00.000Z" };
+    await store.reserve(otherAsset);
+    expect((await store.getOpenForProvider(first.owner, "ID", "idrx", "qris"))?.id).toBe(otherAsset.id);
+    expect((await store.getOpenForProvider(first.owner, "ID", "idrx", "qris", first.assetId))?.id).toBe(first.id);
+    expect((await store.getOpenForProvider(first.owner, "ID", "idrx", "qris", otherAsset.assetId))?.id).toBe(otherAsset.id);
+    expect((await store.getOpenForProvider(first.owner, "ID", "idrx", undefined, otherAsset.assetId))?.id).toBe(otherAsset.id);
+    expect(await store.getOpenForProvider(first.owner, "ID", "idrx", "bank", otherAsset.assetId)).toBeNull();
+  });
+
   test("finds an owner-region ambiguous order after a newer open order is observed", async () => {
     const ambiguousInput = { ...reservation(), owner: { subject: "pg-ambiguous-lookup", accountProvider: "base-account" as const } };
     await store.reserve(ambiguousInput);

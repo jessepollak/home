@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
+import { Suspense } from "react";
 import { parseShellLocation } from "@/config/shell-location";
 import type { ShellPanelId } from "@/config/navigation";
 import { ShellFallbackContent } from "@/client/home/shell-pages";
@@ -22,5 +24,10 @@ export async function generateMetadata({
 }
 
 export default function ShellFallbackPage() {
+  return <Suspense fallback={null}><RuntimeShellFallback /></Suspense>;
+}
+
+async function RuntimeShellFallback() {
+  await connection();
   return <ShellFallbackContent />;
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
+import { createBalanceReadTiming, recordPresentedBalance } from "@/client/observability/balance-performance";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { isInterruptionEligible } from "@/client/account/resource-failure";
 import { browserHomeQueryClient, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
@@ -120,8 +121,9 @@ function useBalancesObserver(
     queryFn: async ({ signal }) => {
       if (!validSession) throw new Error("Balances are unavailable.");
       try {
-        return parseBalancesSnapshot(
-          await fetchBalances(region, signal),
+        const timing = createBalanceReadTiming();
+        const snapshot = parseBalancesSnapshot(
+          await fetchBalances(region, signal, timing.mark),
           {
             subject: validSession.subject,
             smartAccountAddress: validSession.smartAccountAddress,
@@ -129,6 +131,8 @@ function useBalancesObserver(
           },
           region,
         );
+        timing.parsed(snapshot);
+        return snapshot;
       } catch (error) {
         if (options.provisional) throw new ProvisionalBalancesFailure(error);
         throw error;
@@ -168,6 +172,13 @@ function useBalancesObserver(
       heldRegion.current = null;
     }
   }, [held, identity, query.data, query.isPlaceholderData]);
+
+  useLayoutEffect(() => {
+    if (!dataOnly && query.data && !query.isPlaceholderData &&
+      ((!held && options.enabled !== false) || (held && options.paintCachedWhileHeld === true))) {
+      recordPresentedBalance(query.data);
+    }
+  }, [dataOnly, held, options.enabled, options.paintCachedWhileHeld, query.data, query.isPlaceholderData]);
 
   const refetch = query.refetch;
   const retry = useCallback(async () => {

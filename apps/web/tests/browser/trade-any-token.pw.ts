@@ -10,7 +10,7 @@ async function warmTradeStep(page: Page, label: "Buy" | "Sell") {
   await expect(page.locator("[data-money-sheet]")).toHaveCount(0);
 }
 
-test("exact Base address has an identity and can review partial and full DEGEN sells", async ({ page }) => {
+test("exact Base address has an identity and can review partial and full DEGEN sells", { tag: "@smoke" }, async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
   const requests: Array<{ version: number; amountBaseUnits: string; assetId: string; direction: string }> = [];

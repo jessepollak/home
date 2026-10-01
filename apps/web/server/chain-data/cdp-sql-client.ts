@@ -4,6 +4,7 @@ import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { isRecord, isUnknownArray } from "@/shared/guards";
 import { readJson } from "@/shared/http/read-json";
 import { ChainDataError } from "./errors";
+import { readSqlRejection } from "./cdp-sql-rejection";
 import type {
   CdpSqlResponse,
   CdpSqlRunRequest,
@@ -169,6 +170,12 @@ export function createCdpSqlHttpTransport({
           signal: controller.signal,
         });
         if (!response.ok) {
+          if (response.status === 400) {
+            throw new ChainDataError("upstream-error", "CDP SQL rejected the query.", {
+              status: 400,
+              ...await readSqlRejection(response, controller.signal),
+            });
+          }
           throw responseError(response);
         }
         const payload: unknown = await readJson(response);

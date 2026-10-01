@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { activityPage, syntheticActivity } from "./synthetic-activity";
 import { parseHistoryResponse, MARKET_PRICE_RANGES } from "../../shared/invest/contracts/market-price-history";
-import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, proxyOptions } from "./proxy";
+import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, probeProxy, proxyOptions } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
-import { artifactName, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, androidFamily, androidView, type Result, type TraceEvent } from "./model";
+import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, androidFamily, androidView, type Result, type TraceEvent } from "./model";
 
 test("synthetic generator keeps 25-transfer pagination and original deterministic row values", () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z"), data = syntheticActivity(300, anchor);
@@ -35,7 +35,7 @@ test("fixture glob routing distinguishes exact path and query and preserves orde
 
 test("proxy serves deterministic synthetic history accepted by the client parser for every range and asset", async () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z");
-  const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: tmpdir() }, "harness", () => anchor + 120_000);
+  const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: tmpdir() }, "harness", "toolkit", () => anchor + 120_000);
   for (const assetId of ["cbbtc", "eth", "base:0x1111111111111111111111111111111111111111"]) {
     for (const range of MARKET_PRICE_RANGES) {
       const url = `http://localhost/api/market-prices/history?${new URLSearchParams({ assetId, range })}`;
@@ -70,7 +70,7 @@ test("proxy validates writes, sanitizes filename, caps body and refuses reposito
     await expect(assertOutsideWorktree(resolve(import.meta.dir))).rejects.toThrow("outside");
     await assertOutsideWorktree(dir);
     expect(() => proxyOptions(new Map([["upstream", "https://example.com"]]))).toThrow("loopback");
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", () => 123456);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", "toolkit", () => 123456);
     const run = await handler(new Request("http://localhost/__device-profile/run?workload=home-fling&rows=20&label=test"));
     expect(run.headers.get("set-cookie")).toContain("home-device-profile-rows=20");
     const body = await run.text();
@@ -105,17 +105,100 @@ test("proxy validates writes, sanitizes filename, caps body and refuses reposito
   }
 });
 
-test("status reports the output directory only to a loopback client", async () => {
+test("proxy reuse requires the current toolkit", () => {
+  const toolkit = "a".repeat(64);
+  expect(() => assertProxyToolkit({ toolkit, files: [] }, toolkit, 4199)).not.toThrow();
+  const mismatch = "The device-profile proxy on port 4299 was started from a different checkout or build; stop the proxy you started there, or pass --port";
+  for (const status of [{ toolkit: "b".repeat(64) }, { files: [] }, { toolkit: null }]) expect(() => assertProxyToolkit(status, toolkit, 4299)).toThrow(mismatch);
+  for (const status of [null, undefined, [], "not JSON", 200]) expect(() => assertProxyToolkit(status, toolkit, 4299)).toThrow("The service on port 4299 isn't a current device-profile proxy");
+});
+
+function listeningPort(port: number | undefined): number {
+  expect(port).toBeDefined();
+  if (port === undefined) throw new Error("Expected a listening server port");
+  return port;
+}
+
+test("proxy probe reuses a matching toolkit", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ toolkit: "current", files: [] }) });
+  try {
+    expect(await probeProxy(listeningPort(server.port), "current", 200)).toBe("reuse");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe rejects a mismatched toolkit", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ toolkit: "other", files: [] }) });
+  try {
+    await expect(probeProxy(listeningPort(server.port), "current", 200)).rejects.toThrow("different checkout or build");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe rejects a non-JSON successful response", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("not JSON") });
+  try {
+    await expect(probeProxy(listeningPort(server.port), "current", 200)).rejects.toThrow("isn't a current device-profile proxy");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe treats an unavailable service as absent", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("unavailable", { status: 503 }) });
+  try {
+    expect(await probeProxy(listeningPort(server.port), "current", 200)).toBe("absent");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe treats a closed port as absent", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  try {
+    const port = listeningPort(server.port);
+    await server.stop(true);
+    expect(await probeProxy(port, "current", 200)).toBe("absent");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe reports a stalled successful body as a read failure, not a non-proxy", async () => {
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"toolkit":')); },
+    })),
+  });
+  try {
+    const error = await probeProxy(listeningPort(server.port), "current", 200).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toContain(`Reading the device-profile proxy status on port ${server.port} failed:`);
+    expect(String(error)).not.toContain("isn't a current device-profile proxy");
+  } finally { await server.stop(true); }
+});
+
+test("toolkit fingerprint is a deterministic sha256 of the bundled toolkit", async () => {
+  const script = `import { buildToolkit } from ${JSON.stringify(resolve(import.meta.dir, "proxy.ts"))}; console.log(JSON.stringify([await buildToolkit(), await buildToolkit()]));`;
+  const child = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(stderr).toBe("");
+  expect(code).toBe(0);
+  const builds: unknown = JSON.parse(stdout);
+  if (!Array.isArray(builds)) throw new Error("Expected an array of toolkit builds");
+  const [first, second]: unknown[] = builds;
+  if (typeof first !== "object" || first === null || !("harness" in first) || !("toolkit" in first)) throw new Error("Expected a toolkit build");
+  if (typeof first.harness !== "string" || typeof first.toolkit !== "string") throw new Error("Expected string harness and toolkit fields");
+  expect(first.harness.length).toBeGreaterThan(0);
+  expect(first.toolkit).toMatch(/^[a-f0-9]{64}$/);
+  expect(second).toEqual(first);
+});
+
+test("status reports the toolkit to every client and the output directory only to loopback", async () => {
   const dir = join(tmpdir(), `home-profile-status-${crypto.randomUUID()}`);
   try {
     await assertOutsideWorktree(dir);
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", () => 99);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", "toolkit", () => 99);
     for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
-      expect(await handler(new Request("http://localhost/__device-profile/status"), address).then((response) => response.json())).toEqual({ outDir: dir, files: [] });
+      expect(await handler(new Request("http://localhost/__device-profile/status"), address).then((response) => response.json())).toEqual({ toolkit: "toolkit", outDir: dir, files: [] });
     }
     for (const address of ["192.168.1.20", "::ffff:192.168.1.20", "", null]) {
       const lan = await handler(new Request("http://localhost/__device-profile/status"), address).then((response) => response.json());
-      expect(lan).toEqual({ files: [] });
+      expect(lan).toEqual({ toolkit: "toolkit", files: [] });
       expect(JSON.stringify(lan)).not.toContain(dir);
     }
   } finally {
@@ -129,7 +212,7 @@ test("a proxy failure answers with a generic error instead of a rendered stack",
   const path = join(tmpdir(), `home-profile-failure-${crypto.randomUUID()}`);
   try {
     await Bun.write(path, "not a directory");
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: path }, "harness", () => 1);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: path }, "harness", "toolkit", () => 1);
     const response = await handler(new Request("http://localhost/__device-profile/status"), "192.168.1.20");
     expect(response.status).toBe(500);
     expect(await response.text()).toBe(JSON.stringify({ error: "Device profile proxy failed" }));
@@ -197,7 +280,7 @@ test("the proxy names a result with the same suffix its client waits for", async
   const dir = join(tmpdir(), `home-profile-label-${crypto.randomUUID()}`);
   try {
     await assertOutsideWorktree(dir);
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", () => 123456);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", "toolkit", () => 123456);
     for (const label of ["feature/foo-123", "../../workspace/home/profile-1", "label with spaces & punctuation", "l".repeat(90)]) {
       const plan = { workload: "home-fling" as const, rows: 20, repeat: 1, label, duration: 10 };
       const result: Result = { version: 1, plan, environment: { userAgent: "Chrome", viewport: { width: 412, height: 811 }, dpr: 2.625, standalone: false, navigatorStandalone: false, supportedEntryTypes: [] }, runs: [] };

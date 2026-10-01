@@ -122,6 +122,16 @@ describe("selected accessibility and React lint rules", () => {
     expect(missing).toEqual([]);
   }, budgetMs);
 
+  it("treats the owned Label component as a label", async () => {
+    const found = await diagnostics({
+      unassociatedOwnedLabel: 'import { Label } from "./owned"; export const View = () => <Label>Amount</Label>;',
+      associatedOwnedLabel: 'import { Input, Label } from "./owned"; export const View = () => <><Label htmlFor="amount">Amount</Label><Label>Name<Input /></Label></>;',
+    });
+    expect(found.filter((item) => item.filename.endsWith("/unassociatedOwnedLabel.tsx")).map((item) => item.code))
+      .toEqual(["jsx-a11y(label-has-associated-control)"]);
+    expect(found.filter((item) => item.filename.endsWith("/associatedOwnedLabel.tsx"))).toEqual([]);
+  });
+
   it("allows owned controls inside labels, stable keys, and memoized context values", async () => {
     const found = await diagnostics({
       ownedLabels: 'import { Input, NativeSelect, Switch } from "./owned"; export const View = () => <><label>Name<Input /></label><label>Region<NativeSelect /></label><label>Enabled<Switch /></label></>;',

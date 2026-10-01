@@ -1,3 +1,10 @@
 {
-  "exceptions": []
+  "exceptions": [
+    {
+      "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
+      "kind": "suppression",
+      "count": 1,
+      "reason": "The Playwright fixed-date shim advances the pinned page clock by real elapsed time across reloads, so it reads the native clock once through a helper."
+    }
+  ]
 }

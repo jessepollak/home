@@ -63,9 +63,6 @@ type Props = {
   snapshot: BalancesSnapshot;
   best: MorphoVaultCandidate | null;
   balanceStale: boolean;
-  depositEntryBlocked?: boolean;
-  historyBlocked: boolean;
-  onSaveEntry: () => void;
   fetchAccountResource: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
@@ -77,7 +74,7 @@ type Props = {
 
 type Step = "currency" | "destination" | "trade" | "save";
 
-export function CashCurrencySheet({ open, entry, session, snapshot, best, balanceStale, depositEntryBlocked = false, historyBlocked, onSaveEntry, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onCancel, onClosed, onAddMoney, onConfirmed }: Props) {
+export function CashCurrencySheet({ open, entry, session, snapshot, best, balanceStale, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onCancel, onClosed, onAddMoney, onConfirmed }: Props) {
   const [step, setStep] = useState<Step>(entry.kind === "currency" ? "currency" : "destination");
   const [selected, setSelected] = useState<CashConversionCurrency | null>(null);
   const [trade, setTrade] = useState<TradeSelection | null>(null);
@@ -101,7 +98,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
   const sourceBalance = sourceHolding?.balance.status === "ready" ? sourceHolding.balance.baseUnits : null;
   const usdcBalance = snapshot.holdings.find((holding) => holding.id === "usdc")?.balance;
   const usdcBaseUnits = !balanceStale && usdcBalance?.status === "ready" ? usdcBalance.baseUnits : null;
-  const canSave = source.code === "USD" && best !== null && usdcBaseUnits !== null && !depositEntryBlocked;
+  const canSave = source.code === "USD" && best !== null && usdcBaseUnits !== null;
   const row = cashHoldings(snapshot).find((item) => item.currency === source.code && item.holding);
   const depth = entry.kind === "currency" ? 1 : 0;
 
@@ -168,7 +165,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
       <MoneyModalActions><div className={canSave ? "grid grid-cols-2 gap-2" : ""}>
         {source.convertOffered ? <Button className="min-h-11 w-full" onPointerDown={() => void TradeStep.preload()} onClick={convert}>Convert</Button>
           : <p className="text-center text-sm text-muted-foreground">{CASH_CONVERSION_UNAVAILABLE_REASON}</p>}
-        {canSave ? <Button variant="secondary" className="min-h-11 w-full" onPointerDown={() => void SavingsStep.preload()} onClick={() => { onSaveEntry(); setSaveCandidate(best); setStep("save"); void SavingsStep.preload(); }}>Save</Button> : null}
+        {canSave ? <Button variant="secondary" className="min-h-11 w-full" onPointerDown={() => void SavingsStep.preload()} onClick={() => { setSaveCandidate(best); setStep("save"); void SavingsStep.preload(); }}>Save</Button> : null}
       </div></MoneyModalActions>
     </MoneyModalStep> : null}
     {step === "destination" ? <MoneyModalStep step="destination" depth={depth}>
@@ -225,7 +222,6 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
       </MoneyModalStep> : null}
     {step === "save" && saveCandidate ? <SavingsStep key={`${resetKey}:${saveCandidate.vaultAddress}`} depth={1} onBack={() => setStep("currency")} onDone={onCancel} mode="deposit" session={session} candidate={saveCandidate}
       availableLabel={usdcBaseUnits !== null ? `${formatUsdStablecoinAmount(usdcBaseUnits)} available` : undefined} availableBaseUnits={usdcBaseUnits} availableStale={balanceStale}
-      historyBlocked={historyBlocked}
       fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction}
       fallback={deferredStepLoading({ title: "Deposit", titleId: "savings-action-title", closeLabel: "Close deposit", depth: 1, onBack: () => setStep("currency") })} /> : null}
   </MoneyModal>;

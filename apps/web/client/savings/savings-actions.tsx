@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { PiggyBank } from "lucide-react";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { savingsJourneyOwnerKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   MoneyModal,
@@ -24,7 +25,6 @@ import type { OperationResult } from "@/shared/money-actions/types";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import { StatusMessage } from "./savings-status-message";
 import { useSavingsDialogFixture } from "./savings-dialog-fixture";
-import { savingsDialogOwnerIdentity } from "./savings-owner-identity";
 import type { SavingsJourneyStepProps } from "./savings-journey-step";
 
 const SavingsJourneyStep = deferStep<SavingsJourneyStepProps>(() => import("./savings-journey-step").then((module) => module.SavingsJourneyStep));
@@ -60,7 +60,6 @@ export type SavingsJourneyProps = {
   };
   availableLabel?: string;
   destinationLabel?: string;
-  historyBlocked?: boolean;
   availableBaseUnits?: string | null;
   availableStale?: boolean;
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
@@ -73,7 +72,7 @@ export type SavingsJourneyProps = {
   onConfirmed?: (result: OperationResult) => void | Promise<void>;
 };
 
-export type SavingsMoneyFlowProps = Pick<SavingsJourneyProps, "session" | "availableLabel" | "availableBaseUnits" | "availableStale" | "historyBlocked" | "fetchAccountResource" | "prepareMoneyAction" | "executeMoneyAction" | "onConfirmed"> & {
+export type SavingsMoneyFlowProps = Pick<SavingsJourneyProps, "session" | "availableLabel" | "availableBaseUnits" | "availableStale" | "fetchAccountResource" | "prepareMoneyAction" | "executeMoneyAction" | "onConfirmed"> & {
   mode: SavingsActionMode;
   candidate: MorphoVaultCandidate;
   depth?: number;
@@ -82,14 +81,14 @@ export type SavingsMoneyFlowProps = Pick<SavingsJourneyProps, "session" | "avail
 };
 
 export function SavingsJourney(props: SavingsJourneyProps) {
-  return <OwnerBoundSavingsJourney key={savingsDialogOwnerIdentity(props.session)} {...props} />;
+  return <OwnerBoundSavingsJourney key={savingsJourneyOwnerKey(props.session)} {...props} />;
 }
 
 /** @public Embeddable Save deposit and withdrawal steps for a MoneyModal host. */
 export function SavingsMoneyFlow({ depth = 0, onBack, onDone, ...props }: SavingsMoneyFlowProps) {
   const exit = useMoneyModalExit();
   const titleId = "savings-action-title";
-  return <SavingsJourneyStep key={`${savingsDialogOwnerIdentity(props.session)}:${props.mode}:${props.candidate.vaultAddress}`} open entry={onBack ? "management" : "amount"}
+  return <SavingsJourneyStep key={`${savingsJourneyOwnerKey(props.session)}:${props.mode}:${props.candidate.vaultAddress}`} open entry={onBack ? "management" : "amount"}
     management={null} titleId={titleId} depth={depth} {...props}
     onBackToManagement={onBack ?? (() => {})} onClose={onDone ?? exit}
     fallback={renderSavingsLoading.bind(null, props.mode, titleId, onBack, depth)} />;
@@ -144,7 +143,6 @@ function OwnerBoundSavingsJourney({
   picker,
   availableLabel,
   destinationLabel,
-  historyBlocked = false,
   availableBaseUnits,
   availableStale = false,
   fetchAccountResource,
@@ -179,7 +177,7 @@ function OwnerBoundSavingsJourney({
         /> : mode !== null && candidate ? <SavingsJourneyStep
           key={`${mode}:${candidate.vaultAddress}:${management?.address ?? ""}`}
           open={open} entry={entry} management={management} titleId={titleId} mode={mode} session={session} candidate={candidate}
-          availableLabel={availableLabel} destinationLabel={destinationLabel} historyBlocked={historyBlocked}
+          availableLabel={availableLabel} destinationLabel={destinationLabel}
           availableBaseUnits={availableBaseUnits} availableStale={availableStale}
           fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction}
           onBackToManagement={onBackToManagement} onBackToPicker={picker?.onBack} onClose={onClose} onConfirmed={onConfirmed}

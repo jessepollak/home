@@ -26,6 +26,8 @@
     "test:stories": "vitest run",
     "test:stories:explorations": "HOME_STORY_TEST_EXPLORATIONS=1 vitest run",
     "test:browser-smoke": "playwright test --config playwright.config.ts",
+    "test:browser-regression": "HOME_PLAYWRIGHT_REGRESSION=1 playwright test --config playwright.config.ts",
+    "test:browser-production-navigation": "HOME_PLAYWRIGHT_PRODUCTION=1 playwright test --config playwright.config.ts --project chromium-production-navigation",
     "test:browser-install": "playwright install --with-deps chromium",
     "db:migrate": "bun --conditions=react-server ./server/db/migrate.ts",
     "db:backfill-operator": "bun --conditions=react-server ./server/operator-events/backfill-command.ts",

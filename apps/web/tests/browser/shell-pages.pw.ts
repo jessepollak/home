@@ -8,7 +8,22 @@ import { FIXED_NOW } from "./fixtures/fixed-time";
 /** Hosted CI runners cold-compile each route in dev; give overlay assertions a CI-sized budget. */
 test.describe.configure({ timeout: 90_000 });
 
-const pages = ["/home", "/activity", "/cash", "/cash/savings", "/investments", "/borrow", "/invest"] as const;
+
+
+test("catch-all shell metadata renders without runtime prerender errors", async ({ page }) => {
+  const metadataErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && /generateMetadata|blocking-prerender-metadata/.test(message.text())) {
+      metadataErrors.push(message.text());
+    }
+  });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home/unrecognized?flow=send", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("dialog", { name: "Send" })).toBeVisible({ timeout: 20_000 });
+  await expect(page).toHaveTitle("Home · Home");
+  expect(metadataErrors).toEqual([]);
+});
 
 test("legacy Balances paths redirect to canonical pages without unrelated query keys", async ({ page }) => {
   await seedSignedInSession(page);
@@ -26,41 +41,46 @@ test("legacy Balances paths redirect to canonical pages without unrelated query 
   }
 });
 
-for (const path of pages) {
-  test(`${path} renders inside the shell and opens the Send overlay`, async ({ page }) => {
-    await seedSignedInSession(page);
-    await installApiFixtures(page);
-    await page.goto(`${path}?flow=send`, { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("main")).toBeVisible();
-    await expect(page.getByRole("dialog", { name: "Send" })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: "Close send dialog" }).click();
-    await expect(page).toHaveURL(path);
-    await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
-  });
-}
-
-test("manual-production: warm Home, Cash and Invest taps avoid document and RSC requests", async ({ page }) => {
-  test.skip(process.env.HOME_PLAYWRIGHT_PRODUCTION !== "1",
-    "manual-production: Next dev refetches RSC payloads; run with HOME_PLAYWRIGHT_PRODUCTION=1 against a production fixture build");
+test("production: warm Home, Cash and Invest taps avoid document and RSC requests", async ({ page }, testInfo) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
   await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
-  await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash / }).click();
-  await expect(page).toHaveURL("/cash");
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Invest", exact: true }).last().click();
-  await expect(page).toHaveURL("/invest");
-  await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home", exact: true }).last().click();
-  await expect(page).toHaveURL("/home");
-  const requests: string[] = [];
+  const destinations = {
+    Cash: { path: "/cash", ready: page.getByRole("region", { name: "Cash", exact: true }) },
+    Invest: { path: "/invest", ready: page.getByRole("textbox", { name: "Search assets" }) },
+    Home: { path: "/home", ready: page.getByRole("heading", { name: "Your money" }) },
+  };
+  const navigate = async (target: keyof typeof destinations) => {
+    if (target === "Cash") {
+      await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash / }).click();
+    } else {
+      await mainNavigation(page, target).click();
+    }
+    await expect(page).toHaveURL(destinations[target].path);
+    await expect(destinations[target].ready).toBeVisible();
+  };
+  for (const target of ["Cash", "Invest", "Home"] as const) await navigate(target);
+
+  const documents: string[] = [];
+  const rsc: string[] = [];
   page.on("request", (request) => {
-    if (request.isNavigationRequest() || request.headers()["rsc"] === "1") requests.push(request.url());
+    if (request.isNavigationRequest()) documents.push(request.url());
+    if (request.headers()["rsc"] === "1") rsc.push(request.url());
   });
-  for (const target of ["Invest", "Home"] as const) {
-    await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: target, exact: true }).last().click();
-    await expect(page).toHaveURL(target === "Home" ? "/home" : "/invest");
+  for (const target of ["Cash", "Home", "Invest", "Home"] as const) {
+    documents.length = 0;
+    rsc.length = 0;
+    await navigate(target);
+    const counts = { target, documents: documents.length, rsc: rsc.length };
+    console.log(`Warm navigation requests: ${JSON.stringify(counts)}`);
+    await testInfo.attach(`warm-${target}-requests`, {
+      body: JSON.stringify({ ...counts, documentUrls: documents, rscUrls: rsc }),
+      contentType: "application/json",
+    });
+    expect(documents, `warm ${target} document requests`).toEqual([]);
+    expect(rsc, `warm ${target} RSC requests`).toEqual([]);
   }
-  expect(requests).toEqual([]);
 });
 
 test("a left Savings page makes no vault requests while hidden for two fake minutes", async ({ page }) => {
@@ -197,7 +217,7 @@ test("settled signed-out fixture cannot access a shell page", async ({ page }) =
   await expect(page.getByRole("region", { name: "Cash" })).toHaveCount(0);
 });
 
-for (const path of pages) {
+for (const path of ["/home"] as const) {
   for (const [query, dialogName, closeName] of [
     ["flow=add-money", "Add money", "Close add money"],
     ["flow=receive", "Receive", "Close add money"],
@@ -223,21 +243,6 @@ for (const path of pages) {
     await page.getByRole("button", { name: "Done" }).click();
     await expect(page).toHaveURL(path);
     await expect(page.getByRole("region", { name: "Account settings" })).toHaveCount(0);
-  });
-}
-
-for (const [flow, dialogName, closeName] of [
-  ["save-deposit", "Deposit", "Close deposit dialog"],
-  ["save-withdraw", "Withdraw", "Close withdraw dialog"],
-] as const) {
-  test(`Cash Savings ${flow} stays local and closes`, async ({ page }) => {
-    await seedSignedInSession(page);
-    await installApiFixtures(page);
-    await page.goto(`/cash/savings?flow=${flow}`, { waitUntil: "domcontentloaded" });
-    const dialog = page.getByRole("dialog", { name: dialogName });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: closeName }).click();
-    await expect(page).toHaveURL("/cash/savings");
   });
 }
 

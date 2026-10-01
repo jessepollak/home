@@ -381,3 +381,19 @@ describe("recent activity reader", () => {
     ]);
   });
 });
+
+
+test("all-history readers retain older-than-month transfers while legacy requests keep their recent window", async () => {
+  const older = { ...incomingTransfer("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", "older", "1"), blockTimestamp: "2026-07-01T12:00:00.000Z" };
+  const seen: string[] = [];
+  const reader = createActivityReader(async (input) => {
+    seen.push(input.from);
+    return transferPage([older], null);
+  }, async () => ({ metadata: new Map(), nftLikeContracts: new Set() }));
+  const account = { address: WALLET, chainId: 8453 as const, verification: "session-smart-account" as const };
+  const page = await reader(account, { to: TO, cursor: null, currency: "USD", history: "all" });
+  expect(Date.parse(page.window.from)).toBeLessThan(Date.parse(older.blockTimestamp));
+  expect(page.transfers[0]?.blockTimestamp).toBe(older.blockTimestamp);
+  await reader(account, { to: TO, cursor: null, currency: "USD" });
+  expect(Date.parse(seen[1] ?? "")).toBeGreaterThan(Date.parse(older.blockTimestamp));
+});

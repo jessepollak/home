@@ -1,4 +1,5 @@
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
+import { presentationRegions } from "@/config/regions";
 import { formatPresentationTokenAmount, presentationAssetClass } from "@/shared/formatting/money";
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "./contract";
@@ -20,6 +21,7 @@ import type { BalancesFixtureOptions } from "./fixtures";
 import type { BalancesSnapshot } from "./types";
 import {
   presentBalances,
+  presentCashSelection,
   presentPendingCashout,
   presentInvestmentTotal,
   presentHoldingMark,
@@ -472,6 +474,39 @@ describe("balance presentation", () => {
     expect(cash?.displaySubtotal).toBe("$25.00");
     expect(presentation.displayTotal).toBe("$25.00");
     expect(presentation.summary?.cash.value).toBe("$25.00");
+  });
+
+  test("uses the additional verification status for an unsupported Canadian dollar row", () => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "CA" });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+    expect(presentation.groups.find((group) => group.id === "cash")?.rows.find((row) => row.key === "cash:unsupported:CAD"))
+      .toMatchObject({
+        name: "Canadian dollar",
+        mark: { kind: "flag", currency: "CAD" },
+        primary: "Additional verification",
+        secondary: null,
+        tone: "muted",
+      });
+  });
+
+  test("presents an unsupported Brazilian real candidate with its configured verification status", () => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "BR" });
+    const region = presentationRegions.BR;
+    const candidate = region.candidateAsset;
+    if (!candidate) throw new Error("Brazilian real candidate asset missing");
+    expect(presentCashSelection({
+      kind: "unsupported",
+      key: "cash:unsupported:BRL",
+      currency: "BRL",
+      name: region.currency.name,
+      symbol: candidate.symbol,
+      verificationStatus: candidate.verificationStatus,
+    }, snapshot)).toMatchObject({
+      name: "Brazilian real",
+      primary: "Additional verification",
+      secondary: null,
+      tone: "muted",
+    });
   });
 
   test("renders a positive non-selected cash holding once in the cash group", () => {

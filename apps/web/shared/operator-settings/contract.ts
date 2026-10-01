@@ -37,7 +37,33 @@ export function parseSupportSettings(value: unknown): SupportSettings | null {
   return { email: email as string | null, url: url as string | null };
 }
 
+export type FundingCorridorSetting = { providerId: string; region: string; direction: "onramp" | "offramp"; offered: boolean };
+export type FundingSettings = { corridors: FundingCorridorSetting[] };
+
+export const FUNDING_SETTINGS_MAX_CORRIDORS = 500;
+export const FUNDING_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+
+export function parseFundingSettings(value: unknown): FundingSettings | null {
+  if (!isObject(value) || !exactKeys(value, ["corridors"]) || !Array.isArray(value.corridors) || value.corridors.length > FUNDING_SETTINGS_MAX_CORRIDORS) return null;
+  const seen = new Set<string>();
+  const corridors: FundingCorridorSetting[] = [];
+  for (const entry of value.corridors) {
+    if (!isObject(entry) || !exactKeys(entry, ["providerId", "region", "direction", "offered"])) return null;
+    const { providerId, region, direction, offered } = entry;
+    if (typeof providerId !== "string" || !FUNDING_PROVIDER_ID_PATTERN.test(providerId)) return null;
+    if (typeof region !== "string" || !/^[A-Z]{2}$/.test(region)) return null;
+    if (direction !== "onramp" && direction !== "offramp") return null;
+    if (typeof offered !== "boolean") return null;
+    const key = `${providerId}:${region}:${direction}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    corridors.push({ providerId, region, direction, offered });
+  }
+  return { corridors };
+}
+
 export const OPERATOR_SETTINGS_DOMAINS = {
+  funding: { schemaVersion: 1, defaults: { corridors: [] }, parse: parseFundingSettings },
   support: { schemaVersion: 1, defaults: { email: null, url: null }, parse: parseSupportSettings },
   [BRAND_SETTINGS_DOMAIN]: { schemaVersion: OPERATOR_BRANDING_SCHEMA_VERSION, defaults: BRAND_DEFAULTS, parse: parseBrandSettings },
   regions: { schemaVersion: 1, defaults: REGION_SETTINGS_DEFAULTS, parse: parseRegionSettings, parseWrite: parseRegionSettingsWrite },

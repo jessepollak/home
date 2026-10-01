@@ -81,3 +81,12 @@ describe("closed interaction reports", () => {
     ]);
   });
 });
+
+test("parses optional balance stages and rejects arbitrary cache details", () => {
+  const report = { version: 1, kind: "home-startup", route: "/home", outcome: "ready", cache: "restored",
+    shellMs: 10, totalMs: 100, balanceCache: "cold", balanceFetchMs: 40, balanceResponseMs: 80, balanceParsedMs: 90 } as const;
+  expect(parseClientPerformanceReport(report)).toEqual(report);
+  expect(parseClientPerformanceReport({ ...report, balanceCache: "private-owner" })).toBeNull();
+  expect(parseClientPerformanceReport({ ...report, balanceFetchMs: Infinity })).toBeNull();
+  expect(parseClientPerformanceReport({ ...report, wallet: "private-wallet" })).toBeNull();
+});

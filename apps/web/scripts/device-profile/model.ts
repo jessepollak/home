@@ -11,6 +11,10 @@ export const integer = (text: string | null | undefined, min: number, max: numbe
 export const safeName = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60) || "profile";
 export const artifactName = (unique: string, workload: string, suffix: string) => `${safeName(unique)}-${safeName(workload)}${suffix}`;
 export const runId = (index: number, label: string, now: number, nonce: string) => `${index}-${now.toString(36)}-${nonce}-${label}`;
+export function assertProxyToolkit(status: unknown, toolkit: string, port: number): void {
+  if (!status || typeof status !== "object" || Array.isArray(status)) throw new Error(`The service on port ${port} isn't a current device-profile proxy`);
+  if ((status as Record<string, unknown>).toolkit !== toolkit) throw new Error(`The device-profile proxy on port ${port} was started from a different checkout or build; stop the proxy you started there, or pass --port`);
+}
 export const CHROME_COMMAND_LINE = "_ --disable-fre --no-default-browser-check --no-first-run --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
 export const chromeCommandLineArgs = (base64: string | null) => base64 === null
   ? ["shell", "rm", "-f", "/data/local/tmp/chrome-command-line"]

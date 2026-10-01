@@ -6,7 +6,7 @@ function isAccessPost(response: Response): boolean {
   return response.url().endsWith("/api/access") && response.request().method() === "POST";
 }
 
-test("deployment access composes independently before Home authentication", async ({ page, context }) => {
+test("deployment access composes independently before Home authentication", { tag: "@smoke" }, async ({ page, context }) => {
   const credential = process.env[credentialKey];
   expect(credential).toBeTruthy();
   // Browser fixtures intentionally stay stronger than the runtime 8-byte floor.

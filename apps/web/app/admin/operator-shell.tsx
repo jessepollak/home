@@ -76,6 +76,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
   const refreshObserved = useRef(false);
   const refreshedOnMount = useRef(false);
   const [verifying, setVerifying] = useState(() => historyRestorePending);
+  const [ready, setReady] = useState(false);
   const [currentAddress, setAddress] = useState(address);
   const [lastPropAddress, setLastPropAddress] = useState(address);
   if (address !== lastPropAddress) {
@@ -124,6 +125,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
     refreshObserved.current = false;
     navRefreshing.current = false;
     setVerifying(false);
+    setReady(true);
     if (restoring.current) {
       restoring.current = false;
       setAddress(address);
@@ -184,7 +186,7 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
 
   return (
     <OperatorAddressContext.Provider value={updateAddress}>
-      <div className="min-h-dvh bg-background text-foreground md:flex">
+      <div data-operator-ready={ready && !verifying ? "true" : undefined} className="min-h-dvh bg-background text-foreground md:flex">
         <aside aria-label="Operator sidebar" className="hidden w-64 shrink-0 flex-col overflow-y-auto border-e md:sticky md:top-0 md:flex md:h-dvh">
           <div className="px-4 py-6 text-lg font-semibold">{brand.name}</div>
           <SectionLinks pathname={pathname} sectionRoute={sectionRoute} />

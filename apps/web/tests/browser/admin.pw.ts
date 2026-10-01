@@ -179,7 +179,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(page).toHaveURL(/\/\?account=signin$/);
 
     await setSession(context, customer);
-    for (const path of ["/admin", "/admin/customers", "/admin/support", "/admin/growth", "/admin/money", "/admin/settings", "/admin/audit", "/admin/nope", "/admin/settings/brand"]) {
+    for (const path of ["/admin", "/admin/customers", "/admin/support", "/admin/growth", "/admin/money", "/admin/settings", "/admin/settings/funding", "/admin/audit", "/admin/nope", "/admin/settings/brand"]) {
       const denied = await context.request.get(path, { maxRedirects: 0 });
       expect(denied.status()).toBe(307);
       expect(denied.headers().location).toBe("/home");
@@ -200,6 +200,16 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(page).toHaveURL(/\/access\?next=%2Fadmin$/);
   });
 }
+
+test("settings links to money in and out", { tag: "@smoke" }, async ({ page, context }) => {
+  await setSession(context, admin);
+  await page.goto("/admin/settings");
+  await expect(page.locator("[data-operator-ready=true]")).toBeVisible();
+  await page.getByRole("link", { name: "Money in and out" }).click();
+  // A first dev-server navigation compiles this authenticated route on demand.
+  await expect(page).toHaveURL(/\/admin\/settings\/funding$/, { timeout: 10_000 });
+  await expect(page.getByRole("heading", { name: "Money in and out", exact: true })).toBeVisible();
+});
 
 test("no Home session redirects to sign-in, while deployment access runs first", async ({ page, context }) => {
   expectUncacheable(await page.goto("/admin"));

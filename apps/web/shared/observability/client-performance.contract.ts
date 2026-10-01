@@ -62,6 +62,10 @@ export type HomeStartupReport = {
   shellMs: number;
   sessionMs?: number;
   balancesMs?: number;
+  balanceCache?: HomeStartupCacheState;
+  balanceFetchMs?: number;
+  balanceResponseMs?: number;
+  balanceParsedMs?: number;
   interactiveMs?: number;
   totalMs: number;
 };
@@ -151,6 +155,7 @@ const startupAllowedKeys = new Set([
   "shellMs",
   "sessionMs",
   "balancesMs",
+  "balanceCache", "balanceFetchMs", "balanceResponseMs", "balanceParsedMs",
   "interactiveMs",
   "totalMs",
 ]);
@@ -294,15 +299,16 @@ function parseHomeStartupReport(record: Record<string, unknown>): HomeStartupRep
     !isAllowed(record.cache, HOME_STARTUP_CACHE_STATES)
   ) return null;
 
+  if (Object.hasOwn(record, "balanceCache") && !isAllowed(record.balanceCache, HOME_STARTUP_CACHE_STATES)) return null;
   const shellMs = normalizeDuration(record.shellMs, 1, 60_000);
   const totalMs = normalizeDuration(record.totalMs, 1, 60_000);
   if (shellMs === null || totalMs === null) return null;
 
   const optionalDurations: Partial<Pick<
     HomeStartupReport,
-    "sessionMs" | "balancesMs" | "interactiveMs"
+    "sessionMs" | "balancesMs" | "interactiveMs" | "balanceFetchMs" | "balanceResponseMs" | "balanceParsedMs"
   >> = {};
-  for (const key of ["sessionMs", "balancesMs", "interactiveMs"] as const) {
+  for (const key of ["sessionMs", "balancesMs", "interactiveMs", "balanceFetchMs", "balanceResponseMs", "balanceParsedMs"] as const) {
     if (!Object.hasOwn(record, key)) continue;
     const normalized = normalizeDuration(record[key], 1, 60_000);
     if (normalized === null) return null;
@@ -317,6 +323,7 @@ function parseHomeStartupReport(record: Record<string, unknown>): HomeStartupRep
     cache: record.cache,
     shellMs,
     ...optionalDurations,
+    ...(isAllowed(record.balanceCache, HOME_STARTUP_CACHE_STATES) ? { balanceCache: record.balanceCache } : {}),
     totalMs,
   };
 }
