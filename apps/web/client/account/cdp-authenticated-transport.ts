@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import type { QueryClient } from "@tanstack/react-query";
 import type {
   AccountResourceOptions,
   AccountSessionStatus,
@@ -20,6 +21,7 @@ import {
 import {
   applyActionHandleEffects,
   createBalanceFreshnessState,
+  invalidateAfterAction,
   resetBalanceFreshness,
   startBalanceFreshness,
 } from "@/client/query/after-action";
@@ -102,6 +104,18 @@ function responseErrorDetails(payload: unknown): {
     }
   }
   return { code, serverMessage };
+}
+
+export function qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey, recordsHandle, status, unreadable }: {
+  queryClient: QueryClient;
+  dataOwnerKey: string;
+  recordsHandle: boolean;
+  status: number | null;
+  unreadable: boolean;
+}): void {
+  if (!recordsHandle) return;
+  if (!(unreadable || status === null || status === 409 || status >= 500)) return;
+  void invalidateAfterAction(queryClient, dataOwnerKey);
 }
 
 export function useAuthenticatedTransport({
@@ -250,6 +264,12 @@ export function useAuthenticatedTransport({
       if (method === "GET" && options.body !== undefined) {
         throw new TransferExecutionError("invalid-request");
       }
+
+      const recordsHandle = method === "POST" && /^\/api\/actions\/[^/]+\/handle$/.test(pathname);
+      const qualifyUncertainHandle = (status: number | null, unreadable: boolean) => {
+        if (!recordsHandle || !session.smartAccount || !ownerFence.isCurrent(identity)) return;
+        qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: dataOwnerKey(session), recordsHandle, status, unreadable });
+      };
       const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
@@ -269,8 +289,12 @@ export function useAuthenticatedTransport({
           signal: options.signal,
         });
       } catch (error) {
-        if (options.signal?.aborted) throw error;
+        if (options.signal?.aborted) {
+          qualifyUncertainHandle(null, false);
+          throw error;
+        }
         if (error instanceof TransferExecutionError) throw error;
+        qualifyUncertainHandle(null, false);
         throw Object.assign(new TransferExecutionError("unavailable", error), { kind: "network" satisfies ResourceFailureKind });
       }
       assertActive();
@@ -286,6 +310,7 @@ export function useAuthenticatedTransport({
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
+        qualifyUncertainHandle(response.status, false);
         const failure = new TransferExecutionError(
           response.status === 409 ? "submission-pending" : "unavailable",
         );
@@ -295,7 +320,7 @@ export function useAuthenticatedTransport({
       try {
         const value = await readJson(response);
         assertActive();
-        if (/^\/api\/actions\/[^/]+\/handle$/.test(new URL(safePath, "https://home.invalid").pathname)) {
+        if (recordsHandle) {
           const ownerDataKey = dataOwnerKey(session);
           void applyActionHandleEffects({
             path: safePath,
@@ -308,6 +333,7 @@ export function useAuthenticatedTransport({
         return value;
       } catch (error) {
         if (error instanceof TransferExecutionError) throw error;
+        qualifyUncertainHandle(response.status, true);
         throw Object.assign(new TransferExecutionError("unavailable", error), { kind: "parse" satisfies ResourceFailureKind });
       }
     },

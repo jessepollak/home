@@ -72,6 +72,12 @@ describe("primary unit and chips", () => {
     expect(formatAvailableDecimal("1234.5", native, "ETH")).toBe("1,234.5 ETH available");
     expect(formatAvailableLine("Balance unavailable", native, "ETH")).toBe("Balance unavailable");
   });
+
+  test("preserves saved labels without claiming withdrawal availability", () => {
+    expect(formatAvailableLine("$100.00 saved", fiatUsd, "USDC")).toBe("$100.00 saved");
+    expect(formatAvailableLine("$100.00 saved", native, "USDC")).toBe("100.00 USDC saved");
+    expect(formatAvailableDecimal("100.001", fiatUsd, "USDC", "saved")).toBe("$100.001 saved");
+  });
 });
 
 describe("available parse and Max", () => {

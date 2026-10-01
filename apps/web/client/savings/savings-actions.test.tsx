@@ -241,11 +241,11 @@ describe("SavingsJourney amount entry", () => {
       />,
     );
     await page().findByRole("textbox", { name: "Amount" });
-    expect(page().getByRole("status").textContent).toBe("Nothing saved to withdraw.");
+    expect(page().getByRole("status").textContent).toBe("Nothing available to withdraw right now.");
     await typeAmount("0.10");
     const continueButton = page().getByRole("button", { name: "Continue" }) as HTMLButtonElement;
     expect(continueButton.disabled).toBe(true);
-    expect(page().getByRole("status").textContent).toBe("Nothing saved to withdraw.");
+    expect(page().getByRole("status").textContent).toBe("Nothing available to withdraw right now.");
     fireEvent.click(continueButton);
     expect(prepareCalls).toBe(0);
     expect(page().queryByRole("alert")).toBeNull();

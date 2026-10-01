@@ -949,6 +949,22 @@ describe("balances pricing", () => {
     expect(result.holdings[0]?.unitValue).toBeUndefined();
   });
 
+  test("preserves the vault withdrawal limit independently of its priced position", async () => {
+    const vault: ReadHolding = {
+      ...usdc, id: "vault", kind: "vault-share", cashCurrency: null,
+      underlying: { key: usdc.key as `eip155:8453/erc20:${string}`, symbol: "USDC", decimals: 6 },
+      underlyingBalance: { status: "ready", baseUnits: "100000000" },
+      withdrawableBalance: { status: "ready", baseUnits: "40000000" },
+    };
+    const price = createTestPricer({
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates(),
+    });
+    const result = await price({ ...read, holdings: [vault] }, "US");
+    expect(result.holdings[0]?.withdrawableBalance).toEqual({ status: "ready", baseUnits: "40000000" });
+    expect(result.holdings[0]?.value).toMatchObject({ status: "priced", amount: { atoms: "100000000000000000000", scale: 18 } });
+  });
+
   test("prices Borrow collateral and debt with the same quotes as wallet holdings", async () => {
     const cbbtcAddress = DEFAULT_BORROW_MARKET.collateralToken.address.toLowerCase() as `0x${string}`;
     const usdcAddress = DEFAULT_BORROW_MARKET.loanToken.address.toLowerCase() as `0x${string}`;

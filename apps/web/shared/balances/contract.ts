@@ -84,6 +84,7 @@ const holdingSchema = z.object({
   imageUrl: z.optional(imageSchema),
   underlying: z.optional(z.object({ key: erc20KeySchema, symbol: z.literal("USDC"), decimals: z.literal(6) })),
   balance: balanceSchema, underlyingBalance: z.optional(balanceSchema), value: valueSchema,
+  withdrawableBalance: z.optional(balanceSchema),
   unitValue: z.optional(unitValueSchema), cashValue: z.optional(cashValueSchema),
   collateral: z.optional(z.object({ marketId: marketKeySchema })),
 }).check(z.refine((h) => {
@@ -98,7 +99,11 @@ const holdingSchema = z.object({
     if (expected.kind === "vault-share") {
       if (h.underlying?.key !== PORTFOLIO_USDC_ASSET_KEY || !h.underlyingBalance ||
         (h.balance.status === "unavailable" && h.underlyingBalance.status !== "unavailable")) return false;
-    } else if (h.underlying !== undefined || h.underlyingBalance !== undefined) return false;
+      if (h.withdrawableBalance !== undefined &&
+        ((h.balance.status === "unavailable" && h.withdrawableBalance.status !== "unavailable") ||
+          (h.withdrawableBalance.status === "ready" && h.underlyingBalance.status === "ready" &&
+            BigInt(h.withdrawableBalance.baseUnits) > BigInt(h.underlyingBalance.baseUnits)))) return false;
+    } else if (h.underlying !== undefined || h.underlyingBalance !== undefined || h.withdrawableBalance !== undefined) return false;
     if (expected.cashCurrency) {
       if (!h.cashValue || !validCashValue(h.cashValue, h.balance, expected.cashCurrency)) return false;
     } else if (h.cashValue !== undefined) return false;
@@ -108,7 +113,7 @@ const holdingSchema = z.object({
     h.id === (h.source === "catalog" ? catalogHoldingId(h.contractAddress) : walletHoldingId(h.contractAddress)) &&
     h.key === erc20AssetKey(h.contractAddress) &&
     !registryAssetKeys().has(h.key) &&
-    h.cashCurrency === null && h.underlying === undefined && h.underlyingBalance === undefined &&
+    h.cashCurrency === null && h.underlying === undefined && h.underlyingBalance === undefined && h.withdrawableBalance === undefined &&
     h.cashValue === undefined && h.balance.status === "ready" && h.balance.baseUnits !== "0";
 }));
 const collateralSchema = z.object({

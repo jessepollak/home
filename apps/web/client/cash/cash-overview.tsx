@@ -60,6 +60,7 @@ export type CashOverviewProps = {
   snapshot: BalancesSnapshot | null;
   pendingCashout?: PendingCashoutEstimate;
   balanceStatus?: "ready" | "loading" | "failed";
+  balanceActionStale?: boolean;
   metadata: MorphoVaultsResult | null;
   vaultStatus?: "ready" | "loading" | "failed";
   nowMs: number;
@@ -407,6 +408,7 @@ export function CashOverview({
   snapshot,
   pendingCashout = null,
   balanceStatus = "ready",
+  balanceActionStale = false,
   metadata,
   vaultStatus = "ready",
   nowMs,
@@ -713,9 +715,9 @@ export function CashOverview({
                           )
                         ) : undefined
                       }
-                      valueTone={partial ? "muted" : "default"}
+                      valueTone={balanceActionStale || partial ? "muted" : "default"}
                       valueContext={
-                        partial && total > BigInt(0) ? "Partial" : undefined
+                        balanceActionStale ? "May be out of date" : partial && total > BigInt(0) ? "Partial" : undefined
                       }
                       onActivate={onOpenSavings}
                       activateLabel="Open savings"
@@ -749,6 +751,7 @@ export function SavingsDetail({
   growthAuthority = null,
   actionsAvailable = true,
   balanceStale = false,
+  balanceActionStale = false,
   summary = null,
   pendingDeposits = [],
   pendingActionsLoading = false,
@@ -811,6 +814,7 @@ export function SavingsDetail({
     activeSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       .status !== "ready" ||
     vaultStatus !== "ready";
+  const showActionStale = balanceActionStale && !balanceFailed && balanceStatus === "ready" && activeSnapshot !== null && (!partial || total > BigInt(0));
   const startSavingRef = useRef<HTMLButtonElement>(null);
   const recovery = (
     <Empty>
@@ -849,12 +853,13 @@ export function SavingsDetail({
             ) : (
               <div
                 aria-describedby={
-                  partial && !balanceFailed
-                    ? "savings-balance-partial"
-                    : undefined
+                  [
+                    partial && !balanceFailed ? "savings-balance-partial" : null,
+                    showActionStale ? "savings-balance-stale" : null,
+                  ].filter(Boolean).join(" ") || undefined
                 }
                 className={`text-4xl font-semibold tabular-nums ${
-                  partial || balanceFailed ? "text-muted-foreground" : ""
+                  partial || balanceFailed || showActionStale ? "text-muted-foreground" : ""
                 }`}
               >
                 {balanceFailed || (partial && total === BigInt(0)) ? (
@@ -865,7 +870,7 @@ export function SavingsDetail({
                     reserveDigits={false}
                     value={
                       pendingEmpty ? formatUsdStablecoinAmount(pendingTotal.toString())
-                      : partial || growth === BigInt(0)
+                      : partial || balanceActionStale || growth === BigInt(0)
                         ? formatUsdStablecoinAmount(total.toString())
                         : formatPresentationFiat(
                             { atoms: (total + growth).toString(), scale: 6 },
@@ -879,6 +884,7 @@ export function SavingsDetail({
               </div>
             )}
             {pendingEmpty ? <p className="text-sm text-muted-foreground">Pending</p> : null}
+            {showActionStale ? <p id="savings-balance-stale" className="text-sm text-muted-foreground">Balance may be out of date</p> : null}
             {partial && !balanceFailed ? (
               <p
                 id="savings-balance-partial"
@@ -887,7 +893,7 @@ export function SavingsDetail({
                 Some savings are unavailable
               </p>
             ) : null}
-            {!balanceFailed && vaultStatus === "ready" && total > BigInt(0) ? (
+            {!balanceFailed && !balanceActionStale && vaultStatus === "ready" && total > BigInt(0) ? (
               earningApy ? (
                 <p className="text-sm text-market-gain">Earning {earningApy}</p>
               ) : (

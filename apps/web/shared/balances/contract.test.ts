@@ -149,6 +149,50 @@ describe("parseBalancesSnapshot", () => {
     expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
   });
 
+  test.each(["eth", "usdc", `catalog:${FIXTURE_CATALOG.priced.address}`])("rejects a withdrawal limit on non-vault %s", (id) => {
+    const snapshot = clone(balancesSnapshotFixture);
+    snapshot.holdings.find((holding) => holding.id === id)!.withdrawableBalance = ready("0");
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+  });
+
+  test("rejects a withdrawal limit on a wallet holding", () => {
+    const holding = walletHolding(FIXTURE_WALLET_TOKEN, "1", priced("USD", "1"));
+    holding.withdrawableBalance = ready("0");
+    const snapshot = buildBalancesSnapshotFixture({ catalog: [holding] });
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+  });
+
+  test("accepts a vault without a withdrawal limit from an older server", () => {
+    const snapshot = clone(balancesSnapshotFixture);
+    delete snapshot.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance;
+    const parsed = parseBalancesSnapshot(snapshot, session, "US");
+    expect(parsed.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance).toBeUndefined();
+  });
+
+  test("rejects a vault withdrawal limit above its underlying balance", () => {
+    const snapshot = clone(balancesSnapshotFixture);
+    snapshot.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance = ready("1000124");
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+  });
+
+  test("rejects a ready withdrawal limit when vault shares are unavailable", () => {
+    const snapshot = buildBalancesSnapshotFixture({ registry: {
+      "morpho-steakhouse-usdc": {
+        balance: { status: "unavailable", baseUnits: null },
+        underlyingBalance: { status: "unavailable", baseUnits: null },
+        withdrawableBalance: ready("0"),
+      },
+    } });
+    expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+  });
+
+  test("accepts an unavailable vault withdrawal limit", () => {
+    const snapshot = clone(balancesSnapshotFixture);
+    snapshot.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance = { status: "unavailable", baseUnits: null };
+    const parsed = parseBalancesSnapshot(snapshot, session, "US");
+    expect(parsed.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance).toEqual({ status: "unavailable", baseUnits: null });
+  });
+
   type Rejection = {
     label: string;
     mutate: (snapshot: BalancesSnapshot) => unknown;

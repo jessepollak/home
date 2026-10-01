@@ -96,17 +96,18 @@ export function formatAvailableLine(
   if (!availableLabel) return undefined;
   const parsed = parseAvailableDecimal(availableLabel);
   if (!parsed) return availableLabel;
-  return formatAvailableDecimal(parsed, unit, nativeSymbol) ?? availableLabel;
+  return formatAvailableDecimal(parsed, unit, nativeSymbol, /\s+saved$/i.test(availableLabel) ? "saved" : "available") ?? availableLabel;
 }
 
 export function formatAvailableDecimal(
   decimal: string,
   unit: MoneyAmountUnit,
   nativeSymbol: string,
+  description: "available" | "saved" = "available",
 ): string | undefined {
   if (!decimalPattern.test(decimal)) return undefined;
-  if (unit.kind !== "fiat") return `${groupDecimal(decimal)} ${nativeSymbol} available`;
-  return `${formatLocalDisplay(groupDecimal(decimal), unit.currency)} available`;
+  if (unit.kind !== "fiat") return `${groupDecimal(decimal)} ${nativeSymbol} ${description}`;
+  return `${formatLocalDisplay(groupDecimal(decimal), unit.currency)} ${description}`;
 }
 
 export function parseAvailableDecimal(label: string): string | null {

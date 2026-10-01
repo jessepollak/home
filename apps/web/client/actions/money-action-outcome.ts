@@ -1,8 +1,9 @@
 "use client";
 
 import { skipToken } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { invalidateAfterAction, requalifyBalancesAfterSettlement } from "@/client/query/after-action";
 import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import type { PreparedMoneyAction, DerivedActionStatus, MoneyActionOwner } from "@/shared/money-actions/types";
 import { recentActionsQuery } from "./recent-actions-query";
@@ -55,5 +56,25 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
     }
   }, [operation, submission, queryClient, ownerKey, action.id, action.owner]);
   const row = operation ? { id: operation.action.id, status: operation.status, owner: action.owner } : observation.data;
-  return { outcome: moneyResultOutcome({ submission, row }), ...(row ? { row } : {}) };
+  const outcome = moneyResultOutcome({ submission, row });
+  const settled = row?.status === "confirmed";
+  const settledStamp = settled ? `${action.id}\u0000${operation?.settledAt ?? ""}` : null;
+  const qualifiedUnknown = useRef(false);
+  const qualifiedSettlement = useRef<string | null>(null);
+  const settledBefore = useRef(settled);
+  useEffect(() => {
+    const newlySettled = settled && !settledBefore.current;
+    settledBefore.current = settled;
+    if (submission === "failed" || outcome === "failed") return;
+    if (settledStamp !== null) {
+      if (!newlySettled && qualifiedSettlement.current === settledStamp) return;
+      qualifiedSettlement.current = settledStamp;
+      requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey });
+      return;
+    }
+    if (submission !== "ambiguous" || outcome !== "unknown" || qualifiedUnknown.current) return;
+    qualifiedUnknown.current = true;
+    void invalidateAfterAction(queryClient, ownerKey);
+  }, [submission, outcome, settled, settledStamp, queryClient, ownerKey]);
+  return { outcome, ...(row ? { row } : {}) };
 }
