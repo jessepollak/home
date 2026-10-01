@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import {
   createCdpSqlAuthFromEnv,
   createCdpSqlHttpTransport,
@@ -31,6 +31,41 @@ function successResponse() {
 }
 
 describe("CDP SQL HTTP transport", () => {
+  for (const [payload, reason] of [
+    [{ errorType: "invalid_request", errorMessage: "MAX_BYTES_TO_READ private-wallet" }, "resource-limit"],
+    [{ errorType: "invalid_request", errorMessage: "SYNTAX_ERROR private-query" }, "invalid-query"],
+    [{ errorType: "invalid_request", errorMessage: "private-details" }, "invalid-request"],
+    [{ errorType: "private-type", errorMessage: "private-details" }, "unknown"],
+  ] as const) test(`classifies a synthetic 400 as ${reason} without exposing provider data`, async () => {
+    const transport = createCdpSqlHttpTransport({ auth: { mode: "client-api-key", clientApiKey: "private-key" },
+      fetch: async () => Response.json(payload, { status: 400 }) });
+    const error = await transport.run({ sql: "SELECT 1" }).catch((error: unknown) => error);
+    expect(error).toMatchObject({ code: "upstream-error", status: 400, sqlRejectionReason: reason });
+    expect(JSON.stringify(error)).not.toContain("private-");
+    expect(String(error)).not.toContain("private-");
+  });
+
+  for (const body of ["not-json", JSON.stringify({ errorType: "invalid_request", errorMessage: "MAX_BYTES_TO_READ", padding: "x".repeat(8192) })]) {
+    test("an unreadable or oversized rejection remains an unknown HTTP 400", async () => {
+      const transport = createCdpSqlHttpTransport({ auth: { mode: "client-api-key", clientApiKey: "key" },
+        fetch: async () => new Response(body, { status: 400 }) });
+      await expect(transport.run({ sql: "SELECT 1" })).rejects.toMatchObject({ status: 400, sqlRejectionReason: "unknown" });
+    });
+  }
+
+  test("a stalled rejection body cannot delay the HTTP failure beyond the diagnostic budget", async () => {
+    jest.useFakeTimers();
+    let cancelled = false;
+    try {
+      const transport = createCdpSqlHttpTransport({ auth: { mode: "client-api-key", clientApiKey: "key" },
+        fetch: async () => new Response(new ReadableStream({ cancel() { cancelled = true; } }), { status: 400 }) });
+      const result = transport.run({ sql: "SELECT 1" }).catch((error: unknown) => error);
+      for (let index = 0; index < 10; index++) await Promise.resolve();
+      jest.advanceTimersByTime(250);
+      expect(await result).toMatchObject({ status: 400, sqlRejectionReason: "unknown" });
+      expect(cancelled).toBe(true);
+    } finally { jest.useRealTimers(); }
+  });
   test("accepts the live response shape without schema and validates known fields", async () => {
     const syntheticLiveRow = {
       action: "[SYNTHETIC_UNVERIFIED_ACTION]",

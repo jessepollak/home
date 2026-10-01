@@ -174,6 +174,7 @@ function HookHarness({
   return (
     <div>
       <output data-testid={`${testId}status`}>{activity.status}</output>
+      {activity.status === "error" ? <button type="button" onClick={activity.retry}>retry first load</button> : null}
       {activity.status === "ready" ? (
         <>
           <output data-testid={`${testId}ids`}>
@@ -2098,6 +2099,31 @@ describe("latest activity concurrent windows", () => {
 });
 
 describe("first-page onchain recovery", () => {
+  test("initial failure, automatic retries and UI retry send the identical window, currency and null cursor", async () => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:00.000Z") });
+    notifyManager.setScheduler((callback) => callback());
+    const queries: string[] = [];
+    let healthy = false;
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={async (query) => {
+      queries.push(query);
+      if (!healthy) throw new ResourceFailure("http", "unavailable", 502);
+      return page(query, WALLET_A, [], null);
+    }} />);
+    await flushRecovery();
+    await advanceFirstPageRetry(500);
+    await advanceFirstPageRetry(1500);
+    await flushRecovery();
+    expect(view.getByTestId("status").textContent).toBe("error");
+    expect(queries).toHaveLength(3);
+    healthy = true;
+    await act(async () => { jest.advanceTimersByTime(30_000); fireEvent.click(view.getByText("retry first load")); await flushRecovery(); });
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(queries).toHaveLength(4);
+    expect(new Set(queries).size).toBe(1);
+    expect([...new URLSearchParams(queries[0]).entries()]).toEqual([
+      ["to", "2026-09-28T12:00:00.000Z"], ["currency", "USD"],
+    ]);
+  });
   test("retries transient first-page failures after 500 ms and recovers without a partial warning", async () => {
     jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:00.000Z") });
     const owner = session("subject-a", WALLET_A);

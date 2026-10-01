@@ -2,6 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("bounds request diagnostics and rejects private or non-boolean diagnostic fields", () => {
+    const input: Parameters<typeof normalizeObservabilityEvent>[0] = { kind: "activity-read", route: "/api/activity", outcome: "succeeded",
+      reason: "primary-source", source: "cdp-sql", durationMs: 1, sourceDurationMs: 1, sourceAttemptCount: 1,
+      pageCount: 1, rowCount: 0, valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
+    };
+    Object.assign(input, {
+      requestKey: "private-owner", requestPage: "private-cursor", windowEndAgeSeconds: Infinity, windowEndAlignment: "private-timestamp",
+      sourceCached: "private-payload", sourceStale: 1, sqlRejectionReason: "private-body", sql: "private-query",
+    });
+    const event = normalizeObservabilityEvent(input);
+    expect(event).toMatchObject({ sqlRejectionReason: "unknown" });
+    for (const field of ["requestKey", "requestPage", "windowEndAgeSeconds", "windowEndAlignment", "sourceCached", "sourceStale", "sql"]) expect(event).not.toHaveProperty(field);
+    expect(JSON.stringify(event)).not.toContain("private-");
+  });
   test("activity source diagnostics use a closed code and valid HTTP status", () => {
     const event = {
       kind: "activity-read" as const, route: "/api/activity" as const,
