@@ -3,7 +3,7 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
 import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
 
-test("canonical routing preserves the shell and one balances read", { tag: "@smoke" }, async ({ page }) => {
+test("canonical routing preserves the shell and one balances read", async ({ page }) => {
   await seedSignedInSession(page);
   const fixtures = await installApiFixtures(page);
   await page.goto("/home");
