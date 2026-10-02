@@ -296,6 +296,7 @@ test("cached Home balances paint before delayed verification and revalidation, t
 });
 
 test("summary-only reload retains rate subtitles without pulsing placeholders", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page);
   const fixtures = await installApiFixtures(page);
   let releaseRates: (() => void) | undefined;
