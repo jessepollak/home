@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { seedSignedInSession, installApiFixtures, json } from "../tests/browser/fixtures/api";
-import { syntheticActivity, activityPage } from "./device-profile/synthetic-activity";
+import { activityPage, fixtureSyntheticActivity } from "./device-profile/synthetic-activity";
 
 const options = new Map<string, string>();
 const args = process.argv.slice(2);
@@ -33,7 +33,7 @@ if (!rows || !repeat || ![1, 4, 6].includes(throttle) || !["/home", "/activity"]
   new URL(baseUrl).protocol !== "http:") throw new Error("Invalid profiling options");
 const origin = new URL(baseUrl).origin;
 if (!["localhost", "127.0.0.1"].includes(new URL(origin).hostname)) throw new Error("Use a loopback fixture server only");
-const { transferCount, actionCount, pageSize, wallet, timestamp, transfers, actions } = syntheticActivity(rows, Date.now() - 120_000);
+const { transferCount, actionCount, pageSize, wallet, timestamp, transfers, actions } = fixtureSyntheticActivity(rows);
 const selector = routePath === "/home" ? "section[data-activity-feed]" : 'section[aria-label="Activity"]:not([id="navigation-panel"])';
 const rowSelector = `${selector} ul > li`;
 const metricNames = ["ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "TaskDuration", "LayoutCount"];
