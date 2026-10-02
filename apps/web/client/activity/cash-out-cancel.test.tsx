@@ -47,13 +47,18 @@ function setup(prepare: AccountWalletClient["prepareMoneyAction"], execute: Acco
   const view = render(panel());
   return { view, calls, routes, dispatches, panel };
 }
+const cancelLabel = "Cancel cash-out $50";
+
 async function openDetails(view: ReturnType<typeof render>) {
   const row = await view.findByRole("button", { description: "View Cash out to Cash App details" });
   fireEvent.click(row);
-  return view.findByRole("dialog", { name: "Cash out to Cash App" });
+  return detailDialog(view);
 }
 
-const cancelLabel = "Cancel cash-out $50";
+async function detailDialog(view: ReturnType<typeof render>) {
+  await view.findByRole("button", { name: cancelLabel }, { timeout: 2_000 });
+  return view.getByRole("dialog", { name: "Cash out to Cash App" });
+}
 
 test("preparation shows busy progress without changing or closing the detail sheet", async () => {
   const pending = deferred<PreparedMoneyAction>();
@@ -204,7 +209,7 @@ test("changing details while preparing discards the late review without changing
   const { view, routes } = setup(() => pending.promise, undefined, [cashoutFixtureAction, anotherAction]);
   const rows = await view.findAllByRole("button", { description: "View Cash out to Cash App details" });
   fireEvent.click(rows[0]!);
-  const dialog = await view.findByRole("dialog", { name: "Cash out to Cash App" });
+  const dialog = await detailDialog(view);
   fireEvent.click(within(dialog).getByRole("button", { name: cancelLabel }));
   fireEvent.click(rows[1]!);
   await act(async () => pending.resolve(cashoutFixtureWithdraw as PreparedMoneyAction));

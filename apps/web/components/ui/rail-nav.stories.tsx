@@ -30,3 +30,5 @@ export const RightToLeft: Story = {
     await expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   },
 };
+
+export const Unread: Story = { args: { label: "Support", unreadCount: 3, href: "/admin/support" }, play: async ({ canvasElement }) => { const link = within(canvasElement).getByRole("link", { name: "Support, 3 unread" }); await expect(link).toHaveAttribute("href", "/admin/support"); } };

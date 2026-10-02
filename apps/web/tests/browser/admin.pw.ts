@@ -24,6 +24,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await page.setViewportSize(viewport);
     await setSession(context, admin);
     expectUncacheable(await page.goto("/admin"));
+    await expect(page.locator("[data-operator-ready=true]")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Business" })).toBeVisible();
@@ -89,7 +90,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     expect(api.headers()["cache-control"]).toContain("no-store");
     const sections = [
       ["Customers", "Customer search isn't available yet.", "/admin/customers"],
-      ["Support", "Support inbox isn't available yet.", "/admin/support"],
+      ["Support", "Support inbox is unavailable.", "/admin/support"],
       ["Growth", "Invite data isn't available.", "/admin/growth"],
       ["Money", "Fee revenue is unavailable. Try again later.", "/admin/money"],
       ["Settings", "Region settings need a database. Home is offering its built-in regions.", "/admin/settings"],
@@ -122,7 +123,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
         await expect(trigger).toBeFocused();
       } else {
         await expect(page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: heading })).toHaveAttribute("aria-current", "page");
-        await expect(page.getByRole("heading", { name: heading })).toBeFocused();
+        await expect(page.getByRole("heading", { name: heading, exact: true })).toBeFocused();
       }
     }
     if (viewport.width === 390) {
