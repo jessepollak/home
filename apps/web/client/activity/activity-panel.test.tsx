@@ -551,6 +551,17 @@ describe("ConnectedActivityPanel", () => {
     expect(view.queryByRole("button", { description: /transaction details/ })).toBeNull();
   });
 
+  test("cached Home reserves Activity without a shimmer or premature empty state", () => {
+    const activity = { status: "loading" as const, page: null, loadingMore: false as const, loadMoreError: false as const, continuing: false as const, retry: () => {}, refresh: () => {}, setSentinelVisible: () => {}, retryLoadMore: () => {} };
+    const view = render(<ActivityPanelView quietLoading density="feed" activity={activity} actionsStatus="loading" />);
+    expect(view.getByText("Loading recent activity…")).toBeTruthy();
+    expect(view.container.querySelector("section")?.getAttribute("aria-busy")).toBe("true");
+    expect(view.container.querySelector('[data-shimmer]')).toBeNull();
+    expect(view.queryByText("No activity yet")).toBeNull();
+    view.rerender(<ActivityPanelView density="feed" activity={activity} actionsStatus="loading" />);
+    expect(view.container.querySelector('[data-shimmer]')).not.toBeNull();
+  });
+
   test("settled rows stay mounted while another source refreshes", () => {
     const activity = {
       status: "ready" as const, page: pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A),
