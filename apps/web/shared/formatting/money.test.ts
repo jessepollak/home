@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   MONEY_CHANGE_COLOR_TOKENS,
   formatBasisPoints,
+  formatWadFeePercent,
   formatChartPrice,
   formatExactPresentationCashAmount,
   formatExactPresentationTokenAmount,
@@ -406,8 +407,27 @@ describe("presentation money formatting", () => {
     expect(() => formatUnsignedTokenAmount("-1", 6)).toThrow(TypeError);
     expect(() => formatWadPercent("-1")).toThrow(TypeError);
     expect(() => formatBasisPoints("-1")).toThrow(TypeError);
+    expect(() => formatWadFeePercent("-1")).toThrow(TypeError);
     expect(() => formatHealthFactor("-1")).toThrow(TypeError);
     expect(() => formatOracleUsd("-1", { loanDecimals: 6, collateralDecimals: 8 })).toThrow(TypeError);
+  });
+
+  test("formats WAD fees as locale-aware percents without hiding small fees", () => {
+    const cases: Array<[string, "GLOBAL" | "DE" | "TR", string]> = [
+      ["100000000000000000", "GLOBAL", "10.00%"],
+      ["100000000000000000", "DE", "10,00\u00a0%"],
+      ["100000000000000000", "TR", "%10,00"],
+      ["40000000000000", "GLOBAL", "0.004%"],
+      ["40000000000000", "DE", "0,004\u00a0%"],
+      ["40000000000000", "TR", "%0,004"],
+      ["123456789000000000", "GLOBAL", "12.345679%"],
+      ["10000000000", "GLOBAL", "0.000001%"],
+      ["1000000000000000000", "DE", "100,00\u00a0%"],
+      ["0", "GLOBAL", "0%"],
+      ["0", "DE", "0\u00a0%"],
+      ["0", "TR", "%0"],
+    ];
+    for (const [raw, regionId, expected] of cases) expect(formatWadFeePercent(raw, regionId)).toBe(expected);
   });
 
   test("formats exact cash amounts in the currency's own decimals", () => {

@@ -64,9 +64,13 @@ function DashboardShellBody({
   const searchParams = useSearchParams();
   const location = parseShellLocation(pathname);
   const [urlSearchOverride, setUrlSearchOverride] = useState<string | null>(null);
+  const [flowOrigin, setFlowOrigin] = useState<{ href: string; opener: HTMLElement | null } | null>(null);
+  const [accountOpener, setAccountOpener] = useState<HTMLElement | null>(null);
   const currentSearch = new URLSearchParams(urlSearchOverride ?? searchParams.toString());
   const overlay = parseShellOverlayIntent(currentSearch);
   const urlIntent = readHomeInboundPanelState(location, currentSearch);
+  const flowOpener = flowOrigin?.href === `${pathname}${currentSearch.size ? `?${currentSearch}` : ""}` ? flowOrigin.opener : null;
+  if (flowOrigin !== null && flowOpener === null && flowOrigin.opener !== null) setFlowOrigin(null);
   const activeNavigation = location.panel;
   const account = useAccountWallet();
   const { preference: appearancePreference, setAppearancePreference } = useAppearance();
@@ -84,7 +88,6 @@ function DashboardShellBody({
   const contentFrameRef = useRef<HTMLDivElement>(null);
   const settingsRegionRef = useRef<HTMLElement>(null);
   const panelStageRef = useRef<HTMLElement>(null);
-  const settingsOpenerRef = useRef<HTMLElement | null>(null);
   const wasSettingsOpenRef = useRef(false);
   const previousPanelRef = useRef(activeNavigation);
   const activeNavigationRef = useRef(activeNavigation);
@@ -92,7 +95,6 @@ function DashboardShellBody({
   const holdingRestoreRef = useRef<(() => void) | null>(null);
   const [investmentsReturnHolding, setInvestmentsReturnHolding] = useState<AssetKey | null>(null);
   const pendingOriginRef = useRef<{ origin: string; target: string } | null>(null);
-  const fundingOpenerRef = useRef<HTMLElement | null>(null);
   const activityReturnRef = useRef<ActivityDetailReturn | null>(null);
   const [activityReturn, setActivityReturnState] = useState<ActivityDetailReturn | null>(null);
   useBreakpointFocusHandoff();
@@ -162,6 +164,8 @@ function DashboardShellBody({
         setActivityReturnState(activityReturnRef.current);
       }
       pendingOriginRef.current = null;
+      setFlowOrigin(null);
+      setAccountOpener(null);
       setUrlSearchOverride(null); setSettingsRequested(false); setPopRevision((revision) => revision + 1); };
     const onVisibility = () => { if (document.visibilityState !== "visible") discardHomeInteractionSamples(); };
     window.addEventListener("popstate", onPop);
@@ -193,13 +197,13 @@ function DashboardShellBody({
     const visible = (target: HTMLElement | null): target is HTMLElement =>
       Boolean(target && target.isConnected && target.getClientRects().length > 0 &&
         !(target instanceof HTMLButtonElement && target.disabled));
-    const previous = settingsOpenerRef.current;
+    const previous = accountOpener;
     const rail = shellRef.current?.querySelector<HTMLElement>("[data-rail-account-action]") ?? null;
     const header = shellRef.current?.querySelector<HTMLElement>("[data-shell-account-action] button") ?? null;
     const target = visible(previous) ? previous : visible(rail) ? rail : visible(header) ? header : panelStageRef.current;
     target?.focus({ preventScroll: true });
-    settingsOpenerRef.current = null;
-  }, [isAccountSettingsOpen]);
+    setAccountOpener(null);
+  }, [isAccountSettingsOpen, accountOpener]);
   useLayoutEffect(() => {
     const previous = previousLocationRef.current;
     previousLocationRef.current = location;
@@ -247,6 +251,8 @@ function DashboardShellBody({
     };
   }, [activeNavigation]);
   const pushRoute = useCallback((href: string) => {
+    setFlowOrigin(null);
+    setAccountOpener(null);
     const target = new URL(href, window.location.origin);
     if (`${target.pathname}${target.search}` === `${window.location.pathname}${window.location.search}`) {
       router.push(href);
@@ -256,14 +262,17 @@ function DashboardShellBody({
     pendingOriginRef.current = target.pathname === window.location.pathname || targetPanel === "home" || targetPanel === "invest"
       ? null : { origin: window.location.pathname, target: target.pathname };
     router.push(href);
-  }, [router]);
+  }, [router, setFlowOrigin, setAccountOpener]);
   const leaveRoute = useCallback((href: string) => {
+    setFlowOrigin(null);
+    setAccountOpener(null);
     if (readShellHistoryOrigin() !== null) router.back();
     else router.replace(href);
-  }, [router]);
+  }, [router, setFlowOrigin, setAccountOpener]);
 
   const navigateTo = useCallback((panel: ShellPanelId) => {
-    settingsOpenerRef.current = null;
+    setFlowOrigin(null);
+    setAccountOpener(null);
     setInvestmentsReturnHolding(null);
     takeHomeHistoryTraversal(null);
     if (panel !== activeNavigation) beginHomeNavigation({ from: startupRoutes[activeNavigation], to: startupRoutes[panel], cache: "first-visit", trigger: "in-app" });
@@ -275,14 +284,12 @@ function DashboardShellBody({
     const href = shellHref({ panel });
     if (window.location.pathname === href) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     if (`${window.location.pathname}${window.location.search}` !== href) pushRoute(href);
-  }, [pushRoute, activeNavigation, setUrlSearchOverride]);
-  const setFlow = useCallback((flow: ShellFlow, options: { actionId?: string | null; mode?: "push" | "replace" } = {}) => {
-    if ((flow === "add-money" || flow === "receive") && options.mode !== "replace" && document.activeElement instanceof HTMLElement) {
-      fundingOpenerRef.current = document.activeElement;
-    }
+  }, [pushRoute, activeNavigation, setUrlSearchOverride, setFlowOrigin, setAccountOpener]);
+  const setFlow = useCallback((flow: ShellFlow, options: { actionId?: string | null; mode?: "push" | "replace"; opener?: HTMLElement | null } = {}) => {
     const href = flowHref(window.location.pathname, flow, options.actionId ?? null,
       new URLSearchParams(window.location.search));
     const pushed = commitFlowUrl(href, options.mode ?? "push");
+    setFlowOrigin({ href, opener: options.opener ?? null });
     setUrlSearchOverride(new URL(href, window.location.origin).search);
     if (pushed) window.history.replaceState({ ...window.history.state,
       __homeFundingFlowPushed: flow === "add-money" || flow === "receive",
@@ -290,10 +297,11 @@ function DashboardShellBody({
         (flow === "save-deposit" || flow === "save-withdraw"),
     }, "");
     return pushed;
-  }, [setUrlSearchOverride]);
+  }, [setUrlSearchOverride, setFlowOrigin]);
   const clearFlow = useCallback((options: {
     mode?: "push" | "replace"; fundingReturn?: boolean; normalizeInbound?: boolean;
   } = {}) => {
+    setFlowOrigin(null);
     if (!options.normalizeInbound && options.mode !== "push" && window.location.pathname === "/cash/savings" &&
       readClientHistoryFlag("cashSavingsFlowPushed") &&
       (overlay.flow === "save-deposit" || overlay.flow === "save-withdraw")) {
@@ -304,7 +312,7 @@ function DashboardShellBody({
     if (options.fundingReturn) { next.searchParams.delete("return"); next.searchParams.delete("add-money"); }
     commitClientUrl(`${next.pathname}${next.search}`, options.mode ?? "replace");
     setUrlSearchOverride(next.search);
-  }, [overlay.flow, setUrlSearchOverride]);
+  }, [overlay.flow, setUrlSearchOverride, setFlowOrigin]);
   const openCashSavings = () => {
     pushRoute(shellHref({ panel: "cash", cashView: "savings" }));
   };
@@ -325,7 +333,7 @@ function DashboardShellBody({
     activityReturn,
     getActivityReturn: () => activityReturnRef.current,
     setActivityReturn: (value: ActivityDetailReturn | null) => { activityReturnRef.current = value; setActivityReturnState(value); },
-    state: urlIntent, popRevision, rootRequest, openPanel: navigateTo, leaveRoute, pushRoute,
+    state: urlIntent, flowOpener, popRevision, rootRequest, openPanel: navigateTo, leaveRoute, pushRoute,
     canOpenAssetDetail, openAssetDetail, setFlow, clearFlow,
   };
   useActivityReturnOwnerBoundary(activityOwner, routingValue);
@@ -344,7 +352,7 @@ function DashboardShellBody({
     initialSendActionId: urlIntent.actionId,
   };
   const openAccountSettings = (opener?: HTMLButtonElement) => {
-    settingsOpenerRef.current = opener ?? shellRef.current?.querySelector<HTMLButtonElement>("[data-shell-account-action] button") ?? null;
+    setAccountOpener(opener ?? null);
     setSettingsOpenedInApp(true);
     commitClientUrl(shellHref({ ...location, account: "settings" }));
     setUrlSearchOverride("?account=settings");
@@ -403,7 +411,7 @@ function DashboardShellBody({
           nestedChromeTitle={nestedChromeTitle} nestedChromeBackLabel={isHomeNestedPanelId(activeNavigation) ? "Back" : investChrome?.nested?.backLabel ?? "Back"} onNestedChromeBack={onNestedChromeBack}
           routeMode="dashboard" activeNavigation={activeNavigation} isVerified={isVerified} account={account}
           onHome={() => navigateTo("home")} onDashboard={() => router.replace("/home")}
-          onSignIn={() => { setIsAccountOpen(true); router.push("/?account=signin"); }}
+          onSignIn={(opener) => { setAccountOpener(opener); setIsAccountOpen(true); router.push("/?account=signin"); }}
           onSignOut={signOut} onOpenSettings={openAccountSettings} onCloseSettings={closeAccountSettings}
           status={homeStatus ? <HomeHeaderStatus status={homeStatus} onRetry={retryHomeReads} onOpenAccount={() => openAccountSettings()} /> : null} />
         <main ref={mainRef} data-app-main-authenticated className={`relative min-w-0 flex-1 bg-muted ${shellNavigationClearanceClassName}`}>
@@ -440,12 +448,7 @@ function DashboardShellBody({
         {!isSignedOut ? <PrimaryNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} /> : null}
         {activeNavigation !== "home" ? <>
           <FundingActions showTrigger={false} initialOpen={urlIntent.addMoney} returnedFromProvider={urlIntent.returnedFromProvider}
-            regionId={regionId} regionReady={regionReady} onClosed={() => {
-              const opener = fundingOpenerRef.current;
-              fundingOpenerRef.current = null;
-              if (opener?.isConnected && opener.getClientRects().length > 0 &&
-                !(opener instanceof HTMLButtonElement && opener.disabled)) opener.focus({ preventScroll: true });
-            }} />
+            regionId={regionId} regionReady={regionReady} />
           <PresentationRegionProvider regionId={regionId}><TransferActions showTrigger={false}
             initialOpen={urlIntent.sendFlow} initialActionId={urlIntent.actionId}
             availableAssets={sendAvailability} assetMarkResolution={assetMarkResolution ?? { images: {}, pending: false }}
@@ -455,11 +458,12 @@ function DashboardShellBody({
       {account.emailRequest ? (
         <EmailShareSheet
           open={account.emailRequest.pending}
+          opener={null}
           onShare={account.emailRequest.share}
           onNotNow={account.emailRequest.dismiss}
         />
       ) : null}
-        <AccountSignInSheet open={isAccountOpen} onClose={() => { setIsAccountOpen(false); router.replace("/"); }}
+        <AccountSignInSheet open={isAccountOpen} opener={accountOpener} onClose={() => { setIsAccountOpen(false); router.replace("/"); }}
           onVerified={() => window.location.replace("/home")} />
       </div>
     </div>
