@@ -306,7 +306,7 @@
   justify-content: center;
   align-items: center;
   min-width: 0;
-  max-width: 100%;
+  width: 100%;
   min-height: 56px;
 }
 .sectionBody[data-layout="fullscreen"] {

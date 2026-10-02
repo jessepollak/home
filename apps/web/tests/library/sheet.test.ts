@@ -130,8 +130,12 @@ describe("frame fallback scheduling", () => {
     expect(fittedFrameHeight(40, false)).toBe(160);
     expect(fittedFrameHeight(300, false)).toBe(348);
     expect(fittedFrameHeight(2000, false)).toBe(844);
-    expect(fittedFrameHeight(40, true)).toBe(844);
     expect(fittedFrameHeight(Number.NaN, false)).toBe(844);
+  });
+  test("portal frames stay 560 tall regardless of content, while fullscreen retains its height", () => {
+    for (const content of [40, 2000, Number.NaN, Infinity]) expect(fittedFrameHeight(content, true)).toBe(560);
+    expect(fittedFrameHeight(40, false, true)).toBe(844);
+    expect(fittedFrameHeight(40, true, true)).toBe(844);
   });
 });
 
@@ -191,15 +195,16 @@ describe("declared frame viewports", () => {
 
 describe("sheet grid spans", () => {
   const base = { layout: "padded", frame: null, portals: false };
-  test("fullscreen layouts, declared viewports and portal frames span the full row", () => {
+  test("fullscreen layouts and declared viewports span the full row", () => {
     expect(spansFullRow({ ...base, layout: "fullscreen" })).toBe(true);
     expect(spansFullRow({ ...base, frame: "Declared viewport", viewport: { width: 1440, height: 900 } })).toBe(true);
-    expect(spansFullRow({ ...base, frame: "Renders a portal", portals: true })).toBe(true);
+    expect(spansFullRow({ ...base, layout: "fullscreen", frame: "Renders a portal", portals: true })).toBe(true);
   });
   test("other stories take one cell", () => {
     expect(spansFullRow(base)).toBe(false);
     expect(spansFullRow({ ...base, layout: "centered" })).toBe(false);
     expect(spansFullRow({ ...base, frame: "Uses loaders" })).toBe(false);
+    expect(spansFullRow({ ...base, frame: "Renders a portal", portals: true })).toBe(false);
     expect(spansFullRow({ ...base, portals: true })).toBe(false);
   });
 });

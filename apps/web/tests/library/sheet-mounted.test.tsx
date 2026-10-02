@@ -119,7 +119,7 @@ for (const portals of [true, false]) {
     const entry = story("height", () => null, portals ? "<Portal />" : "", "Library override");
     const view = sheet([entry]);
     const iframe = view.getByTitle("Fixture · height") as HTMLIFrameElement;
-    if (portals) expect(iframe.height).toBe("844");
+    if (portals) expect(iframe.height).toBe("560");
     const doc = iframe.contentDocument!;
     const content = doc.createElement("div");
     content.id = "storybook-root";
@@ -138,13 +138,21 @@ for (const portals of [true, false]) {
     for (let turn = 0; turn < 3; turn++) { tick(); tick(); child.complete(); }
     tick();
     expect(view.queryByText("Loading height…") === null).toBe(true);
-    expect(iframe.height).toBe(portals ? "844" : "160");
+    expect(iframe.height).toBe(portals ? "560" : "160");
     if (!portals) {
       view.update({ stories: [{ ...entry, portals: true }] });
-      expect(iframe.height).toBe("844");
+      expect(iframe.height).toBe("560");
     }
   });
 }
+
+test("fullscreen portal frames retain the full height rather than the portal tile height", () => {
+  const entry = { ...story("fullscreen", () => null, "<Portal />"), layout: "fullscreen" };
+  const view = sheet([entry]);
+  const iframe = view.getByTitle("Fixture · fullscreen") as HTMLIFrameElement;
+  expect(iframe.height).toBe("844");
+  expect(iframe.width).toBe("390");
+});
 
 test("child pointer and keyboard interaction never select; unconsumed Escape still clears selection", async () => {
   const view = sheet([story("frame", () => null, "<Portal />")]);

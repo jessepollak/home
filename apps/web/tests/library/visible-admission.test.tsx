@@ -168,7 +168,7 @@ test("one-screen-ahead admission starts the render deadline at mount, before vis
     const { nearby, visible } = observers();
     expect(nearby.options).toEqual({ root, rootMargin: `${window.innerHeight}px 0px`, threshold: 0 });
     const placeholder = view.getByRole("status");
-    expect(Number.parseFloat(placeholder.style.height)).toBe(844);
+    expect(Number.parseFloat(placeholder.style.height)).toBe(560);
     nearby.emit(0, 0);
     expect(view.container.querySelector("iframe")).toBeNull();
     nearby.emit(0.01, 1);

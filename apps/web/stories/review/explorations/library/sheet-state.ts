@@ -43,10 +43,13 @@ export function createFrameSlots(limit: number): FrameSlots {
 export const FRAME_WIDTH = 390;
 export const FRAME_MIN_HEIGHT = 160;
 export const FRAME_MAX_HEIGHT = 844;
+const PORTAL_FRAME_HEIGHT = 560;
 const FRAME_PADDING = 48;
 
-export function fittedFrameHeight(content: number, portals: boolean): number {
-  if (portals || !Number.isFinite(content)) return FRAME_MAX_HEIGHT;
+export function fittedFrameHeight(content: number, portals: boolean, fullscreen = false): number {
+  if (fullscreen) return FRAME_MAX_HEIGHT;
+  if (portals) return PORTAL_FRAME_HEIGHT;
+  if (!Number.isFinite(content)) return FRAME_MAX_HEIGHT;
   return Math.round(Math.min(FRAME_MAX_HEIGHT, Math.max(FRAME_MIN_HEIGHT, content + FRAME_PADDING)));
 }
 
@@ -57,7 +60,7 @@ export function framedWidth(available: number): number {
 }
 
 export function spansFullRow(story: { layout: string; frame: unknown; portals: boolean; viewport?: FrameViewport }): boolean {
-  return story.layout === "fullscreen" || story.viewport !== undefined || (story.frame !== null && story.portals);
+  return story.layout === "fullscreen" || story.viewport !== undefined;
 }
 
 function record(value: unknown): Record<string, unknown> {

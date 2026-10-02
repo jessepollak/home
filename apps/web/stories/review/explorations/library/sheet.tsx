@@ -1,7 +1,7 @@
 import { Component, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { propControls, storyArgs } from "./controls";
 import { FrameSection } from "./preview";
-import { createFrameSlots, fittedFrameHeight, FRAME_MAX_HEIGHT, FRAME_MIN_HEIGHT, FRAME_WIDTH, framedWidth, scaledViewport, spansFullRow,
+import { createFrameSlots, fittedFrameHeight, FRAME_MIN_HEIGHT, FRAME_WIDTH, framedWidth, scaledViewport, spansFullRow,
   type FrameSlots } from "./sheet-state";
 import { storyCanvasUrl } from "../board/url-state";
 import type { SheetStory } from "./stories";
@@ -146,8 +146,9 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
     return () => observer.disconnect();
   }, []);
   const width = framedWidth(available);
-  const viewport = useMemo(() => story.viewport ?? { width, height: fullHeight ? FRAME_MAX_HEIGHT : height },
-    [story.viewport, width, fullHeight, height]);
+  const viewport = useMemo(() => story.viewport ?? { width,
+    height: fullHeight ? fittedFrameHeight(0, story.portals, story.layout === "fullscreen") : height },
+    [story.viewport, story.portals, story.layout, width, fullHeight, height]);
   const fitted = scaledViewport(viewport, available);
   const target = useMemo(() => ({ story: story.id, component, label: story.name, changed }),
     [story.id, story.name, component, changed]);
@@ -159,7 +160,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
       if (!doc || !content) return;
       setHeight(fittedFrameHeight(content.scrollHeight, false));
     } catch {
-      setHeight(fittedFrameHeight(Number.NaN, true));
+      setHeight(fittedFrameHeight(Number.NaN, false));
     }
   };
   return <div ref={container} className={styles.frameSlot}>
