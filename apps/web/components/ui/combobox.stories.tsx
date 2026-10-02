@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { expect, within } from "storybook/test";
 import { Combobox, ComboboxCollection, ComboboxContent, ComboboxEmpty, ComboboxGroup, ComboboxGroupLabel, ComboboxInput, ComboboxItem, ComboboxList } from "./combobox";
 
 type CurrencyOption = {
@@ -16,7 +17,7 @@ const meta = {
   id: "ui-combobox",
   title: "UI/Combobox",
   component: Combobox,
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", a11y: { test: "error" } },
 } satisfies Meta<typeof Combobox>;
 
 export default meta;
@@ -38,6 +39,10 @@ export const Default: Story = {
       </ComboboxContent>
     </Combobox>
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: "Currency options" })).toBeInTheDocument();
+  },
 };
 
 const groupedCurrencies = [
@@ -66,4 +71,30 @@ export const Grouped: Story = {
       </ComboboxContent>
     </Combobox>
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: "Currency options" })).toBeInTheDocument();
+  },
+};
+
+export const CustomTriggerLabel: Story = {
+  render: () => (
+    <Combobox items={currencies} defaultValue={currencies[0]} aria-label="Currency">
+      <ComboboxInput aria-label="Currency" triggerLabel="Choose currency" placeholder="Search currencies" className="w-64" />
+      <ComboboxContent>
+        <ComboboxEmpty>No currencies found.</ComboboxEmpty>
+        <ComboboxList>
+          {(option: CurrencyOption) => (
+            <ComboboxItem key={option.value} value={option}>
+              {option.label}
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: "Choose currency" })).toBeInTheDocument();
+  },
 };
