@@ -28,6 +28,11 @@ export function SupportProvider({ ownerKey, fetchAccountResource, fetchAccountRe
   children: ReactNode;
 }) {
   const [selection, setSelection] = useState<{ ownerKey: string; context?: SupportContextRef } | null>(null);
+  const [selectionOwner, setSelectionOwner] = useState(ownerKey);
+  if (selectionOwner !== ownerKey) {
+    setSelectionOwner(ownerKey);
+    setSelection(null);
+  }
   const summary = useSupportSummary(ownerKey, fetchAccountResource);
   const open = Boolean(ownerKey && selection?.ownerKey === ownerKey);
   const summaryFailed = summary.isError;
