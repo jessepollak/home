@@ -30,6 +30,7 @@ const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];
 
 export function ActivityPanelView({
+  quietLoading = false,
   activity,
   operations = EMPTY_OPERATIONS,
   orders = EMPTY_ORDERS,
@@ -61,6 +62,7 @@ export function ActivityPanelView({
   restoreDetailsRequest = 0,
   suspendDetailsRequest = 0,
 }: {
+  quietLoading?: boolean;
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
   orders?: readonly ActivityOrder[];
@@ -234,7 +236,7 @@ export function ActivityPanelView({
   if (sourcesPending && (!revealed || !hasRows)) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sources={sources} sectionRef={sectionRef}>
-        <ShimmerRows count={plain ? 3 : 4} />
+        <ShimmerRows count={plain ? 3 : 4} variant={quietLoading ? "reserved" : "rows"} />
         <span className="sr-only">Loading recent activity…</span>
       </ActivitySurface>
     );

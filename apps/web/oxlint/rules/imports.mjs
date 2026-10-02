@@ -221,7 +221,7 @@ export const noTestSupportImports = rule(testSupportIsolationMessage, (value, _f
   return /(?:^|\/)(?:tests|testing)(?:\/|$)/.test(specifier)
     || /\.test(?:\.[^/]+)?$/.test(specifier)
     || /(?:^|\/)[^/]*test-harness(?:\.[^/]+)?$/.test(specifier);
-});
+}, { jsdoc: true });
 export const noClassicZodImports = rule(classicZodMessage, (value) =>
   value !== "zod/mini" && (value === "zod" || value.startsWith("zod/")));
 

@@ -41,11 +41,13 @@ function scenario({
   balances,
   rates,
   stale = false,
+  unknownPositions = false,
   regionId = "GLOBAL",
 }: {
   balances: readonly [string, string];
   rates: readonly [number | null, number | null];
   stale?: boolean;
+  unknownPositions?: boolean;
   regionId?: RegionId;
 }) {
   const candidates = [candidate(VAULT_A, rates[0]), candidate(VAULT_B, rates[1])];
@@ -63,7 +65,7 @@ function scenario({
     candidates,
     positions: [VAULT_A, VAULT_B].map((vaultAddress, index) => ({
       vaultAddress,
-      position: balances[index] === "0" ? null : { assetsRaw: balances[index]! },
+      position: unknownPositions ? null : { assetsRaw: balances[index]! },
     })),
     metadataFetchedAt: FETCHED_AT,
     metadataStale: stale,
@@ -93,9 +95,14 @@ describe("savings teaser APY", () => {
       expected: "Up to 6.00% APY",
     },
     {
-      name: "falls back to the best public offer when a funded rate is incomplete",
+      name: "does not treat unavailable holdings as an empty portfolio",
+      input: { balances: ["0", "0"], rates: [0.04, 0.06], unknownPositions: true },
+      expected: null,
+    },
+    {
+      name: "does not substitute a public offer for an incomplete funded rate",
       input: { balances: ["100000000", "300000000"], rates: [0.04, null] },
-      expected: "Up to 4.00% APY",
+      expected: null,
     },
   ] as const;
 
@@ -132,7 +139,7 @@ describe("savings teaser APY", () => {
     expect(scenario({ balances: ["100000000", "1"], rates: [0, 0] }).label).toBe("0% APY");
   });
 
-  test("uses the public offer when account positions are not yet available", () => {
+  test("uses the public offer without an owner portfolio", () => {
     const metadata = {
       version: "v1",
       chainId: 8453,
