@@ -566,6 +566,21 @@ export function formatBasisPoints(
   }).format(value);
 }
 
+export function formatWadFeePercent(
+  raw: AtomicAmount,
+  regionId: RegionId = "GLOBAL",
+): string {
+  const wad = parseUnsignedAtomicAmount(raw);
+  const value = `${wad}E-18`;
+  if (!isStringNumericLiteral(value)) throw new TypeError("Invalid WAD fee");
+  if (!Number.isFinite(Number(value))) return "—";
+  return cachedNumberFormat(presentationLocale(regionId), {
+    style: "percent",
+    minimumFractionDigits: wad === BigInt(0) ? 0 : 2,
+    maximumFractionDigits: 6,
+  }).format(value);
+}
+
 export function formatHealthFactor(
   raw: AtomicAmount | null,
   regionId: RegionId = "GLOBAL",
