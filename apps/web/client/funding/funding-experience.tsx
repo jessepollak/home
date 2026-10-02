@@ -26,6 +26,7 @@ const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module
 export const preloadAddMoneySheet = AddMoneySheet.preload;
 
 export type FundingExperienceProps = {
+  opener?: HTMLElement | null;
   returnedFromProvider?: boolean;
   returnedFromVerification?: boolean;
   open?: boolean;
@@ -110,6 +111,7 @@ function FundingExperienceBoundary({
   returnedFromProvider = false,
   returnedFromVerification = false,
   open = true,
+  opener = null,
   onClose,
   onClosed,
   initialStep,
@@ -354,6 +356,7 @@ function FundingExperienceBoundary({
   return (
     <AddMoneySheet
       open={open}
+      opener={opener}
       step={signedOut ? "method" : step}
       address={address}
       signedOut={signedOut}

@@ -83,6 +83,11 @@ export function actionKindForBorrowOperation(operation: BorrowOperation): Action
   return operation;
 }
 
+export function increasesBorrowRisk(operation: BorrowOperation, debt: bigint): boolean {
+  return operation === "borrow" || operation === "supply-and-borrow" ||
+    (operation === "withdraw-collateral" && debt > BigInt(0));
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

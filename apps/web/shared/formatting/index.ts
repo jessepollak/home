@@ -23,6 +23,7 @@ export {
   formatTrimmedChartPrice,
   formatUnsignedTokenAmount,
   formatUsdStablecoinAmount,
+  formatWadFeePercent,
   formatWadPercent,
   joinAmountAndSymbol,
   moneyChangeTone,

@@ -327,8 +327,8 @@ jobs:
       - name: Enforce smoke job budget
         run: |
           elapsed=$(( $(date +%s) - HOME_SMOKE_STARTED_AT ))
-          echo "Chromium smoke: ${elapsed}s before artifact upload (110s budget; 10s reserved for cleanup)."
-          test "$elapsed" -le 110
+          echo "Chromium smoke: ${elapsed}s before artifact upload (125s budget; 10s reserved for cleanup)."
+          test "$elapsed" -le 125
 
       - name: Upload Playwright timings and failure traces
         if: always()

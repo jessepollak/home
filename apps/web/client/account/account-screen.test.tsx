@@ -2,6 +2,7 @@ import "./dom-test-harness";
 
 import { page } from "@/tests/helpers/dom";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import type {
   AccountWalletClient,
   AccountWalletSdkBoundary,
@@ -17,6 +18,8 @@ const { act, cleanup, fireEvent, render, waitFor } = await import(
 );
 const { useMemo, useState } = await import("react");
 const { AccountSignInSheet } = await import("./account-screen");
+const AccountSheet = deferSheet(() => Promise.resolve(AccountSignInSheet));
+await AccountSheet.preload();
 const {
   AccountWalletClientProvider,
   createBlockedAccountWalletClient,
@@ -72,6 +75,7 @@ function SheetHarness({
   onVerified?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const [signedIn, setSignedIn] = useState(initiallySignedIn);
   const sessionFetch = useMemo(
     () => async () => {
@@ -115,11 +119,12 @@ function SheetHarness({
       sessionFetch={sessionFetch}
     >
       <SessionStatusProbe />
-      <button type="button" onClick={() => setOpen(true)}>
+      <button type="button" onClick={(event) => { setOpener(event.currentTarget); setOpen(true); }}>
         Open account
       </button>
-      <AccountSignInSheet
+      <AccountSheet
         open={open}
+        opener={opener}
         onClose={() => setOpen(false)}
         onVerified={onVerified}
       />
