@@ -12,6 +12,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 
 ## Core contracts
 
+- [Support chat](support.md) — customer conversation, operator inbox, privacy, and retention.
 - [Actions](actions.md) — prepare → confirm → dispatch → handle, records, status, retries, and owner fencing.
 - [Operator fees](operator-fees.md) — fee records and expected-fee reporting.
 - [Activity valuation](activity-valuation.md) — transfer-time fiat value, peg and historical-close methods, currency, and unpriced states.

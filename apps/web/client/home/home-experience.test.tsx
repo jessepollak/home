@@ -257,7 +257,7 @@ function DashboardHarness({
               tone: "default",
             }],
           }],
-          breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+          breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000, status: "complete" }],
           summary: {
             cash: { status: "complete", value: "$12.34" },
             investments: { status: "complete", value: "$0.00", assetCount: 0, ownedCount: 0 },
@@ -1152,9 +1152,9 @@ describe("Home shell routing and intents", () => {
           totalStatus: "complete",
           groups: [],
           breakdown: [
-            { id: "borrow", label: "Borrow", value: "−$30.01", weight: 249 },
-            { id: "cash", label: "Cash", value: "$12.34", weight: 102 },
-            { id: "investments", label: "Investments", value: "$78.21", weight: 649 },
+            { id: "borrow", label: "Borrow", value: "−$30.01", weight: 249, status: "complete" },
+            { id: "cash", label: "Cash", value: "$12.34", weight: 102, status: "complete" },
+            { id: "investments", label: "Investments", value: "$78.21", weight: 649, status: "complete" },
           ],
           summary: {
             cash: { status: "complete", value: "$12.34" },
@@ -1697,13 +1697,13 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("button", { name: "Choose a country in Account to set how money is shown" })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={null} />);
-    expect(document.querySelector("[data-home-status]")).toBeNull();
+    expect(page().getByRole("button", { name: /Balance unavailable.*Some balances couldn’t be read/ })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={{ kind: "interrupted" }} />);
     expect(page().getByRole("button", { name: interrupted })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={null} />);
-    expect(document.querySelector("[data-home-status]")).toBeNull();
+    expect(page().getByRole("button", { name: /Balance unavailable.*Some balances couldn’t be read/ })).toBeTruthy();
   });
 
   test("offered Send becomes Cash out without removing transfer actions when Send pauses", async () => {

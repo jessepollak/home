@@ -7,6 +7,7 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
 import { MoneyModal } from "@/client/money-modal";
+import { SupportProvider } from "@/client/support/support-provider";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { FundingOrderFlow, readFundingOrder } = await import("./order-flow");
@@ -173,4 +174,29 @@ test("a verification response without a hand-off still shows the returned blocke
   await page().findByText(/The provider rejected this setup/);
   expect(page().queryByRole("button", { name: "Continue to Ripio verification" })).toBeNull();
   expect(opened).toEqual([]);
+});
+
+test("failed funding orders open support with order context", async () => {
+  const fetchSupport = async (path: string) => {
+    if (path === "/api/support/summary") return { version: 2, unreadCount: 0 };
+    if (path === "/api/support") return { version: 2, conversation: null, assistant: { available: false, handoff: false } };
+    throw new Error(`Unexpected request: ${path}`);
+  };
+  render(
+    <SupportProvider ownerKey={ownerKey} fetchAccountResource={fetchSupport} fetchAccountResponse={async () => { throw new Error("Unexpected stream"); }}>
+      <MoneyModal open labelledBy="deposit-title" onCancel={() => {}} onClose={() => {}}>
+        <FundingOrderFlow
+          binding={binding}
+          fetchAccountResource={async () => { throw new Error("Unexpected funding request"); }}
+          titleId="deposit-title"
+          onBack={() => {}}
+          onOpenRedirect={() => {}}
+          initialOrder={{ ...order, state: "failed" }}
+        />
+      </MoneyModal>
+    </SupportProvider>,
+  );
+  fireEvent.click(page().getByRole("button", { name: "Message support" }));
+  expect(await page().findByText("About your add money order", {}, { timeout: 5_000 })).toBeTruthy();
+  expect(page().getByRole("dialog", { name: "Support" })).toBeTruthy();
 });

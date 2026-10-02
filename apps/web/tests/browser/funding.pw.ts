@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
-import { expectNavigation } from "./fixtures/navigation-budget";
+import { expectNavigation, NAVIGATION_BUDGET_MS } from "./fixtures/navigation-budget";
 
 async function signIn(page: Page) {
   await page.goto("/?account=signin");
@@ -46,8 +46,8 @@ test("Add money before hydration navigates to the IDRX funding flow", { tag: "@s
   await expect(trigger).toHaveAttribute("href", "/home?flow=add-money");
   await page.unroute("**/_next/**/*.js");
   await trigger.click();
-  await expect(page).toHaveURL("/home?flow=add-money");
-  await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible();
+  await expectNavigation(page, "/home?flow=add-money");
+  await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible({ timeout: NAVIGATION_BUDGET_MS });
   const method = page.getByRole("button", { name: /Deposit IDR/ });
   await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();
