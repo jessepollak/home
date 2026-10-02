@@ -308,6 +308,12 @@ describe("MoneyAmountDisplay", () => {
     expect(page().getByText("Only 1,234.5 ETH available")).toBeTruthy();
   });
 
+  test("keeps saved wording when the exact fallback ceiling differs from its rounded label", () => {
+    render(<AmountHarness overAvailable availableLabel="$100.00 saved" availableAmount="100.001" />);
+    expect(page().getByText("Only $100.001 saved")).toBeTruthy();
+    expect(page().queryByText(/available/)).toBeNull();
+  });
+
   test("Enter submits; only the step host focuses enabled amount inputs", async () => {
     const onSubmit = mock(() => {});
     render(<AmountHarness onSubmit={onSubmit} />);

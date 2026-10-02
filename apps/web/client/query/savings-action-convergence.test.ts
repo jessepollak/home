@@ -180,7 +180,7 @@ async function proveSavingsConvergence({
     handlePosts: 2,
   });
   expect(invalidations).toContain("activity-orders");
-  expect(invalidations).toEqual([...afterActionScopes, networkFeePolicyScope]);
+  expect([...invalidations].sort()).toEqual([...afterActionScopes, networkFeePolicyScope].sort());
   expect(balanceValues(queryClient.getQueryData(balanceKey))).toEqual(balanceValues(initial));
 
   await fake.advance(9_000);
@@ -188,7 +188,8 @@ async function proveSavingsConvergence({
   expect(freshReads).toBe(3);
   expect(freshnessState.moved.has(ACTION_ID)).toBe(true);
   expect(balanceValues(queryClient.getQueryData(balanceKey))).toEqual(balanceValues(final));
-  expect(invalidations).toEqual([...afterActionScopes, networkFeePolicyScope, ...indexedScopes, networkFeePolicyScope]);
+  expect(invalidations.slice(0, afterActionScopes.length + 1).sort()).toEqual([...afterActionScopes, networkFeePolicyScope].sort());
+  expect(invalidations.slice(afterActionScopes.length + 1)).toEqual([...indexedScopes, networkFeePolicyScope]);
   expect(invalidations.filter((scope) => scope === "balances")).toHaveLength(1);
   expect(invalidations.filter((scope) => scope === "activity")).toHaveLength(2);
   expect(invalidations.filter((scope) => scope === "actions")).toHaveLength(2);

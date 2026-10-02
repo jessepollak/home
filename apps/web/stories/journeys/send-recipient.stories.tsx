@@ -55,7 +55,7 @@ function SendRecipientJourney({ mode }: { mode: Mode }) {
     open
     immediate
     address={ACCOUNT}
-    ownerBoundary="storybook-send-recipient"
+    queryOwnerKey="storybook-send-recipient"
     regionId="US"
     availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "25000000", balanceLabel: "$25.00" }]}
     fetchAccountResource={fetchAccountResource}

@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "domNodes": {
     "/home": 456,
     "/activity": 275,
@@ -15,5 +15,27 @@
     "/invest": 632184,
     "/borrow": 632184,
     "/investments": 632184
+  },
+  "balancesPainted": {
+    "/home": {
+      "cold": {
+        "paintedMs": 834,
+        "shellMs": 665
+      },
+      "persisted": {
+        "paintedMs": 1219,
+        "shellMs": 1162
+      }
+    },
+    "/cash": {
+      "cold": {
+        "paintedMs": 3247,
+        "shellMs": 2929
+      },
+      "persisted": {
+        "paintedMs": 943,
+        "shellMs": 916
+      }
+    }
   }
 }

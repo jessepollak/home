@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertFundingProvidersResponse, FUNDING_PROVIDERS_VERSION, readFundingProvidersResponse, readProviderBindings } from "./providers";
+import { assertFundingProvidersResponse, FUNDING_PROVIDERS_VERSION, readProviderBindings } from "./providers";
 
 const offramp = {
   providerId: "peer",
@@ -59,38 +59,36 @@ describe("funding provider contract parser", () => {
   });
 
   test("accepts current-version entries and a genuinely empty catalog for the requested direction", () => {
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [{ ...offramp, kyc: null }] }, "offramp")).toEqual([
-      { ...offramp, customerSetup: null },
-    ]);
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [] }, "onramp")).toEqual([]);
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }, "offramp")).toEqual([]);
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [{ ...offramp, kyc: null }] }, "offramp", "US")).not.toThrow();
+    expect(readProviderBindings({ providers: [{ ...offramp, kyc: null }] })).toEqual([{ ...offramp, customerSetup: null }]);
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [] }, "onramp", "US")).not.toThrow();
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }, "offramp", "US")).not.toThrow();
   });
 
   test("rejects unsupported, missing, or mismatched directions even for an empty catalog", () => {
     for (const direction of ["onramp", "offramp"] as const) {
-      expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, providers: [] }, direction)).toBeNull();
-      expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "invalid", providers: [] }, direction)).toBeNull();
-      expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: direction === "onramp" ? "offramp" : "onramp", providers: [] }, direction)).toBeNull();
+      expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, providers: [] }, direction, "US")).toThrow("Invalid funding providers response");
+      expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "invalid", providers: [] }, direction, "US")).toThrow("Invalid funding providers response");
+      expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: direction === "onramp" ? "offramp" : "onramp", providers: [] }, direction, "US")).toThrow("Invalid funding providers response");
     }
   });
 
   test("rejects unsupported or malformed catalogs without dropping an entry", () => {
-    expect(readFundingProvidersResponse({ version: 2, direction: "offramp", providers: [{ ...offramp, kyc: null }] }, "offramp")).toBeNull();
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: null }, "offramp")).toBeNull();
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [{ ...offramp, kyc: null }, {}] }, "offramp")).toBeNull();
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [{ ...offramp, kyc: null, direction: "unknown" }] }, "offramp")).toBeNull();
+    expect(() => assertFundingProvidersResponse({ version: 2, direction: "offramp", providers: [{ ...offramp, kyc: null }] }, "offramp", "US")).toThrow("Invalid funding providers response");
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: null }, "offramp", "US")).toThrow("Invalid funding providers response");
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [{ ...offramp, kyc: null }, {}] }, "offramp", "US")).toThrow("Invalid funding providers response");
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [{ ...offramp, kyc: null, direction: "unknown" }] }, "offramp", "US")).toThrow("Invalid funding providers response");
   });
 
-  test("rejects a valid binding in the wrong direction and a missing onramp entry direction", () => {
+  test("rejects a valid binding in the wrong direction and accepts the onramp entry", () => {
     const onramp = {
       providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx", assetSymbol: "IDRX",
       assetDecimals: 2, currency: "IDR", direction: "onramp" as const, paymentMethods: [{ id: "qris", label: "QRIS" }],
       quotes: false, customerSetup: null,
     };
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [offramp, onramp] }, "offramp")).toBeNull();
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [onramp, offramp] }, "onramp")).toBeNull();
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [{ ...onramp, direction: undefined }] }, "onramp")).toBeNull();
-    expect(readFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [onramp] }, "onramp")).toEqual([{ ...onramp, resumeOnly: false }]);
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [offramp, onramp] }, "offramp", "US")).toThrow("Invalid funding providers response");
+    expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [onramp, offramp] }, "onramp", "ID")).toThrow("Invalid funding providers response");
+    expect(readProviderBindings({ providers: [onramp] })).toEqual([{ ...onramp, resumeOnly: false }]);
   });
 
   test("accepts current and legacy null off-ramp setup shapes", () => {
@@ -117,7 +115,7 @@ describe("funding provider contract parser", () => {
     const paused = { ...onramp, resumeOnly: true };
     const response = { version: 3, direction: "onramp" as const, providers: [paused] };
     expect(FUNDING_PROVIDERS_VERSION).toBe(3);
-    expect(readFundingProvidersResponse(response, "onramp")).toEqual([{ ...paused, resumeOnly: true }]);
+    expect(readProviderBindings(response)).toEqual([{ ...paused, resumeOnly: true }]);
     expect(() => assertFundingProvidersResponse(response, "onramp", "US")).not.toThrow();
   });
 

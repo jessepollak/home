@@ -30,6 +30,7 @@ type FinanceRowCommonProps = {
   label: ReactNode;
   labelSuffix?: ReactNode;
   context?: ReactNode;
+  reserveContext?: boolean;
   contextLines?: 1 | 2;
   contextTitle?: string;
   value?: ReactNode;
@@ -93,6 +94,7 @@ function FinanceRow({
   label,
   labelSuffix,
   context,
+  reserveContext = false,
   contextLines = 1,
   contextTitle,
   value,
@@ -111,9 +113,9 @@ function FinanceRow({
   const hintId = useId();
   const activation = action ? undefined : onActivate;
   const hasValue = value !== undefined || valueContext !== undefined;
-  const rowContext = context === undefined ? null : (
+  const rowContext = context === undefined && !reserveContext ? null : (
     <ItemDescription lines={contextLines} tone={disclosure ? "disclosure" : undefined} className={cn(contextLines === 2 && "whitespace-normal", labelSuffix !== undefined && "order-4 mt-0.5 max-w-full shrink-0")} title={contextTitle}>
-      {context}
+      {context ?? <span aria-hidden="true">{"\u00a0"}</span>}
     </ItemDescription>
   );
   const labelAndContext = (

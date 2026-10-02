@@ -53,11 +53,11 @@ export function assertFundingProvidersResponse(
   }
 }
 
-export function readFundingProvidersResponse(value: unknown, direction: FundingBinding["direction"]): ReadonlyArray<FundingBinding> | null {
-  if (!isRecord(value) || value.version !== FUNDING_PROVIDERS_VERSION || value.direction !== direction ||
-    !Array.isArray(value.providers) || !value.providers.every((item: unknown) => isRecord(item) && item.direction === direction)) return null;
-  const bindings = readProviderBindings(value);
-  return bindings.length === value.providers.length ? bindings : null;
+/** @public validates a parsed binding list against the requested region and direction, for restored and cached values */
+export function isFundingBindingListFor(value: unknown, direction: FundingDirection, region: string): value is ReadonlyArray<FundingBinding> {
+  if (!Array.isArray(value)) return false;
+  const bindings = readProviderBindings({ providers: value });
+  return bindings.length === value.length && bindings.every((binding) => binding.region === region && binding.direction === direction);
 }
 
 export function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {

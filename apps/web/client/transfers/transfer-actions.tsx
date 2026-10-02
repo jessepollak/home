@@ -11,7 +11,7 @@ import {
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
-import { uiBoundary } from "@/client/account/owner-keys";
+import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import {
   commitClientUrl,
   commitFlowUrl,
@@ -73,9 +73,9 @@ export function TransferActionsForWallet({
   const [modalOwner, setModalOwner] = useState<string | null>(null);
   const { markOpenedInApp, takeOpenedInApp } = useFlowModal();
   const boundary = uiBoundary(wallet);
-  const verifiedAddress = isServerVerified(wallet)
-    ? wallet.session.smartAccount?.address ?? null
-    : null;
+  const session = isServerVerified(wallet) ? wallet.session : null;
+  const queryOwnerKey = session?.smartAccount ? dataOwnerKey(session) : null;
+  const verifiedAddress = session?.smartAccount?.address ?? null;
   const routeOpen = routing ? routing.state.flow === "send" : initialOpen;
   const visibleSend = modalOwner === boundary && (routing ? routeOpen : sendOpen);
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;
@@ -156,7 +156,7 @@ export function TransferActionsForWallet({
         regionReady={regionReady}
         resumeMoneyAction={wallet.resumeMoneyAction}
         executeMoneyAction={wallet.executeMoneyAction}
-        ownerBoundary={boundary}
+        queryOwnerKey={queryOwnerKey}
         resumeActionId={initialActionId}
         onReview={showReview}
         onInvalidResume={showFirstStep}

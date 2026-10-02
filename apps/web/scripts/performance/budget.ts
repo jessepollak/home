@@ -4,8 +4,8 @@ import { spawnSync } from "node:child_process";
 import { platform } from "node:os";
 import { measureRoute } from "./bundle";
 import { launch, withSession } from "./browser";
-import { cpuThrottle, feedSizes, gateIds, maxTracedScenarios, modalCycles, navigationPaths, repetitions, routes, type GateId } from "./config";
-import { evaluateStructural, evaluateTiming, exitCode, limitFor, median, percentile, type Baseline, type StructuralInput, type TimingInput } from "./evaluate";
+import { balancesPaintKinds, balancesPaintRoutes, cpuThrottle, feedSizes, gateIds, maxTracedScenarios, modalCycles, navigationPaths, repetitions, routes, type GateId } from "./config";
+import { balancesPaintLimit, evaluateStructural, evaluateTiming, exitCode, limitFor, median, medianPaintSample, percentile, type Baseline, type StructuralInput, type TimingInput } from "./evaluate";
 import { runFeed } from "./feed";
 import { runModal } from "./modal";
 import { runNavigation } from "./navigation";
@@ -62,23 +62,53 @@ async function main() {
     try { return await run(); } finally { phaseRows.push({ name, durationMs: round(performance.now() - at) }); }
   };
   try {
-    const baseline: Baseline = updateBaseline ? { version: 1, domNodes: {}, initialJs: {} }
+    const baseline: Baseline = updateBaseline ? { version: 2, domNodes: {}, initialJs: {}, balancesPainted: {} }
       : JSON.parse(await readFile(baselineFile, "utf8")) as Baseline;
-    if (baseline.version !== 1) throw new Error("Unsupported baseline version");
-    if (updateBaseline || !only || only === "dom-nodes" || only === "initial-js") {
-      for (const path of routes) {
+    if (baseline.version !== 2) throw new Error("Unsupported baseline version");
+    if (updateBaseline || !only || only === "dom-nodes" || only === "initial-js" || only === "balances-painted") {
+      for (const path of only === "balances-painted" ? balancesPaintRoutes : routes) {
         const key = `route-${path.slice(1)}`;
-        const measure = () => withSession(browser, seed, (session) => measureRoute(session, baseUrl, path));
-        const observed = await phase(key, measure);
+        const startupMarks = balancesPaintRoutes.some((route) => route === path) && (!only || only === "balances-painted" || updateBaseline);
+        const routeBaseline = baseline.balancesPainted?.[path];
+        const sessionOptions = seed === "balances-painted" && routeBaseline ? { seedBalancesPaintRatio:
+          Math.max(...balancesPaintKinds.map((kind) => routeBaseline[kind].paintedMs / routeBaseline[kind].shellMs)) } : undefined;
+        const measure = (trace?: { dir: string; name: string }) => withSession(browser, seed,
+          (session) => measureRoute(session, baseUrl, path, { startupMarks }), trace, cpuThrottle, sessionOptions);
+        const observed = await phase(key, () => measure());
+        const marks = observed.marks;
+        if (startupMarks && !marks) throw new Error(`Missing startup paint marks for ${path}`);
         if (updateBaseline) {
           baseline.domNodes[path] = observed.nodes;
           baseline.initialJs[path] = observed.initialJs;
+          if (marks) {
+            const samples = [marks];
+            for (let sample = 2; sample <= 3; sample++) {
+              const next = await phase(`${key}-${sample}`, () => measure());
+              if (!next.marks) throw new Error(`Missing startup paint marks for ${path}`);
+              samples.push(next.marks);
+            }
+            baseline.balancesPainted[path] = Object.fromEntries(balancesPaintKinds.map((kind) => {
+              const selected = medianPaintSample(samples.map((sample) => sample[kind]));
+              return [kind, { paintedMs: Math.round(selected.paintedMs), shellMs: Math.round(selected.shellMs) }];
+            })) as Baseline["balancesPainted"][string];
+          }
         } else {
           if (!only || only === "dom-nodes") structuralInputs.push({ id: "dom-nodes", label: path, value: observed.nodes,
             limit: limitFor("dom-nodes", baseline.domNodes[path]), unit: "nodes", detail: { baseline: baseline.domNodes[path] } });
           if (!only || only === "initial-js") structuralInputs.push({ id: "initial-js", label: path, value: observed.initialJs,
             limit: limitFor("initial-js", baseline.initialJs[path]), unit: "gzip bytes", detail: { baseline: baseline.initialJs[path], scripts: observed.scripts } });
-          reruns.set(key, async (dir) => { await withSession(browser, seed, (session) => measureRoute(session, baseUrl, path), { dir, name: key }); });
+          if (startupMarks && marks) {
+            for (const kind of balancesPaintKinds) {
+              const paintBaseline = baseline.balancesPainted?.[path]?.[kind];
+              if (!paintBaseline) throw new Error(`Missing balances-painted baseline for ${path} ${kind}`);
+              const paint = marks[kind];
+              const limit = balancesPaintLimit(paintBaseline, paint.shellMs);
+              structuralInputs.push({ id: "balances-painted", label: `${path} ${kind}`, value: round(paint.paintedMs), limit, unit: "ms",
+                detail: { path, kind, baseline: paintBaseline.paintedMs, shellMsBaseline: paintBaseline.shellMs, shellMs: round(paint.shellMs),
+                  baselineRatio: round(paintBaseline.paintedMs / paintBaseline.shellMs), ratio: round(paint.paintedMs / paint.shellMs) } });
+            }
+          }
+          reruns.set(key, async (dir) => { await measure({ dir, name: key }); });
         }
       }
     }
@@ -90,7 +120,12 @@ async function main() {
         phases: phaseRows, structural: [], timing: [], cpu: { requested: cpuThrottle, scenarios: cpuScenarios }, timingMode: "report-only", reportOnlyUntil: "2026-10-11", traces: [],
       }, null, 2) + "\n");
       await writeFile(join(outDir, "summary.md"), ["# Performance baseline updated", "", "| Route | DOM nodes | Initial JS gzip bytes |", "|---|---:|---:|",
-        ...routes.map((route) => `| ${route} | ${baseline.domNodes[route]} | ${baseline.initialJs[route]} |`), ""].join("\n"));
+        ...routes.map((route) => `| ${route} | ${baseline.domNodes[route]} | ${baseline.initialJs[route]} |`), "",
+        "| Route | Kind | Balances painted ms | Shell paint ms | Ratio |", "|---|---|---:|---:|---:|",
+        ...balancesPaintRoutes.flatMap((route) => balancesPaintKinds.map((kind) => {
+          const paint = baseline.balancesPainted[route]![kind];
+          return `| ${route} | ${kind} | ${paint.paintedMs} | ${paint.shellMs} | ${round(paint.paintedMs / paint.shellMs)} |`;
+        })), ""].join("\n"));
       console.log(`Updated ${baselineFile}`);
       return;
     }
@@ -186,7 +221,8 @@ async function main() {
     const structural = evaluateStructural(structuralInputs), timing = evaluateTiming(timingInputs);
     const failures = new Set<string>();
     for (const row of structural) if (!row.pass) {
-      const scenario = row.id === "mounted-rows" ? row.label : row.id === "dom-nodes" || row.id === "initial-js" ? `route-${row.label.slice(1)}` :
+      const scenario = row.id === "balances-painted" ? `route-${String(row.detail.path).slice(1)}` :
+        row.id === "mounted-rows" ? row.label : row.id === "dom-nodes" || row.id === "initial-js" ? `route-${row.label.slice(1)}` :
         row.id === "warm-requests" || row.id === "history-writes" ? row.label : String(row.detail.scenario);
       failures.add(scenario);
     }

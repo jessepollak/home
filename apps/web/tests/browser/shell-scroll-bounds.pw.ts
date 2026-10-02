@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 const floatingNavigationOffset = 12;
 
@@ -44,7 +45,7 @@ test("account flows and tab changes keep the document as the scroll owner", asyn
   await expect(dialog).toBeVisible();
   await page.getByRole("button", { name: "Close send dialog" }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
 
   await page.locator("#invest-nav").click();
   await expect(page.locator("#invest-nav")).toHaveAttribute("aria-current", "page");

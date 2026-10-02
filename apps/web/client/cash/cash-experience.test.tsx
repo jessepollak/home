@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import { getHomeQueryClient, HomeQueryClientProvider, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { invalidateAfterAction, type BalanceActionMarker } from "@/client/query/after-action";
 import { HomeShellRoutingProvider, readHomeInboundPanelState, type HomeInboundPanelState, type HomeShellRouting } from "@/client/home/panel-routing";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
-import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
-import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
+import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset, unavailableBalance } from "@/shared/balances/fixtures";
 import { parseAddress } from "@/shared/chain/hex";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
@@ -18,6 +19,7 @@ import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { refetchIntervalFor } from "@/tests/helpers/query-interval";
 import { pinClock } from "@/tests/helpers/pin-clock";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
@@ -251,6 +253,68 @@ beforeEach(() => { restoreClock = pinClock(NOW_ISO); });
 afterEach(() => { restoreClock(); restoreClock = () => {}; cleanup(); getHomeQueryClient().clear(); focusManager.setFocused(undefined); onlineManager.setOnline(true); preparedInputs.length = 0; routeCalls.length = 0; });
 
 describe("Cash L2", () => {
+  for (const postAction of [false, true]) {
+    test(`failed savings refresh labels retained balances only after a confirmed action (postAction=${postAction})`, async () => {
+      cached();
+      const client = getHomeQueryClient();
+      const balanceKey = ownerQueryKey(dataOwnerKey(session), "balances", "US");
+      client.setQueryData(balanceKey, held, { updatedAt: NOW - 1000 });
+      let reads = 0;
+      const wallet = Object.assign({}, walletWithoutAccount, { session, fetchBalances: async () => {
+        reads += 1;
+        throw new Error("balance refresh failed");
+      } });
+      render(<PresentationRegionProvider regionId="US"><AccountWalletContext.Provider value={wallet}><main><AuthenticatedCashExperience view="savings" onOpenSavings={noop} pendingCashout={null} /></main></AccountWalletContext.Provider></PresentationRegionProvider>);
+      expect(page().queryByText("Balance may be out of date")).toBeNull();
+      await act(async () => {
+        if (postAction) await invalidateAfterAction(client, dataOwnerKey(session), NOW);
+        else await client.invalidateQueries({ queryKey: balanceKey });
+      });
+      await waitFor(() => expect(client.getQueryState(balanceKey)?.status).toBe("error"));
+      expect(reads).toBe(1);
+      const hero = page().getByLabelText("Savings balance");
+      const amount = within(hero).getByRole("img", { name: "$883.00" });
+      if (postAction) {
+        const caption = within(hero).getByText("Balance may be out of date");
+        expect(amount.closest("[aria-describedby]")?.getAttribute("aria-describedby")).toBe(caption.id);
+        expect(within(hero).queryByText(/^Earning /)).toBeNull();
+      } else {
+        expect(within(hero).queryByText("Balance may be out of date")).toBeNull();
+        expect(amount.closest("[aria-describedby]")).toBeNull();
+        expect(within(hero).getByText(/^Earning .*APY$/)).toBeTruthy();
+      }
+    });
+  }
+
+  test("a successful stale savings fallback retains the caption until fresh balances arrive", async () => {
+    cached();
+    const client = getHomeQueryClient();
+    const owner = dataOwnerKey(session);
+    const balanceKey = ownerQueryKey(owner, "balances", "US");
+    const markerKey = ownerQueryKey(owner, "balances-action");
+    client.setQueryData(balanceKey, held, { updatedAt: NOW - 1000 });
+    const actionAt = Date.parse(held.fetchedAt) + 1;
+    const fresh = { ...held, fetchedAt: new Date(actionAt + 1).toISOString() };
+    let stale = true;
+    const wallet = Object.assign({}, walletWithoutAccount, { session, fetchBalances: async () => stale ? { ...fresh, stale: true } : fresh });
+    render(<PresentationRegionProvider regionId="US"><AccountWalletContext.Provider value={wallet}><main><AuthenticatedCashExperience view="savings" onOpenSavings={noop} pendingCashout={null} /></main></AccountWalletContext.Provider></PresentationRegionProvider>);
+    await act(async () => { await invalidateAfterAction(client, owner, NOW); });
+    const hero = page().getByLabelText("Savings balance");
+    await waitFor(() => expect(within(hero).getByText("Balance may be out of date")).toBeTruthy());
+    expect(client.getQueryState(balanceKey)?.status).toBe("success");
+    expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: actionAt, fresh: {} });
+    expect(within(hero).queryByText(/^Earning /)).toBeNull();
+    stale = false;
+    await act(async () => { await client.refetchQueries({ queryKey: balanceKey, exact: true }); });
+    await waitFor(() => expect(within(page().getByLabelText("Savings balance")).queryByText("Balance may be out of date") === null).toBe(true));
+    expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: actionAt, fresh: { US: true } });
+    expect(within(page().getByLabelText("Savings balance")).getByText(/^Earning .*APY$/)).toBeTruthy();
+    stale = true;
+    await act(async () => { await client.refetchQueries({ queryKey: balanceKey, exact: true }); });
+    expect(within(page().getByLabelText("Savings balance")).queryByText("Balance may be out of date") === null).toBe(true);
+    expect(within(page().getByLabelText("Savings balance")).getByText(/^Earning .*APY$/)).toBeTruthy();
+  });
+
   test("unsupported local currency shows verification pending without inventing an amount", () => {
     render(<Surface view="cash" snapshot={unsupportedLocalCash} />);
     const currencies = page().getByRole("region", { name: "Currencies" });
@@ -267,12 +331,12 @@ describe("Cash L2", () => {
   test("held verified cash currencies render their own balances, including wBRL as Brazilian real", async () => {
     cached();
     const snapshot = buildBalancesSnapshotFixture({ registry: {
-      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
-      [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
-      [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
-      [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-      [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-      [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+      [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+      [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000") },
+      [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+      [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+      [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
     } });
     render(<Surface view="cash" snapshot={snapshot} />);
     const currencies = within(await page().findByRole("region", { name: "Currencies" }));
@@ -282,7 +346,7 @@ describe("Cash L2", () => {
       expect(row.textContent).toContain(amount);
     }
     const real = currencies.getByRole("button", { name: /^Brazilian real/ });
-    expect(real.textContent).toContain(verifiedLocalCashAssets.BRL.symbol);
+    expect(real.textContent).toContain(requiredLocalCashAsset("BRL").symbol);
     expect(currencies.queryByText("Unsupported", { exact: true })).toBeNull();
   });
   test("shows priced pending escrow below the wallet-only Cash balance", () => {
@@ -1204,6 +1268,86 @@ describe("Cash L2", () => {
     expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
     expect(preparedInputs).toEqual([]);
   });
+  test("reload rehydrates an older retained deposit and polls without offering Start saving", async () => {
+    cached();
+    const retained = { ...pendingActionRow({ ...preparedDeposit(), id: "older-deposit" }, "unknown"), confirmedAt: "2026-09-08T12:00:00.000Z" };
+    render(<Surface snapshot={empty} fetchAccountResource={async () => ({ actions: [], retainedSavingsDeposits: [retained] })} />);
+    const savings = await page().findByRole("region", { name: "Your savings" });
+    expect(within(savings).getByText("Gauntlet USDC Prime")).toBeTruthy();
+    expect(within(savings).getByText("$1.00")).toBeTruthy();
+    expect(within(savings).getByText("Pending")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    expect(refetchIntervalFor(ownerQueryKey(dataOwnerKey(session), "actions"))).toBe(5_000);
+  });
+  test.each(["failed", "absent"] as const)("an older %s deposit does not block first use", async (state) => {
+    cached();
+    render(<Surface snapshot={empty} fetchAccountResource={async () => ({ actions: [], retainedSavingsDeposits: state === "failed" ? [pendingActionRow(preparedDeposit(), "failed")] : [] })} />);
+    await page().findByRole("button", { name: "Start saving" });
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("Start saving stays hidden across retained pending-to-confirmed polls until the balance postdates settlement", async () => {
+    cached();
+    const pending = { ...pendingActionRow(preparedDeposit(), "pending"), confirmedAt: "2026-09-08T12:00:00.000Z" };
+    const confirmed = { ...pending, status: "confirmed", settledAt: "2026-09-10T12:05:00.000Z" };
+    let reads = 0;
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [reads++ === 0 ? pending : confirmed] });
+    const actionsKey = ownerQueryKey(dataOwnerKey(session), "actions");
+    const view = render(<Surface snapshot={{ ...empty, block: { ...empty.block, timestamp: String(Date.parse("2026-09-10T12:00:00.000Z") / 1000) } }} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    expect(reads).toBe(1);
+    for (let poll = 0; poll < 3; poll++) {
+      await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: actionsKey }); });
+      await waitFor(() => expect(getHomeQueryClient().getQueryData(actionsKey)).toMatchObject({
+        operations: [], retainedSavingsDeposits: [{ action: { id: pending.id }, status: "confirmed", settledAt: confirmed.settledAt }],
+      }));
+      expect(reads).toBe(poll + 2);
+      expect(within(page().getByLabelText("Savings balance")).getByText("Pending")).toBeTruthy();
+      expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    }
+    view.rerender(<Surface snapshot={{ ...empty, block: { ...empty.block, timestamp: String(Date.parse("2026-09-10T12:06:00.000Z") / 1000) } }} fetchAccountResource={resource} />);
+    await page().findByRole("button", { name: "Start saving" });
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("a retained pending deposit returned failed on the next fetch offers Start saving", async () => {
+    cached();
+    const pending = { ...pendingActionRow(preparedDeposit(), "pending"), confirmedAt: "2026-09-08T12:00:00.000Z" };
+    let reads = 0;
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [reads++ === 0 ? pending : { ...pending, status: "failed" }] });
+    render(<Surface snapshot={empty} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(dataOwnerKey(session), "actions") }); });
+    await page().findByRole("button", { name: "Start saving" });
+    expect(reads).toBe(2);
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("funded balances clear the retained pending block even when the retained read is unavailable", async () => {
+    cached();
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [pendingActionRow(preparedDeposit(), "unknown")], retainedSavingsDepositsUnavailable: true });
+    const view = render(<Surface snapshot={empty} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    view.rerender(<Surface snapshot={held} fetchAccountResource={resource} />);
+    await page().findByRole("button", { name: /^Steakhouse USDC/, description: "Manage Steakhouse USDC" });
+    expect(page().queryByText("Pending")).toBeNull();
+    expect(page().queryByText("Couldn't check your deposits")).toBeNull();
+  });
+  test("switching owners removes owner A's retained deposit from owner B's savings entry", async () => {
+    cached();
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [pendingActionRow(preparedDeposit(), "unknown")] });
+    const view = render(<Surface snapshot={empty} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    view.rerender(<Surface snapshot={empty} owner={{ ...session, user: { subject: "owner-b" } }} fetchAccountResource={resource} />);
+    await page().findByRole("button", { name: "Start saving" });
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("an unavailable retained read holds first use unresolved", async () => {
+    cached();
+    render(<Surface snapshot={empty} fetchAccountResource={async () => ({ actions: [], retainedSavingsDepositsUnavailable: true })} />);
+    await page().findByText("Couldn't check your deposits");
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    expect(preparedInputs).toEqual([]);
+  });
   test("a malformed action amount blocks first use instead of being treated as absent", async () => {
     cached();
     const malformed = pendingActionRow(preparedDeposit(), "unknown");
@@ -1659,6 +1803,73 @@ describe("Cash L2", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(preparedInputs).toEqual([{ kind: "withdraw", vaultAddress: GAUNTLET, amountBaseUnits: "4500000" }]));
   });
+  test("withdraw Max uses the available limit rather than the position value", async () => {
+    cached();
+    const limited = buildBalancesSnapshotFixture({ registry: { ...cash,
+      "morpho-steakhouse-usdc": {
+        balance: ready("100000000000000000000"), underlyingBalance: ready("100000000"),
+        withdrawableBalance: ready("40000000"), value: priced("USD", "10000"),
+      },
+    } });
+    render(<Route initialFlow="save-withdraw" snapshot={limited} />);
+    const dialog = within(await page().findByRole("dialog", { name: "Withdraw" }));
+    expect(dialog.getByText("$40.00 available")).toBeTruthy();
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    expect((dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("40");
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(preparedInputs).toEqual([{ kind: "withdraw", vaultAddress: GAUNTLET, amountBaseUnits: "40000000" }]));
+  });
+
+  test("withdraw blocks an amount above the withdrawal limit", async () => {
+    cached();
+    const limited = buildBalancesSnapshotFixture({ registry: { ...cash,
+      "morpho-steakhouse-usdc": {
+        balance: ready("100000000000000000000"), underlyingBalance: ready("100000000"),
+        withdrawableBalance: ready("40000000"), value: priced("USD", "10000"),
+      },
+    } });
+    render(<Route initialFlow="save-withdraw" snapshot={limited} />);
+    const dialog = within(await page().findByRole("dialog", { name: "Withdraw" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "41" } });
+    expect(dialog.getByText("Only $40.00 available")).toBeTruthy();
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(preparedInputs).toEqual([]);
+  });
+
+  test.each(["unavailable", "absent"])("withdraw with %s limit keeps the sheet open and labels the position saved", async (state) => {
+    cached();
+    const fallback = buildBalancesSnapshotFixture({ registry: { ...cash,
+      "morpho-steakhouse-usdc": {
+        balance: ready("100000000000000000000"), underlyingBalance: ready("100000000"),
+        withdrawableBalance: unavailableBalance, value: priced("USD", "10000"),
+      },
+    } });
+    if (state === "absent") delete fallback.holdings.find((holding) => holding.id === "morpho-steakhouse-usdc")!.withdrawableBalance;
+    render(<Route initialFlow="save-withdraw" snapshot={fallback} />);
+    const dialog = within(await page().findByRole("dialog", { name: "Withdraw" }));
+    expect(dialog.getByText("$100.00 saved")).toBeTruthy();
+    expect(dialog.queryByText("$100.00 available")).toBeNull();
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    expect((dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement).value).toBe("100");
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(preparedInputs).toEqual([{ kind: "withdraw", vaultAddress: GAUNTLET, amountBaseUnits: "100000000" }]));
+  });
+
+  test("a held position with a zero withdrawal limit shows nothing available", async () => {
+    cached();
+    const limited = buildBalancesSnapshotFixture({ registry: { ...cash,
+      "morpho-steakhouse-usdc": {
+        balance: ready("100000000000000000000"), underlyingBalance: ready("100000000"),
+        withdrawableBalance: ready("0"), value: priced("USD", "10000"),
+      },
+    } });
+    render(<Route initialFlow="save-withdraw" snapshot={limited} />);
+    const dialog = within(await page().findByRole("dialog", { name: "Withdraw" }));
+    expect(dialog.getByText("Nothing available to withdraw right now.")).toBeTruthy();
+    expect(dialog.getByText("$0.00 available")).toBeTruthy();
+    expect((dialog.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   test("verifying an account preserves the inbound savings flow", async () => {
     cached();
     render(<SignInRoute initialFlow="save-deposit" snapshot={held} />);

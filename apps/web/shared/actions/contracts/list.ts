@@ -31,8 +31,14 @@ export type ActionListItem = {
   cashout?: CashoutProgress;
 };
 export const RECENT_ACTIONS_LIMIT = 100 as const;
+export const RETAINED_SAVINGS_DEPOSITS_LIMIT = 20 as const;
 
-export type ListActionsResponse = { actions: ActionListItem[]; truncated?: boolean };
+export type ListActionsResponse = {
+  actions: ActionListItem[];
+  truncated?: boolean;
+  retainedSavingsDeposits?: ActionListItem[];
+  retainedSavingsDepositsUnavailable?: true;
+};
 
 export type RecentMoneyActionOperation = {
   action: {
@@ -59,6 +65,8 @@ export type RecentMoneyActionOperation = {
 export type UnparsedSavingsDeposit = { status: DerivedActionStatus | null; settledAt?: string; vaultAddress: string | null };
 export type RecentActionsPayload = {
   operations: RecentMoneyActionOperation[];
+  retainedSavingsDeposits: RecentMoneyActionOperation[];
+  retainedSavingsDepositsUnavailable: boolean;
   unparsedSavingsDeposits: UnparsedSavingsDeposit[];
   truncated: boolean;
   incomplete: boolean;
@@ -149,8 +157,12 @@ export function assertRecentActionsResponse(value: unknown): asserts value is { 
 export function parseRecentMoneyActions(value: unknown, session: VerifiedAccountSession): RecentMoneyActionOperation[] {
   if (!session.smartAccount) return [];
   assertRecentActionsResponse(value);
+  return parseRecentActionItems(value.actions, session);
+}
+
+function parseRecentActionItems(items: unknown[], session: VerifiedAccountSession): RecentMoneyActionOperation[] {
   const parsed: RecentMoneyActionOperation[] = [];
-  for (const item of value.actions) {
+  for (const item of items) {
     if (!isRecord(item) || !isRecord(item.owner)) continue;
     if (!sameOwner(item.owner, session)) continue;
     if (!isCompleteRecentActionItem(item)) continue;
@@ -187,10 +199,19 @@ export function parseRecentActionsPayload(value: unknown, session: VerifiedAccou
   const operations = parseRecentMoneyActions(value, session);
   const truncated = readRecentActionsTruncated(value);
   const incomplete = readRecentActionsIncomplete(value, session);
-  if (!isRecentActionsResponse(value)) return { operations, unparsedSavingsDeposits: [], truncated, incomplete };
-  const parsedIds = new Set(operations.filter((row) => row.action.kind === "savings-deposit").map((row) => row.action.id));
+  const retainedValue = isRecord(value) ? value.retainedSavingsDeposits : undefined;
+  const retainedRows = Array.isArray(retainedValue) ? retainedValue : [];
+  const retainedItems = retainedRows.filter(isRetainedSavingsDepositRow);
+  const retainedMalformed = retainedRows.some((row) => !isRetainedSavingsDepositRow(row) || !hasCompleteOwnerShape(row));
+  const operationIds = new Set(operations.map((row) => row.action.id));
+  const retainedSavingsDeposits = parseRecentActionItems(retainedItems, session)
+    .filter((row) => !operationIds.has(row.action.id));
+  const retainedSavingsDepositsUnavailable = isRecord(value) && (value.retainedSavingsDepositsUnavailable === true || retainedMalformed ||
+    ("retainedSavingsDeposits" in value && value.retainedSavingsDeposits !== undefined && !Array.isArray(value.retainedSavingsDeposits)));
+  if (!isRecentActionsResponse(value)) return { operations, retainedSavingsDeposits, retainedSavingsDepositsUnavailable, unparsedSavingsDeposits: [], truncated, incomplete };
+  const parsedIds = new Set([...operationIds, ...retainedSavingsDeposits.map((row) => row.action.id)]);
   const unparsedSavingsDeposits: UnparsedSavingsDeposit[] = [];
-  for (const row of value.actions) {
+  for (const row of [...(isRecentActionsResponse(value) ? value.actions : []), ...retainedRows]) {
     if (!isRecord(row) || row.kind !== "savings-deposit" || !isRecord(row.owner) || !sameOwner(row.owner, session)) continue;
     if (typeof row.id === "string" && parsedIds.has(row.id)) continue;
     const metadata = isRecord(row.summary) ? row.summary.metadata : undefined;
@@ -201,7 +222,16 @@ export function parseRecentActionsPayload(value: unknown, session: VerifiedAccou
         ? metadata.vaultAddress : null,
     });
   }
-  return { operations, unparsedSavingsDeposits, truncated, incomplete };
+  return { operations, retainedSavingsDeposits, retainedSavingsDepositsUnavailable, unparsedSavingsDeposits, truncated, incomplete };
+}
+
+function isRetainedSavingsDepositRow(row: unknown): row is Record<string, unknown> {
+  return isRecord(row) && row.kind === "savings-deposit";
+}
+function hasCompleteOwnerShape(row: Record<string, unknown>): boolean {
+  const owner = row.owner;
+  return isRecord(owner) && parseAddress(owner.address) !== null &&
+    typeof owner.subject === "string" && typeof owner.accountProvider === "string" && typeof owner.chainId === "number";
 }
 
 function isMoneyMetadata(value: unknown): value is MoneyActionMetadata {

@@ -1,5 +1,5 @@
 import type { FiatCurrencyCode } from "@/config/regions";
-import { verifiedCashCurrency } from "@/config/portfolio-assets";
+import { pegCurrencyForContract } from "@/shared/currencies/registry";
 import {
   baseUnitsToFraction,
   exactDecimalToFraction,
@@ -83,7 +83,7 @@ export type ActivityTransferValuation =
   | ActivityUnpricedValuation;
 
 export function activityPegCurrency(tokenAddress: string): FiatCurrencyCode | null {
-  return verifiedCashCurrency(tokenAddress);
+  return pegCurrencyForContract(tokenAddress);
 }
 
 export function isActivityValuationCurrency(value: unknown): value is FiatCurrencyCode {

@@ -1,8 +1,9 @@
 "use client";
 
+import type { HomeRateObservation } from "@/client/query/home-summary-cache";
 import { useCallback, useMemo } from "react";
 import { useAccountWallet } from "@/client/account/cdp-client";
-import { useBalancesData } from "@/client/balances";
+import { useBalances } from "@/client/balances";
 import { useNow } from "@/client/time/use-now";
 import type { RegionId } from "@/config/regions";
 import {
@@ -24,7 +25,7 @@ const BASE_USDC_ASSET = {
   decimals: BASE_USDC_DECIMALS,
 } as const;
 
-export function useSavingsRateLabel(regionId: RegionId, regionReady = true): string | null {
+export function useSavingsRateLabel(regionId: RegionId, regionReady = true): HomeRateObservation {
   const account = useAccountWallet();
   const session = account.verification ? account.session : null;
   const balancesSession = session?.smartAccount
@@ -35,7 +36,7 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true): str
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalancesData(balancesSession, regionId, account.fetchBalances, {
+  const balances = useBalances(balancesSession, regionId, account.fetchBalances, {
     enabled: account.verification === "server" && regionReady,
   });
   const positions = useVaultPositions(balances.snapshot);
@@ -62,12 +63,14 @@ export function useSavingsRateLabel(regionId: RegionId, regionReady = true): str
     });
   }, [metadataQuery.data, positions, rateNowMs]);
 
-  if (!metadataQuery.data) return null;
-  return savingsTeaserApyLabel({
+  const pending = !regionReady || (session !== null && balances.status === "loading") || metadataQuery.isPending;
+  const updatedAt = Math.min(metadataQuery.dataUpdatedAt || Infinity, session ? balances.observation.dataUpdatedAt || Infinity : Infinity);
+  if (pending || !metadataQuery.data || (session !== null && !positions)) return { pending, value: null, updatedAt: Math.max(metadataQuery.errorUpdatedAt, balances.observation.errorUpdatedAt) };
+  return { pending: false, updatedAt, value: savingsTeaserApyLabel({
     regionId,
     summary,
     candidates: metadataQuery.data.candidates,
     metadata: metadataQuery.data,
     nowMs: rateNowMs,
-  });
+  }) };
 }

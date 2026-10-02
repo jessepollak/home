@@ -5,7 +5,7 @@ Status: normative browser-development contract. Home pins Vercel Labs `agent-bro
 ## Decision tree
 
 1. For every user-visible or core-flow change, explore the current path with the repository-pinned `agent-browser` before editing and verify the final path after editing. For a new feature use the nearest entry path. This is interactive evidence, not a committed test.
-2. For permanent regressions prefer unit tests of owned functions, then component tests of roles/handlers/states, then an existing Chromium smoke path. Add a Playwright assertion only for layout/geometry, scrolling, focus, history, persisted state, media queries, hydration/first paint, browser dispatch integration or critical cross-page journeys. Otherwise add no browser test. New Playwright test declarations need a PR-body `Playwright-rung` under [the browser-test ladder](gates.md#browser-test-ladder-boundary).
+2. For permanent regressions prefer unit tests of owned functions, then component tests of roles/handlers/states, then an existing Chromium smoke path. Add a Playwright assertion only for layout/geometry, scrolling, focus, history, persisted state, media queries, hydration/first paint, browser dispatch integration or critical cross-page journeys. Otherwise add no browser test. New Playwright test declarations need a PR-body `Playwright-rung` under [the browser-test ladder](gates.md#browser-test-ladder-boundary). Route-arrival assertions wait with the shared navigation budget (`apps/web/tests/browser/fixtures/navigation-budget.ts`), which tolerates a loaded machine's dev compile, while a route that never arrives still fails.
 3. For provider authentication or real money, follow [the verification ladder](operating-manual.md#verification-ladder) and provider runbook. Credentials are provisioned only to permitted runners. Do not create a generic browser wrapper or run live-money acceptance in PR CI.
 
 For performance acceptance on phones, use [device performance profiling](device-profiling.md); simulator and emulator evidence is not physical-device evidence.
@@ -20,13 +20,13 @@ For performance acceptance on phones, use [device performance profiling](device-
 ## Pinned browser and sessions
 
 ```sh
-bun install --frozen-lockfile
+bun run worktree:bootstrap
 bun run ab -- --version # agent-browser 0.38.1
 bun run ab -- skills get core
 bun run ab -- doctor --quick --json
 ```
 
-Use only `bun run ab --` from the repository root, never `bunx agent-browser`: the wrapper checks the local binary against root `package.json`, fails with `bun install --frozen-lockfile` if it is absent or mismatched, and never downloads a stale CLI, while `bunx` resolves whatever the registry or a stale cache offers — a published `agent-browser` 0.21.4 without `skills` or `doctor` is one observed result.
+Use only `bun run ab --` from the repository root, never `bunx agent-browser`: the wrapper checks the local binary against root `package.json`, fails with `bun run worktree:bootstrap` if it is absent or not executable, fails with `rm -rf node_modules/agent-browser && bun install --frozen-lockfile` if its version is stale, and never downloads a stale CLI, while `bunx` resolves whatever the registry or a stale cache offers — a published `agent-browser` 0.21.4 without `skills` or `doctor` is one observed result.
 
 Install is optional: `bun run ab -- doctor --quick --json` reports `chrome.installed` when it finds a system Google Chrome, and that is enough to run. Run `bun run ab -- install` only when `doctor` reports no Chrome, then repeat `doctor`.
 

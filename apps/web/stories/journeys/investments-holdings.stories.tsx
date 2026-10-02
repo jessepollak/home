@@ -56,7 +56,7 @@ async function walk({ canvasElement }: { canvasElement: HTMLElement }) {
   const sum = addFractions(selectOwnedInvestments(snapshot).map((owned) => exactDecimalToFraction(owned.amount!)));
   const investments = exactDecimalToFraction(snapshot.totals.investments.value!);
   await expect(sum.numerator * investments.denominator).toBe(investments.numerator * sum.denominator);
-  const row = screen.getByRole("button", { description: "Open Bitcoin" });
+  const row = await screen.findByRole("button", { description: "Open Bitcoin" }, { timeout: 5000 });
   await expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   await userEvent.click(row);
   await expect(screen.getByText("Your balance")).toBeVisible();

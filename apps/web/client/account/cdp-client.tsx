@@ -251,7 +251,7 @@ export function CdpAccountProvider({
       <Suspense fallback={hideWhileLoading ? null : (
         <AccountWalletClientProvider client={createLoadingAccountWalletClient(baseAccountEnabled)}>{children}</AccountWalletClientProvider>
       )}>
-        <LazySmokeFixtureAccountProvider>{children}</LazySmokeFixtureAccountProvider>
+        <LazySmokeFixtureAccountProvider renderSeed={renderSeed}>{children}</LazySmokeFixtureAccountProvider>
       </Suspense>
     );
   }

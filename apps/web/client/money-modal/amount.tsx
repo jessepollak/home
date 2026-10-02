@@ -283,7 +283,7 @@ export function MoneyAmountDisplay({
   const availableLine = formatAvailableLine(availableLabel, unit, nativeSymbol);
   const labelAmount = parseAvailableDecimal(availableLabel ?? "");
   const ceilingDiffers = Boolean(maxAmount && labelAmount && (amountExceedsCeiling(labelAmount, maxAmount) || amountExceedsCeiling(maxAmount, labelAmount)));
-  const ceilingLine = ceilingDiffers && maxAmount ? formatAvailableDecimal(maxAmount, unit, nativeSymbol) : undefined;
+  const ceilingLine = ceilingDiffers && maxAmount ? formatAvailableDecimal(maxAmount, unit, nativeSymbol, /\s+saved$/i.test(availableLabel ?? "") ? "saved" : "available") : undefined;
   const secondaryNative = amount === "" ? "0" : amount;
   const secondary = unit.kind === "convertible"
     ? mode === "fiat" ? `${secondaryNative} ${nativeSymbol}` : `≈ ${formatPrimaryAmount(nativeToFiat(secondaryNative, unit.perUnit), { kind: "fiat", currency: unit.currency })}`

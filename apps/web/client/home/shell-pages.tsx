@@ -37,6 +37,7 @@ export function HomePageContent() {
     initialSendFlow={page.initialSendFlow}
     initialSendActionId={page.initialSendActionId}
     regionId={page.regionId}
+    initialRateLabels={page.initialRateLabels}
     regionReady={page.regionReady}
     onDetailsOpenChange={page.onHomeDetailsOpenChange}
   />;

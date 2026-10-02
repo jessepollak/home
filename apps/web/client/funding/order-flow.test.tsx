@@ -6,7 +6,6 @@ import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
-import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { MoneyModal } from "@/client/money-modal";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
@@ -146,7 +145,7 @@ test.each([
   if (succeeds) await waitFor(() => expect(client.getQueryState(activityKey)?.isInvalidated).toBe(true));
   else expect(client.getQueryState(activityKey)?.isInvalidated).toBe(false);
   if (trigger === "confirm" && succeeds) {
-    expect(client.getQueryData<{ version: number; order: typeof order }>(ownerQueryKey(ownerKey, "funding-open-order", binding.region))).toEqual({ version: FUNDING_OPEN_ORDER_VERSION, order });
+    expect(client.getQueryData<typeof order>(ownerQueryKey(ownerKey, "funding-open-order", binding.region))).toEqual(order);
   }
 });
 

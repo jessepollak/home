@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import type { RegionId } from "@/config/regions";
 import {
@@ -55,7 +55,7 @@ export function FundingActionsForWallet({
   wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
 }) {
   const pathname = usePathname();
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLAnchorElement>(null);
   const routing = useOptionalHomeShellRouting();
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
@@ -127,7 +127,7 @@ export function FundingActionsForWallet({
         const before = document.activeElement;
         onClosed?.();
         const trigger = triggerRef.current;
-        if (before === document.activeElement && trigger?.isConnected && !trigger.disabled) {
+        if (before === document.activeElement && trigger?.isConnected) {
           trigger.focus({ preventScroll: true });
         }
       }}
@@ -142,11 +142,14 @@ export function FundingActionsForWallet({
 
   return (
     <>
-      {showTrigger ? <Button
+      {showTrigger ? <a
         ref={triggerRef}
-        size="touch"
+        className={buttonVariants({ size: "touch" })}
+        href={flowHref(pathname, "add-money", null, new URLSearchParams())}
         {...intent}
         onClick={(event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
           void preloadAddMoneySheet();
           setDismissed(false);
           setUserOpener(event.currentTarget);
@@ -156,7 +159,7 @@ export function FundingActionsForWallet({
       >
         <Plus className="size-4" aria-hidden="true" />
         Add money
-      </Button> : null}
+      </a> : null}
       {mounted ? modal : null}
     </>
   );

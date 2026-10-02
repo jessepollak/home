@@ -1,4 +1,5 @@
 import { homeSessionToken } from "./fixtures/session";
+import { expectNavigation } from "./fixtures/navigation-budget";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
 const admin = "0x1111111111111111111111111111111111111111";
@@ -18,6 +19,8 @@ function expectUncacheable(response: { headers(): Record<string, string> } | nul
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   test(`admin boundary at ${viewport.width}`, async ({ page, context, baseURL }) => {
+    // This walk crosses a dozen cold dev routes and exceeded the 30s default under load.
+    test.setTimeout(90_000);
     await page.setViewportSize(viewport);
     await setSession(context, admin);
     expectUncacheable(await page.goto("/admin"));
@@ -42,19 +45,19 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       await expect(page.getByRole("heading", { name: "Money", exact: true })).toBeVisible();
       await expect(sidebar.getByRole("button", { name: /Copy 0x3333/ })).toBeVisible();
       await page.goBack();
-      await expect(page).toHaveURL(/\/admin$/);
+      await expectNavigation(page, /\/admin$/);
       await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
       await expect(sidebar.getByRole("button", { name: /Copy 0x3333/ })).toBeVisible();
       await expect(sidebar.getByRole("button", { name: /Copy 0x1111/ })).toHaveCount(0);
       await setSession(context, admin);
       await page.goForward();
-      await expect(page).toHaveURL(/\/admin\/money$/);
+      await expectNavigation(page, /\/admin\/money$/);
       await expect(sidebar.getByRole("button", { name: /Copy 0x1111/ })).toBeVisible();
       await sidebar.getByRole("link", { name: "Back to Home" }).click();
-      await expect(page).toHaveURL(/\/\?account=signin$/);
+      await expectNavigation(page, /\/\?account=signin$/);
       await setSession(context, secondAdmin);
       await page.goBack();
-      await expect(page).toHaveURL(/\/admin\/money$/);
+      await expectNavigation(page, /\/admin\/money$/);
       await expect(sidebar.getByRole("button", { name: /Copy 0x3333/ })).toBeVisible();
       await expect(sidebar.getByRole("button", { name: /Copy 0x1111/ })).toHaveCount(0);
       await setSession(context, admin);
@@ -103,7 +106,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       } else {
         await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: heading }).click();
       }
-      await expect(page).toHaveURL(new RegExp(`${href}$`));
+      await expectNavigation(page, new RegExp(`${href}$`));
       await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
       await expect(page.getByText(empty)).toBeVisible();
       if (heading === "Settings") {
@@ -128,10 +131,10 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       await expect(page.getByRole("dialog", { name: "Sections" })).toHaveCount(0);
       await expect(trigger).toBeFocused();
       await page.goBack();
-      await expect(page).toHaveURL(/\/admin\/settings$/);
+      await expectNavigation(page, /\/admin\/settings$/);
       await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeFocused();
       await page.goForward();
-      await expect(page).toHaveURL(/\/admin\/audit$/);
+      await expectNavigation(page, /\/admin\/audit$/);
       await expect(page.getByRole("heading", { name: "Audit log", exact: true })).toBeFocused();
     }
     if (viewport.width === 1280) {
@@ -157,13 +160,13 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     }
     expect((await page.getByRole("link", { name: "Back to Overview" }).boundingBox())?.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("link", { name: "Back to Overview" }).click();
-    await expect(page).toHaveURL(/\/admin$/);
+    await expectNavigation(page, /\/admin$/);
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     await page.goBack();
-    await expect(page).toHaveURL(/\/admin\/customers\/x\/y$/);
+    await expectNavigation(page, /\/admin\/customers\/x\/y$/);
     await expect(page.getByRole("heading", { name: "Page not found" })).toBeVisible();
     await page.goForward();
-    await expect(page).toHaveURL(/\/admin$/);
+    await expectNavigation(page, /\/admin$/);
     const origin = new URL(baseURL ?? page.url()).origin;
     const logout = await context.request.post("/api/auth/base/logout", {
       headers: { Origin: origin },
@@ -176,7 +179,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     } else {
       await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Customers" }).click();
     }
-    await expect(page).toHaveURL(/\/\?account=signin$/);
+    await expectNavigation(page, /\/\?account=signin$/);
 
     await setSession(context, customer);
     for (const path of ["/admin", "/admin/customers", "/admin/support", "/admin/growth", "/admin/money", "/admin/settings", "/admin/settings/funding", "/admin/audit", "/admin/nope", "/admin/settings/brand"]) {
@@ -197,7 +200,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     expect(remaining.some((cookie) => cookie.name === "home-access")).toBe(false);
     expect(remaining.some((cookie) => cookie.name === "home-session")).toBe(true);
     expectUncacheable(await page.goto("/admin"));
-    await expect(page).toHaveURL(/\/access\?next=%2Fadmin$/);
+    await expectNavigation(page, /\/access\?next=%2Fadmin$/);
   });
 }
 
@@ -207,18 +210,18 @@ test("settings links to money in and out", { tag: "@smoke" }, async ({ page, con
   await expect(page.locator("[data-operator-ready=true]")).toBeVisible();
   await page.getByRole("link", { name: "Money in and out" }).click();
   // A first dev-server navigation compiles this authenticated route on demand.
-  await expect(page).toHaveURL(/\/admin\/settings\/funding$/, { timeout: 10_000 });
+  await expectNavigation(page, /\/admin\/settings\/funding$/);
   await expect(page.getByRole("heading", { name: "Money in and out", exact: true })).toBeVisible();
 });
 
 test("no Home session redirects to sign-in, while deployment access runs first", async ({ page, context }) => {
   expectUncacheable(await page.goto("/admin"));
-  await expect(page).toHaveURL(/\/\?account=signin$/);
+  await expectNavigation(page, /\/\?account=signin$/);
   await page.goto("/admin/nope");
-  await expect(page).toHaveURL(/\/\?account=signin$/);
+  await expectNavigation(page, /\/\?account=signin$/);
   await context.clearCookies();
   expectUncacheable(await page.goto("/admin"));
-  await expect(page).toHaveURL(/\/access\?next=%2Fadmin$/);
+  await expectNavigation(page, /\/access\?next=%2Fadmin$/);
 });
 
 test("revoked operator authorization is rechecked on a section navigation", async ({ page, context }) => {
@@ -226,7 +229,7 @@ test("revoked operator authorization is rechecked on a section navigation", asyn
   await page.goto("/admin");
   await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
   await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Growth" }).click();
-  await expect(page).toHaveURL(/\/admin\/growth$/);
+  await expectNavigation(page, /\/admin\/growth$/);
   await expect(page.getByRole("heading", { name: "Growth" })).toBeVisible();
   await setSession(context, customer);
   await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Overview" }).click();

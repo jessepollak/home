@@ -72,7 +72,7 @@ async function waitForHomeMark(page: Page, mark: "session:verified" | "action:fi
 async function openPaymentMethodRadioGroup(page: Page) {
   await page.goto("/home");
   await waitForHomeMark(page, "action:first-interactive");
-  await page.getByRole("button", { name: "Add money" }).click();
+  await page.getByRole("link", { name: "Add money" }).click();
   await page.getByRole("button", { name: /Deposit IDR/ }).click();
   return page.getByRole("radiogroup", { name: "Payment method" });
 }

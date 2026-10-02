@@ -30,6 +30,7 @@ const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];
 
 export function ActivityPanelView({
+  quietLoading = false,
   activity,
   operations = EMPTY_OPERATIONS,
   orders = EMPTY_ORDERS,
@@ -61,6 +62,7 @@ export function ActivityPanelView({
   restoreDetailsRequest = 0,
   suspendDetailsRequest = 0,
 }: {
+  quietLoading?: boolean;
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
   orders?: readonly ActivityOrder[];
@@ -92,6 +94,7 @@ export function ActivityPanelView({
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
 }) {
+  const [revealed, setRevealed] = useState(false);
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem; opener: HTMLElement | null } | null>(() => initialDetailItem
     ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem, opener: null } : null);
   const [detailsOpen, setDetailsOpen] = useState(initialDetailItem !== null);
@@ -209,7 +212,8 @@ export function ActivityPanelView({
   const plain = density === "feed";
   const onchainUnavailable = activity.status === "ready" && activity.page.onchainStatus === "unavailable";
   const latestUnavailable = activity.status === "ready" && activity.latestUnavailable === true;
-  const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
+  const sourcesPending = activity.status === "loading" || actionsStatus === "loading" || ordersStatus === "loading";
+  if (!revealed && !sourcesPending) setRevealed(true);
   const retryFailedSources = () => {
     if (activity.status === "error" || onchainUnavailable || latestUnavailable) activity.retry();
     if (actionsStatus === "error") retryActions?.();
@@ -229,10 +233,10 @@ export function ActivityPanelView({
     );
   }
 
-  if (sourcesPending || ordersStatus === "loading" && !hasRows) {
+  if (sourcesPending && (!revealed || !hasRows)) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sources={sources} sectionRef={sectionRef}>
-        <ShimmerRows count={plain ? 3 : 4} />
+        <ShimmerRows count={plain ? 3 : 4} variant={quietLoading ? "reserved" : "rows"} />
         <span className="sr-only">Loading recent activity…</span>
       </ActivitySurface>
     );
@@ -270,7 +274,7 @@ export function ActivityPanelView({
   ) : null;
   return (
     <>
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sources={sources} sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy={sourcesPending} rows={hasRows} sources={sources} sectionRef={sectionRef}>
         {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date.</p> : null}
         {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
           <div className="flex flex-wrap items-center justify-between gap-2">

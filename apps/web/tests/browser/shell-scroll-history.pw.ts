@@ -2,6 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+import { expectNavigation } from "./fixtures/navigation-budget";
+import { dataOwnerKey } from "../../client/account/owner-keys";
+import { requireAddress } from "../../shared/chain/hex";
 
 function longActivityActions(count = 260) {
   const now = FIXED_NOW - 60_000;
@@ -51,7 +54,7 @@ async function scrollToMiddle(page: Page) {
 }
 
 async function expectRestored(page: Page, target: number) {
-  await expect(page).toHaveURL(/\/activity$/);
+  await expectNavigation(page, /\/activity$/);
   await expect.poll(() => page.evaluate((expected) => Math.abs(window.scrollY - expected), target)).toBeLessThanOrEqual(64);
 }
 
@@ -89,11 +92,11 @@ test("Back and Forward restore document scroll after Activity navigation", async
   await setupLongActivity(page);
   const target = await scrollToMiddle(page);
   await page.locator("#home-nav").click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await page.goBack();
   await expectRestored(page, target);
   await page.goForward();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await page.goBack();
   await expectRestored(page, target);
 });
@@ -101,7 +104,7 @@ test("Back and Forward restore document scroll after Activity navigation", async
 test("immediate browser Back preserves a scrolled Home entry for Forward", async ({ page }) => {
   await setupLongActivity(page);
   await page.locator("#home-nav").click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(1_200);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   const target = await page.evaluate(() => {
@@ -111,45 +114,45 @@ test("immediate browser Back preserves a scrolled Home entry for Forward", async
     return top;
   });
   expect(target).toBe(1_200);
-  await expect(page).toHaveURL(/\/activity$/);
+  await expectNavigation(page, /\/activity$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect.poll(() => page.evaluate((expected) => Math.abs(window.scrollY - expected), target)).toBeLessThanOrEqual(1);
 });
 
 test("reselecting the active Home tab, the Home mark or the Invest root tab scrolls to the top", async ({ page }) => {
   await setupLongActivity(page);
   await page.locator("#home-nav").click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(1_000);
   const historyLength = await page.evaluate(() => history.length);
   for (const reselect of [page.locator("#home-nav"), page.locator("[data-home-mark] button:visible").first()]) {
     await page.evaluate(() => window.scrollTo(0, 800));
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
     await reselect.click();
-    await expect(page).toHaveURL(/\/home$/);
+    await expectNavigation(page, /\/home$/);
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
   }
   expect(await page.evaluate(() => history.length)).toBe(historyLength);
   await page.setViewportSize({ width: 390, height: 360 });
   await page.locator("#invest-nav").click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(200);
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
   await page.locator("#invest-nav").click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
 });
 
 test("a reloaded Activity document restores document scroll on Back", async ({ page }) => {
   await setupLongActivity(page);
   await page.reload();
-  await expect(page).toHaveURL(/\/activity$/);
+  await expectNavigation(page, /\/activity$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(4_000);
   const target = await scrollToMiddle(page);
   await page.locator("#home-nav").click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await page.goBack();
   await expectRestored(page, target);
 });
@@ -162,7 +165,7 @@ test("Back restores the same Activity row after newer activity is prepended", as
   const key = (await firstVisibleRowKey(page))!;
 
   await page.locator("#home-nav").click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
 
   const newest = actions[0]!;
   actions.unshift(...longActivityActions(40).map((action, index) => ({
@@ -179,14 +182,14 @@ test("Back restores the same Activity row after newer activity is prepended", as
   await expect(page.locator('li[data-row-key="home-action:22222222-2222-4222-8222-000000000001"]')).toBeVisible({ timeout: 15_000 });
 
   await page.goBack();
-  await expect(page).toHaveURL(/\/activity$/);
+  await expectNavigation(page, /\/activity$/);
   await expect.poll(() => firstVisibleRowKey(page)).toBe(key);
 });
 
 test("closing a flow overlay on a scrolled page keeps the document offset", async ({ page }) => {
   await setupLongActivity(page);
   await page.locator("#home-nav").click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(1_000);
   await scrollToMiddle(page);
   const savedOffset = () => page.evaluate(() => {
@@ -220,7 +223,7 @@ test("closing a flow overlay on a scrolled page keeps the document offset", asyn
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Close send dialog" }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect.poll(() => page.evaluate((expected) => Math.abs(window.scrollY - expected), target)).toBeLessThanOrEqual(64);
   const topJumps = await page.evaluate(() => {
     const recorded: unknown = Reflect.get(window, "__shellScrollToCalls");
@@ -233,4 +236,119 @@ test("closing a flow overlay on a scrolled page keeps the document offset", asyn
     });
   });
   expect(topJumps).toEqual([]);
+});
+
+async function setupShortActivity(page: Page, mode: "unavailable" | "failed" | "short") {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.route("**/api/actions*", (route) =>
+    new URL(route.request().url()).pathname === "/api/actions" ? json(route, { actions: longActivityActions(12) }) : route.fallback());
+  if (mode !== "short") await page.route("**/api/activity*", (route) => {
+    if (new URL(route.request().url()).pathname !== "/api/activity") return route.fallback();
+    return mode === "failed" ? route.abort("failed") : route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Activity unavailable" }) });
+  });
+  await page.goto("/activity");
+  await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
+  await expect(page.locator('li[data-row-key^="home-action:"]').first()).toBeVisible();
+  if (mode !== "short") await expect(page.getByRole("button", { name: "Retry onchain transfers" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeLessThan(5_000);
+  await page.clock.install({ time: new Date(FIXED_NOW) });
+  await page.clock.pauseAt(new Date(FIXED_NOW + 1_000));
+}
+
+async function saveUnreachableEntry(page: Page, y = 50_000) {
+  await page.evaluate(({ owner, target }) => {
+    history.replaceState({ ...history.state, __homeShellScrollY: target, __homeShellScrollOwner: owner,
+      __homeShellScrollAnchor: null, __homeShellVirtualMeasurements: null }, "");
+  }, { owner: dataOwnerKey({ subject: sessionBody.user.subject, smartAccountAddress: requireAddress(sessionBody.smartAccount.address),
+    chainId: sessionBody.smartAccount.chainId, accountProvider: sessionBody.accountProvider }), target: y });
+}
+
+async function pendingBackToActivity(page: Page) {
+  await saveUnreachableEntry(page);
+  await page.evaluate(() => history.pushState(null, "", "/home"));
+  await expectNavigation(page, /\/home$/);
+  await page.goBack();
+  await expectNavigation(page, /\/activity$/);
+  await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
+}
+
+function storedScroll(page: Page) {
+  return page.evaluate(() => Number(history.state?.__homeShellScrollY ?? -1));
+}
+
+async function persistScroll(page: Page, y: number) {
+  return page.evaluate((target) => {
+    window.scrollTo(0, target);
+    window.dispatchEvent(new Event("scrollend"));
+    return window.scrollY;
+  }, y);
+}
+
+for (const mode of ["unavailable", "failed", "short"] as const) {
+  test(`an unreachable ${mode} feed restore expires and persists the bounded position without a mutation`, async ({ page }) => {
+    await setupShortActivity(page, mode);
+    await pendingBackToActivity(page);
+    await page.clock.runFor(200);
+    const actual = await persistScroll(page, 100);
+    expect(actual).toBeLessThan(50_000);
+    expect(await storedScroll(page)).toBe(50_000);
+    await page.clock.runFor(4_799);
+    expect(await storedScroll(page)).toBe(50_000);
+    await page.evaluate(() => {
+      const mutations = { count: 0 };
+      Reflect.set(window, "__restoreMutations", mutations);
+      const main = document.querySelector("main[data-app-main-authenticated]");
+      if (!main) throw new Error("Missing authenticated main");
+      new MutationObserver((records) => { mutations.count += records.length; }).observe(main, { subtree: true, childList: true, attributes: true });
+    });
+    await page.clock.runFor(1);
+    expect(await storedScroll(page)).toBe(actual);
+    expect(await page.evaluate(() => Reflect.get(window, "__restoreMutations").count)).toBe(0);
+    const next = await persistScroll(page, 200);
+    expect(await storedScroll(page)).toBe(next);
+  });
+}
+
+test("departure from a pending short-feed restore immediately resumes neighbour persistence and isolates its old deadline", async ({ page }) => {
+  await setupShortActivity(page, "short");
+  await pendingBackToActivity(page);
+  await page.clock.runFor(200);
+  expect(await storedScroll(page)).toBe(50_000);
+  await page.locator("#home-nav").evaluate((element: HTMLElement) => element.click());
+  await expectNavigation(page, /\/home$/);
+  await expect(page.getByRole("heading", { name: "Home", exact: true })).toBeVisible();
+  await page.clock.runFor(100);
+  const neighbour = await persistScroll(page, 300);
+  expect(neighbour).toBeGreaterThan(0);
+  expect(await storedScroll(page)).toBe(neighbour);
+  await saveUnreachableEntry(page, 60_000);
+  await page.evaluate(() => window.dispatchEvent(new PopStateEvent("popstate", { state: history.state })));
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await page.clock.runFor(4_700);
+  await expectNavigation(page, /\/home$/);
+  const bounded = await page.evaluate(() => window.scrollY);
+  expect(bounded).toBeLessThan(60_000);
+  expect(await storedScroll(page)).toBe(60_000);
+  await page.clock.runFor(300);
+  expect(await storedScroll(page)).toBe(bounded);
+});
+
+test("a replacement short-feed restore retains its own deadline past the previous expiry", async ({ page }) => {
+  await setupShortActivity(page, "short");
+  await pendingBackToActivity(page);
+  await page.clock.runFor(1_000);
+  await saveUnreachableEntry(page, 60_000);
+  await page.evaluate(() => window.dispatchEvent(new PopStateEvent("popstate", { state: history.state })));
+  await page.clock.runFor(3_999);
+  const actual = await persistScroll(page, 100);
+  expect(await storedScroll(page)).toBe(60_000);
+  await page.clock.runFor(1);
+  expect(await storedScroll(page)).toBe(60_000);
+  await page.clock.runFor(999);
+  expect(await storedScroll(page)).toBe(60_000);
+  await page.clock.runFor(1);
+  expect(await storedScroll(page)).toBe(actual);
 });

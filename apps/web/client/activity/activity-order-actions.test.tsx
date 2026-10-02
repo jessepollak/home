@@ -7,7 +7,6 @@ import { activityOwnerKey } from "@/client/activity/use-activity";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { cashoutFixtureAction, cashoutFixtureWithdraw } from "@/tests/browser/feature-map/cashout-fixture";
 import { activityOrdersFixture, fundingOrderResolutionFixture } from "@/tests/browser/feature-map/fixtures";
-import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ReactNode } from "react";
 
@@ -86,10 +85,10 @@ test("Clear order posts only to resolve, with version 1, and refreshes orders an
     queryKey: openOrderKey,
     queryFn: async () => {
       openOrderReads += 1;
-      return { version: FUNDING_OPEN_ORDER_VERSION, order: openOrderReads === 1 ? { id: "fixture-funding-ambiguous" } : null };
+      return openOrderReads === 1 ? { id: "fixture-funding-ambiguous" } : null;
     },
   });
-  client.setQueryData(otherRegionKey, { version: FUNDING_OPEN_ORDER_VERSION, order: null });
+  client.setQueryData(otherRegionKey, null);
   const { view, requests } = setup();
   await openOrder(view, "30");
   fireEvent.click(await view.findByRole("button", { name: "Clear order" }));
@@ -97,7 +96,7 @@ test("Clear order posts only to resolve, with version 1, and refreshes orders an
     { path: "/api/funding/orders/fixture-funding-ambiguous/resolve", method: "POST", body: { version: 1 } },
   ]));
   await waitFor(() => expect(requests.filter(({ path }) => path === "/api/activity/orders").length).toBeGreaterThan(1));
-  await waitFor(() => expect(client.getQueryData<{ version: typeof FUNDING_OPEN_ORDER_VERSION; order: { id: string } | null }>(openOrderKey)).toEqual({ version: FUNDING_OPEN_ORDER_VERSION, order: null }));
+  await waitFor(() => expect(client.getQueryData<{ id: string } | null>(openOrderKey)).toBeNull());
   expect(openOrderReads).toBe(2);
   expect(client.getQueryState(otherRegionKey)?.isInvalidated).toBe(false);
   expect(requests.some((request) => request.path === "/api/funding/orders")).toBe(false);
@@ -116,7 +115,7 @@ for (const [completePayment, label] of [[false, "Continue with Coinbase"], [true
 test("a failed clear shows the server message without starting another order", async () => {
   const client = getHomeQueryClient();
   const openOrderKey = ownerQueryKey(activityOwnerKey(session), "funding-open-order", "US");
-  client.setQueryData(openOrderKey, { version: FUNDING_OPEN_ORDER_VERSION, order: { id: "fixture-funding-ambiguous" } });
+  client.setQueryData(openOrderKey, { id: "fixture-funding-ambiguous" });
   const { view, requests } = setup({ failResolve: true });
   await openOrder(view, "30");
   fireEvent.click(await view.findByRole("button", { name: "Clear order" }));
@@ -136,7 +135,7 @@ for (const [label, resolveBody] of [
   test(`a ${label} clear response shows an error without invalidating or refetching orders`, async () => {
     const client = getHomeQueryClient();
     const openOrderKey = ownerQueryKey(activityOwnerKey(session), "funding-open-order", "US");
-    client.setQueryData(openOrderKey, { version: FUNDING_OPEN_ORDER_VERSION, order: { id: "fixture-funding-ambiguous" } });
+    client.setQueryData(openOrderKey, { id: "fixture-funding-ambiguous" });
     const { view, requests } = setup({ resolveBody });
     await openOrder(view, "30");
     fireEvent.click(await view.findByRole("button", { name: "Clear order" }));

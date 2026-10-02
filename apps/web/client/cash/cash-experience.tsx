@@ -274,6 +274,7 @@ export type CashExperienceProps = {
   snapshot: BalancesSnapshot | null;
   balanceStatus: "ready" | "loading" | "failed";
   balanceStale?: boolean;
+  balanceActionStale?: boolean;
   pendingCashout?: PendingCashoutEstimate;
   onRetryBalances?: () => void;
   onAddMoney: (options?: { replaceFlow?: boolean; opener?: HTMLElement | null }) => void;
@@ -296,6 +297,7 @@ export function CashExperience({
   snapshot,
   balanceStatus,
   balanceStale = false,
+  balanceActionStale = false,
   pendingCashout = null,
   onRetryBalances,
   onAddMoney,
@@ -465,7 +467,7 @@ export function CashExperience({
     refetchOnReconnect: (query) => refetchFailedRecentActions(query) || (savingsPortfolioEmpty ? "always" : false),
     refetchInterval: (query) => savingsEntryRefreshInterval({
       funded: summary?.funded,
-      inFlightDeposits: inFlightSavingsDepositActions(scopedSavingsDeposits(query.state.data?.operations, session), liveSnapshot).length,
+      inFlightDeposits: inFlightSavingsDepositActions(scopedSavingsDeposits([...(query.state.data?.operations ?? []), ...(query.state.data?.retainedSavingsDeposits ?? [])], session), liveSnapshot).length,
     }),
   });
   const actionsStatus = useRecentActionsStatus({
@@ -475,9 +477,13 @@ export function CashExperience({
     dataUpdatedAt: actions.dataUpdatedAt,
     errorUpdatedAt: actions.errorUpdatedAt,
   }, { tolerateStaleError: false });
+  const savingsOperations = useMemo(
+    () => [...(actions.data?.operations ?? []), ...(actions.data?.retainedSavingsDeposits ?? [])],
+    [actions.data?.operations, actions.data?.retainedSavingsDeposits],
+  );
   const scopedServerDeposits = useMemo(
-    () => scopedSavingsDeposits(actions.data?.operations, session),
-    [actions.data?.operations, session]
+    () => scopedSavingsDeposits(savingsOperations, session),
+    [savingsOperations, session]
   );
   const serverInFlightDeposits = useMemo(
     () => inFlightSavingsDepositActions(scopedServerDeposits, liveSnapshot),
@@ -510,13 +516,14 @@ export function CashExperience({
     [actions.data?.unparsedSavingsDeposits, liveSnapshot],
   );
   const actionHistoryUnresolved = actionsStatus === "error" && !fundedNow && fetchAccountResource !== undefined;
-  const savingsEntryUnresolved = actionHistoryUnresolved || undisplayableInFlightDeposit || unparsedSavingsDeposit;
+  const savingsEntryUnresolved = actionHistoryUnresolved || undisplayableInFlightDeposit || unparsedSavingsDeposit ||
+    (actions.data?.retainedSavingsDepositsUnavailable === true && !fundedNow);
   const localPendingActions = useMemo(() => pendingLocalDeposits
     .filter((pending) => pending.account === accountIdentity)
     .map((pending) => pending.action), [pendingLocalDeposits, accountIdentity]);
   const pendingDeposits = useMemo(
-    () => fundedNow ? [] : pendingSavingsDeposits(actions.data?.operations, session, localPendingActions, liveSnapshot),
-    [fundedNow, actions.data?.operations, session, localPendingActions, liveSnapshot]
+    () => fundedNow ? [] : pendingSavingsDeposits(savingsOperations, session, localPendingActions, liveSnapshot),
+    [fundedNow, savingsOperations, session, localPendingActions, liveSnapshot]
   );
   if (previousAccountIdentity !== accountIdentity) {
     setPreviousAccountIdentity(accountIdentity);
@@ -565,15 +572,17 @@ export function CashExperience({
     }
   });
 
-  const available =
-    retainedMode === "deposit"
-      ? liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
-      : liveSnapshot?.holdings.find(
-          (holding) =>
-            holding.kind === "vault-share" &&
-            holding.contractAddress?.toLowerCase() ===
-              target?.vaultAddress.toLowerCase()
-        )?.underlyingBalance;
+  const withdrawalHolding = liveSnapshot?.holdings.find(
+    (holding) =>
+      holding.kind === "vault-share" &&
+      holding.contractAddress?.toLowerCase() === target?.vaultAddress.toLowerCase()
+  );
+  const withdrawalLimitReady = withdrawalHolding?.withdrawableBalance?.status === "ready";
+  const available = retainedMode === "deposit"
+    ? liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
+    : withdrawalLimitReady
+      ? withdrawalHolding.withdrawableBalance
+      : withdrawalHolding?.underlyingBalance;
   const availableBaseUnits =
     available?.status === "ready" ? available.baseUnits : null;
   const withdrawable = useMemo(
@@ -821,7 +830,7 @@ export function CashExperience({
             BigInt(10) ** BigInt(BASE_USDC_DECIMALS - 2)
           ).toString(),
           2
-        )} available`
+        )} ${retainedMode === "deposit" || withdrawalLimitReady ? "available" : "saved"}`
       : undefined;
   return (
     <>
@@ -829,6 +838,7 @@ export function CashExperience({
         <CashOverview
           regionId={region}
           snapshot={liveSnapshot}
+          balanceActionStale={balanceActionStale}
           pendingCashout={pendingCashout}
           balanceStatus={balanceStatus}
           metadata={metadata}
@@ -860,6 +870,7 @@ export function CashExperience({
           growthAuthority={growthAuthority}
           summary={summary}
           balanceStale={balanceStale}
+          balanceActionStale={balanceActionStale}
           pendingDeposits={pendingDeposits}
           depositFailed={depositFailed}
           pendingActionsLoading={actionsStatus === "loading" && !fundedNow}
@@ -1018,7 +1029,8 @@ export function AuthenticatedCashExperience(props: {
               ? "failed"
               : "loading"
         }
-        balanceStale={snapshot?.stale === true || balances.refreshError === true}
+        balanceStale={snapshot?.stale === true || balances.refreshError === true || balances.actionStale === true}
+        balanceActionStale={balances.actionStale === true}
         onRetryBalances={balancesSession ? () => void balances.retry() : undefined}
         onAddMoneyIntent={moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(account, region, regionReady, queryClient)).onFocus}
         onAddMoney={(options) => {

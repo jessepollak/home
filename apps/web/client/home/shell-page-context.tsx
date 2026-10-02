@@ -19,6 +19,7 @@ type ShellPageContextValue = {
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
   regionReady: boolean;
+  initialRateLabels?: import("@/shared/balances/home-summary").HomeRateLabels;
   sessionSettling: boolean;
   isChecking: boolean;
   isVerified: boolean;
