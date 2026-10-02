@@ -8,6 +8,7 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { requiredLocalCashAsset } from "@/shared/balances/fixtures";
 import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
 import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
@@ -619,7 +620,7 @@ describe("FundingExperience", () => {
     const supportedAssets = page().getByRole("region", {
       name: "Supported receive assets on Base",
     });
-    expect(verifiedLocalCashAssets.BRL.symbol).toBe("wBRL");
+    expect(requiredLocalCashAsset("BRL").symbol).toBe("wBRL");
     expect(supportedAssets.textContent).toContain("USDC");
     expect(supportedAssets.textContent).not.toContain("wBRL");
   });

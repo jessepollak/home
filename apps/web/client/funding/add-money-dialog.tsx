@@ -18,10 +18,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { CircleAlertIcon, ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
-import {
-  verifiedLocalCashAssets,
-  type DirectPortfolioAsset,
-} from "@/config/portfolio-assets";
+import { verifiedLocalCashAsset, type DirectPortfolioAsset } from "@/config/portfolio-assets";
 import {
   presentationRegions,
   type FiatCurrencyCode,
@@ -471,10 +468,7 @@ function supportedRegionalAsset(
   currency: FiatCurrencyCode | null,
 ): DirectPortfolioAsset | null {
   if (!currency || !receiveSupportedCashCurrencies.some((supported) => supported === currency)) return null;
-  const configured = verifiedLocalCashAssets as Partial<
-    Record<FiatCurrencyCode, DirectPortfolioAsset>
-  >;
-  return configured[currency] ?? null;
+  return verifiedLocalCashAsset(currency);
 }
 
 function SignedOutBody() {

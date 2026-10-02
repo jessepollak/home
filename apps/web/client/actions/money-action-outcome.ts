@@ -42,12 +42,14 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
     ...recentActionsQuery({ owner: ownerKey, session, fetchOperations }),
     enabled: submission !== "failed",
     refetchInterval: (query) => {
-      const operation = query.state.data?.operations.find((candidate) => candidate.action.id === action.id);
+      const operation = query.state.data?.operations.find((candidate) => candidate.action.id === action.id) ??
+        query.state.data?.retainedSavingsDeposits.find((candidate) => candidate.action.id === action.id);
       const outcome = moneyResultOutcome({ submission, row: operation ?? queryClient.getQueryData<ResultRow>(observationKey) });
       return outcome === "pending" || outcome === "unknown" ? 5_000 : false;
     },
   });
-  const operation = actions.data?.operations.find((candidate) => candidate.action.id === action.id);
+  const operation = actions.data?.operations.find((candidate) => candidate.action.id === action.id) ??
+    actions.data?.retainedSavingsDeposits.find((candidate) => candidate.action.id === action.id);
   useEffect(() => {
     if (operation && submission !== "failed") {
       queryClient.setQueryData(ownerQueryKey(ownerKey, "action-result-observation", action.id),

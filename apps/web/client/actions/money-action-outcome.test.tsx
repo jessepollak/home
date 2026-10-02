@@ -5,6 +5,7 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import { clearOwnerQueryBoundary, getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { parseRecentActionsPayload, type RecentActionsPayload } from "@/shared/actions/contracts/list";
+import { refetchIntervalFor } from "@/tests/helpers/query-interval";
 
 const { act, cleanup, renderHook, waitFor } = await import("@testing-library/react");
 const { moneyResultOutcome, useMoneyActionOutcome } = await import("./money-action-outcome");
@@ -68,6 +69,20 @@ test("matches both action id and the complete owner tuple, then adopts terminal 
   expect(result.current.outcome).toBe("pending");
   void act(() => getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "confirmed" }])));
   await waitFor(() => expect(result.current.outcome).toBe("success"));
+});
+
+test.each(["confirmed", "failed"] as const)("a retained-only savings deposit resolves as %s and stops polling", async (status) => {
+  const deposit = { ...action, kind: "savings-deposit" as const };
+  const payload = (status: string) => ({ actions: [], retainedSavingsDeposits: [{ ...row, kind: deposit.kind, status }] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action: deposit, submission: "submitted", fetchOperations: async () => payload("unknown") }));
+  await waitFor(() => expect(result.current.row?.status).toBe("unknown"));
+  expect(refetchIntervalFor(key)).toBe(5_000);
+  const session = { user: { subject: action.owner.subject }, smartAccount: { address: action.owner.address, chainId: action.owner.chainId }, accountProvider: action.owner.accountProvider };
+  void act(() => getHomeQueryClient().setQueryData(key, parseRecentActionsPayload(payload(status), session)));
+  await waitFor(() => expect(result.current.outcome).toBe(status === "confirmed" ? "success" : "failed"));
+  expect(result.current.row).toMatchObject({ id: deposit.id, status });
+  expect(getHomeQueryClient().getQueryData<RecentActionsPayload>(key)?.operations).toEqual([]);
+  expect(refetchIntervalFor(key)).toBe(false);
 });
 
 test("ambiguous submission stays unknown until the same owner's row is terminal", async () => {
@@ -189,15 +204,11 @@ test("an invalidated slow response is cancelled and cannot replace the newer con
 test("polling stops on reconciled success even when the row disappears", async () => {
   const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [row] }) }));
   await waitFor(() => expect(result.current.row?.status).toBe("pending"));
-  const query = getHomeQueryClient().getQueryCache().find({ queryKey: key })!;
-  const interval = (query.options as typeof query.options & { refetchInterval?: (value: typeof query) => number | false }).refetchInterval;
-  expect(typeof interval).toBe("function");
-  if (typeof interval !== "function") throw new Error("polling callback missing");
-  expect(interval(query)).toBe(5_000);
+  expect(refetchIntervalFor(key)).toBe(5_000);
   void act(() => getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "confirmed" }])));
   await waitFor(() => expect(result.current.outcome).toBe("success"));
   void act(() => getHomeQueryClient().setQueryData(key, parsed([])));
   expect(result.current.outcome).toBe("success");
-  expect(interval(query)).toBe(false);
+  expect(refetchIntervalFor(key)).toBe(false);
 });
 

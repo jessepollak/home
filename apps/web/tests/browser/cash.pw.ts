@@ -3,9 +3,9 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { expectNavigation } from "./fixtures/navigation-budget";
-import { buildBalancesSnapshotFixture, ready, priced, pricedCash } from "../../shared/balances/fixtures";
+import { buildBalancesSnapshotFixture, ready, priced, pricedCash, requiredLocalCashAsset } from "../../shared/balances/fixtures";
 import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "../../shared/trading/cash-conversion";
-import { canonicalUsdcAsset, verifiedLocalCashAssets } from "../../config/portfolio-assets";
+import { canonicalUsdcAsset } from "../../config/portfolio-assets";
 import { preparedConversionFixture } from "./feature-map/conversion-fixture";
 import { deferred } from "../helpers/async";
 
@@ -346,12 +346,12 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await seedSignedInSession(page);
     await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
-      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
-      [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
-      [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
-      [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-      [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-      [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+      [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+      [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000") },
+      [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+      [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+      [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
     } }) });
     const unavailableIds = new Set(cashConversionCurrencies.filter((currency) => !currency.convertOffered).map((currency) => currency.tradeAssetId));
     const tradeRequests: string[] = [];
@@ -452,12 +452,12 @@ test("Cash Convert keeps the last currency reachable above a simulated mobile ke
   await page.setViewportSize({ width: 390, height: viewportHeight });
   await seedSignedInSession(page);
   await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
-    [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
-    [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
-    [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
-    [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-    [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-    [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+    [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+    [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+    [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000") },
+    [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+    [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+    [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
   } }) });
   await page.goto("/home");
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();

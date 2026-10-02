@@ -1,4 +1,5 @@
 import { parseAddress, type Address, type Hash32 } from "@/shared/chain/hex";
+import { CONVERT_PROVIDER } from "@/shared/currencies/types";
 import type { OperatorFeeRecord } from "@/shared/fees/contract";
 import type { CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
 
@@ -33,11 +34,12 @@ export type TradeFeeFact = {
 
 export type TradeMoneyActionMetadata = {
   product: "trade";
-  provider: "cdp-swaps";
+  provider: typeof CONVERT_PROVIDER;
   direction: TradeDirection;
   network: { name: "Base"; chainId: 8453 };
   assetId: string;
   assetName: string;
+  currencyRecordId?: string;
   fromAsset: TradeAssetRef;
   toAsset: TradeAssetRef;
   fromAmountBaseUnits: string;

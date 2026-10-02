@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalUsdcAsset, verifiedCashCurrency, verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { getAddress } from "viem";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
+import { requiredLocalCashAsset } from "@/shared/balances/fixtures";
+import { cashCurrencyForContract } from "@/shared/currencies/registry";
 import {
   amountExceedsCeiling,
   clampDecimal,
@@ -40,12 +43,12 @@ describe("moneyAmountUnit", () => {
   });
 
   test("trusts only verified cash contracts, regardless of displayed token symbol", () => {
-    expect(verifiedCashCurrency("0x0000000000000000000000000000000000000001")).toBeNull();
-    expect(moneyAmountUnit(verifiedCashCurrency("0x0000000000000000000000000000000000000001"), "USD")).toEqual(native);
-    expect(verifiedCashCurrency(canonicalUsdcAsset.contractAddress.toUpperCase())).toBe("USD");
-    expect(verifiedCashCurrency(verifiedLocalCashAssets.EUR.contractAddress)).toBe("EUR");
-    expect(verifiedCashCurrency(verifiedLocalCashAssets.IDR.contractAddress)).toBe("IDR");
-    expect(verifiedCashCurrency(null)).toBeNull();
+    expect(cashCurrencyForContract("0x0000000000000000000000000000000000000001")).toBeNull();
+    expect(moneyAmountUnit(cashCurrencyForContract("0x0000000000000000000000000000000000000001"), "USD")).toEqual(native);
+    expect(cashCurrencyForContract(getAddress(canonicalUsdcAsset.contractAddress))).toBe("USD");
+    expect(cashCurrencyForContract(requiredLocalCashAsset("EUR").contractAddress)).toBe("EUR");
+    expect(cashCurrencyForContract(requiredLocalCashAsset("IDR").contractAddress)).toBe("IDR");
+    expect(cashCurrencyForContract(null)).toBeNull();
   });
 
   test("follows the selected display region without converting the asset", () => {

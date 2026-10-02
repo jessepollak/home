@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
-import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { HomeMoneySummary } from "@/client/home/home-overview";
 import { ShellHeader } from "@/client/home/shell-chrome";
@@ -13,7 +13,7 @@ import { SavingsDialogFixtureProvider } from "@/client/savings/savings-dialog-fi
 import { formatExactSavingsApy, summarizeSavingsPortfolio } from "@/client/savings/portfolio-summary";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { shellContentFrameClassName } from "@/components/shell-layout";
-import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
+import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset, unavailableBalance } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import { selectVaultPositions } from "@/shared/balances/select";
 import type { BalancesSnapshot } from "@/shared/balances/types";
@@ -80,12 +80,12 @@ const savingsOnlySnapshot = buildBalancesSnapshotFixture({ registry: {
 } });
 const cashOnlySnapshot = buildBalancesSnapshotFixture({ registry: cashRegistry });
 const sixCurrencySnapshot = buildBalancesSnapshotFixture({ registry: {
-  [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
-  [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
-  [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000", 2) },
-  [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-  [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-  [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+  [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+  [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+  [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000", 2) },
+  [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+  [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+  [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
 } });
 const partialHoldingSnapshot = buildBalancesSnapshotFixture({ registry: {
   ...cashRegistry,
