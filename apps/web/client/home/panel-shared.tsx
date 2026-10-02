@@ -3,7 +3,8 @@ import { Item, ItemContent, ItemMedia } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CurrencyMark } from "@/components/currency-mark";
 
-export function ShimmerRows({ count = 0, variant = "rows" }: { count?: number; variant?: "rows" | "hero" }) {
+export function ShimmerRows({ count = 0, variant = "rows" }: { count?: number; variant?: "rows" | "hero" | "reserved" }) {
+  if (variant === "reserved") return <div className="h-48" aria-busy="true" data-loading="reserved" />;
   if (variant === "hero") {
     return <Skeleton className="h-10 w-48" data-shimmer="hero" />;
   }
