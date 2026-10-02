@@ -17,6 +17,18 @@
       "kind": "suppression",
       "count": 1,
       "reason": "FieldLabel forwards htmlFor and children to the owned Label, which the label rule now recognizes; consumers associate the control."
+    },
+    {
+      "path": "apps/web/client/observability/interaction-performance.ts",
+      "kind": "suppression",
+      "count": 2,
+      "reason": "Two reviewed home/no-silent-catch disables: once recovery-named callees need a provable binding, the catches that cancel a pending navigation sample call a local cleanup helper whose nothing-pending guard the rule cannot prove."
+    },
+    {
+      "path": "apps/web/server/scheduling/after-schedule.ts",
+      "kind": "suppression",
+      "count": 1,
+      "reason": "One reviewed home/no-silent-catch disable: the retention-failure catch calls the caller-injected onUnavailable reporter, which every caller backs with an emitServerEvent callback."
     }
   ]
 }

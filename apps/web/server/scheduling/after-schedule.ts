@@ -10,7 +10,7 @@ export function createAfterSchedule(
     const task = typeof scheduled === "function" ? scheduled() : scheduled;
     try {
       retain(task);
-    } catch {
+    } catch { // oxlint-disable-line home/no-silent-catch -- onUnavailable is the caller-injected reporter; every caller passes an emitServerEvent callback
       void task.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- the failed retention is reported by onUnavailable; consume the detached task rejection
       onUnavailable();
     }
