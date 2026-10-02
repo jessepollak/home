@@ -1,17 +1,27 @@
 "use client";
 
 import {
+  createContext,
   createElement,
+  useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
   type ComponentType,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { reportClientError } from "@/client/observability/client-reporter";
 
 type SheetProps = { open?: boolean };
+
+const SheetOpenerContext = createContext<RefObject<HTMLElement | null> | null>(null);
+
+export function useSheetOpener() {
+  return useContext(SheetOpenerContext);
+}
 
 export type DeferredSheetHandoff = {
   carryHeight: (height: number) => void;
@@ -44,7 +54,7 @@ export type DeferredSheetLoading<P> = (props: P) => {
   renderLoaded?: (sheet: ReactNode, handoff: DeferredSheetHandoff) => ReactNode;
 };
 
-export type DeferredSheet<P extends SheetProps> = ComponentType<P> & {
+export type DeferredSheet<P extends SheetProps> = ComponentType<P & { opener?: HTMLElement | null }> & {
   preload: () => Promise<void>;
 };
 
@@ -131,8 +141,11 @@ export function deferSheet<P extends SheetProps>(
   const loader = createDeferredLoader(load, "A deferred sheet failed to load.");
   let visibleInstances = 0;
 
-  function Sheet(props: P) {
+  function Sheet(props: P & { opener?: HTMLElement | null }) {
     const open = props.open ?? true;
+    const opener = props.opener ?? null;
+    const openerRef = useMemo(() => ({ current: opener }), [opener]);
+    const withSession = (content: ReactNode) => <SheetOpenerContext value={openerRef}>{content}</SheetOpenerContext>;
     const Loaded = useSyncExternalStore(loader.subscribe, loader.readLoaded, loader.readServer);
     const failed = useSyncExternalStore(loader.subscribe, loader.readFailures, loader.readServerFailures);
     const pending = useSyncExternalStore(loader.subscribe, loader.readPending, loader.readServerPending);
@@ -168,7 +181,7 @@ export function deferSheet<P extends SheetProps>(
     if (loading && showLoadingShell && (!Loaded || closingShell || (open && !shellEntered && !shellFinished))) {
       if (open && !Loaded && !closingShell && shellFinished) setShellFinished(false);
       const shell = loading(props);
-      return shell.render({
+      return withSession(shell.render({
         open: open && !closingShell,
         failed: failed >= AUTOMATIC_LOAD_ATTEMPTS && !pending,
         retry: () => { void loader.preload(); },
@@ -176,12 +189,12 @@ export function deferSheet<P extends SheetProps>(
         onClosed: () => { setClosingShell(false); setShellFinished(true); setShellEntered(false); shell.onClosed?.(); },
         onEntered: () => { setShellEntered(true); },
         handoff,
-      });
+      }));
     }
     if (!Loaded) return null;
     if (!shellFinished) setShellFinished(true);
     const sheet = createElement(Loaded, { ...props, open: visible });
-    return loading && showLoadingShell ? loading(props).renderLoaded?.(sheet, handoff) ?? sheet : sheet;
+    return withSession(loading && showLoadingShell ? loading(props).renderLoaded?.(sheet, handoff) ?? sheet : sheet);
   }
 
   return Object.assign(Sheet, { preload: loader.preload });

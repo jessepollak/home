@@ -53,12 +53,13 @@ function holdExitAnimation() {
 
 function Journey({ trigger = "button", onCancel }: { trigger?: "button" | "input"; onCancel?: () => void }) {
   const [open, setOpen] = useState(false);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const [step, setStep] = useState<"amount" | "recipient">("amount");
   return <>
     {trigger === "input"
-      ? <input aria-label="Search" onFocus={() => setOpen(true)} />
-      : <button type="button" onClick={() => setOpen(true)}>Open send</button>}
-    <MoneyModal open={open} labelledBy="keyboard-title" onCancel={() => { onCancel?.(); setOpen(false); }} onClose={() => setStep("amount")}>
+      ? <input aria-label="Search" onFocus={(event) => { setOpener(event.currentTarget); setOpen(true); }} />
+      : <button type="button" onClick={(event) => { setOpener(event.currentTarget); setOpen(true); }}>Open send</button>}
+    <MoneyModal open={open} opener={opener} labelledBy="keyboard-title" onCancel={() => { onCancel?.(); setOpen(false); }} onClose={() => setStep("amount")}>
       <MoneyModalStep step={step} depth={step === "amount" ? 0 : 1}>
         {step === "amount"
           ? <MoneyModalHeader title="Send" titleId="keyboard-title" />

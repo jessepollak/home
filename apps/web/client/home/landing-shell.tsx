@@ -47,6 +47,8 @@ export function LandingShell({
     initialAccountOpen || initialUrlIntent.account === "signin",
   );
 
+  const [accountOpener, setAccountOpener] = useState<HTMLElement | null>(null);
+
   const isVerified = account.status === "verified" && account.verification === "server";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
 
@@ -68,6 +70,7 @@ export function LandingShell({
 
   useEffect(() => {
     const onPopState = () => {
+      setAccountOpener(null);
       setIsAccountOpen(
         readShellAccountParam(new URLSearchParams(window.location.search)) === "signin",
       );
@@ -90,7 +93,8 @@ export function LandingShell({
     }
   }, [account.verification, router]);
 
-  function openAccount() {
+  function openAccount(opener: HTMLButtonElement) {
+    setAccountOpener(opener);
     setIsAccountOpen(true);
     if (readShellAccountParam(new URLSearchParams(window.location.search)) !== "signin") {
       commitClientUrl("/?account=signin");
@@ -139,6 +143,7 @@ export function LandingShell({
       />
       <AccountSignInSheet
         open={isAccountOpen}
+        opener={accountOpener}
         onClose={closeAccount}
         onVerified={() => window.location.replace("/home")}
       />
