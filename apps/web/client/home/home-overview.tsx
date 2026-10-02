@@ -341,5 +341,5 @@ function summaryValue(value: string | null): ReactNode {
           <span className="sr-only">Unavailable</span>
         </>
       )
-    : <MoneyTicker value={value} reserveDigits={false} />;
+    : <MoneyTicker value={value} reserveDigits={false} animated={false} />;
 }
