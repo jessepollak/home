@@ -78,6 +78,7 @@ export type HomeBalancesPresentation = {
   breakdown: MoneyBreakdownItem[];
   summary: HomeMoneySummary | null;
   revalidating?: true;
+  cachedAt?: number;
 };
 
 export type BalancesPresentation = HomeBalancesPresentation & {

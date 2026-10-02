@@ -28,6 +28,7 @@ import { invalidateMutationScopes } from "./mutation-options";
 import { queryScopes } from "./scopes";
 import type { QueryScopePolicy } from "./scopes/policy";
 import { decodeOwnerCache, encodeOwnerCache, isCompressedOwnerCache, ownerCacheCompressionThreshold } from "./owner-cache-codec";
+import { clearBrowserIndexedOwnerCache, openIndexedOwnerCache } from "./indexed-owner-cache";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
 export const ownerQueryCacheTtlMs = OWNER_SESSION_RETENTION_MS;
@@ -285,7 +286,8 @@ export function clearPersistedOwnerQueries(
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index += 1) {
     const key = storage.key(index);
-    if (key?.startsWith(ownerQueryCachePrefix) && key !== preservedStorageKey) keys.push(key);
+    if (key?.startsWith(ownerQueryCachePrefix) && key !== preservedStorageKey &&
+      !(preservedStorageKey && key.startsWith(`${preservedStorageKey}:home-summary:`))) keys.push(key);
   }
   for (const key of keys) storage.removeItem(key);
 }
@@ -296,6 +298,8 @@ export function clearOwnerQueryBoundary(
   preserveOwnerKey?: string,
 ): void {
   ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
+  for (const listener of boundaryListeners.get(queryClient) ?? []) listener(preserveOwnerKey);
+  clearBrowserIndexedOwnerCache(preserveOwnerKey);
   pauseOwnerPersistence(queryClient, () => {
     if (preserveOwnerKey) {
       queryClient.removeQueries({
@@ -311,6 +315,7 @@ export function clearOwnerQueryBoundary(
 
 export function clearOwnerQueryMemory(queryClient: QueryClient): void {
   ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
+  for (const listener of boundaryListeners.get(queryClient) ?? []) listener();
   pauseOwnerPersistence(queryClient, () => queryClient.clear());
 }
 
@@ -325,6 +330,14 @@ type TrustedRestoredQuery = {
 
 const scopePolicies: Partial<Record<string, QueryScopePolicy>> = queryScopes;
 const ownerRestoreRevisions = new WeakMap<QueryClient, number>();
+const boundaryListeners = new WeakMap<QueryClient, Set<(preserveOwner?: string) => void>>();
+
+export function subscribeOwnerQueryBoundary(queryClient: QueryClient, listener: (preserveOwner?: string) => void) {
+  const listeners = boundaryListeners.get(queryClient) ?? new Set();
+  boundaryListeners.set(queryClient, listeners);
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 export function trustedRestoredQuery(query: unknown, ownerKey: string, now = Date.now()): TrustedRestoredQuery | null {
   if (!isRecord(query)) return null;
@@ -368,6 +381,7 @@ export async function restoreOwnerQueriesAsync(
   ownerKey: string,
   isCurrent: () => boolean,
 ): Promise<boolean> {
+  if (isCurrent() && restoreOwnerQueries(queryClient, storage, ownerKey)) return true;
   const revision = ownerRestoreRevisions.get(queryClient);
   const persister = createOwnerQueryPersister(storage, ownerKey);
   const persisted = await persister?.restoreClientAsync();
@@ -441,21 +455,93 @@ export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null })
   const queryClient = useQueryClient(browserHomeQueryClient());
   useEffect(() => {
     if (!ownerKey || typeof window === "undefined") return;
-    if (restoreOwnerQueries(queryClient, window.localStorage, ownerKey)) {
-      recordHomeStartupCache("restored");
-      return;
-    }
     let current = true;
-    void restoreOwnerQueriesAsync(queryClient, window.localStorage, ownerKey, () => current).then((restored) => {
-      if (current) recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
+    let stop: (() => void) | undefined;
+    const revision = ownerRestoreRevisions.get(queryClient);
+    const isCurrent = () => current && ownerRestoreRevisions.get(queryClient) === revision;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        void startIndexedOwnerPersistence(queryClient, ownerKey, () => current, isCurrent).then((cleanup) => {
+          if (current) stop = cleanup;
+          else cleanup();
+        });
+      });
     });
-    return () => { current = false; };
-  }, [ownerKey, queryClient]);
-  useEffect(() => {
-    if (!ownerKey || typeof window === "undefined") return;
-    return subscribeOwnerQueryPersistence(queryClient, window.localStorage, ownerKey, recordHomeCachePersistence);
+    return () => { current = false; cancelAnimationFrame(frame); stop?.(); };
   }, [ownerKey, queryClient]);
   return null;
+}
+
+function browserOwnerStorage(): Storage | null {
+  try { return window.localStorage; } catch { return null; }
+}
+
+async function startIndexedOwnerPersistence(queryClient: QueryClient, ownerKey: string, alive: () => boolean, restoreCurrent: () => boolean) {
+  const storage = browserOwnerStorage();
+  const storageKey = ownerQueryStorageKey(ownerKey);
+  try {
+    let cache = await openIndexedOwnerCache(ownerKey);
+    if (!alive()) return () => {};
+    let legacy: string | null = null;
+    try { legacy = storageKey ? storage?.getItem(storageKey) ?? null : null; } catch { legacy = null; }
+    const value = cache.value ?? legacy;
+    let restored = false;
+    if (value) {
+      try {
+        const decoded: unknown = JSON.parse(await decodeOwnerCache(value));
+        if (restoreCurrent() && await cache.isCurrent(cache.value) && restoreCurrent() &&
+          (cache.value !== null || storageKey && storage?.getItem(storageKey) === legacy)) {
+          restored = hydrateOwnerClient(queryClient, null, decoded, Date.now(), ownerKey);
+          if (!restored && cache.value) await cache.remove(cache.value);
+        }
+      } catch { restored = false; }
+    }
+    if (!alive()) return () => {};
+    recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let writeRevision = 0;
+    let paused = false;
+    let renewLease = false;
+    const valid = (revision: number) => alive() && !paused && revision === writeRevision;
+    const persist = async (revision: number): Promise<boolean> => {
+      try {
+        if (renewLease) { cache = await openIndexedOwnerCache(ownerKey); renewLease = false; }
+        if (!valid(revision)) return false;
+        const startedAt = performance.now();
+        const savedAt = Date.now();
+        const serialized = JSON.stringify({ timestamp: savedAt, buster: "home-query-v4", clientState: dehydrateOwnerQueries(queryClient, ownerKey, savedAt) });
+        recordHomeCachePersistence(startedAt, performance.now() - startedAt);
+        const encoded = await encodeOwnerCache(serialized);
+        const committed = await cache.write(encoded, savedAt, () => valid(revision));
+        if (committed && storageKey && legacy !== null && storage?.getItem(storageKey) === legacy) storage.removeItem(storageKey);
+        return committed;
+      } catch { return false; }
+    };
+    const queue = () => {
+      writeRevision += 1;
+      if (timer === null) timer = setTimeout(() => { timer = null; void persist(writeRevision); }, ownerQueryPersistThrottleMs);
+    };
+    const cancel = () => { writeRevision += 1; if (timer !== null) clearTimeout(timer); timer = null; };
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (paused || event.type !== "removed" && queryClient.getQueryCache().get(event.query.queryHash) !== event.query) return;
+      if (affectsPersistedOwner(event, ownerKey)) queue();
+    });
+    const subscriptions = ownerPersistenceSubscriptions.get(queryClient) ?? new Set();
+    ownerPersistenceSubscriptions.set(queryClient, subscriptions);
+    const subscription = { ownerKey, pause: () => { paused = true; cancel(); }, resume: () => { paused = false; renewLease = true; } };
+    subscriptions.add(subscription);
+    if (restoreCurrent()) queue();
+    return () => { cancel(); unsubscribe(); subscriptions.delete(subscription); };
+  } catch {
+    if (storage && alive()) {
+      const restored = await restoreOwnerQueriesAsync(queryClient, storage, ownerKey, restoreCurrent);
+      if (alive()) {
+        recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
+        return subscribeOwnerQueryPersistence(queryClient, storage, ownerKey, recordHomeCachePersistence);
+      }
+    }
+    return () => {};
+  }
 }
 
 let sharedClient: QueryClient | null = null;
