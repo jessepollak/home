@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 async function signIn(page: Page) {
   await page.goto("/?account=signin");
@@ -8,10 +9,11 @@ async function signIn(page: Page) {
   await page.getByLabel("Email address").press("Enter");
   await page.getByLabel("Verification code").fill("123456");
   await page.getByRole("button", { name: "Verify and continue" }).click();
-  await expect(page).toHaveURL(/\/home/);
+  await expectNavigation(page, /\/home/);
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByName("session:verified", "mark").length)).toBeGreaterThan(0);
 }
 
-test("IDRX funding reaches payment instructions and receipt", async ({ page }) => {
+test("IDRX funding reaches payment instructions and receipt", { tag: "@smoke" }, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => localStorage.setItem("home.country.v2", "ID"));
   await installApiFixtures(page);

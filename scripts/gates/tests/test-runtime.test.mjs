@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildRuntimeReport, mergeJunitReports, parseJunit, readBaseAllowlist, validateAllowlist } from "../test-runtime.mjs";
+import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
 const checkedIn = JSON.parse(readFileSync(fileURLToPath(new URL("../test-runtime-allowlist.json", import.meta.url)), "utf8"));
 const empty = { tests: [], files: [], testFiles: [] };
@@ -377,7 +378,7 @@ test("CLI reports an unresolvable base as a note without failing", (t) => {
   const result = spawnSync(process.execPath, [cli, "--junit", junitFile, "--allowlist", allowlist], {
     cwd: dir,
     encoding: "utf8",
-    env: { ...process.env, BASE_REF: "main" },
+    env: { ...gitFixtureEnv(), BASE_REF: "main" },
   });
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Base allowlist unavailable or invalid: Could not resolve origin\/main or local main/);
@@ -388,7 +389,7 @@ test("CLI compares a custom allowlist path against the same path at the base", (
   const dir = mkdtempSync(join(tmpdir(), "test-runtime-custom-base-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const run = (command, args, cwd = dir) => {
-    const result = spawnSync(command, args, { cwd, encoding: "utf8" });
+    const result = spawnSync(command, args, { cwd, encoding: "utf8", env: gitFixtureEnv() });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     return result;
   };
@@ -403,7 +404,7 @@ test("CLI compares a custom allowlist path against the same path at the base", (
   const junitFile = join(dir, "junit.xml");
   writeFileSync(junitFile, junit(testcase("slow", 6)));
   const cli = fileURLToPath(new URL("../test-runtime.mjs", import.meta.url));
-  const env = { ...process.env, BASE_REF: "main" };
+  const env = { ...gitFixtureEnv(), BASE_REF: "main" };
   for (const [cwd, allowlistArg] of [[dir, allowlist], [join(dir, "custom"), "allowlist.json"]]) {
     const result = spawnSync(process.execPath, [cli, "--junit", junitFile, "--allowlist", allowlistArg], { cwd, encoding: "utf8", env });
     assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -418,7 +419,7 @@ test("CLI keeps the selected allowlist path when the working tree replaces it wi
   const allowlist = join(dir, "custom", "allowlist.json");
   const entry = (maxSeconds) => ({ ...empty, tests: [{ file, test: "slow", maxSeconds, reason: "measured slow test" }] });
   const git = (args) => {
-    const result = spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+    const result = spawnSync("git", args, { cwd: dir, encoding: "utf8", env: gitFixtureEnv() });
     assert.equal(result.status, 0, result.stdout + result.stderr);
   };
   git(["init", "--quiet", "--initial-branch=main"]);
@@ -431,7 +432,7 @@ test("CLI keeps the selected allowlist path when the working tree replaces it wi
   symlinkSync("target.json", allowlist);
   const junitFile = join(dir, "junit.xml");
   writeFileSync(junitFile, junit(testcase("slow", 6)));
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../test-runtime.mjs", import.meta.url)), "--junit", junitFile, "--allowlist", "custom/allowlist.json"], { cwd: dir, encoding: "utf8", env: { ...process.env, BASE_REF: "main" } });
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../test-runtime.mjs", import.meta.url)), "--junit", junitFile, "--allowlist", "custom/allowlist.json"], { cwd: dir, encoding: "utf8", env: { ...gitFixtureEnv(), BASE_REF: "main" } });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /Raised tests allowlist ceiling: client\/example\.test\.ts > slow \(8 s → 9 s\)/);
   assert.doesNotMatch(result.stdout, /Added tests allowlist entry|Base allowlist unavailable/);

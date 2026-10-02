@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 type Theme = "light" | "dark";
 
@@ -152,7 +153,7 @@ test("Account appearance applies immediately, overrides the OS, persists and ret
   await appearance.getByRole("radio", { name: "Dark" }).click();
   await expect(appearance.getByRole("radio", { name: "Dark" })).toBeChecked();
   await expectTheme(page, "dark");
-  await expect(page).toHaveURL(/account=settings/);
+  await expectNavigation(page, /account=settings/);
   await page.emulateMedia({ colorScheme: "dark" });
   await page.emulateMedia({ colorScheme: "light" });
   await expectTheme(page, "dark");

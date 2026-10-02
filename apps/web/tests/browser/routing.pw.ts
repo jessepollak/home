@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
+import { expectNavigation } from "./fixtures/navigation-budget";
 import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
 
 test("canonical routing preserves the shell and one balances read", async ({ page }) => {
@@ -15,9 +16,9 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
   await expect(page.getByRole("dialog", { name: "Send" })).toHaveCount(0);
 
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await page.getByRole("button", { name: "Invest", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await page.evaluate(() => {
     for (const node of [
       document.querySelector<HTMLElement>("[data-app-main-authenticated]"),
@@ -27,13 +28,13 @@ test("canonical routing preserves the shell and one balances read", async ({ pag
     }
   });
   await page.goBack();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   expect(await page.evaluate(() => [
     document.querySelector<HTMLElement>("[data-app-main-authenticated]"),
     document.querySelector<HTMLElement>("header"),
@@ -50,15 +51,15 @@ test("switching away from nested Invest and back opens the Invest overview", asy
 
   const navigation = page.getByRole("navigation", { name: "Main navigation" });
   await navigation.getByRole("button", { name: "Invest", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
-  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expectNavigation(page, /\/invest\/crypto$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Crypto");
 
   await navigation.getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await navigation.getByRole("button", { name: "Invest", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
   await expect(page.getByRole("button", { name: "Back to Invest" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Crypto" })).toBeVisible();
@@ -67,7 +68,7 @@ test("switching away from nested Invest and back opens the Invest overview", asy
   await navigation.getByRole("button", { name: "Home", exact: true }).click();
   await page.getByRole("region", { name: "Your money" })
     .getByRole("button", { name: /^Investments/ }).click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Investments");
   await expect(page.getByRole("region", { name: "Your investments" })).toBeVisible();
 });
@@ -81,21 +82,21 @@ test("tapping active Invest from a category pushes a root entry that Back restor
   const investTab = page.getByRole("navigation", { name: "Main navigation" })
     .getByRole("button", { name: "Invest", exact: true });
   await investTab.click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
-  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expectNavigation(page, /\/invest\/crypto$/);
   await investTab.click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
   await expect(page.getByRole("button", { name: "Back to Invest" })).toHaveCount(0);
   await investTab.click();
 
   await page.goBack();
-  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expectNavigation(page, /\/invest\/crypto$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Crypto");
   await expect(page.getByRole("button", { name: "Back to Invest" })).toBeVisible();
   await page.goBack();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Invest");
 });
 
@@ -109,16 +110,16 @@ test("tapping active Invest from a crypto asset preserves category Back after br
     .getByRole("button", { name: "Invest", exact: true });
   await investTab.click();
   await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
-  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expectNavigation(page, /\/invest\/crypto$/);
   await page.getByRole("button", { name: /Bitcoin/ }).click();
-  await expect(page).toHaveURL(/\/invest\/cbbtc$/);
+  await expectNavigation(page, /\/invest\/cbbtc$/);
 
   await investTab.click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/invest\/cbbtc$/);
+  await expectNavigation(page, /\/invest\/cbbtc$/);
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expectNavigation(page, /\/invest\/crypto$/);
   await expect(page.locator("[data-shell-header-title]").first()).toHaveText("Crypto");
   await expect(page.getByRole("button", { name: "Back to Invest" })).toBeVisible();
 });
@@ -198,19 +199,19 @@ test("desktop rail keeps routing, collapse state, and money dialog focus across 
   await expect(page.locator("#home-nav")).toBeHidden();
 
   await invest.click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect(invest).toHaveAttribute("aria-current", "page");
   await page.getByRole("region", { name: "Crypto" }).getByRole("button", { name: "See all ›" }).click();
-  await expect(page).toHaveURL(/\/invest\/crypto$/);
+  await expectNavigation(page, /\/invest\/crypto$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect(invest).toHaveAttribute("aria-current", "page");
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(home).toHaveAttribute("aria-current", "page");
 
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(home).toHaveAttribute("aria-current", "page");
 
   const toggle = rail.getByRole("button", { name: "Sidebar" });
@@ -234,7 +235,7 @@ test("desktop rail keeps routing, collapse state, and money dialog focus across 
 
   expect(await page.evaluate(() => (window as Window & { __railTransitionRuns?: string[] }).__railTransitionRuns)).toEqual([]);
   await home.click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   const send = page.getByRole("button", { name: "Send", exact: true });
   await expect(send).toBeEnabled();
   await send.click();
@@ -391,7 +392,7 @@ test("Account settings moves focus into the view and restores it to the account 
   const openSettingsWithKeyboard = async () => {
     await trigger.focus();
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/home\?account=settings$/);
+    await expectNavigation(page, /\/home\?account=settings$/);
     await expect(settings).toBeVisible();
     await expect(settings).toBeFocused();
     await expect(page.getByRole("banner").getByRole("button", { name: "Account" }))
@@ -401,7 +402,7 @@ test("Account settings moves focus into the view and restores it to the account 
 
   await openSettingsWithKeyboard();
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(settings).toHaveCount(0);
   await expectExactOpenerFocused();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
@@ -409,17 +410,17 @@ test("Account settings moves focus into the view and restores it to the account 
 
   await openSettingsWithKeyboard();
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(settings).toHaveCount(0);
   await expectExactOpenerFocused();
   await readPrimaryNavigationTargets();
 
   await page.goForward();
-  await expect(page).toHaveURL(/\/home\?account=settings$/);
+  await expectNavigation(page, /\/home\?account=settings$/);
   await expect(settings).toBeFocused();
   expect(await readPrimaryNavigationTargets()).toContain(await settings.getAttribute("id"));
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(settings).toHaveCount(0);
   await expectExactOpenerFocused();
   await readPrimaryNavigationTargets();
@@ -431,7 +432,7 @@ test("Account settings moves focus into the view and restores it to the account 
     .toHaveCount(0);
   expect(await readPrimaryNavigationTargets()).toContain(await settings.getAttribute("id"));
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(settings).toHaveCount(0);
   await expect(trigger).toBeFocused();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
@@ -442,7 +443,7 @@ test("sign-in returns to Cash through the signed-in shell", async ({ page }) => 
   await page.setViewportSize({ width: 390, height: 844 });
   await installApiFixtures(page);
   await page.goto("/cash");
-  await expect(page).toHaveURL(/\/?\?account=signin$/);
+  await expectNavigation(page, /\/?\?account=signin$/);
   await expect(page.getByRole("dialog", { name: "Sign in to Home" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Cash" })).toHaveCount(0);
 
@@ -450,9 +451,9 @@ test("sign-in returns to Cash through the signed-in shell", async ({ page }) => 
   await page.getByLabel("Email address").press("Enter");
   await page.getByLabel("Verification code").fill("123456");
   await page.getByRole("button", { name: "Verify and continue" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(page.getByRole("region", { name: "Cash" })).toBeVisible();
 });
 
@@ -490,7 +491,7 @@ test("sign-in code slots accept paste, editing and scripted autofill", async ({ 
   await expect(code).toHaveValue("654321");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await verify.click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
 });
 
 test("representative canonical routes SSR and hydrate their selected panel", async ({ page }) => {
@@ -543,7 +544,7 @@ test("non-canonical shell paths render their canonical parent instead of 404", a
   ] as const) {
     const response = await page.goto(url, { waitUntil: "domcontentloaded" });
     expect(response?.status()).toBe(200);
-    await expect(page).toHaveURL(url);
+    await expectNavigation(page, url);
     await expect(page.locator("main[data-app-main-authenticated]")).toHaveCount(1);
     await expect(page.locator("[data-shell-header-title]").first()).toHaveText(title);
   }

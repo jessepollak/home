@@ -5,6 +5,7 @@ import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owne
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 // The hosted-runner tier also covers an idle laptop. A loaded shared machine stretches both marks
 // together, so the persisted paint may take twice the machine's own shell paint, never less than the tier.
@@ -181,14 +182,17 @@ test("persisted balances paint before verification and settle without row shift"
   expect(fixtures.balancesReads()).toBeGreaterThan(balancesReadsBeforeReload);
   const provisionalLayout = await visibleBalanceRowLayout(page);
   await expectBalancesPaintedWithinBudget(page);
-  const provisionalPaint = await page.evaluate(() => ({
-    balances: performance.getEntriesByName("balances:painted", "mark")[0]?.startTime ?? Infinity,
-    verified: performance.getEntriesByName("session:verified", "mark")[0]?.startTime ?? Infinity,
+  const provisionalMarks = await page.evaluate(() => ({
+    balances: performance.getEntriesByName("balances:painted", "mark").length,
+    verified: performance.getEntriesByName("session:verified", "mark").length,
   }));
-  expect(provisionalPaint.balances).toBeLessThan(provisionalPaint.verified);
+  expect(provisionalMarks.balances).toBeGreaterThan(0);
+  expect(provisionalMarks.verified).toBe(0);
   const summaryPaint = await page.evaluate(() => performance.getEntriesByName("balances:summary-painted", "mark")[0]?.startTime);
   expect(summaryPaint).toBeDefined();
-  expect(summaryPaint).toBeLessThanOrEqual(provisionalPaint.balances);
+  const balancesPaint = await page.evaluate(() => performance.getEntriesByName("balances:painted", "mark")[0]?.startTime);
+  if (balancesPaint === undefined) throw new Error("Persisted balances paint mark is missing");
+  expect(summaryPaint).toBeLessThanOrEqual(balancesPaint);
 
   fixtures.releaseBalances();
   fixtures.releaseSession();
@@ -257,7 +261,7 @@ test("cached Home balances paint before delayed verification and revalidation, t
     await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
 
     await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /Borrow Cash/ }).click();
-    await expect(page).toHaveURL(/\/borrow$/);
+    await expectNavigation(page, /\/borrow$/);
     const returnStart = await page.evaluate(() => {
       const witness = window as typeof window & { balanceReturn?: { busy: boolean; observer: MutationObserver } };
       const wasBusy = () => Boolean(document.querySelector(
@@ -272,7 +276,7 @@ test("cached Home balances paint before delayed verification and revalidation, t
       return performance.getEntriesByName("balances:return-start", "mark")[0]!.startTime;
     });
     await page.getByRole("button", { name: "Home", exact: true }).first().click();
-    await expect(page).toHaveURL(/\/home$/);
+    await expectNavigation(page, /\/home$/);
     await expect(page.getByLabel("Total balance")).toContainText("$91.55");
     await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
     const { returnMs, busy } = await page.evaluate((started) => {
