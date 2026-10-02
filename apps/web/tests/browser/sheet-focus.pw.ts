@@ -15,7 +15,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     const stage = page.locator("#navigation-panel");
     const send = page.getByRole("button", { name: "Send", exact: true });
     for (const name of ["Add money", "Send"]) {
-      const opener = page.getByRole("button", { name, exact: true });
+      const opener = page.getByRole(name === "Add money" ? "link" : "button", { name, exact: true });
       await opener.click();
       await expect(page.getByRole("dialog", { name, exact: true })).toBeVisible();
       await page.keyboard.press("Escape");
@@ -56,7 +56,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await page.goto("/home");
     await expect.poll(() => page.evaluate(() =>
       performance.getEntriesByName("session:verified", "mark").length)).toBeGreaterThan(0);
-    const homeOpener = page.getByRole("button", { name: "Add money", exact: true });
+    const homeOpener = page.getByRole("link", { name: "Add money", exact: true });
     await homeOpener.click();
     await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
