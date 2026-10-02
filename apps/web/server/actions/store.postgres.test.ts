@@ -6,6 +6,7 @@ import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
 import { ActionsStore, actionOwnerKey } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
+import { RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
 const describePostgres = connectionString ? describe : describe.skip;
@@ -89,6 +90,88 @@ describePostgres("actions schema and store", () => {
       "observed_receipt_transaction_hash", "observed_receipt_block_number", "observed_receipt_block_hash", "observed_receipt_outcome", "observed_at",
       "customer_id", "credential_id", "wallet_id",
     ]);
+  });
+
+  test("retains resolvable savings deposits between 23 hours and 30 days with no outcome or an outcome recorded within 24 hours", async () => {
+    const create = async (age: string, options: { owner?: typeof owner; outcome?: "succeeded" | "reverted" | "not_submitted"; outcomeAge?: string; handle?: boolean; hash?: boolean; kind?: "savings-deposit" | "savings-withdraw" | "send"; confirmed?: boolean } = {}) => {
+      const id = randomUUID();
+      const rowOwner = options.owner ?? owner;
+      await store.insert({ id, owner: rowOwner, kind: options.kind ?? "savings-deposit", summary, pending: { calls }, createdAt: new Date().toISOString() });
+      if (options.confirmed !== false) {
+        await store.confirm(rowOwner, id);
+        if (options.handle) await store.recordHandle(rowOwner, id, { providerHandle: `0x${"ab".repeat(32)}` });
+        if (options.hash) await store.recordHandle(rowOwner, id, { transactionHash: `0x${"cd".repeat(32)}` });
+        if (options.outcome) await store.recordOutcome(rowOwner, id, { outcome: options.outcome, source: options.outcome === "not_submitted" ? "wallet" : "chain", settledAt: options.outcome === "not_submitted" ? null : new Date() });
+        await sql.query("UPDATE actions SET confirmed_at = now() - $2::interval WHERE id = $1", [id, age]);
+        if (options.outcomeAge) await sql.query("UPDATE actions SET outcome_recorded_at = now() - $2::interval WHERE id = $1", [id, options.outcomeAge]);
+      }
+      return id;
+    };
+    const hashOnly = await create("25 hours", { hash: true });
+    const handleOnly = await create("29 days", { handle: true });
+    const beforeBoundary = await create("24 hours 1 second", { handle: true });
+    const overlap = await create("23 hours 30 minutes", { handle: true });
+    const recent = await create("22 hours", { handle: true });
+    const foreign = await create("2 days", { owner: otherOwner, handle: true });
+    const recentOutcomes: string[] = [];
+    for (const [index, outcome] of (["succeeded", "reverted", "not_submitted"] as const).entries()) {
+      recentOutcomes.push(await create(`${26 + index} hours`, { handle: true, outcome, outcomeAge: "23 hours 59 minutes 59 seconds" }));
+      await create("2 days", { handle: true, outcome, outcomeAge: "24 hours 1 second" });
+    }
+    await create("2 days");
+    await create("30 days 1 second", { hash: true });
+    await create("2 days", { handle: true, kind: "savings-withdraw" });
+    await create("2 days", { handle: true, kind: "send" });
+    await create("2 days", { confirmed: false });
+    expect((await store.listRetainedSavingsDeposits(owner)).map(({ id }) => id)).toEqual([beforeBoundary, hashOnly, handleOnly, overlap, ...recentOutcomes]);
+    expect((await store.listRetainedSavingsDeposits(otherOwner)).map(({ id }) => id)).toEqual([foreign]);
+    expect((await store.list(owner)).map(({ id }) => id)).toEqual([recent, overlap]);
+  });
+  test("caps unresolved retained savings deposits at the 20 newest rows", async () => {
+    const ids: string[] = [];
+    for (let index = 0; index < RETAINED_SAVINGS_DEPOSITS_LIMIT + 2; index++) {
+      const id = randomUUID();
+      ids.push(id);
+      await store.insert({ id, owner, kind: "savings-deposit", summary, pending: { calls }, createdAt: new Date().toISOString() });
+      await store.confirm(owner, id);
+      await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` });
+      await sql.query("UPDATE actions SET confirmed_at = now() - interval '25 hours' - $2 * interval '1 minute' WHERE id = $1", [id, index]);
+    }
+    expect((await store.listRetainedSavingsDeposits(owner)).map(({ id }) => id)).toEqual(ids.slice(0, RETAINED_SAVINGS_DEPOSITS_LIMIT));
+  });
+  test("prioritizes an unresolved deposit beyond 24 hours over 20 unresolved overlap rows", async () => {
+    const overlapIds = Array.from({ length: 20 }, () => randomUUID());
+    const olderId = randomUUID();
+    for (const id of [...overlapIds, olderId]) {
+      await store.insert({ id, owner, kind: "savings-deposit", summary, pending: { calls }, createdAt: new Date().toISOString() });
+      await store.confirm(owner, id);
+      await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` });
+      await sql.query("UPDATE actions SET confirmed_at = now() - $2::interval WHERE id = $1", [id, id === olderId ? "25 hours" : "23 hours 30 minutes"]);
+    }
+    const retained = await store.listRetainedSavingsDeposits(owner);
+    expect(retained).toHaveLength(RETAINED_SAVINGS_DEPOSITS_LIMIT);
+    expect(retained[0]?.id).toBe(olderId);
+    expect(retained.every(({ outcome }) => outcome === null)).toBe(true);
+    expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([...overlapIds].sort());
+  });
+  test("prioritizes an older unresolved deposit over 20 newer recently recorded outcomes", async () => {
+    const unresolvedId = randomUUID();
+    const terminalIds = Array.from({ length: 20 }, () => randomUUID());
+    for (const [index, id] of [unresolvedId, ...terminalIds].entries()) {
+      await store.insert({ id, owner, kind: "savings-deposit", summary, pending: { calls }, createdAt: new Date().toISOString() });
+      await store.confirm(owner, id);
+      await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` });
+      if (id === unresolvedId) {
+        await sql.query("UPDATE actions SET confirmed_at = now() - interval '29 days' WHERE id = $1", [id]);
+      } else {
+        await store.recordOutcome(owner, id, { outcome: "succeeded", source: "chain", settledAt: new Date() });
+        await sql.query("UPDATE actions SET confirmed_at = now() - interval '25 hours' - $2 * interval '1 minute', outcome_recorded_at = now() - interval '1 hour' WHERE id = $1", [id, index]);
+      }
+    }
+    const retained = await store.listRetainedSavingsDeposits(owner);
+    expect(retained).toHaveLength(20);
+    expect(retained.map(({ id }) => id)).toEqual([unresolvedId, ...terminalIds.slice(0, 19)]);
+    expect(retained[0]?.outcome).toBeNull();
   });
 
   test("scopes reads, clears pending on confirm, and records immutable handles", async () => {

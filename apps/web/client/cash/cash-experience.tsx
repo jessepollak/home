@@ -462,7 +462,7 @@ export function CashExperience({
     refetchOnReconnect: (query) => refetchFailedRecentActions(query) || (savingsPortfolioEmpty ? "always" : false),
     refetchInterval: (query) => savingsEntryRefreshInterval({
       funded: summary?.funded,
-      inFlightDeposits: inFlightSavingsDepositActions(scopedSavingsDeposits(query.state.data?.operations, session), liveSnapshot).length,
+      inFlightDeposits: inFlightSavingsDepositActions(scopedSavingsDeposits([...(query.state.data?.operations ?? []), ...(query.state.data?.retainedSavingsDeposits ?? [])], session), liveSnapshot).length,
     }),
   });
   const actionsStatus = useRecentActionsStatus({
@@ -472,9 +472,13 @@ export function CashExperience({
     dataUpdatedAt: actions.dataUpdatedAt,
     errorUpdatedAt: actions.errorUpdatedAt,
   }, { tolerateStaleError: false });
+  const savingsOperations = useMemo(
+    () => [...(actions.data?.operations ?? []), ...(actions.data?.retainedSavingsDeposits ?? [])],
+    [actions.data?.operations, actions.data?.retainedSavingsDeposits],
+  );
   const scopedServerDeposits = useMemo(
-    () => scopedSavingsDeposits(actions.data?.operations, session),
-    [actions.data?.operations, session]
+    () => scopedSavingsDeposits(savingsOperations, session),
+    [savingsOperations, session]
   );
   const serverInFlightDeposits = useMemo(
     () => inFlightSavingsDepositActions(scopedServerDeposits, liveSnapshot),
@@ -507,13 +511,14 @@ export function CashExperience({
     [actions.data?.unparsedSavingsDeposits, liveSnapshot],
   );
   const actionHistoryUnresolved = actionsStatus === "error" && !fundedNow && fetchAccountResource !== undefined;
-  const savingsEntryUnresolved = actionHistoryUnresolved || undisplayableInFlightDeposit || unparsedSavingsDeposit;
+  const savingsEntryUnresolved = actionHistoryUnresolved || undisplayableInFlightDeposit || unparsedSavingsDeposit ||
+    (actions.data?.retainedSavingsDepositsUnavailable === true && !fundedNow);
   const localPendingActions = useMemo(() => pendingLocalDeposits
     .filter((pending) => pending.account === accountIdentity)
     .map((pending) => pending.action), [pendingLocalDeposits, accountIdentity]);
   const pendingDeposits = useMemo(
-    () => fundedNow ? [] : pendingSavingsDeposits(actions.data?.operations, session, localPendingActions, liveSnapshot),
-    [fundedNow, actions.data?.operations, session, localPendingActions, liveSnapshot]
+    () => fundedNow ? [] : pendingSavingsDeposits(savingsOperations, session, localPendingActions, liveSnapshot),
+    [fundedNow, savingsOperations, session, localPendingActions, liveSnapshot]
   );
   if (previousAccountIdentity !== accountIdentity) {
     setPreviousAccountIdentity(accountIdentity);

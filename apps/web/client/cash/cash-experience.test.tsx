@@ -18,6 +18,7 @@ import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
+import { refetchIntervalFor } from "@/tests/helpers/query-interval";
 import { pinClock } from "@/tests/helpers/pin-clock";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
@@ -1201,6 +1202,86 @@ describe("Cash L2", () => {
     expect(within(savings).getByText("$3.00")).toBeTruthy();
     expect(within(savings).getByText("Pending")).toBeTruthy();
     expect(within(savings).queryByRole("button", { name: /Gauntlet/ })).toBeNull();
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    expect(preparedInputs).toEqual([]);
+  });
+  test("reload rehydrates an older retained deposit and polls without offering Start saving", async () => {
+    cached();
+    const retained = { ...pendingActionRow({ ...preparedDeposit(), id: "older-deposit" }, "unknown"), confirmedAt: "2026-09-08T12:00:00.000Z" };
+    render(<Surface snapshot={empty} fetchAccountResource={async () => ({ actions: [], retainedSavingsDeposits: [retained] })} />);
+    const savings = await page().findByRole("region", { name: "Your savings" });
+    expect(within(savings).getByText("Gauntlet USDC Prime")).toBeTruthy();
+    expect(within(savings).getByText("$1.00")).toBeTruthy();
+    expect(within(savings).getByText("Pending")).toBeTruthy();
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    expect(refetchIntervalFor(ownerQueryKey(dataOwnerKey(session), "actions"))).toBe(5_000);
+  });
+  test.each(["failed", "absent"] as const)("an older %s deposit does not block first use", async (state) => {
+    cached();
+    render(<Surface snapshot={empty} fetchAccountResource={async () => ({ actions: [], retainedSavingsDeposits: state === "failed" ? [pendingActionRow(preparedDeposit(), "failed")] : [] })} />);
+    await page().findByRole("button", { name: "Start saving" });
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("Start saving stays hidden across retained pending-to-confirmed polls until the balance postdates settlement", async () => {
+    cached();
+    const pending = { ...pendingActionRow(preparedDeposit(), "pending"), confirmedAt: "2026-09-08T12:00:00.000Z" };
+    const confirmed = { ...pending, status: "confirmed", settledAt: "2026-09-10T12:05:00.000Z" };
+    let reads = 0;
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [reads++ === 0 ? pending : confirmed] });
+    const actionsKey = ownerQueryKey(dataOwnerKey(session), "actions");
+    const view = render(<Surface snapshot={{ ...empty, block: { ...empty.block, timestamp: String(Date.parse("2026-09-10T12:00:00.000Z") / 1000) } }} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    expect(reads).toBe(1);
+    for (let poll = 0; poll < 3; poll++) {
+      await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: actionsKey }); });
+      await waitFor(() => expect(getHomeQueryClient().getQueryData(actionsKey)).toMatchObject({
+        operations: [], retainedSavingsDeposits: [{ action: { id: pending.id }, status: "confirmed", settledAt: confirmed.settledAt }],
+      }));
+      expect(reads).toBe(poll + 2);
+      expect(within(page().getByLabelText("Savings balance")).getByText("Pending")).toBeTruthy();
+      expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    }
+    view.rerender(<Surface snapshot={{ ...empty, block: { ...empty.block, timestamp: String(Date.parse("2026-09-10T12:06:00.000Z") / 1000) } }} fetchAccountResource={resource} />);
+    await page().findByRole("button", { name: "Start saving" });
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("a retained pending deposit returned failed on the next fetch offers Start saving", async () => {
+    cached();
+    const pending = { ...pendingActionRow(preparedDeposit(), "pending"), confirmedAt: "2026-09-08T12:00:00.000Z" };
+    let reads = 0;
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [reads++ === 0 ? pending : { ...pending, status: "failed" }] });
+    render(<Surface snapshot={empty} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
+    await act(async () => { await getHomeQueryClient().refetchQueries({ queryKey: ownerQueryKey(dataOwnerKey(session), "actions") }); });
+    await page().findByRole("button", { name: "Start saving" });
+    expect(reads).toBe(2);
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("funded balances clear the retained pending block even when the retained read is unavailable", async () => {
+    cached();
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [pendingActionRow(preparedDeposit(), "unknown")], retainedSavingsDepositsUnavailable: true });
+    const view = render(<Surface snapshot={empty} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    view.rerender(<Surface snapshot={held} fetchAccountResource={resource} />);
+    await page().findByRole("button", { name: /^Steakhouse USDC/, description: "Manage Steakhouse USDC" });
+    expect(page().queryByText("Pending")).toBeNull();
+    expect(page().queryByText("Couldn't check your deposits")).toBeNull();
+  });
+  test("switching owners removes owner A's retained deposit from owner B's savings entry", async () => {
+    cached();
+    const resource = async () => ({ actions: [], retainedSavingsDeposits: [pendingActionRow(preparedDeposit(), "unknown")] });
+    const view = render(<Surface snapshot={empty} fetchAccountResource={resource} />);
+    await within(await page().findByLabelText("Savings balance")).findByText("Pending");
+    view.rerender(<Surface snapshot={empty} owner={{ ...session, user: { subject: "owner-b" } }} fetchAccountResource={resource} />);
+    await page().findByRole("button", { name: "Start saving" });
+    expect(page().queryByText("Pending")).toBeNull();
+  });
+  test("an unavailable retained read holds first use unresolved", async () => {
+    cached();
+    render(<Surface snapshot={empty} fetchAccountResource={async () => ({ actions: [], retainedSavingsDepositsUnavailable: true })} />);
+    await page().findByText("Couldn't check your deposits");
     expect(page().queryByRole("button", { name: "Start saving" })).toBeNull();
     expect(preparedInputs).toEqual([]);
   });
