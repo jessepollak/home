@@ -10,6 +10,7 @@ import investmentsJson from "./boards/investments.json";
 import glassNavigationJson from "./boards/glass-navigation.json";
 import investAssetDetailJson from "./boards/invest-asset-detail.json";
 import cashOutReviewJson from "./boards/cash-out-review.json";
+import mutedForegroundJson from "./boards/muted-foreground.json";
 
 const build = readReviewBuild(import.meta.env);
 const savings = parseBoard(savingsJson);
@@ -18,6 +19,7 @@ const borrowIllustration = parseBoard(borrowIllustrationJson);
 const investments = parseBoard(investmentsJson);
 const glassNavigation = parseBoard(glassNavigationJson);
 const cashOutReview = parseBoard(cashOutReviewJson);
+const mutedForeground = parseBoard(mutedForegroundJson);
 const fixture = parseBoard({
   id: "chrome-fixture", title: "Board chrome test", summary: "Empty document controls", sections: [
     { id: "first", title: "First section", frames: [
@@ -40,6 +42,7 @@ export const BorrowIllustration: Story = { tags: ["!test", "review-board"], args
 export const Investments: Story = { tags: ["!test", "review-board"], args: { board: investments, build } };
 export const GlassNavigation: Story = { tags: ["!test", "review-board"], args: { board: glassNavigation, build } };
 export const CashOutReview: Story = { tags: ["!test", "review-board"], args: { board: cashOutReview, build } };
+export const MutedForeground: Story = { tags: ["!test", "review-board"], args: { board: mutedForeground, build } };
 export const CommentsFollowCanvas: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
   render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,
