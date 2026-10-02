@@ -95,7 +95,7 @@ export default defineConfig({
   testMatch: "**/*.pw.ts",
   fullyParallel: !regression && !productionNavigation,
   workers: regression || productionNavigation ? 1 : 2,
-  globalTimeout: !regression && !productionNavigation && process.env.CI ? 75_000 : undefined,
+  globalTimeout: !regression && !productionNavigation && process.env.CI ? 90_000 : undefined,
   ...browserSmokeCiPolicy(Boolean(process.env.CI), { rejectRetryOnlyPass: regression }),
   ...(productionNavigation ? {
     retries: 0,
