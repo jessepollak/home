@@ -63,7 +63,7 @@ export const FIXTURE_WALLET_TOKEN = {
 } as const;
 
 export type HoldingOverride = Partial<
-  Pick<Holding, "balance" | "value" | "cashValue" | "underlyingBalance">
+  Pick<Holding, "balance" | "value" | "cashValue" | "underlyingBalance" | "withdrawableBalance">
 >;
 
 export type BalancesFixtureOptions = {
@@ -181,6 +181,7 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
       holding.underlyingBalance =
         override.underlyingBalance ??
         (balance.status === "unavailable" ? unavailableBalance : ready("0"));
+      holding.withdrawableBalance = override.withdrawableBalance ?? holding.underlyingBalance;
     }
     if (expected.cashCurrency) {
       holding.cashValue =

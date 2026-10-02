@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import type { BalanceActionMarker } from "@/client/query/after-action";
 import { clearOwnerQueryBoundary, getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { parseRecentActionsPayload, type RecentActionsPayload } from "@/shared/actions/contracts/list";
@@ -210,5 +211,98 @@ test("polling stops on reconciled success even when the row disappears", async (
   void act(() => getHomeQueryClient().setQueryData(key, parsed([])));
   expect(result.current.outcome).toBe("success");
   expect(refetchIntervalFor(key)).toBe(false);
+});
+
+test("an ambiguous submission qualifies the owner's balances once until a fresh read succeeds", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  let status: "pending" | "confirmed" = "pending";
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "ambiguous", fetchOperations: async () => ({ actions: [{ ...row, status }] }) }));
+  await waitFor(() => expect(client.getQueryData(markerKey)).toBeDefined());
+  expect(result.current.outcome).toBe("unknown");
+  const marker = client.getQueryData<BalanceActionMarker>(markerKey);
+  status = "confirmed";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual(marker);
+});
+
+test("a failed submission does not qualify balances", () => {
+  const client = getHomeQueryClient();
+  renderHook(() => useMoneyActionOutcome({ action, submission: "failed", fetchOperations: async () => ({ actions: [] }) }));
+  expect(client.getQueryData(ownerQueryKey(ownerKey, "balances-action"))).toBeUndefined();
+});
+
+test("a confirmed result without a marker creates the qualification", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  const balancesKey = ownerQueryKey(ownerKey, "balances", "US");
+  client.setQueryData(balancesKey, { version: 5, holdings: [] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [{ ...row, status: "confirmed" }] }) }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
+  expect(client.getQueryState(balancesKey)?.isInvalidated).toBe(true);
+});
+
+test("an ambiguous submission qualifies only the action owner's balances", async () => {
+  const client = getHomeQueryClient();
+  const otherMarker = ownerQueryKey("other-owner", "balances-action");
+  client.setQueryData(otherMarker, { at: 1, fresh: {} });
+  renderHook(() => useMoneyActionOutcome({ action, submission: "ambiguous", fetchOperations: async () => ({ actions: [] }) }));
+  await waitFor(() => expect(client.getQueryData(ownerQueryKey(ownerKey, "balances-action"))).toBeDefined());
+  expect(client.getQueryData<BalanceActionMarker>(otherMarker)).toEqual({ at: 1, fresh: {} });
+});
+
+test("a settlement after a region recovered re-qualifies that region", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  let status: "pending" | "confirmed" = "pending";
+  const fetchOperations = async () => ({ actions: [{ ...row, status }] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "ambiguous", fetchOperations }));
+  await waitFor(() => expect(client.getQueryData(markerKey)).toBeDefined());
+  const marked = client.getQueryData<BalanceActionMarker>(markerKey)!;
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: marked.at, fresh: { US: true } });
+  status = "confirmed";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
+});
+
+test("a settlement re-qualifies once while the same settlement is observed again", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [{ ...row, status: "confirmed" }] }) }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  const marked = client.getQueryData<BalanceActionMarker>(markerKey)!;
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: marked.at, fresh: { US: true } });
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: marked.at, fresh: { US: true } }));
+});
+
+test("a confirmed result observed on mount re-qualifies balances", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: 1, fresh: { US: true } });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [{ ...row, status: "confirmed" }] }) }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
+});
+
+test("a status regression and re-confirmation re-qualifies balances", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  let status: "pending" | "confirmed" = "confirmed";
+  const fetchOperations = async () => ({ actions: [{ ...row, status }] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  const marked = client.getQueryData<BalanceActionMarker>(markerKey)!;
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: marked.at, fresh: { US: true } });
+  status = "pending";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(result.current.row?.status).toBe("pending"));
+  expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: marked.at, fresh: { US: true } });
+  status = "confirmed";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
 });
 

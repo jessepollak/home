@@ -10,6 +10,7 @@ export const erc20Abi = [
 
 export const vaultAbi = [
   { type: "function", name: "convertToAssets", stateMutability: "view", inputs: [{ name: "shares", type: "uint256" }], outputs: [{ name: "assets", type: "uint256" }] },
+  { type: "function", name: "maxWithdraw", stateMutability: "view", inputs: [{ name: "owner", type: "address" }], outputs: [{ name: "assets", type: "uint256" }] },
 ] as const;
 
 export const multicallAbi = [{

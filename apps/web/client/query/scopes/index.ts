@@ -4,6 +4,7 @@ import { activity } from "./activity";
 import { activityOrders } from "./activity-orders";
 import { activityWindow } from "./activity-window";
 import { balances } from "./balances";
+import { balancesAction } from "./balances-action";
 import { basename } from "./basename";
 import { borrow } from "./borrow";
 import { borrowMarket } from "./borrow-market";
@@ -34,6 +35,7 @@ export const queryScopes = {
   "activity-orders": activityOrders,
   "activity-window": activityWindow,
   balances,
+  "balances-action": balancesAction,
   basename,
   borrow,
   "borrow-market": borrowMarket,

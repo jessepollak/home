@@ -167,6 +167,7 @@ type SurfaceProps = {
   snapshotToggle?: boolean;
   failPreparation?: boolean;
   balanceStale?: boolean;
+  balanceActionStale?: boolean;
   pendingActionsError?: boolean;
   initialView?: "cash" | "savings";
   nowMs?: number;
@@ -174,7 +175,7 @@ type SurfaceProps = {
   regionId?: RegionId;
 };
 
-function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, failPreparation = false, balanceStale = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
+function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, failPreparation = false, balanceStale = false, balanceActionStale = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
   const [view, setView] = useState(initialView);
   const clock = useRef(nowMs);
   const now = useCallback(() => clock.current, []);
@@ -239,7 +240,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
       : { version: 1, usdcReserveBaseUnits: "20000" };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
   const cashRate = homeParity ? "4.08% APY" : null;
-  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
+  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale} balanceActionStale={balanceActionStale} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
   return (
     <PresentationRegionProvider regionId={regionId}>
       <SavingsDialogFixtureProvider value={{ motion: reducedMotion ? "reduced" : "system" }}>
@@ -335,6 +336,12 @@ const fixtureParity = {
 const fixtureParameters = { msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(fixtureVaults))] } };
 export const FixtureParity: Story = { args: fixtureParity, parameters: fixtureParameters };
 export const FixtureParitySavings: Story = { args: { ...fixtureParity, initialView: "savings" }, parameters: fixtureParameters };
+export const SavingsAfterActionStale: Story = { args: { initialView: "savings", balanceActionStale: true }, play: async ({ canvasElement }) => {
+  const hero = within(canvasElement).getByLabelText("Savings balance");
+  await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
+  await expect(within(hero).getByRole("img", { name: "$883.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
+  await expect(within(hero).queryByText(/^Earning /)).toBeNull();
+} };
 export const Funded: Story = { play: assertFunded };
 export const SixHeldCurrencies: Story = { args: { snapshot: sixCurrencySnapshot }, play: async ({ canvasElement }) => {
   const region = within(within(canvasElement).getByRole("region", { name: "Currencies" }));
@@ -596,6 +603,27 @@ export const DepositJourney: Story = { play: async ({ canvasElement }) => {
   await expect(journey.executed).toHaveLength(1);
   await waitFor(() => expect(opener).toHaveFocus());
 } };
+export const WithdrawLimitedAvailability: Story = {
+  args: {
+    initialView: "savings",
+    snapshot: buildBalancesSnapshotFixture({ registry: {
+      ...cashRegistry,
+      "morpho-steakhouse-usdc": {
+        balance: ready("100000000000000000000"),
+        underlyingBalance: ready("100000000"),
+        withdrawableBalance: ready("40000000"),
+        value: priced("USD", "10000"),
+      },
+    } }),
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAction(canvasElement, "Gauntlet USDC Prime", "Withdraw");
+    await expect(dialog.getByText("$40.00 available")).toBeVisible();
+    await userEvent.click(dialog.getByRole("button", { name: "Max" }));
+    await expect(dialog.getByRole("textbox", { name: "Amount" })).toHaveValue("40");
+  },
+};
+
 export const WithdrawPending: Story = { args: { pendingExecution: true, initialView: "savings" }, play: async ({ canvasElement }) => {
   const body = within(canvasElement.ownerDocument.body);
   await openAction(canvasElement, "Gauntlet USDC Prime", "Withdraw");

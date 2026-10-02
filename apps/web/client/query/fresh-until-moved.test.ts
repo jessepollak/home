@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { QueryClient } from "@tanstack/react-query";
+import { CancelledError, type QueryClient } from "@tanstack/react-query";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import type { VerifiedAccountSession } from "@/client/account/session-client";
 import {
@@ -267,6 +267,27 @@ describe("fresh-until-moved scheduler", () => {
 
     await fake.advance(6_000);
 
+    expect(await run.result).toBe("moved");
+    expect(reads).toBe(2);
+    expect(fake.pending()).toBe(0);
+  });
+
+  test("a cancelled balances read retries on the next poll", async () => {
+    const fake = fakeClock();
+    let reads = 0;
+    const run = freshUntilMoved({
+      initial: { usdc: "10" },
+      readFresh: async () => {
+        reads += 1;
+        if (reads === 1) throw new CancelledError({ revert: true });
+        return { usdc: "11" };
+      },
+      clock: fake.clock,
+    });
+    await fake.advance(3_000);
+    expect(reads).toBe(1);
+    expect(fake.pending()).toBe(1);
+    await fake.advance(3_000);
     expect(await run.result).toBe("moved");
     expect(reads).toBe(2);
     expect(fake.pending()).toBe(0);

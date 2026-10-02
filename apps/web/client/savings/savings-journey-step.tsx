@@ -371,7 +371,7 @@ export function SavingsJourneyStep({
             ) : null}
             {assetRouteConfigured && nothingAvailable ? (
               <StatusMessage>
-                {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
+                {mode === "withdraw" ? "Nothing available to withdraw right now." : `No ${assetLabel} available to deposit.`}
               </StatusMessage>
             ) : null}
             {!assetRouteConfigured ? (

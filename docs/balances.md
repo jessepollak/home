@@ -38,7 +38,7 @@ Absent progress is not proof of a terminal order: a cash-out row whose progress 
 
 ## Boundary: display snapshot vs action-time reads
 
-`GET /api/balances` is the **display and client-availability** source: what rows to paint, what a user *can* start (Send max, Save deposit max). It is not action authority. Where calldata depends on chain state, the action's server `prepare` reads it at a pinned block and validates the amount (`server/borrowing/prepare.ts` via the market-parameterized `BorrowRpcReader.readSnapshot`, exposed for detail display at `/api/borrow/markets/:marketId`; `server/savings/prepare.ts` via `savings/rpc.ts`); a plain Send is checked by the chain at execution. Those reads stay exactly as they are. This is two responsibilities, not two sources of truth.
+`GET /api/balances` is the **display and client-availability** source: what rows to paint, what a user *can* start (Send max, Save deposit and withdrawal max). It is not action authority. Registry vault shares carry optional `withdrawableBalance`, bounded by their underlying position value and the owner's onchain `maxWithdraw` at the snapshot block. Withdraw uses that limit for Max and its available label; older snapshots or unreadable limits fall back to the position value with a saved label instead. Where calldata depends on chain state, the action's server `prepare` reads it at a pinned block and validates the amount (`server/borrowing/prepare.ts` via the market-parameterized `BorrowRpcReader.readSnapshot`, exposed for detail display at `/api/borrow/markets/:marketId`; `server/savings/prepare.ts` via `savings/rpc.ts`); a plain Send is checked by the chain at execution. Those reads stay exactly as they are. This is two responsibilities, not two sources of truth.
 
 ## Design
 
@@ -57,7 +57,7 @@ CDP supplies display-grade quantities only for positive non-registry rows. Regis
 
 1. `eth_getBlockByNumber("latest")` selects `{number, hash, timestamp}`. `eth_chainId` remains asserted once per resolved URL.
 2. In parallel at that block: `eth_getBalance(owner)` and one Multicall3 `aggregate3(allowFailure: true)` containing every configured ERC-20 and vault-share `balanceOf(owner)` call.
-3. One batch converts positive vault shares with `convertToAssets(shares)` and re-reads the pinned block. A changed hash re-pins and retries the whole read once; a second mismatch fails.
+3. One batch converts positive vault shares with `convertToAssets(shares)`, reads `maxWithdraw(owner)` for those same vaults at that block, and re-reads the pinned block. `withdrawableBalance` is the smaller of the converted assets and withdrawal limit; a failed conversion, share balance or limit makes it unavailable, and zero shares yield a ready zero without either vault call. A changed hash re-pins and retries the whole read once; a second mismatch fails.
 4. A failed registry call is retried once. A successful zero is `"0"`; a failed read is `unavailable`, never zero. The whole read retains its 4 s deadline.
 
 The hosted public-default guard is unchanged: preview/production never uses an implicit public RPC for registry quantities, marks those rows unavailable, and emits one `portfolio-balance-source` event per read. There is no catalog chunk and no sequential-public-catalog branch. The snapshot row's hot window drives post-action registry refreshes; instances keep only in-flight dedupe.
