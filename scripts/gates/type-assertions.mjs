@@ -4,10 +4,14 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { isPreclassifiedRootFile } from "./exploration-boundary.mjs";
+import { loadRootEntryExemptions } from "./root-entries.mjs";
+
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const exceptionsPath = "scripts/gates/type-assertions-exceptions.json";
 const kinds = ["assertion", "nonNull", "suppression", "genericParse"];
+export const NON_PRODUCTION_ROOT_FILES = new Set(loadRootEntryExemptions().map((entry) => entry.path));
 const directive = /@ts-(?:ignore|expect-error|nocheck)\b|\b(?:eslint|oxlint)-disable(?:-[\w-]+)?\b/u;
 const parseCache = new Map();
 const testAndStoryPatterns = [
@@ -26,14 +30,15 @@ export function isProductionTypeScript(file) {
   const local = file.slice("apps/web/".length);
   if (/(?:^|\/)explorations\//u.test(local) || testAndStoryPatterns.some((pattern) => pattern.test(local))) return false;
   return /^(?:app|client|components|config|lib|server|shared|types)\//u.test(local)
-    || /^(?:instrumentation[^/]*\.ts|proxy\.ts|next\.config\.ts)$/u.test(local);
+    || (!local.includes("/") && !NON_PRODUCTION_ROOT_FILES.has(local) && !isPreclassifiedRootFile(local) && !testAndStoryHarnessExtensions.test(local));
 }
 
 export function isTestOrStoryTypeScript(file) {
   if (isProductionTypeScript(file)) return false;
   if (!/^apps\/web\//u.test(file) || !/\.(?:ts|tsx|mts|cts)$/u.test(file)) return false;
   const local = file.slice("apps/web/".length);
-  return testAndStoryPatterns.some((pattern) => pattern.test(local)) || testAndStoryHarnessExtensions.test(local);
+  return testAndStoryPatterns.some((pattern) => pattern.test(local)) || testAndStoryHarnessExtensions.test(local)
+    || (!local.includes("/") && isPreclassifiedRootFile(local));
 }
 
 export function repositoryFiles(scope = isProductionTypeScript) {

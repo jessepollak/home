@@ -246,12 +246,17 @@
         "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "./instrumentation*.ts",
-        "./next.config.ts",
-        "./proxy.ts"
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-storybook-imports": "error"
@@ -535,8 +540,13 @@
     },
     {
       "files": [
-        "{app,client,components,config,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "./instrumentation*.ts"
+        "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -544,7 +554,14 @@
         "**/testing/**",
         "**/*test-harness.{ts,tsx}",
         "**/*smoke-fixture*.{ts,tsx}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-silent-catch": [
@@ -566,10 +583,15 @@
     },
     {
       "files": [
-        "{app,client,components,config,lib,server,shared,types}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "./instrumentation*.ts",
-        "./next.config.ts",
-        "./proxy.ts"
+        "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "lib/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -577,7 +599,14 @@
         "**/testing/**",
         "**/*test-harness.{ts,tsx}",
         "**/*smoke-fixture*.{ts,tsx}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-chained-type-assertions": "error",
