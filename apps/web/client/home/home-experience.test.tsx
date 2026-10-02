@@ -1134,6 +1134,7 @@ describe("Home shell routing and intents", () => {
       const sessionFetch: SessionFetch = async (input) => {
         const path = String(input);
         if (path === "/api/session") return Response.json(session());
+        if (path === "/api/activity/orders") return Response.json(emptyOrders());
         if (path === "/api/actions") return Response.json({ version: "1", actions: [] });
         if (path.startsWith("/api/activity?")) {
           const to = new URL(path, "https://home.invalid").searchParams.get("to") ?? new Date(NOW).toISOString();

@@ -527,7 +527,7 @@ describe("ConnectedActivityPanel", () => {
     expect(view.queryByText("Owner A action")).toBeNull();
   });
 
-  test("initial load stays pending until both sources settle", () => {
+  test.each(["actions", "orders"] as const)("initial load waits for %s before revealing rows", (source) => {
     const activityPage = pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A);
     const view = render(
       <ActivityPanelView
@@ -542,12 +542,28 @@ describe("ConnectedActivityPanel", () => {
           setSentinelVisible: () => {},
           retryLoadMore: () => {},
         }}
-        actionsStatus="loading"
+        actionsStatus={source === "actions" ? "loading" : "ready"}
+        ordersStatus={source === "orders" ? "loading" : "ready"}
       />,
     );
 
     expect(view.getByText("Loading recent activity…")).toBeTruthy();
     expect(view.queryByRole("button", { description: /transaction details/ })).toBeNull();
+  });
+
+  test("settled rows stay mounted while another source refreshes", () => {
+    const activity = {
+      status: "ready" as const, page: pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A),
+      loadingMore: false, loadMoreError: false, continuing: false,
+      retry: () => {}, refresh: () => {}, setSentinelVisible: () => {}, retryLoadMore: () => {},
+    };
+    const view = render(<ActivityPanelView activity={activity} />);
+    const row = view.container.querySelector("li");
+    expect(row).not.toBeNull();
+    view.rerender(<ActivityPanelView activity={activity} actionsStatus="loading" />);
+    expect(view.queryByText("Loading recent activity…")).toBeNull();
+    expect(view.container.querySelector("li")).toBe(row);
+    expect(view.container.querySelector("section")?.getAttribute("aria-busy")).toBe("true");
   });
 
   test("keeps the pagination window stable while deduplicating overlap", async () => {

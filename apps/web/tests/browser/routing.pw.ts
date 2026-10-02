@@ -497,6 +497,7 @@ test("sign-in code slots accept paste, editing and scripted autofill", async ({ 
 test("representative canonical routes SSR and hydrate their selected panel", async ({ page }) => {
   await seedSignedInSession(page, "GB");
   await page.addInitScript(() => {
+    indexedDB.deleteDatabase("home-query-cache");
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith("home.query.v1:")) localStorage.removeItem(key);
     }
