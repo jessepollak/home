@@ -244,6 +244,20 @@
       "count": 1,
       "issue": "#1338",
       "reason": "The Playwright fixed-date shim advances the pinned page clock by real elapsed time across reloads, so it reads the native clock once through a helper."
+    },
+    {
+      "path": "apps/web/client/observability/interaction-performance.ts",
+      "rule": "home/no-silent-catch",
+      "count": 2,
+      "issue": "#1755",
+      "reason": "Recovery-named callees now need a provable binding; the two catches that cancel a pending navigation sample call a local cleanup helper whose nothing-pending guard the rule cannot prove, and a telemetry failure has nothing further to report."
+    },
+    {
+      "path": "apps/web/server/scheduling/after-schedule.ts",
+      "rule": "home/no-silent-catch",
+      "count": 1,
+      "issue": "#1755",
+      "reason": "Recovery-named callees now need a provable binding; the retention-failure catch calls the caller-injected onUnavailable reporter, and every caller passes an emitServerEvent callback."
     }
   ]
 }

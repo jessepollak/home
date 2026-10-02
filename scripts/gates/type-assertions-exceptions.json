@@ -71,6 +71,18 @@
       "kind": "assertion",
       "count": 10,
       "reason": "The contract module's runtime parsers assert each validated shape after checking every field, field set, version token and identifier, the same boundary pattern as the other shared contract modules"
+    },
+    {
+      "path": "apps/web/client/observability/interaction-performance.ts",
+      "kind": "suppression",
+      "count": 2,
+      "reason": "Two reviewed home/no-silent-catch disables: once recovery-named callees need a provable binding, the catches that cancel a pending navigation sample call a local cleanup helper whose nothing-pending guard the rule cannot prove."
+    },
+    {
+      "path": "apps/web/server/scheduling/after-schedule.ts",
+      "kind": "suppression",
+      "count": 1,
+      "reason": "One reviewed home/no-silent-catch disable: the retention-failure catch calls the caller-injected onUnavailable reporter, which every caller backs with an emitServerEvent callback."
     }
   ]
 }
