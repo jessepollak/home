@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { describe, expect, test } from "bun:test";
 import { componentModulePaths, frameReason, hasPinnedTheme, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import {
-  createFrameSlots, declaredViewport, fittedFrameHeight, restoredFocus, scaledViewport, toggleFocus,
+  createFrameSlots, declaredViewport, fittedFrameHeight, framedWidth, restoredFocus, scaledViewport, spansFullRow, toggleFocus,
 } from "@/stories/review/explorations/library/sheet-state";
 import { readLibraryUrl, writeLibraryUrl } from "@/stories/review/explorations/library/url-state";
 
@@ -180,6 +180,27 @@ describe("declared frame viewports", () => {
     expect(scaledViewport(desktop, 2000)).toEqual({ width: 1440, height: 900, scale: 1 });
     for (const available of [0, -1, Number.NaN, Infinity]) expect(scaledViewport(desktop, available)).toEqual(phoneColumn);
     expect(scaledViewport({ width: 1024, height: 768 }, 390).height).toBeCloseTo(292.5);
+  });
+
+  test("undeclared frames fill a narrow stage but never exceed the phone width", () => {
+    expect(framedWidth(320)).toBe(320);
+    expect(framedWidth(1200)).toBe(390);
+    for (const available of [0, -1, Number.NaN, Infinity]) expect(framedWidth(available)).toBe(390);
+  });
+});
+
+describe("sheet grid spans", () => {
+  const base = { layout: "padded", frame: null, portals: false };
+  test("fullscreen layouts, declared viewports and portal frames span the full row", () => {
+    expect(spansFullRow({ ...base, layout: "fullscreen" })).toBe(true);
+    expect(spansFullRow({ ...base, frame: "Declared viewport", viewport: { width: 1440, height: 900 } })).toBe(true);
+    expect(spansFullRow({ ...base, frame: "Renders a portal", portals: true })).toBe(true);
+  });
+  test("other stories take one cell", () => {
+    expect(spansFullRow(base)).toBe(false);
+    expect(spansFullRow({ ...base, layout: "centered" })).toBe(false);
+    expect(spansFullRow({ ...base, frame: "Uses loaders" })).toBe(false);
+    expect(spansFullRow({ ...base, portals: true })).toBe(false);
   });
 });
 

@@ -52,6 +52,14 @@ export function fittedFrameHeight(content: number, portals: boolean): number {
 
 export type FrameViewport = { width: number; height: number };
 
+export function framedWidth(available: number): number {
+  return Number.isFinite(available) && available > 0 ? Math.min(FRAME_WIDTH, available) : FRAME_WIDTH;
+}
+
+export function spansFullRow(story: { layout: string; frame: unknown; portals: boolean; viewport?: FrameViewport }): boolean {
+  return story.layout === "fullscreen" || story.viewport !== undefined || (story.frame !== null && story.portals);
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }

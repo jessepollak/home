@@ -286,8 +286,10 @@ test("hidden theme stories are disclosed once at the end of the sheet", () => {
   const view = sheet([story("default", () => <p>Visible story</p>)]);
   expect(view.queryByText(/theme-pinned/)).toBeNull();
   view.update({ hiddenThemes: 2 });
-  expect(view.getByText("2 theme-pinned stories hidden · use Theme")).toBeTruthy();
-  expect(view.container.lastElementChild?.textContent).toBe("2 theme-pinned stories hidden · use Theme");
+  const line = view.getByText("2 theme-pinned stories hidden · use Theme");
+  const sections = view.container.querySelectorAll("section");
+  expect(line.closest("section")).toBeNull();
+  expect(sections[sections.length - 1].compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   view.update({ hiddenThemes: 1 });
   expect(view.getByText("1 theme-pinned story hidden · use Theme")).toBeTruthy();
 });
