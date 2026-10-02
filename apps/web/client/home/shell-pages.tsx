@@ -19,7 +19,7 @@ export function HomePageContent() {
   const page = useShellPage();
   const routing = useOptionalHomeShellRouting();
   const open = routing?.openPanel;
-  return <HomePanel
+  return <div data-shell-panel-id="home"><HomePanel
     assetBalances={page.paintedAssetBalances}
     activitySession={page.activitySession}
     onRetryBalances={page.onRetryBalances}
@@ -39,12 +39,12 @@ export function HomePageContent() {
     regionId={page.regionId}
     regionReady={page.regionReady}
     onDetailsOpenChange={page.onHomeDetailsOpenChange}
-  />;
+  /></div>;
 }
 
 export function ActivityPageContent() {
   const page = useShellPage();
-  return <div className={shellDesktopContentClassName}><ActivityPage
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="activity"><ActivityPage
     activitySession={page.activitySession}
     fetchActivity={page.fetchActivity}
     fetchOperations={page.fetchOperations}
@@ -58,7 +58,7 @@ export function CashPageContent() {
   const page = useShellPage();
   const location = useRouteShellLocation();
   const view = location.cashView === "savings" ? "savings" : "cash";
-  return <div className={shellDesktopContentClassName}><CashPanel regionId={page.regionId} isVerified={page.isVerified}
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="cash"><CashPanel regionId={page.regionId} isVerified={page.isVerified}
     isChecking={page.isChecking} content={page.cashContent?.({ view, onOpenSavings: page.openCashSavings })} /></div>;
 }
 
@@ -67,7 +67,7 @@ export function BorrowPageContent() {
   const location = useRouteShellLocation();
   const router = useRouter();
   const routing = useOptionalHomeShellRouting();
-  return <div className={shellDesktopContentClassName}><AuthenticatedBorrowExperience
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="borrow"><AuthenticatedBorrowExperience
     selectedMarketId={location.market} onSelectMarket={(market) => {
       const href = shellHref({ panel: "borrow", market });
       if (market === null) {
@@ -91,7 +91,7 @@ export function InvestmentsPageContent() {
   const page = useShellPage();
   const location = useRouteShellLocation();
   const changeChrome = page.onInvestmentsChromeChange;
-  return <div className={shellDesktopContentClassName}><AppChromeProvider>
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="investments"><AppChromeProvider>
     <ChromeSync onChange={changeChrome} />
     <InvestmentsPanel regionId={page.regionId} content={page.investmentsContent?.({
       holding: location.holding ?? null,
@@ -104,7 +104,7 @@ export function InvestmentsPageContent() {
 
 export function InvestPageContent() {
   const page = useShellPage();
-  return <div className={shellDesktopContentClassName}><InvestPanel regionId={page.regionId} content={page.investContent} /></div>;
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="invest"><InvestPanel regionId={page.regionId} content={page.investContent} /></div>;
 }
 
 function CardUnavailableRedirect() {
@@ -114,7 +114,7 @@ function CardUnavailableRedirect() {
 }
 
 export function CardPageContent() {
-  return <div className={shellDesktopContentClassName}><LazyCardExperience /></div>;
+  return <div className={shellDesktopContentClassName} data-shell-panel-id="card"><LazyCardExperience /></div>;
 }
 
 export function ShellFallbackContent() {

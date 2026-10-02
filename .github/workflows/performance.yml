@@ -42,8 +42,9 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      - name: Install Chromium
-        run: bun run --cwd apps/web test:browser-install
+      - name: Install Chromium and WebKit
+        working-directory: apps/web
+        run: ./node_modules/.bin/playwright install --with-deps chromium webkit
 
       - name: Build production fixture
         working-directory: apps/web
@@ -52,6 +53,16 @@ jobs:
           HOME_PLAYWRIGHT_SMOKE: "1"
           HOME_OPERATOR_ADDRESSES: 0x1111111111111111111111111111111111111111,0x3333333333333333333333333333333333333333
           # Sampled navigation telemetry would add random beacons to the warm-request gate.
+          NEXT_PUBLIC_HOME_INTERACTION_SAMPLE_RATE: "0"
+        run: ./node_modules/.bin/next build
+
+      - name: Build React profiling fixture
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          HOME_PLAYWRIGHT_SMOKE: "1"
+          HOME_PERF_REACT_PROFILING: "1"
+          HOME_OPERATOR_ADDRESSES: 0x1111111111111111111111111111111111111111,0x3333333333333333333333333333333333333333
           NEXT_PUBLIC_HOME_INTERACTION_SAMPLE_RATE: "0"
         run: ./node_modules/.bin/next build
 
@@ -80,13 +91,39 @@ jobs:
           tail -n 50 "$GITHUB_WORKSPACE/apps/web/performance-results/server.log" >&2
           exit 1
 
+      - name: Start React profiling fixture
+        working-directory: apps/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          HOME_PLAYWRIGHT_SMOKE: "1"
+          HOME_PERF_REACT_PROFILING: "1"
+          HOME_OPERATOR_ADDRESSES: 0x1111111111111111111111111111111111111111,0x3333333333333333333333333333333333333333
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/apps/web/performance-results"
+          ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3299 > "$GITHUB_WORKSPACE/apps/web/performance-results/server-profiling.log" 2>&1 &
+          server_pid=$!
+          echo "$server_pid" > "$GITHUB_WORKSPACE/apps/web/performance-results/server-profiling.pid"
+          for attempt in {1..60}; do
+            if curl --silent --fail http://localhost:3299/ > /dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          echo "React profiling fixture did not become ready" >&2
+          tail -n 50 "$GITHUB_WORKSPACE/apps/web/performance-results/server-profiling.log" >&2
+          exit 1
+
       # Structural gates block immediately; timing stays report-only during calibration.
       - name: Measure performance budgets
         id: budget
         shell: bash
         run: |
           set +e
-          bun run --cwd apps/web perf:budget --base-url http://localhost:3199 --out-dir performance-results
+          bun run --cwd apps/web perf:budget --base-url http://localhost:3199 --react-profiling-url http://localhost:3299 --out-dir performance-results
           budget_status=$?
           echo "exit_code=$budget_status" >> "$GITHUB_OUTPUT"
           if [[ -f apps/web/performance-results/summary.md ]]; then
@@ -165,12 +202,15 @@ jobs:
           retention-days: 90
           if-no-files-found: ignore
 
-      - name: Stop production fixture
+      - name: Stop fixture servers
         if: always()
         shell: bash
         run: |
           if [[ -f apps/web/performance-results/server.pid ]]; then
             kill "$(cat apps/web/performance-results/server.pid)" 2>/dev/null || true
+          fi
+          if [[ -f apps/web/performance-results/server-profiling.pid ]]; then
+            kill "$(cat apps/web/performance-results/server-profiling.pid)" 2>/dev/null || true
           fi
 
       - name: Enforce performance budgets
