@@ -7,7 +7,7 @@ import { frameReason, readPortalRule } from "@/stories/review/explorations/libra
 const { act, cleanup, render } = await import("@testing-library/react");
 const { VariantSheet } = await import("@/stories/review/explorations/library/sheet");
 const originalIntersection = globalThis.IntersectionObserver;
-beforeEach(() => { globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver; });
+beforeEach(() => { Reflect.deleteProperty(globalThis, "IntersectionObserver"); });
 afterEach(() => { cleanup(); globalThis.IntersectionObserver = originalIntersection; });
 
 for (const name of ["commented", "escaped"]) {
@@ -21,7 +21,7 @@ for (const name of ["commented", "escaped"]) {
       [key]: await lexLibraryImports(source, "probe.stories.tsx"),
       [dialog]: await lexLibraryImports(dialogSource, "dialog.tsx"),
     });
-    const { Default } = await import(`./fixtures/${name}.stories`);
+    const { Default } = await import(`./fixtures/${name}`);
     const view = render(<VariantSheet root={null} component="Probe" changed={false} stories={[{
       id: "probe", name: "Probe", Story: Default, argTypes: {}, initialArgs: {}, layout: "centered", themePinned: false,
       portals: rule.portals, frame: frameReason({}, {}, rule.portals, rule.sourceReadable),
