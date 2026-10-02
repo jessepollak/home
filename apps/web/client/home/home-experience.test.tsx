@@ -137,6 +137,12 @@ const OWNER_B = "home-user-b";
 const ADDRESS = "0x1111111111111111111111111111111111111111";
 const ADDRESS_B = "0x2222222222222222222222222222222222222222";
 
+function navigationPanel() {
+  const panel = document.getElementById("navigation-panel");
+  if (!panel) throw new Error("Missing navigation panel");
+  return panel;
+}
+
 function page() {
   return within(document.body);
 }
@@ -518,6 +524,139 @@ describe("pushed funding history", () => {
     fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/cash"));
     expect(historyEntries).toEqual(["/cash"]);
+  });
+});
+
+function controlAnimationFrames() {
+  const request = window.requestAnimationFrame;
+  const cancel = window.cancelAnimationFrame;
+  let id = 0;
+  const queued = new Map<number, FrameRequestCallback>();
+  window.requestAnimationFrame = (callback) => { queued.set(++id, callback); return id; };
+  window.cancelAnimationFrame = (frame) => { queued.delete(frame); };
+  return {
+    flush: () => {
+      const callbacks = [...queued.values()];
+      queued.clear();
+      callbacks.forEach((callback) => callback(0));
+    },
+    restore: () => {
+      window.requestAnimationFrame = request;
+      window.cancelAnimationFrame = cancel;
+      queued.clear();
+    },
+  };
+}
+
+async function finishDeferredFocusTest(
+  view: ReturnType<typeof render>,
+  frames: ReturnType<typeof controlAnimationFrames>,
+) {
+  try {
+    await act(async () => {
+      try {
+        view.unmount();
+      } finally {
+        jest.runOnlyPendingTimers();
+      }
+    });
+  } finally {
+    jest.useRealTimers();
+    frames.restore();
+  }
+}
+
+describe("Home navigation after paint", () => {
+  for (const panel of ["Cash", "Invest"] as const) {
+    test(`defers ${panel} panel focus until after paint`, async () => {
+      const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+      await waitForVerifiedShell();
+      const frames = controlAnimationFrames();
+      jest.useFakeTimers();
+      try {
+        fireEvent.click(page().getByRole("button", { description: `Open ${panel}` }));
+        const stage = navigationPanel();
+        expect(document.activeElement).not.toBe(stage);
+        act(() => frames.flush());
+        expect(document.activeElement).not.toBe(stage);
+        act(() => { jest.advanceTimersByTime(0); });
+        expect(document.activeElement).toBe(stage);
+      } finally {
+        await finishDeferredFocusTest(view, frames);
+      }
+    });
+
+    test(`does not steal focus moved after ${panel} navigation`, async () => {
+      const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+      const account = await waitForVerifiedShell();
+      const frames = controlAnimationFrames();
+      jest.useFakeTimers();
+      try {
+        fireEvent.click(page().getByRole("button", { description: `Open ${panel}` }));
+        account.focus();
+        act(() => frames.flush());
+        act(() => { jest.advanceTimersByTime(0); });
+        expect(document.activeElement).toBe(account);
+      } finally {
+        await finishDeferredFocusTest(view, frames);
+      }
+    });
+  }
+
+  test("does not steal focus moved away and back before the deferred focus", async () => {
+    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    const account = await waitForVerifiedShell();
+    const frames = controlAnimationFrames();
+    jest.useFakeTimers();
+    try {
+      account.focus();
+      fireEvent.click(page().getByRole("button", { description: "Open Cash" }));
+      const homeTab = within(tabsNavigation()).getByRole("button", { name: "Home" });
+      homeTab.focus();
+      account.focus();
+      act(() => frames.flush());
+      act(() => { jest.advanceTimersByTime(0); });
+      expect(document.activeElement).toBe(account);
+    } finally {
+      await finishDeferredFocusTest(view, frames);
+    }
+  });
+
+  test("drops the deferred focus when Account settings replaces the panel", async () => {
+    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    const account = await waitForVerifiedShell();
+    const frames = controlAnimationFrames();
+    jest.useFakeTimers();
+    try {
+      fireEvent.click(page().getByRole("button", { description: "Open Cash" }));
+      fireEvent.click(account);
+      const settings = page().getByRole("region", { name: "Account settings" });
+      expect(document.activeElement).toBe(settings);
+      await act(async () => { frames.flush(); jest.advanceTimersByTime(0); });
+      expect(document.activeElement).toBe(settings);
+    } finally {
+      await finishDeferredFocusTest(view, frames);
+    }
+  });
+
+  test("focuses the panel stage after Back returns to Home", async () => {
+    const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />);
+    await waitForVerifiedShell();
+    const frames = controlAnimationFrames();
+    jest.useFakeTimers();
+    try {
+      fireEvent.click(page().getByRole("button", { description: "Open Cash" }));
+      act(() => frames.flush());
+      act(() => { jest.advanceTimersByTime(0); });
+      expect(document.activeElement).toBe(navigationPanel());
+      page().getByRole("button", { name: "Account" }).focus();
+      fireEvent.click(page().getByRole("button", { name: "Back" }));
+      act(() => frames.flush());
+      act(() => { jest.advanceTimersByTime(0); });
+      expect(document.activeElement).toBe(navigationPanel());
+    } finally {
+      await finishDeferredFocusTest(view, frames);
+    }
   });
 });
 

@@ -1,3 +1,4 @@
+import type { HomeRateLabels } from "@/shared/balances/home-summary";
 import type { ReactNode } from "react";
 import type { ShellPanelId } from "@/config/navigation";
 import type { HomeRegionState } from "./use-home-region";
@@ -17,6 +18,7 @@ export type InvestmentsContentProps = {
 };
 
 export type HomeExperienceProps = {
+  initialRateLabels?: HomeRateLabels;
   investContent?: ReactNode;
   cardsEnabled?: boolean;
   cashContent?: (props: { view: "cash" | "savings"; onOpenSavings: () => void }) => ReactNode;

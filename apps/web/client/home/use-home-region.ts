@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import {
   readAnonymousCountryPreference,
@@ -119,7 +119,7 @@ export function useHomeRegion({
     return () => { mounted.current = false; };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const held = pendingSettlingSelection.current;
     if (!held || accountOwner === null) return;
     if (held.owner === null) {
@@ -135,7 +135,7 @@ export function useHomeRegion({
     }
   }, [accountOwner, detectedCountry, offer]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (currentIdentity.current === accountIdentity) return;
     pendingWrite.current = null;
     currentIdentity.current = accountIdentity;
@@ -151,14 +151,14 @@ export function useHomeRegion({
     }
   }, [accountIdentity]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previousSignedIn.current !== signedIn) {
       if (!pendingSettlingSelection.current) selectionVersion.current = 0;
       previousSignedIn.current = signedIn;
     }
   }, [signedIn]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (savedAccountPreference && selectionVersion.current === 0) {
       const presented = presentedRegionId(savedAccountPreference, offer);
       setRegionId(presented);
@@ -167,23 +167,14 @@ export function useHomeRegion({
     }
   }, [accountIdentity, offer, savedAccountPreference]);
 
-  useEffect(() => {
-    if (savedAccountPreference || accountPreferencePending) return;
+  useLayoutEffect(() => {
+    if (savedAccountPreference || accountPreferencePending || selectionVersion.current !== 0 || pendingSettlingSelection.current) return;
     const browser = readAnonymousCountryPreference(() => window.localStorage);
     const resolved = resolvePresentation({ persistedCountry: browser.country, detectedCountry, offer });
-    const version = selectionVersion.current;
-    let cancelled = false;
-    const hydrationFrame = window.requestAnimationFrame(() => {
-      if (cancelled || version !== selectionVersion.current || version !== 0 || pendingSettlingSelection.current) return;
-      setRegionId(resolved.region.id);
-      setResolutionSource(resolved.source);
-      setBrowserPreference(browser.explicit && resolved.source === "persisted" ? normalizeCountryCode(resolved.region.id) : null);
-      setReadiness({ identity: accountIdentity, ready: true });
-    });
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(hydrationFrame);
-    };
+    setRegionId(resolved.region.id);
+    setResolutionSource(resolved.source);
+    setBrowserPreference(browser.explicit && resolved.source === "persisted" ? normalizeCountryCode(resolved.region.id) : null);
+    setReadiness({ identity: accountIdentity, ready: true });
   }, [accountIdentity, accountPreferencePending, detectedCountry, offer, savedAccountPreference]);
 
   useEffect(() => {

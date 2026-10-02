@@ -127,14 +127,17 @@ export function useBorrowOfferRate({
 }: {
   enabled: boolean;
   regionId?: RegionId;
-}): string | null {
+}): { pending: boolean; value: string | null; updatedAt: number } {
   const account = useAccountWallet();
   const session = account.status === "verified" ? account.session : null;
   const overview = useBorrowOverview(enabled ? session : null, account.fetchAccountResource);
   const leading = overview.data ? leadingBorrowOffer(overview.data.opportunities) : null;
   const snapshot = leading?.availability.status === "available" ? leading.availability.snapshot : null;
-  if (!enabled || !snapshot) return null;
-  return `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR`;
+  return {
+    pending: enabled && overview.isPending,
+    updatedAt: enabled && snapshot ? overview.dataUpdatedAt : Math.max(overview.dataUpdatedAt, overview.errorUpdatedAt),
+    value: enabled && snapshot ? `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR` : null,
+  };
 }
 
 export function BorrowExperience(props: BorrowExperienceProps) {
