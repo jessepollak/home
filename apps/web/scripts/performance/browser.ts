@@ -6,7 +6,7 @@ import { cpuThrottle, type GateId } from "./config";
 import { installPerformanceFixtures } from "./fixtures";
 
 export type CpuRate = { requested: number; applied: number };
-export type Session = { page: Page; context: BrowserContext; cdp: CDPSession; cpu: CpuRate };
+export type Session = { page: Page; context: BrowserContext; cdp: CDPSession; cpu: CpuRate; fixtures?: Awaited<ReturnType<typeof installApiFixtures>> };
 
 export async function setCpuRate(session: Session, rate: number) {
   if (!Number.isFinite(rate) || rate < 1) throw new Error(`Invalid CPU throttle rate ${rate}`);
@@ -14,7 +14,7 @@ export async function setCpuRate(session: Session, rate: number) {
   session.cpu.applied = rate;
 }
 
-export async function openSession(browser: Browser, seed: GateId | null, cpuRate = cpuThrottle): Promise<Session> {
+export async function openSession(browser: Browser, seed: GateId | null, cpuRate = cpuThrottle, options?: { seedBalancesPaintRatio?: number }): Promise<Session> {
   if (!Number.isFinite(cpuRate) || cpuRate < 1) throw new Error(`Invalid CPU throttle rate ${cpuRate}`);
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   try {
@@ -25,9 +25,9 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
     await setCpuRate(session, cpuRate);
     await seedSignedInSession(page);
     // The harness measures the real page clock; navigation and modal gates install their own Playwright clock.
-    await installApiFixtures(page, { clock: "system" });
+    session.fixtures = await installApiFixtures(page, { clock: "system" });
     await installPerformanceFixtures(page);
-    await page.addInitScript((gate) => {
+    await page.addInitScript(({ gate, seedBalancesPaintRatio }) => {
       const w = window as typeof window & { __perfHistory?: number; __perfLeakCycle?: () => void; __perfLeaks?: Element[] };
       w.__perfHistory = 0;
       for (const name of ["pushState", "replaceState"] as const) {
@@ -38,6 +38,26 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
           if (gate === "warm-requests" && window.location.pathname !== "/home") void fetch("/api/perf-seed");
           return result;
         }) as History[typeof name];
+      }
+      if (gate === "balances-painted" && seedBalancesPaintRatio !== undefined) {
+        const original = performance.mark.bind(performance);
+        let requested = false;
+        let recorded: PerformanceMark | undefined;
+        performance.mark = (name, options) => {
+          if (name !== "balances:painted") return original(name, options);
+          if (!requested) {
+            requested = true;
+            const deadline = performance.now() + 15_000;
+            const record = () => {
+              const shellStart = performance.getEntriesByName("shell:paint", "mark")[0]?.startTime;
+              if (shellStart !== undefined) recorded = original(name, { ...options, startTime: 2 * seedBalancesPaintRatio * shellStart });
+              else if (performance.now() < deadline) setTimeout(record, 20);
+            };
+            record();
+          }
+          // Construction preserves the return type without recording an unscaled entry.
+          return recorded ?? new PerformanceMark(name, options);
+        };
       }
       if (gate === "history-writes") document.addEventListener("scroll", () => {
         for (let i = 0; i < 6; i++) history.replaceState(history.state, "", location.href);
@@ -79,7 +99,7 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
         });
         observer.observe(document, { subtree: true, childList: true });
       }
-    }, seed);
+    }, { gate: seed, seedBalancesPaintRatio: options?.seedBalancesPaintRatio });
     if (seed === "initial-js") {
       const noise = Array.from({ length: 75_000 }, (_, i) => {
         const value = (i * 2654435761 ^ (i * i * 1597334677)) >>> 0;
@@ -98,8 +118,8 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
   } catch (error) { await context.close(); throw error; }
 }
 
-export async function withSession<T>(browser: Browser, seed: GateId | null, run: (session: Session) => Promise<T>, trace?: { dir: string; name: string }, cpuRate = cpuThrottle): Promise<T> {
-  const session = await openSession(browser, seed, cpuRate);
+export async function withSession<T>(browser: Browser, seed: GateId | null, run: (session: Session) => Promise<T>, trace?: { dir: string; name: string }, cpuRate = cpuThrottle, options?: { seedBalancesPaintRatio?: number }): Promise<T> {
+  const session = await openSession(browser, seed, cpuRate, options);
   try {
     if (trace) {
       await mkdir(trace.dir, { recursive: true });
