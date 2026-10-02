@@ -5,7 +5,10 @@ import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owne
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
+import { borrowOverviewBody, savingsVaultsBody } from "./fixtures/bodies";
 import { expectNavigation } from "./fixtures/navigation-budget";
+
+declare global { interface Window { cachedMoneyTexts?: string[][] } }
 
 // The hosted-runner tier also covers an idle laptop. A loaded shared machine stretches both marks
 // together, so the persisted paint may take twice the machine's own shell paint, never less than the tier.
@@ -289,5 +292,87 @@ test("cached Home balances paint before delayed verification and revalidation, t
   } finally {
     fixtures.releaseSession();
     fixtures.releaseBalances();
+  }
+});
+
+test("summary-only reload retains rate subtitles without pulsing placeholders", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  const fixtures = await installApiFixtures(page);
+  let releaseRates: (() => void) | undefined;
+  let ratesHeld = false;
+  const delayedRates = new Promise<void>((resolve) => { releaseRates = resolve; });
+  const ratesBody = savingsVaultsBody(new Date(FIXED_NOW).toISOString(), new Date(FIXED_NOW).toISOString());
+  await page.route("**/api/savings/vaults", async (route) => {
+    if (ratesHeld) await delayedRates;
+    await route.fulfill({ json: ratesBody });
+  });
+  await page.route("**/api/borrow", async (route) => {
+    if (ratesHeld) await delayedRates;
+    await route.fulfill({ json: borrowOverviewBody() });
+  });
+  await page.goto("/home");
+  const money = page.getByRole("region", { name: "Your money", exact: true });
+  await expect(money).toContainText("APY");
+  await expect(money).toContainText("APR");
+  await waitForSettledPersistedBalances(page);
+  await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some((key) => {
+    if (!key.includes(":home-summary:US")) return false;
+    const value = localStorage.getItem(key);
+    if (!value) return false;
+    const record: { rates?: { cash?: { value?: string }; borrow?: { value?: string } } } = JSON.parse(value);
+    const rates = record.rates;
+    return Boolean(rates?.cash?.value && rates?.borrow?.value);
+  }))).toBe(true);
+  const settled = await visibleBalanceRowLayout(page);
+  const value = await readIndexedOwnerCache(page);
+  if (!value) throw new Error("Owner cache missing");
+  const envelope = JSON.parse(await decodeOwnerCache(value));
+  envelope.clientState.queries = [];
+  await replaceIndexedOwnerCache(page, value, JSON.stringify(envelope));
+  await page.addInitScript((expected) => {
+    window.cachedMoneyTexts = [];
+    let revealed = false;
+    new MutationObserver(() => {
+      const region = document.querySelector('[aria-label="Your money"], [aria-labelledby="your-money-heading"]');
+      const rows = region?.querySelectorAll('[data-kind="balance"]');
+      if (rows?.length !== expected.length) {
+        if (revealed) window.cachedMoneyTexts?.push([]);
+        return;
+      }
+      revealed = true;
+      const texts = Array.from(rows).map((row) => row.textContent?.replace(/\s+/g, " ").trim() ?? "");
+      window.cachedMoneyTexts?.push(texts);
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  }, settled.map((row) => row.text));
+  ratesHeld = true;
+  const sessionObserved = fixtures.delayNextSession();
+  const balancesObserved = fixtures.delayNextBalances();
+  try {
+    await page.reload();
+    await sessionObserved;
+    await expect(page.getByLabel("Total balance")).toContainText("$91.55");
+    expect(await visibleBalanceRowLayout(page)).toEqual(settled);
+    const activity = page.getByRole("region", { name: "Activity", exact: true });
+    await expect(activity).toHaveAttribute("aria-busy", "true");
+    await expect(activity.locator('[data-shimmer]')).toHaveCount(0);
+    await expect(money.locator('[data-shimmer]')).toHaveCount(0);
+    fixtures.releaseSession();
+    await balancesObserved;
+    expect(await visibleBalanceRowLayout(page)).toEqual(settled);
+    fixtures.releaseBalances();
+    await expect(page.getByLabel("Total balance")).not.toHaveAttribute("aria-busy", "true");
+    expect(await visibleBalanceRowLayout(page)).toEqual(settled);
+    releaseRates?.();
+    await expect(activity.getByRole("button", { name: /^Received / }).first()).toBeVisible();
+    expect(await visibleBalanceRowLayout(page)).toEqual(settled);
+    const observed = await page.evaluate(() => window.cachedMoneyTexts ?? []);
+    expect(observed.length).toBeGreaterThan(0);
+    for (const texts of observed) expect(texts).toEqual(settled.map((row) => row.text));
+    await page.screenshot({ path: test.info().outputPath("cached-home.png") });
+  } finally {
+    fixtures.releaseSession();
+    fixtures.releaseBalances();
+    releaseRates?.();
   }
 });

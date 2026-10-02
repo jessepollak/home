@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { presentHomeBalances } from "@/shared/balances/present";
-import { homeSummaryStorageKey, readHomeSummary, writeHomeSummary } from "./home-summary-cache";
+import { homeSummaryStorageKey, readHomeSummary, writeHomeSummary, readHomeRateLabels, writeHomeRateLabels } from "./home-summary-cache";
 import { ownerQueryCacheTtlMs } from "./query-client";
 
 const NOW = Date.parse("2026-10-01T08:00:00.000Z");
@@ -44,4 +44,40 @@ describe("Home summary cache", () => {
     expect(writeHomeSummary({ setItem: () => { throw new Error("denied"); } }, "a", "US", NOW, ready)).toBe(false);
     expect(readHomeSummary({ getItem: () => { throw new Error("denied"); } }, "a", "US")).toBeNull();
   });
+});
+
+test("rate labels share the bounded summary and keep their observation age through balance updates", () => {
+  const cache = storage();
+  expect(writeHomeRateLabels(cache, "a", "US", { cash: { value: "4.41% APY", updatedAt: NOW } })).toBe(false);
+  writeHomeSummary(cache, "a", "US", NOW - 1_000, ready);
+  const rates = { cash: { value: "4.41% APY", updatedAt: NOW - 1_000 }, borrow: { value: "4.81% APR", updatedAt: NOW - 2_000 } };
+  expect(writeHomeRateLabels(cache, "a", "US", rates)).toBe(true);
+  expect(readHomeSummary(cache, "a", "US")?.cachedAt).toBe(NOW - 1_000);
+  writeHomeSummary(cache, "a", "US", NOW, ready);
+  expect(readHomeRateLabels(cache, "a", "US")).toEqual(rates);
+  expect(readHomeRateLabels(cache, "b", "US")).toEqual({});
+  expect(readHomeRateLabels(cache, "a", "GB")).toEqual({});
+  expect(readHomeRateLabels(cache, "a", "US", NOW + 5 * 60_000)).toEqual({});
+  expect(cache.getItem(homeSummaryStorageKey("a", "US"))?.length).toBeLessThan(2_048);
+});
+
+test("rate nulls clear prior offers and future, malformed or denied records are ignored", () => {
+  const cache = storage();
+  writeHomeSummary(cache, "a", "US", NOW, ready);
+  expect(writeHomeRateLabels(cache, "a", "US", { cash: { value: null, updatedAt: NOW }, borrow: { value: "9% APR", updatedAt: NOW + 1 } })).toBe(true);
+  expect(readHomeRateLabels(cache, "a", "US")).toEqual({ cash: { value: null, updatedAt: NOW } });
+  expect(readHomeRateLabels({ getItem: () => { throw new Error("denied"); } }, "a", "US")).toEqual({});
+  expect(writeHomeRateLabels({ getItem: cache.getItem, setItem: () => { throw new Error("denied"); } }, "a", "US", {})).toBe(false);
+  expect(writeHomeRateLabels(cache, "a", "US", { cash: { value: "x".repeat(161), updatedAt: NOW } })).toBe(false);
+});
+
+test("a slower writer cannot roll back a newer rate from another tab", () => {
+  const cache = storage();
+  writeHomeSummary(cache, "a", "US", NOW, ready);
+  writeHomeRateLabels(cache, "a", "US", { cash: { value: "4.41% APY", updatedAt: NOW - 2_000 }, borrow: { value: "4.81% APR", updatedAt: NOW - 2_000 } });
+  writeHomeRateLabels(cache, "a", "US", { borrow: { value: "4.90% APR", updatedAt: NOW - 1_000 } });
+  writeHomeRateLabels(cache, "a", "US", { cash: { value: "4.45% APY", updatedAt: NOW }, borrow: { value: "4.81% APR", updatedAt: NOW - 2_000 } });
+  expect(readHomeRateLabels(cache, "a", "US")).toEqual({ cash: { value: "4.45% APY", updatedAt: NOW }, borrow: { value: "4.90% APR", updatedAt: NOW - 1_000 } });
+  writeHomeRateLabels(cache, "a", "US", { borrow: { value: null, updatedAt: NOW } });
+  expect(readHomeRateLabels(cache, "a", "US").borrow?.value).toBeNull();
 });
