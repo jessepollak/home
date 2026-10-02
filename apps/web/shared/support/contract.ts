@@ -1,3 +1,5 @@
+import { parseAddress } from "@/shared/chain/hex";
+
 export const SUPPORT_CONTRACT_VERSION = 2 as const;
 
 export type SupportAuthorType = "customer" | "operator" | "assistant";
@@ -41,7 +43,7 @@ function keys(value: Record<string, unknown>, required: string[], optional: stri
 }
 function uuid(value: unknown): value is string { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value); }
 function timestamp(value: unknown): value is string { return typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) && !Number.isNaN(Date.parse(value)); }
-function address(value: unknown): value is `0x${string}` { return typeof value === "string" && /^0x[0-9a-f]{40}$/.test(value); }
+function address(value: unknown): value is `0x${string}` { return typeof value === "string" && parseAddress(value) === value; }
 function count(value: unknown): value is number { return Number.isSafeInteger(value) && (value as number) >= 0; }
 function status(value: unknown): value is "open" | "resolved" { return value === "open" || value === "resolved"; }
 function handler(value: unknown): value is SupportHandler { return value === "assistant" || value === "operator"; }
