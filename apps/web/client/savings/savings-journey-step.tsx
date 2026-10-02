@@ -42,7 +42,7 @@ import {
 } from "@/shared/formatting";
 import { readSavingsPreparedReview, type SavingsPreparedReview } from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
-import { verifiedCashCurrency } from "@/config/portfolio-assets";
+import { cashCurrencyForContract } from "@/shared/currencies/registry";
 import { StatusMessage } from "./savings-status-message";
 import { useSavingsDialogFixture } from "./savings-dialog-fixture";
 import type { SavingsActionMode, SavingsJourneyEntry } from "./savings-actions";
@@ -140,7 +140,7 @@ export function SavingsJourneyStep({
   const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
   const overAvailable = assetRouteConfigured && amountExceedsAvailable;
   const canContinue = assetRouteConfigured && isPositiveDecimalAmount(amount) && !amountExceedsAvailable;
-  const unit = useMoneyAmountUnit(assetRouteConfigured && activeCandidate ? verifiedCashCurrency(activeCandidate.asset.address) : null);
+  const unit = useMoneyAmountUnit(assetRouteConfigured && activeCandidate ? cashCurrencyForContract(activeCandidate.asset.address) : null);
   const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsJourneyOwnerKey(session) : null, fetchAccountResource, open && mode !== null);
   const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
   useMoneyModalPending(step === "pending" || preparing);
@@ -371,7 +371,7 @@ export function SavingsJourneyStep({
             ) : null}
             {assetRouteConfigured && nothingAvailable ? (
               <StatusMessage>
-                {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
+                {mode === "withdraw" ? "Nothing available to withdraw right now." : `No ${assetLabel} available to deposit.`}
               </StatusMessage>
             ) : null}
             {!assetRouteConfigured ? (

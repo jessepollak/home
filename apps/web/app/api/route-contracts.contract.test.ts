@@ -12,8 +12,6 @@ const acceptedGaps = {
     "actions/route.ts": ["shared/actions/contracts/list.ts"],
     "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
     "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-    "funding/orders/[id]/route.ts": ["shared/funding/contracts/order.ts"],
-    "funding/orders/route.ts": ["shared/funding/contracts/order.ts"],
     "session/route.ts": ["shared/account/contracts/session.ts"],
   },
   unversionedContracts: new Set([
@@ -82,6 +80,136 @@ test("accepts only frozen baseline identities", () => {
   verifyFrozenGaps(manifest.baseline);
 });
 
+test("method allowances are frozen to the reviewed compatibility responses", () => {
+  const routes: Parameters<typeof inventoryRouteContracts>[0]["manifest"]["routes"] = manifest.routes;
+  expect(Object.fromEntries(Object.entries(routes).flatMap(([path, entry]) =>
+    Object.entries(entry.methods ?? {}).flatMap(([method, classification]) =>
+      classification.allowance ? [[`${path} ${method}`, classification.allowance.kind]] : [])))).toEqual({
+    "funding/orders/[id]/route.ts GET": "unversioned-compatibility",
+    "funding/orders/route.ts POST": "unversioned-compatibility",
+  });
+});
+
+test("a versioned GET parser cannot cover an unversioned POST without an allowance", () => {
+  const modified: Parameters<typeof inventoryRouteContracts>[0]["manifest"] = structuredClone(manifest);
+  modified.routes["funding/orders/route.ts"].methods = {
+    GET: { contracts: ["shared/funding/contracts/open-order.ts"] },
+    POST: { contracts: ["shared/funding/contracts/order.ts"] },
+  };
+  const root = join(import.meta.dir, "../..");
+  expect(inventoryRouteContracts({ root, manifest: modified })).toContainEqual({
+    code: "method-unversioned",
+    path: "funding/orders/route.ts",
+    detail: expect.stringContaining("POST"),
+  });
+  expect(inventoryRouteContracts({ root, manifest })).toEqual([]);
+}, 30_000);
+
+test("a multi-method route must classify its exported methods", () => {
+  const modified: Parameters<typeof inventoryRouteContracts>[0]["manifest"] = structuredClone(manifest);
+  delete modified.routes["funding/orders/route.ts"].methods;
+  expect(inventoryRouteContracts({ root: join(import.meta.dir, "../.."), manifest: modified })).toContainEqual({
+    code: "method-unclassified",
+    path: "funding/orders/route.ts",
+    detail: expect.any(String),
+  });
+}, 30_000);
+
+type Manifest = Parameters<typeof inventoryRouteContracts>[0]["manifest"];
+
+function fixtureMethods(modified: Manifest) {
+  const methods = modified.routes["funding/orders/route.ts"].methods;
+  if (!methods) throw new Error("Fixture funding order methods are missing");
+  return methods;
+}
+
+function fixturePost(modified: Manifest) {
+  const post = fixtureMethods(modified).POST;
+  if (!post) throw new Error("Fixture funding order POST is missing");
+  return post;
+}
+
+function fixtureAllowance(modified: Manifest) {
+  const allowance = fixturePost(modified).allowance;
+  if (!allowance) throw new Error("Fixture funding order POST allowance is missing");
+  return allowance;
+}
+
+function invalidMethodMap(methods: unknown) {
+  return methods as NonNullable<Manifest["routes"][string]["methods"]>;
+}
+
+const invalidMethodClassifications: { name: string; code: string; path: string; mutate: (modified: Manifest) => void }[] = [
+  {
+    name: "an exported method missing from the map",
+    code: "method-unclassified",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { delete fixtureMethods(modified).POST; },
+  },
+  {
+    name: "a method the route does not export",
+    code: "method-unknown",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { fixtureMethods(modified).OPTIONS = { contracts: ["shared/funding/contracts/open-order.ts"] }; },
+  },
+  {
+    name: "a contract outside the route declaration",
+    code: "method-contract-undeclared",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { fixturePost(modified).contracts = ["shared/funding/contracts/quotes.ts"]; },
+  },
+  {
+    name: "a declared contract with no method binding",
+    code: "method-contract-unbound",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { fixturePost(modified).contracts = ["shared/funding/contracts/open-order.ts"]; },
+  },
+  {
+    name: "an unrecognized allowance kind",
+    code: "method-allowance-invalid",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { fixtureAllowance(modified).kind = "unreviewed"; },
+  },
+  {
+    name: "an allowance without a specific reason",
+    code: "method-allowance-invalid",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { fixtureAllowance(modified).reason = "Compatibility"; },
+  },
+  {
+    name: "a non-object method map",
+    code: "method-map-invalid",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { modified.routes["funding/orders/route.ts"].methods = invalidMethodMap(null); },
+  },
+  {
+    name: "an array method map",
+    code: "method-map-invalid",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { modified.routes["funding/orders/route.ts"].methods = invalidMethodMap([]); },
+  },
+  {
+    name: "a method map on an exempt route",
+    code: "method-map-invalid",
+    path: "auth/base/logout/route.ts",
+    mutate: (modified) => { modified.routes["auth/base/logout/route.ts"].methods = { POST: {} }; },
+  },
+  {
+    name: "a route-level tolerance replaced by method classification",
+    code: "baseline-stale",
+    path: "funding/orders/route.ts",
+    mutate: (modified) => { modified.baseline.routesWithoutVersionedParser["funding/orders/route.ts"] = ["shared/funding/contracts/order.ts"]; },
+  },
+];
+
+test.each(invalidMethodClassifications)("rejects $name", ({ code, path, mutate }) => {
+  const modified: Manifest = structuredClone(manifest);
+  mutate(modified);
+  expect(inventoryRouteContracts({ root: join(import.meta.dir, "../.."), manifest: modified })).toContainEqual({
+    code, path, detail: expect.any(String),
+  });
+}, 30_000);
+
 test("retired baseline identities cannot be reinstated without editing the frozen set", () => {
   expect(() => verifyFrozenGaps({ ...manifest.baseline, clientUnlinked: {} })).toThrow();
   expect(() => verifyFrozenGaps({ ...manifest.baseline, routesWithoutVersionedParser: {} })).toThrow();
@@ -89,7 +217,8 @@ test("retired baseline identities cannot be reinstated without editing the froze
 });
 
 test("client reasons are frozen to the reviewed routes", () => {
-  expect(Object.entries(manifest.routes as Record<string, { client?: string }>)
+  const routes: Manifest["routes"] = manifest.routes;
+  expect(Object.entries(routes)
     .filter(([, entry]) => typeof entry.client === "string")
     .map(([path]) => path)).toEqual(clientReasonRoutes);
 });

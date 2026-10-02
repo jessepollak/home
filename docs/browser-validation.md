@@ -20,13 +20,13 @@ For performance acceptance on phones, use [device performance profiling](device-
 ## Pinned browser and sessions
 
 ```sh
-bun install --frozen-lockfile
+bun run worktree:bootstrap
 bun run ab -- --version # agent-browser 0.38.1
 bun run ab -- skills get core
 bun run ab -- doctor --quick --json
 ```
 
-Use only `bun run ab --` from the repository root, never `bunx agent-browser`: the wrapper checks the local binary against root `package.json`, fails with `bun install --frozen-lockfile` if it is absent or mismatched, and never downloads a stale CLI, while `bunx` resolves whatever the registry or a stale cache offers — a published `agent-browser` 0.21.4 without `skills` or `doctor` is one observed result.
+Use only `bun run ab --` from the repository root, never `bunx agent-browser`: the wrapper checks the local binary against root `package.json`, fails with `bun run worktree:bootstrap` if it is absent or not executable, fails with `rm -rf node_modules/agent-browser && bun install --frozen-lockfile` if its version is stale, and never downloads a stale CLI, while `bunx` resolves whatever the registry or a stale cache offers — a published `agent-browser` 0.21.4 without `skills` or `doctor` is one observed result.
 
 Install is optional: `bun run ab -- doctor --quick --json` reports `chrome.installed` when it finds a system Google Chrome, and that is enough to run. Run `bun run ab -- install` only when `doctor` reports no Chrome, then repeat `doctor`.
 

@@ -1,4 +1,4 @@
-import { frameProblem, feedChangeMarker, feedComplete, round, settledPages, unsettledMarker, detailPosition, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
+import { frameProblem, feedComplete, round, settledPages, waitForQuietFeed, detailPosition, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
 import { activityList, activityPartialSources, activityReadinessMarkers, activityRecentRows, activityRowCount, activitySurfaces, activityUnsettledSources, mergePartialSources, visible } from "./activity-rows";
 
 const raf = () => new Promise<number>((done, reject) => {
@@ -24,12 +24,14 @@ function badge(text: string) {
   document.title = text;
 }
 function main() { const el = document.querySelector<HTMLElement>("main[data-app-main-authenticated]"); if (!el) throw new Error("Missing authenticated main"); return el; }
+const scroller = () => document.scrollingElement ?? document.documentElement;
 function blankGap() {
   const root = main();
   const list = activitySurfaces(root).flatMap((surface) => [...surface.querySelectorAll<HTMLElement>("ul")]).filter(visible).at(-1);
   if (!list) return 0;
-  const viewport = root.getBoundingClientRect(), bounds = list.getBoundingClientRect();
-  const top = Math.max(viewport.top, bounds.top), bottom = Math.min(viewport.bottom, bounds.bottom);
+  const frame = root.getBoundingClientRect();
+  const bounds = list.getBoundingClientRect();
+  const top = Math.max(0, frame.top, bounds.top), bottom = Math.min(window.innerHeight, frame.bottom, bounds.bottom);
   if (bottom <= top) return 0;
   let covered = top, blank = 0;
   const rects = [...list.querySelectorAll("li")].map((row) => row.getBoundingClientRect()).filter((rect) => rect.bottom > top && rect.top < bottom).sort((a, b) => a.top - b.top);
@@ -96,7 +98,7 @@ async function fill() {
     const pending = activityUnsettledSources(root);
     const end = [...document.querySelectorAll<HTMLElement>('[role="status"]')].some((el) => visible(el) && el.textContent?.includes("End of activity"));
     if (!end) {
-      root.scrollTop = root.scrollHeight;
+      scroller().scrollTop = scroller().scrollHeight;
       const rendered = activitySurfaces(root).reduce((count, surface) => count + surface.querySelectorAll("li").length, 0);
       settled = settledPages(rendered, listed, settled); listed = rendered;
     }
@@ -107,25 +109,27 @@ async function fill() {
   });
   const rowsLoaded = activityRowCount(root), detailRows = activityRecentRows(root), partialSource = activityPartialSources(root);
   partialSource.push(...activityReadinessMarkers(root));
-  root.scrollTop = 0;
+  scroller().scrollTop = 0;
   await twoFrames();
   return { rowsLoaded, detailRows, partialSource };
 }
 async function sourcePartials(filled: { rowsLoaded: number; partialSource: string[] }, pending: string[]) {
-  await twoFrames();
-  const changed = feedChangeMarker(filled.rowsLoaded, activityRowCount(main()));
-  const settling = unsettledMarker(pending);
-  return mergePartialSources(filled.partialSource, [...activityPartialSources(main()), ...activityReadinessMarkers(main()), ...changed ? [changed] : [], ...settling ? [settling] : []]);
+  const observed = await waitForQuietFeed({
+    rows: filled.rowsLoaded,
+    pending,
+    frame: raf,
+    sample: () => ({ rows: activityRowCount(main()), pending: activityUnsettledSources(main()), markers: activityReadinessMarkers(main()) }),
+  });
+  return mergePartialSources(filled.partialSource, [...activityPartialSources(main()), ...observed]);
 }
 async function fling() {
-  const root = main();
-  for (const destination of [root.scrollHeight - root.clientHeight, 0]) {
-    const start = root.scrollTop, at = performance.now();
+  for (const destination of [scroller().scrollHeight - scroller().clientHeight, 0]) {
+    const start = scroller().scrollTop, at = performance.now();
     while (true) {
       const t = await raf();
-      root.scrollTop = start + Math.sign(destination - start) * Math.min(Math.abs(destination - start), (t - at) * 4);
-      const edge = destination > start ? Math.max(0, root.scrollHeight - root.clientHeight) : 0;
-      if (Math.abs(root.scrollTop - destination) <= 5 || Math.abs(root.scrollTop - edge) <= 5) break;
+      scroller().scrollTop = start + Math.sign(destination - start) * Math.min(Math.abs(destination - start), (t - at) * 4);
+      const edge = destination > start ? Math.max(0, scroller().scrollHeight - scroller().clientHeight) : 0;
+      if (Math.abs(scroller().scrollTop - destination) <= 5 || Math.abs(scroller().scrollTop - edge) <= 5) break;
       if (t - at > 30000) throw new Error("Scroll did not reach destination");
     }
   }
@@ -166,12 +170,12 @@ async function detail(feedback: number[], rows: number) {
   const root = main(), position = detailPosition(rows);
   const list = activityList(root);
   if (!list) throw new Error("Missing activity detail list control");
-  root.scrollTop += list.getBoundingClientRect().top - root.getBoundingClientRect().top + list.scrollHeight * position / rows - root.clientHeight / 2;
+  scroller().scrollTop = window.scrollY + list.getBoundingClientRect().top + list.scrollHeight * position / rows - window.innerHeight / 2;
   await until(() => {
     const item = list?.querySelector<HTMLElement>(`li[aria-posinset="${position}"]`);
     if (visible(item ?? null)) return true;
     const nearest = [...(list?.querySelectorAll<HTMLElement>('li[aria-posinset]') ?? [])].reduce((best, item) => Math.abs(Number(item.getAttribute("aria-posinset")) - position) < Math.abs(best - position) ? Number(item.getAttribute("aria-posinset")) : best, 0);
-    root.scrollTop += (position - nearest) * 76;
+    window.scrollBy(0, (position - nearest) * 76);
     return false;
   }, 15);
   for (let i = 0; i < 3; i++) {
@@ -227,12 +231,11 @@ async function probe(period: number) {
   const phases: Run["replaceState"] = [], traces: Run[] = [];
   const filled = await fill();
   for (const extra of [false, true]) {
-    const root = main();
     const wrapped = wrapReplace();
     const listener = () => { try { history.replaceState(history.state, ""); } catch {} };
-    if (extra) root.addEventListener("scroll", listener);
+    if (extra) window.addEventListener("scroll", listener);
     try { traces.push(await measure(fling, period, true)); }
-    finally { try { if (extra) root.removeEventListener("scroll", listener); } finally { phases.push(wrapped.finish()); } }
+    finally { try { if (extra) window.removeEventListener("scroll", listener); } finally { phases.push(wrapped.finish()); } }
   }
   const pending = activityUnsettledSources(main());
   const wrapped = wrapReplace();

@@ -14,7 +14,9 @@ import { loadSourceFiles } from "../source-files.mjs";
 // Platform/runtime-injected (never operator configuration).
 const PLATFORM_ALLOWLIST = [
   "CI",
+  "GITHUB_ACTIONS", // GitHub Actions-injected flag for CI-only reporter annotations
   "GITHUB_SHA", // GitHub Actions-injected commit SHA for the performance trend
+  "GITHUB_WORKSPACE", // GitHub Actions-injected repository root for annotation file paths
   "LOCALAPPDATA", // Windows user-profile path used by playwright.config.ts
   "NEXT_DEPLOYMENT_ID",
   "NEXT_RUNTIME",
@@ -42,6 +44,7 @@ const TEST_ONLY_ALLOWLIST = [
   "HOME_STORY_TEST_EXPLORATIONS",
   "MORPHO_LIVE_SMOKE",
   "PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH",
+  "SMOKE_POLICY_REJECT_RETRY_ONLY_PASS", // test-only toggle selecting the strict flake policy in the policy fixture
 ];
 
 test("scanner finds direct dot and literal-bracket process.env reads", () => {

@@ -47,6 +47,11 @@ const balanceOwnerKey = dataOwnerKey({
 });
 const validEligibility = { version: 1, buy: "eligible", sell: "eligible" } as const;
 const restrictedEligibility = { version: 1, buy: "restricted", sell: "eligible" } as const;
+const restoredOnrampBinding = {
+  providerId: "coinbase", displayName: "Coinbase", region: "AR", assetId: "base:usdc",
+  assetSymbol: "USDC", assetDecimals: 6, currency: "USD", direction: "onramp" as const,
+  paymentMethods: [{ id: "bank-transfer", label: "Bank transfer" }], quotes: true, customerSetup: null,
+};
 
 describe("owner query cache boundary", () => {
   test("maps restore provenance without retaining the owner key", () => {
@@ -336,7 +341,7 @@ describe("owner query cache boundary", () => {
       orderReads += 1;
       return { version: 1, owner: { subject: session.user.subject, accountProvider: session.accountProvider }, orders: [] };
     } });
-    expect(await source.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
+    expect(await source.fetchQuery(actions)).toEqual({ operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
     expect(await source.fetchQuery(orders)).toEqual([]);
     expect(actionReads).toBe(1);
     expect(orderReads).toBe(1);
@@ -353,10 +358,31 @@ describe("owner query cache boundary", () => {
     expect(restoreOwnerQueries(reloaded, storage, ownerKey)).toBe(false);
     expect(reloaded.getQueryData(actions.queryKey)).toBeUndefined();
     expect(reloaded.getQueryData(orders.queryKey)).toBeUndefined();
-    expect(await reloaded.fetchQuery(actions)).toEqual({ operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
+    expect(await reloaded.fetchQuery(actions)).toEqual({ operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
     expect(await reloaded.fetchQuery(orders)).toEqual([]);
     expect(actionReads).toBe(2);
     expect(orderReads).toBe(2);
+  });
+
+  test("rejects the previous cache buster and restores the current shape", () => {
+    const owner = balanceOwnerKey;
+    const storage = memoryStorage();
+    const client = createHomeQueryClient();
+    const key = ownerQueryKey(owner, "funding-providers", "AR", "onramp");
+    client.setQueryDefaults(key, { meta: ownerQueryMeta(owner) });
+    client.setQueryData(key, [restoredOnrampBinding]);
+    const state = dehydrateOwnerQueries(client, owner);
+    const persister = createOwnerQueryPersister(storage, owner);
+    if (!persister) throw new Error("the owner query persister is unavailable");
+    persister.persistClient({ timestamp: NOW, buster: "home-query-v3", clientState: state });
+    void persister.flush();
+    expect(restoreOwnerQueries(createHomeQueryClient(), storage, owner)).toBe(false);
+    expect(storage.getItem(`${ownerQueryCachePrefix}${encodeURIComponent(owner)}`)).toBeNull();
+    persister.persistClient({ timestamp: NOW, buster: "home-query-v4", clientState: state });
+    void persister.flush();
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, owner)).toBe(true);
+    expect(restored.getQueryData<readonly unknown[]>(key)).toEqual([restoredOnrampBinding]);
   });
 
   test("persister restores synchronously and dehydration rejects non-owner keys", async () => {

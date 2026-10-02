@@ -31,7 +31,7 @@ describe("recent actions recovery", () => {
       return { actions: [null, { id: "malformed-item" }] };
     } });
     const payload = await client.fetchQuery(valid);
-    expect(payload).toEqual({ operations: [], unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
+    expect(payload).toEqual({ operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false, readSequence: expect.any(Number) });
     expect(client.getQueryData<unknown>(valid.queryKey)).toEqual(payload);
     expect(receivedSignal).toBeInstanceOf(AbortSignal);
     client.clear();

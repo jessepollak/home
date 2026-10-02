@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { keepPreviousData } from "@tanstack/react-query";
 import { createBalanceReadTiming, recordPresentedBalance } from "@/client/observability/balance-performance";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { isInterruptionEligible } from "@/client/account/resource-failure";
-import { browserHomeQueryClient, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { snapshotSourceTime, type BalanceActionMarker } from "@/client/query/after-action";
+import { browserHomeQueryClient, ownerQueryKey, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { ownerQuery } from "@/client/query/query-options";
 import type { RegionId } from "@/config/regions";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
@@ -27,6 +28,7 @@ class ProvisionalBalancesFailure extends Error {
 export type RecoverableBalancesState = BalancesState & {
   revalidating?: true;
   refreshError?: true;
+  actionStale?: true;
   retry: () => Promise<void>;
   observation: {
     identity: string | null;
@@ -77,6 +79,7 @@ type BalancesOptions = { enabled?: boolean; provisional?: boolean; held?: boolea
 
 export type BalancesDataState = BalancesState & {
   refreshError?: true;
+  actionStale?: true;
   retry: () => Promise<void>;
 };
 
@@ -110,6 +113,10 @@ function useBalancesObserver(
   const stalePolling = useRef({ identity: "", dataUpdatedAt: 0, completedRefetches: 0 });
   const heldRegion = useRef<string | null>(null);
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const subscribeToMarker = useCallback((onChange: () => void) => queryClient.getQueryCache().subscribe(onChange), [queryClient]);
+  const readMarker = useCallback(() => ownerKey
+    ? queryClient.getQueryData<BalanceActionMarker>(ownerQueryKey(ownerKey, "balances-action")) : undefined, [ownerKey, queryClient]);
+  const marker = useSyncExternalStore(subscribeToMarker, readMarker, () => undefined);
   const queryOptions = ownerQuery<BalancesSnapshot>({
     owner: ownerKey,
     scope: "balances",
@@ -142,8 +149,8 @@ function useBalancesObserver(
   const query = useHomeQuery({
     ...queryOptions,
     notifyOnChangeProps: dataOnly ? () => queryClient.getQueryState(queryOptions.queryKey)?.error instanceof ProvisionalBalancesFailure
-      ? ["data", "error", "status", "isPlaceholderData", "fetchStatus"]
-      : ["data", "error", "status", "isPlaceholderData"] : undefined,
+      ? ["data", ...(marker !== undefined ? ["dataUpdatedAt" as const] : []), "error", "status", "isPlaceholderData", "fetchStatus"]
+      : ["data", ...(marker !== undefined ? ["dataUpdatedAt" as const] : []), "error", "status", "isPlaceholderData"] : undefined,
     refetchInterval: (queryState) => queryState.state.status === "error"
       ? false
       : nextStaleRefetchDelay(
@@ -164,6 +171,22 @@ function useBalancesObserver(
   const presentedSnapshot = useMemo(() => query.data && refreshError
     ? { ...query.data, stale: true as const } : query.data, [query.data, refreshError]);
   const held = options.held === true;
+  const presentedSource = presentedSnapshot ? snapshotSourceTime(presentedSnapshot) : null;
+  const actionStale = presentedSnapshot !== undefined && marker !== undefined && marker.fresh[region] !== true &&
+    (presentedSource === null || presentedSource <= marker.at || presentedSnapshot.stale === true);
+
+  useEffect(() => {
+    if (!ownerKey || marker === undefined || !query.isSuccess || query.isPlaceholderData ||
+      query.data === undefined || query.data.stale === true) return;
+    const source = snapshotSourceTime(query.data);
+    if (source === null || source <= marker.at || marker.fresh[region] === true) return;
+    const markerKey = ownerQueryKey(ownerKey, "balances-action");
+    const currentMarker = queryClient.getQueryData<BalanceActionMarker>(markerKey);
+    if (currentMarker !== undefined && currentMarker.at === marker.at && currentMarker.fresh[region] !== true) {
+      queryClient.setQueryData<BalanceActionMarker>(markerKey, (current) => current && current.at === currentMarker.at
+        ? { ...current, fresh: { ...current.fresh, [region]: true } } : current);
+    }
+  }, [ownerKey, region, marker, query.isSuccess, query.isPlaceholderData, query.data, query.dataUpdatedAt, queryClient]);
 
   useEffect(() => {
     if (held && identity) {
@@ -212,7 +235,7 @@ function useBalancesObserver(
       return { status: "unavailable", snapshot: null, error: null, retry, observation };
     }
     if (heldSnapshot) {
-      return { status: "ready", snapshot: query.data!, error: null, retry, observation, revalidating: true };
+      return { status: "ready", snapshot: query.data!, error: null, retry, observation, revalidating: true, ...(actionStale ? { actionStale: true as const } : {}) };
     }
     if (held || query.isPending || (suppressedFailure && query.data === undefined)) {
       return { status: "loading", snapshot: null, error: null, retry, observation };
@@ -224,6 +247,7 @@ function useBalancesObserver(
         error: null,
         retry,
         observation,
+        ...(actionStale ? { actionStale: true as const } : {}),
         ...(query.isFetching ? { revalidating: true as const } : {}),
         ...(query.isError && !suppressedFailure ? { refreshError: true as const } : {}),
       };
@@ -238,7 +262,7 @@ function useBalancesObserver(
       };
     }
     return { status: "loading", snapshot: null, error: null, retry, observation };
-  }, [presentedSnapshot, held, identity, options.paintCachedWhileHeld, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, query.isPlaceholderData, retry, suppressedFailure]);
+  }, [presentedSnapshot, actionStale, held, identity, options.paintCachedWhileHeld, ownerKey, query.data, query.dataUpdatedAt, query.error, query.errorUpdatedAt, query.fetchStatus, query.isError, query.isFetching, query.isPending, query.isPlaceholderData, retry, suppressedFailure]);
 }
 
 function isBalancesSession(value: BalancesQuerySession | null): value is BalancesQuerySession {

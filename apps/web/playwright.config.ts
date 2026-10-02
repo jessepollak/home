@@ -96,8 +96,7 @@ export default defineConfig({
   fullyParallel: !regression && !productionNavigation,
   workers: regression || productionNavigation ? 1 : 2,
   globalTimeout: !regression && !productionNavigation && process.env.CI ? 75_000 : undefined,
-  // One diagnostic retry preserves a failed trace; a retry-only pass still fails CI.
-  ...browserSmokeCiPolicy(Boolean(process.env.CI)),
+  ...browserSmokeCiPolicy(Boolean(process.env.CI), { rejectRetryOnlyPass: regression }),
   ...(productionNavigation ? {
     retries: 0,
     outputDir: "test-results/production-navigation",

@@ -301,10 +301,10 @@ export const WithdrawNothingSaved: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
     await expect(await screen.findByRole("dialog", { name: "Withdraw" })).toBeVisible();
-    await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
+    await expect(await screen.findByText("Nothing available to withdraw right now.")).toBeVisible();
     await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), "0.10");
     await expect(await screen.findByRole("button", { name: "Continue" })).toBeDisabled();
-    await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
+    await expect(await screen.findByText("Nothing available to withdraw right now.")).toBeVisible();
     await expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   },
 };

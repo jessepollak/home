@@ -159,7 +159,7 @@ describe("balances chain read", () => {
     });
   });
 
-  test("converts positive vault shares into a ready underlying balance", async () => {
+  test.each([[20, "20"], [100, "34"]] as const)("caps converted vault assets at maxWithdraw %s", async (limit, expected) => {
     const conversionCalls: (readonly unknown[])[] = [];
     const read = readerFor(async (method) => {
       if (method === "eth_getBlockByNumber") return block;
@@ -173,6 +173,7 @@ describe("balances chain read", () => {
             functionName: "convertToAssets",
             result: BigInt(34),
           }),
+          encodeFunctionResult({ abi: vaultAbi, functionName: "maxWithdraw", result: BigInt(limit) }),
           block,
         ];
       },
@@ -188,11 +189,23 @@ describe("balances chain read", () => {
       functionName: "convertToAssets",
       args: [BigInt(12)],
     });
+    const withdrawal = decodeFunctionData({
+      abi: vaultAbi,
+      data: (conversionCalls[0]?.[1] as { params: [{ data: Hex }] }).params[0].data,
+    });
+    expect(withdrawal.functionName).toBe("maxWithdraw");
+    expect(withdrawal.args?.[0].toString().toLowerCase()).toBe(owner);
+    expect(conversionCalls[0]).toEqual([
+      expect.objectContaining({ method: "eth_call", params: [expect.anything(), "0x10"] }),
+      expect.objectContaining({ method: "eth_call", params: [expect.anything(), "0x10"] }),
+      { method: "eth_getBlockByNumber", params: ["0x10", false] },
+    ]);
     expect(result.holdings[0]?.balance).toEqual({ status: "ready", baseUnits: "12" });
     expect(result.holdings[0]?.underlyingBalance).toEqual({
       status: "ready",
       baseUnits: "34",
     });
+    expect(result.holdings[0]?.withdrawableBalance).toEqual({ status: "ready", baseUnits: expected });
   });
 
   test("keeps vault shares ready when conversion reverts and marks underlying unavailable", async () => {
@@ -200,7 +213,7 @@ describe("balances chain read", () => {
       if (method === "eth_getBlockByNumber") return block;
       return aggregate([BigInt(12)]);
     }, {
-      batch: async () => [null, block],
+      batch: async () => [null, encodeFunctionResult({ abi: vaultAbi, functionName: "maxWithdraw", result: BigInt(20) }), block],
     });
 
     const result = await read({ entries: [vault] }, owner);
@@ -209,6 +222,32 @@ describe("balances chain read", () => {
       status: "unavailable",
       baseUnits: null,
     });
+    expect(result.holdings[0]?.withdrawableBalance).toEqual({ status: "unavailable", baseUnits: null });
+  });
+
+  test.each([null, "0x", "not-a-word"])("marks withdrawal limit unavailable for failed maxWithdraw row %s", async (row) => {
+    const read = readerFor(async (method) => {
+      if (method === "eth_getBlockByNumber") return block;
+      return aggregate([BigInt(12)]);
+    }, {
+      batch: async () => [
+        encodeFunctionResult({ abi: vaultAbi, functionName: "convertToAssets", result: BigInt(34) }),
+        row,
+        block,
+      ],
+    });
+    const result = await read({ entries: [vault] }, owner);
+    expect(result.holdings[0]?.underlyingBalance).toEqual({ status: "ready", baseUnits: "34" });
+    expect(result.holdings[0]?.withdrawableBalance).toEqual({ status: "unavailable", baseUnits: null });
+  });
+
+  test("marks withdrawal limit unavailable when vault shares are unreadable", async () => {
+    const read = readerFor(async (method) => {
+      if (method === "eth_getBlockByNumber") return block;
+      return aggregate([null]);
+    });
+    const result = await read({ entries: [vault] }, owner);
+    expect(result.holdings[0]?.withdrawableBalance).toEqual({ status: "unavailable", baseUnits: null });
   });
 
   test("returns zero underlying for zero vault shares without a conversion call", async () => {
@@ -230,6 +269,7 @@ describe("balances chain read", () => {
       status: "ready",
       baseUnits: "0",
     });
+    expect(result.holdings[0]?.withdrawableBalance).toEqual({ status: "ready", baseUnits: "0" });
   });
 
   test("re-pins the whole read after a null confirmation slot", async () => {

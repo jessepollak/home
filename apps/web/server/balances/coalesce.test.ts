@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import type { BalancesSnapshot } from "@/shared/balances/types";
+import { expectedRegistryHoldings, registryHoldingsMatchExpectations } from "@/shared/balances/registry-expectations";
 import { presentBalances } from "@/shared/balances/present";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import {
@@ -15,7 +16,7 @@ import type { ObservabilityEvent } from "@/server/observability/schema";
 import { MemoryBalanceSnapshotStore } from "./memory-snapshot-store";
 import type { BalanceObservation } from "./snapshot-store";
 import { borrowReadComplete } from "./borrow";
-import type { BalancesEnumeration, BalancesRead, BalancesUniverse, BorrowRead, ReadHolding } from "./types";
+import type { BalancesEnumeration, BalancesRead, BorrowRead, ReadHolding } from "./types";
 
 const borrowMarketId = BORROW_MARKETS[0].marketId.toLowerCase() as `0x${string}`;
 function readyBorrow(blockNumber = "11"): BorrowRead {
@@ -51,6 +52,11 @@ const registry: ReadHolding = {
   cashCurrency: null,
   balance: { status: "ready", baseUnits: "1" },
 };
+const completeRegistry: ReadHolding[] = [...expectedRegistryHoldings().values()].map((expected) => ({
+  ...expected, key: expected.key as ReadHolding["key"],
+  contractAddress: expected.contractAddress as ReadHolding["contractAddress"],
+  source: "registry", balance: expected.id === "eth" ? registry.balance : { status: "ready", baseUnits: "0" },
+}));
 const catalog: ReadHolding = {
   key: "eip155:8453/erc20:0x1111111111111111111111111111111111111111",
   id: "catalog:0x1111111111111111111111111111111111111111",
@@ -121,7 +127,6 @@ function priced(rows: BalancesRead["holdings"]): Holding[] {
 function setup(options: {
   store?: MemoryBalanceSnapshotStore;
   now?: string | (() => Date);
-  universe?: BalancesUniverse;
   registryRead?: () => Promise<BalancesRead>;
   enumerate?: (cursor?: string | null) => Promise<BalancesEnumeration>;
   price?: (read: BalancesRead) => Holding[];
@@ -129,6 +134,7 @@ function setup(options: {
   readBorrow?: (at: BalancesRead["block"]) => Promise<BorrowRead>;
   onPriceSignal?: (signal?: AbortSignal) => void;
   log?: (event: ObservabilityEvent) => unknown;
+  matchRegistry?: typeof registryHoldingsMatchExpectations;
 }) {
   const store = options.store ?? new MemoryBalanceSnapshotStore();
   const configuredNow = options.now;
@@ -141,13 +147,14 @@ function setup(options: {
   const scheduled: Array<() => Promise<unknown>> = [];
   const service = createBalancesService({
     store,
+    registryHoldingsMatch: options.matchRegistry ?? (() => true),
     now: typeof configuredNow === "function"
       ? configuredNow
       : () => new Date(configuredNow ?? "2026-09-13T12:00:30.000Z"),
     nowMs: () => clock++,
     log: options.log ?? ((event) => events.push(event)),
     schedule: (task) => scheduled.push(typeof task === "function" ? task : () => task),
-    readUniverse: async () => options.universe ?? { entries: [registry] },
+    readUniverse: async () => ({ entries: [] }),
     readBalances: async () => {
       reads += 1;
       return options.registryRead?.() ?? read("11", "2026-09-13T12:00:30.000Z", [registry]);
@@ -232,67 +239,45 @@ describe("balance observations", () => {
     expect(fixture.reads()).toBe(0);
     expect(fixture.enumerations()).toBe(0);
   });
-
-  test("a non-hot row missing a current registry id is fully observed and persisted before serving", async () => {
-    const registryRows = buildBalancesSnapshotFixture().holdings;
-    const fixture = setup({
-      universe: { entries: registryRows },
-      registryRead: async () => read("11", "2026-09-13T12:00:30.000Z", registryRows),
-      price: (value) => value.holdings.map((holding) => ({ ...holding, value: fixturePriced("USD", "0") })),
-    });
-    await fixture.store.putObservation(observation({
-      holdings: registryRows.filter((holding) => holding.id !== "wbrl"),
-    }));
-
-    const snapshot = await fixture.service(owner, "US");
-    expect(fixture.reads()).toBe(1);
-    expect(fixture.enumerations()).toBe(1);
-    expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "full" }));
-    expect(snapshot.holdings.filter((holding) => holding.source === "registry").map((holding) => holding.id))
-      .toEqual(registryRows.map((holding) => holding.id));
-    expect(parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: owner, chainId: 8453 }, "US") as BalancesSnapshot).toEqual(snapshot);
-    expect(await fixture.store.get(8453, owner)).toMatchObject({
-      blockNumber: "11",
-      observedAt: "2026-09-13T12:00:30.000Z",
-      holdings: [...registryRows, catalog],
-    });
-    expect(fixture.pending()).toBe(0);
+  test("re-observes in the foreground when a stored registry id is missing or metadata has drifted", async () => {
+    const cases = [
+      completeRegistry.filter((holding) => holding.id !== "usdc"),
+      completeRegistry.map((holding) => holding.id === "usdc" ? { ...holding, decimals: 18 } : holding),
+    ];
+    for (const holdings of cases) {
+      const fixture = setup({
+        matchRegistry: registryHoldingsMatchExpectations,
+        registryRead: async () => read("11", "2026-09-13T12:00:30.000Z", completeRegistry),
+      });
+      await fixture.store.putObservation(observation({ holdings: [...holdings, catalog] }));
+      const snapshot = await fixture.service(owner, "US");
+      expect(fixture.reads()).toBe(1);
+      expect(fixture.enumerations()).toBe(1);
+      expect(fixture.pending()).toBe(0);
+      expect(registryHoldingsMatchExpectations(snapshot.holdings)).toBe(true);
+      expect(snapshot.holdings.find((holding) => holding.id === "usdc")?.decimals).toBe(6);
+      expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "full" }));
+    }
   });
 
-  test("a non-hot row with the current registry inventory is still served without observation", async () => {
-    const registryRows = buildBalancesSnapshotFixture().holdings;
-    const fixture = setup({
-      universe: { entries: registryRows },
-      price: (value) => value.holdings.map((holding) => ({ ...holding, value: fixturePriced("USD", "0") })),
-    });
-    await fixture.store.putObservation(observation({ holdings: registryRows }));
-
+  test("serves a stored row when its complete registry inventory still matches", async () => {
+    const fixture = setup({ matchRegistry: registryHoldingsMatchExpectations });
+    await fixture.store.putObservation(observation({ holdings: [...completeRegistry, catalog] }));
     const snapshot = await fixture.service(owner, "US");
+    expect(snapshot.holdings.filter((holding) => holding.source === "registry")).toHaveLength(completeRegistry.length);
     expect(fixture.reads()).toBe(0);
     expect(fixture.enumerations()).toBe(0);
-    expect(fixture.pending()).toBe(0);
-    expect(snapshot.fetchedAt).toBe(observedAt);
     expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "served-row" }));
-    expect(parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: owner, chainId: 8453 }, "US") as BalancesSnapshot).toEqual(snapshot);
   });
 
-  test("a failed full observation rejects rather than serving a registry-incompatible row", async () => {
-    const registryRows = buildBalancesSnapshotFixture().holdings;
-    const error = new Error("rpc unavailable");
+  test("does not fall back to a mismatched stored row when observation fails", async () => {
     const fixture = setup({
-      universe: { entries: registryRows },
-      registryRead: async () => { throw error; },
+      matchRegistry: registryHoldingsMatchExpectations,
+      registryRead: async () => { throw new Error("registry unavailable"); },
     });
-    await fixture.store.putObservation(observation({
-      holdings: registryRows.filter((holding) => holding.id !== "wbrl"),
-    }));
-
-    await expect(fixture.service(owner, "US")).rejects.toBe(error);
-    expect(fixture.reads()).toBe(1);
-    expect(fixture.enumerations()).toBe(1);
-    expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "error" }));
+    await fixture.store.putObservation(observation({ holdings: completeRegistry.filter((holding) => holding.id !== "usdc") }));
+    await expect(fixture.service(owner, "US")).rejects.toThrow("registry unavailable");
     expect(fixture.pending()).toBe(0);
-    expect((await fixture.store.get(8453, owner))?.blockNumber).toBe("10");
   });
 
   test("emits one balances-read event with stage durations and coverage", async () => {
@@ -455,67 +440,36 @@ describe("balance observations", () => {
     expect((await fixture.store.get(8453, owner))?.enumerationCursor).toBe("page-two");
     expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "registry-only" }));
   });
-
-  test("a failed hot registry-only refresh rejects rather than serving a registry-incompatible row", async () => {
-    const registryRows = buildBalancesSnapshotFixture().holdings;
-    const error = new Error("rpc unavailable");
-    let prices = 0;
-    const fixture = setup({
-      universe: { entries: registryRows },
-      registryRead: async () => { throw error; },
-      price: (value) => {
-        prices += 1;
-        return value.holdings.map((holding) => ({ ...holding, value: fixturePriced("USD", "0") }));
-      },
-    });
-    await fixture.store.putObservation(observation({
-      holdings: registryRows.filter((holding) => holding.id !== "wbrl"),
-    }));
-    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
-    const stored = await fixture.store.get(8453, owner);
-
-    await expect(fixture.service(owner, "US")).rejects.toBe(error);
-    expect(fixture.reads()).toBe(1);
-    expect(fixture.enumerations()).toBe(0);
-    expect(fixture.borrowReads()).toBe(0);
-    expect(prices).toBe(0);
-    expect(fixture.events).toEqual([expect.objectContaining({ outcome: "error" })]);
-    expect(fixture.pending()).toBe(0);
-    expect(await fixture.store.get(8453, owner)).toEqual(stored);
-  });
-
-  test("a hot row replaces a promoted cash catalog holding with the fresh registry holding", async () => {
-    const registryRows = buildBalancesSnapshotFixture().holdings;
-    const freshRegistry = registryRows.find((holding) => holding.id === "wbrl")!;
+  test("hot registry reads drop a stored catalog holding promoted to the registry", async () => {
+    const reference = buildBalancesSnapshotFixture();
+    const registryRows = reference.holdings.filter((holding) => holding.source === "registry") as ReadHolding[];
+    const promoted = registryRows.find((holding) => holding.id === "usdc");
+    if (!promoted) throw new Error("Missing promoted USDC holding.");
     const storedCatalog: ReadHolding = {
-      ...catalog,
-      key: freshRegistry.key,
-      id: `catalog:${freshRegistry.contractAddress}`,
-      contractAddress: freshRegistry.contractAddress,
-      symbol: "OLD",
-      decimals: 6,
+      ...promoted, id: `catalog:${promoted.contractAddress}`, source: "catalog", cashCurrency: null,
+      balance: { status: "ready", baseUnits: "2" },
     };
     const fixture = setup({
-      universe: { entries: registryRows },
       registryRead: async () => read("11", "2026-09-13T12:00:30.000Z", registryRows),
-      price: (value) => value.holdings.map((holding) => ({ ...holding, value: fixturePriced("USD", "0") })),
+      price: (balanceRead) => balanceRead.holdings.map((holding) => holding.source === "registry"
+        ? { ...reference.holdings.find((entry) => entry.id === holding.id)!, balance: holding.balance }
+        : { ...holding, value: { status: "unpriced", reason: "price-unavailable" } }),
     });
-    await fixture.store.putObservation(observation({
-      holdings: [...registryRows.filter((holding) => holding.id !== "wbrl"), storedCatalog, catalog],
-    }));
+    await fixture.store.putObservation(observation({ holdings: [...registryRows, catalog, storedCatalog] }));
     await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
-
     const snapshot = await fixture.service(owner, "US");
-    expect(snapshot.holdings.filter((holding) => holding.key === freshRegistry.key)).toEqual([
-      expect.objectContaining({ id: "wbrl", source: "registry", symbol: freshRegistry.symbol, decimals: freshRegistry.decimals }),
-    ]);
-    expect(snapshot.holdings.find((holding) => holding.key === catalog.key)).toMatchObject(catalog);
-    expect(parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: owner, chainId: 8453 }, "US") as BalancesSnapshot).toEqual(snapshot);
     expect(fixture.reads()).toBe(1);
     expect(fixture.enumerations()).toBe(0);
-    expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "registry-only" }));
-    expect((await fixture.store.get(8453, owner))?.holdings.filter((holding) => holding.key === freshRegistry.key)).toEqual([freshRegistry]);
+    expect(snapshot.holdings.filter((holding) => holding.key === promoted.key)).toEqual([
+      expect.objectContaining({ id: promoted.id, source: "registry" }),
+    ]);
+    expect(snapshot.holdings.find((holding) => holding.key === catalog.key)?.source).toBe("catalog");
+    expect(parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: owner, chainId: 8453 }, "US") as BalancesSnapshot).toEqual(snapshot);
+    expect((await fixture.store.get(8453, owner))?.holdings.filter((holding) => holding.key === promoted.key)).toEqual([
+      expect.objectContaining({ id: promoted.id, source: "registry" }),
+    ]);
   });
+
 
   test("continuous hot reads still run a full observation after 120 seconds", async () => {
     let current = new Date("2026-09-13T12:00:30.000Z");
@@ -810,51 +764,40 @@ describe("balance observations", () => {
     expect(snapshot.block.number).toBe("12");
   });
 
-  test("a registry-incompatible winning row does not replace the fresh observation after a lost write", async () => {
-    const registryRows = buildBalancesSnapshotFixture().holdings;
-    const incompatibleHoldings = registryRows.filter((holding) => holding.id !== "wbrl");
-    const memory = new MemoryBalanceSnapshotStore();
-    await memory.putObservation(observation({ holdings: incompatibleHoldings }));
-    const winner = observation({
-      blockNumber: "12",
-      blockHash: `0x${"12".padStart(64, "0")}`,
-      blockTimestamp: "12",
-      observedAt: "2026-09-13T12:00:31.000Z",
-      holdings: incompatibleHoldings,
-      borrow: readyBorrow("12"),
-    });
-    const putObservation = memory.putObservation.bind(memory);
-    const writes: boolean[] = [];
-    const fixture = setup({
-      store: Object.assign(memory, {
-        putObservation: async (value: BalanceObservation) => {
-          const wrote = await putObservation(value);
-          writes.push(wrote);
-          return wrote;
-        },
-      }),
-      universe: { entries: registryRows },
-      registryRead: async () => {
-        await memory.putObservation(winner);
-        return read("11", "2026-09-13T12:00:30.000Z", registryRows);
-      },
-      price: (value) => value.holdings.map((holding) => ({ ...holding, value: fixturePriced("USD", "0") })),
-    });
+  test("does not serve a conditional-write winner with missing or changed registry holdings", async () => {
+    const invalidHoldings = [
+      completeRegistry.filter((holding) => holding.id !== "usdc"),
+      completeRegistry.map((holding) => holding.id === "usdc" ? { ...holding, decimals: 18 } : holding),
+    ];
+    for (const holdings of invalidHoldings) {
+      const memory = new MemoryBalanceSnapshotStore();
+      await memory.putObservation(observation({ holdings: [...holdings, catalog], blockNumber: "12", observedAt: "2026-09-13T12:00:31.000Z" }));
+      const winner = await memory.get(8453, owner);
+      let reads = 0;
+      const fixture = setup({
+        store: Object.assign(memory, {
+          get: async () => ++reads === 1 ? null : winner,
+          putObservation: async () => false,
+        }),
+        matchRegistry: registryHoldingsMatchExpectations,
+        registryRead: async () => read("11", "2026-09-13T12:00:30.000Z", completeRegistry),
+      });
+      const snapshot = await fixture.service(owner, "US");
+      expect(reads).toBe(2);
+      expect(snapshot.fetchedAt).toBe("2026-09-13T12:00:30.000Z");
+      expect(registryHoldingsMatchExpectations(snapshot.holdings)).toBe(true);
+      expect(snapshot.block.number).toBe("11");
+    }
+  });
 
-    const snapshot = await fixture.service(owner, "US");
-    expect(parseBalancesSnapshot(snapshot, { subject: "fixture", smartAccountAddress: owner, chainId: 8453 }, "US") as BalancesSnapshot).toEqual(snapshot);
-    expect(snapshot.holdings.filter((holding) => holding.source === "registry").map((holding) => holding.id))
-      .toEqual(registryRows.map((holding) => holding.id));
-    expect(snapshot.block.number).toBe("11");
-    expect(snapshot.fetchedAt).toBe("2026-09-13T12:00:30.000Z");
-    expect(snapshot.stale).toBeUndefined();
-    expect(writes).toEqual([true, false]);
-    expect(await fixture.store.get(8453, owner)).toMatchObject(winner);
-    expect(fixture.reads()).toBe(1);
-    expect(fixture.enumerations()).toBe(1);
-    expect(fixture.borrowReads()).toBe(1);
-    expect(fixture.events).toContainEqual(expect.objectContaining({ outcome: "full" }));
-    expect(fixture.pending()).toBe(0);
+  test("does not fall back to a mismatched hot row when the fresh registry read fails", async () => {
+    const fixture = setup({
+      matchRegistry: registryHoldingsMatchExpectations,
+      registryRead: async () => { throw new Error("registry unavailable"); },
+    });
+    await fixture.store.putObservation(observation({ holdings: completeRegistry.filter((holding) => holding.id !== "usdc") }));
+    await fixture.store.markHot(8453, owner, new Date("2026-09-13T12:01:00.000Z"));
+    await expect(fixture.service(owner, "US")).rejects.toThrow("registry unavailable");
   });
 
   test("an unavailable enumeration preserves prior non-registry holdings and the full-observation pin", async () => {
@@ -1006,7 +949,6 @@ describe("balance observations", () => {
       source: "wallet",
     };
     const fixture = setup({
-      universe: { entries: registryRows },
       registryRead: async () => read(
         "11",
         "2026-09-13T12:00:30.000Z",

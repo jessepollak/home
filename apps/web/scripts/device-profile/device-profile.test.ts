@@ -5,7 +5,7 @@ import { activityPage, syntheticActivity } from "./synthetic-activity";
 import { parseHistoryResponse, MARKET_PRICE_RANGES } from "../../shared/invest/contracts/market-price-history";
 import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, probeProxy, proxyOptions } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
-import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, androidFamily, androidView, type Result, type TraceEvent } from "./model";
+import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, waitForQuietFeed, androidFamily, androidView, type Result, type TraceEvent } from "./model";
 
 test("synthetic generator keeps 25-transfer pagination and original deterministic row values", () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z"), data = syntheticActivity(300, anchor);
@@ -337,6 +337,85 @@ test("feed changes after the fill mark the measured run partial", () => {
 test("sources still loading when the run ends mark the measured run partial", () => {
   expect(unsettledMarker([])).toBeNull();
   expect(unsettledMarker(["orders"])).toBe("The activity feed was still loading when the run ended (orders)");
+});
+
+test("the post-run quiet period finalizes clean only after an unchanged, settled feed", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: 1, pending: [], markers: [] }),
+  });
+  expect(markers).toEqual([]);
+  expect(now).toBeGreaterThanOrEqual(500);
+});
+
+test("a feed change that lands after the run marks the run partial", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: now >= 160 ? 2 : 1, pending: [], markers: [] }),
+  });
+  expect(markers).toEqual(["The measured activity feed changed during the run (1 to 2 rows)"]);
+  expect(now).toBe(160);
+});
+
+test("a source that starts loading after the run marks the run partial", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: 1, pending: now >= 160 ? ["transfers"] : [], markers: [] }),
+  });
+  expect(markers).toEqual(["The activity feed was still loading when the run ended (transfers)"]);
+  expect(now).toBe(160);
+});
+
+test("a readiness problem that appears after the run marks the run partial", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: 1, pending: [], markers: now >= 160 ? ["Activity source orders reported error"] : [] }),
+  });
+  expect(markers).toEqual(["Activity source orders reported error"]);
+  expect(now).toBe(160);
+});
+
+test("a dirty post-run sample keeps every observed marker", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: now >= 160 ? 2 : 1, pending: now >= 160 ? ["transfers"] : [], markers: now >= 160 ? ["Activity source orders reported error"] : [] }),
+  });
+  expect(markers).toEqual([
+    "The measured activity feed changed during the run (1 to 2 rows)",
+    "The activity feed was still loading when the run ended (transfers)",
+    "Activity source orders reported error",
+  ]);
+});
+
+test("a source still loading when the measurement ends marks the run partial", async () => {
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    pending: ["orders"],
+    quietMs: 0,
+    frame: async () => {},
+    sample: () => ({ rows: 1, pending: [], markers: [] }),
+  });
+  expect(markers).toEqual(["The activity feed was still loading when the run ended (orders)"]);
 });
 
 test("production all runs each fling once using the plan placeholder while the fixture matrix keeps 11 entries", () => {

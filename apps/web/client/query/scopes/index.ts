@@ -4,6 +4,7 @@ import { activity } from "./activity";
 import { activityOrders } from "./activity-orders";
 import { activityWindow } from "./activity-window";
 import { balances } from "./balances";
+import { balancesAction } from "./balances-action";
 import { basename } from "./basename";
 import { borrow } from "./borrow";
 import { borrowMarket } from "./borrow-market";
@@ -26,6 +27,8 @@ import { priceHistory } from "./price-history";
 import { savingsVaults } from "./savings-vaults";
 import { stockTradeEligibility } from "./stock-trade-eligibility";
 import { tradeAvailability } from "./trade-availability";
+import { transfersRecentRecipients } from "./transfers-recent-recipients";
+import { transfersRecipientName } from "./transfers-recipient-name";
 
 export const queryScopes = {
   "action-result-observation": actionResultObservation,
@@ -34,6 +37,7 @@ export const queryScopes = {
   "activity-orders": activityOrders,
   "activity-window": activityWindow,
   balances,
+  "balances-action": balancesAction,
   basename,
   borrow,
   "borrow-market": borrowMarket,
@@ -56,4 +60,6 @@ export const queryScopes = {
   "savings-vaults": savingsVaults,
   "stock-trade-eligibility": stockTradeEligibility,
   "trade-availability": tradeAvailability,
+  "transfers-recent-recipients": transfersRecentRecipients,
+  "transfers-recipient-name": transfersRecipientName,
 } as const;

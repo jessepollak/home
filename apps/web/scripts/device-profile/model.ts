@@ -161,6 +161,37 @@ export const feedComplete = (state: { pending: readonly string[]; end: boolean; 
   state.pending.length === 0 && (state.end || partialFeedComplete(state.partialSourceCount, state.settled));
 export const feedChangeMarker = (before: number, after: number) => before === after ? null : `The measured activity feed changed during the run (${before} to ${after} rows)`;
 export const unsettledMarker = (pending: readonly string[]) => pending.length ? `The activity feed was still loading when the run ended (${pending.join(", ")})` : null;
+
+export const feedQuietMs = 1000;
+
+export type FeedQuietSample = { rows: number; pending: readonly string[]; markers: readonly string[] };
+
+export async function waitForQuietFeed(input: {
+  rows: number;
+  pending?: readonly string[];
+  quietMs?: number;
+  now?: () => number;
+  frame: () => Promise<unknown>;
+  sample: () => FeedQuietSample;
+}): Promise<string[]> {
+  const { rows, pending = [], quietMs = feedQuietMs, now = () => performance.now(), frame, sample } = input;
+  const markers: string[] = [];
+  const settling = unsettledMarker(pending);
+  if (settling) markers.push(settling);
+  const started = now();
+  while (now() - started < quietMs) {
+    await frame();
+    const observed = sample();
+    const changed = feedChangeMarker(rows, observed.rows);
+    const unsettled = unsettledMarker(observed.pending);
+    if (changed) markers.push(changed);
+    if (unsettled) markers.push(unsettled);
+    if (observed.markers.length) markers.push(...observed.markers);
+    if (changed || unsettled || observed.markers.length) break;
+  }
+  return markers;
+}
+
 export function summarize(results: Result[], markdown = false) {
   const lines = ["Device | Workload | Rows | Period ms | Missed % | Long frames | p95 ms | Feedback median ms | Script/Style/Layout/Paint ms | replaceState errors | Partial | Status"];
   const cell = (text: string) => text.replace(/\s*[|\r\n]+\s*/g, " ").slice(0, 80);

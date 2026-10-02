@@ -1,10 +1,58 @@
 {
   "exceptions": [
     {
+      "path": "apps/web/client/actions/money-action-outcome.test.tsx",
+      "kind": "nonNull",
+      "count": 3,
+      "reason": "Three non-null cache reads of the balances-action marker with getQueryData<BalanceActionMarker>(key)!, following this file's existing non-null cache read of the recent-actions payload."
+    },
+    {
+      "path": "apps/web/client/balances/use-balances.test.tsx",
+      "kind": "nonNull",
+      "count": 11,
+      "reason": "Eleven definite-assignment locals that capture a value a callback assigns after declaration (let state!: ..., let finish!: ...), the deferred-resolver harness pattern this file already uses."
+    },
+    {
+      "path": "apps/web/client/cash/cash-experience.test.tsx",
+      "kind": "assertion",
+      "count": 4,
+      "reason": "Four casts read a rendered amount field or a Continue button's disabled state (two as HTMLInputElement for .value, two as HTMLButtonElement for .disabled), the casts this file already uses at those assertions."
+    },
+    {
+      "path": "apps/web/client/cash/cash-experience.test.tsx",
+      "kind": "nonNull",
+      "count": 1,
+      "reason": "One non-null fixture lookup of the vault holding in the fallback test where the snapshot carries no withdrawal limit."
+    },
+    {
+      "path": "apps/web/server/balances/price.test.ts",
+      "kind": "assertion",
+      "count": 1,
+      "reason": "One usdc.key as eip155:8453/erc20 template cast building a vault's underlying asset key, matching the vault holding already built above it in this file."
+    },
+    {
+      "path": "apps/web/server/balances/read.test.ts",
+      "kind": "assertion",
+      "count": 1,
+      "reason": "One as { params: [{ data: Hex }] } cast decoding the captured maxWithdraw call, matching the convertToAssets call decoded just above it."
+    },
+    {
+      "path": "apps/web/shared/balances/contract.test.ts",
+      "kind": "nonNull",
+      "count": 6,
+      "reason": "Six non-null fixture lookups of a holding by id in the withdrawal-limit contract tests, the lookup this file already uses to reach a fixture holding."
+    },
+    {
       "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
       "kind": "suppression",
       "count": 1,
       "reason": "The Playwright fixed-date shim advances the pinned page clock by real elapsed time across reloads, so it reads the native clock once through a helper."
+    },
+    {
+      "path": "apps/web/client/invest/explorations/investments-overview.stories.tsx",
+      "kind": "suppression",
+      "count": 1,
+      "reason": "One reasoned home/no-real-waits disable bounds the IntersectionObserver pagination-reveal poll at 5 s because the 2 s cap is below callback delivery on a loaded shared runner."
     }
   ]
 }

@@ -30,6 +30,8 @@ import { assertStockTradeConfirmAllowed } from "./kinds/trade/stock-eligibility"
 import type { TradeConfirmRequest } from "@/shared/trading/contract";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
+import type { resolveConvertPair } from "@/shared/currencies/convert";
+import { tradeMetadataTradeable } from "@/shared/trading/assets";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
@@ -155,6 +157,7 @@ export function createConfirmActionHandler(dependencies: {
   recordConfirmed?: (row: ActionRow) => Promise<void>;
   ensureAddressSubscribed?: (address: `0x${string}`) => Promise<void>;
   verifySmartAccountSignature?: SmartAccountSignatureVerifier;
+  convertPair?: typeof resolveConvertPair;
   markHot?: (address: `0x${string}`, until: Date) => Promise<void>;
   estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
   now?: () => Date;
@@ -198,6 +201,14 @@ export function createConfirmActionHandler(dependencies: {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
     const tradeMetadata = draft.summary.metadata;
+    if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade") {
+      const from = isRecord(tradeMetadata.fromAsset) ? tradeMetadata.fromAsset : null;
+      const to = isRecord(tradeMetadata.toAsset) ? tradeMetadata.toAsset : null;
+      if ((tradeMetadata.currencyRecordId !== undefined || (typeof from?.address === "string" && typeof to?.address === "string")) &&
+        !tradeMetadataTradeable(tradeMetadata, { convertPair: dependencies.convertPair })) {
+        return fail("ACTION_EXPIRED", "This trade is no longer available. Prepare it again.", 410);
+      }
+    }
     if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade" && tradeMetadata.operatorFee?.recipient.toLowerCase() === owner.address.toLowerCase()) {
       return fail("ACTION_EXPIRED", "This trade's fee destination is your own account. Prepare the trade again.", 410);
     }
@@ -445,7 +456,7 @@ export function createRetryActionHandler(dependencies: {
 
 export function createListActionsHandler(dependencies: {
   authorize: ActionAuthorizer;
-  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
+  store?: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation" | "ensureCashoutOrder" | "cashoutOrders" | "linkedCashoutDepositIds" | "linkCashoutDeposit" | "updateCashoutProgress">>;
   readReceipt?: (hash: `0x${string}`, signal?: AbortSignal) => Promise<TransferReceiptStatus>;
   resolveHandle?: ActionHandleResolver;
   refreshCashouts?: typeof refreshCashoutProgress;
@@ -454,11 +465,18 @@ export function createListActionsHandler(dependencies: {
   return async function GET(request: Request): Promise<Response> {
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "recordReceiptObservation" | "clearReceiptObservation">>;
+    let store: Pick<ActionsStore, "list" | "recordHandle" | "recordOutcome"> & Partial<Pick<ActionsStore, "listRetainedSavingsDeposits" | "recordReceiptObservation" | "clearReceiptObservation">>;
     let rows: ActionRow[];
+    let retainedRead: Promise<ActionRow[]>;
+    let retainedSavingsDepositsUnavailable = false;
     try {
       store = dependencies.store ?? getActionsStore();
-      rows = await store.list(owner);
+      const recentRead = store.list(owner);
+      retainedRead = (async () => store.listRetainedSavingsDeposits?.(owner) ?? [])().catch(() => {
+        retainedSavingsDepositsUnavailable = true;
+        return [];
+      });
+      rows = await recentRead;
     } catch {
       emitServerEvent("action-read", {
         route: "/api/actions", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable",
@@ -466,9 +484,17 @@ export function createListActionsHandler(dependencies: {
       });
       return privateError("ACTIONS_UNAVAILABLE", "Recorded actions are temporarily unavailable.", 503);
     }
+    const recentIds = new Set(rows.map((row) => row.id));
+    const retainedRows = (await retainedRead).filter((row) => !recentIds.has(row.id));
+    if (retainedSavingsDepositsUnavailable) {
+      emitServerEvent("action-read", {
+        route: "/api/actions", code: "RETAINED_SAVINGS_DEPOSITS_UNAVAILABLE", outcome: "unavailable",
+        provider: owner.accountProvider, owner,
+      });
+    }
     const now = dependencies.now?.() ?? new Date();
     const candidateIds = new Set(rotatingWindow(
-      rows
+      [...rows, ...retainedRows]
         .filter((row) => isReconcileCandidate(row, now))
         .sort((left, right) => confirmedAtMs(right) - confirmedAtMs(left)),
       RECONCILE_MAX_PER_REQUEST,
@@ -476,8 +502,9 @@ export function createListActionsHandler(dependencies: {
     ).map((row) => row.id));
     const deadline = createDeadline(request.signal, RECONCILE_DEADLINE_MS);
     let observed: CashoutReceiptRow[];
+    let retainedObserved: CashoutReceiptRow[];
     try {
-      observed = await Promise.all(rows.map(async (row): Promise<CashoutReceiptRow> => {
+      const allObserved = await Promise.all([...rows, ...retainedRows].map(async (row): Promise<CashoutReceiptRow> => {
         const reconciled = candidateIds.has(row.id)
           ? await reconcileRow({
               row,
@@ -490,6 +517,8 @@ export function createListActionsHandler(dependencies: {
           : row;
         return await settleRow(reconciled, owner, store, dependencies.readReceipt, deadline.signal, "/api/actions");
       }));
+      observed = allObserved.slice(0, rows.length);
+      retainedObserved = allObserved.slice(rows.length);
     } finally {
       deadline.dispose();
     }
@@ -507,7 +536,13 @@ export function createListActionsHandler(dependencies: {
       }));
       const truncated = observed.length === RECENT_ACTIONS_LIMIT &&
         (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
-      return privateJson({ actions, ...(truncated ? { truncated: true } : {}) } satisfies ListActionsResponse, 200);
+      const retainedSavingsDeposits = await Promise.all(retainedObserved.map(({ row, receipt }) => presentAction(row, owner, receipt, now)));
+      return privateJson({
+        actions,
+        ...(truncated ? { truncated: true } : {}),
+        ...(retainedSavingsDeposits.length ? { retainedSavingsDeposits } : {}),
+        ...(retainedSavingsDepositsUnavailable ? { retainedSavingsDepositsUnavailable: true } : {}),
+      } satisfies ListActionsResponse, 200);
     } finally {
       refreshDeadline.dispose();
     }
