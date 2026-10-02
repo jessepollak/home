@@ -53,6 +53,10 @@ describe("deployment access policy", () => {
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/paymaster/extra",
       "/api/actions/network-fee",
       "/api/session",
+      "/api/support/chat",
+      "/api/support/handoff",
+      "/api/admin/support/assistant/credential",
+      "/api/admin/support/conversations/11111111-1111-4111-8111-111111111111/handler",
       "/_next/image",
     ];
     for (const path of protectedNeighbors) {

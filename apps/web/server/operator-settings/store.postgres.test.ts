@@ -45,7 +45,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
   test("defaults, writes, restart reads, revisions, no-ops, and audited before/after", async () => {
     expect(await store.read("support")).toEqual({ domain: "support", settings: { value: { email: null, url: null }, revision: 0, source: "default", updatedAt: null, updatedBy: null } });
     expect(await store.read("funding")).toEqual({ domain: "funding", settings: { value: { corridors: [] }, revision: 0, source: "default", updatedAt: null, updatedBy: null } });
-    expect((await store.readAll()).map((entry) => [entry.domain, entry.settings.source])).toEqual([["funding", "default"], ["support", "default"], ["brand", "default"], ["regions", "default"], ["invest", "default"], ["fees", "default"], ["products", "default"]]);
+    expect((await store.readAll()).map((entry) => [entry.domain, entry.settings.source])).toEqual([["funding", "default"], ["support", "default"], ["support-assistant", "default"], ["brand", "default"], ["regions", "default"], ["invest", "default"], ["fees", "default"], ["products", "default"]]);
     await expect(store.write({ domain: "support", expectedRevision: 0, value: { email: "bad", url: null }, actor })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
     expect((await audit.list()).entries).toHaveLength(0);
     const first = await store.write({ domain: "support", expectedRevision: 0, value, actor });
@@ -134,6 +134,19 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect((await store.read("support")).settings.revision).toBe(1);
     expect((await audit.list()).entries).toHaveLength(before + 1);
+  });
+
+  test("a repeated customer read inside its window records once per actor, customer and purpose", async () => {
+    const before = (await audit.list({ limit: 100 })).entries.length;
+    const other = `0x${"9".repeat(40)}` as const;
+    for (let index = 0; index < 3; index++) await audit.recordCustomerRead({ actor, customerId: "customer-2", purpose: "support", repeatWithinSeconds: 900 });
+    await audit.recordCustomerRead({ actor: other, customerId: "customer-2", purpose: "support", repeatWithinSeconds: 900 });
+    await audit.recordCustomerRead({ actor, customerId: "customer-3", purpose: "support", repeatWithinSeconds: 900 });
+    await audit.recordCustomerRead({ actor, customerId: "customer-2", purpose: "support" });
+    await expect(audit.recordCustomerRead({ actor, customerId: "customer-2", purpose: "support", repeatWithinSeconds: 0 })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
+    const entries = (await audit.list({ limit: 100 })).entries;
+    const reads = entries.slice(0, entries.length - before);
+    expect(reads.map((entry) => entry.action === "customer.read" ? `${entry.actor}:${entry.target.id}` : entry.action)).toEqual([`${actor}:customer-2`, `${actor}:customer-3`, `${other}:customer-2`, `${actor}:customer-2`]);
   });
 
   test("products persist a reducing-only vault and read back as stored", async () => {

@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { useState } from "react";
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { hydrateServerRender, type HydratedServerRender } from "@/tests/helpers/hydration";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -12,6 +12,9 @@ import {
   useShowSmallBalances,
 } from "@/client/home/use-show-small-balances";
 import { AccountSettings } from "./account-settings";
+import { SupportProvider } from "@/client/support/support-provider";
+
+const unusedStream: AccountWalletClient["fetchAccountResponse"] = async () => { throw new Error("Unexpected support stream"); };
 
 afterEach(() => {
   cleanup();
@@ -308,3 +311,77 @@ describe("AccountSettings", () => {
     expect(statuses).toContain(appearanceMessage);
   });
 });
+
+test("Support offers Message support and announces two unread messages", async () => {
+  const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => {
+    if (path === "/api/support/summary") return { version: 2, unreadCount: 2 };
+    if (path === "/api/support") return { version: 2, assistant: { available: false, handoff: false }, conversation: null };
+    throw new Error(`Unexpected request: ${path}`);
+  };
+  const view = render(<SupportProvider ownerKey="settings-unread" fetchAccountResource={fetchAccountResource} fetchAccountResponse={unusedStream}>
+    {inviteSettings(fetchAccountResource, null)}
+  </SupportProvider>);
+  const section = view.getByRole("region", { name: "Support" });
+  expect(within(section).getByRole("button", { name: "Support" }).textContent).toBe("Message support");
+  expect(await within(section).findByRole("button", { name: "Support, 2 unread messages" })).toBeTruthy();
+  expect(within(section).getByText("2 unread")).toBeTruthy();
+  fireEvent.click(within(section).getByRole("button", { name: "Support, 2 unread messages" }));
+  expect(await view.findByRole("dialog", { name: "Support" })).toBeTruthy();
+});
+
+test("Support offers a retry when its first summary fails, without presenting zero unread", async () => {
+  let requests = 0;
+  let rejectSummary: (error: Error) => void = () => {};
+  const pending = new Promise<never>((_resolve, reject) => { rejectSummary = reject; });
+  const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => {
+    if (path !== "/api/support/summary") throw new Error(`Unexpected request: ${path}`);
+    requests++;
+    if (requests === 1) return pending;
+    return { version: 2, unreadCount: 1 };
+  };
+  const view = render(<SupportProvider ownerKey="settings-first-failure" fetchAccountResource={fetchAccountResource} fetchAccountResponse={unusedStream}>
+    {inviteSettings(fetchAccountResource, null)}
+  </SupportProvider>);
+  const section = view.getByRole("region", { name: "Support" });
+  expect(within(section).getByRole("button", { name: "Support" }).textContent).toBe("Message support");
+  expect(within(section).queryByText(/unread/)).toBeNull();
+  expect(within(section).queryByText("Couldn't check messages")).toBeNull();
+  await act(async () => { rejectSummary(new Error("Summary unavailable")); });
+  expect(await within(section).findByText("Couldn't check messages")).toBeTruthy();
+  expect(within(section).getByRole("button", { name: "Support" })).toBeTruthy();
+  expect(within(section).queryByText(/unread/)).toBeNull();
+  fireEvent.click(within(section).getByRole("button", { name: "Retry checking support messages" }));
+  expect(await within(section).findByRole("button", { name: "Support, 1 unread message" })).toBeTruthy();
+  expect(requests).toBe(2);
+  await waitFor(() => expect(within(section).queryByText("Couldn't check messages")).toBeNull());
+});
+
+for (const cachedUnread of [0, 2]) {
+  test(`Support offers a retry when a refresh fails after ${cachedUnread} unread`, async () => {
+    const ownerKey = `settings-refresh-${cachedUnread}`;
+    let requests = 0;
+    const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => {
+      if (path !== "/api/support/summary") throw new Error(`Unexpected request: ${path}`);
+      requests++;
+      if (requests === 2) throw new Error("Summary refresh unavailable");
+      return { version: 2, unreadCount: requests === 1 ? cachedUnread : 0 };
+    };
+    const view = render(<SupportProvider ownerKey={ownerKey} fetchAccountResource={fetchAccountResource} fetchAccountResponse={unusedStream}>
+      {inviteSettings(fetchAccountResource, null)}
+    </SupportProvider>);
+    const section = view.getByRole("region", { name: "Support" });
+    await waitFor(() => expect(getHomeQueryClient().getQueryData<{ version: number; unreadCount: number }>(ownerQueryKey(ownerKey, "support-summary"))).toEqual({ version: 2, unreadCount: cachedUnread }));
+    expect(within(section).getByRole("button", { name: cachedUnread ? "Support, 2 unread messages" : "Support" })).toBeTruthy();
+    await act(async () => { await getHomeQueryClient().invalidateQueries({ queryKey: ownerQueryKey(ownerKey, "support-summary") }); });
+    expect(requests).toBe(2);
+    expect(await within(section).findByText("Couldn't check messages")).toBeTruthy();
+    expect(within(section).getByRole("button", { name: cachedUnread ? "Support, 2 unread messages" : "Support" })).toBeTruthy();
+    if (cachedUnread) expect(within(section).getByText("2 unread")).toBeTruthy();
+    else expect(within(section).queryByText(/unread/)).toBeNull();
+    fireEvent.click(within(section).getByRole("button", { name: "Retry checking support messages" }));
+    await waitFor(() => expect(requests).toBe(3));
+    await waitFor(() => expect(within(section).queryByText("Couldn't check messages")).toBeNull());
+    expect(within(section).getByRole("button", { name: "Support" })).toBeTruthy();
+    expect(within(section).queryByText(/unread/)).toBeNull();
+  });
+}

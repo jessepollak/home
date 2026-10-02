@@ -70,7 +70,10 @@ export function filterTests(files: string[], filters: string[]) {
 
 export function batchTests(files: string[], size: number) {
   if (!Number.isSafeInteger(size) || size < 1) throw new Error("HOME_UNIT_TEST_BATCH_SIZE must be a positive integer");
-  return Array.from({ length: Math.ceil(files.length / size) }, (_, index) => files.slice(index * size, (index + 1) * size));
+  const isolated = "./client/operator-support/operator-support-inbox.test.tsx";
+  const shared = files.filter((file) => file !== isolated);
+  const batches = Array.from({ length: Math.ceil(shared.length / size) }, (_, index) => shared.slice(index * size, (index + 1) * size));
+  return files.includes(isolated) ? [...batches, [isolated]] : batches;
 }
 
 export function normalizeRss(maxRSS: number | undefined, platform: string): number | null {

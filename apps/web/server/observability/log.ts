@@ -47,6 +47,7 @@ export function emitServerEvent(
     sandbox?: boolean;
     owner?: { subject: string; accountProvider: string };
     durationMs?: number;
+    assistant?: "replied" | "handoff" | "failed" | "discarded";
   },
 ): ObservabilityLogLine | undefined {
   try {
@@ -65,6 +66,7 @@ export function emitServerEvent(
       ...(fields.region ? { region: fields.region } : {}),
       ...(typeof fields.sandbox === "boolean" ? { sandbox: fields.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
+      ...(fields.assistant ? { assistant: fields.assistant } : {}),
       durationMs: fields.durationMs ?? 0,
     });
   } catch {

@@ -158,6 +158,8 @@ export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "saving
     ["**/api/session", sessionBody],
     ["**/api/account/country-preference", { version: COUNTRY_PREFERENCE_VERSION, regionId: null }],
     ["**/api/invites/link", { version: 1, code: "abcdefghjk" }],
+    ["**/api/support/summary", { version: 2, unreadCount: 0 }],
+    ["**/api/support", { version: 2, conversation: null, assistant: { available: true, handoff: false } }],
     ["**/api/balances**", {
       ...balances,
       holdings: balances.holdings.map((holding) => ({
