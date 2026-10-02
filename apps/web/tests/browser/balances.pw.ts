@@ -5,7 +5,12 @@ import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owne
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
-import { borrowOverviewBody, savingsVaultsBody } from "./fixtures/bodies";
+import { borrowOverviewBody, savingsVaultsBody, sessionBody } from "./fixtures/bodies";
+import { cdpRenderSessionCookies } from "./fixtures/session";
+import { homeSummaryCookieName, encodeHomeSummaryCookie } from "../../shared/balances/home-summary";
+import { dataOwnerKey } from "../../shared/account/data-owner";
+import { presentHomeBalances } from "../../shared/balances/present";
+import { balancesSnapshot } from "./fixtures/balances";
 import { expectNavigation } from "./fixtures/navigation-budget";
 
 declare global { interface Window { cachedMoneyTexts?: string[][] } }
@@ -375,4 +380,40 @@ test("summary-only reload retains rate subtitles without pulsing placeholders", 
     fixtures.releaseBalances();
     releaseRates?.();
   }
+});
+
+test("cached Home HTML contains money before React hydration", async ({ browser, baseURL, context }) => {
+  const documentResponse = await context.request.get(`${baseURL}/home`);
+  const now = Date.parse(documentResponse.headers().date ?? "");
+  if (!Number.isFinite(now)) throw new Error("Server clock header missing");
+  const session = { ...sessionBody, smartAccount: { ...sessionBody.smartAccount, address: "0x1111111111111111111111111111111111111111" as const }, accountProvider: "cdp-embedded" as const };
+  const presentation = presentHomeBalances({ status: "ready", snapshot: balancesSnapshot(), error: null });
+  const summary = presentation.summary;
+  const total = presentation.displayTotal;
+  if (!summary || total === null) throw new Error("Summary fixture invalid");
+  const value = encodeHomeSummaryCookie({ version: 1, owner: dataOwnerKey(session), region: "US", updatedAt: now, presentation: { ...presentation, status: "ready", summary },
+    rates: { cash: { value: "3.50% APY", updatedAt: now }, borrow: { value: "3.15% APR", updatedAt: now } } });
+  if (!value || !baseURL) throw new Error("Summary fixture unavailable");
+  const noScript = await browser.newContext({ extraHTTPHeaders: { "x-vercel-ip-country": "US" }, viewport: { width: 390, height: 844 } });
+  try {
+    await noScript.addCookies(await context.cookies());
+    await noScript.addCookies([...cdpRenderSessionCookies(session).map((cookie) => ({ ...cookie, url: baseURL })),
+      { name: homeSummaryCookieName, value, domain: new URL(baseURL).hostname, path: "/home" }]);
+    const page = await noScript.newPage();
+    await page.route("**/*", (route) => route.request().resourceType() === "script" ? route.abort() : route.continue());
+    let requests = 0;
+    page.on("request", (request) => { if (new URL(request.url()).pathname.startsWith("/api/")) requests += 1; });
+    await page.goto("/home");
+    await expect(page.getByLabel("Total balance", { exact: true })).toContainText(total);
+    const money = page.getByRole("region", { name: "Your money", exact: true });
+    await expect(money).toContainText("3.50% APY");
+    await expect(money).toContainText("3.15% APR");
+    await expect(money.locator('[data-shimmer]')).toHaveCount(0);
+    await expect(page.getByLabel("Money actions").getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    expect(requests).toBe(0);
+    await page.screenshot({ path: test.info().outputPath("home-before-javascript.png") });
+    await noScript.clearCookies({ name: "home-cdp-live" });
+    await page.reload();
+    await expect(page.getByLabel("Total balance", { exact: true })).toHaveCount(0);
+  } finally { await noScript.close(); }
 });

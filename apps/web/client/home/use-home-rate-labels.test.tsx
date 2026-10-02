@@ -2,7 +2,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
 import { clearOwnerQueryBoundary, getHomeQueryClient } from "@/client/query/query-client";
-import { readHomeRateLabels, writeHomeRateLabels, writeHomeSummary, type HomeRateObservation } from "@/client/query/home-summary-cache";
+import { readHomeRateLabels, writeHomeRateLabels, writeHomeSummary, type HomeRateLabels, type HomeRateObservation } from "@/client/query/home-summary-cache";
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { presentHomeBalances } from "@/shared/balances/present";
 import type { RegionId } from "@/config/regions";
@@ -15,8 +15,8 @@ function seed() {
   writeHomeSummary(window.localStorage, "a", "US", now, ready);
   writeHomeRateLabels(window.localStorage, "a", "US", { cash: { value: "4.41% APY", updatedAt: now }, borrow: { value: "4.81% APR", updatedAt: now } });
 }
-function Display({ owner = "a", region = "US", cash = pending, borrow = pending }: { owner?: string | null; region?: RegionId; cash?: HomeRateObservation; borrow?: HomeRateObservation }) {
-  const labels = useHomeRateLabels({ owner, region, cash, borrow });
+function Display({ owner = "a", region = "US", cash = pending, borrow = pending, initial }: { owner?: string | null; region?: RegionId; cash?: HomeRateObservation; borrow?: HomeRateObservation; initial?: HomeRateLabels }) {
+  const labels = useHomeRateLabels({ owner, region, cash, borrow, initial });
   return <output>{labels.cash ?? "unknown"} | {labels.borrow ?? "unknown"}</output>;
 }
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); window.localStorage.clear(); setSystemTime(); });
@@ -49,5 +49,20 @@ test("expired labels restore no financial claim", () => {
   seed();
   setSystemTime(new Date(now + 6 * 60_000));
   const view = render(<Display />);
+  expect(view.container.textContent).toBe("unknown | unknown");
+});
+
+test("server rate seeds retire on a country change and never return after clearing", () => {
+  setSystemTime(new Date(now));
+  const initial = { cash: { value: "4.41% APY", updatedAt: now }, borrow: { value: "4.81% APR", updatedAt: now } };
+  const view = render(<Display initial={initial} />);
+  expect(view.container.textContent).toBe("4.41% APY | 4.81% APR");
+  view.rerender(<Display region="GB" />);
+  expect(view.container.textContent).toBe("unknown | unknown");
+  view.rerender(<Display initial={initial} />);
+  expect(view.container.textContent).toBe("unknown | unknown");
+  act(() => { clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage); });
+  view.rerender(<Display owner="b" />);
+  view.rerender(<Display initial={initial} />);
   expect(view.container.textContent).toBe("unknown | unknown");
 });
