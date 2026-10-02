@@ -168,7 +168,7 @@ test("one-screen-ahead admission starts the render deadline at mount, before vis
     const { nearby, visible } = observers();
     expect(nearby.options).toEqual({ root, rootMargin: `${window.innerHeight}px 0px`, threshold: 0 });
     const placeholder = view.getByRole("status");
-    expect(Number.parseFloat(placeholder.style.height)).toBe(844);
+    expect(Number.parseFloat(placeholder.style.height)).toBe(560);
     nearby.emit(0, 0);
     expect(view.container.querySelector("iframe")).toBeNull();
     nearby.emit(0.01, 1);
@@ -251,14 +251,19 @@ test("restored focus scrolls once, then awaits admission; later selection does n
   document.body.append(root);
   try {
     const view = sheet([story("first"), story("restored")], "restored", root);
+    expect(scroll).toHaveBeenCalledTimes(0);
+    tick();
     expect(scroll).toHaveBeenCalledTimes(1);
     expect(scroll.mock.contexts[0]).toBe(view.container.querySelector('[data-library-section="restored"]'));
     expect(scroll).toHaveBeenCalledWith({ block: "start", behavior: "instant" });
     expect(view.container.querySelector("iframe")).toBeNull();
     expect(deadlines.size).toBe(0);
+    tick();
+    expect(scroll).toHaveBeenCalledTimes(1);
     show(1);
     expect(view.getByTitle("Fixture · restored")).toBeTruthy();
     view.update({ focused: "first" });
+    tick();
     expect(scroll).toHaveBeenCalledTimes(1);
   } finally { scroll.mockRestore(); root.remove(); }
 });

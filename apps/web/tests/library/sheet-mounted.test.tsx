@@ -119,7 +119,7 @@ for (const portals of [true, false]) {
     const entry = story("height", () => null, portals ? "<Portal />" : "", "Library override");
     const view = sheet([entry]);
     const iframe = view.getByTitle("Fixture · height") as HTMLIFrameElement;
-    if (portals) expect(iframe.height).toBe("844");
+    if (portals) expect(iframe.height).toBe("560");
     const doc = iframe.contentDocument!;
     const content = doc.createElement("div");
     content.id = "storybook-root";
@@ -138,11 +138,21 @@ for (const portals of [true, false]) {
     for (let turn = 0; turn < 3; turn++) { tick(); tick(); child.complete(); }
     tick();
     expect(view.queryByText("Loading height…") === null).toBe(true);
-    expect(iframe.height).toBe(portals ? "844" : "160");
+    expect(iframe.height).toBe(portals ? "560" : "160");
     if (!portals) {
       view.update({ stories: [{ ...entry, portals: true }] });
-      expect(iframe.height).toBe("844");
+      expect(iframe.height).toBe("560");
     }
+  });
+}
+
+for (const portals of [true, false]) {
+  test(`fullscreen ${portals ? "portal" : "non-portal"} frames use the full phone screen`, () => {
+    const entry = { ...story("fullscreen", () => null, portals ? "<Portal />" : "", "Library override"), layout: "fullscreen" };
+    const view = sheet([entry]);
+    const iframe = view.getByTitle("Fixture · fullscreen") as HTMLIFrameElement;
+    expect(iframe.height).toBe("844");
+    expect(iframe.width).toBe("390");
   });
 }
 
@@ -286,8 +296,10 @@ test("hidden theme stories are disclosed once at the end of the sheet", () => {
   const view = sheet([story("default", () => <p>Visible story</p>)]);
   expect(view.queryByText(/theme-pinned/)).toBeNull();
   view.update({ hiddenThemes: 2 });
-  expect(view.getByText("2 theme-pinned stories hidden · use Theme")).toBeTruthy();
-  expect(view.container.lastElementChild?.textContent).toBe("2 theme-pinned stories hidden · use Theme");
+  const line = view.getByText("2 theme-pinned stories hidden · use Theme");
+  const sections = view.container.querySelectorAll("section");
+  expect(line.closest("section")).toBeNull();
+  expect(sections[sections.length - 1].compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   view.update({ hiddenThemes: 1 });
   expect(view.getByText("1 theme-pinned story hidden · use Theme")).toBeTruthy();
 });

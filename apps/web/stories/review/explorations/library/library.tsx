@@ -4,7 +4,6 @@ import { AGENTATION_ENDPOINT, shouldRenderAgentation } from "@/client/observabil
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { viewports } from "../board/manifest";
 import { startRenderDeadline } from "../board/render-deadline";
 import type { ReviewBuild, StoryIndexEntry } from "../board/review-build";
 import { writeBoardUrl } from "../board/url-state";
@@ -221,7 +220,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
               {failed ? `Couldn't load ${item.name}'s stories. Reload to try again.` : `Loading ${item.name}…`}
             </p>}
         </div>
-        <figcaption className={styles.caption}>{item.name} · {count} · {viewports.mobile.width} wide</figcaption>
+        <figcaption className={styles.caption}>{item.name} · {count}</figcaption>
       </figure>}
       {sheet && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
     </main>

@@ -3,7 +3,7 @@ import "@/client/account/dom-test-harness";
 import { describe, expect, test } from "bun:test";
 import { componentModulePaths, frameReason, hasPinnedTheme, rendersPortal } from "@/stories/review/explorations/library/isolation";
 import {
-  createFrameSlots, declaredViewport, fittedFrameHeight, restoredFocus, scaledViewport, toggleFocus,
+  createFrameSlots, declaredViewport, fittedFrameHeight, framedWidth, restoredFocus, scaledViewport, spansFullRow, toggleFocus,
 } from "@/stories/review/explorations/library/sheet-state";
 import { readLibraryUrl, writeLibraryUrl } from "@/stories/review/explorations/library/url-state";
 
@@ -130,8 +130,12 @@ describe("frame fallback scheduling", () => {
     expect(fittedFrameHeight(40, false)).toBe(160);
     expect(fittedFrameHeight(300, false)).toBe(348);
     expect(fittedFrameHeight(2000, false)).toBe(844);
-    expect(fittedFrameHeight(40, true)).toBe(844);
     expect(fittedFrameHeight(Number.NaN, false)).toBe(844);
+  });
+  test("portal frames stay 560 tall regardless of content, while fullscreen retains its height", () => {
+    for (const content of [40, 2000, Number.NaN, Infinity]) expect(fittedFrameHeight(content, true)).toBe(560);
+    expect(fittedFrameHeight(40, false, true)).toBe(844);
+    expect(fittedFrameHeight(40, true, true)).toBe(844);
   });
 });
 
@@ -180,6 +184,42 @@ describe("declared frame viewports", () => {
     expect(scaledViewport(desktop, 2000)).toEqual({ width: 1440, height: 900, scale: 1 });
     for (const available of [0, -1, Number.NaN, Infinity]) expect(scaledViewport(desktop, available)).toEqual(phoneColumn);
     expect(scaledViewport({ width: 1024, height: 768 }, 390).height).toBeCloseTo(292.5);
+  });
+
+  test("undeclared frames fill a narrow stage but never exceed the phone width", () => {
+    expect(framedWidth(320)).toBe(320);
+    expect(framedWidth(1200)).toBe(390);
+    for (const available of [0, -1, Number.NaN, Infinity]) expect(framedWidth(available)).toBe(390);
+  });
+
+  test("undeclared fullscreen frames use a stage-fitted phone width and the full phone height", () => {
+    for (const available of [320, 390, 1200]) {
+      for (const portals of [false, true]) {
+        const viewport = { width: framedWidth(available), height: fittedFrameHeight(40, portals, true) };
+        expect(scaledViewport(viewport, available)).toEqual({ width: Math.min(available, 390), height: 844, scale: 1 });
+      }
+    }
+  });
+});
+
+describe("sheet grid spans", () => {
+  const base = { layout: "padded", frame: null, portals: false };
+  test("only declared desktop viewports span the full row, regardless of layout", () => {
+    for (const layout of ["padded", "fullscreen"]) {
+      for (const width of [768, 1440]) {
+        expect(spansFullRow({ ...base, layout, frame: "Declared viewport", viewport: { width, height: 900 } })).toBe(true);
+      }
+      expect(spansFullRow({ ...base, layout, viewport: { width: 767, height: 844 } })).toBe(false);
+    }
+  });
+  test("other stories take one cell", () => {
+    expect(spansFullRow(base)).toBe(false);
+    expect(spansFullRow({ ...base, layout: "centered" })).toBe(false);
+    expect(spansFullRow({ ...base, frame: "Uses loaders" })).toBe(false);
+    expect(spansFullRow({ ...base, frame: "Renders a portal", portals: true })).toBe(false);
+    expect(spansFullRow({ ...base, portals: true })).toBe(false);
+    expect(spansFullRow({ ...base, layout: "fullscreen" })).toBe(false);
+    expect(spansFullRow({ ...base, layout: "fullscreen", frame: "Renders a portal", portals: true })).toBe(false);
   });
 });
 
