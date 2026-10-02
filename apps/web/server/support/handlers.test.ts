@@ -4,7 +4,7 @@ import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/ses
 import { SUPPORT_CONTRACT_VERSION, parseCustomerSupportChatRequest, parseCustomerSupportHandoffRequest, parseCustomerSupportResponse, parseOperatorSupportConversationResponse, parseOperatorSupportHandlerRequest, parseOperatorSupportListResponse, parseSupportCredentialPutRequest, parseSupportCredentialResponse, parseSupportErrorResponse, parseSupportStreamData, type OperatorSupportConversationResponse } from "@/shared/support/contract";
 import { parseSupportAssistantSettings } from "@/shared/operator-settings/contract";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import type { AdminAuditLog } from "@/server/operator-settings/audit";
+import { AdminAuditLog } from "@/server/operator-settings/audit";
 import { createCustomerSupportChatHandler, createCustomerSupportHandoffHandler, createCustomerSupportHandlers, createOperatorSupportConversationHandler, createOperatorSupportHandlerHandler, createOperatorSupportListHandler, createOperatorSupportReplyHandler, createSupportCredentialHandlers } from "./handlers";
 import type { SupportAssistantStore } from "./assistant";
 import type { SupportStore } from "./store";
@@ -333,6 +333,21 @@ expect(calls).not.toContain(`handoff:${bob}:false`);
     expect(body).not.toContain('"type":"text-delta"');
     expect(models).toBe(0);
   });
+  test("list and detail fail closed when the customer read audit cannot be written", async () => {
+    const fixture = setup("operator");
+    fixture.store.list = async () => ({ version: SUPPORT_CONTRACT_VERSION, conversations: [{ id: conversationId, status: "open", handler: "operator", lastMessageAt: "2026-01-01T00:00:00.000Z", preview: "Private question", lastAuthorType: "customer", unread: true, customerLabel: "Customer" }], nextCursor: null });
+    const audit = new AdminAuditLog({ query: async () => { throw new Error("Audit unavailable"); }, transaction: async () => { throw new Error("Audit unavailable"); } });
+    const options = { ...fixture.options, audit: () => audit };
+    const responses = [
+      await createOperatorSupportListHandler(options)(request("admin/support/conversations")),
+      await createOperatorSupportConversationHandler(options)(request(`admin/support/conversations/${conversationId}`), ctx),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: { code: "SUPPORT_UNAVAILABLE" } });
+    }
+  });
+
   test("an unreadable configuration still serves the customer conversation and the operator inbox", async () => {
     const fixture = setup("hybrid");
     const seen: unknown[] = [];

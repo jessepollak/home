@@ -11,7 +11,7 @@ import { AdminAuditLog } from "@/server/operator-settings/audit";
 import { parseCustomerSupportResponse, parseOperatorSupportConversationResponse, parseOperatorSupportListResponse } from "@/shared/support/contract";
 import { SupportRateLimitedError, SupportStore } from "./store";
 import { SupportAssistantStore } from "./assistant";
-import { createCustomerSupportChatHandler } from "./handlers";
+import { createCustomerSupportChatHandler, createOperatorSupportListHandler, createOperatorSupportConversationHandler } from "./handlers";
 
 const connectionString = process.env.ACTION_PG_TEST_URL?.trim();
 const describePostgres = connectionString ? describe : describe.skip;
@@ -99,6 +99,44 @@ describePostgres("support PostgreSQL contract", () => {
   });
   beforeEach(async () => { await sql.query("DELETE FROM customers"); });
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); await observer?.close(); });
+
+  test("listing audits every returned customer in one insert and shares the detail read window", async () => {
+    const accounts = [];
+    for (const subject of ["alice", "bob", "carol"]) accounts.push(await conversation(subject));
+    const writes: number[] = [];
+    const audit = new AdminAuditLog({
+      async query<T>(text: string, values?: unknown[]) {
+        const result = await sql.query<T>(text, values);
+        writes.push(result.rowCount);
+        return result;
+      },
+      transaction: (fn) => sql.transaction(fn),
+    });
+    const options = {
+      authorize: async () => ({ ...session(), smartAccount: { address: actor, chainId: BASE_CHAIN_ID } }),
+      config: () => ({ kind: "configured" as const, addresses: new Set([actor]) }),
+      store: () => store, audit: () => audit, assistant: () => new SupportAssistantStore(sql),
+    };
+    const request = () => new Request("https://home.test/api/admin/support/conversations?status=all&limit=2");
+    const list = createOperatorSupportListHandler(options);
+    const response = await list(request());
+    expect(response.status).toBe(200);
+    const page = parseOperatorSupportListResponse(await response.json());
+    if (!page) throw new Error("Expected support list response");
+    expect(page.conversations).toHaveLength(2);
+    const expected = accounts.filter(({ id }) => page.conversations.some((row) => row.id === id)).map(({ customerId }) => customerId).sort();
+    const entries = async () => (await sql.query<{ target_id: string; occurred_at: Date }>("SELECT target_id,occurred_at FROM admin_audit_log WHERE actor=$1 AND action='customer.read' AND purpose='support' AND target_id=ANY($2::text[]) ORDER BY target_id", [actor, accounts.map(({ customerId }) => customerId)])).rows;
+    const first = await entries();
+    expect(first.map((row) => row.target_id)).toEqual(expected);
+    expect(writes).toEqual([2]);
+    expect((await list(request())).status).toBe(200);
+    expect(await entries()).toEqual(first);
+    expect(writes).toEqual([2, 0]);
+    const id = page.conversations[0].id;
+    expect((await createOperatorSupportConversationHandler(options)(new Request(`https://home.test/api/admin/support/conversations/${id}`), { params: Promise.resolve({ id }) })).status).toBe(200);
+    expect(await entries()).toEqual(first);
+    expect(writes).toEqual([2, 0, 0]);
+  });
 
   test("inbox previews preserve whole code points within the 140-code-unit contract", async () => {
     const c = await customer();

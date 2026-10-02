@@ -396,7 +396,10 @@ export function createOperatorSupportListHandler(deps: Dependencies = {}) {
     const access = await operator(request, deps, "/api/admin/support/conversations");
     if (access instanceof Response) return access;
     const query = parseOperatorSupportListQuery(new URL(request.url).searchParams);
-    return query ? privateJson(await access.store.list(query, await capability(deps)), 200) : fail("/api/admin/support/conversations", "INVALID_REQUEST", 400);
+    if (!query) return fail("/api/admin/support/conversations", "INVALID_REQUEST", 400);
+    const result = await access.store.list(query, await capability(deps));
+    if (result.conversations.length) await getAudit(deps).recordSupportConversationReads({ actor: access.address, conversationIds: result.conversations.map((conversation) => conversation.id), repeatWithinSeconds: SUPPORT_VIEW_AUDIT_WINDOW_SECONDS });
+    return privateJson(result, 200);
   });
 }
 export function createOperatorSupportSummaryHandler(deps: Dependencies = {}) {

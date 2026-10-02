@@ -27,6 +27,16 @@ export class AdminAuditLog {
         AND occurred_at > now() - make_interval(secs => $4))`, [input.actor, input.customerId, input.purpose, input.repeatWithinSeconds]);
   }
 
+  async recordSupportConversationReads(input: { actor: `0x${string}`; conversationIds: string[]; repeatWithinSeconds: number }): Promise<void> {
+    if (!Number.isSafeInteger(input.repeatWithinSeconds) || input.repeatWithinSeconds < 1) throw new OperatorSettingsValidationError("Invalid customer read");
+    if (!input.conversationIds.length) return;
+    await this.sql.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, purpose)
+      SELECT $1, 'customer.read', 'customer', c.customer_id::text, 'support'
+      FROM support_conversations c WHERE c.id = ANY($2::uuid[])
+        AND NOT EXISTS (SELECT 1 FROM admin_audit_log WHERE action='customer.read' AND actor=$1 AND target_id=c.customer_id::text AND purpose='support'
+          AND occurred_at > now() - make_interval(secs => $3))`, [input.actor, input.conversationIds, input.repeatWithinSeconds]);
+  }
+
   async list(input: { limit?: number; before?: string } = {}): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> {
     const limit = input.limit ?? 50;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (input.before !== undefined && !validCursor(input.before))) throw new OperatorSettingsValidationError("Invalid audit cursor or limit");
