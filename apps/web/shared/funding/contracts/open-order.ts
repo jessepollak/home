@@ -1,19 +1,19 @@
 import { FUNDING_PROVIDER_ID_PATTERN } from "@/shared/operator-settings/contract";
 import { FUNDING_PAYMENT_METHOD_ID_PATTERN } from "../provider-contract";
-import { readFundingOrder, type FundingOrderSummary } from "./order";
+import { isFundingOrderSummary, readFundingOrder, type FundingOrderSummary } from "./order";
 
 export const FUNDING_OPEN_ORDER_VERSION = 1 as const;
 export const FUNDING_ASSET_ID_PATTERN = /^[a-z][a-z0-9:-]{0,63}$/;
 
 export function assertFundingOpenOrderResponse(value: unknown, region: string): asserts value is { version: typeof FUNDING_OPEN_ORDER_VERSION; order: FundingOrderSummary | null } {
-  if (!record(value) || value.version !== FUNDING_OPEN_ORDER_VERSION || !Object.hasOwn(value, "order") || (value.order !== null && !completeOrder(value, region))) {
+  if (!record(value) || value.version !== FUNDING_OPEN_ORDER_VERSION || !Object.hasOwn(value, "order") || (value.order !== null && !isCompleteFundingOrder(value.order, region))) {
     throw new Error("Invalid funding open order response");
   }
 }
 
-function completeOrder(value: Record<string, unknown>, region: string): boolean {
-  const order = readFundingOrder(value);
-  return order !== null && (order.region === undefined || order.region === region);
+/** @public the same completeness rule the open-order envelope applies, for restored and cached parsed orders */
+export function isCompleteFundingOrder(value: unknown, region: string): value is FundingOrderSummary {
+  return isFundingOrderSummary(value) && (value.region === undefined || value.region === region);
 }
 
 export type FundingOpenOrderQuery = { region: string; providerId?: string; paymentMethod?: string; assetId?: string };

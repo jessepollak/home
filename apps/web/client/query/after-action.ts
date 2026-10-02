@@ -24,6 +24,7 @@ export const afterActionScopes = [
   "actions",
   tradeAvailabilityScope,
   "activity-orders",
+  "transfers-recent-recipients",
 ] as const satisfies readonly OwnerQueryScope[];
 
 export const indexedScopes = ["activity", "borrow", "borrow-market", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];

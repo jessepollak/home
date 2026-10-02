@@ -87,7 +87,7 @@
       "home/no-silent-catch": 1
     },
     "apps/web/client/transfers/send-dialog.tsx": {
-      "home/no-silent-catch": 5
+      "home/no-silent-catch": 2
     },
     "apps/web/components/address-field.tsx": {
       "home/no-silent-catch": 1

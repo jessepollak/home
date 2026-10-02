@@ -14,7 +14,9 @@ const { FundingActionsForWallet } = await import("./funding-actions");
 const address = "0x1111111111111111111111111111111111111111" as const;
 type Wallet = Pick<AccountWalletClient, "ownerKey" | "status" | "verification" | "session" | "fetchAccountResource">;
 
-function verifiedWallet(subject = "subject"): Wallet {
+type VerifiedWallet = Wallet & { session: NonNullable<Wallet["session"]> };
+
+function verifiedWallet(subject = "subject"): VerifiedWallet {
   return {
     ownerKey: subject,
     status: "verified",
@@ -54,7 +56,7 @@ afterEach(() => {
 
 test("Add money pointer and focus intent fetch methods once, then open from the owner cache", async () => {
   const paths: string[] = [];
-  const wallet: Wallet = { ...verifiedWallet(), fetchAccountResource: async (path) => {
+  const wallet: VerifiedWallet = { ...verifiedWallet(), fetchAccountResource: async (path) => {
     paths.push(path);
     if (path.startsWith("/api/funding/providers?")) return providersOk([{ ...binding, customerSetup: { hosted: true } }]);
     if (path.startsWith("/api/funding/orders?")) return { version: FUNDING_OPEN_ORDER_VERSION, order: null };
@@ -68,6 +70,9 @@ test("Add money pointer and focus intent fetch methods once, then open from the 
     "/api/funding/providers?region=US&direction=onramp",
     "/api/funding/orders?region=US",
   ]);
+  const owner = dataOwnerKey(wallet.session);
+  expect(getHomeQueryClient().getQueryData(ownerQueryKey(owner, "funding-providers", "US", "onramp"))).toBeDefined();
+  expect(getHomeQueryClient().getQueryData(ownerQueryKey(owner, "funding-open-order", "US"))).toBeDefined();
   fireEvent.click(trigger);
   await waitFor(() => expect(view.getByRole("dialog", { name: "Add money" }).textContent).toContain("Deposit USD"));
   expect(paths.filter((path) => path.startsWith("/api/funding/providers?"))).toHaveLength(1);
@@ -114,14 +119,14 @@ test("Add money intent keeps provider and open-order reads separate for every ow
   const client = getHomeQueryClient();
   const firstOwner = dataOwnerKey(first.session!);
   const secondOwner = dataOwnerKey(second.session!);
-  expect(client.getQueryData(ownerQueryKey(firstOwner, "funding-providers", "US"))).toBeDefined();
-  expect(client.getQueryData(ownerQueryKey(secondOwner, "funding-providers", "AR"))).toBeDefined();
-  expect(client.getQueryCache().find({ queryKey: ownerQueryKey(firstOwner, "funding-providers", "US") })?.meta).toEqual(ownerQueryMeta(firstOwner));
+  expect(client.getQueryData(ownerQueryKey(firstOwner, "funding-providers", "US", "onramp"))).toBeDefined();
+  expect(client.getQueryData(ownerQueryKey(secondOwner, "funding-providers", "AR", "onramp"))).toBeDefined();
+  expect(client.getQueryCache().find({ queryKey: ownerQueryKey(firstOwner, "funding-providers", "US", "onramp") })?.meta).toEqual(ownerQueryMeta(firstOwner));
   expect(client.getQueryCache().find({ queryKey: ownerQueryKey(firstOwner, "funding-open-order", "US") })?.meta).toEqual(ownerQueryMeta(firstOwner));
   clearOwnerQueryBoundary(client, undefined, secondOwner);
-  expect(client.getQueryData(ownerQueryKey(firstOwner, "funding-providers", "US"))).toBeUndefined();
+  expect(client.getQueryData(ownerQueryKey(firstOwner, "funding-providers", "US", "onramp"))).toBeUndefined();
   expect(client.getQueryData(ownerQueryKey(firstOwner, "funding-open-order", "US"))).toBeUndefined();
-  expect(client.getQueryData(ownerQueryKey(secondOwner, "funding-providers", "AR"))).toBeDefined();
+  expect(client.getQueryData(ownerQueryKey(secondOwner, "funding-providers", "AR", "onramp"))).toBeDefined();
 });
 
 test("a delayed provider read shows loading, then methods without selecting one", async () => {

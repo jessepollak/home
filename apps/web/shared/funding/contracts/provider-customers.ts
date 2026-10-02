@@ -11,6 +11,14 @@ export function assertFundingProviderCustomersResponse(value: unknown, region: s
     throw new Error("Invalid funding provider customers response");
   }
 }
+
+/** @public validates a parsed customer list against the requested region, for restored and cached values */
+export function isFundingCustomerListFor(value: unknown, region: string): value is ReadonlyArray<FundingProviderCustomerSummary> {
+  if (!Array.isArray(value)) return false;
+  const customers = readFundingProviderCustomers({ customers: value });
+  return customers.length === value.length && customers.every((customer) => customer.region === region);
+}
+
 export function readFundingProviderCustomers(value: unknown): ReadonlyArray<FundingProviderCustomerSummary> {
   if (!record(value) || !Array.isArray(value.customers)) return [];
   return value.customers.filter(isCustomer);

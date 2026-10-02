@@ -95,7 +95,7 @@ afterEach(cleanup);
 describe("SendDialog availability", () => {
   test("priced Bitcoin offers a unit toggle while USD cash does not, and review keeps native BTC", async () => {
     const requests: string[] = [];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="priced-send" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="priced-send" regionId="US"
       availableAssets={[
         { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "1000000", balanceLabel: "0.01 cbBTC", price: { currency: "USD", perUnit: { atoms: "65000", scale: 0 } } },
         { ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00", price: null },
@@ -123,7 +123,7 @@ describe("SendDialog availability", () => {
     expect(page().getByRole("button", { name: /Send 0\.001\s+cbBTC/ })).toBeTruthy();
 
     cleanup();
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="cash-send" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="cash-send" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00", price: null }]}
       prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
       executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
@@ -138,7 +138,7 @@ describe("SendDialog availability", () => {
         open
         immediate
         address={ACCOUNT}
-        ownerBoundary="owner-a"
+        queryOwnerKey="owner-a"
         availableAssets={[{
           ...usdc,
           balanceBaseUnits: "1234567",
@@ -162,7 +162,7 @@ test("Send review X closes once and Back returns exactly to destination", async 
   let closes = 0;
   function Journey() {
     const [open, setOpen] = useState(true);
-    return <SendDialog open={open} immediate address={ACCOUNT} ownerBoundary="send-exit"
+    return <SendDialog open={open} immediate address={ACCOUNT} queryOwnerKey="send-exit"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
       executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
@@ -189,7 +189,7 @@ test("Send amount navigation keeps one dialog and returns focus to the amount in
   render(<>
     <button type="button">Send trigger</button>
     <SendDialog
-      open immediate address={ACCOUNT} ownerBoundary="owner-navigation"
+      open immediate address={ACCOUNT} queryOwnerKey="owner-navigation"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       prepareMoneyAction={async () => resumedAction()}
       resumeMoneyAction={async () => resumedAction()}
@@ -214,7 +214,7 @@ describe("SendDialog review", () => {
   test("defers resuming a route action until the region settles", async () => {
     const resumes: string[] = [];
     const props: ComponentProps<typeof SendDialog> = {
-      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "owner-pending-resume", resumeActionId: ACTION_ID,
+      open: true, immediate: true, address: ACCOUNT, queryOwnerKey: "owner-pending-resume", resumeActionId: ACTION_ID,
       prepareMoneyAction: async () => resumedAction(),
       resumeMoneyAction: async (id) => { resumes.push(id); return resumedAction(); },
       executeMoneyAction: async () => ({ id: ACTION_ID, status: "submitted" }), onClose: () => {},
@@ -236,7 +236,7 @@ describe("SendDialog review", () => {
     function RoutedSend() {
       const [actionId, setActionId] = useState<string | null>(null);
       return <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-routed-review" resumeActionId={actionId}
+        open immediate address={ACCOUNT} queryOwnerKey="owner-routed-review" resumeActionId={actionId}
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         prepareMoneyAction={() => new Promise((resolve) => { releasePrepare = resolve; })}
         resumeMoneyAction={(id) => { resumes.push(id); return new Promise(() => {}); }}
@@ -286,7 +286,7 @@ describe("SendDialog review", () => {
 
 describe("SendDialog prepare boundary", () => {
   const baseProps: ComponentProps<typeof SendDialog> = {
-    open: true, immediate: true, address: ACCOUNT, ownerBoundary: "owner-a",
+    open: true, immediate: true, address: ACCOUNT, queryOwnerKey: "owner-a",
     availableAssets: [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }],
     prepareMoneyAction: async () => resumedAction(), resumeMoneyAction: async () => resumedAction(),
     executeMoneyAction: async () => ({ id: ACTION_ID, status: "submitted" }), onClose: () => {},
@@ -302,7 +302,7 @@ describe("SendDialog prepare boundary", () => {
     fireEvent.change(page().getByRole("textbox", { name: "To" }), { target: { value: RECIPIENT } });
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
-    view.rerender(<SendDialog {...props} ownerBoundary="owner-b" />);
+    view.rerender(<SendDialog {...props} queryOwnerKey="owner-b" />);
     await act(async () => { release(resumedAction()); });
     expect(reviews).toEqual([]);
     expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
@@ -338,7 +338,7 @@ describe("SendDialog prepare boundary", () => {
     let release!: (action: PreparedMoneyAction) => void;
     const props = { ...baseProps, resumeActionId: ACTION_ID, resumeMoneyAction: () => new Promise<PreparedMoneyAction>((resolve) => { release = resolve; }) };
     const view = render(<SendDialog {...props} />);
-    view.rerender(<SendDialog {...props} ownerBoundary="owner-b" resumeActionId={null} />);
+    view.rerender(<SendDialog {...props} queryOwnerKey="owner-b" resumeActionId={null} />);
     await act(async () => { release(resumedAction()); });
     expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
     expect(page().getByRole("dialog", { name: "Send" })).toBeTruthy();
@@ -349,7 +349,7 @@ describe("SendDialog Peer cash-out", () => {
   test("waits for the settled region before discovering cash-out destinations", async () => {
     const requests: string[] = [];
     const props: ComponentProps<typeof SendDialog> = {
-      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "owner-region-pending", regionId: "US",
+      open: true, immediate: true, address: ACCOUNT, queryOwnerKey: "owner-region-pending", regionId: "US",
       availableAssets: [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }],
       fetchAccountResource: async (url) => {
         requests.push(url);
@@ -384,7 +384,7 @@ describe("SendDialog Peer cash-out", () => {
       ["GB", "GBP", [{ id: "monzo", label: "Monzo" }, { id: "revolut", label: "Revolut" }, { id: "other", label: "Other" }], "Send to Monzo, Revolut or Other"],
     ] as const) {
       const view = render(
-        <SendDialog open immediate address={ACCOUNT} ownerBoundary={`owner-${region}`} regionId={region}
+        <SendDialog open immediate address={ACCOUNT} queryOwnerKey={`owner-${region}`} regionId={region}
           availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
           fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
             ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region, currency, paymentMethods: methods.map((method) => ({ ...offrampResponse.providers[0]!.paymentMethods[0], ...method, platform: method.id })) }] }
@@ -405,7 +405,7 @@ describe("SendDialog Peer cash-out", () => {
     let resolveProviders!: (value: unknown) => void;
     const pendingProviders = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-au" regionId="AU"
+      <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-au" regionId="AU"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? pendingProviders : { version: 1, recipients: [] }}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
@@ -416,7 +416,7 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.click(page().getByRole("button", { name: "Continue" }));
     expect(page().queryByText("Cash out isn't available in Australia yet.")).toBeNull();
     await act(async () => { resolveProviders({ version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }); await pendingProviders; });
-    expect(page().getByRole("status").textContent).toBe("Cash out isn't available in Australia yet.");
+    expect((await page().findByRole("status")).textContent).toBe("Cash out isn't available in Australia yet.");
     expect(page().getByLabelText("To")).toBeTruthy();
   });
 
@@ -432,7 +432,7 @@ describe("SendDialog Peer cash-out", () => {
     let reads = 0;
     const usdc = getTransferAsset("usdc");
     if (!usdc) throw new Error("expected the USDC transfer asset");
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-invalid-cashout" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-invalid-cashout" regionId="US"
       availableAssets={[{ ...usdc, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => {
         if (url === "/api/actions/network-fee") return feeResponse;
@@ -456,7 +456,7 @@ describe("SendDialog Peer cash-out", () => {
 
   test("does not report an unavailable corridor when the selected asset is not USDC", async () => {
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-de-eth" regionId="DE"
+      <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-de-eth" regionId="DE"
         availableAssets={[{ ...getTransferAsset("eth")!, balanceBaseUnits: "1000000000000000000", balanceLabel: "$4,000.00" }]}
         fetchAccountResource={async (url) => url.startsWith("/api/funding/providers")
           ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region: "DE", currency: "EUR" }] }
@@ -473,7 +473,7 @@ describe("SendDialog Peer cash-out", () => {
   test("reviews the canonical destination and invalidates the first action on Edit", async () => {
     const prepares: Array<{ kind: string; params: Record<string, unknown> }> = [];
     const fetches: string[] = [];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-peer" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => {
         fetches.push(url);
@@ -529,7 +529,7 @@ describe("SendDialog Peer cash-out", () => {
   test("keeps the payout handle step while the cash-out review prepares", async () => {
     let release!: (action: PreparedMoneyAction) => void;
     const prepares: string[] = [];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-preparing" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-peer-preparing" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
       prepareMoneyAction={(kind) => { prepares.push(kind); return new Promise((resolve) => { release = resolve; }); }}
@@ -561,7 +561,7 @@ describe("SendDialog Peer cash-out", () => {
     let release!: (action: PreparedMoneyAction) => void;
     const reviews: string[] = [];
     const props: ComponentProps<typeof SendDialog> = {
-      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "cashout-owner-a",
+      open: true, immediate: true, address: ACCOUNT, queryOwnerKey: "cashout-owner-a",
       availableAssets: [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }],
       fetchAccountResource: async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] },
       prepareMoneyAction: () => new Promise((resolve) => { release = resolve; }),
@@ -577,7 +577,7 @@ describe("SendDialog Peer cash-out", () => {
     fireEvent.input(page().getByRole("textbox", { name: "Cash App cashtag" }), { target: { value: "$alice" } });
     fireEvent.click(page().getByRole("button", { name: "Review" }));
     expect(page().getByRole("button", { name: "Review" }).getAttribute("aria-busy")).toBe("true");
-    view.rerender(<SendDialog {...props} ownerBoundary="cashout-owner-b" />);
+    view.rerender(<SendDialog {...props} queryOwnerKey="cashout-owner-b" />);
     await act(async () => { release(cashoutAction()); });
     expect(reviews).toEqual([]);
     expect(page().queryByRole("dialog", { name: "Confirm" })).toBeNull();
@@ -585,7 +585,7 @@ describe("SendDialog Peer cash-out", () => {
   });
 
   test("a lone dollar sign cannot be reviewed", async () => {
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-handle" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-empty-handle" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
       prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
@@ -600,7 +600,7 @@ describe("SendDialog Peer cash-out", () => {
   });
 
   test("rejects server metadata that disagrees with the entered destination", async () => {
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-mismatched-handle" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-mismatched-handle" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
       prepareMoneyAction={async () => ({ ...cashoutAction(), metadata: { ...cashoutAction().metadata!, canonicalHandle: "someone-else" } } as PreparedMoneyAction)}
@@ -620,7 +620,7 @@ describe("SendDialog Peer cash-out", () => {
 
   test("labels Zelle email and reviews its lowercased destination", async () => {
     const methods = [...offrampResponse.providers[0]!.paymentMethods, { ...offrampResponse.providers[0]!.paymentMethods[0]!, id: "zelle", platform: "zelle", label: "Zelle", handleHint: "Email or phone" }];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-zelle" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-zelle" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
         ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], paymentMethods: methods }] } : { version: 1, recipients: [] }}
@@ -641,7 +641,7 @@ describe("SendDialog Peer cash-out", () => {
   test("renders cash-out handle fields with input hints", async () => {
     render(
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-peer-hints" regionId="US"
+        open immediate address={ACCOUNT} queryOwnerKey="owner-peer-hints" regionId="US"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
           ? offrampResponse
@@ -672,7 +672,7 @@ describe("SendDialog Peer cash-out", () => {
 
   test("does not show Peer when discovery is unavailable", async () => {
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-no-peer"
+      <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-no-peer"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => { if (url === "/api/actions/network-fee") return feeResponse; throw new Error("offline"); }}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
@@ -694,7 +694,7 @@ describe("SendDialog Peer cash-out", () => {
     let resolveRetry!: (value: unknown) => void;
     const retryRead = new Promise<unknown>((resolve) => { resolveRetry = resolve; });
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-discovery-down" regionId="DE"
+      <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-discovery-down" regionId="DE"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => {
           if (url === "/api/actions/network-fee") return feeResponse;
@@ -723,7 +723,7 @@ describe("SendDialog Peer cash-out", () => {
       }] });
       await retryRead;
     });
-    expect(page().getByRole("button", { name: /Send to Revolut/ })).toBeTruthy();
+    expect(await page().findByRole("button", { name: /Send to Revolut/ })).toBeTruthy();
     expect(page().queryByText("Cash out is unavailable right now.")).toBeNull();
     expect(page().queryByText(/Cash out isn't available/)).toBeNull();
   });
@@ -733,7 +733,7 @@ describe("SendDialog Peer cash-out", () => {
     const providerRead = new Promise<unknown>((resolve) => { resolveProviders = resolve; });
     const requests: string[] = [];
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-peer-empty-recovery" regionId="US"
+      <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-peer-empty-recovery" regionId="US"
         availableAssets={[]}
         fetchAccountResource={async (url) => {
           if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [] };
@@ -753,7 +753,7 @@ describe("SendDialog Peer cash-out", () => {
 
   test("never exposes order recovery in the destination step", async () => {
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-no-order-recovery" regionId="US"
+      <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-no-order-recovery" regionId="US"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
           ? { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }
@@ -773,7 +773,7 @@ describe("SendDialog Peer cash-out", () => {
 
 test("cash-out result names the provider without claiming payout delivery", async () => {
   const prepared = { ...cashoutAction(), owner: { ...cashoutAction().owner, subject: "cashout-story" } };
-  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="cashout-result" resumeActionId={ACTION_ID}
+  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="cashout-result" resumeActionId={ACTION_ID}
     prepareMoneyAction={async () => prepared} resumeMoneyAction={async () => prepared}
     executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [resultRow(prepared, "confirmed")] } : { version: 1, recipients: [] }}
@@ -796,7 +796,7 @@ describe("SendDialog cash-out requote", () => {
   test("an expired confirm keeps the review, requotes the same cash-out, and asks again when the amount changed", async () => {
     const prepares: Record<string, unknown>[] = [];
     const executed: string[] = [];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-changed" regionId="US" resumeActionId={ACTION_ID}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="requote-changed" regionId="US" resumeActionId={ACTION_ID}
       resumeMoneyAction={async () => reviewed(ACTION_ID, "1")}
       prepareMoneyAction={async (_kind, params) => { prepares.push(params as Record<string, unknown>); return reviewed("22222222-2222-4222-8222-222222222222", "0.98"); }}
       executeMoneyAction={async (action) => {
@@ -826,7 +826,7 @@ describe("SendDialog cash-out requote", () => {
 
   test("a review that expired on the client requotes without claiming a change when the amount holds", async () => {
     const executed: string[] = [];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-same" regionId="US" resumeActionId={ACTION_ID}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="requote-same" regionId="US" resumeActionId={ACTION_ID}
       resumeMoneyAction={async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z")}
       prepareMoneyAction={async () => reviewed("33333333-3333-4333-8333-333333333333", "1.00")}
       executeMoneyAction={async (action) => { executed.push(action.id); return { id: action.id, status: "submitted" }; }}
@@ -842,7 +842,7 @@ describe("SendDialog cash-out requote", () => {
 
   test("keeps the expired review on screen while the new quote loads", async () => {
     let release!: (action: PreparedMoneyAction) => void;
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-loading" regionId="US" resumeActionId={ACTION_ID}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="requote-loading" regionId="US" resumeActionId={ACTION_ID}
       resumeMoneyAction={async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z")}
       prepareMoneyAction={() => new Promise((resolve) => { release = resolve; })}
       executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })}
@@ -862,7 +862,7 @@ describe("SendDialog cash-out requote", () => {
     let release!: (action: PreparedMoneyAction) => void;
     const reviews: string[] = [];
     const props: ComponentProps<typeof SendDialog> = {
-      open: true, immediate: true, address: ACCOUNT, ownerBoundary: "requote-owner-a", resumeActionId: ACTION_ID,
+      open: true, immediate: true, address: ACCOUNT, queryOwnerKey: "requote-owner-a", resumeActionId: ACTION_ID,
       resumeMoneyAction: async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z"),
       prepareMoneyAction: () => new Promise((resolve) => { release = resolve; }),
       executeMoneyAction: async (action) => ({ id: action.id, status: "submitted" }),
@@ -870,7 +870,7 @@ describe("SendDialog cash-out requote", () => {
     };
     const view = render(<SendDialog {...props} />);
     fireEvent.click(await page().findByRole("button", { name: "Get new quote" }));
-    view.rerender(<SendDialog {...props} ownerBoundary="requote-owner-b" resumeActionId={null} />);
+    view.rerender(<SendDialog {...props} queryOwnerKey="requote-owner-b" resumeActionId={null} />);
     await act(async () => { release(reviewed("33333333-3333-4333-8333-333333333333", "1.00")); });
     expect(reviews).toEqual([]);
     expect(page().queryByRole("button", { name: "Cash out $1.00" })).toBeNull();
@@ -878,7 +878,7 @@ describe("SendDialog cash-out requote", () => {
   });
 
   test("a failed requote explains why and keeps a way back", async () => {
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="requote-failed" regionId="US" resumeActionId={ACTION_ID}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="requote-failed" regionId="US" resumeActionId={ACTION_ID}
       resumeMoneyAction={async () => reviewed(ACTION_ID, "1", "2000-01-01T00:00:00.000Z")}
       prepareMoneyAction={async () => { throw Object.assign(new Error("busy"), { code: "CASHOUT_ORDER_IN_FLIGHT", serverMessage: "A cash-out for this amount to this payee is still in progress. Check Activity." }); }}
       executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })}
@@ -893,7 +893,7 @@ describe("SendDialog cash-out requote", () => {
 
 test("cash-out withdrawal result describes funds returning to the account, not a payout", async () => {
   const prepared = { ...withdrawAction(), owner: { ...withdrawAction().owner, subject: "withdraw-result" } };
-  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="withdraw-result" resumeActionId={ACTION_ID}
+  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="withdraw-result" resumeActionId={ACTION_ID}
     prepareMoneyAction={async () => prepared} resumeMoneyAction={async () => prepared}
     executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [resultRow(prepared, "confirmed")] } : { version: 1, recipients: [] }}
@@ -910,7 +910,7 @@ describe("SendDialog dismissal", () => {
     let releaseExecution!: (result: { id: string; status: "submitted" }) => void;
     render(
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-pending-escape" resumeActionId={ACTION_ID}
+        open immediate address={ACCOUNT} queryOwnerKey="owner-pending-escape" resumeActionId={ACTION_ID}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
         executeMoneyAction={() => {
           dispatches += 1;
@@ -955,7 +955,7 @@ describe("SendDialog dismissal", () => {
     let closes = 0;
     render(
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-amount-escape"
+        open immediate address={ACCOUNT} queryOwnerKey="owner-amount-escape"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
@@ -977,7 +977,7 @@ describe("SendDialog resume", () => {
         open
         immediate
         address={ACCOUNT}
-        ownerBoundary="owner-a"
+        queryOwnerKey="owner-a"
         resumeActionId={ACTION_ID}
         prepareMoneyAction={async () => resumedAction()}
         resumeMoneyAction={async () => resumedAction()}
@@ -998,7 +998,7 @@ describe("SendDialog resume", () => {
         open
         immediate
         address={ACCOUNT}
-        ownerBoundary="owner-a"
+        queryOwnerKey="owner-a"
         resumeActionId="22222222-2222-4222-8222-222222222222"
         prepareMoneyAction={async () => resumedAction()}
         resumeMoneyAction={async () => resumedAction("savings-deposit")}
@@ -1021,7 +1021,7 @@ describe("SendDialog resume", () => {
       availableAssets?: ComponentProps<typeof SendDialog>["availableAssets"],
     ) => (
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-resume-balances" resumeActionId={ACTION_ID}
+        open immediate address={ACCOUNT} queryOwnerKey="owner-resume-balances" resumeActionId={ACTION_ID}
         availableAssets={availableAssets}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={resumeMoneyAction}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
@@ -1047,7 +1047,7 @@ describe("SendDialog resume", () => {
   test("does not expose order recovery on the amount step without sendable balances", async () => {
     const requests: string[] = [];
     render(
-      <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-empty-no-recovery" regionId="US"
+      <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-empty-no-recovery" regionId="US"
         availableAssets={[]}
         fetchAccountResource={async (url) => { requests.push(url); return url.startsWith("/api/funding/providers")
           ? { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] }
@@ -1068,7 +1068,7 @@ describe("SendDialog resume", () => {
     let prepared = 0;
     function RoutedCashout() {
       const [actionId, setActionId] = useState<string | null>(null);
-      return <SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-routed-cashout" regionId="US" resumeActionId={actionId}
+      return <SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-routed-cashout" regionId="US" resumeActionId={actionId}
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
         prepareMoneyAction={async () => { prepared += 1; return { ...cashoutAction(), id: prepared === 1 ? ACTION_ID : SECOND_ID } as PreparedMoneyAction; }}
@@ -1101,7 +1101,7 @@ describe("SendDialog resume", () => {
   test("resumed cash-out Back resolves the loaded binding and preserves the canonical entry", async () => {
     const responses = [offrampResponse, { ...offrampResponse, providers: [] }];
     for (const [index, response] of responses.entries()) {
-      const view = render(<SendDialog open immediate address={ACCOUNT} ownerBoundary={`owner-resumed-${index}`} regionId="US" resumeActionId={ACTION_ID}
+      const view = render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey={`owner-resumed-${index}`} regionId="US" resumeActionId={ACTION_ID}
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? response : { version: 1, recipients: [] }}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
@@ -1124,7 +1124,7 @@ describe("SendDialog resume", () => {
     let invalidResumes = 0;
     render(
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-withdraw-resume" resumeActionId={ACTION_ID}
+        open immediate address={ACCOUNT} queryOwnerKey="owner-withdraw-resume" resumeActionId={ACTION_ID}
         availableAssets={[{ ...getTransferAsset("eth")!, balanceBaseUnits: "1000000000000000000", balanceLabel: "$4,000.00" }]}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}
@@ -1143,7 +1143,7 @@ describe("SendDialog resume", () => {
   });
 
   test("shows a server CASHOUT_ refusal on the payout handle step", async () => {
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-server-refusal" regionId="US"
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-server-refusal" regionId="US"
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
       prepareMoneyAction={async () => { throw { code: "CASHOUT_ORDER_IN_FLIGHT", serverMessage: "A cash-out for this amount to this payee is still in progress. Check Activity." }; }}
@@ -1164,7 +1164,7 @@ describe("SendDialog resume", () => {
     let closes = 0;
     render(
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-rejected-send" resumeActionId={ACTION_ID}
+        open immediate address={ACCOUNT} queryOwnerKey="owner-rejected-send" resumeActionId={ACTION_ID}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "rejected" })}
         onClose={() => { closes += 1; }}
@@ -1181,7 +1181,7 @@ describe("SendDialog resume", () => {
   });
 
   test.each(["submission-unknown", "dispatch-unknown"] as const)("an ambiguous %s shows unknown without offering retry", async (reason) => {
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-unknown-send" resumeActionId={ACTION_ID}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-unknown-send" resumeActionId={ACTION_ID}
       prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
       executeMoneyAction={async () => { throw new TransferExecutionError(reason, new Error("provider uncertainty")); }}
       onClose={() => {}} />);
@@ -1195,7 +1195,7 @@ describe("SendDialog resume", () => {
   test("keeps the generic message when the failure happened before the wallet was asked", async () => {
     render(
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-unavailable-send" resumeActionId={ACTION_ID}
+        open immediate address={ACCOUNT} queryOwnerKey="owner-unavailable-send" resumeActionId={ACTION_ID}
         prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
         executeMoneyAction={async () => {
           throw new TransferExecutionError("unavailable", new TypeError("Failed to fetch"));
@@ -1212,7 +1212,7 @@ describe("SendDialog resume", () => {
     let closes = 0;
     render(
       <SendDialog
-        open immediate address={ACCOUNT} ownerBoundary="owner-rejected-cashout" resumeActionId={ACTION_ID}
+        open immediate address={ACCOUNT} queryOwnerKey="owner-rejected-cashout" resumeActionId={ACTION_ID}
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "rejected" })}
@@ -1232,7 +1232,7 @@ describe("SendDialog resume", () => {
 
   test("a typed failed operation offers fresh preparation with the amount kept", async () => {
     let invalidResumes = 0;
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-failed-send" resumeActionId={ACTION_ID}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-failed-send" resumeActionId={ACTION_ID}
       availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
       prepareMoneyAction={async () => resumedAction()} resumeMoneyAction={async () => resumedAction()}
       executeMoneyAction={async () => ({ id: ACTION_ID, status: "failed" })}
@@ -1260,7 +1260,7 @@ describe("SendDialog resume", () => {
           open
           immediate
           address={ACCOUNT}
-          ownerBoundary={`owner-${key}`}
+          queryOwnerKey={`owner-${key}`}
           resumeActionId={ACTION_ID}
           prepareMoneyAction={async () => resumedAction()}
           resumeMoneyAction={async () => resumedAction()}
@@ -1290,7 +1290,7 @@ describe("SendDialog in-flight prepare", () => {
   test("locks the destination while the send review prepares and drops a response for an edited recipient", async () => {
     const pending: Array<(action: PreparedMoneyAction) => void> = [];
     const recipients: string[] = [];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-send-fence" regionId="US" availableAssets={usdcBalance}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-send-fence" regionId="US" availableAssets={usdcBalance}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse
         : url.startsWith("/api/funding/providers") ? offrampResponse
         : url === "/api/transfers/recent-recipients" ? { version: 1, recipients: [{ address: OTHER }] } : { version: 1, recipients: [] }}
@@ -1339,7 +1339,7 @@ describe("SendDialog in-flight prepare", () => {
   test("keeps focus on the read-only payout handle and drops a response for an edited handle", async () => {
     const pending: Array<(action: PreparedMoneyAction) => void> = [];
     const handles: string[] = [];
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-handle-fence" regionId="US" availableAssets={usdcBalance}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-handle-fence" regionId="US" availableAssets={usdcBalance}
       fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [] }}
       prepareMoneyAction={(_kind, request) => {
         handles.push((request as { payoutHandle: string }).payoutHandle);
@@ -1374,7 +1374,7 @@ describe("SendDialog in-flight prepare", () => {
 
   test("locks the amount step while a routed review resumes", async () => {
     let release!: (action: PreparedMoneyAction) => void;
-    render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="owner-resume-lock" resumeActionId={ACTION_ID}
+    render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="owner-resume-lock" resumeActionId={ACTION_ID}
       availableAssets={[...usdcBalance, { ...getTransferAsset("cbbtc")!, balanceBaseUnits: "1000000", balanceLabel: "0.01 cbBTC" }]}
       prepareMoneyAction={async () => resumedAction()}
       resumeMoneyAction={() => new Promise((resolve) => { release = resolve; })}

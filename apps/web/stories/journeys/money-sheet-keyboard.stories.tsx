@@ -66,7 +66,7 @@ function SendKeyboardJourney() {
       <SendDialog
         open={open}
         address={ACCOUNT}
-        ownerBoundary="storybook-send-keyboard"
+        queryOwnerKey="storybook-send-keyboard"
         regionId="US"
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "25000000", balanceLabel: "$25.00" }]}
         fetchAccountResource={fetchAccountResource}

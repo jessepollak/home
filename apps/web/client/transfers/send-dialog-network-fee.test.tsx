@@ -13,7 +13,7 @@ const asset = getTransferAsset("usdc")!;
 afterEach(cleanup);
 
 function renderSend(prepareMoneyAction: Parameters<typeof SendDialog>[0]["prepareMoneyAction"]) {
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-test"
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-test"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: "20000" } : { version: 1, recipients: [] }}
     prepareMoneyAction={prepareMoneyAction}
@@ -31,7 +31,7 @@ test("send Max holds back the USDC reserve without changing available balance", 
 });
 
 test("send Max stays disabled while the USDC fee reserve is loading", async () => {
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-pending"
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-pending"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? new Promise<never>(() => {}) : { version: 1, recipients: [] }}
     prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
@@ -43,7 +43,7 @@ test("send Max stays disabled while the USDC fee reserve is loading", async () =
 test("send waits for the USDC fee ceiling before Continue or Enter", async () => {
   let resolveReserve!: (value: unknown) => void;
   const reserveResponse = new Promise<unknown>((resolve) => { resolveReserve = resolve; });
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-ceiling-pending"
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-ceiling-pending"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? reserveResponse : { version: 1, recipients: [] }}
     prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
@@ -63,7 +63,7 @@ test("send waits for the USDC fee ceiling before Continue or Enter", async () =>
 test("send explains a failed USDC fee lookup and recovers on Retry", async () => {
   let failLookup = true;
   const feeLookupWait = { timeout: 5000 };
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-retry-send"
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-retry-send"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => {
       if (path !== "/api/actions/network-fee") return { version: 1, recipients: [] };
