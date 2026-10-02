@@ -40,6 +40,12 @@ describe("trade review parsers", () => {
     const reviewed = parseTradeMetadata(metadata)!;
     expect(parseTradeSigning(signing, reviewed, OWNER)).toMatchObject({ signer: "cdp-embedded", evmAccount: OWNER });
   });
+  test.each(["base:eurc", "base:removed"])('preserves the stored currency record identity %s', (currencyRecordId) => {
+    expect(parseTradeMetadata({ ...metadata, currencyRecordId })).toMatchObject({ currencyRecordId });
+  });
+  test.each(["", "x".repeat(65), 7, null])('rejects an invalid stored currency record identity %j', (currencyRecordId) => {
+    expect(parseTradeMetadata({ ...metadata, currencyRecordId })).toBeNull();
+  });
   test.each([
     { minimumToAmountBaseUnits: "1001" }, { slippageBps: 500 }, { fromAmountBaseUnits: "1.5" },
     { fromAsset: { ...metadata.fromAsset, address: OWNER } },

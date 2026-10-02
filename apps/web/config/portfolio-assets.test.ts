@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_FUNDING_ASSETS } from "@/shared/assets/base";
+import { cashCurrencyForContract } from "@/shared/currencies/registry";
+import { requiredLocalCashAsset } from "@/shared/balances/fixtures";
 import { investAssets } from "./invest-assets";
 import {
+  assertUniquePortfolioAssets,
   assetKeyForErc20,
   getDirectPortfolioAssets,
-  verifiedCashCurrency,
-  verifiedLocalCashAssets,
+  portfolioVaults,
 } from "./portfolio-assets";
 
 const fundingBackedCash = [
@@ -18,7 +20,7 @@ const fundingBackedCash = [
 describe("direct portfolio cash assets", () => {
   test("funding-backed cash identities match their own verified Base contracts", () => {
     for (const { currency, fundingId, id } of fundingBackedCash) {
-      const asset = verifiedLocalCashAssets[currency];
+      const asset = requiredLocalCashAsset(currency);
       const funding = BASE_FUNDING_ASSETS[fundingId];
       expect(asset.id).toBe(id);
       expect(asset.kind).toBe("erc20");
@@ -49,8 +51,29 @@ describe("direct portfolio cash assets", () => {
 
   test("verified cash contract lookups distinguish each funding-backed currency", () => {
     for (const { currency, fundingId } of fundingBackedCash) {
-      expect(verifiedCashCurrency(BASE_FUNDING_ASSETS[fundingId].address)).toBe(currency);
+      expect(cashCurrencyForContract(BASE_FUNDING_ASSETS[fundingId].address)).toBe(currency);
     }
-    expect(verifiedCashCurrency("0x0000000000000000000000000000000000000001")).toBeNull();
+    expect(cashCurrencyForContract("0x0000000000000000000000000000000000000001")).toBeNull();
+  });
+
+  test("keeps one entry per asset key and projected id", () => {
+    const assets = getDirectPortfolioAssets();
+    expect(() => assertUniquePortfolioAssets(assets)).not.toThrow();
+    const [first, second] = assets;
+    if (!first || !second) throw new Error("Missing direct portfolio assets.");
+    expect(() => assertUniquePortfolioAssets([...assets, { ...second, assetKey: first.assetKey }])).toThrow();
+    expect(() => assertUniquePortfolioAssets([...assets, { ...second, id: first.id }])).toThrow();
+  });
+
+  test("rejects a promoted currency that collides with a vault identity", () => {
+    const vault = portfolioVaults[0];
+    if (!vault) throw new Error("Missing portfolio vault.");
+    const vaultEntries = portfolioVaults.map((entry) => ({ id: entry.id, assetKey: assetKeyForErc20(entry.address) }));
+    expect(() => assertUniquePortfolioAssets([...getDirectPortfolioAssets(), ...vaultEntries])).not.toThrow();
+    expect(() => assertUniquePortfolioAssets([
+      ...getDirectPortfolioAssets(),
+      ...vaultEntries,
+      { id: vault.id, assetKey: assetKeyForErc20("0x9999999999999999999999999999999999999999") },
+    ])).toThrow();
   });
 });

@@ -1,6 +1,7 @@
 import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
-import { BalancesResponseError, expectedRegistryHoldings, parseBalancesSnapshot } from "./contract";
+import { BalancesResponseError, parseBalancesSnapshot } from "./contract";
+import { expectedRegistryHoldings, registryExpectationMismatch, registryHoldingsMatchExpectations } from "./registry-expectations";
 import {
   FIXTURE_BORROW_APR_WAD,
   FIXTURE_BORROW_MARKET_ID,
@@ -27,6 +28,33 @@ const session: BalancesSession = {
 function clone(snapshot: BalancesSnapshot): BalancesSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as BalancesSnapshot;
 }
+
+test("registry matcher detects missing identities and changed metadata", () => {
+  const holdings = balancesSnapshotFixture.holdings;
+  expect(registryHoldingsMatchExpectations(holdings)).toBe(true);
+  const usdc = holdings.find((holding) => holding.id === "usdc")!;
+  const usdcExpected = expectedRegistryHoldings().get("usdc");
+  expect(registryExpectationMismatch(usdc, usdcExpected)).toBe(false);
+  for (const changed of [
+    { ...usdc, cashCurrency: null },
+    { ...usdc, contractAddress: "0x1111111111111111111111111111111111111111" as const },
+    { ...usdc, decimals: 18 },
+    { ...usdc, id: "missing" },
+  ]) expect(registryExpectationMismatch(changed, changed.id === "usdc" ? usdcExpected : undefined)).toBe(true);
+  expect(registryHoldingsMatchExpectations(holdings.filter((holding) => holding.id !== "usdc"))).toBe(false);
+});
+test("registry matcher and parser agree on a catalog claim to a registry key", () => {
+  const snapshot = clone(balancesSnapshotFixture);
+  expect(registryHoldingsMatchExpectations(snapshot.holdings)).toBe(true);
+  expect(parseBalancesSnapshot(snapshot, session, "US")).toEqual(snapshot);
+  const usdc = snapshot.holdings.find((holding) => holding.id === "usdc")!;
+  snapshot.holdings.push(catalogHolding({
+    address: usdc.contractAddress!, name: "Catalog USDC", symbol: "USDC", decimals: 6,
+  }, "1", { status: "unpriced", reason: "price-unavailable" }));
+  expect(registryHoldingsMatchExpectations(snapshot.holdings)).toBe(false);
+  expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
+});
+
 
 describe("parseBalancesSnapshot", () => {
   test("accepts the reference fixture and returns an equal snapshot", () => {
@@ -69,7 +97,8 @@ describe("parseBalancesSnapshot", () => {
 
   test("accepts a priced cash unit on a zero wallet balance", () => {
     const snapshot = buildBalancesSnapshotFixture();
-    const usdc = snapshot.holdings.find((holding) => holding.id === "usdc")!;
+    const usdc = snapshot.holdings.find((holding) => holding.id === "usdc");
+    if (!usdc) throw new Error("Missing USDC holding.");
     expect(usdc.balance).toEqual({ status: "ready", baseUnits: "0" });
     usdc.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
     expect(parseBalancesSnapshot(clone(snapshot), session, "US").holdings.find((holding) => holding.id === "usdc")?.unitValue)
@@ -116,7 +145,8 @@ describe("parseBalancesSnapshot", () => {
 
   test.each(["eth", "usdc", `catalog:${FIXTURE_CATALOG.priced.address}`])("accepts an exact unit value on priced %s", (id) => {
     const snapshot = clone(balancesSnapshotFixture);
-    const holding = snapshot.holdings.find((entry) => entry.id === id)!;
+    const holding = snapshot.holdings.find((entry) => entry.id === id);
+    if (!holding) throw new Error(`Missing holding: ${id}`);
     holding.unitValue = { currency: "USD", amount: { atoms: "1234567890123456789", scale: 15 } };
     const parsed = parseBalancesSnapshot(snapshot, session, "US");
     expect(parsed.holdings.find((entry) => entry.id === id)?.unitValue).toEqual(holding.unitValue);
@@ -136,7 +166,8 @@ describe("parseBalancesSnapshot", () => {
     ["over-limit scale", "eth", { currency: "USD", amount: { atoms: "1", scale: 101 } }],
   ] as const)("rejects a unit value with %s", (_label, id, unitValue) => {
     const snapshot = clone(balancesSnapshotFixture);
-    const holding = snapshot.holdings.find((entry) => entry.id === id)!;
+    const holding = snapshot.holdings.find((entry) => entry.id === id);
+    if (!holding) throw new Error(`Missing holding: ${id}`);
     Object.assign(holding, { unitValue });
     expect(() => parseBalancesSnapshot(snapshot, session, "US")).toThrow(BalancesResponseError);
   });

@@ -1,4 +1,6 @@
-import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
+import { getDirectPortfolioAssets, type DirectPortfolioAsset } from "@/config/portfolio-assets";
+import { currencyRecordForContract } from "@/shared/currencies/registry";
+import type { CurrencyRepresentation } from "@/shared/currencies/types";
 import {
   formatExactPresentationTokenAmount,
   formatUnsignedTokenAmount,
@@ -17,7 +19,15 @@ const decimalAmountPattern = /^(?:0|[1-9][0-9]*)(?:\.([0-9]+))?$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 export const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
 
-const transferAssetList: TransferAsset[] = getDirectPortfolioAssets().map((asset) => ({
+/** @public Send admission predicate exercised by transfer-helpers.test.ts. */
+export function isTransferAssetAllowed(
+  asset: DirectPortfolioAsset,
+  record: CurrencyRepresentation | null = currencyRecordForContract(asset.contractAddress),
+): boolean {
+  return !record || record.send.state === "approved";
+}
+
+const transferAssetList: TransferAsset[] = getDirectPortfolioAssets().filter((asset) => isTransferAssetAllowed(asset)).map((asset) => ({
   id: asset.id,
   assetKey: asset.assetKey,
   name: asset.name,

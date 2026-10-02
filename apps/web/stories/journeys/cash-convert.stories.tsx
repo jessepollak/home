@@ -2,10 +2,9 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { CashExperience } from "@/client/cash/cash-experience";
-import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
-import { buildBalancesSnapshotFixture, priced, pricedCash, ready } from "@/shared/balances/fixtures";
+import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset } from "@/shared/balances/fixtures";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "@/shared/trading/cash-conversion";
@@ -23,9 +22,9 @@ const held = buildBalancesSnapshotFixture({ registry: {
   usdc: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
   eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
   idrx: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000", 2) },
-  [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-  [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-  [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+  [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+  [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+  [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
 } });
 const zero = buildBalancesSnapshotFixture({ registry: { usdc: { balance: ready("0"), value: priced("USD", "0"), cashValue: pricedCash("USD", "0") } } });
 const now = "2026-09-10T12:00:00.000Z";

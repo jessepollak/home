@@ -39,7 +39,7 @@ import {
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { RegionId } from "@/config/regions";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
-import { cashConversionCurrencies, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
+import { cashConversionCurrencies, cashConversionDestinations, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import {
   formatPresentationFiat,
   formatPresentationPercentage,
@@ -432,6 +432,7 @@ export function CashOverview({
     : null, [activeSnapshot]);
   const rows = useMemo(() => activeSnapshot ? cashHoldings(activeSnapshot) : [], [activeSnapshot]);
   const conversionsByCode = useMemo(() => new Map<string, CashConversionCurrency>(cashConversionCurrencies.map((currency) => [currency.code, currency])), []);
+  const convertible = useMemo(() => cashConversionDestinations("USD").some((currency) => currency.convertOffered), []);
   const { holdings, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
@@ -586,12 +587,12 @@ export function CashOverview({
           Try again
         </Button>
       ) : null) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className={onConvert && convertible ? "grid grid-cols-2 gap-2" : "grid gap-2"}>
           <Button size="lg" className="h-11 w-full" {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})} onClick={onAddMoney}>
             <Plus aria-hidden="true" />
             Add money
           </Button>
-          {onConvert ? <Button size="lg" variant="outline" className="h-11 w-full" disabled={loading || !actionsAvailable}
+          {onConvert && convertible ? <Button size="lg" variant="outline" className="h-11 w-full" disabled={loading || !actionsAvailable}
             {...(onConvertIntent ? moneySheetIntent(onConvertIntent) : {})} onClick={(event) => onConvert(event.currentTarget)}>
             <ArrowLeftRight aria-hidden="true" />
             Convert

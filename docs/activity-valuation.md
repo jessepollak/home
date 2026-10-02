@@ -12,7 +12,7 @@ Transaction history uses the value at transfer time. Home never substitutes toda
 | Verified local stablecoin (EURC, IDRX) | Peg | 1 token = 1 unit of its currency, converted at the transfer day's FX rate when the presentation currency differs |
 | Any other token with known decimals | Historical close | Transferred quantity × the latest completed Codex 15-minute USD close at or before the block timestamp |
 
-- Pegs apply only to the exact verified contracts in `config/portfolio-assets.ts` (`canonicalUsdcAsset`, `verifiedLocalCashAssets`). A token that merely shares a symbol is valued as a volatile token by its own contract.
+- Peg identity comes from the currency registry. `cashCurrencyForContract` answers current Cash presentation (approved and active only) and `pegCurrencyForContract` answers historical transfer valuation, which keeps the peg for a paused or withdrawn representation and refuses only a deferred, never-promoted one. Only exact registry contracts use a peg; a token that merely shares a symbol is valued as a volatile token by its own contract.
 - Save vault shares are not stablecoins. Their share price moves, so they use the historical-close path and show only the native quantity when Codex has no qualifying close.
 - A close qualifies only when its 15-minute bar has fully closed at or before the block timestamp, and the close is no more than **24 hours** earlier. Codex `getBars` omits empty bars: an idle token whose last trade was weeks ago remains unpriced rather than receiving a months-old stale quote.
 - Valuation uses the transferred quantity and the transfer's exact chain and contract. It never uses the wallet's current balance, so tokens the wallet no longer holds are priced the same way.

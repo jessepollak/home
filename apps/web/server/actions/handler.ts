@@ -30,6 +30,8 @@ import { assertStockTradeConfirmAllowed } from "./kinds/trade/stock-eligibility"
 import type { TradeConfirmRequest } from "@/shared/trading/contract";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
+import type { resolveConvertPair } from "@/shared/currencies/convert";
+import { tradeMetadataTradeable } from "@/shared/trading/assets";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
@@ -155,6 +157,7 @@ export function createConfirmActionHandler(dependencies: {
   recordConfirmed?: (row: ActionRow) => Promise<void>;
   ensureAddressSubscribed?: (address: `0x${string}`) => Promise<void>;
   verifySmartAccountSignature?: SmartAccountSignatureVerifier;
+  convertPair?: typeof resolveConvertPair;
   markHot?: (address: `0x${string}`, until: Date) => Promise<void>;
   estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
   now?: () => Date;
@@ -198,6 +201,14 @@ export function createConfirmActionHandler(dependencies: {
       return fail("ACTION_EXPIRED", "The action review expired. Prepare it again.", 410);
     }
     const tradeMetadata = draft.summary.metadata;
+    if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade") {
+      const from = isRecord(tradeMetadata.fromAsset) ? tradeMetadata.fromAsset : null;
+      const to = isRecord(tradeMetadata.toAsset) ? tradeMetadata.toAsset : null;
+      if ((tradeMetadata.currencyRecordId !== undefined || (typeof from?.address === "string" && typeof to?.address === "string")) &&
+        !tradeMetadataTradeable(tradeMetadata, { convertPair: dependencies.convertPair })) {
+        return fail("ACTION_EXPIRED", "This trade is no longer available. Prepare it again.", 410);
+      }
+    }
     if (!replay && draft.kind === "trade" && tradeMetadata?.product === "trade" && tradeMetadata.operatorFee?.recipient.toLowerCase() === owner.address.toLowerCase()) {
       return fail("ACTION_EXPIRED", "This trade's fee destination is your own account. Prepare the trade again.", 410);
     }
