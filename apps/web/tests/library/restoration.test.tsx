@@ -28,6 +28,17 @@ const flush = () => act(async () => { await Promise.resolve(); });
 function child(iframe: HTMLIFrameElement) {
   const currentRender = { id: item.story, phase: "rendering", story: { id: item.story } };
   const updates: Array<{ kind: string; value: unknown; phase: string }> = [];
+  const listeners = new Map<string, Set<(payload: unknown) => void>>();
+  const channel = {
+    on: (event: string, listener: (payload: unknown) => void) => {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(listener);
+    },
+    off: (event: string, listener: (payload: unknown) => void) => { listeners.get(event)?.delete(listener); },
+  };
+  const emit = (event: string, payload: unknown) => act(() => {
+    for (const listener of [...(listeners.get(event) ?? [])]) listener(payload);
+  });
   const api = {
     currentRender,
     onUpdateGlobals: ({ globals }: { globals: { theme: string } }) => {
@@ -37,8 +48,8 @@ function child(iframe: HTMLIFrameElement) {
       updates.push({ kind: "args", value: updatedArgs, phase: currentRender.phase });
     },
   };
-  Object.defineProperty(iframe, "contentWindow", { configurable: true, value: { __STORYBOOK_PREVIEW__: api } });
-  return { updates, currentRender, api };
+  Object.defineProperty(iframe, "contentWindow", { configurable: true, value: { __STORYBOOK_PREVIEW__: api, __STORYBOOK_ADDONS_CHANNEL__: channel } });
+  return { updates, currentRender, api, emit };
 }
 const defaults = { children: "Continue" };
 const props = {
@@ -162,7 +173,7 @@ test("unmount fences a pending restoration even if its old animation callback ru
   expect(callbacks.size).toBe(0);
 });
 
-test("a running play that later errors still fails the loaded frame", async () => {
+test("a running play that later errors stays live in the Library", async () => {
   const { view, preview } = mount();
   preview.currentRender.phase = "playing";
   tick();
@@ -170,7 +181,7 @@ test("a running play that later errors still fails the loaded frame", async () =
   expect(view.queryByRole("status")).toBeNull();
   preview.currentRender.phase = "errored";
   tick();
-  expect(view.getByRole("alert").textContent).toBe(`Story failed to render: ${item.story}`);
+  expect(view.queryByRole("alert")).toBeNull();
 });
 
 test("a rejected args restoration fails rather than silently dropping the restored state", async () => {
@@ -181,3 +192,102 @@ test("a rejected args restoration fails rather than silently dropping the restor
   await flush();
   expect(view.getByRole("alert").textContent).toBe("Could not apply args");
 });
+
+for (const change of ["args", "theme"]) {
+  for (const failure of ["playFunctionThrewException", "storyFinished", "aborted", "errored"]) {
+    test(`a ${change} update during play ignores ${failure} for the rest of the generation`, async () => {
+      const { view, preview, inputs } = mount({ args: defaults });
+      preview.currentRender.phase = "playing";
+      tick();
+      await flush();
+      view.rerender(<FrameSection {...inputs} {...(change === "args" ? { args: { children: "EDITED" } } : { theme: "light" })} />);
+      await flush();
+      expect(preview.updates).toHaveLength(1);
+      expect(preview.updates[0]?.phase).toBe("playing");
+      if (failure === "aborted" || failure === "errored") {
+        preview.currentRender.phase = failure;
+        tick();
+      } else {
+        preview.currentRender.phase = "finished";
+        tick();
+        preview.emit(failure, { storyId: item.story, status: "error", message: "Interrupted play" });
+      }
+      expect(view.queryByRole("alert")).toBeNull();
+      expect(view.getByTitle("Button · Default")).toBeDefined();
+      view.unmount();
+      expect(callbacks.size).toBe(0);
+    });
+  }
+}
+
+for (const failure of ["storyThrewException", "storyErrored", "preview-updated"]) {
+  test(`a render ${failure} after a user update during play still fails`, async () => {
+    const { view, iframe, preview, inputs } = mount({ args: defaults });
+    preview.currentRender.phase = "playing";
+    tick();
+    await flush();
+    view.rerender(<FrameSection {...inputs} theme="light" />);
+    await flush();
+    if (failure === "preview-updated") {
+      iframe.contentDocument!.body.textContent = "Failed to fetch dynamically imported module";
+      tick();
+    } else {
+      preview.emit(failure, { storyId: item.story, message: "Render failed" });
+    }
+    expect(view.getByRole("alert").textContent).toBe(failure === "preview-updated" ? "This preview was updated" : "Render failed");
+  });
+}
+
+for (const updatePhase of [null, "finished"]) {
+  test(`a play exception is ignored without an update during play (${updatePhase ?? "no update"})`, async () => {
+    const { view, preview, inputs } = mount({ args: defaults });
+    preview.currentRender.phase = updatePhase ?? "playing";
+    tick();
+    await flush();
+    if (updatePhase) {
+      view.rerender(<FrameSection {...inputs} theme="light" />);
+      await flush();
+    }
+    preview.currentRender.phase = "playing";
+    tick();
+    await flush();
+    preview.emit("playFunctionThrewException", { storyId: item.story, message: "Play failed" });
+    expect(view.queryByRole("alert")).toBeNull();
+  });
+}
+
+test("a user update queued before playing does not suppress a render error", async () => {
+  const { view, preview, inputs } = mount({ args: defaults });
+  view.rerender(<FrameSection {...inputs} theme="light" />);
+  await flush();
+  expect(preview.updates).toEqual([]);
+  preview.currentRender.phase = "errored";
+  tick();
+  expect(view.getByRole("alert").textContent).toBe(`Story failed to render: ${item.story}`);
+});
+
+for (const failure of ["storyThrewException", "load-error"]) {
+  test(`reload after interruption restores ${failure} monitoring`, async () => {
+    const { view, iframe, preview, inputs } = mount({ args: defaults });
+    preview.currentRender.phase = "playing";
+    tick();
+    await flush();
+    view.rerender(<FrameSection {...inputs} theme="light" />);
+    await flush();
+    preview.emit("playFunctionThrewException", { storyId: item.story, message: "Interrupted play" });
+    expect(view.queryByRole("alert")).toBeNull();
+    const reloaded = child(iframe);
+    fireEvent.load(iframe);
+    await flush();
+    if (failure === "load-error") {
+      reloaded.currentRender.phase = "errored";
+      tick();
+    } else {
+      reloaded.currentRender.phase = "playing";
+      tick();
+      await flush();
+      reloaded.emit(failure, { storyId: item.story, message: "Reloaded play failed" });
+    }
+    expect(view.getByRole("alert").textContent).toBe(failure === "load-error" ? `Story failed to render: ${item.story}` : "Reloaded play failed");
+  });
+}

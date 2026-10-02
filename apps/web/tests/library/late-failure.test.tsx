@@ -25,7 +25,7 @@ const tick = () => act(() => {
   for (const [id, callback] of [...callbacks]) { callbacks.delete(id); callback(0); }
 });
 const flush = () => act(async () => { await Promise.resolve(); });
-type Payload = { storyId?: string; status?: string; name?: string; message?: string; title?: string; description?: string };
+type Payload = { storyId?: string; status?: string; newPhase?: string; name?: string; message?: string; title?: string; description?: string };
 type Listener = (payload: Payload) => void;
 function child(iframe: HTMLIFrameElement) {
   const currentRender = { id: story, story: { id: story }, phase: "playing" };
@@ -65,7 +65,7 @@ async function revealed() {
   return { view, iframe, preview, props, settled: () => settled };
 }
 
-for (const event of ["playFunctionThrewException", "storyThrewException", "storyErrored"]) {
+for (const event of ["storyThrewException", "storyErrored"]) {
   test(`${event} after reveal displays its native error payload`, async () => {
     const { view, preview, settled } = await revealed();
     preview.emit(event, event === "storyErrored"
@@ -79,7 +79,7 @@ for (const event of ["playFunctionThrewException", "storyThrewException", "story
   });
 }
 
-for (const event of ["playFunctionThrewException", "storyThrewException", "storyErrored"]) {
+for (const event of ["storyThrewException", "storyErrored"]) {
   test(`${event} with a matching story id retains its message when the shared frame also reports failure`, async () => {
     const { view, preview } = await revealed();
     preview.emit(event, { storyId: story, message: "First failure" });
@@ -88,7 +88,7 @@ for (const event of ["playFunctionThrewException", "storyThrewException", "story
   });
 }
 
-test("an errored play that finishes between animation frames keeps its failure after restoration", async () => {
+test("an errored play that finishes between animation frames stays live after restoration", async () => {
   const { view, preview, props, settled } = await revealed();
   await flush();
   preview.currentRender.phase = "errored";
@@ -99,18 +99,18 @@ test("an errored play that finishes between animation frames keeps its failure a
   view.rerender(<FrameSection {...props} theme="light" args={{ children: "New args" }} />);
   tick();
   await flush();
-  expect(view.getByRole("alert").textContent).toBe("Fast play failure");
+  expect(view.queryByRole("alert")).toBeNull();
   expect(settled()).toBe(1);
 });
 
-test("storyFinished with error status fails even without an exception event", async () => {
+test("storyFinished with error status remains a best-effort demo", async () => {
   const { view, preview } = await revealed();
   preview.currentRender.phase = "finished";
   preview.emit("storyFinished", { storyId: story, status: "error" });
-  expect(view.getByRole("alert").textContent).toBe(`Story failed to render: ${story}`);
+  expect(view.queryByRole("alert")).toBeNull();
 });
 
-test("a persistent abort after an intermediate successful restore fails on the next poll", async () => {
+test("a persistent abort after a successful render stays live", async () => {
   const { view, preview, props, settled } = await revealed();
   preview.currentRender.phase = "finished";
   preview.emit("storyFinished", { storyId: story, status: "success" });
@@ -120,8 +120,9 @@ test("a persistent abort after an intermediate successful restore fails on the n
   expect(view.queryByRole("alert")).toBeNull();
   preview.currentRender.phase = "aborted";
   tick();
-  expect(view.getByRole("alert").textContent).toBe(`Story failed to render: ${story}`);
+  expect(view.queryByRole("alert")).toBeNull();
   expect(settled()).toBe(1);
+  view.unmount();
   expect(callbacks.size).toBe(0);
 });
 
@@ -135,7 +136,7 @@ test("events for another story and unscoped exceptions from another current rend
   tick();
   expect(view.queryByRole("alert")).toBeNull();
   preview.currentRender.story.id = story;
-  preview.emit("playFunctionThrewException", { message: "Matching failure" });
+  preview.emit("storyThrewException", { message: "Matching failure" });
   expect(view.getByRole("alert").textContent).toBe("Matching failure");
 });
 
@@ -151,7 +152,7 @@ test("reload removes old listeners and fences already queued events from the old
   await flush();
   expect(view.queryByRole("alert")).toBeNull();
   expect(view.queryByRole("status")).toBeNull();
-  reloaded.emit("playFunctionThrewException", { message: "New failure" });
+  reloaded.emit("storyThrewException", { message: "New failure" });
   expect(view.getByRole("alert").textContent).toBe("New failure");
 });
 
@@ -161,4 +162,26 @@ test("unmount removes listeners and cancels ongoing failure polling", async () =
   view.unmount();
   expect(preview.listenerCount()).toBe(0);
   expect(callbacks.size).toBe(0);
+});
+
+for (const event of ["playFunctionThrewException", "storyFinished"]) {
+  test(`${event} without user edits does not fail the Library frame`, async () => {
+    const { view, preview } = await revealed();
+    preview.emit(event, { storyId: story, status: "error", message: "Demo assertion failed" });
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.getByTitle("Button · Default")).toBeDefined();
+  });
+}
+
+test("a playing phase event preserves a fast abort between animation frames", async () => {
+  const { view, iframe } = await revealed();
+  const reloaded = child(iframe);
+  reloaded.currentRender.phase = "rendering";
+  fireEvent.load(iframe);
+  reloaded.emit("storyRenderPhaseChanged", { storyId: story, newPhase: "playing" });
+  reloaded.currentRender.phase = "aborted";
+  tick();
+  await flush();
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(view.queryByRole("status")).toBeNull();
 });

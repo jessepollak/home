@@ -4,7 +4,7 @@ import { LiveFrame } from "../board/live-frame";
 import type { Metric } from "../board/use-frame-loading";
 import { startRenderDeadline } from "../board/render-deadline";
 import { storyCanvasUrl } from "../board/url-state";
-import { watchFrameFailure, watchFrameLoaded } from "./frame-loading";
+import { isFrameLoaded, watchFrameFailure, watchFrameLoaded } from "./frame-loading";
 
 export type FrameSectionTarget = { story: string; component: string; label: string; changed: boolean };
 
@@ -70,6 +70,7 @@ export function FrameSection({ target, theme, args, initialArgs = {}, annotating
   const wanted = useRef({ args: JSON.stringify(args), theme });
   const edited = useRef({ args: false, theme: false });
   const generation = useRef(0);
+  const playback = useRef({ started: false });
   const loads = useRef(0);
   const stopRender = useRef<(() => void) | null>(null);
   const stopFailure = useRef<(() => void) | null>(null);
@@ -108,6 +109,7 @@ export function FrameSection({ target, theme, args, initialArgs = {}, annotating
   }), [item, target.component, target.label, target.changed, viewport]);
   const cancel = useCallback(() => {
     generation.current += 1;
+    playback.current = { started: false };
     stopRender.current?.();
     stopRender.current = null;
     stopFailure.current?.();
@@ -174,20 +176,21 @@ export function FrameSection({ target, theme, args, initialArgs = {}, annotating
       const load = generation.current;
       stopFailure.current = watchFrameFailure(frame.current!, item.story, (error) => {
         if (generation.current === load) fail(error);
-      });
+      }, playback.current);
       stopRender.current = watchFrameLoaded(frame.current!, item.story, (status, error) => {
         if (generation.current !== load) return;
         if (status !== "rendered") { fail(error); return; }
         stopDeadline.current?.();
         stopDeadline.current = null;
         setMetric((current) => ({ ...current, status: "rendered", renderedAt: performance.now() }));
-      });
+      }, playback.current);
     }
     if (patch.status !== "rendered") setMetric((current) => ({ ...current, ...patch }));
   }, [begin, fail, item.story]);
   const finish = useCallback((_: string, status: "rendered" | "errored", error?: string) => {
-    if (status === "errored") fail(error);
-  }, [fail]);
+    if (isFrameLoaded(previewApi(frame.current)?.currentRender, item.story)) playback.current.started = true;
+    if (status === "errored" && (!playback.current.started || error)) fail(error);
+  }, [fail, item.story]);
   useEffect(() => {
     if (!ready || appliedTheme.current === theme) return;
     const load = generation.current;
