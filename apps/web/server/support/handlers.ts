@@ -109,6 +109,8 @@ async function conversationId(context: Context, route: string): Promise<string |
   return uuid.test(id) ? id : fail(route, "NOT_FOUND", 404);
 }
 
+const SUPPORT_VIEW_AUDIT_WINDOW_SECONDS = 15 * 60;
+
 export function createCustomerSupportHandlers(deps: Dependencies = {}) {
   const GET = async (request: Request): Promise<Response> => run("/api/support", async () => {
     const access = await customer(request, deps, "/api/support", false);
@@ -244,6 +246,7 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
           return { handler: (await store.handlerForCustomer(resolved.id, { available: false, handoff: false }))?.handler ?? "operator", conversationId: conversation.id };
         }
         if (request.signal.aborted) return { handler: conversation.handler, conversationId: conversation.id };
+        if (!(await store.ownsAssistantRun(conversation.id, runId))) return { handler: (await store.handlerForCustomer(resolved.id, current.capability))?.handler ?? "operator", conversationId: conversation.id };
         assistant = current;
         let pending = "";
         let started = false;
@@ -285,7 +288,13 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
           if (!handled || handled.handler === "assistant") failed = true;
         }
         if (text) {
-          const saved = await (savedReply ??= store.saveAssistant(conversation.id, messageId, text, runId, failed));
+          let saved: Awaited<ReturnType<SupportStore["saveAssistant"]>>;
+          try {
+            saved = await (savedReply ??= store.saveAssistant(conversation.id, messageId, text, runId, failed));
+          } catch (error) {
+            writer.write({ type: "data-support", data: { handler: conversation.handler, conversationId: conversation.id, discardedMessageId: messageId } });
+            throw error;
+          }
           if (failed || saved === "discarded" || saved === "budget") {
             writer.write({ type: "data-support", data: { handler: (await store.handlerForCustomer(resolved.id, assistant.capability))?.handler ?? "operator", conversationId: conversation.id, discardedMessageId: messageId } });
             discardedMessageId = messageId;
@@ -421,7 +430,7 @@ export function createOperatorSupportConversationHandler(deps: Dependencies = {}
     if (!cursor) return fail("/api/admin/support/conversations/[id]", "INVALID_REQUEST", 400);
     const customerId = await access.store.customerIdForConversation(id);
     if (!customerId) return fail("/api/admin/support/conversations/[id]", "NOT_FOUND", 404);
-    await getAudit(deps).recordCustomerRead({ actor: access.address, customerId, purpose: "support" });
+    await getAudit(deps).recordCustomerRead({ actor: access.address, customerId, purpose: "support", repeatWithinSeconds: SUPPORT_VIEW_AUDIT_WINDOW_SECONDS });
     const result = await access.store.operatorConversation(id, cursor.before, await capability(deps));
     return result ? privateJson(result, 200) : fail("/api/admin/support/conversations/[id]", "NOT_FOUND", 404);
   });

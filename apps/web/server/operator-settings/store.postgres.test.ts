@@ -134,4 +134,17 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
     expect((await store.read("support")).settings.revision).toBe(1);
     expect((await audit.list()).entries).toHaveLength(before + 1);
   });
+
+  test("a repeated customer read inside its window records once per actor, customer and purpose", async () => {
+    const before = (await audit.list({ limit: 100 })).entries.length;
+    const other = `0x${"9".repeat(40)}` as const;
+    for (let index = 0; index < 3; index++) await audit.recordCustomerRead({ actor, customerId: "customer-2", purpose: "support", repeatWithinSeconds: 900 });
+    await audit.recordCustomerRead({ actor: other, customerId: "customer-2", purpose: "support", repeatWithinSeconds: 900 });
+    await audit.recordCustomerRead({ actor, customerId: "customer-3", purpose: "support", repeatWithinSeconds: 900 });
+    await audit.recordCustomerRead({ actor, customerId: "customer-2", purpose: "support" });
+    await expect(audit.recordCustomerRead({ actor, customerId: "customer-2", purpose: "support", repeatWithinSeconds: 0 })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
+    const entries = (await audit.list({ limit: 100 })).entries;
+    const reads = entries.slice(0, entries.length - before);
+    expect(reads.map((entry) => entry.action === "customer.read" ? `${entry.actor}:${entry.target.id}` : entry.action)).toEqual([`${actor}:customer-2`, `${actor}:customer-3`, `${other}:customer-2`, `${actor}:customer-2`]);
+  });
 });

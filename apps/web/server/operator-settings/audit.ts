@@ -13,10 +13,18 @@ type AuditRow = {
 export class AdminAuditLog {
   constructor(private readonly sql: SqlExecutor) {}
 
-  async recordCustomerRead(input: { actor: `0x${string}`; customerId: string; purpose: string }): Promise<void> {
+  async recordCustomerRead(input: { actor: `0x${string}`; customerId: string; purpose: string; repeatWithinSeconds?: number }): Promise<void> {
     if (input.customerId.length < 1 || input.customerId.length > 200 || input.purpose.length < 1 || input.purpose.length > 200 || input.purpose !== input.purpose.trim()) throw new OperatorSettingsValidationError("Invalid customer read");
+    if (input.repeatWithinSeconds !== undefined && (!Number.isSafeInteger(input.repeatWithinSeconds) || input.repeatWithinSeconds < 1)) throw new OperatorSettingsValidationError("Invalid customer read");
+    if (input.repeatWithinSeconds === undefined) {
+      await this.sql.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, purpose)
+        VALUES ($1, 'customer.read', 'customer', $2, $3)`, [input.actor, input.customerId, input.purpose]);
+      return;
+    }
     await this.sql.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, purpose)
-      VALUES ($1, 'customer.read', 'customer', $2, $3)`, [input.actor, input.customerId, input.purpose]);
+      SELECT $1, 'customer.read', 'customer', $2, $3
+      WHERE NOT EXISTS (SELECT 1 FROM admin_audit_log WHERE action='customer.read' AND actor=$1 AND target_id=$2 AND purpose=$3
+        AND occurred_at > now() - make_interval(secs => $4))`, [input.actor, input.customerId, input.purpose, input.repeatWithinSeconds]);
   }
 
   async list(input: { limit?: number; before?: string } = {}): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> {

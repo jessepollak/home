@@ -117,7 +117,7 @@ export class SupportStore {
           const source = input.context.kind === "funding_order"
             ? await tx.query("SELECT 1 FROM funding_orders WHERE id=$1::uuid AND account_provider=$2 AND owner_subject=$3", [input.context.id, session.accountProvider, session.user.subject])
             : owner ? await tx.query("SELECT 1 FROM actions WHERE id=$1::uuid AND owner_key=$2", [input.context.id, actionOwnerKey(owner)]) : null;
-          if (source?.rows.length) await tx.query(`INSERT INTO support_context_refs (id,conversation_id,message_id,kind,ref_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (conversation_id,kind,ref_id) DO NOTHING`, [crypto.randomUUID(), row.id, id, input.context.kind, input.context.id]);
+          if (source?.rows.length) await tx.query(`INSERT INTO support_context_refs (id,conversation_id,message_id,kind,ref_id) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (conversation_id,kind,ref_id) DO UPDATE SET message_id=EXCLUDED.message_id,created_at=EXCLUDED.created_at`, [crypto.randomUUID(), row.id, id, input.context.kind, input.context.id]);
         }
       }
       return { replayed: !!existing, messageId: id };
@@ -309,6 +309,11 @@ export class SupportStore {
       await tx.query("UPDATE support_conversations SET handler='operator',handed_off_at=clock_timestamp(),updated_at=clock_timestamp(),assistant_run_id=NULL,assistant_run_message_id=NULL,assistant_run_expires_at=NULL WHERE id=$1", [row.id]);
       return "ok";
     });
+  }
+
+  async ownsAssistantRun(id: string, runId: string): Promise<boolean> {
+    const result = await this.sql.query("SELECT 1 FROM support_conversations WHERE id=$1 AND assistant_run_id=$2 AND status='open'", [id, runId]);
+    return result.rows.length > 0;
   }
 
   async releaseAssistantRun(id: string, runId: string): Promise<void> {

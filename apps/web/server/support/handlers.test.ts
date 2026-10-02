@@ -38,6 +38,7 @@ function setup(mode: "operator" | "assistant" | "hybrid" = "hybrid", owner = ali
     assistantContext: async () => [],
     saveAssistant: async (_id: string, _mid: string, text: string) => { calls.push(`saved:${text}`); return "sent" as const; },
     releaseAssistantRun: async () => {},
+    ownsAssistantRun: async () => true,
     handoffCustomer: async (id: string, hybrid: boolean, pendingOnly?: boolean, targetMessageId?: string) => { calls.push(`handoff:${id}:${hybrid}`); handoffs.push([id, hybrid, pendingOnly, targetMessageId]); if (hybrid) currentHandler = "operator"; return hybrid ? "ok" as const : "conflict" as const; },
     handlerForCustomer: async () => ({ id: conversationId, handler: currentHandler }),
     customerIdForConversation: async (id: string) => id === conversationId ? owner : null,
@@ -537,6 +538,27 @@ expect(calls).not.toContain(`handoff:${bob}:false`);
     expect(attempts).toBe(2);
   });
 
+  test("a turn whose claim was superseded before the model call never calls the model", async () => {
+    const fixture = setup("assistant");
+    let modelCalls = 0;
+    const store = { ...fixture.store, ownsAssistantRun: async () => false } as unknown as SupportStore;
+    const counted = () => new MockLanguageModelV3({ doStream: async () => { modelCalls += 1; return { stream: simulateReadableStream({ chunks: [] }) }; } });
+    const response = await createCustomerSupportChatHandler({ ...fixture.options, store: () => store, model: counted })(request("support/chat", "POST", chat));
+    const events = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)) as { type: string });
+    expect(modelCalls).toBe(0);
+    expect(events.some((event) => event.type === "error" || event.type === "text-delta")).toBe(false);
+    expect(fixture.calls.some((call) => call.startsWith("saved:"))).toBe(false);
+  });
+  test("a streamed reply that fails to persist is identified for the client to discard", async () => {
+    const fixture = setup("assistant");
+    const store = { ...fixture.store, saveAssistant: async () => { throw new Error("database unavailable"); } } as unknown as SupportStore;
+    const response = await createCustomerSupportChatHandler({ ...fixture.options, store: () => store, model })(request("support/chat", "POST", chat));
+    const events = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)) as { type: string; id?: string; messageId?: string; data?: unknown });
+    const streamedId = events.find((event) => event.type === "start")?.messageId;
+    expect(streamedId).toBeDefined();
+    expect(events.some((event) => event.type === "error")).toBe(true);
+    expect(events.filter((event) => event.type === "data-support").map((event) => parseSupportStreamData(event.data)?.discardedMessageId)).toContain(streamedId);
+  });
   test("text streaming stops at 2000 characters and saves exactly the streamed text", async () => {
     const fixture = setup("assistant");
     let saved = "";

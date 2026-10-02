@@ -75,3 +75,5 @@ ALTER TABLE admin_audit_log ADD CONSTRAINT admin_audit_shape CHECK (
   OR (action = 'customer.read' AND target_kind = 'customer' AND purpose IS NOT NULL AND before IS NULL AND after IS NULL)
   OR (action IN ('support.credential.update', 'support.credential.delete') AND target_kind = 'settings' AND target_id = 'support-assistant-key' AND purpose IS NULL)
 );
+
+CREATE INDEX admin_audit_customer_read_recent ON admin_audit_log (actor, target_id, occurred_at DESC) WHERE action = 'customer.read';
