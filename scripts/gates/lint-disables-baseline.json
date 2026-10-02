@@ -239,6 +239,20 @@
       "reason": "Two reviewed home/no-silent-catch disables moved unchanged out of savings-actions.tsx with the lazily loaded amount/confirm step: a stale preparation and a stale dispatch fenced by a newer journey generation have no state to report."
     },
     {
+      "path": "apps/web/stories/review/explorations/library/foundations/foundations.tsx",
+      "rule": "jsx-a11y/no-noninteractive-tabindex",
+      "count": 1,
+      "issue": "#1632",
+      "reason": "Foundations reference scroll regions have no focusable content; axe scrollable-region-focusable requires keyboard focus"
+    },
+    {
+      "path": "apps/web/stories/review/explorations/library/overview/overview.tsx",
+      "rule": "jsx-a11y/no-noninteractive-tabindex",
+      "count": 1,
+      "issue": "#1632",
+      "reason": "Foundations reference scroll regions have no focusable content; axe scrollable-region-focusable requires keyboard focus"
+    },
+    {
       "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
       "rule": "home/no-real-waits",
       "count": 1,
