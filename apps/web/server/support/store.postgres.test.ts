@@ -8,7 +8,7 @@ import { moneyActionOwner } from "@/server/money-actions/session";
 import { readMigrationSql } from "@/tests/helpers/migrations";
 import { parseAuditListResponse } from "@/shared/operator-settings/contract";
 import { AdminAuditLog } from "@/server/operator-settings/audit";
-import { parseCustomerSupportResponse, parseOperatorSupportConversationResponse } from "@/shared/support/contract";
+import { parseCustomerSupportResponse, parseOperatorSupportConversationResponse, parseOperatorSupportListResponse } from "@/shared/support/contract";
 import { SupportRateLimitedError, SupportStore } from "./store";
 import { SupportAssistantStore } from "./assistant";
 import { createCustomerSupportChatHandler } from "./handlers";
@@ -99,6 +99,20 @@ describePostgres("support PostgreSQL contract", () => {
   });
   beforeEach(async () => { await sql.query("DELETE FROM customers"); });
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); await observer?.close(); });
+
+  test("inbox previews preserve whole code points within the 140-code-unit contract", async () => {
+    const c = await customer();
+    for (const [index, [body, preview]] of [
+      ["a".repeat(139) + "😀z", "a".repeat(139)],
+      ["a".repeat(138) + "😀z", "a".repeat(138) + "😀"],
+      ["😀".repeat(71), "😀".repeat(70)],
+    ].entries()) {
+      await store.sendCustomer(c.id, session(), { ...send(`emoji_000_${index}`), body });
+      const response = await store.list({ status: "all", limit: 10 });
+      expect(response.conversations[0].preview).toBe(preview);
+      expect(parseOperatorSupportListResponse(response)).not.toBeNull();
+    }
+  });
 
   test("read has no side effects, customer messages reopen, and both unread counters track reads", async () => {
     const c = await customer();
