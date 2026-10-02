@@ -209,6 +209,26 @@ describe("account resource failure tagging", () => {
       });
     }
   });
+  test.each([
+    [{ error: { code: "PRODUCT_NOT_OFFERED", message: "This is no longer offered." } }, "PRODUCT_NOT_OFFERED", "This is no longer offered."],
+    [{ error: { code: "PRODUCT_NOT_OFFERED", message: 42 } }, null, null],
+    [{ error: { code: "TRADE_QUOTE_STALE", message: "Get a new quote." } }, null, "Get a new quote."],
+    [{ error: { code: "UNAUTHENTICATED", message: "Sign in again." } }, null, "Sign in again."],
+  ] as const)("validates confirm error envelope %j", async (body, code, serverMessage) => {
+    const transport = await transportWith(async () => Response.json(body, { status: 409 }));
+    const error = await rejectionOf(transport.fetchAccountResource("/api/actions/example/confirm", { method: "POST", body: {} }));
+    expect(error).toBeInstanceOf(TransferExecutionError);
+    expect(error).toMatchObject({ kind: "http", status: 409, code, serverMessage });
+  });
+  test("parses a product-not-offered prepare error through the typed contract", async () => {
+    const transport = await transportWith(async () => Response.json(
+      { error: { code: "PRODUCT_NOT_OFFERED", message: "This is no longer offered." } },
+      { status: 409 },
+    ));
+    const error = await rejectionOf(transport.fetchMoneyActionApi("/api/actions/prepare", { method: "POST", body: "{}" }));
+    expect(error).toBeInstanceOf(TransferExecutionError);
+    expect(error).toMatchObject({ kind: "http", status: 409, code: "PRODUCT_NOT_OFFERED", serverMessage: "This is no longer offered." });
+  });
 });
 
 describe("wallet-free account resources", () => {

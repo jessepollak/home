@@ -8,6 +8,7 @@ import { encodeFunctionData, erc20Abi, keccak256 } from "viem";
 import { makePaymasterApproval } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { stockAssets } from "@/config/invest-assets";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
 import type { resolveConvertPair } from "@/shared/currencies/convert";
 import type { ActionRow } from "./store";
@@ -265,11 +266,14 @@ describe("trade confirmation", () => {
   test.each(["base-account", "cdp-embedded"] as const)("finalizes a fee-prepended %s trade with an exact call commitment", async (provider) => {
     const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
     const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    row.summary.metadata = { product: "trade", direction: "buy" } as TradeMoneyActionMetadata;
+    let offeringReads = 0;
     let committed = "";
     const handler = createConfirmActionHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider }),
       now: () => new Date("2026-09-25T12:01:00.000Z"),
       verifySmartAccountSignature: async ({ smartAccount, permitHash }) => smartAccount === OWNER && permitHash === HASH,
+      readOffering: async () => { offeringReads++; return resolveProductOffering({ kind: "deployment" }); },
       estimateBaseBatch: async () => BigInt(100_000), markHot: async () => {}, recordConfirmed: async () => {},
       store: { get: async () => row, confirm: async (_owner, _id, calls) => {
         committed = keccak256(encodeCoinbaseExecuteBatch(calls!));
@@ -294,7 +298,24 @@ describe("trade confirmation", () => {
     expect(body.calls[2].data).toStartWith("0x1234");
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
     expect(committed).toBe(keccak256(encodeCoinbaseExecuteBatch(body.calls)));
+    expect(offeringReads).toBe(1);
   });
+  test("confirms a stock sell without reading paused invest settings", async () => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = { product: "trade", direction: "sell", fromAsset: { address: stockAssets[0].contractAddress }, toAsset: { address: BASE_USDC_ADDRESS } } as unknown as TradeMoneyActionMetadata;
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    let reads = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"), markHot: async () => {}, recordConfirmed: async () => {},
+      verifySmartAccountSignature: async () => true,
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      store: { get: async () => row, confirm: async (_owner, _id, calls) => ({ ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending, calls: calls ?? [] } }) },
+    });
+    expect((await handler(request(signature, "cdp-embedded"), context)).status).toBe(200);
+    expect(reads).toBe(0);
+  });
+
   test.each(["base-account", "cdp-embedded"] as const)("finalizes the %s buy swap without changing the preceding operator transfer", async (provider) => {
     const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
     const recipient = "0x1234567890123456789012345678901234567890" as const;

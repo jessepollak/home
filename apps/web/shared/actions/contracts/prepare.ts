@@ -40,6 +40,18 @@ export function parsePrepareActionErrorResponse(value: unknown): PrepareActionEr
   return { error: { code, message } };
 }
 
+export const PRODUCT_NOT_OFFERED_CODE = "PRODUCT_NOT_OFFERED";
+export const PRODUCT_NOT_OFFERED_MESSAGE = "This is no longer offered.";
+
+export type ProductNotOfferedPrepareErrorResponse = { error: { code: typeof PRODUCT_NOT_OFFERED_CODE; message: string } };
+
+export function parseProductNotOfferedPrepareErrorResponse(value: unknown): ProductNotOfferedPrepareErrorResponse | null {
+  if (!isRecord(value) || !isRecord(value.error)) return null;
+  const { code, message } = value.error;
+  if (code !== PRODUCT_NOT_OFFERED_CODE || typeof message !== "string") return null;
+  return { error: { code: PRODUCT_NOT_OFFERED_CODE, message } };
+}
+
 export function validPrepared(
   value: unknown,
   session: VerifiedAccountSession,

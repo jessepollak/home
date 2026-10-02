@@ -1,6 +1,30 @@
 {
   "exceptions": [
     {
+      "path": "apps/web/server/actions/handler.test.ts",
+      "kind": "assertion",
+      "count": 5,
+      "reason": "Confirm-path rows pick one product branch with a deliberately partial money-action metadata literal; every union variant carries about a dozen required fields while the paused-entry check reads only product, marketId, vaultAddress, riskIncreased and direction, so narrowing needs complete per-product fixtures"
+    },
+    {
+      "path": "apps/web/server/actions/handler.trade.test.ts",
+      "kind": "assertion",
+      "count": 3,
+      "reason": "Trade confirm rows set a deliberately partial trade metadata literal to steer the buy, sell and replay branches; the trade variant carries twenty required quote fields the confirm path never reads"
+    },
+    {
+      "path": "apps/web/server/actions/prepare.test.ts",
+      "kind": "assertion",
+      "count": 5,
+      "reason": "Three setActionsStoreForTests doubles implement only insert (four assertion nodes across them), and ActionsStore is a class with private members, so no structural object satisfies it without a real instance; the fifth is a partial BorrowMarketSnapshot holding only the debt position the exit path reads"
+    },
+    {
+      "path": "apps/web/server/operator-settings/handlers.test.ts",
+      "kind": "assertion",
+      "count": 2,
+      "reason": "The products write test overrides one method on a fake store, and OperatorSettingsStore is a class with private members, so no structural object satisfies it without a real instance"
+    },
+    {
       "path": "apps/web/client/actions/money-action-outcome.test.tsx",
       "kind": "nonNull",
       "count": 3,

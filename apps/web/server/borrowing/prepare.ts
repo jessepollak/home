@@ -58,7 +58,8 @@ export async function prepareBorrowAction(input: {
   const totalBorrowAssets = BigInt(snapshot.state.totalBorrowAssetsRaw);
   const totalBorrowShares = BigInt(snapshot.state.totalBorrowSharesRaw);
   const borrowShares = BigInt(snapshot.position.borrowSharesRaw);
-  if (increasesBorrowRisk(operation, debt) && market.availability !== "enabled") {
+  const riskIncreased = increasesBorrowRisk(operation, debt);
+  if (riskIncreased && market.availability !== "enabled") {
     throw new BorrowPreparationError("unsupported-market", "This market is available only for risk reduction.");
   }
   const calls: MoneyActionDraft["calls"] = [];
@@ -130,7 +131,7 @@ export async function prepareBorrowAction(input: {
 
   const postRawMaximumDebt = borrowCapacityAssets(postCollateral, oraclePrice, market.lltvWad);
   const postHealth = healthFactorWad(postRawMaximumDebt, postDebt);
-  if (increasesBorrowRisk(operation, debt) && postDebt > BigInt(0) && (postHealth === null || postHealth < BORROW_HEALTH_FLOOR_WAD)) {
+  if (riskIncreased && postDebt > BigInt(0) && (postHealth === null || postHealth < BORROW_HEALTH_FLOOR_WAD)) {
     throw new BorrowPreparationError("limit-exceeded", "This action would leave the position below Home's 1.25 health factor floor.");
   }
   if (postHealth !== null && postHealth < BORROW_HEALTH_CRITICAL_WAD) warnings.push("This review leaves the position in the critical health band.");
@@ -148,7 +149,7 @@ export async function prepareBorrowAction(input: {
         kind: actionKindForBorrowOperation(operation), title, calls, amounts, warnings,
         expiresAt: new Date(now.getTime() + ACTION_EXPIRY_MS).toISOString(),
         metadata: {
-          product: "borrow", operation, marketId: market.marketId,
+          product: "borrow", operation, marketId: market.marketId, riskIncreased,
           loanAsset: { id: market.loanToken.id, symbol: market.loanToken.symbol },
           collateralAsset: { id: market.collateralToken.id, symbol: market.collateralToken.symbol },
           projectedHealthFactorWad: postHealth?.toString(10) ?? null,

@@ -28,7 +28,7 @@ import type { BorrowAssetRef, BorrowMarketId } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
 import type { BorrowOperation } from "@/shared/borrowing/types";
 import { formatHealthFactor, formatPresentationDate, formatPresentationFiat, formatWadPercent } from "@/shared/formatting";
-import { borrowableAssets, borrowDebtsMatchOverview, loanActions, openLoans, summarizeBorrowOverview, type BorrowableAsset, type OpenLoan } from "./borrow-overview-model";
+import { borrowMarketsOffered, borrowableAssets, borrowDebtsMatchOverview, loanActions, openLoans, summarizeBorrowOverview, type BorrowableAsset, type OpenLoan } from "./borrow-overview-model";
 
 const BorrowMoneyStep = deferStep(() => import("./borrow-money-dialog").then((module) => module.BorrowMoneyFlow));
 
@@ -250,7 +250,9 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
   const buy = { states: trade.states, intent: (assetId: string) => trade.intent(assetId, "buy"), open: (assetId: string, button: HTMLButtonElement) => trade.open(assetId, "buy", button) };
   const ready = status === "ready" && overview !== null;
   const complete = useMemo(() => ready && summarizeBorrowOverview(overview).completeness === "complete", [ready, overview]);
-  const showIntro = complete && loans.length === 0;
+  const offered = overview ? borrowMarketsOffered(overview) : true;
+  const showIntro = complete && loans.length === 0 && offered;
+  const paused = ready && !offered && summarizeBorrowOverview(overview).completeness !== "unavailable";
   const hasBorrowableAsset = assets.some((asset) => asset.kind === "held");
   const empty = !loans.length && !assets.some((asset) => asset.kind === "held" || asset.kind === "held-no-capacity");
   const held = assets.find((asset): asset is Extract<BorrowableAsset, { kind: "held" }> => asset.kind === "held" && asset.market.id === marketId);
@@ -365,10 +367,14 @@ export function BorrowOverview({ overview = null, borrowSummary, status = "ready
           ref: introActionRef,
         }}
       /> : null}
+      {paused ? <Card><CardContent><div className="space-y-1">
+        <p className="font-medium">New borrowing is paused</p>
+        <p className="text-sm text-muted-foreground">You can still repay or manage any loan you already have.</p>
+      </div></CardContent></Card> : null}
       {loans.length ? <section aria-labelledby={loansHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={loansHeadingId}>Open loans</HomeSectionHeading></CardHeader><CardContent inset="list"><ul className="list-none p-0">
         {loans.map((row) => <LoanRow key={row.market.id} row={row} regionId={regionId} resolution={assetMarkResolution} openMarket={openMarket} />)}
       </ul></CardContent></Card></section> : null}
-      {!showIntro && summarizeBorrowOverview(overview).completeness !== "unavailable" ? <section aria-labelledby={assetsHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={assetsHeadingId}>Assets you can borrow against</HomeSectionHeading></CardHeader>
+      {!showIntro && offered && summarizeBorrowOverview(overview).completeness !== "unavailable" ? <section aria-labelledby={assetsHeadingId}><Card className="gap-3"><CardHeader><HomeSectionHeading id={assetsHeadingId}>Assets you can borrow against</HomeSectionHeading></CardHeader>
         {empty ? <p className="px-4 text-sm text-muted-foreground">Add a supported asset to your wallet to borrow USDC.</p> : null}
         <CardContent inset="list"><ul className="list-none p-0"><AssetRows assets={assets} regionId={regionId} resolution={assetMarkResolution} openMarket={openMarket} buy={buy} empty={empty} /></ul></CardContent>
       </Card></section> : null}

@@ -1,9 +1,9 @@
 import "server-only";
 
 import { emitServerEvent } from "@/server/observability/log";
-import { cashoutPrepareErrorResponse, type PrepareActionResponse } from "@/shared/actions/contracts/prepare";
+import { PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE, cashoutPrepareErrorResponse, type PrepareActionResponse } from "@/shared/actions/contracts/prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { actionKindForBorrowOperation, parseBorrowActionIntent } from "@/shared/borrowing/types";
+import { actionKindForBorrowOperation, increasesBorrowRisk, parseBorrowActionIntent } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
@@ -16,8 +16,12 @@ import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { privateError, privateJson } from "@/server/http/private-response";
 import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepare";
 import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
-import { getBaseBorrowing } from "@/server/borrowing/rpc";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
+import { getVerifiedSaveVault } from "@/shared/savings/config";
+import { offeredMarketMode, offeredVaultMode, resolveProductOffering } from "@/shared/operator-settings/products";
+import { readProductOffering } from "@/server/operator-settings/offering";
+import { parseTradeActionParams } from "@/shared/trading/contract";
+import { getBaseBorrowing, type BorrowRpcReader } from "@/server/borrowing/rpc";
 import {
   CashoutPreparationError,
   prepareCashoutAction,
@@ -36,6 +40,9 @@ export function createPrepareActionHandler(dependencies: {
   prepareTrade?: typeof prepareTradeAction;
   prepareCardAllowance?: typeof prepareCardAllowanceAction;
   applyFee?: typeof applyNetworkFee;
+  readOffering?: typeof readProductOffering;
+  borrowRpc?: BorrowRpcReader;
+  prepareBorrow?: typeof prepareBorrowAction;
 }) {
   return async function POST(request: Request): Promise<Response> {
     const session = await authorizeSession(request, dependencies.authorize);
@@ -65,6 +72,7 @@ export function createPrepareActionHandler(dependencies: {
       if (body.kind === "card-allowance" && error instanceof MoneyActionIssueError) {
         return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits changed. Prepare again.", 503);
       }
+      if (error instanceof ProductNotOfferedError) return fail(PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE, 409);
       if (error instanceof NetworkFeeUnfundedError) return fail(error.code, error.message, 409);
       if (error instanceof NetworkFeeUnavailableError) return fail(NETWORK_FEE_UNAVAILABLE_CODE, error.message, 502);
       const tradeFailure = body.kind === "trade" ? tradePreparationResponse(error) : null;
@@ -106,12 +114,17 @@ async function prepare(
   kind: ActionKind,
   params: Record<string, unknown>,
   request: Request,
-  dependencies: { prepareSavings?: typeof prepareSavingsAction; prepareTrade?: typeof prepareTradeAction; prepareCardAllowance?: typeof prepareCardAllowanceAction; applyFee?: typeof applyNetworkFee },
+  dependencies: { prepareSavings?: typeof prepareSavingsAction; prepareTrade?: typeof prepareTradeAction; prepareCardAllowance?: typeof prepareCardAllowanceAction; applyFee?: typeof applyNetworkFee; readOffering?: typeof readProductOffering; borrowRpc?: BorrowRpcReader; prepareBorrow?: typeof prepareBorrowAction },
 ) {
   const signal = request.signal;
+  const offering = async () => {
+    try { return await (dependencies.readOffering ?? readProductOffering)(); }
+    catch { return resolveProductOffering({ kind: "unavailable" }); }
+  };
   const issue = async (draft: MoneyActionDraft) => issueMoneyAction(session, await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request }));
   if (kind === "card-allowance") return issue(await (dependencies.prepareCardAllowance ?? prepareCardAllowanceAction)(session, params, signal));
   if (kind === "send") {
+    if ((await offering()).products.send !== "on") throw new ProductNotOfferedError();
     return issue(await buildVerifiedSendMoneyActionDraft(params as TransferRequest, new Date(), { signal }));
   }
   if (kind === "cash-out") {
@@ -126,6 +139,13 @@ async function prepare(
       vaultAddress: params.vaultAddress as `0x${string}`,
       amountBaseUnits: params.amountBaseUnits as string,
     };
+    if (kind === "savings-deposit") {
+      const vault = typeof input.vaultAddress === "string" ? getVerifiedSaveVault(input.vaultAddress) : null;
+      if (vault) {
+        const current = await offering();
+        if (current.products.save !== "on" || offeredVaultMode(current, vault.id) !== "enabled") throw new ProductNotOfferedError();
+      }
+    }
     const draft = await (dependencies.prepareSavings ?? prepareSavingsAction)({ session, action: input, signal });
     return issue(draft);
   }
@@ -137,14 +157,27 @@ async function prepare(
     }
     const market = getBorrowMarketRef(request.marketId);
     if (!market) throw new BorrowPreparationError("unsupported-market", "The borrowing market is not configured.");
-    const rpc = getBaseBorrowing;
+    const rpc = dependencies.borrowRpc ?? getBaseBorrowing;
     const snapshot = await rpc.readSnapshot(session.smartAccount.address, market, signal);
-    const preparation = await prepareBorrowAction({ request, market, snapshot, rpc, signal });
+    const riskIncreasing = increasesBorrowRisk(request.operation, BigInt(snapshot.position.debtAssetsRaw));
+    const current = riskIncreasing ? await offering() : null;
+    const offered = current && offeredMarketMode(current, market.marketId) !== "enabled"
+      ? { ...market, availability: "reducing-only" as const } : market;
+    if (riskIncreasing && current?.products.borrow !== "on") throw new ProductNotOfferedError();
+    let preparation;
+    try { preparation = await (dependencies.prepareBorrow ?? prepareBorrowAction)({ request, market: offered, snapshot, rpc, signal }); }
+    catch (error) {
+      if (riskIncreasing && market.availability === "enabled" && offered.availability !== "enabled" &&
+        error instanceof BorrowPreparationError && error.code === "unsupported-market") throw new ProductNotOfferedError();
+      throw error;
+    }
     if (!preparation.fullySimulated) throw new BorrowPreparationError("simulation-failed", preparation.simulationGap ?? "Borrow execution is unavailable.");
     return issue(preparation.draft);
   }
   if (kind === "trade") {
     assertStockTradePrepareAllowed({ params, request });
+    const parsed = parseTradeActionParams(params);
+    if (parsed?.direction === "buy" && (await offering()).products.invest !== "on") throw new ProductNotOfferedError();
     const { draft, pending, callGasLimit } = await (dependencies.prepareTrade ?? prepareTradeAction)({ session, request, params, signal });
     const withFee = await (dependencies.applyFee ?? applyNetworkFee)(session, draft, { signal, request, callGasLimit });
     const sellTransfer = withFee.metadata?.product === "trade" && withFee.metadata.direction === "sell" &&
@@ -153,6 +186,8 @@ async function prepare(
   }
   throw new TypeError("Unsupported action kind.");
 }
+
+class ProductNotOfferedError extends Error {}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));

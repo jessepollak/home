@@ -31,6 +31,10 @@ export function summarizeBorrowOverview(overview: BorrowOverviewResponse) {
   };
 }
 
+export function borrowMarketsOffered(overview: BorrowOverviewResponse): boolean {
+  return overview.opportunities.some((entry) => entry.availability.mode === "enabled");
+}
+
 export function borrowDebtsMatchOverview(overview: BorrowOverviewResponse, debts: Extract<HomeMoneySummary["borrow"], { kind: "position" }>["debts"]): boolean {
   const owing = new Map<string, { baseUnits: bigint; decimals: number }>();
   for (const entry of overview.opportunities) {
