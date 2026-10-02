@@ -53,7 +53,7 @@ class SectionBoundary extends Component<SectionInputs & { story: string; childre
   }
 }
 
-function QueuedFrame({ root, slots, busy, story, component, changed, theme, args, initialArgs, annotating, frameSource, onUserInput, onEscape, onExitAnnotate }: {
+function QueuedFrame({ root, slots, busy, story, component, changed, theme, args, initialArgs, annotating, frameSource, onMeasured, onUserInput, onEscape, onExitAnnotate }: {
   root: HTMLElement | null;
   slots: FrameSlots;
   busy: { current: Set<string> };
@@ -65,6 +65,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
   initialArgs: Record<string, unknown>;
   annotating: boolean;
   frameSource: "story" | "blank";
+  onMeasured: (story: string) => void;
   onUserInput: () => void;
   onEscape: () => void;
   onExitAnnotate: () => void;
@@ -135,16 +136,23 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
   useEffect(() => { if (visible) slots.prioritize(); }, [visible, nearby, slots]);
   const fullHeight = story.portals || story.layout === "fullscreen";
   const [height, setHeight] = useState(FRAME_MIN_HEIGHT);
-  const [available, setAvailable] = useState(FRAME_WIDTH);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const available = measuredWidth ?? FRAME_WIDTH;
   useLayoutEffect(() => {
     const node = container.current;
     if (!node) return;
-    const measure = () => setAvailable(node.clientWidth || FRAME_WIDTH);
+    const measure = () => {
+      const next = node.clientWidth || FRAME_WIDTH;
+      setMeasuredWidth((current) => current === next ? current : next);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+  useLayoutEffect(() => {
+    if (measuredWidth !== null) onMeasured(story.id);
+  }, [measuredWidth, onMeasured, story.id]);
   const width = framedWidth(available);
   const viewport = useMemo(() => story.viewport ?? { width,
     height: fullHeight ? fittedFrameHeight(0, story.portals, story.layout === "fullscreen") : height },
@@ -158,7 +166,8 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
       const doc = frame.contentDocument;
       const content = doc?.getElementById("storybook-root");
       if (!doc || !content) return;
-      setHeight(fittedFrameHeight(content.scrollHeight, false));
+      const next = fittedFrameHeight(content.scrollHeight, false);
+      setHeight((current) => current === next ? current : next);
     } catch {
       setHeight(fittedFrameHeight(Number.NaN, false));
     }
@@ -198,15 +207,49 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
   const busy = useRef(new Set<string>());
   const onUserInput = useFrameScrollGuard(root, busy);
   const restored = useRef(false);
+  const [measured, setMeasured] = useState(() => new Set<string>());
+  const onMeasured = useCallback((story: string) => {
+    setMeasured((current) => current.has(story) ? current : new Set([...current, story]));
+  }, []);
+  const focusIndex = stories.findIndex((story) => story.id === focused);
+  const measurementsReady = stories.slice(0, focusIndex + 1).every((story) => !story.frame || measured.has(story.id));
   useLayoutEffect(() => {
     if (!root || restored.current) return;
-    restored.current = true;
-    if (focused) {
-      const section = [...root.querySelectorAll<HTMLElement>("[data-library-section]")]
-        .find((node) => node.dataset.librarySection === focused);
-      section?.scrollIntoView({ block: "start", behavior: "instant" });
+    if (!focused) { restored.current = true; return; }
+    let animation: number | undefined;
+    let cancelled = false;
+    const cancel = () => {
+      cancelled = true;
+      restored.current = true;
+      if (animation !== undefined) cancelAnimationFrame(animation);
+    };
+    const events = ["wheel", "touchstart", "pointerdown"] as const;
+    for (const event of events) root.addEventListener(event, cancel, { passive: true });
+    root.ownerDocument.addEventListener("keydown", cancel, true);
+    if (measurementsReady) {
+      animation = requestAnimationFrame(() => {
+        if (cancelled) return;
+        restored.current = true;
+        const section = [...root.querySelectorAll<HTMLElement>("[data-library-section]")]
+          .find((node) => node.dataset.librarySection === focused);
+        if (!section) return;
+        const offset = section.getBoundingClientRect().top + root.scrollTop;
+        onUserInput();
+        section.scrollIntoView({ block: "start", behavior: "instant" });
+        animation = requestAnimationFrame(() => {
+          if (cancelled || section.getBoundingClientRect().top + root.scrollTop === offset) return;
+          onUserInput();
+          section.scrollIntoView({ block: "start", behavior: "instant" });
+        });
+      });
     }
-  }, [root, focused]);
+    return () => {
+      cancelled = true;
+      if (animation !== undefined) cancelAnimationFrame(animation);
+      for (const event of events) root.removeEventListener(event, cancel);
+      root.ownerDocument.removeEventListener("keydown", cancel, true);
+    };
+  }, [root, focused, measurementsReady, onUserInput]);
   const initialArgs = useMemo(() => new Map(stories.map((story) =>
     [story.id, storyArgs(propControls(story.argTypes, story.initialArgs), story.initialArgs, {})])), [stories]);
   return <div className={styles.sheet}>{stories.map((story) => {
@@ -225,7 +268,7 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
       <div className={styles.sectionStage} data-layout={reason ? "frame" : story.layout}>
         {reason ? <QueuedFrame root={root} slots={slots} busy={busy} story={story} component={component} changed={changed} theme={theme}
           args={args} initialArgs={initialArgs.get(story.id) ?? {}} annotating={annotating} frameSource={frameSource} onUserInput={onUserInput}
-          onEscape={onEscape} onExitAnnotate={onExitAnnotate} /> :
+          onMeasured={onMeasured} onEscape={onEscape} onExitAnnotate={onExitAnnotate} /> :
             <div className={styles.sectionBody} data-layout={story.layout} data-library-story=""
               inert={annotating || undefined}>
               <SectionBoundary story={story.id} Story={story.Story} theme={theme} args={isFocused ? focusedArgs : null}>

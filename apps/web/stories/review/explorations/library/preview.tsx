@@ -89,8 +89,10 @@ export function FrameSection({ target, theme, args, initialArgs = {}, annotating
     if (wanted.current.theme !== theme) edited.current.theme = true;
     wanted.current = { args: serialized, theme };
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (metric.status === "rendered" && frame.current) rendered.current?.(frame.current);
+  }, [metric.status, viewport.width]);
+  useEffect(() => {
     if ((metric.status === "rendered" || metric.status === "errored") && !released.current) {
       released.current = true;
       settled.current();

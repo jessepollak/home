@@ -251,14 +251,19 @@ test("restored focus scrolls once, then awaits admission; later selection does n
   document.body.append(root);
   try {
     const view = sheet([story("first"), story("restored")], "restored", root);
+    expect(scroll).toHaveBeenCalledTimes(0);
+    tick();
     expect(scroll).toHaveBeenCalledTimes(1);
     expect(scroll.mock.contexts[0]).toBe(view.container.querySelector('[data-library-section="restored"]'));
     expect(scroll).toHaveBeenCalledWith({ block: "start", behavior: "instant" });
     expect(view.container.querySelector("iframe")).toBeNull();
     expect(deadlines.size).toBe(0);
+    tick();
+    expect(scroll).toHaveBeenCalledTimes(1);
     show(1);
     expect(view.getByTitle("Fixture · restored")).toBeTruthy();
     view.update({ focused: "first" });
+    tick();
     expect(scroll).toHaveBeenCalledTimes(1);
   } finally { scroll.mockRestore(); root.remove(); }
 });
