@@ -10,12 +10,12 @@ export function ShimmerRows({ count = 0, variant = "rows" }: { count?: number; v
   return (
     <div className="flex w-full flex-col" aria-busy="true">
       {Array.from({ length: count }, (_, index) => (
-        <Item key={index} size="sm" className="flex-nowrap" data-shimmer="row">
+        <Item key={index} className="flex-nowrap gap-3 py-2" data-shimmer="row">
           <ItemMedia><CurrencyMark pending /></ItemMedia>
           <ItemContent>
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-28" />
-              <Skeleton className="h-3 w-20" />
+            <div className="flex flex-col gap-0.5">
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="h-5 w-20" />
             </div>
           </ItemContent>
           <Skeleton className="h-4 w-16" />

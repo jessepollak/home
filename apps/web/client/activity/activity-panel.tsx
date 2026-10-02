@@ -92,6 +92,7 @@ export function ActivityPanelView({
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
 }) {
+  const [revealed, setRevealed] = useState(false);
   const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(() => initialDetailItem
     ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem } : null);
   const [detailsOpen, setDetailsOpen] = useState(initialDetailItem !== null);
@@ -209,7 +210,8 @@ export function ActivityPanelView({
   const plain = density === "feed";
   const onchainUnavailable = activity.status === "ready" && activity.page.onchainStatus === "unavailable";
   const latestUnavailable = activity.status === "ready" && activity.latestUnavailable === true;
-  const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
+  const sourcesPending = activity.status === "loading" || actionsStatus === "loading" || ordersStatus === "loading";
+  if (!revealed && !sourcesPending) setRevealed(true);
   const retryFailedSources = () => {
     if (activity.status === "error" || onchainUnavailable || latestUnavailable) activity.retry();
     if (actionsStatus === "error") retryActions?.();
@@ -229,7 +231,7 @@ export function ActivityPanelView({
     );
   }
 
-  if (sourcesPending || ordersStatus === "loading" && !hasRows) {
+  if (sourcesPending && (!revealed || !hasRows)) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sources={sources} sectionRef={sectionRef}>
         <ShimmerRows count={plain ? 3 : 4} />
@@ -270,7 +272,7 @@ export function ActivityPanelView({
   ) : null;
   return (
     <>
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sources={sources} sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy={sourcesPending} rows={hasRows} sources={sources} sectionRef={sectionRef}>
         {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date.</p> : null}
         {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
