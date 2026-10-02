@@ -19,12 +19,6 @@
       "reason": "FieldLabel forwards htmlFor and children to the owned Label, which the label rule now recognizes; consumers associate the control."
     },
     {
-      "path": "apps/web/app/admin/operator-shell.tsx",
-      "kind": "suppression",
-      "count": 1,
-      "reason": "An unreadable support summary clears the badge to unknown and the 30 s poll retries; the home/no-silent-catch directive carries that reason inline"
-    },
-    {
       "path": "apps/web/client/support/support-chat.tsx",
       "kind": "assertion",
       "count": 1,
@@ -37,12 +31,6 @@
       "reason": "The preceding guard throws when the response carries no conversation, so that response's conversation is present for the history merge and its cursor"
     },
     {
-      "path": "apps/web/client/support/support-chat.tsx",
-      "kind": "suppression",
-      "count": 1,
-      "reason": "A failed read receipt is retried whenever the unread message is next visible; the home/no-silent-catch directive carries that reason inline"
-    },
-    {
       "path": "apps/web/server/http/same-origin-mutation.ts",
       "kind": "assertion",
       "count": 1,
@@ -53,12 +41,6 @@
       "kind": "nonNull",
       "count": 2,
       "reason": "A store send response always carries its conversation, and the assistant key is present exactly when the capability check proved the sealed envelope opened; neither invariant fits the stored type"
-    },
-    {
-      "path": "apps/web/server/support/handlers.ts",
-      "kind": "suppression",
-      "count": 1,
-      "reason": "The abort path only releases the claim after the request itself ended; the home/no-silent-catch directive carries that reason inline"
     },
     {
       "path": "apps/web/server/support/store.ts",
