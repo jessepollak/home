@@ -23,6 +23,7 @@ import { CurrencyMark } from "@/components/currency-mark";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
+import { useOptionalSupport } from "@/client/support/support-provider";
 import type { AppearancePreference } from "@/shared/appearance/preference";
 import {
   presentationRegions,
@@ -125,6 +126,7 @@ export function AccountSettings({
   onSignOut: () => void;
 }) {
   const [appearanceMessage, setAppearanceMessage] = useState("");
+  const support = useOptionalSupport();
   const region = presentationRegions[regionId];
   const basenameProfile = useBasenameProfile({
     ownerKey: accountOwnerKey,
@@ -218,6 +220,54 @@ export function AccountSettings({
           </AlertDescription>
         </Alert>
       </section>
+
+      {support ? (
+        <section className="space-y-3" aria-labelledby="support-heading">
+          <h2 id="support-heading" className="text-lg font-semibold">
+            Support
+          </h2>
+          <Card>
+            <CardContent inset="list">
+              <Item className="min-w-0">
+                <ItemContent className="min-w-0">
+                  <ItemTitle>Support</ItemTitle>
+                  <ItemDescription>Message us</ItemDescription>
+                </ItemContent>
+                {support.unreadCount !== null && support.unreadCount > 0 ? (
+                  <ItemActions>
+                    <span className="text-sm text-muted-foreground tabular-nums">{support.unreadCount} unread</span>
+                  </ItemActions>
+                ) : null}
+              </Item>
+              <Item>
+                <ItemContent className="min-w-0">
+                  <Button
+                    variant="outline"
+                    size="touch"
+                    className="w-full justify-start"
+                    aria-label={support.unreadCount !== null && support.unreadCount > 0 ? `Support, ${support.unreadCount} unread ${support.unreadCount === 1 ? "message" : "messages"}` : "Support"}
+                    onClick={() => support.openSupport()}
+                  >
+                    Message support
+                  </Button>
+                </ItemContent>
+              </Item>
+              {support.summaryFailed ? (
+                <Item>
+                  <ItemContent className="min-w-0">
+                    <ItemDescription>Couldn&apos;t check messages</ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <Button variant="outline" size="touch" onClick={support.retrySummary} aria-label="Retry checking support messages">
+                      Retry
+                    </Button>
+                  </ItemActions>
+                </Item>
+              ) : null}
+            </CardContent>
+          </Card>
+        </section>
+      ) : null}
 
       <section className="space-y-3" aria-labelledby="account-heading">
         <h2 id="account-heading" className="text-lg font-semibold">

@@ -4,7 +4,7 @@ import { registerDomTestCleanup } from "@/tests/helpers/dom-test-cleanup";
 
 if (typeof window === "undefined") {
   const serverFetchDescriptors = Object.fromEntries(
-    ["AbortController", "AbortSignal", "Headers", "Request", "Response"].map((name) => [
+    ["AbortController", "AbortSignal", "Headers", "Request", "Response", "ReadableStream", "WritableStream", "TransformStream", "TextDecoderStream", "TextEncoderStream"].map((name) => [
       name,
       Object.getOwnPropertyDescriptor(globalThis, name),
     ]),

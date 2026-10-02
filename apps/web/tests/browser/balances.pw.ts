@@ -391,7 +391,7 @@ test("cached Home HTML contains money before React hydration", async ({ browser,
   const summary = presentation.summary;
   const total = presentation.displayTotal;
   if (!summary || total === null) throw new Error("Summary fixture invalid");
-  const value = encodeHomeSummaryCookie({ version: 1, owner: dataOwnerKey(session), region: "US", updatedAt: now, presentation: { ...presentation, status: "ready", summary },
+  const value = encodeHomeSummaryCookie({ version: 2, owner: dataOwnerKey(session), region: "US", updatedAt: now, presentation: { ...presentation, status: "ready", summary },
     rates: { cash: { value: "3.50% APY", updatedAt: now }, borrow: { value: "3.15% APR", updatedAt: now } } });
   if (!value || !baseURL) throw new Error("Summary fixture unavailable");
   const noScript = await browser.newContext({ extraHTTPHeaders: { "x-vercel-ip-country": "US" }, viewport: { width: 390, height: 844 } });

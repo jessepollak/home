@@ -6,7 +6,8 @@ import { restoreHoldingReturn } from "@/client/investments/restore-holding-retur
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { AccountSettings } from "@/client/account/account-settings";
-import { dataOwnerKey } from "@/client/account/owner-keys";
+import { dataOwnerKey, supportOwnerKey } from "@/client/account/owner-keys";
+import { SupportProvider } from "@/client/support/support-provider";
 import { useAppearance } from "@/client/appearance/use-appearance";
 import { borrowPanelId, cashPanelId, investmentsPanelId, isHomeNestedPanelId, nestedHomePanelTitle, type ShellPanelId } from "@/config/navigation";
 import { backClientHistory, commitClientUrl, commitFlowUrl, flowHref, parseShellLocation, parseShellOverlayIntent, readClientHistoryFlag, readShellHistoryOrigin, shellHref, withoutFlowHref, writeShellHistoryOrigin, type ShellFlow } from "@/config/shell-location";
@@ -403,6 +404,7 @@ function DashboardShellBody({
   }) : null;
 
   return <HomeShellRoutingProvider value={routingValue}><ShellPageProvider value={pageValue}>
+    <SupportProvider ownerKey={supportOwnerKey(account)} fetchAccountResource={account.fetchAccountResource} fetchAccountResponse={account.fetchAccountResponse}>
     <div ref={shellRef} className="flex min-h-svh flex-col bg-muted [--shell-scrollbar-width:0px] lg:flex-row">
       {!isSignedOut ? <PrimaryNavigation layout="rail" cardsEnabled={cardsEnabled} activeNavigation={activeNavigation} onNavigate={navigateTo}
         isAccountSettingsOpen={isAccountSettingsOpen} account={isAccountRailBusy || isSignedInAccount ? {
@@ -472,5 +474,6 @@ function DashboardShellBody({
           onVerified={() => window.location.replace("/home")} />
       </div>
     </div>
+    </SupportProvider>
   </ShellPageProvider></HomeShellRoutingProvider>;
 }
