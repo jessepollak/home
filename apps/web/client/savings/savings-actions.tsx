@@ -41,6 +41,7 @@ export type SavingsActionMode = "deposit" | "withdraw";
 export type SavingsJourneyEntry = "management" | "amount";
 
 export type SavingsJourneyProps = {
+  opener?: HTMLElement | null;
   open: boolean;
   entry: SavingsJourneyEntry;
   management: SavingsManagement | null;
@@ -132,6 +133,7 @@ function SavingsVaultPicker({ picker, mode, titleId, onIntent }: {
 
 function OwnerBoundSavingsJourney({
   open,
+  opener = null,
   entry,
   management,
   titleId = "savings-action-title",
@@ -163,7 +165,7 @@ function OwnerBoundSavingsJourney({
 
   return (
     <MoneyMotionProvider reducedMotion={motion === "reduced" ? true : undefined}>
-      <MoneyModal open={open} immediate={motion === "reduced"} labelledBy={titleId} onCancel={onClose} onClose={() => onClosed?.()}>
+      <MoneyModal open={open} opener={opener} immediate={motion === "reduced"} labelledBy={titleId} onCancel={onClose} onClose={() => onClosed?.()}>
         {mode === null && management ? <MoneyModalStep step="management" depth={0} initialFocusRef={managementFocusRef}>
           <SavingsManagementSheet management={management} titleId={titleId} detailsId={detailsId}
             detailsOpen={detailsOpen} onDetailsOpenChange={setDetailsOpen} initialFocusRef={managementFocusRef}

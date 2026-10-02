@@ -7,7 +7,7 @@
   1. `goto "/cash/savings?flow=save-deposit"`
   2. `expect "Deposit"`; in-app entry from `/cash/savings` opens a `Manage <vault>` row, then `Deposit more`. On a verified-empty account with no pending deposits and resolved history start from the intro: Start saving opens the vault picker, and picking a vault opens the amount step.
   3. `fill "Amount" "0.1"`, `click "Continue"`, `expect "Confirm"`. With no eligible cash the picker offers Add money instead of a selectable vault.
-  4. `expect "From"`; `expect "Gauntlet USDC Prime"`; `expect "Base (8453)"`; `expect "Rate"`; `expect "3.50% APY at last update"`; `expect "Vault fee"`; `expect "10%"`.
+  4. `expect "From"`; `expect "Gauntlet USDC Prime"`; `expect "Base (8453)"`; `expect "Rate"`; `expect "3.50% APY at last update"`; `expect "Vault fee"`; `expect "10.00%"`.
   5. `expect "Network fee"`; `expect "Up to 0.02 USDC · ≈ $0.02"`; `expect "Deposit $0.10"`.
 - **Reach (replay: convert)**: fixture Convert from USD to EUR, stopping at the review before the marked control.
   1. `goto "/cash"`

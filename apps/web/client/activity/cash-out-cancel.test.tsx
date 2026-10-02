@@ -1,5 +1,5 @@
 import "@/client/account/dom-test-harness";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { AccountWalletContext, type AccountWalletClient } from "@/client/account/cdp-client";
 import { HomeShellRoutingProvider, type HomeInboundPanelState } from "@/client/home/panel-routing";
 import { ConnectedActivityPanel } from "@/client/home/activity-panel";
@@ -14,6 +14,8 @@ import type { ReactNode } from "react";
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 beforeEach(() => { (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED = true; });
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); delete (globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean }).BASE_UI_ANIMATIONS_DISABLED; });
+beforeAll(async () => { await import("@/client/activity/activity-ledger-sheet"); });
+
 const session = { user: { subject: cashoutFixtureAction.owner.subject }, smartAccount: { address: cashoutFixtureAction.owner.address as `0x${string}`, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
 
 function deferred<T>() {
