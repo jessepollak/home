@@ -55,6 +55,8 @@ function findExecutable(
   return undefined;
 }
 
+const regression = process.env.HOME_PLAYWRIGHT_REGRESSION === "1";
+const productionNavigation = process.env.HOME_PLAYWRIGHT_PRODUCTION === "1";
 const executablePath = cachedChromiumExecutable();
 const fixturePort = resolveFixturePort(process.env.HOME_FIXTURE_PORT);
 process.env.HOME_FIXTURE_PORT = fixturePort;
@@ -88,16 +90,22 @@ process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
 process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
-  globalSetup: "./tests/browser/global-setup.ts",
+  globalSetup: regression ? "./tests/browser/global-setup.ts" : productionNavigation ? undefined : "./tests/browser/smoke-setup.ts",
   testDir: "./tests/browser",
   testMatch: "**/*.pw.ts",
-  fullyParallel: false,
-  workers: 1,
-  // Hosted runners are slower and render fonts differently. A real failure fails
-  // every attempt; a pass only on retry fails CI. Failed attempts keep trace + video.
-  ...browserSmokeCiPolicy(Boolean(process.env.CI)),
+  fullyParallel: !regression && !productionNavigation,
+  workers: regression || productionNavigation ? 1 : 2,
+  globalTimeout: !regression && !productionNavigation && process.env.CI ? 90_000 : undefined,
+  ...browserSmokeCiPolicy(Boolean(process.env.CI), { rejectRetryOnlyPass: regression }),
+  ...(productionNavigation ? {
+    retries: 0,
+    outputDir: "test-results/production-navigation",
+    reporter: [["list"], ["json", { outputFile: "test-results/production-navigation.json" }]],
+  } satisfies Parameters<typeof defineConfig>[0] : {}),
   webServer: {
-    command: `bun run dev -- --port ${fixturePort}`,
+    ...(productionNavigation
+      ? { command: `./node_modules/.bin/next build && ./node_modules/.bin/next start --hostname 127.0.0.1 --port ${fixturePort}`, timeout: 900_000 }
+      : { command: `bun run dev -- --port ${fixturePort}` }),
     url: fixtureBaseUrl,
     reuseExistingServer: false,
     env: {
@@ -114,7 +122,8 @@ export default defineConfig({
     baseURL: fixtureBaseUrl,
     headless: true,
     trace: "retain-on-failure",
-    video: "retain-on-failure",
+    video: productionNavigation ? "retain-on-failure" : "off",
+    screenshot: "only-on-failure",
     storageState: {
       cookies: [{
         name: "home-access",
@@ -131,10 +140,13 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium-smoke",
+      name: productionNavigation ? "chromium-production-navigation" : "chromium-smoke",
+      ...(productionNavigation
+        ? { testMatch: "shell-pages.pw.ts", grep: /production:/ }
+        : { grep: regression ? undefined : /@smoke/, grepInvert: /production:/ }),
       use: {
         browserName: "chromium",
-        launchOptions: executablePath ? { executablePath } : undefined,
+        launchOptions: !productionNavigation && executablePath ? { executablePath } : undefined,
       },
     },
   ],

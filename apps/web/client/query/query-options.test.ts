@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { skipToken, type InfiniteData, type QueryKey } from "@tanstack/react-query";
+import { QueryObserver, skipToken, type InfiniteData, type QueryKey } from "@tanstack/react-query";
 import { createHomeQueryClient, ownerQueryKey, ownerQueryMeta } from "./query-client";
 import { ownerInfiniteQuery, ownerQuery, publicInfiniteQuery, publicQuery } from "./query-options";
 import { queryScopes, type OwnerQueryScope } from "./query-scopes";
@@ -25,6 +25,48 @@ test("owner query receives its owner and signal with registered key, meta, and s
   expect(await client.fetchQuery(options)).toEqual({ total: 3 });
   expect(String(receivedOwner)).toBe(owner);
   expect(receivedSignal).toBeInstanceOf(AbortSignal);
+  client.clear();
+});
+
+test("borrow market observers revalidate a seeded cache on every mount", async () => {
+  const client = createHomeQueryClient();
+  let reads = 0;
+  const options = ownerQuery({ owner, scope: "borrow-market", key: ["market-1"],
+    queryFn: async () => `detail-${++reads}` });
+  expect(options.meta).toEqual(ownerQueryMeta(owner, "owner"));
+  client.setQueryData(options.queryKey, "seeded-detail");
+  const first = new QueryObserver(client, options);
+  const unsubscribeFirst = first.subscribe(() => {});
+  expect(reads).toBe(1);
+  await first.refetch({ cancelRefetch: false });
+  expect(first.getCurrentResult().data).toBe("detail-1");
+  unsubscribeFirst();
+  const second = new QueryObserver(client, options);
+  const unsubscribeSecond = second.subscribe(() => {});
+  expect(reads).toBe(2);
+  await second.refetch({ cancelRefetch: false });
+  expect(second.getCurrentResult().data).toBe("detail-2");
+  unsubscribeSecond();
+  client.clear();
+});
+
+test.each([invalidateAfterAction, invalidateIndexedScopes])("action convergence revalidates active market detail without touching another owner", async (invalidate) => {
+  const client = createHomeQueryClient();
+  let reads = 0;
+  const options = ownerQuery({ owner, scope: "borrow-market", key: ["market-1"],
+    queryFn: async () => `detail-${++reads}` });
+  const otherKey = ownerQueryKey("owner-b", "borrow-market", "market-1");
+  client.setQueryData(otherKey, "other-owner-detail");
+  const observer = new QueryObserver(client, options);
+  const unsubscribe = observer.subscribe(() => {});
+  await observer.refetch({ cancelRefetch: false });
+  expect(observer.getCurrentResult().data).toBe("detail-1");
+  await invalidate(client, owner);
+  expect(reads).toBe(2);
+  expect(observer.getCurrentResult().data).toBe("detail-2");
+  expect(client.getQueryState(otherKey)?.isInvalidated).toBe(false);
+  expect(client.getQueryData<string>(otherKey)).toBe("other-owner-detail");
+  unsubscribe();
   client.clear();
 });
 

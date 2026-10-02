@@ -19,6 +19,9 @@ function record(value: unknown): value is Record<string, unknown> {
 function uint(value: unknown, positive = false): value is string {
   return typeof value === "string" && integer.test(value) && BigInt(value) <= (BigInt(1) << BigInt(256)) - BigInt(1) && (!positive || BigInt(value) > BigInt(0));
 }
+function parseCurrencyRecordId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 64 ? value : null;
+}
 function parseAsset(value: unknown): TradeAssetRef | null {
   const tokenAddress = record(value) ? parseAddress(value.address) : null;
   if (!record(value) || typeof value.id !== "string" || !value.id || value.id === "usdc" ||
@@ -67,6 +70,8 @@ export function parseTradeMetadata(value: unknown): TradeMoneyActionMetadata | n
     (value.assetId !== undefined && value.assetName === undefined)) return null;
   const operatorFee = value.operatorFee === undefined ? null : parseOperatorFeeRecord(value.operatorFee);
   if (value.operatorFee !== undefined && !operatorFee) return null;
+  const currencyRecordId = value.currencyRecordId === undefined ? null : parseCurrencyRecordId(value.currencyRecordId);
+  if (value.currencyRecordId !== undefined && !currencyRecordId) return null;
   if (operatorFee) {
     const from = BigInt(value.fromAmountBaseUnits);
     const minimum = BigInt(value.minimumToAmountBaseUnits);
@@ -89,7 +94,7 @@ export function parseTradeMetadata(value: unknown): TradeMoneyActionMetadata | n
     fromAsset: value.direction === "buy" ? usdc : traded, toAsset: value.direction === "buy" ? traded : usdc,
     fromAmountBaseUnits: value.fromAmountBaseUnits, expectedToAmountBaseUnits: value.expectedToAmountBaseUnits,
     minimumToAmountBaseUnits: value.minimumToAmountBaseUnits, slippageBps: TRADE_SLIPPAGE_BPS,
-    fees, ...(operatorFee ? { operatorFee } : {}), approval: value.approval, quoteBlockNumber: value.quoteBlockNumber,
+    fees, ...(operatorFee ? { operatorFee } : {}), ...(currencyRecordId ? { currencyRecordId } : {}), approval: value.approval, quoteBlockNumber: value.quoteBlockNumber,
     quotedAt: value.quotedAt, permitDeadline: value.permitDeadline, executionDeadline: value.executionDeadline,
   };
 }

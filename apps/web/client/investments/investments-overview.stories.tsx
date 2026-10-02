@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
@@ -24,7 +24,6 @@ const noop = () => undefined;
 const TIME = "2026-09-13T12:00:00.000Z";
 const retry = fn(async () => undefined);
 const chartWait = { timeout: 5000 };
-const account = { status: "verified", isSignedIn: true, ownerKey: null, session: null } as unknown as ComponentProps<typeof ShellHeader>["account"];
 
 type SurfaceProps = { snapshot: BalancesSnapshot | null; balanceStatus?: "ready" | "loading" | "failed"; refreshFailed?: boolean; initialAsset?: AssetKey; catalog?: readonly InvestAsset[]; memeMarket?: MarketDataState; homeParity?: boolean };
 export function InvestmentStorySurface({ snapshot, balanceStatus = "ready", refreshFailed, initialAsset, catalog = [], memeMarket = { status: "unavailable" }, homeParity = false }: SurfaceProps) {
@@ -37,7 +36,8 @@ export function InvestmentStorySurface({ snapshot, balanceStatus = "ready", refr
   });
   const summary = snapshot ? presentBalances({ status: "ready", snapshot, error: null }).summary : null;
   const back = () => { if (assetKey) { restore.current = assetKey; setAssetKey(null); } };
-  return <AccountWalletClientProvider client={createInvestmentsStoryWalletClient(snapshot ?? emptySnapshot)}><PresentationRegionProvider regionId="US"><MoneyMotionProvider reducedMotion><div className="min-h-svh bg-muted/50">
+  const account = createInvestmentsStoryWalletClient(snapshot ?? emptySnapshot);
+  return <AccountWalletClientProvider client={account}><PresentationRegionProvider regionId="US"><MoneyMotionProvider reducedMotion><div className="min-h-svh bg-muted/50">
     <ShellHeader isAccountSettingsOpen={false} nestedChromeTitle={assetKey && snapshot ? selectOwnedInvestments(snapshot).find((row) => row.key === assetKey)?.holding.name || "Asset" : "Investments"} nestedChromeBackLabel="Back" onNestedChromeBack={back} routeMode="dashboard" activeNavigation="invest" isVerified account={account} onHome={noop} onDashboard={noop} onSignIn={noop} onSignOut={noop} onOpenSettings={noop} onCloseSettings={noop} />
     <main className={`${shellContentFrameClassName} py-4`}>
       {homeParity ? <HomeMoneySummary summary={summary} isLoading={false} cashRate={null} borrowOfferRate={null} destinations={{ onOpenCash: noop, onOpenInvestments: noop, onOpenBorrow: noop }} /> : <InvestmentsExperience holding={assetKey} onOpenHolding={setAssetKey} onCloseHolding={back} balances={{ status: balanceStatus === "failed" ? "error" : balanceStatus, snapshot, ...(refreshFailed ? { refreshError: true as const } : {}), retry }} discover={{ memeAssets: catalog, memeMarket, assetMarkResolution: {} }} />}
@@ -63,8 +63,11 @@ async function assertSnapshot(element: HTMLElement, snapshot: BalancesSnapshot) 
   const rows = selectOwnedInvestments(snapshot);
   const region = canvas.queryByRole("region", { name: "Your investments" });
   if (!rows.length) { await expect(region).toBeNull(); return; }
-  const items = within(region!).getAllByRole("listitem");
-  await expect(items).toHaveLength(Math.min(20, rows.length));
+  const items = await waitFor(async () => {
+    const rendered = within(region!).getAllByRole("listitem");
+    await expect(rendered).toHaveLength(Math.min(20, rows.length));
+    return rendered;
+  });
   for (const [index, row] of rows.slice(0, 20).entries()) {
     await expect(items[index]).toHaveTextContent(row.holding.name || row.holding.symbol);
     await expect(within(items[index]!).getByRole("button").getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
@@ -81,9 +84,10 @@ async function assertSnapshot(element: HTMLElement, snapshot: BalancesSnapshot) 
 }
 async function revealAll(element: HTMLElement) {
   const items = () => within(screen(element).getByRole("region", { name: "Your investments" })).getAllByRole("listitem");
-  items()[19]!.scrollIntoView();
+  await waitFor(() => expect(items()).toHaveLength(20));
+  items()[19]!.scrollIntoView({ block: "center", behavior: "instant" });
   await waitFor(() => expect(items()).toHaveLength(40));
-  items()[39]!.scrollIntoView();
+  items()[39]!.scrollIntoView({ block: "center", behavior: "instant" });
   await waitFor(() => expect(items()).toHaveLength(60));
   return items();
 }

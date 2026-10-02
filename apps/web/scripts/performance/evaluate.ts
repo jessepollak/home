@@ -1,13 +1,31 @@
-import { relativeCeiling, relativeDeltas, resourceLimits, timingCeilings, type GateId, type TimingId } from "./config";
+import { balancesPaintCeiling, relativeCeiling, relativeDeltas, resourceLimits, timingCeilings, type GateId, type PaintKind, type TimingId } from "./config";
 
-export type Baseline = { version: 1; domNodes: Record<string, number>; initialJs: Record<string, number> };
+export type PaintSample = { paintedMs: number; shellMs: number };
+export type Baseline = { version: 2; domNodes: Record<string, number>; initialJs: Record<string, number>; balancesPainted: Record<string, Record<PaintKind, PaintSample>> };
 export type StructuralInput = { id: GateId; label: string; value: number; limit: number; unit: string; detail: Record<string, unknown> };
 export type StructuralResult = StructuralInput & { pass: boolean };
 export type TimingInput = { id: TimingId; scenario: string; unit: string; value: number; calibration: number; samples: number };
 export type TimingResult = TimingInput & { ratio: number | null; absoluteCeiling: number | null; relativeCeiling: number | null; relativeMode: "ratio" | "delta"; breach: boolean };
 
-export function limitFor(id: GateId, baseline?: number, metric?: keyof typeof resourceLimits): number {
+export function observedPaintSample(observed: { paintedMs?: number; shellMs?: number }, path: string, kind: PaintKind): PaintSample {
+  const positiveMark = (name: string, value: number | undefined) => {
+    if (value === undefined || !Number.isFinite(value) || value <= 0)
+      throw new Error(`${path} ${kind} recorded invalid ${name} startTime (${value}); expected a finite, strictly positive mark`);
+    return value;
+  };
+  return { paintedMs: positiveMark("balances:painted", observed.paintedMs), shellMs: positiveMark("shell:paint", observed.shellMs) };
+}
+
+export function balancesPaintLimit(baseline: PaintSample | undefined, shellMs?: number): number {
+  if (!baseline || !Number.isFinite(baseline.paintedMs) || baseline.paintedMs <= 0 || !Number.isFinite(baseline.shellMs) || baseline.shellMs <= 0)
+    throw new Error("Missing or non-positive balances-painted baseline paintedMs or shellMs");
+  if (shellMs === undefined || !Number.isFinite(shellMs) || shellMs <= 0) throw new Error("Missing or non-positive balances-painted shell paint");
+  return Math.ceil(balancesPaintCeiling * shellMs * baseline.paintedMs / baseline.shellMs);
+}
+
+export function limitFor(id: GateId, baseline?: number, metric?: keyof typeof resourceLimits, paint?: { baseline?: PaintSample; shellMs?: number }): number {
   switch (id) {
+    case "balances-painted": return balancesPaintLimit(paint?.baseline, paint?.shellMs);
     case "mounted-rows": return 25;
     case "history-writes": return 5;
     case "warm-requests": return 0;
@@ -41,6 +59,13 @@ export function evaluateTiming(input: TimingInput[]): TimingResult[] {
 
 export function exitCode(structural: StructuralResult[]): 0 | 1 {
   return structural.some((row) => !row.pass) ? 1 : 0;
+}
+
+// Select the lower middle sample for even counts.
+export function medianPaintSample(samples: PaintSample[]): PaintSample {
+  if (!samples.length) throw new Error("No paint samples");
+  const sorted = [...samples].sort((a, b) => a.paintedMs / a.shellMs - b.paintedMs / b.shellMs);
+  return sorted[Math.floor((sorted.length - 1) / 2)]!;
 }
 
 export function median(values: number[]): number {

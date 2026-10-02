@@ -6,9 +6,9 @@ import type {
   SendUserOperationOptions,
   SendUserOperationResult,
 } from "@coinbase/cdp-core";
+import dynamic from "next/dynamic";
 import {
   createContext,
-  lazy,
   Suspense,
   useContext,
   type ReactNode,
@@ -176,13 +176,10 @@ export type AccountSignOutPhase = {
 };
 
 const unconfiguredClient = createBlockedAccountWalletClient("unconfigured");
-const LazyCompositeAccountProvider = lazy(() => import("./composite-account-provider"));
-const LazyNativeBaseAccountBridge = lazy(() => import("./native-base-bridge"));
-const LazySmokeFixtureAccountProvider = lazy(() =>
-  import("./smoke-fixture-provider").then((module) => ({
-    default: module.SmokeFixtureAccountProvider,
-  })),
-);
+const LazyCompositeAccountProvider = dynamic(() => import("./composite-account-provider"));
+const LazyNativeBaseAccountBridge = dynamic(() => import("./native-base-bridge"));
+const LazySmokeFixtureAccountProvider = dynamic(() =>
+  import("./smoke-fixture-provider").then((module) => module.SmokeFixtureAccountProvider));
 
 export function AccountWalletClientProvider({
   client,
@@ -210,15 +207,17 @@ function LazyConfiguredAccountProvider({
   projectId,
   baseAccountEnabled,
   renderSeed,
+  hideWhileLoading,
   children,
 }: {
   projectId: string;
   baseAccountEnabled: boolean;
   renderSeed: AccountRenderSeed | null;
+  hideWhileLoading: boolean;
   children: ReactNode;
 }) {
   return (
-    <Suspense fallback={(
+    <Suspense fallback={hideWhileLoading ? null : (
       <AccountWalletClientProvider client={createLoadingAccountWalletClient(baseAccountEnabled)}>
         {children}
       </AccountWalletClientProvider>
@@ -239,20 +238,22 @@ export function CdpAccountProvider({
   baseAccountEnabled = false,
   smokeFixture = false,
   renderSeed = null,
+  hideWhileLoading = false,
   children,
 }: {
   projectId: string | null;
   baseAccountEnabled?: boolean;
   smokeFixture?: boolean;
   renderSeed?: AccountRenderSeed | null;
+  hideWhileLoading?: boolean;
   children: ReactNode;
 }) {
   if (smokeFixture) {
     return (
-      <Suspense fallback={(
-        <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>
+      <Suspense fallback={hideWhileLoading ? null : (
+        <AccountWalletClientProvider client={createLoadingAccountWalletClient(baseAccountEnabled)}>{children}</AccountWalletClientProvider>
       )}>
-        <LazySmokeFixtureAccountProvider>{children}</LazySmokeFixtureAccountProvider>
+        <LazySmokeFixtureAccountProvider renderSeed={renderSeed}>{children}</LazySmokeFixtureAccountProvider>
       </Suspense>
     );
   }
@@ -262,6 +263,7 @@ export function CdpAccountProvider({
         projectId={projectId}
         baseAccountEnabled
         renderSeed={renderSeed}
+        hideWhileLoading={hideWhileLoading}
       >
         {children}
       </LazyConfiguredAccountProvider>
@@ -273,6 +275,7 @@ export function CdpAccountProvider({
         projectId={projectId}
         baseAccountEnabled={false}
         renderSeed={renderSeed}
+        hideWhileLoading={hideWhileLoading}
       >
         {children}
       </LazyConfiguredAccountProvider>
@@ -280,8 +283,8 @@ export function CdpAccountProvider({
   }
   if (baseAccountEnabled) {
     return (
-      <Suspense fallback={(
-        <AccountWalletClientProvider client={unconfiguredClient}>{children}</AccountWalletClientProvider>
+      <Suspense fallback={hideWhileLoading ? null : (
+        <AccountWalletClientProvider client={createLoadingAccountWalletClient(true)}>{children}</AccountWalletClientProvider>
       )}>
         <LazyNativeBaseAccountBridge renderSeed={renderSeed}>{children}</LazyNativeBaseAccountBridge>
       </Suspense>

@@ -6,6 +6,7 @@ import type { FundingQuote } from "./contracts/quotes";
 
 export type FundingDirection = "onramp" | "offramp";
 export type FundingPaymentMethod = { id: string; label: string };
+export const FUNDING_PAYMENT_METHOD_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 
 export type FundingCustomerManifest = {
   handoffOrigins: ReadonlyArray<string>;
@@ -53,11 +54,13 @@ export type FundingProviderManifest = {
       onramp?: {
         paymentMethods: ReadonlyArray<FundingPaymentMethod>;
         env: ReadonlyArray<string>;
+        legacyOfferedEnv?: string;
         minimumFiatAmount?: string;
       };
       offramp?: {
         paymentMethods: ReadonlyArray<FundingPaymentMethod>;
         env: ReadonlyArray<string>;
+        legacyOfferedEnv?: string;
         confirmedBy: string;
       };
     };

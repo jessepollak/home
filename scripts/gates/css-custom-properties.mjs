@@ -206,48 +206,123 @@ export function evaluateCustomPropertyResolution({ defined, usedInCss, requiredI
   return { unresolved, staleAllowlist, unusedAllowlist };
 }
 
+function splitClassParts(value, separator) {
+  const parts = [];
+  const classList = separator === undefined;
+  let part = "";
+  let bracketDepth = 0;
+  let parenthesisDepth = 0;
+  let quote = null;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    const isQuote = ch === "'" || ch === '"' || ch === "`";
+    if (classList && (/\s/.test(ch) || (!quote && bracketDepth === 0 && parenthesisDepth === 0 && isQuote))) {
+      if (part) parts.push(part);
+      part = "";
+      bracketDepth = 0;
+      parenthesisDepth = 0;
+      quote = null;
+      continue;
+    }
+    if (ch === "\\") {
+      part += ch;
+      const next = value[i + 1];
+      if (next !== undefined && !/\s/.test(next)) {
+        part += next;
+        i += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      part += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if ((ch === "'" || ch === '"') && (bracketDepth > 0 || parenthesisDepth > 0)) quote = ch;
+    else if (ch === "[") bracketDepth += 1;
+    else if (ch === "]") {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+    } else if (ch === "(" && bracketDepth === 0) parenthesisDepth += 1;
+    else if (ch === ")" && bracketDepth === 0) parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+    else if (ch === separator && bracketDepth === 0 && parenthesisDepth === 0) {
+      parts.push(part);
+      part = "";
+      continue;
+    }
+    part += ch;
+  }
+  if (part || !classList) parts.push(part);
+  return parts;
+}
+
+function classTokens(literal) {
+  return splitClassParts(literal);
+}
+
+function splitClassToken(token) {
+  const parts = splitClassParts(token, ":");
+  return { variants: parts.slice(0, -1), utility: parts.at(-1) };
+}
+
+function isArbitraryModifier(value) {
+  if (!value.startsWith("[") || value.length <= 2) return false;
+  let bracketDepth = 0;
+  let parenthesisDepth = 0;
+  let quote = null;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (ch === "\\") {
+      i += 1;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === "[") bracketDepth += 1;
+    else if (ch === "(") parenthesisDepth += 1;
+    else if (ch === ")") {
+      parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+    } else if (ch === "]" && parenthesisDepth === 0) {
+      bracketDepth -= 1;
+      if (bracketDepth === 0) return i === value.length - 1;
+    }
+  }
+  return false;
+}
+
 // A declared global token is live if any app source (including stories and
 // explorations) uses var(--name), references it through Tailwind's parenthesized
 // custom-property shorthand, or consumes its @theme inline mapping with a
-// statically recognizable Tailwind class. Count uncertain references as uses.
-const THEME_UTILITY = {
-  color: [
-    "bg", "text", "border", "border-x", "border-y", "border-s", "border-e", "border-t", "border-b", "border-l", "border-r",
-    "ring", "ring-offset", "fill", "stroke", "from", "to", "via", "divide", "divide-x", "divide-y",
-    "outline", "shadow", "accent", "caret", "decoration", "placeholder",
-    "drop-shadow", "inset-shadow", "text-shadow",
-    "inset-ring", "border-bs", "border-be", "scrollbar-thumb", "scrollbar-track",
-    "mask-linear-from", "mask-linear-to", "mask-radial-from", "mask-conic-from",
-    "mask-t-from", "mask-b-from", "mask-l-from", "mask-r-from", "mask-x-from", "mask-y-from",
-  ],
-  font: ["font"],
-  radius: ["rounded", "rounded-s", "rounded-e", "rounded-t", "rounded-b", "rounded-l", "rounded-r", "rounded-tl", "rounded-tr", "rounded-br", "rounded-bl", "rounded-ss", "rounded-se", "rounded-es", "rounded-ee"],
-  spacing: [
-    "m", "mx", "my", "ms", "me", "mt", "mb", "ml", "mr",
-    "p", "px", "py", "ps", "pe", "pt", "pb", "pl", "pr",
-    "gap", "gap-x", "gap-y", "space-x", "space-y", "inset", "inset-x", "inset-y",
-    "start", "end", "top", "right", "bottom", "left",
-    "inset-s", "inset-e", "inset-bs", "inset-be", "translate", "translate-z", "leading",
-    "w", "min-w", "max-w", "h", "min-h", "max-h", "size", "translate-x", "translate-y",
-    "scroll-m", "scroll-mx", "scroll-my", "scroll-ms", "scroll-me", "scroll-mt", "scroll-mb", "scroll-ml", "scroll-mr",
-    "scroll-p", "scroll-px", "scroll-py", "scroll-ps", "scroll-pe", "scroll-pt", "scroll-pb", "scroll-pl", "scroll-pr",
-    "basis", "indent", "border-spacing", "border-spacing-x", "border-spacing-y",
-  ],
-  text: ["text"],
-  shadow: ["shadow"],
-};
-
-function themeUtilityUses(token, classes) {
-  const match = token.match(/^--(color|font|radius|spacing|text|shadow)-(.+)$/);
-  if (!match) return false;
-  const [, family, name] = match;
-  const prefixes = THEME_UTILITY[family];
-  return classes.some((literal) => literal.split(CLASS_SPLIT).some((part) => {
-    // Strip variants, a leading or trailing important marker, and the opacity
-    // suffix, then the negative marker.
-    const utility = part.slice(part.lastIndexOf(":") + 1).replace(/^!/, "").replace(/!$/, "").split("/")[0].replace(/^-/, "");
-    return prefixes.some((prefix) => utility === `${prefix}-${name}`);
-  }));
+// Tailwind spelling measured from the installed build (see
+// tailwind-theme-spellings.mjs): `<utility>-<value>` for a namespace's functional
+// roots, or a variant segment such as `<value>:`, `max-<value>:` or `@<value>:`.
+// A declaration named exactly like a bare default-value key (--spacing, --radius)
+// is a default lookup rather than a namespace value and needs a var() reference.
+// Count uncertain references as uses.
+function themeSpellingUses(token, classes, themeSpellings) {
+  // A token may belong to overlapping namespaces (--font and --font-weight).
+  for (const [namespace, { utilities, variants }] of themeSpellings) {
+    if (!token.startsWith(`${namespace}-`)) continue;
+    const value = token.slice(namespace.length + 1);
+    if (classes.some((literal) => classTokens(literal).some((part) => {
+      const { variants: segments, utility: rawUtility } = splitClassToken(part);
+      // Strip variants, a leading or trailing important marker, and the opacity
+      // suffix, then the negative marker.
+      const utility = rawUtility.replace(/^!/, "").replace(/!$/, "").split("/")[0].replace(/^-/, "");
+      if (utilities.some((root) => utility === `${root}-${value}`)) return true;
+      return segments.some((segment) => variants.some((template) => {
+        const modified = template.endsWith("/{modifier}");
+        const spelling = (modified ? template.slice(0, -"/{modifier}".length) : template).replace("{value}", value);
+        if (!modified) return segment === spelling;
+        const parts = splitClassParts(segment, "/");
+        if (parts.length !== 2 || parts[0] !== spelling) return false;
+        return /^[A-Za-z0-9_.-]+$/.test(parts[1]) || isArbitraryModifier(parts[1]);
+      }));
+    }))) return true;
+  }
+  return false;
 }
 
 function shorthandCustomPropertyUses(classes) {
@@ -260,7 +335,10 @@ function shorthandCustomPropertyUses(classes) {
   return uses;
 }
 
-export function evaluateUnusedDeclaredTokens({ inventory, files, allowlist = [] }) {
+export function evaluateUnusedDeclaredTokens({ inventory, files, allowlist = [], themeSpellings }) {
+  if (!(themeSpellings instanceof Map)) {
+    throw new TypeError("evaluateUnusedDeclaredTokens requires themeSpellings to be a Map derived from tailwindThemeSpellings()");
+  }
   const declared = new Set([
     ...inventory.themeInline.properties, ...inventory.root.properties, ...inventory.dark.properties,
     ...Object.values(inventory.supports).flatMap(({ properties }) => properties),
@@ -270,20 +348,26 @@ export function evaluateUnusedDeclaredTokens({ inventory, files, allowlist = [] 
     && !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path));
   const vars = new Set();
   const classes = [];
+  const shorthandClasses = [];
   for (const { path, content } of product) {
     let source = content;
     if (path.endsWith(".css")) source = content.replace(/\/\*[\s\S]*?\*\//g, " ");
     else if (/\.[cm]?[jt]sx?$/.test(path)) source = stripJsComments(content);
     for (const match of source.matchAll(CSS_VAR_USE)) vars.add(match[1]);
     if (path.endsWith(".css")) {
-      for (const { maskedBody } of applyBodies(source)) classes.push(maskedBody);
+      for (const { classBody, maskedBody } of applyBodies(source)) {
+        classes.push(classBody);
+        shorthandClasses.push(maskedBody);
+      }
     } else if (/\.[cm]?[jt]sx?$/.test(path)) {
-      classes.push(...jsStringLiterals(source));
+      const literals = jsStringLiterals(source);
+      classes.push(...literals);
+      shorthandClasses.push(...literals);
     }
   }
   const themeTokens = new Set(inventory.themeInline.properties);
-  const shorthand = shorthandCustomPropertyUses(classes);
-  const referenced = (name) => vars.has(name) || shorthand.has(name) || (themeTokens.has(name) && themeUtilityUses(name, classes));
+  const shorthand = shorthandCustomPropertyUses(shorthandClasses);
+  const referenced = (name) => vars.has(name) || shorthand.has(name) || (themeTokens.has(name) && themeSpellingUses(name, classes, themeSpellings));
   const allowed = new Set(allowlist.map(({ name }) => name));
   return {
     unused: [...declared].filter((name) => !referenced(name) && !allowed.has(name)).sort(),

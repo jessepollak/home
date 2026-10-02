@@ -12,13 +12,13 @@ import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import type { AddMoneyStep, ProvidersStatus } from "./add-money-dialog";
 import { addMoneySheetLoading } from "./method-skeleton";
 import { shouldPollFundingOrder } from "./order-polling";
-import { assertFundingOpenOrderResponse } from "@/shared/funding/contracts/open-order";
+import { fundingOpenOrderPath, fundingOrderMatchesQuery, isCompleteFundingOrder, readFundingOpenOrderResponse } from "@/shared/funding/contracts/open-order";
 import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
-import { assertFundingProvidersResponse, readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
-import { assertFundingProviderCustomersResponse, readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
-import { useHomeQuery } from "@/client/query/query-client";
+import { isFundingBindingListFor, type FundingBinding } from "@/shared/funding/contracts/providers";
+import { isFundingCustomerListFor, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
+import { browserHomeQueryClient, disabledQueryKey, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { queryViewState } from "@/client/query/query-view-state";
-import { fundingProvidersOptions, fundingOpenOrderOptions, fundingProviderCustomersOptions } from "./funding-prefetch";
+import { fundingOpenOrderQuery, fundingProviderCustomersQuery, fundingProvidersQuery } from "./funding-queries";
 
 const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module) => module.AddMoneyDialog),
   addMoneySheetLoading);
@@ -26,6 +26,7 @@ const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module
 export const preloadAddMoneySheet = AddMoneySheet.preload;
 
 export type FundingExperienceProps = {
+  opener?: HTMLElement | null;
   returnedFromProvider?: boolean;
   returnedFromVerification?: boolean;
   open?: boolean;
@@ -110,6 +111,7 @@ function FundingExperienceBoundary({
   returnedFromProvider = false,
   returnedFromVerification = false,
   open = true,
+  opener = null,
   onClose,
   onClosed,
   initialStep,
@@ -126,12 +128,16 @@ function FundingExperienceBoundary({
     initialStep ?? (returnedFromProvider && !signedOut ? "receive" : "method");
   const [step, setStep] = useState<AddMoneyStep>(startStep);
   const [selectedBinding, setSelectedBinding] = useState<FundingBinding | null>(null);
+  const [pausedSelectionAttempt, setPausedSelectionAttempt] = useState<number | null>(null);
   const [initialOrder, setInitialOrder] = useState<FundingOrderSummary | null>(null);
   const [promptOrder, setPromptOrder] = useState<FundingOrderSummary | null>(null);
   const [initialCustomer, setInitialCustomer] = useState<FundingProviderCustomerSummary | null>(null);
   const [previousOpen, setPreviousOpen] = useState(open);
   const [previousResumeEligible, setPreviousResumeEligible] = useState(returnResumeEligible);
   const [resumeConsumed, setResumeConsumed] = useState(!open);
+  const [missedPausedLookup, setMissedPausedLookup] = useState<number | null>(null);
+  const pausedSelectionCountRef = useRef(0);
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const onStepChangeRef = useRef(onStepChange);
 
   useEffect(() => {
@@ -149,14 +155,22 @@ function FundingExperienceBoundary({
     setStep(next);
   }
 
+  function clearSelection() {
+    setSelectedBinding(null);
+    setPausedSelectionAttempt(null);
+    setInitialOrder(null);
+    setPromptOrder(null);
+    setInitialCustomer(null);
+  }
+
   const queryEnabled = Boolean(
     open && regionReady && !signedOut && regionId !== "GLOBAL" && queryOwnerKey,
   );
   const providerQuery = useHomeQuery({
-    ...fundingProvidersOptions(queryOwnerKey, regionId, wallet.fetchAccountResource),
+    ...fundingProvidersQuery(queryOwnerKey, regionId, "onramp", wallet.fetchAccountResource),
     enabled: queryEnabled,
   });
-  const providersValid = providerQuery.data !== undefined && validFundingEnvelope(providerQuery.data, (value) => assertFundingProvidersResponse(value, "onramp", regionId));
+  const providersValid = providerQuery.data !== undefined && isFundingBindingListFor(providerQuery.data, "onramp", regionId);
   const providersView = queryViewState(providerQuery, { hasCachedData: providerQuery.data !== undefined, degraded: providerQuery.data !== undefined && !providersValid });
   const providersFailed = queryEnabled && (providersView === "failed" || providersView === "failed-with-data");
   const providersStatus: ProvidersStatus = !regionReady
@@ -167,23 +181,78 @@ function FundingExperienceBoundary({
         ? providerQuery.isFetching ? "loading" : "failed"
         : queryEnabled ? "loading" : "unavailable";
   const providerBindings = useMemo(
-    () => regionReady && providersValid ? readProviderBindings(providerQuery.data) : [],
+    () => regionReady && providersValid ? providerQuery.data ?? [] : [],
     [providerQuery.data, providersValid, regionReady],
   );
   const customerSetupRequired = providerBindings.some(
     (binding) => binding.customerSetup !== null,
   );
   const customersQuery = useHomeQuery({
-    ...fundingProviderCustomersOptions(queryOwnerKey, regionId, wallet.fetchAccountResource),
+    ...fundingProviderCustomersQuery(queryOwnerKey, regionId, wallet.fetchAccountResource),
     enabled: queryEnabled && customerSetupRequired,
   });
   const ordersQuery = useHomeQuery({
-    ...fundingOpenOrderOptions(queryOwnerKey, regionId, wallet.fetchAccountResource),
+    ...fundingOpenOrderQuery(queryOwnerKey, regionId, wallet.fetchAccountResource),
     enabled: queryEnabled,
   });
+  const resumeProviderId = selectedBinding?.direction === "onramp" && selectedBinding.resumeOnly === true
+    ? selectedBinding.providerId : null;
+  const pausedOrderQuery = useHomeQuery({
+    queryKey: queryOwnerKey
+      ? ownerQueryKey(queryOwnerKey, "funding-open-order-by-provider", regionId, resumeProviderId,
+        selectedBinding?.paymentMethods.map((method) => method.id).join(","), pausedSelectionAttempt)
+      : disabledQueryKey("funding-open-order-by-provider", regionId),
+    enabled: queryEnabled && resumeProviderId !== null,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
+    queryFn: async ({ signal }) => {
+      if (!selectedBinding || !resumeProviderId) throw new Error("No provider selected.");
+      const methods = selectedBinding.paymentMethods;
+      const results = await Promise.allSettled(methods.map((method) =>
+        wallet.fetchAccountResource(fundingOpenOrderPath({ region: regionId, providerId: resumeProviderId, paymentMethod: method.id, assetId: selectedBinding.assetId }), { signal })));
+      const candidates: FundingOrderSummary[] = [];
+      let unreadable = false;
+      methods.forEach((method, index) => {
+        const result = results[index];
+        if (!result || result.status !== "fulfilled") {
+          unreadable = true;
+          return;
+        }
+        const response = readFundingOpenOrderResponse(result.value);
+        const order = response?.order ?? null;
+        if (!response) {
+          unreadable = true;
+          return;
+        }
+        if (!order) return;
+        if (typeof order.assetId !== "string" ||
+          !fundingOrderMatchesQuery(order, { region: regionId, providerId: resumeProviderId, paymentMethod: method.id, assetId: selectedBinding.assetId })) {
+          unreadable = true;
+          return;
+        }
+        if (isResumableBinding(order, selectedBinding)) candidates.push(order);
+      });
+      const order = candidates.sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""))[0];
+      if (!order && unreadable) throw new Error("The open deposit could not be checked.");
+      return { order: order ?? null };
+    },
+  });
 
-  const ordersValid = ordersQuery.data !== undefined && validFundingEnvelope(ordersQuery.data, (value) => assertFundingOpenOrderResponse(value, regionId));
-  const customersValid = customersQuery.data !== undefined && validFundingEnvelope(customersQuery.data, (value) => assertFundingProviderCustomersResponse(value, regionId));
+  const pausedLookupSettled = open && selectedBinding !== null && resumeProviderId !== null &&
+    pausedSelectionAttempt !== null && step === "method" &&
+    pausedOrderQuery.isSuccess && pausedOrderQuery.isFetchedAfterMount && !pausedOrderQuery.isFetching;
+  const pausedOrder = pausedLookupSettled ? readFundingOrder(pausedOrderQuery.data) : null;
+
+  useEffect(() => {
+    if (missedPausedLookup === null || !queryOwnerKey) return;
+    void queryClient.invalidateQueries({ queryKey: ownerQueryKey(queryOwnerKey, "funding-providers", regionId) });
+  }, [missedPausedLookup, queryClient, queryOwnerKey, regionId]);
+
+  const ordersValid = ordersQuery.data !== undefined && (ordersQuery.data === null || isCompleteFundingOrder(ordersQuery.data, regionId));
+  const customersValid = customersQuery.data !== undefined && isFundingCustomerListFor(customersQuery.data, regionId);
   const ordersData = ordersValid ? ordersQuery.data : undefined;
   const customersData = customersValid ? customersQuery.data : undefined;
 
@@ -199,20 +268,20 @@ function FundingExperienceBoundary({
     setPreviousOpen(open);
     if (open && step !== startStep) setStep(startStep);
     if (!open) {
-      setPromptOrder(null);
+      clearSelection();
       setResumeConsumed(true);
     }
   }
 
   const eligibleToResume = open && regionReady && returnResumeEligible &&
     !resumeConsumed && previousResumeEligible === returnResumeEligible && step === "method";
-  const openOrder = readFundingOrder(ordersData);
+  const openOrder = ordersData ?? null;
   const resumedBinding = eligibleToResume && openOrder
     ? providerBindings.find((candidate) => orderMatchesBinding(openOrder, candidate))
     : null;
   const customers = eligibleToResume && returnedFromVerification && ordersQuery.isSuccess &&
     ordersData !== undefined && customersData !== undefined && !openOrder
-    ? readFundingProviderCustomers(customersData)
+    ? customersData
     : [];
   const customer = customers.find((candidate) => candidate.state !== "verified") ?? customers[0];
   const customerBinding = customer
@@ -228,6 +297,13 @@ function FundingExperienceBoundary({
     setSelectedBinding(customerBinding);
     setInitialCustomer(customer);
     setStep("order");
+  } else if (pausedOrder && selectedBinding && isResumableBinding(pausedOrder, selectedBinding)) {
+    setPromptOrder(pausedOrder);
+    if (returnResumeEligible) setResumeConsumed(true);
+    setStep("open-order");
+  } else if (pausedLookupSettled && pausedOrder === null && pausedSelectionAttempt !== null) {
+    setMissedPausedLookup(pausedSelectionAttempt);
+    clearSelection();
   }
 
   useEffect(() => {
@@ -235,8 +311,8 @@ function FundingExperienceBoundary({
   }, [open, resumeConsumed, returnResumeEligible, onReturnResumeSpent]);
 
   const customerSetupReady = (customersQuery.isSuccess && customersValid && !customersQuery.isFetching) || !customerSetupRequired;
-  const ordersView = queryViewState(ordersQuery, { hasCachedData: ordersQuery.data !== undefined, isEmpty: ordersValid && ordersQuery.data?.order === null, degraded: ordersQuery.data !== undefined && !ordersValid });
-  const customersView = queryViewState(customersQuery, { hasCachedData: customersQuery.data !== undefined, isEmpty: customersValid && customersQuery.data?.customers.length === 0, degraded: customersQuery.data !== undefined && !customersValid });
+  const ordersView = queryViewState(ordersQuery, { hasCachedData: ordersQuery.data !== undefined, isEmpty: ordersValid && ordersQuery.data === null, degraded: ordersQuery.data !== undefined && !ordersValid });
+  const customersView = queryViewState(customersQuery, { hasCachedData: customersQuery.data !== undefined, isEmpty: customersValid && customersQuery.data?.length === 0, degraded: customersQuery.data !== undefined && !customersValid });
   const providersReadFailed = providersFailed && !providerQuery.isFetching;
   const ordersReadFailed = (ordersView === "failed" || ordersView === "failed-with-data") && providerBindings.length > 0;
   const customersReadFailed = (customersView === "failed" || customersView === "failed-with-data") && customerSetupRequired;
@@ -245,47 +321,47 @@ function FundingExperienceBoundary({
         message: "Funding methods are unavailable. Try again.",
         retry: () => void providerQuery.refetch(),
       }
-    : ordersReadFailed
+    : pausedOrderQuery.isError && resumeProviderId
       ? {
-          message: "Home couldn't check for an open deposit. Retry.",
-          retry: () => void ordersQuery.refetch(),
+          message: "Home couldn't check your open deposit. Retry.",
+          retry: () => void pausedOrderQuery.refetch(),
         }
-      : customersReadFailed
+      : ordersReadFailed
         ? {
-            message: "Home couldn't check your provider setup. Retry.",
-            retry: () => void customersQuery.refetch(),
+            message: "Home couldn't check for an open deposit. Retry.",
+            retry: () => void ordersQuery.refetch(),
           }
-        : providersReadFailed
+        : customersReadFailed
           ? {
-              message: "Couldn't refresh funding methods. Try again.",
-              retry: () => void providerQuery.refetch(),
+              message: "Home couldn't check your provider setup. Retry.",
+              retry: () => void customersQuery.refetch(),
             }
-          : null;
+          : providersReadFailed
+            ? {
+                message: "Couldn't refresh funding methods. Try again.",
+                retry: () => void providerQuery.refetch(),
+              }
+            : null;
 
   function resetJourney() {
     navigateTo("method");
-    setSelectedBinding(null);
-    setInitialOrder(null);
-    setPromptOrder(null);
-    setInitialCustomer(null);
+    clearSelection();
   }
 
   function goBack() {
     navigateTo("method");
-    setSelectedBinding(null);
-    setInitialOrder(null);
-    setPromptOrder(null);
-    setInitialCustomer(null);
+    clearSelection();
   }
 
   return (
     <AddMoneySheet
       open={open}
+      opener={opener}
       step={signedOut ? "method" : step}
       address={address}
       signedOut={signedOut}
       regionId={regionId}
-      onClose={() => onClose?.()}
+      onClose={() => { clearSelection(); onClose?.(); }}
       onClosed={() => { resetJourney(); onClosed?.(); }}
       onBack={goBack}
       onSelectReceive={() => navigateTo("receive")}
@@ -308,31 +384,31 @@ function FundingExperienceBoundary({
         setPromptOrder(null);
         navigateTo("order");
       }}
-      startNewAllowed={promptOrder?.state !== "dispatch-ambiguous" && (!selectedBinding?.customerSetup || customerSetupReady)}
+      startNewAllowed={!(selectedBinding?.direction === "onramp" && selectedBinding.resumeOnly === true) && promptOrder?.state !== "dispatch-ambiguous" && (!selectedBinding?.customerSetup || customerSetupReady)}
       initialCustomer={initialCustomer}
       fetchAccountResource={wallet.fetchAccountResource}
       queryOwnerKey={queryOwnerKey}
       onSelectBinding={(binding) => {
         if (!regionReady) return;
+        const paused = binding.direction === "onramp" && binding.resumeOnly === true;
+        const selectionAttempt = paused ? ++pausedSelectionCountRef.current : null;
         setSelectedBinding(binding);
+        setPausedSelectionAttempt(selectionAttempt);
+        if (paused) {
+          setPromptOrder(null);
+          setInitialOrder(null);
+          setInitialCustomer((customersData ?? []).find((customer) => customer.providerId === binding.providerId) ?? null);
+          return;
+        }
         const resumable = isResumableBinding(openOrder, binding) ? openOrder : null;
         setPromptOrder(resumable);
         setInitialOrder(null);
-        setInitialCustomer(readFundingProviderCustomers(customersData).find((customer) => customer.providerId === binding.providerId) ?? null);
+        setInitialCustomer((customersData ?? []).find((customer) => customer.providerId === binding.providerId) ?? null);
         navigateTo(resumable ? "open-order" : "order");
       }}
       onOpenRedirect={navigateToRedirect}
     />
   );
-}
-
-function validFundingEnvelope(value: unknown, assertResponse: (value: unknown) => void): boolean {
-  try {
-    assertResponse(value);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isResumableBinding(order: FundingOrderSummary | null, binding: FundingBinding): boolean {

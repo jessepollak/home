@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import type { QueryClient } from "@tanstack/react-query";
 import type {
   AccountResourceOptions,
   AccountSessionStatus,
@@ -20,6 +21,7 @@ import {
 import {
   applyActionHandleEffects,
   createBalanceFreshnessState,
+  invalidateAfterAction,
   resetBalanceFreshness,
   startBalanceFreshness,
 } from "@/client/query/after-action";
@@ -104,6 +106,18 @@ function responseErrorDetails(payload: unknown): {
   return { code, serverMessage };
 }
 
+export function qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey, recordsHandle, status, unreadable }: {
+  queryClient: QueryClient;
+  dataOwnerKey: string;
+  recordsHandle: boolean;
+  status: number | null;
+  unreadable: boolean;
+}): void {
+  if (!recordsHandle) return;
+  if (!(unreadable || status === null || status === 409 || status >= 500)) return;
+  void invalidateAfterAction(queryClient, dataOwnerKey);
+}
+
 export function useAuthenticatedTransport({
   session,
   status,
@@ -142,6 +156,7 @@ export function useAuthenticatedTransport({
       signal?: AbortSignal,
       query?: string,
       allowProvisionalRead = false,
+      onStage?: (stage: "fetch" | "response") => void,
     ): Promise<unknown> => {
       const provisionalRead = allowProvisionalRead &&
         (endpoint === "/api/balances" || endpoint === "/api/account/country-preference") &&
@@ -166,6 +181,7 @@ export function useAuthenticatedTransport({
       const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
+        onStage?.("fetch");
         response = await (sessionFetch ?? fetch)(
           query ? `${endpoint}?${query}` : endpoint,
           {
@@ -185,6 +201,7 @@ export function useAuthenticatedTransport({
         if (signal?.aborted) throw error;
         throw new ResourceFailure("network");
       }
+      onStage?.("response");
       assertCurrent();
       if (await redirectOnAccessRequired(response, accessNavigation)) {
         assertCurrent();
@@ -223,7 +240,7 @@ export function useAuthenticatedTransport({
   }), [fetchVerifiedResource, queryClient, session]);
 
   const requestAccountResource = useCallback(
-    async (path: string, options: { method: "GET" | "POST" | "PUT"; body?: string; accept: string; signal?: AbortSignal }): Promise<{ response: Response; assertActive: () => void }> => {
+    async (path: string, options: { method: "GET" | "POST" | "PUT"; body?: string; accept: string; signal?: AbortSignal }): Promise<{ response: Response; assertActive: () => void; recordsHandle: boolean; qualifyUncertainHandle: (status: number | null, unreadable: boolean) => void }> => {
       const safePath = normalizeAccountResourcePath(path);
       const pathname = new URL(safePath, "https://home.invalid").pathname;
       const walletFree = walletFreeAccountResourcePrefixes.some(
@@ -247,6 +264,12 @@ export function useAuthenticatedTransport({
       if (method === "GET" && options.body !== undefined) {
         throw new TransferExecutionError("invalid-request");
       }
+
+      const recordsHandle = method === "POST" && /^\/api\/actions\/[^/]+\/handle$/.test(pathname);
+      const qualifyUncertainHandle = (status: number | null, unreadable: boolean) => {
+        if (!recordsHandle || !session.smartAccount || !ownerFence.isCurrent(identity)) return;
+        qualifyBalancesForUnrecordedHandle({ queryClient, dataOwnerKey: dataOwnerKey(session), recordsHandle, status, unreadable });
+      };
       const skewHeaders = deploymentHeaders();
       let response: Response;
       try {
@@ -266,8 +289,12 @@ export function useAuthenticatedTransport({
           signal: options.signal,
         });
       } catch (error) {
-        if (options.signal?.aborted) throw error;
+        if (options.signal?.aborted) {
+          qualifyUncertainHandle(null, false);
+          throw error;
+        }
         if (error instanceof TransferExecutionError) throw error;
+        qualifyUncertainHandle(null, false);
         throw Object.assign(new TransferExecutionError("unavailable", error), { kind: "network" satisfies ResourceFailureKind });
       }
       assertActive();
@@ -283,21 +310,22 @@ export function useAuthenticatedTransport({
         } catch {
         }
         throwIfDeploymentExpired(response, skewHeaders, details.code);
+        qualifyUncertainHandle(response.status, false);
         const failure = new TransferExecutionError(
           response.status === 409 ? "submission-pending" : "unavailable",
         );
         Object.assign(failure, { kind: "http" satisfies ResourceFailureKind, status: response.status, ...details });
         throw failure;
       }
-      return { response, assertActive };
+      return { response, assertActive, recordsHandle, qualifyUncertainHandle };
     },
-    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, session, sessionFetch, status, verification],
+    [accessNavigation, authentication, getAccessToken, ownerFence, ownerKey, queryClient, session, sessionFetch, status, verification],
   );
 
   const fetchAccountResource = useCallback(
     async (path: string, options: AccountResourceOptions = {}): Promise<unknown> => {
       const safePath = normalizeAccountResourcePath(path);
-      const { response, assertActive } = await requestAccountResource(path, {
+      const { response, assertActive, recordsHandle, qualifyUncertainHandle } = await requestAccountResource(path, {
         method: options.method ?? "GET",
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         accept: "application/json",
@@ -307,7 +335,7 @@ export function useAuthenticatedTransport({
       try {
         const value = await readJson(response);
         assertActive();
-        if (/^\/api\/actions\/[^/]+\/handle$/.test(new URL(safePath, "https://home.invalid").pathname)) {
+        if (recordsHandle) {
           const ownerDataKey = dataOwnerKey(session);
           void applyActionHandleEffects({
             path: safePath,
@@ -320,6 +348,7 @@ export function useAuthenticatedTransport({
         return value;
       } catch (error) {
         if (error instanceof TransferExecutionError) throw error;
+        qualifyUncertainHandle(response.status, true);
         throw Object.assign(new TransferExecutionError("unavailable", error), { kind: "parse" satisfies ResourceFailureKind });
       }
     },
@@ -354,12 +383,13 @@ export function useAuthenticatedTransport({
     [fetchVerifiedResource],
   );
   const fetchBalances = useCallback(
-    (region: import("@/config/regions").RegionId, signal?: AbortSignal) =>
+    (region: import("@/config/regions").RegionId, signal?: AbortSignal, onStage?: (stage: "fetch" | "response") => void) =>
       fetchVerifiedResource(
         "/api/balances",
         signal,
         new URLSearchParams({ region }).toString(),
         true,
+        onStage,
       ),
     [fetchVerifiedResource],
   );

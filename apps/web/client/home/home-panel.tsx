@@ -10,6 +10,8 @@ import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
 import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
 import { moneySheetIntent } from "@/client/money-modal";
 import { browserHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { useHomeRateLabels } from "./use-home-rate-labels";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import { useSavingsRateLabel } from "@/client/savings/use-savings-rate-label";
 import { useBorrowOfferRate } from "@/client/borrowing/borrowing-experience";
@@ -27,6 +29,7 @@ import { useOptionalHomeShellRouting } from "./panel-routing";
 
 export function HomePanel({
   assetBalances,
+  initialRateLabels,
   activitySession,
   onRetryBalances,
   sessionSettling,
@@ -46,6 +49,7 @@ export function HomePanel({
   onDetailsOpenChange,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  initialRateLabels?: import("@/shared/balances/home-summary").HomeRateLabels;
   activitySession: VerifiedAccountSession | null;
   onRetryBalances?: () => void;
   sessionSettling: boolean;
@@ -76,13 +80,18 @@ export function HomePanel({
     ? !regionReady
     : sessionSettling || isLoading || isRevalidating;
   const cashRate = useSavingsRateLabel(regionId, regionReady);
-  const borrowOfferRate = useBorrowOfferRate({
+  const borrowRate = useBorrowOfferRate({
     enabled: assetBalances?.summary?.borrow.kind === "none",
     regionId,
   });
   const activityHeading = <HomeSectionHeading id="activity-title">Activity</HomeSectionHeading>;
   const routing = useOptionalHomeShellRouting();
   const wallet = useAccountWallet();
+  const knownDisplay = assetBalances?.status === "ready";
+  const rates = useHomeRateLabels({
+    owner: knownDisplay && (regionReady || initialRateLabels !== undefined) && wallet.verification && wallet.session?.smartAccount ? dataOwnerKey(wallet.session) : null,
+    region: regionId, cash: !regionReady && initialRateLabels !== undefined ? { ...cashRate, pending: true } : cashRate, borrow: borrowRate, initial: initialRateLabels,
+  });
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const fundingPromptRef = useRef<HTMLButtonElement>(null);
   const restoreFundingPromptRef = useRef(false);
@@ -92,8 +101,8 @@ export function HomePanel({
       variant="outline"
       size="touch"
       {...moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(wallet, regionId, regionReady, queryClient))}
-      onClick={() => {
-        restoreFundingPromptRef.current = routing.setFlow("add-money", { mode: "push" });
+      onClick={(event) => {
+        restoreFundingPromptRef.current = routing.setFlow("add-money", { mode: "push", opener: event.currentTarget });
       }}
     >
       <Plus className="size-4" aria-hidden="true" />
@@ -106,8 +115,8 @@ export function HomePanel({
       accountKey={activitySession?.smartAccount?.address ?? null}
       assetBalances={assetBalances}
       onRetryBalances={onRetryBalances}
-      cashRate={cashRate}
-      borrowOfferRate={borrowOfferRate}
+      cashRate={rates.cash}
+      borrowOfferRate={rates.borrow}
       destinations={{ onOpenCash, onOpenInvestments, onOpenBorrow }}
       actions={
         <>
@@ -137,12 +146,13 @@ export function HomePanel({
       }
       activity={showSessionShimmer ? (
         <ActivitySurface heading={activityHeading} labelledBy="activity-title" plain busy>
-          <ShimmerRows count={3} />
+          <ShimmerRows count={3} variant={knownDisplay ? "reserved" : "rows"} />
           <span className="sr-only">Loading recent activity…</span>
         </ActivitySurface>
       ) : (
         <ConnectedActivityPanel
           density="feed"
+          quietLoading={knownDisplay}
           header={activityHeading}
           activitySession={activitySession}
           fetchActivity={fetchActivity}

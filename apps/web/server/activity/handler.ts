@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createHmac } from "node:crypto";
+
 import {
   ACTIVITY_CONTRACT_VERSION,
   type ActivityResponse,
@@ -38,6 +40,7 @@ export function createActivityHandler(dependencies: {
   now?: () => Date;
   clock?: () => number;
   observe?: ActivityObservationSink;
+  diagnosticKey?: string;
 }) {
   const now = dependencies.now ?? (() => new Date());
   const clock = dependencies.clock ?? (() => Date.now());
@@ -77,7 +80,8 @@ export function createActivityHandler(dependencies: {
       );
     }
 
-    const activityRequest = parseActivityRequest(request, now());
+    const requestedAt = now();
+    const activityRequest = parseActivityRequest(request, requestedAt);
     if (!activityRequest) {
       emitActivityObservation(
         observe,
@@ -96,6 +100,12 @@ export function createActivityHandler(dependencies: {
       );
     }
 
+    const requestDiagnostics = {
+      requestPage: activityRequest.cursor === null ? "first" as const : "cursor" as const,
+      windowEndAgeSeconds: Math.max(0, Math.floor((requestedAt.getTime() - Date.parse(activityRequest.to)) / 1000)),
+      windowEndAlignment: Date.parse(activityRequest.to) % 1000 === 0 ? "whole-second" as const : "sub-second" as const,
+      ...requestFingerprint(session, activityRequest, dependencies.diagnosticKey ?? process.env.HOME_SESSION_SECRET),
+    };
     const cardWindow = {
       from: new Date(Date.parse(activityRequest.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),
       to: activityRequest.to,
@@ -118,6 +128,7 @@ export function createActivityHandler(dependencies: {
         reason: "primary-source",
         source: "none",
         ...sourceFailure(error),
+        ...requestDiagnostics,
         durationMs: elapsedMs(finishedAt, requestStartedAt),
         sourceDurationMs: 0,
         sourceAttemptCount: 0,
@@ -145,6 +156,7 @@ export function createActivityHandler(dependencies: {
       outcome: "started",
       reason: "primary-source",
       source,
+      ...requestDiagnostics,
       durationMs: elapsedMs(sourceStartedAt, requestStartedAt),
       sourceDurationMs: 0,
       sourceAttemptCount: 1,
@@ -175,6 +187,8 @@ export function createActivityHandler(dependencies: {
         outcome: "succeeded",
         reason: "primary-source",
         source,
+        ...requestDiagnostics,
+        ...(page.source ? { sourceCached: page.source.cached, sourceStale: page.source.stale } : {}),
         durationMs: elapsedMs(finishedAt, requestStartedAt),
         sourceDurationMs: elapsedMs(primaryFinishedAt, sourceStartedAt),
         sourceAttemptCount: 1,
@@ -194,6 +208,7 @@ export function createActivityHandler(dependencies: {
         outcome: request.signal.aborted ? "cancelled" : "failed",
         reason: request.signal.aborted ? "request" : "primary-source",
         source,
+        ...requestDiagnostics,
         durationMs: elapsedMs(finishedAt, requestStartedAt),
         sourceDurationMs: elapsedMs(
           primaryFinishedAt ?? finishedAt,
@@ -220,10 +235,19 @@ export function createActivityHandler(dependencies: {
   };
 }
 
-function sourceFailure(error: unknown): Pick<ActivityReadObservation, "sourceError" | "upstreamStatus"> {
+function requestFingerprint(session: VerifiedAccountSession, request: ActivityReadRequest, key: string | undefined): { requestKey?: string } {
+  if (!key) return {};
+  return { requestKey: createHmac("sha256", key).update("home-activity-request-v1\0")
+    .update(JSON.stringify([session.accountProvider, session.user.subject, session.smartAccount?.address.toLowerCase(), request.to, request.cursor, request.currency, request.history ?? "recent"]))
+    .digest("hex").slice(0, 32) };
+}
+
+function sourceFailure(error: unknown): Pick<ActivityReadObservation, "sourceError" | "upstreamStatus" | "sqlRejectionReason" | "cdpCorrelationId"> {
   if (!(error instanceof ChainDataError)) return { sourceError: "unknown" };
   return {
     sourceError: error.code,
+    ...(error.cdpCorrelationId === null ? {} : { cdpCorrelationId: error.cdpCorrelationId }),
+    ...(error.sqlRejectionReason === null ? {} : { sqlRejectionReason: error.sqlRejectionReason }),
     ...(error.status === null ? {} : { upstreamStatus: error.status }),
   };
 }
@@ -309,18 +333,21 @@ function parseActivityRequest(
   now: Date,
 ): ActivityReadRequest | null {
   const parameters = new URL(request.url).searchParams;
-  const allowed = new Set(["to", "cursor", "currency"]);
+  const allowed = new Set(["to", "cursor", "currency", "history"]);
   for (const key of parameters.keys()) {
     if (!allowed.has(key)) return null;
   }
   if (
     parameters.getAll("to").length !== 1 ||
     parameters.getAll("cursor").length > 1 ||
-    parameters.getAll("currency").length > 1
+    parameters.getAll("currency").length > 1 ||
+    parameters.getAll("history").length > 1
   ) {
     return null;
   }
 
+  const history = parameters.get("history");
+  if (history !== null && history !== "all") return null;
   const to = parameters.get("to");
   const cursor = parameters.get("cursor");
   const currency = parameters.get("currency") ?? "USD";
@@ -335,7 +362,7 @@ function parseActivityRequest(
   ) {
     return null;
   }
-  return { to, cursor, currency };
+  return { to, cursor, currency, ...(history === "all" ? { history } : {}) };
 }
 
 function activityReadError(error: unknown): Response {

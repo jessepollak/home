@@ -51,6 +51,7 @@ export type BalancesEnumeration = {
 export type ReadHolding = UniverseEntry & {
   balance: HoldingBalance;
   underlyingBalance?: HoldingBalance;
+  withdrawableBalance?: HoldingBalance;
 };
 
 export type BorrowMarketRead =

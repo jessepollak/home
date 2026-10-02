@@ -7,8 +7,6 @@ import { createCardEventStore } from "@/server/cards/store";
 import { refreshObservedCardEvent } from "@/server/cards/transaction-refresh";
 import { emitServerEvent } from "@/server/observability/log";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 let cachedHandler: ReturnType<typeof createCardWebhookHandler> | undefined;
 

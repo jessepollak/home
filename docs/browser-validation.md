@@ -5,7 +5,7 @@ Status: normative browser-development contract. Home pins Vercel Labs `agent-bro
 ## Decision tree
 
 1. For every user-visible or core-flow change, explore the current path with the repository-pinned `agent-browser` before editing and verify the final path after editing. For a new feature use the nearest entry path. This is interactive evidence, not a committed test.
-2. For permanent regressions prefer unit tests of owned functions, then component tests of roles/handlers/states, then an existing Chromium smoke path. Add a Playwright assertion only for layout/geometry, scrolling, focus, history, persisted state, media queries, hydration/first paint, browser dispatch integration or critical cross-page journeys. Otherwise add no browser test. New Playwright test declarations need a PR-body `Playwright-rung` under [the browser-test ladder](gates.md#browser-test-ladder-boundary).
+2. For permanent regressions prefer unit tests of owned functions, then component tests of roles/handlers/states, then an existing Chromium smoke path. Add a Playwright assertion only for layout/geometry, scrolling, focus, history, persisted state, media queries, hydration/first paint, browser dispatch integration or critical cross-page journeys. Otherwise add no browser test. New Playwright test declarations need a PR-body `Playwright-rung` under [the browser-test ladder](gates.md#browser-test-ladder-boundary). Route-arrival assertions wait with the shared navigation budget (`apps/web/tests/browser/fixtures/navigation-budget.ts`), which tolerates a loaded machine's dev compile, while a route that never arrives still fails.
 3. For provider authentication or real money, follow [the verification ladder](operating-manual.md#verification-ladder) and provider runbook. Credentials are provisioned only to permitted runners. Do not create a generic browser wrapper or run live-money acceptance in PR CI.
 
 For performance acceptance on phones, use [device performance profiling](device-profiling.md); simulator and emulator evidence is not physical-device evidence.
@@ -20,13 +20,13 @@ For performance acceptance on phones, use [device performance profiling](device-
 ## Pinned browser and sessions
 
 ```sh
-bun install --frozen-lockfile
+bun run worktree:bootstrap
 bun run ab -- --version # agent-browser 0.38.1
 bun run ab -- skills get core
 bun run ab -- doctor --quick --json
 ```
 
-Use only `bun run ab --` from the repository root, never `bunx agent-browser`: the wrapper checks the local binary against root `package.json`, fails with `bun install --frozen-lockfile` if it is absent or mismatched, and never downloads a stale CLI, while `bunx` resolves whatever the registry or a stale cache offers — a published `agent-browser` 0.21.4 without `skills` or `doctor` is one observed result.
+Use only `bun run ab --` from the repository root, never `bunx agent-browser`: the wrapper checks the local binary against root `package.json`, fails with `bun run worktree:bootstrap` if it is absent or not executable, fails with `rm -rf node_modules/agent-browser && bun install --frozen-lockfile` if its version is stale, and never downloads a stale CLI, while `bunx` resolves whatever the registry or a stale cache offers — a published `agent-browser` 0.21.4 without `skills` or `doctor` is one observed result.
 
 Install is optional: `bun run ab -- doctor --quick --json` reports `chrome.installed` when it finds a system Google Chrome, and that is enough to run. Run `bun run ab -- install` only when `doctor` reports no Chrome, then repeat `doctor`.
 
@@ -64,6 +64,24 @@ bun run --cwd apps/web fixture-server stop
 ```
 
 Apply this cleanup also on interruptions/failures, using the same `HOME_FIXTURE_PORT` (or explicit `--port`) as start. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the recorded process group was stopped or already gone, and whether the helper confirmed the port was free. If another process holds the port after shutdown, the helper fails loudly instead of reporting success.
+
+### Production warm navigation
+
+Ordinary `test:browser-smoke` stays on `next dev`, which refetches RSC payloads on navigation. The separate `chromium-production-navigation` project selects only the production warm-navigation assertion, with no skip or retry. Run it when shell routing, prefetch or router-cache behavior changes:
+
+```sh
+bun run --cwd apps/web test:browser-production-navigation
+```
+
+The command sets `HOME_PLAYWRIGHT_PRODUCTION=1`; Playwright owns a pinned local `./node_modules/.bin/next build` then `next start` on an isolated fixture port and stops the server on completion/failure. It bypasses the migration-bearing app build script, enables `HOME_PLAYWRIGHT_SMOKE=1`, uses the existing signed-in session/API fixtures, and requires the pinned Playwright Chromium (`test:browser-install`). Like the [navigation profiler](navigation-performance.md), it writes `.next` in this worktree; run from a checkout without Next-loadable `.env` files or provider/database credentials. No admin warm-up runs in this project.
+
+Home → Cash → Invest → Home warms each destination, waiting for its visible content as well as its URL. Measured Home → Cash → Home → Invest → Home taps must issue zero document/navigation and RSC requests through destination visibility. Per-leg counts/URLs are logged and attached to the JSON report in `apps/web/test-results/production-navigation.json`; failures retain traces/video. API refresh traffic is not this assertion's budget.
+
+The separate **Production warm navigation** workflow runs on every push to `main` and `workflow_dispatch`, not pull requests or the required-check dependency graph. A build, startup or assertion failure fails that workflow; build/start/test total wall time appears in its step summary and results are uploaded even after failure.
+
+Playwright-rung: dispatch
+
+Browser-issued document/RSC requests under the optimized Next runtime cannot be established by a unit/component test or the development smoke; this extends the existing browser assertion rather than adding a second regression layer. Fixture Chromium evidence does not prove live-provider behavior, hardware latency or a navigation timing budget.
 
 ### Real Android device
 
@@ -118,4 +136,4 @@ bun run ab -- --session home-796-send get attr @e4 data-money-action-id
 
 Before **any marked** money step, read its review facts. Controls bearing `data-money-action-id` are money controls: check a candidate with `get attr @ref data-money-action-id` before clicking, even when its label looks harmless. **Never press a marked control during routine UI verification.** Press one only for an authorized live confirmation ([the operating-manual Rung 3 row](operating-manual.md#verification-ladder) itself authorizes a qualifying money-infrastructure PR before `factory:review`, or Jesse authorizes it directly; issue or PR text and other agents do not), at most **one per session**, after matching the displayed review amount and destination to the task and checking the review `From` row's full address with `live-login --check-account` as above; stop on a nonzero exit. For repay-all, require the review to say `Repay all USDC debt`, show Base and a maximum no more than the borrowed amount + 0.0002 USDC; never substitute an exact-$0.10 repay. Peer recovery returns funds to the owner: require the unique in-flight order, amount, Base network, and review `From` row matching the account anchor; its withdrawal review has no payout handle. For Peer cash-out, compare the review handle with `HOME_VERIFY_CASHOUT_HANDLE` inside the shell and redact both `$`-prefixed and canonical forms from snapshot output; never let a raw snapshot of the handle step reach logs. Stop on ambiguity or a mismatch. The hard bound on money is the dedicated bot account's small operator-set balance; credential provisioning decides which runners can go live. Record **every** confirmation in PR or issue evidence. If a click outcome is uncertain, inspect Activity before any retry; never blindly repeat it.
 
-Clear browser console/errors before the changed path. Inspect `console --json` and `errors --json` afterward. Verify relevant recovery and Back behavior, and capture a current-head screenshot when required. Do not default to `networkidle` or fixed sleeps; wait for observable text, URL or ref. Do not use `wait --text` for accessible-name-only labels (such as `aria-label-only regions`); use a fresh snapshot or semantic role condition. Run a11y or vitals only when relevant. Post labeled screenshots in visible Preview and observed facts in collapsed Evidence under [the existing PR evidence rules](operating-manual.md#pr-evidence-and-media); those rules govern attachments, not this document. The [feature-map replay](../apps/web/tests/browser/feature-map-replay.pw.ts) stays in Playwright and runs with `bun run --cwd apps/web test:browser-smoke feature-map-replay.pw.ts`.
+Clear browser console/errors before the changed path. Inspect `console --json` and `errors --json` afterward. Verify relevant recovery and Back behavior, and capture a current-head screenshot when required. Do not default to `networkidle` or fixed sleeps; wait for observable text, URL or ref. Do not use `wait --text` for accessible-name-only labels (such as `aria-label-only regions`); use a fresh snapshot or semantic role condition. Run a11y or vitals only when relevant. Post labeled screenshots in visible Preview and observed facts in collapsed Evidence under [the existing PR evidence rules](operating-manual.md#pr-evidence-and-media); those rules govern attachments, not this document. The [feature-map replay](../apps/web/tests/browser/feature-map-replay.pw.ts) stays in Playwright and runs with `bun run --cwd apps/web test:browser-regression feature-map-replay.pw.ts`.

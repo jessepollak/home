@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { canonicalUsdcAsset, verifiedCashCurrency, verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { getAddress } from "viem";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
+import { requiredLocalCashAsset } from "@/shared/balances/fixtures";
+import { cashCurrencyForContract } from "@/shared/currencies/registry";
 import {
   amountExceedsCeiling,
   clampDecimal,
@@ -40,12 +43,12 @@ describe("moneyAmountUnit", () => {
   });
 
   test("trusts only verified cash contracts, regardless of displayed token symbol", () => {
-    expect(verifiedCashCurrency("0x0000000000000000000000000000000000000001")).toBeNull();
-    expect(moneyAmountUnit(verifiedCashCurrency("0x0000000000000000000000000000000000000001"), "USD")).toEqual(native);
-    expect(verifiedCashCurrency(canonicalUsdcAsset.contractAddress.toUpperCase())).toBe("USD");
-    expect(verifiedCashCurrency(verifiedLocalCashAssets.EUR.contractAddress)).toBe("EUR");
-    expect(verifiedCashCurrency(verifiedLocalCashAssets.IDR.contractAddress)).toBe("IDR");
-    expect(verifiedCashCurrency(null)).toBeNull();
+    expect(cashCurrencyForContract("0x0000000000000000000000000000000000000001")).toBeNull();
+    expect(moneyAmountUnit(cashCurrencyForContract("0x0000000000000000000000000000000000000001"), "USD")).toEqual(native);
+    expect(cashCurrencyForContract(getAddress(canonicalUsdcAsset.contractAddress))).toBe("USD");
+    expect(cashCurrencyForContract(requiredLocalCashAsset("EUR").contractAddress)).toBe("EUR");
+    expect(cashCurrencyForContract(requiredLocalCashAsset("IDR").contractAddress)).toBe("IDR");
+    expect(cashCurrencyForContract(null)).toBeNull();
   });
 
   test("follows the selected display region without converting the asset", () => {
@@ -71,6 +74,12 @@ describe("primary unit and chips", () => {
     expect(formatAvailableDecimal("1234.56", fiatUsd, "USDC")).toBe("$1,234.56 available");
     expect(formatAvailableDecimal("1234.5", native, "ETH")).toBe("1,234.5 ETH available");
     expect(formatAvailableLine("Balance unavailable", native, "ETH")).toBe("Balance unavailable");
+  });
+
+  test("preserves saved labels without claiming withdrawal availability", () => {
+    expect(formatAvailableLine("$100.00 saved", fiatUsd, "USDC")).toBe("$100.00 saved");
+    expect(formatAvailableLine("$100.00 saved", native, "USDC")).toBe("100.00 USDC saved");
+    expect(formatAvailableDecimal("100.001", fiatUsd, "USDC", "saved")).toBe("$100.001 saved");
   });
 });
 

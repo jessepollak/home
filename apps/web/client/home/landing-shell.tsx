@@ -11,7 +11,7 @@ import {
   parseShellLocation,
   readShellAccountParam,
 } from "@/config/shell-location";
-import { markHomePerformance, startHomePerformance } from "@/client/observability/perf-marks";
+import { markHomePerformance, markHomeStartupOutcome, startHomePerformance } from "@/client/observability/perf-marks";
 import { readHomeInboundPanelState } from "./panel-routing";
 import { ShellHeader, SignedOutLanding } from "./shell-chrome";
 import { useHomeRegion } from "./use-home-region";
@@ -47,6 +47,8 @@ export function LandingShell({
     initialAccountOpen || initialUrlIntent.account === "signin",
   );
 
+  const [accountOpener, setAccountOpener] = useState<HTMLElement | null>(null);
+
   const isVerified = account.status === "verified" && account.verification === "server";
   const isSignedOut = account.status === "signed-out" || account.status === "signout-error";
 
@@ -61,7 +63,14 @@ export function LandingShell({
   }, []);
 
   useEffect(() => {
+    if (account.status === "unavailable") markHomeStartupOutcome("unavailable");
+    else if (isSignedOut) markHomeStartupOutcome("signed-out");
+    else if (isVerified) markHomePerformance("session:verified");
+  }, [account.status, isSignedOut, isVerified]);
+
+  useEffect(() => {
     const onPopState = () => {
+      setAccountOpener(null);
       setIsAccountOpen(
         readShellAccountParam(new URLSearchParams(window.location.search)) === "signin",
       );
@@ -84,7 +93,8 @@ export function LandingShell({
     }
   }, [account.verification, router]);
 
-  function openAccount() {
+  function openAccount(opener: HTMLButtonElement) {
+    setAccountOpener(opener);
     setIsAccountOpen(true);
     if (readShellAccountParam(new URLSearchParams(window.location.search)) !== "signin") {
       commitClientUrl("/?account=signin");
@@ -133,8 +143,9 @@ export function LandingShell({
       />
       <AccountSignInSheet
         open={isAccountOpen}
+        opener={accountOpener}
         onClose={closeAccount}
-        onVerified={() => router.replace("/home")}
+        onVerified={() => window.location.replace("/home")}
       />
     </div>
   );

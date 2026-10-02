@@ -178,7 +178,7 @@ export function PrimaryNavigation({
         id="desktop-rail"
         data-rail-state={collapsed ? "collapsed" : "expanded"}
         data-rail-motion={animated ? "animated" : "static"}
-        className={`hidden h-full shrink-0 overflow-hidden border-e bg-background lg:flex ${animated ? "transition-[width] duration-[180ms] ease-out motion-reduce:transition-none" : "transition-none"} ${collapsed ? "w-16" : "w-60"}`}
+        className={`hidden shrink-0 overflow-hidden border-e bg-background lg:sticky lg:top-0 lg:flex lg:h-svh ${animated ? "transition-[width] duration-[180ms] ease-out motion-reduce:transition-none" : "transition-none"} ${collapsed ? "w-16" : "w-60"}`}
       >
         <div className="flex h-full w-60 shrink-0 flex-col">
           <div className="flex h-14 shrink-0 items-center px-2.5">

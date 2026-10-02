@@ -44,7 +44,7 @@ export type BalancesState =
   | { status: "ready"; snapshot: BalancesSnapshot; error: null; revalidating?: true }
   | { status: "error"; snapshot: null; error: "balances-unavailable" };
 
-export type FetchBalances = (region: RegionId, signal?: AbortSignal) => Promise<unknown>;
+export type FetchBalances = (region: RegionId, signal?: AbortSignal, onStage?: (stage: "fetch" | "response") => void) => Promise<unknown>;
 
 export function nativeAssetKey(): NativeAssetKey {
   return `eip155:${BALANCES_CHAIN_ID}/native`;

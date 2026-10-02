@@ -56,6 +56,7 @@ const rungThreePaths = [
   "**/*calldata*",
   "apps/web/client/transfers/send-dialog.tsx",
   "apps/web/client/savings/savings-actions.tsx",
+  "apps/web/client/savings/savings-journey-step.tsx",
   "apps/web/client/borrowing/borrowing-experience.tsx",
 ];
 

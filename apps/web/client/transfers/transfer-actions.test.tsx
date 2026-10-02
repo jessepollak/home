@@ -4,6 +4,10 @@ import { page } from "@/tests/helpers/dom";
 import { afterEach, expect, test } from "bun:test";
 import type { ComponentProps } from "react";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { applyActionHandleEffects } from "@/client/query/after-action";
 
 const { act, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { TransferActionsForWallet } = await import("./transfer-actions");
@@ -14,16 +18,17 @@ const ADDRESS_B = "0x3333333333333333333333333333333333333333" as const;
 const RECIPIENT_A = "0x2222222222222222222222222222222222222222";
 const assets = [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }];
 
-function wallet(subject: string, address: `0x${string}`): Wallet {
+function wallet(subject: string, address: `0x${string}`, reads?: string[]): Wallet & { session: NonNullable<Wallet["session"]> } {
   return {
     ownerKey: `wallet-${subject}`,
     status: "verified",
     verification: "server",
     session: { user: { subject }, smartAccount: { address, chainId: 8453 }, accountProvider: "cdp-embedded" },
     fetchAccountResource: async (path) => {
+      reads?.push(path);
       if (path === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
       if (path === "/api/transfers/recent-recipients") return { version: 1, recipients: [] };
-      if (path.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
+      if (path.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
       throw new Error(`Unexpected account resource: ${path}`);
     },
     prepareMoneyAction: async () => { throw new Error("Unexpected prepare"); },
@@ -85,4 +90,27 @@ test("changing Send owner drops the sheet immediately and reopens without the pr
   fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "2" } });
   fireEvent.click(page().getByRole("button", { name: "Continue" }));
   expect((page().getByRole("textbox", { name: "To" }) as HTMLInputElement).value).toBe("");
+});
+
+test("keys the send dialog's recipient reads by the data owner so a post-action refetch reaches them", async () => {
+  const reads: string[] = [];
+  const owner = dataOwnerKey(wallet("owner-a", ADDRESS_A).session);
+  render(<TransferActionsForWallet wallet={wallet("owner-a", ADDRESS_A, reads)} availableAssets={assets} />);
+  fireEvent.click(page().getByRole("button", { name: "Send" }));
+  await page().findByRole("dialog", { name: "Send" });
+  const recentReads = () => reads.filter((path) => path === "/api/transfers/recent-recipients").length;
+  await waitFor(() => expect(recentReads()).toBe(1));
+  expect(getHomeQueryClient().getQueryState(ownerQueryKey(owner, "transfers-recent-recipients"))?.status).toBe("success");
+
+  await act(async () => {
+    await applyActionHandleEffects({
+      path: "/api/actions/action-123/handle",
+      body: { transactionHash: "0x1234" },
+      dataOwnerKey: owner,
+      queryClient: getHomeQueryClient(),
+      startBalanceFreshness: () => {},
+    });
+  });
+
+  await waitFor(() => expect(recentReads()).toBe(2));
 });

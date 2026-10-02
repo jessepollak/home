@@ -2,7 +2,7 @@ import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseOperatorFeeSettings } from "@/shared/fees/contract";
-import { parseAllSettingsResponse, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest, parseSettingsResponse, parseSupportSettings, OPERATOR_SETTINGS_DOMAINS } from "@/shared/operator-settings/contract";
+import { parseAllSettingsResponse, parseAuditListResponse, parseOperatorSettingsErrorResponse, parsePutSettingsRequest, parseSettingsResponse, parseSupportSettings, parseFundingSettings, OPERATOR_SETTINGS_DOMAINS } from "@/shared/operator-settings/contract";
 import { createAuditListHandler, createSettingsDomainHandlers, createSettingsListHandler } from "./handlers";
 import { AdminAuditLog } from "./audit";
 import { OperatorSettingsConflictError, OperatorSettingsStore, OperatorSettingsValidationError } from "./store";
@@ -32,13 +32,30 @@ const putDomain = (domain: string, body: unknown) => request("PUT", `settings/${
 
 const fakeStore = {
   registry: OPERATOR_SETTINGS_DOMAINS,
-  hasDomain: (domain: string) => domain === "support",
+  hasDomain: (domain: string) => domain === "support" || domain === "funding",
   read: async () => entry,
   readAll: async () => [entry],
   write: async () => entry,
 } as unknown as OperatorSettingsStore;
 const fakeAudit = { list: async () => ({ entries: [], nextCursor: null }) } as unknown as AdminAuditLog;
 const deps = (authorize: () => Promise<VerifiedAccountSession | Response> = async () => session(X)) => ({ authorize, config, store: () => fakeStore, audit: () => fakeAudit });
+
+describe("funding settings contract", () => {
+  const corridor = { providerId: "peer", region: "US", direction: "offramp" as const, offered: true };
+  test("accepts an empty catalog selection and rejects unknown keys, invalid ids, duplicates, bounds and non-boolean values", () => {
+    expect(parseFundingSettings({ corridors: [] })).toEqual({ corridors: [] });
+    expect(parseFundingSettings({ corridors: [corridor] })).toEqual({ corridors: [corridor] });
+    for (const input of [
+      { corridors: [corridor], extra: true }, { corridors: [{ ...corridor, extra: 1 }] },
+      { corridors: [{ ...corridor, providerId: "Bad Provider" }] },
+      { corridors: [{ ...corridor, region: "USA" }] },
+      { corridors: [{ ...corridor, direction: "both" }] },
+      { corridors: [corridor, corridor] },
+      { corridors: Array.from({ length: 501 }, (_, index) => ({ ...corridor, providerId: `provider${index}` })) },
+      { corridors: [{ ...corridor, offered: "true" }] },
+    ]) expect(parseFundingSettings(input)).toBeNull();
+  });
+});
 
 describe("support contract", () => {
   test.each([
@@ -88,6 +105,15 @@ test("each endpoint authorizes before accessing stores", async () => {
     }
   }
 });
+test("funding settings is a recognized domain for an operator", async () => {
+  const funding = { domain: "funding", settings: { value: { corridors: [] }, revision: 0, source: "default" as const, updatedAt: null, updatedBy: null } };
+  const store = Object.assign({}, fakeStore, { read: async () => funding, write: async () => funding });
+  const fundingContext = { params: Promise.resolve({ domain: "funding" }) };
+  const handler = createSettingsDomainHandlers({ ...deps(), store: () => store });
+  expect(parseSettingsResponse(await response(await handler.GET(request("GET", "settings/funding"), fundingContext), 200))?.domain).toBe("funding");
+  expect(parseSettingsResponse(await response(await handler.PUT(putDomain("funding", { version: 1, expectedRevision: 0, value: { corridors: [] }, operator: X }), fundingContext), 200))?.domain).toBe("funding");
+});
+
 
 test("domain auth precedes 404, and unknown domains return 404", async () => {
   const unknown = { params: Promise.resolve({ domain: "other" }) };

@@ -18,7 +18,7 @@ Selecting a loan row opens the collateral-named management sheet. Its footer hol
 
 A user without a position enters the USDC amount first. Available borrowing is derived from verified wallet collateral, market liquidity, Morpho share rounding, and the `1.25` hard health-factor floor. Home targets `1.50` when opening; if the requested amount cannot reach that target with the wallet balance but still passes `1.25`, the available collateral is used. The review states the exact collateral amount to be locked. Risk copy uses the collateral's display name: “<displayName> can fall X% before liquidation.” The price-drop buffer is `(health factor - WAD) * 10000 / health factor` in bps. The meter clamps at 50%, with a 20% floor and approximately 33% healthy ticks; numeric health factor is secondary. Oracle raw price uses `10^(36 + loanDecimals - collateralDecimals)` units per USD, not a universal 36-decimal scale.
 
-Borrow review includes the amount, movements, projected liquidation buffer, variable rate from the prepared snapshot, Base network, and compact server warnings. Prepared reviews expire after two minutes. Repay below estimated debt is exact partial repayment. Max or an amount at or above estimated debt uses share-based repay-all with a finite wallet-bounded maximum; if wallet USDC is below debt, Max remains a partial repayment. The client buffer is approximately one hour of rate-based accrual plus one base unit; the server determines exact shares and the reviewed maximum. Confirmation remains a thin commit of stored calls.
+Borrow review includes the amount, movements, projected liquidation buffer, variable rate from the prepared snapshot, Base network, and compact server warnings. Prepared reviews expire after two minutes. Repay below estimated debt is exact partial repayment. Max or an amount at or above estimated debt uses share-based repay-all with a finite wallet-bounded maximum; if wallet USDC is below debt, Max remains a partial repayment. The client buffer is approximately one hour of rate-based accrual plus one base unit; the server determines exact shares and the reviewed maximum. Confirmation commits the stored calls after repeating the market availability gate described in [actions](actions.md#unverified-assumptions-verify-on-preview-once).
 
 ## Private APIs
 
@@ -27,6 +27,8 @@ Borrow review includes the amount, movements, projected liquidation buffer, vari
 - `POST /api/actions/prepare` supports add collateral, borrow, atomic supply-and-borrow, partial repay, capped share-based repay-all, collateral withdrawal, and atomic close. Borrow metadata includes fresh `borrowAprWad`.
 
 Risk-increasing actions that leave debt require projected health factor `>= 1.25`; zero-debt closes and withdrawals are exempt. Approvals are finite and exact, with no `approve(0)` precursor or unlimited approval. No live-provider, funded-wallet, or real-money test is claimed.
+
+The owner-persisted overview uses `[owner, "borrow", "overview"]` with a 15-second freshness window. Market detail uses `[owner, "borrow-market", marketId]` with `staleTime: 0`, so cached or overview-seeded snapshots revalidate immediately. Separate restore guards accept only the matching overview key or market id; legacy `borrow/detail` entries are discarded. Both scopes are invalidated after actions and during indexed convergence, and active queries participate in Home pull-to-refresh.
 
 ## Admission usefulness and limits
 

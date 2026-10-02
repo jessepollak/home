@@ -2,9 +2,11 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { FundingErrorCode } from "@/shared/funding/contracts/errors";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingDirection, FundingProvider, Instruction, Observation, Quote } from "@/shared/funding/provider-contract";
 import { FUNDING_QUOTE_VERSION, readFundingQuote, type QuoteDraft } from "@/shared/funding/contracts/quotes";
+import { resolveFundingOffering } from "@/server/funding/offering";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_CONFIGURATION_CODE, FundingProviderConfigurationError, createProviderContext, environmentAvailable, resolveFundingMode, type FundingConfigurationCode } from "./provider-context";
 import { authenticateFundingQuote, isFundingQuoteExpired, signFundingQuote } from "./quote-token";
@@ -41,6 +43,7 @@ export type FundingCoreDependencies = {
   userTokenVault?: FundingUserTokenVault;
   userTokenProviders?: ReadonlyMap<string, ProviderUserTokenCreateOrder>;
   env?: Environment;
+  readOffering?: () => Promise<Pick<ReturnType<typeof resolveFundingOffering>, "source" | "isSelected" | "isOffered">>;
   fetchImplementation?: typeof fetch;
   currentBaseBlock: () => Promise<string>;
   verifyReceipt: (order: FundingOrder, hash: `0x${string}`) => Promise<ReceiptMatch>;
@@ -66,11 +69,29 @@ export class FundingCore {
 
   private readonly regionOffered: (region: string) => Promise<boolean>;
 
-  private async offered(region: string, unavailableCode: string): Promise<boolean> {
+  private async offered(region: string, unavailableCode: FundingErrorCode): Promise<boolean> {
     try {
       return await this.regionOffered(region);
     } catch {
       throw new FundingCoreError(unavailableCode, 503);
+    }
+  }
+
+  private async offering(unavailableCode: FundingErrorCode) {
+    try {
+      return await (this.deps.readOffering ?? (() => Promise.resolve(resolveFundingOffering({
+        providers: this.deps.providers, env: this.env,
+        entry: { domain: "funding", settings: { value: { corridors: [] }, revision: 0, source: "default", updatedAt: null, updatedBy: null } },
+      }))))();
+    } catch {
+      throw new FundingCoreError(unavailableCode, 503);
+    }
+  }
+
+  private async requireOffered(provider: FundingProvider, region: string, direction: FundingDirection, unavailableCode: FundingErrorCode) {
+    const offering = await this.offering(unavailableCode);
+    if (!offering.isOffered(provider.manifest.id, region, direction)) {
+      throw new FundingCoreError("CORRIDOR_NOT_OFFERED", 409, undefined, `${provider.manifest.displayName} is no longer offered here.`);
     }
   }
 
@@ -80,8 +101,20 @@ export class FundingCore {
     direction: FundingDirection = "onramp",
   ) {
     if (!await this.offered(region, "PROVIDERS_UNAVAILABLE")) return [];
+    const offering = await this.offering("PROVIDERS_UNAVAILABLE");
+    const hasPausedOnramp = direction === "onramp" && this.deps.providers.some((provider) =>
+      provider.onramp && provider.manifest.bindings.some((binding) =>
+        binding.region === region && binding.directions.onramp && !offering.isOffered(provider.manifest.id, region, "onramp")));
+    const openOrders = hasPausedOnramp ? await this.deps.store.listOpen(ownerFor(session), region) : [];
+    const resumableOrder = (providerId: string, binding: FundingProvider["manifest"]["bindings"][number]) =>
+      direction === "onramp" && openOrders.find((order) => order.providerId === providerId &&
+        order.region === binding.region && order.assetId === binding.assetId &&
+        binding.directions.onramp?.paymentMethods.some((method) => method.id === order.paymentMethod));
     let corridorDiscoveryFailed = false;
     const listed = this.deps.providers.flatMap((provider) => {
+      const matches = provider.manifest.bindings.filter((binding) => binding.region === region && binding.directions[direction]);
+      if (matches.length > 0 && matches.every((binding) => !resumableOrder(provider.manifest.id, binding) &&
+        offering.source === "saved" && !offering.isSelected(provider.manifest.id, region, direction))) return [];
       let sandbox: boolean;
       try {
         sandbox = resolveFundingMode(provider.manifest, direction, this.env) === "sandbox";
@@ -95,28 +128,32 @@ export class FundingCore {
         return [];
       }
       return provider.manifest.bindings.flatMap((binding) => {
-      const directional = binding.directions[direction];
-      if (
-        binding.region !== region ||
-        !directional ||
-        !(direction === "onramp" ? provider.onramp : provider.offramp) ||
-        !directionAvailable(provider, direction, sandbox)
-      ) return [];
-      if (!environmentAvailable(directional.env, this.env)) {
-        this.deps.logProviderDiscoveryFailure?.({
-          providerId: provider.manifest.id,
-          reason: "configuration",
-          code: FUNDING_BINDING_ENVIRONMENT_CODE,
-        });
-        corridorDiscoveryFailed = true;
-        return [];
-      }
-      const asset = getFundingAsset(binding.assetId);
-      if (!asset) return [];
-      return [{ provider, binding, directional, asset, sandbox }];
+        const directional = binding.directions[direction];
+        if (binding.region !== region || !directional) return [];
+        const connected = environmentAvailable(directional.env, this.env);
+        const offered = offering.isOffered(provider.manifest.id, binding.region, direction);
+        const resumable = !offered && Boolean(resumableOrder(provider.manifest.id, binding));
+        if (
+          (!offered && connected && !resumable) ||
+          !(direction === "onramp" ? provider.onramp : provider.offramp) ||
+          !directionAvailable(provider, direction, sandbox)
+        ) return [];
+        if (!connected && !resumable) {
+          if (offering.source === "saved" && !offering.isSelected(provider.manifest.id, binding.region, direction)) return [];
+          this.deps.logProviderDiscoveryFailure?.({
+            providerId: provider.manifest.id,
+            reason: "configuration",
+            code: FUNDING_BINDING_ENVIRONMENT_CODE,
+          });
+          corridorDiscoveryFailed = true;
+          return [];
+        }
+        const asset = getFundingAsset(binding.assetId);
+        if (!asset) return [];
+        return [{ provider, binding, directional, asset, sandbox, resumable }];
       });
     });
-    const results = await Promise.all(listed.map(async ({ provider, binding, directional, asset, sandbox }) => {
+    const results = await Promise.all(listed.map(async ({ provider, binding, directional, asset, sandbox, resumable }) => {
       if (direction === "onramp") {
         const manifest = provider.manifest.onramp;
         if (!manifest || !provider.onramp) return [];
@@ -132,6 +169,7 @@ export class FundingCore {
           paymentMethods: directional.paymentMethods,
           quotes: manifest.quotes === true,
           customerSetup: manifest.customer ? { hosted: true as const } : null,
+          resumeOnly: resumable,
         }];
       }
       if (!provider.offramp || !session.smartAccount) return [];
@@ -211,7 +249,9 @@ export class FundingCore {
     const resolved = parsed ? this.customerCapability(parsed.providerId, parsed.region) : null;
     if (!parsed || !resolved) throw new FundingCoreError("INVALID_VERIFICATION_REQUEST", 400);
     if (!await this.offered(parsed.region, "VERIFICATION_UNAVAILABLE")) throw new FundingCoreError("INVALID_VERIFICATION_REQUEST", 400);
-    const { provider, binding, capability, sandbox } = resolved;
+    const { provider, binding, capability } = resolved;
+    await this.requireOffered(provider, binding.region, "onramp", "VERIFICATION_UNAVAILABLE");
+    const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
     const timestamp = this.now().toISOString();
     const reserved = await this.customerStore.reserve({ id: randomUUID(), owner: ownerFor(session), providerId: provider.manifest.id, region: binding.region, createdAt: timestamp });
     let customer = reserved.customer;
@@ -275,8 +315,7 @@ export class FundingCore {
     const binding = provider?.manifest.bindings.find((candidate) => candidate.region === region && candidate.directions.onramp);
     const capability = provider?.onramp?.customer;
     if (!provider || !binding || !capability || !provider.manifest.onramp?.customer || !environmentAvailable(binding.directions.onramp!.env, this.env)) return null;
-    const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
-    return { provider, binding, capability, sandbox };
+    return { provider, binding, capability };
   }
 
   private customerContext(resolved: NonNullable<ReturnType<FundingCore["customerCapability"]>>) {
@@ -287,7 +326,7 @@ export class FundingCore {
       paymentMethodId: resolved.binding.directions.onramp!.paymentMethods[0]!.id,
       env: this.env,
       fetchImplementation: this.deps.fetchImplementation,
-      sandbox: resolved.sandbox,
+      sandbox: resolveFundingMode(resolved.provider.manifest, "onramp", this.env) === "sandbox",
     });
   }
 
@@ -321,14 +360,17 @@ export class FundingCore {
     const provider = parsed ? this.provider(parsed.providerId) : null;
     const binding = provider && parsed ? findBinding(provider, parsed.region, "onramp", parsed.paymentMethod) : null;
     const asset = binding ? getFundingAsset(binding.assetId) : null;
-    const sandbox = provider ? resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox" : false;
     const onramp = provider ? provider.onramp : null;
     const onrampManifest = provider?.manifest.onramp;
     const directional = binding?.directions.onramp;
-    if (!parsed || !provider || !binding || !directional || !asset || !onramp || !onrampManifest || !session.smartAccount || !directionAvailable(provider, "onramp", sandbox) || !environmentAvailable(directional.env, this.env) || (!onramp.createQuote && binding.currency !== asset.fiatCurrency)) {
+    if (!parsed || !provider || !binding || !directional || !asset || !onramp || !onrampManifest || !session.smartAccount || (!onramp.createQuote && binding.currency !== asset.fiatCurrency)) {
       throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
     }
     if (!await this.offered(binding.region, "QUOTE_UNAVAILABLE")) throw new FundingCoreError("PROVIDER_UNAVAILABLE", 424);
+    await this.requireOffered(provider, binding.region, "onramp", "QUOTE_UNAVAILABLE");
+    const sandbox = resolveFundingMode(provider.manifest, "onramp", this.env) === "sandbox";
+    if (!directionAvailable(provider, "onramp", sandbox)) throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
+    if (!environmentAvailable(directional.env, this.env)) throw new FundingCoreError("INVALID_QUOTE_REQUEST", 400);
     const minimum = directional.minimumFiatAmount;
     if (minimum !== undefined) {
       const decimals = Math.max(parsed.fiatAmount.split(".")[1]?.length ?? 0, minimum.split(".")[1]?.length ?? 0);
@@ -402,6 +444,7 @@ export class FundingCore {
       if (existing.quoteToken !== authenticated.canonicalToken) throw new FundingCoreError("INVALID_QUOTE_TOKEN", 400);
       return publicOrder(existing);
     }
+    await this.requireOffered(provider, binding.region, "onramp", "ORDER_UNAVAILABLE");
     if (await this.deps.store.getDispatchAmbiguous(owner, claims.region, claims.providerId)) {
       throw new FundingCoreError("AMBIGUOUS_ORDER_OPEN", 409);
     }
@@ -486,8 +529,10 @@ export class FundingCore {
     return this.deps.store.getOpen(ownerFor(session), region);
   }
 
-  async getOpenOrder(session: VerifiedAccountSession, region: string) {
-    const order = await this.deps.store.getOpen(ownerFor(session), region);
+  async getOpenOrder(session: VerifiedAccountSession, region: string, providerId?: string, paymentMethod?: string, assetId?: string) {
+    const order = providerId
+      ? await this.deps.store.getOpenForProvider(ownerFor(session), region, providerId, paymentMethod, assetId)
+      : await this.deps.store.getOpen(ownerFor(session), region);
     return order ? publicOrder(await this.refresh(order)) : null;
   }
 
@@ -584,10 +629,10 @@ export class FundingCore {
     if (!provider || !onramp || !binding) return order;
     const asset = getFundingAsset(order.assetId);
     if (!asset) return order;
-    const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
     const refreshStartedAt = Date.now();
     let observation: Observation;
     try {
+      const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
       observation = await onramp.getOrder({
         homeOrderId: order.id,
         providerOrderId: order.providerOrderId,
@@ -720,7 +765,7 @@ function minimumQuoteMessage(displayName: string, minimum?: string): string {
 
 export class FundingCoreError extends Error {
   constructor(
-    readonly code: string,
+    readonly code: FundingErrorCode,
     readonly status: number,
     readonly availableAt?: string,
     readonly publicMessage?: string,

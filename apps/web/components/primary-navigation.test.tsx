@@ -150,7 +150,7 @@ describe("PrimaryNavigation", () => {
   });
 
   test("keeps Home selected in a nested panel", () => {
-    const view = render(<PrimaryNavigation activeNavigation="balances" onNavigate={() => undefined} />);
+    const view = render(<PrimaryNavigation activeNavigation="cash" onNavigate={() => undefined} />);
     expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     expect(view.getByRole("button", { name: "Invest" }).hasAttribute("aria-current")).toBe(false);
   });
@@ -176,7 +176,7 @@ describe("PrimaryNavigation", () => {
       view.rerender(<PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />);
       expect(reads).toBe(1);
       view.rerender(<PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />);
-      view.rerender(<PrimaryNavigation activeNavigation="balances" onNavigate={() => undefined} />);
+      view.rerender(<PrimaryNavigation activeNavigation="borrow" onNavigate={() => undefined} />);
       expect(reads).toBe(1);
     } finally {
       window.getComputedStyle = original;

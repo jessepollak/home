@@ -4,7 +4,7 @@ import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import type { FiatCurrencyCode } from "@/config/regions";
 import type {
   BalanceChange, BalanceCheckpoint, ChainBucket, ChangeSums, ChunkCommit, Granularity,
-  HexAddress, HexHash, HistoryAddress, HistoryAsset, HistoryStore, TransferLoggedAsset, ValuationPoint,
+  HexAddress, HexHash, HistoryAddress, HistoryAsset, HistoryStore, HistoryWriteOptions, TransferLoggedAsset, ValuationPoint,
 } from "./types";
 
 type Row = Record<string, unknown>;
@@ -114,11 +114,12 @@ export class PostgresHistoryStore implements HistoryStore {
     return result.rows[0] ? addressRow(result.rows[0]) : null;
   }
 
-  async markDirty(chainId: number, addresses: readonly HexAddress[], at: Date): Promise<number> {
+  async markDirty(chainId: number, addresses: readonly HexAddress[], at: Date, options?: HistoryWriteOptions): Promise<number> {
     if (addresses.length === 0) return 0;
     const result = await this.sql.query(
       "UPDATE history_addresses SET dirty_at=GREATEST(dirty_at,$3::timestamptz) WHERE chain_id=$1 AND address=ANY($2::text[])",
       [chainId, textArray(addresses.map((address) => address.toLowerCase())), at],
+      options,
     );
     return result.rowCount;
   }

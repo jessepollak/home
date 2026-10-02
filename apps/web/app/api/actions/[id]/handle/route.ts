@@ -5,8 +5,6 @@ import { authorizeSession } from "@/server/auth/authorize";
 import { createHandleActionHandler } from "@/server/actions/handler";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export const POST = createHandleActionHandler({

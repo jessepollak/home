@@ -11,6 +11,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { memeAssets } from "@/config/invest-assets";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { TradeActions } from "./trade-actions";
@@ -114,7 +115,7 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
     <main className="mx-auto flex min-h-svh w-full max-w-2xl items-center justify-center p-4">
       {view === "availability" ? <AccountWalletClientProvider client={{
         ...createBlockedAccountWalletClient("provider-unavailable"),
-        status: "verified", verification: "server", session,
+        status: "verified", verification: "server", isSignedIn: true, ownerKey: dataOwnerKey(session), session,
         fetchBalances: async () => balancesSnapshot("US"), fetchAccountResource,
       }}><TradeActions asset={degen} /></AccountWalletClientProvider> :
         <TradeMoneyDialog open direction={direction} session={session} token={conversion ? eurToken : token} assetName={conversion ? eur.name : assetName}

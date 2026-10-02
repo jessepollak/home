@@ -1,8 +1,8 @@
 
-import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
+import { PORTFOLIO_USDC_ASSET_KEY, verifiedLocalCashAsset, type PortfolioCashAsset } from "@/config/portfolio-assets";
 import { presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
 import { DEFAULT_BORROW_MARKET } from "@/shared/borrowing/config";
-import { expectedRegistryHoldings } from "./contract";
+import { expectedRegistryHoldings } from "./registry-expectations";
 import { computeBalancesTotals } from "./totals";
 import {
   BALANCES_CHAIN_ID,
@@ -63,7 +63,7 @@ export const FIXTURE_WALLET_TOKEN = {
 } as const;
 
 export type HoldingOverride = Partial<
-  Pick<Holding, "balance" | "value" | "cashValue" | "underlyingBalance">
+  Pick<Holding, "balance" | "value" | "cashValue" | "underlyingBalance" | "withdrawableBalance">
 >;
 
 export type BalancesFixtureOptions = {
@@ -77,6 +77,12 @@ export type BalancesFixtureOptions = {
   totals?: Partial<BalancesTotals>;
   fetchedAt?: string;
 };
+
+export function requiredLocalCashAsset(currency: FiatCurrencyCode): PortfolioCashAsset {
+  const asset = verifiedLocalCashAsset(currency);
+  if (!asset) throw new Error(`The supported portfolio inventory has no approved ${currency} asset.`);
+  return asset;
+}
 
 export function decimal(atoms: string, scale: number): ExactDecimal {
   return { atoms, scale };
@@ -175,6 +181,7 @@ export function buildBalancesSnapshotFixture(options: BalancesFixtureOptions = {
       holding.underlyingBalance =
         override.underlyingBalance ??
         (balance.status === "unavailable" ? unavailableBalance : ready("0"));
+      holding.withdrawableBalance = override.withdrawableBalance ?? holding.underlyingBalance;
     }
     if (expected.cashCurrency) {
       holding.cashValue =

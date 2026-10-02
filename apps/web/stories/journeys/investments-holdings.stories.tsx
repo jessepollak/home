@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { HomeMoneySummary } from "@/client/home/home-overview";
@@ -18,7 +18,6 @@ import { addFractions, exactDecimalToFraction } from "@/shared/balances/math";
 import type { AssetKey } from "@/shared/balances/types";
 
 const noop = () => undefined;
-const account = { status: "verified", isSignedIn: true, ownerKey: null, session: null } as unknown as ComponentProps<typeof ShellHeader>["account"];
 const snapshot = sharedPortfolioSnapshot;
 const total = presentBalances({ status: "ready", snapshot, error: null }).summary!.investments.value!;
 function InvestmentsJourney() {
@@ -36,7 +35,8 @@ function InvestmentsJourney() {
     if (assetKey) { restore.current = { key: assetKey }; setAssetKey(null); }
     else if (view === "holdings") { restore.current = { home: true }; setView("home"); }
   };
-  return <AccountWalletClientProvider client={createInvestmentsStoryWalletClient(snapshot)}><PresentationRegionProvider regionId="US"><MoneyMotionProvider reducedMotion><div className="min-h-svh bg-muted/50">
+  const account = createInvestmentsStoryWalletClient(snapshot);
+  return <AccountWalletClientProvider client={account}><PresentationRegionProvider regionId="US"><MoneyMotionProvider reducedMotion><div className="min-h-svh bg-muted/50">
     <ShellHeader isAccountSettingsOpen={false} nestedChromeTitle={view === "home" ? null : assetKey ? selectOwnedInvestments(snapshot).find((row) => row.key === assetKey)?.holding.name || "Asset" : "Investments"} nestedChromeBackLabel="Back" onNestedChromeBack={back} routeMode="dashboard" activeNavigation="invest" isVerified account={account} onHome={noop} onDashboard={noop} onSignIn={noop} onSignOut={noop} onOpenSettings={noop} onCloseSettings={noop} />
     <main className={`${shellContentFrameClassName} py-4`}>
       {view === "home" ? <HomeMoneySummary summary={presentBalances({ status: "ready", snapshot, error: null }).summary} isLoading={false} cashRate={null} borrowOfferRate={null} destinations={{ onOpenCash: noop, onOpenInvestments: () => setView("holdings"), onOpenBorrow: noop }} /> : <InvestmentsExperience holding={assetKey} onOpenHolding={setAssetKey} onCloseHolding={back} balances={{ status: "ready", snapshot, retry: async () => undefined }} discover={{ memeAssets: [], memeMarket: { status: "unavailable" }, assetMarkResolution: {} }} />}
@@ -56,7 +56,7 @@ async function walk({ canvasElement }: { canvasElement: HTMLElement }) {
   const sum = addFractions(selectOwnedInvestments(snapshot).map((owned) => exactDecimalToFraction(owned.amount!)));
   const investments = exactDecimalToFraction(snapshot.totals.investments.value!);
   await expect(sum.numerator * investments.denominator).toBe(investments.numerator * sum.denominator);
-  const row = screen.getByRole("button", { description: "Open Bitcoin" });
+  const row = await screen.findByRole("button", { description: "Open Bitcoin" }, { timeout: 5000 });
   await expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   await userEvent.click(row);
   await expect(screen.getByText("Your balance")).toBeVisible();

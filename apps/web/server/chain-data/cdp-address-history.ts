@@ -1,5 +1,7 @@
 import "server-only";
 
+import { ACTIVITY_HISTORY_START } from "@/shared/activity/types";
+
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 import { UINT256_MAX } from "@/server/chain/rpc";
 import { ChainDataError, type ChainDataErrorCode } from "./errors";
@@ -22,7 +24,6 @@ const MAX_PAGE_TOKEN_LENGTH = 2048;
 const MAX_PROVIDER_CALLS = 3;
 const PROVIDER_PAGE_SIZE = "100";
 const MAX_PROVIDER_PAGE_SIZE = 100;
-const MAX_TIME_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_TRANSFER_PAGE_SIZE = 25;
 const DEFAULT_TIMEOUT_MS = 6_000;
 const MAX_TIMEOUT_MS = 10_000;
@@ -565,8 +566,8 @@ function validateRequest(input: ListBaseErc20TransfersInput, now: Date): Validat
   if (from.getTime() >= to.getTime()) {
     throw new ChainDataError("invalid-input", "The history start must be before its end.");
   }
-  if (to.getTime() - from.getTime() > MAX_TIME_RANGE_MS) {
-    throw new ChainDataError("invalid-input", "History windows cannot exceed 31 days.");
+  if (from.getTime() < Date.parse(ACTIVITY_HISTORY_START)) {
+    throw new ChainDataError("invalid-input", "History starts before supported Base history.");
   }
   if (to.getTime() > now.getTime() + 5 * 60 * 1000) {
     throw new ChainDataError("invalid-input", "History end cannot be in the future.");

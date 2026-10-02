@@ -2,7 +2,7 @@ import { readFile, readdir, rename, writeFile, mkdtemp, rm } from "node:fs/promi
 import { resolve, join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { Cdp, activateTarget, connectCdp, consoleResult, endTracing, startTracing } from "./cdp";
-import { defaults, proxyOptions, startProxy, assertOutsideWorktree } from "./proxy";
+import { defaults, probeProxy, proxyOptions, startProxy, assertOutsideWorktree, buildToolkit } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
 import { artifactName, integer, resultFailure, summarize, traceTotals, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, isEmulatorDevice, safeName, runId, CHROME_COMMAND_LINE, matrix, parseArgs, productionTarget, validResult, androidView, duplicateValues, parseAdbDevices, phoneView, probeInto, selectSimulator, simulatorView, type KnownSimulatorFacts, type Workload, type Result, type Plan, type TraceEvent } from "./model";
 
@@ -115,8 +115,9 @@ async function awaitResult(since: number, base: string, label: string, workload:
 const repeated = <T>(entries: T[], repeat: number) => entries.flatMap((entry) => Array.from({ length: repeat }, () => entry));
 async function ensureProxy(port: number) {
   const opts = { ...defaults(), port };
-  try { const response = await fetch(`http://127.0.0.1:${port}/__device-profile/status?since=0`, { signal: AbortSignal.timeout(3000) }); if (response.ok) return { stop() {} }; } catch {}
-  return startProxy(opts);
+  const built = await buildToolkit();
+  if (await probeProxy(port, built.toolkit) === "reuse") return { stop() {} };
+  return startProxy(opts, built);
 }
 async function iosSim() {
   const name = flags.get("device"); if (!name) throw new Error("--device required");
@@ -297,7 +298,7 @@ async function summary() {
   }))).flat();
   const parsed = await Promise.all(files.map(async (file) => { try { const value: unknown = JSON.parse(await readFile(file, "utf8")); return validResult(value) ? value : file; } catch { return file; } }));
   const invalid = parsed.filter((item): item is string => typeof item === "string");
-  console.log(summarize(parsed.filter((item): item is Result => typeof item !== "string"), flags.has("markdown")));
+  console.log(summarize(parsed.filter((item): item is Result => typeof item !== "string"), flags.has("markdown"), flags.has("include-partial")));
   if (invalid.length) { console.error(`Not a device-profile result: ${invalid.join(", ")}`); process.exitCode = 1; }
 }
 if (command === "serve") await startProxy(proxyOptions(flags));

@@ -4,7 +4,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   ACTIVITY_BASE_CHAIN_ID,
   ACTIVITY_PAGE_SIZE,
-  ACTIVITY_WINDOW_DAYS,
+  ACTIVITY_HISTORY_START,
   type ActivityAsset,
   type ActivityPage,
   type ActivityTransfer,
@@ -30,7 +30,6 @@ export type ParsedActivityPage = ActivityPage & { walletAddress: Address; transf
 export type ActivityResponse = z.input<typeof pageSchema> & ActivityPage;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 const uint256Max = (BigInt(1) << BigInt(256)) - BigInt(1);
-const maxWindowMs = ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 const addressSchema = z.pipe(
   z.string().check(z.refine((value) => parseAddress(value) !== null)),
   z.transform((value: string): Address => parseAddress(value) as Address),
@@ -129,7 +128,7 @@ export function parseActivityPage(
     wire.currency !== expectedCurrency ||
     to !== expectedWindowEnd ||
     new Date(from).getTime() >= new Date(to).getTime() ||
-    new Date(to).getTime() - new Date(from).getTime() > maxWindowMs
+    new Date(from).getTime() < Date.parse(ACTIVITY_HISTORY_START)
   ) {
     throw new ActivityResponseError();
   }

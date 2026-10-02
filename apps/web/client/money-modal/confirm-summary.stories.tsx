@@ -249,7 +249,7 @@ export const SavingsDepositReview: Story = {
       { label: "Vault", value: "Gauntlet USDC Prime" },
       { label: "Network", value: "Base (8453)" },
       { label: "Rate", value: "4.6% APY" },
-      { label: "Vault fee", value: "10%" },
+      { label: "Vault fee", value: "10.00%" },
       { label: "Amount", value: "$25.00" },
     ],
     action: { ...action, id: "storybook-savings-review", kind: "savings-deposit", title: "Deposit USDC" },
@@ -258,7 +258,7 @@ export const SavingsDepositReview: Story = {
     await checkRows(canvasElement, [
       ["From", "0x1111…111111"], ["Vault", "Gauntlet USDC Prime"],
       ["Network", "Base (8453)"], ["Rate", "4.6% APY"],
-      ["Vault fee", "10%"], ["Amount", "$25.00"],
+      ["Vault fee", "10.00%"], ["Amount", "$25.00"],
       ["Network fee", "Up to 0.02 USDC · ≈ $0.02"],
     ]);
   },

@@ -1,7 +1,7 @@
 import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
+import { parseRecentActionsPayload, parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
 import { MAX_MONEY_ACTION_AMOUNT_DECIMALS } from "@/shared/money-actions/types";
 
 const session: VerifiedAccountSession = {
@@ -10,8 +10,14 @@ const session: VerifiedAccountSession = {
   accountProvider: "cdp-embedded",
 };
 const transactionHash = `0x${"a".repeat(64)}` as const;
+function smartAccountAddress(): string {
+  const account = session.smartAccount;
+  if (!account) throw new Error("test session must have a smart account");
+  return account.address;
+}
 
-function row(address = session.smartAccount!.address, status = "confirmed") {
+
+function row(address = smartAccountAddress(), status = "confirmed") {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     provider: "cdp-embedded",
@@ -31,6 +37,68 @@ function row(address = session.smartAccount!.address, status = "confirmed") {
 }
 
 describe("recent Home action activity", () => {
+  test("parses retained savings separately without adding them to Activity", () => {
+    const retained = { ...row(undefined, "unknown"), kind: "savings-deposit" };
+    const payload = { actions: [], retainedSavingsDeposits: [retained] };
+    expect(parseRecentActionsPayload(payload, session)).toMatchObject({
+      operations: [], retainedSavingsDeposits: [{ action: { id: retained.id, kind: "savings-deposit" }, status: "unknown" }],
+      retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [],
+    });
+    expect(parseRecentMoneyActions(payload, session)).toEqual([]);
+  });
+  test("retained savings require the complete owner tuple and savings-deposit kind", () => {
+    const retained = { ...row(), kind: "savings-deposit" };
+    const foreign = [
+      { ...retained, owner: { ...retained.owner, subject: "other" } },
+      { ...retained, owner: { ...retained.owner, address: "0x3333333333333333333333333333333333333333" } },
+      { ...retained, owner: { ...retained.owner, chainId: 1 } },
+      { ...retained, owner: { ...retained.owner, accountProvider: "base-account" } },
+    ];
+    const parsed = parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [...foreign, retained] }, session);
+    expect(parsed.retainedSavingsDeposits).toHaveLength(1);
+    expect(parsed.unparsedSavingsDeposits).toEqual([]);
+    expect(parsed.retainedSavingsDepositsUnavailable).toBe(false);
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [retained] }, { ...session, smartAccount: null }).retainedSavingsDeposits).toEqual([]);
+  });
+  test("retained malformed same-owner deposits become unresolved stubs", () => {
+    const malformed = { ...row(undefined, "unknown"), kind: "savings-deposit",
+      summary: { ...row().summary, amounts: [null], metadata: { product: "savings", operation: "deposit", vaultAddress: smartAccountAddress() } } };
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [malformed, { ...malformed, owner: { ...malformed.owner, subject: "other" } }] }, session))
+      .toMatchObject({ retainedSavingsDeposits: [], unparsedSavingsDeposits: [{ status: "unknown", vaultAddress: smartAccountAddress() }] });
+  });
+  test("a malformed retained element holds savings unresolved", () => {
+    const retained = { ...row(undefined, "unknown"), kind: "savings-deposit" };
+    const owner = retained.owner;
+    for (const element of [null, {}, { id: "row-without-kind" }, { kind: "send", id: "other-kind" }, [], ["savings-deposit"],
+      { kind: "savings-deposit", status: "unknown" },
+      { kind: "savings-deposit", owner: { ...owner, subject: undefined } },
+      { kind: "savings-deposit", owner: { ...owner, address: "not-an-address" } }]) {
+      const parsed = parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [retained, element] }, session);
+      expect(parsed.retainedSavingsDeposits).toHaveLength(1);
+      expect(parsed.retainedSavingsDepositsUnavailable).toBe(true);
+    }
+  });
+  test("retained ids already in recent operations are skipped, including malformed copies", () => {
+    const retained = { ...row(), kind: "savings-deposit" };
+    const parsed = parseRecentActionsPayload({ actions: [retained], retainedSavingsDeposits: [retained, { ...retained, summary: null }] }, session);
+    expect(parsed.operations).toHaveLength(1);
+    expect(parsed.retainedSavingsDeposits).toEqual([]);
+    expect(parsed.unparsedSavingsDeposits).toEqual([]);
+  });
+  test("omitted or undefined retained fields default empty and only a true unavailable flag is accepted", () => {
+    for (const payload of [{ actions: [] }, { actions: [], retainedSavingsDeposits: undefined }]) {
+      expect(parseRecentActionsPayload(payload, session)).toEqual({
+        operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
+      });
+    }
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDepositsUnavailable: true }, session).retainedSavingsDepositsUnavailable).toBe(true);
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDepositsUnavailable: "true" }, session).retainedSavingsDepositsUnavailable).toBe(false);
+  });
+  test.each([null, {}, "invalid"])("a present non-array retained field %j holds savings unresolved", (field) => {
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: field }, session)).toEqual({
+      operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: true, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
+    });
+  });
   test("retains a card allowance with zero amount entries but rejects mismatched or malformed metadata", () => {
     const metadata = { product: "card", operation: "set-allowance", provider: "bridge", mode: "production",
       token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",

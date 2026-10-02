@@ -17,6 +17,10 @@ const forceStatic = /\bexport\s+const\s+dynamic\s*(?:\s*:\s*(?:[^=]|=>)*)?=\s*([
 const zeroRevalidate = /\bexport\s+const\s+revalidate\s*(?:\s*:\s*(?:[^=]|=>)*)?=\s*0(?:\s*;|\s*$)/m;
 const requestHandler = /\bexport\s+(?:async\s+)?function\s+(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)\s*\(\s*[^\s)]/;
 const requestArrow = /\bexport\s+const\s+(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)(?:\s*:\s*(?:[^=]|=>)+)?\s*=\s*(?:async\s*)?\(\s*[^\s)][^)]*\)\s*=>/;
+// Under Cache Components a route cannot declare a dynamic segment, so a GET or HEAD bound to a handler factory call
+// or a named handler is trusted to read its request there; the build manifest remains the authority for that claim.
+const boundHandler = /\bexport\s+const\s+(?:GET|HEAD)(?:\s*:\s*(?:[^=]|=>)+)?\s*=\s*(?!async\b)[A-Za-z_$][\w$.]*\s*(?:\(|;|$)/m;
+const boundHandlers = /\bexport\s+const\s+\{[^}]*\b(?:GET|HEAD)\b[^}]*\}\s*=\s*(?!async\b)[A-Za-z_$][\w$.]*\s*\(/;
 const requestTimeCall = /\b(?:headers|cookies|draftMode|connection|noStore|unstable_noStore)\s*\(/;
 // Only a GET handler is statically prerendered, so a file exporting only other methods needs no dynamic
 // signal. An unmodeled form still does: a re-exported GET counts as a GET, and a file with no recognized
@@ -42,7 +46,7 @@ export function routesWithoutDynamicSignal(files) {
       findings.push({ path: file, reason: "unrecognized route handler form; this gate models only route.ts" });
     } else if (forceStatic.test(content)) {
       findings.push({ path: file, reason: 'declares `export const dynamic = "force-static"`' });
-    } else if (needsDynamicSignal(content) && ![forceDynamic, zeroRevalidate, requestHandler, requestArrow, requestTimeCall].some((signal) => signal.test(content))) {
+    } else if (needsDynamicSignal(content) && ![forceDynamic, zeroRevalidate, requestHandler, requestArrow, boundHandler, boundHandlers, requestTimeCall].some((signal) => signal.test(content))) {
       findings.push({ path: file, reason: "no request-time read and no dynamic route segment" });
     }
   }
@@ -93,8 +97,8 @@ if (executedAsScript(import.meta.url)) {
     const buildDir = process.argv[2] ?? defaultBuildDir;
     const { apiRouteCount, prerendered, staticSources } = await checkApiRoutes(buildDir);
     const relativeManifestPath = path.relative(repoRoot, path.join(buildDir, "prerender-manifest.json")).split(path.sep).join("/");
-    for (const finding of staticSources) console.error(`${finding.path}: ${finding.reason}; a GET handler here can be prerendered into one shared static response. Read the request argument, headers(), cookies(), connection(), or declare \`export const dynamic = "force-dynamic"\`. See ${guidanceUrl}`);
-    for (const route of prerendered) console.error(`${route}: prerendered into the build output (${relativeManifestPath}); every caller would receive the same static response. Its route handler must read the request at run time or declare \`export const dynamic = "force-dynamic"\`. See ${guidanceUrl}`);
+    for (const finding of staticSources) console.error(`${finding.path}: ${finding.reason}; a GET handler here can be prerendered into one shared static response. Read the request argument, headers() or cookies(), call connection(), or bind it from a request-reading handler factory; Cache Components rejects a route segment dynamic export. See ${guidanceUrl}`);
+    for (const route of prerendered) console.error(`${route}: prerendered into the build output (${relativeManifestPath}); every caller would receive the same static response. Its route handler must read the request at run time (the request argument, headers() or cookies()) or call connection(); Cache Components rejects a route segment dynamic export. See ${guidanceUrl}`);
     if (staticSources.length || prerendered.length) process.exitCode = 1;
     else console.log(`API routes stay dynamic: ${apiRouteCount} route handlers, 0 prerendered.`);
   } catch (error) {

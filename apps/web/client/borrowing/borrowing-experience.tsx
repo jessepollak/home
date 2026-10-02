@@ -127,14 +127,17 @@ export function useBorrowOfferRate({
 }: {
   enabled: boolean;
   regionId?: RegionId;
-}): string | null {
+}): { pending: boolean; value: string | null; updatedAt: number } {
   const account = useAccountWallet();
   const session = account.status === "verified" ? account.session : null;
   const overview = useBorrowOverview(enabled ? session : null, account.fetchAccountResource);
   const leading = overview.data ? leadingBorrowOffer(overview.data.opportunities) : null;
   const snapshot = leading?.availability.status === "available" ? leading.availability.snapshot : null;
-  if (!enabled || !snapshot) return null;
-  return `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR`;
+  return {
+    pending: enabled && overview.isPending,
+    updatedAt: enabled && snapshot ? overview.dataUpdatedAt : Math.max(overview.dataUpdatedAt, overview.errorUpdatedAt),
+    value: enabled && snapshot ? `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR` : null,
+  };
 }
 
 export function BorrowExperience(props: BorrowExperienceProps) {
@@ -268,6 +271,7 @@ function BorrowDirectMarket({
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
           open={dialogOpen}
+          opener={null}
           onClose={() => setDialogOpen(false)}
           onClosed={onClose}
           assetMarkResolution={assetMarkResolution}
@@ -417,7 +421,7 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
     if (!key || !overview.data) return;
     for (const opportunity of overview.data.opportunities) {
       if (opportunity.availability.status !== "available") continue;
-      const detailKey = ownerQueryKey(key, "borrow", "detail", opportunity.market.id);
+      const detailKey = ownerQueryKey(key, "borrow-market", opportunity.market.id);
       if ((queryClient.getQueryState(detailKey)?.dataUpdatedAt ?? 0) > overview.dataUpdatedAt) continue;
       queryClient.setQueryData(detailKey, opportunity.availability.snapshot);
     }
@@ -430,8 +434,8 @@ function useBorrowDetail(session: VerifiedAccountSession | null, marketId: Borro
   const key = session?.smartAccount ? ownerDataKey(session) : null;
   return useHomeQuery(ownerQuery<BorrowMarketSnapshot>({
     owner: key && marketId ? key : null,
-    scope: "borrow",
-    key: key && marketId ? ["detail", marketId] : [],
+    scope: "borrow-market",
+    key: key && marketId ? [marketId] : [],
     enabled: Boolean(enabled && marketId && key && owner && fetchAccountResource),
     retry: false,
     refetchOnWindowFocus: true,

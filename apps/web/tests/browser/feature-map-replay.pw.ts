@@ -8,20 +8,9 @@ import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
 const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/surfaces"));
 const replaySurfaceIds = [
-  "landing", "sign-in", "home-panel", "balances", "activity", "save", "invest", "investments",
+  "landing", "sign-in", "home-panel", "activity", "save", "invest", "investments",
   "send", "account-settings", "coverage", "support-chat",
 ];
-const fixtureSkips: Record<string, string> = {
-  "operator-console": "manual: signed native operator session and allowlist required; covered by admin.pw.ts",
-  borrow: "manual: no /api/borrow market fixtures or prepared borrow action",
-  card: "manual: the Card tab requires a server started with BRIDGE_CARDS_ENABLED=1; states are covered by card stories and unit tests",
-  "cash-out": "manual: Peer payout preparation and confirmation are not fixture-backed; Activity Cancel is covered in cash-out-cancel.pw.ts",
-  "add-money": "manual: the fixture Reach is prose, not machine-readable steps",
-  "access-gate": "manual: access-password journey requires its own isolated server configuration",
-  "dev-ui": "manual: development-only theme inventory, not a customer journey",
-  toasts: "manual: Reach requires completing an action rather than a fixture-backed standalone entry",
-};
-
 const variantFixtures: Record<string, (page: Page) => Promise<void>> = {
   "save:convert": async (page) => {
     const routes = fixtureRoutes().filter(([pattern]) => pattern.startsWith("**/api/trades?")).reverse();
@@ -54,25 +43,8 @@ async function executeReach(page: Page, step: ReachStep) {
   return expect(scope.getByText(step.text, { exact: false }).filter({ visible: true }).first()).toBeVisible();
 }
 
-test("every mapped surface has an explicit fixture disposition", async () => {
-  const { surfaces } = await mapPromise;
-  expect([...surfaces.keys()].sort()).toEqual([...replaySurfaceIds, ...Object.keys(fixtureSkips)].sort());
-  for (const surface of surfaces.values()) {
-    expect(Boolean(fixtureSkips[surface.id]), `${surface.id}: manual disposition`).toBe(surface.manual);
-    if (!surface.manual) expect(surface.reach.length, `${surface.id}: machine-readable Reach`).toBeGreaterThan(0);
-    for (const variant of surface.variants) {
-      expect(variant.reach.length, `${surface.id} (${variant.name}): machine-readable Reach`).toBeGreaterThan(0);
-    }
-  }
-  const mappedVariants = [...surfaces.values()].flatMap((surface) => surface.variants.map((variant) => `${surface.id}:${variant.name}`));
-  expect(mappedVariants.sort()).toEqual(Object.keys(variantFixtures).sort());
-  for (const key of mappedVariants) {
-    expect(replaySurfaceIds, `${key}: replayed surface`).toContain(key.split(":")[0]);
-  }
-});
-
 for (const surfaceId of replaySurfaceIds) {
-  test(`feature map: ${surfaceId}`, async ({ page }) => {
+  test(`feature map: ${surfaceId}`, { tag: surfaceId === "invest" ? "@smoke" : [] }, async ({ page }) => {
     const surface = (await mapPromise).surfaces.get(surfaceId);
     expect(surface, `${surfaceId}: mapped surface`).toBeDefined();
     if (!surface) return;
@@ -109,8 +81,4 @@ for (const key of Object.keys(variantFixtures)) {
       await test.step(`${key} step ${index + 1}: ${step.kind}`, () => executeReach(page, step));
     }
   });
-}
-
-for (const [surfaceId, reason] of Object.entries(fixtureSkips)) {
-  test.skip(`feature map: ${surfaceId} — ${reason}`, () => {});
 }

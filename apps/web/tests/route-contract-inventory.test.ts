@@ -32,12 +32,113 @@ function fixture() {
   return { root, write, manifest, violations, codes };
 }
 
+function mixedMethodFixture() {
+  const result = fixture();
+  const legacyContract = "shared/items/legacy-contract.ts";
+  result.write(legacyContract, "export function parseLegacyItem(value: unknown) { return value; }");
+  result.write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseLegacyItem } from "@/shared/items/legacy-contract"; export const GET = () => parseItem({ version: 1 }); export const POST = () => parseLegacyItem({});');
+  result.write("client/items.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseLegacyItem } from "@/shared/items/legacy-contract"; export const loadItem = () => fetch("/api/items").then(parseItem); export const createItem = () => fetch("/api/items", { method: "POST" }).then(parseLegacyItem);');
+  const methods: Record<"GET" | "POST", { contracts: string[]; allowance?: { kind: string; reason: string } }> = {
+    GET: { contracts: [contract] },
+    POST: { contracts: [legacyContract] },
+  };
+  result.manifest.routes[route] = { contracts: [contract, legacyContract], methods };
+  result.manifest.baseline.unversionedContracts.push(legacyContract);
+  return { ...result, methods };
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 test("accepts a mapped versioned, parsed contract with both sides linked", () => {
   expect(fixture().violations()).toEqual([]);
+});
+
+test("requires per-method classification for a route exporting GET and POST", () => {
+  const { write, codes } = fixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; export const GET = () => parseItem({ version: 1 }); export const POST = () => parseItem({ version: 1 });');
+  expect(codes()).toEqual([{ code: "method-unclassified", path: route }]);
+});
+
+for (const classified of [false, true]) {
+  test(`${classified ? "accepts classified" : "requires per-method classification for"} destructured GET and POST exports`, () => {
+    const { write, manifest, codes } = fixture();
+    write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; export const { GET, POST } = { GET: () => parseItem({ version: 1 }), POST: () => parseItem({ version: 1 }) };');
+    if (classified) {
+      const entry = manifest.routes[route];
+      if (!entry) throw new Error("Fixture item route is missing");
+      entry.methods = {
+        GET: { contracts: [contract] },
+        POST: { contracts: [contract] },
+      };
+    }
+    expect(codes()).toEqual(classified ? [] : [{ code: "method-unclassified", path: route }]);
+  });
+}
+
+test("requires per-method classification for star-re-exported GET and POST handlers", () => {
+  const { write, manifest, codes } = fixture();
+  write(`app/api/${route}`, 'export * from "./handler";');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; export const GET = () => parseItem({ version: 1 }); export const POST = () => parseItem({ version: 1 });');
+  expect(codes()).toEqual([{ code: "method-unclassified", path: route }]);
+  const entry = manifest.routes[route];
+  if (!entry) throw new Error("Fixture item route is missing");
+  entry.methods = {
+    GET: { contracts: [contract] },
+    POST: { contracts: [contract] },
+  };
+  expect(codes()).toEqual([]);
+});
+
+test("requires an allowance for an unversioned POST contract despite a versioned GET contract", () => {
+  const { methods, codes } = mixedMethodFixture();
+  expect(codes()).toEqual([{ code: "method-unversioned", path: route }]);
+  methods.POST.allowance = {
+    kind: "unversioned-compatibility",
+    reason: "POST preserves the legacy unversioned response while existing clients migrate.",
+  };
+  expect(codes()).toEqual([]);
+});
+
+test("requires an allowance for a method binding both versioned and unversioned contracts", () => {
+  const { methods, codes } = mixedMethodFixture();
+  methods.GET.contracts = [contract, ...methods.POST.contracts];
+  methods.POST.allowance = {
+    kind: "unversioned-compatibility",
+    reason: "POST preserves the legacy unversioned response while existing clients migrate.",
+  };
+  expect(codes()).toEqual([{ code: "method-unversioned", path: route }]);
+  methods.GET.allowance = {
+    kind: "unversioned-compatibility",
+    reason: "GET preserves the legacy unversioned response while existing clients migrate.",
+  };
+  expect(codes()).toEqual([]);
+});
+
+for (const [name, allowance] of [
+  ["unknown kind", { kind: "internal", reason: "POST preserves the legacy unversioned response while existing clients migrate." }],
+  ["short trimmed reason", { kind: "unversioned-compatibility", reason: "    Too short    " }],
+] as const) {
+  test(`rejects a method allowance with ${name}`, () => {
+    const { methods, codes } = mixedMethodFixture();
+    methods.POST.allowance = allowance;
+    expect(codes()).toEqual([
+      { code: "method-allowance-invalid", path: route },
+      { code: "method-unversioned", path: route },
+    ]);
+  });
+}
+
+test("rejects a method classification the route does not export", () => {
+  const { manifest, codes } = fixture();
+  const entry = manifest.routes[route];
+  if (!entry) throw new Error("Fixture item route is missing");
+  entry.methods = {
+    GET: { contracts: [contract] },
+    POST: { contracts: [contract] },
+  };
+  expect(codes()).toEqual([{ code: "method-unknown", path: route }]);
 });
 
 test("rejects a newly added unmapped route", () => {

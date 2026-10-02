@@ -40,6 +40,7 @@
     "next-env.d.ts"
   ],
   "rules": {
+    "home/bounded-cdp-event-query": "error",
     "nextjs/google-font-display": "error",
     "nextjs/google-font-preconnect": "error",
     "nextjs/inline-script-id": "error",
@@ -151,7 +152,7 @@
     "jsx-a11y/iframe-has-title": "error",
     "jsx-a11y/img-redundant-alt": "error",
     "jsx-a11y/interactive-supports-focus": "error",
-    "jsx-a11y/label-has-associated-control": ["error", { "controlComponents": ["Input", "NativeSelect", "Switch"] }],
+    "jsx-a11y/label-has-associated-control": ["error", { "labelComponents": ["Label"], "controlComponents": ["Input", "NativeSelect", "Switch"] }],
     "jsx-a11y/lang": "error",
     "jsx-a11y/media-has-caption": "error",
     "jsx-a11y/mouse-events-have-key-events": "error",
@@ -178,6 +179,16 @@
         "**/tests/**", "**/stories/**"
       ],
       "rules": { "home/no-deferred-effect-setstate": "error" }
+    },
+    {
+      "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "client/account/owner-keys.ts",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/owner-identity-helper": "error" }
     },
     {
       "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
@@ -603,6 +614,87 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "files": [
+        "{app,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "server/http/**",
+        "shared/http/**",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-inline-request-json": "error"
+      }
+    },
+    {
+      "files": [
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "server/http/**",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-manual-abort-timeout": "error"
+      }
+    },
+    {
+      "files": [
+        "{client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-fetch-in-client-components": "error",
+        "home/query-key-factory": "error"
+      }
+    },
+    {
+      "files": [
+        "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "oxlint/**",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-address-literal-regex": "error"
       }
     }
   ]

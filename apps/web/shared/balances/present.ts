@@ -78,6 +78,7 @@ export type HomeBalancesPresentation = {
   breakdown: MoneyBreakdownItem[];
   summary: HomeMoneySummary | null;
   revalidating?: true;
+  cachedAt?: number;
 };
 
 export type BalancesPresentation = HomeBalancesPresentation & {
@@ -92,6 +93,7 @@ export type PresentBalancesOptions = {
   pendingCashout?: PendingCashoutEstimate;
 };
 
+/** @public builds the grouped list in tests and stories, and the Reveal small balances control returns to a page-scoped caller in #1468; no production page constructs the full list. */
 export function presentBalances(
   state: BalancesState,
   { showSmallBalances, pendingCashout }: PresentBalancesOptions = {
@@ -395,7 +397,7 @@ export function presentCashSelection(entry: CashSelection, snapshot: BalancesSna
       group: "cash",
       name: entry.name,
       mark: { kind: "flag", currency: entry.currency },
-      primary: "Verification pending",
+      primary: entry.verificationStatus,
       secondary: null,
       tone: "muted",
     };

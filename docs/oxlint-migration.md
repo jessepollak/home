@@ -59,7 +59,7 @@ JSON reads at application boundaries use `readJson` from `apps/web/shared/http/r
 
 The production assignment/return override enforces this `unknown` seam: raw JSON may be held as `unknown`, but assigning or returning `any` as a trusted value fails lint. After `Array.isArray`, use an `unknown[]` local before destructuring, finding, mapping, or spreading boundary entries, then reuse the owning parser or existing field guards.
 
-Home history flags are read through `readClientHistoryFlag` from `apps/web/config/shell-location.ts`, which validates the `any`-typed `history.state` and returns a boolean for the closed set of known flag keys, so call sites never touch `history.state` directly; writes keep their existing keys.
+Home history flags are read through `readClientHistoryFlag` from `apps/web/config/shell-location.ts`, which validates the `any`-typed `history.state` and returns a boolean for the closed set of known flag keys, so call sites never touch `history.state` directly; writes keep their existing keys. The shell's in-app origin marker is read and written through `readShellHistoryOrigin` and `writeShellHistoryOrigin` in the same module.
 
 ### Focused follow-up coverage (issue #677)
 
@@ -110,7 +110,7 @@ The three generic ESLint IDs are replaced by stable, specific Home rule IDs rath
 | Unknown Tailwind classes | app/client/components production; tests/stories excluded | `group`/`peer`/`dark` markers and reviewed plain-CSS classes in `custom-classes.mjs` | bare unknown class, unknown utility value, template/`cn`/`cva` literals, cva variant strings (not `defaultVariants`) |
 | Raw JSX colors | app/client/components production | `var()`/`url()`/paint keywords and reviewed brand-asset file+literal pairs | hex, named, and functional paint values on JSX color attributes |
 | Test source reads | tests/helpers except migration subtree; two exact source-read exceptions | migration helper/subtree and Apple Pay asset test; other test rules remain active | fs imports/exports/dynamic/require/templates and `Bun.file` |
-| Deterministic test timing | tests/helpers except migration subtree | 50ms timer and 2000ms wait boundaries | `setTimeout`, `setInterval`, `Bun.sleep`, and Testing Library waits above limits |
+| Deterministic test timing | tests/helpers except migration subtree | 50ms timer and 2000ms wait boundaries | Testing Library waits whose inline literal `timeout` exceeds the limit; named guard objects are deliberate hang budgets |
 | Playwright browser smoke | `*.pw.ts` and `*.pw.tsx` | `page`, `context`, or `browser` fixtures; hooks and suites | `home/no-request-only-playwright` rejects tests destructuring `request` alone or with non-browser fixtures |
 | Behavioral assertions | tests/helpers except migration subtree | class writes/mutations | className/classList/getAttribute("class") reads |
 | Next relative location assignment | Next production scope | absolute and safe assignments | relative `location.assign`/equivalent cases matching the former rule |

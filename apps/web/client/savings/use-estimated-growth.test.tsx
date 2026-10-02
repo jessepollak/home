@@ -2,7 +2,6 @@ import "@/client/account/dom-test-harness";
 
 import { afterAll, afterEach, describe, expect, jest, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
-import { MountedShellPanel } from "@/client/home/panel-shared";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
 import { createSavingsGrowthAnchor, useEstimatedSavingsGrowth, type SavingsGrowthAnchor, type SavingsGrowthAuthority } from "./use-estimated-growth";
@@ -130,65 +129,18 @@ describe("Save estimated-growth owner", () => {
     expect(view.container.textContent).not.toBe("1000000000000000000");
   });
 
-  test("an inactive panel that becomes active while the document is hidden waits for visibility", async () => {
+  test("stops sampling after the route unmounts", async () => {
     const scheduler = manualSamplingScheduler();
-    let wall = 2_000_000_060_000;
-    const now = jest.fn(() => wall);
-    const value = anchor("hidden-panel", BigInt("1000000000000000000"), wall - 60_000);
-    const panel = (active: boolean) => (
-      <MountedShellPanel active={active}>
-        <Harness value={value} now={now} />
-      </MountedShellPanel>
-    );
-    const view = render(panel(true));
-    await scheduler.fire(250);
-    expect(now).toHaveBeenCalledTimes(1);
-    const sampled = view.container.textContent;
-    view.rerender(panel(false));
-    wall += 60_000;
-    hidden = true;
-    view.rerender(panel(true));
-    expect(now).toHaveBeenCalledTimes(1);
-    expect(view.container.textContent).toBe(sampled);
-    expect(scheduler.pending).toHaveLength(0);
-    hidden = false;
-    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); });
-    expect(now).toHaveBeenCalledTimes(2);
-    expect(view.container.textContent).not.toBe(sampled);
-  });
-
-  test("pauses growth in an inactive shell panel and samples right after return", async () => {
-    const scheduler = manualSamplingScheduler();
-    let wall = 2_000_000_060_000;
+    const wall = 2_000_000_060_000;
     const now = jest.fn(() => wall);
     const value = anchor("panel", BigInt("1000000000000000000"), wall - 60_000);
-    const panel = (active: boolean) => (
-      <MountedShellPanel active={active}>
-        <Harness value={value} now={now} />
-      </MountedShellPanel>
-    );
-    const view = render(panel(true));
-    expect(view.container.textContent).toBe(value.authoritativeBaseUnits.toString());
-    expect(now).toHaveBeenCalledTimes(0);
+    const view = render(<Harness value={value} now={now} />);
     await scheduler.fire(250);
     expect(now).toHaveBeenCalledTimes(1);
-    const sampled = "1000000181335974973";
-    expect(view.container.textContent).toBe(sampled);
-    const queued = scheduler.pending[0]!;
-    view.rerender(panel(false));
-    wall += 60_000;
-    expect(scheduler.pending).toHaveLength(0);
-    await act(async () => queued.run());
+    expect(scheduler.pending).toHaveLength(1);
+    view.unmount();
     expect(scheduler.pending).toHaveLength(0);
     expect(now).toHaveBeenCalledTimes(1);
-    expect(view.container.textContent).toBe(sampled);
-    view.rerender(panel(true));
-    expect(now).toHaveBeenCalledTimes(2);
-    expect(view.container.textContent).toBe("1000000362671982829");
-    wall += 60_000;
-    await scheduler.fire(250);
-    expect(now).toHaveBeenCalledTimes(3);
-    expect(view.container.textContent).toBe("1000000544008023567");
   });
 
   test("closes a queued callback race while hidden and expires to B0 on resume", async () => {

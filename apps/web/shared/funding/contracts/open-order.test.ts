@@ -1,5 +1,12 @@
-import { expect, test } from "bun:test";
-import { assertFundingOpenOrderResponse, FUNDING_OPEN_ORDER_VERSION } from "./open-order";
+import { describe, expect, test } from "bun:test";
+import {
+  assertFundingOpenOrderResponse,
+  FUNDING_OPEN_ORDER_VERSION,
+  fundingOpenOrderPath,
+  fundingOrderMatchesQuery,
+  parseFundingOpenOrderQuery,
+  readFundingOpenOrderResponse,
+} from "./open-order";
 
 const partialOrder = { id: "id", providerId: "provider", state: "pending", fiatAmount: "1" };
 
@@ -71,7 +78,9 @@ test("accepts all summary fields and legitimate nullable order fields", () => {
 test.each([
   ["provider quote id and fee certainty", { providerQuoteId: "provider-quote", feesKnown: true }, false],
   ["non-string provider quote id", { providerQuoteId: null }, true],
+  ["undefined provider quote id", { providerQuoteId: undefined }, true],
   ["non-boolean fee certainty", { feesKnown: "true" }, true],
+  ["undefined fee certainty", { feesKnown: undefined }, true],
   ["missing atomic token amount", { tokenAmountAtomic: undefined }, true],
   ["missing expiry", { expiresAt: null }, true],
   ["non-string quote fee currency", { fees: [{ label: "Provider", amount: "0.01", currency: 1 }] }, true],
@@ -98,6 +107,7 @@ test.each([
   ["atomic amount object", { expectedTokenAmountAtomic: { value: "100" } }],
   ["non-atomic amount", { expectedTokenAmountAtomic: "1.5" }],
   ["fees not an array", { fees: null }],
+  ["string fees", { fees: "oops" }],
   ["null fee", { fees: [null] }],
   ["partial fee", { fees: [{ label: "Provider", amount: "0.01" }] }],
   ["fee amount", { fees: [{ label: "Provider", amount: {}, currency: "ARS" }] }],
@@ -111,6 +121,86 @@ test.each([
   expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, ...override } }, "AR")).toThrow("Invalid funding open order response");
 });
 
-test.each(["region", "assetId", "paymentMethod", "quote", "quoteToken", "sandbox", "expectedTokenAmountAtomic", "fees", "expiresAt", "transactionHash", "createdAt", "updatedAt"])('rejects explicitly undefined %s in cached data', (field) => {
-  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, [field]: undefined } }, "AR")).toThrow("Invalid funding open order response");
+test.each(["region", "assetId", "paymentMethod", "quote", "quoteToken", "sandbox", "expectedTokenAmountAtomic", "fees", "expiresAt", "transactionHash", "createdAt", "updatedAt"])('accepts explicitly undefined optional %s in an in-process order', (field) => {
+  expect(() => assertFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: { ...fullOrder, [field]: undefined } }, "AR")).not.toThrow();
+});
+
+const order = {
+  id: "11111111-1111-4111-8111-111111111111",
+  providerId: "ripio",
+  region: "AR",
+  assetId: "base:wars",
+  paymentMethod: "bank_transfer",
+  state: "awaiting-payment",
+  fiatAmount: "1000",
+  providerStatus: null,
+  instructions: null,
+};
+
+describe("funding open-order contract", () => {
+  test("builds region-wide and provider-scoped paths", () => {
+    expect(fundingOpenOrderPath({ region: "AR" })).toBe("/api/funding/orders?region=AR");
+    expect(fundingOpenOrderPath({ region: "AR", providerId: "ripio", paymentMethod: "bank_transfer" }))
+      .toBe("/api/funding/orders?region=AR&providerId=ripio&paymentMethod=bank_transfer");
+    expect(fundingOpenOrderPath({ region: "AR", providerId: "ripio", paymentMethod: "bank_transfer", assetId: "base:wars" }))
+      .toBe("/api/funding/orders?region=AR&providerId=ripio&paymentMethod=bank_transfer&assetId=base%3Awars");
+  });
+
+  test("parses valid region-wide and provider-scoped queries", () => {
+    expect(parseFundingOpenOrderQuery(new URLSearchParams("region=AR"))).toEqual({ ok: true, query: { region: "AR" } });
+    expect(parseFundingOpenOrderQuery(new URLSearchParams("region=AR&providerId=ripio&paymentMethod=bank_transfer")))
+      .toEqual({ ok: true, query: { region: "AR", providerId: "ripio", paymentMethod: "bank_transfer" } });
+    expect(parseFundingOpenOrderQuery(new URLSearchParams("region=AR&providerId=ripio&paymentMethod=bank_transfer&assetId=base%3Awars")))
+      .toEqual({ ok: true, query: { region: "AR", providerId: "ripio", paymentMethod: "bank_transfer", assetId: "base:wars" } });
+    expect(parseFundingOpenOrderQuery(new URLSearchParams("region=AR&providerId=ripio&assetId=base%3Awars")))
+      .toEqual({ ok: true, query: { region: "AR", providerId: "ripio", assetId: "base:wars" } });
+  });
+
+  test("rejects missing region and invalid scopes", () => {
+    expect(parseFundingOpenOrderQuery(new URLSearchParams())).toEqual({ ok: false, reason: "region" });
+    for (const providerId of ["UPPERCASE", "", "provider_id"]) {
+      expect(parseFundingOpenOrderQuery(new URLSearchParams({ region: "AR", providerId })))
+        .toEqual({ ok: false, reason: "provider" });
+    }
+    expect(parseFundingOpenOrderQuery(new URLSearchParams({ region: "AR", providerId: "ripio", paymentMethod: "INVALID" })))
+      .toEqual({ ok: false, reason: "paymentMethod" });
+    expect(parseFundingOpenOrderQuery(new URLSearchParams({ region: "AR", paymentMethod: "bank_transfer" })))
+      .toEqual({ ok: false, reason: "paymentMethod" });
+    for (const assetId of ["", "BASE:wars", "base/wars", "2asset", "base_wars", "x".repeat(65)]) {
+      expect(parseFundingOpenOrderQuery(new URLSearchParams({ region: "AR", providerId: "ripio", assetId })))
+        .toEqual({ ok: false, reason: "asset" });
+    }
+    expect(parseFundingOpenOrderQuery(new URLSearchParams({ region: "AR", assetId: "base:wars" })))
+      .toEqual({ ok: false, reason: "asset" });
+  });
+
+  test("reads an explicit empty response and a valid order", () => {
+    expect(readFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order: null }))
+      .toEqual({ version: 1, order: null });
+    expect(readFundingOpenOrderResponse({ version: FUNDING_OPEN_ORDER_VERSION, order }))
+      .toEqual({ version: 1, order });
+  });
+
+  test("rejects unversioned, incompatible, missing, or malformed responses", () => {
+    for (const value of [
+      { order },
+      { version: 2, order },
+      { version: FUNDING_OPEN_ORDER_VERSION },
+      { version: FUNDING_OPEN_ORDER_VERSION, order: { id: "truncated" } },
+      { version: FUNDING_OPEN_ORDER_VERSION, order: null, error: { code: "ORDER_UNAVAILABLE" } },
+      null,
+      "invalid",
+      [{ version: FUNDING_OPEN_ORDER_VERSION, order }],
+    ]) expect(readFundingOpenOrderResponse(value)).toBeNull();
+  });
+
+  test("requires an order to match the requested provider, region, payment method, and asset", () => {
+    const query = { region: "AR", providerId: "ripio", paymentMethod: "bank_transfer" };
+    expect(fundingOrderMatchesQuery(order, query)).toBe(true);
+    expect(fundingOrderMatchesQuery(order, { ...query, providerId: "other" })).toBe(false);
+    expect(fundingOrderMatchesQuery(order, { ...query, region: "CO" })).toBe(false);
+    expect(fundingOrderMatchesQuery(order, { ...query, paymentMethod: "card" })).toBe(false);
+    expect(fundingOrderMatchesQuery(order, { ...query, assetId: "base:wars" })).toBe(true);
+    expect(fundingOrderMatchesQuery(order, { ...query, assetId: "base:usdc" })).toBe(false);
+  });
 });

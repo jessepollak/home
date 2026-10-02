@@ -5,6 +5,8 @@ import { scheduleOperatorRecheck } from "@/server/operator/follow-through";
 
 export const maxDuration = 25;
 
+export const instant = false;
+
 export default async function AdminPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);

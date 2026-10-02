@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { manyOwnedInvestmentsSnapshot } from "./fixtures/balances";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 const title = (page: Page) => page.locator("[data-shell-header-title]").first();
 const homeInvestments = (page: Page) => page.getByRole("region", { name: "Your money" })
@@ -16,13 +17,13 @@ async function openHoldings(page: Page) {
   const rowValue = await row.getByRole("img").getAttribute("aria-label");
   expect(rowValue).toBeTruthy();
   await row.click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(title(page)).toHaveText("Investments");
   await expect(page.getByLabel("Investments balance").getByRole("img")).toHaveAttribute("aria-label", rowValue!);
 }
 
 async function expectBitcoinDetail(page: Page) {
-  await expect(page).toHaveURL(holdingUrl);
+  await expectNavigation(page, holdingUrl);
   await expect(title(page)).toHaveText("Bitcoin");
   await expect(page.getByRole("button", { name: "Buy", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sell", exact: true })).toBeVisible();
@@ -36,16 +37,16 @@ test("Home holdings, detail history and header Back restore focus", async ({ pag
   await bitcoin(page).click();
   await expectBitcoinDetail(page);
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(bitcoin(page)).toBeFocused();
 
   await bitcoin(page).click();
   await expectBitcoinDetail(page);
   await page.goBack();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(bitcoin(page)).toBeFocused();
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(homeInvestments(page)).toBeVisible();
 });
 
@@ -58,7 +59,7 @@ test("refreshed holding detail returns to the list without leaving Home", async 
   await expectBitcoinDetail(page);
   const historyLength = await page.evaluate(() => window.history.length);
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   expect(await page.evaluate(() => window.history.length)).toBe(historyLength);
   await expect(bitcoin(page)).toBeFocused();
   await expect(page.getByRole("region", { name: "Your investments" })).toBeVisible();
@@ -77,20 +78,17 @@ test("browser Back restores focus and viewport for a holding beyond row forty", 
   await expect(list.getByRole("button")).toHaveCount(51);
   const row = list.getByRole("button", { name: /^Extra investment 45 / });
   await row.scrollIntoViewIfNeeded();
-  const scrollBefore = await page.locator("[data-app-main-authenticated]").evaluate((main) => main.scrollTop);
+  const scrollBefore = await page.evaluate(() => window.scrollY);
   expect(scrollBefore).toBeGreaterThan(0);
   await row.click();
-  await expect(page).toHaveURL(/\/investments\/0x[0-9a-f]{40}$/);
+  await expectNavigation(page, /\/investments\/0x[0-9a-f]{40}$/);
   await expect(title(page)).toHaveText("Extra investment 45");
   await page.goBack();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   await expect(row).toBeFocused();
   await expect.poll(() => row.evaluate((button) => {
-    const main = button.closest("[data-app-main-authenticated]");
-    if (!main) return false;
     const item = button.getBoundingClientRect();
-    const viewport = main.getBoundingClientRect();
-    return main.scrollTop > 0 && item.top >= viewport.top && item.bottom <= viewport.bottom;
+    return window.scrollY > 0 && item.top >= 0 && item.bottom <= window.innerHeight;
   })).toBe(true);
 });
 
@@ -101,7 +99,7 @@ test("Invest tab opens discovery, not owned holdings", async ({ page }) => {
   await expect(homeInvestments(page)).toBeVisible();
   await page.getByRole("navigation", { name: "Main navigation" })
     .getByRole("button", { name: "Invest", exact: true }).click();
-  await expect(page).toHaveURL(/\/invest$/);
+  await expectNavigation(page, /\/invest$/);
   await expect(title(page)).toHaveText("Invest");
   for (const shelf of ["Stocks", "Crypto", "Memes"]) {
     await expect(page.getByRole("region", { name: shelf })).toBeVisible();
@@ -118,7 +116,7 @@ test("cold deep link beyond the first batch reveals and focuses its row on Back"
   await page.goto(`/investments/${holding.contractAddress}`);
   await expect(title(page)).toHaveText("Extra investment 45");
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/investments$/);
+  await expectNavigation(page, /\/investments$/);
   const row = page.getByRole("region", { name: "Your investments" }).getByRole("button", { name: /^Extra investment 45 / });
   await expect(row).toBeFocused();
   await expect(row).toBeInViewport();
@@ -141,11 +139,10 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
   await list.getByRole("button").last().scrollIntoViewIfNeeded();
   await expect(list.getByRole("button")).toHaveCount(40);
   await list.getByRole("button").nth(30).scrollIntoViewIfNeeded();
-  const main = page.locator("[data-app-main-authenticated]");
   const focusedRow = list.getByRole("button").nth(30);
   const focusedKey = await focusedRow.locator("[data-holding-key]").getAttribute("data-holding-key");
   await focusedRow.focus();
-  const before = await main.evaluate((element) => element.scrollTop);
+  const before = await page.evaluate(() => window.scrollY);
   expect(before).toBeGreaterThan(0);
   const refreshSamples = await page.evaluateHandle(() => {
     const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]");
@@ -153,7 +150,7 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
     const samples: { busy: boolean; scroll: number }[] = [];
     new MutationObserver(() => {
       const section = main.querySelector('[aria-labelledby="investments-held-heading"]');
-      samples.push({ busy: section?.getAttribute("aria-busy") === "true", scroll: main.scrollTop });
+      samples.push({ busy: section?.getAttribute("aria-busy") === "true", scroll: window.scrollY });
     }).observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-busy"] });
     return samples;
   });
@@ -169,6 +166,6 @@ test("a refreshed large investment list keeps its scroll geometry while selectio
   expect(pendingScrolls.length).toBeGreaterThan(0);
   for (const scroll of pendingScrolls) expect(scroll).toBeCloseTo(before, 0);
   await expect(list.getByRole("button").filter({ has: page.locator(`[data-holding-key="${focusedKey}"]`) })).toBeFocused();
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeCloseTo(before, 0);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeCloseTo(before, 0);
   await refreshSamples.dispose();
 });

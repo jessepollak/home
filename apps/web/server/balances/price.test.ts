@@ -949,6 +949,22 @@ describe("balances pricing", () => {
     expect(result.holdings[0]?.unitValue).toBeUndefined();
   });
 
+  test("preserves the vault withdrawal limit independently of its priced position", async () => {
+    const vault: ReadHolding = {
+      ...usdc, id: "vault", kind: "vault-share", cashCurrency: null,
+      underlying: { key: usdc.key as `eip155:8453/erc20:${string}`, symbol: "USDC", decimals: 6 },
+      underlyingBalance: { status: "ready", baseUnits: "100000000" },
+      withdrawableBalance: { status: "ready", baseUnits: "40000000" },
+    };
+    const price = createTestPricer({
+      readPrices: async (inputs) => inputs.map((input) => quote(input.assetKey, "fresh")),
+      readExchangeRates: async () => rates(),
+    });
+    const result = await price({ ...read, holdings: [vault] }, "US");
+    expect(result.holdings[0]?.withdrawableBalance).toEqual({ status: "ready", baseUnits: "40000000" });
+    expect(result.holdings[0]?.value).toMatchObject({ status: "priced", amount: { atoms: "100000000000000000000", scale: 18 } });
+  });
+
   test("prices Borrow collateral and debt with the same quotes as wallet holdings", async () => {
     const cbbtcAddress = DEFAULT_BORROW_MARKET.collateralToken.address.toLowerCase() as `0x${string}`;
     const usdcAddress = DEFAULT_BORROW_MARKET.loanToken.address.toLowerCase() as `0x${string}`;
@@ -1575,15 +1591,25 @@ const listedStock = stockAssets[0]!;
 const stockUpdatedAt = "2026-09-12T16:00:00.000Z";
 const stockBlock = { number: "1", timestamp: "2026-09-13T12:00:00.000Z" };
 const stockFeedPrice = { atoms: "12345678901", scale: 8 };
-function stockHolding(baseUnits = "100000000"): ReadHolding {
+function stockHolding(baseUnits = "100000000", asset: (typeof stockAssets)[number] = listedStock): ReadHolding {
   return {
-    ...holding(listedStock.contractAddress.toLowerCase(), listedStock.id, "registry", { baseUnits }),
-    decimals: listedStock.representation.decimals,
-    symbol: listedStock.representation.tokenSymbol,
+    ...holding(asset.contractAddress.toLowerCase(), asset.id, "registry", { baseUnits }),
+    decimals: asset.representation.decimals,
+    symbol: asset.representation.tokenSymbol,
   };
 }
-function stockReference(status: "open" | "closed", price = stockFeedPrice): TokenizedEquityReference {
-  return { assetId: listedStock.id, status, price, updatedAt: stockUpdatedAt, roundId: "1", multiplierWad: "1000377118676784179", block: stockBlock };
+function stockReference(status: "open" | "closed", price = stockFeedPrice, asset: (typeof stockAssets)[number] = listedStock): TokenizedEquityReference {
+  return { assetId: asset.id, status, price, updatedAt: stockUpdatedAt, roundId: "1", multiplierWad: "1000377118676784179", block: stockBlock };
+}
+function secondListedStock(): (typeof stockAssets)[number] {
+  const asset = stockAssets.find((candidate) => candidate.id !== listedStock.id);
+  if (!asset) throw new Error("expected a second listed stock asset");
+  return asset;
+}
+function runScheduledTask(scheduled: Array<() => Promise<unknown>>, index: number): Promise<unknown> {
+  const task = scheduled.at(index);
+  if (!task) throw new Error(`expected a scheduled task at index ${index}`);
+  return task();
 }
 
 describe("stock holding valuation", () => {
@@ -1635,6 +1661,89 @@ describe("stock holding valuation", () => {
     expect(reads).toBe(2);
   });
 
+
+  test("a mixed batch retains the failed stock's last good reference and updates the successful stock", async () => {
+    const secondStock = secondListedStock();
+    const stockRead = { ...read, holdings: [stockHolding(), stockHolding("100000000", secondStock)] };
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let now = 0;
+    let reads = 0;
+    const price = createTestPricer({
+      nowMs: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: async () => {
+        reads += 1;
+        return reads === 1
+          ? [stockReference("closed"), stockReference("open", { atoms: "200", scale: 0 }, secondStock)]
+          : [
+            { assetId: listedStock.id, status: "unavailable", reason: "read-failed", block: null },
+            stockReference("open", { atoms: "250", scale: 0 }, secondStock),
+          ];
+      },
+    });
+    const bootstrap = await price(stockRead, "US", "bootstrap");
+    expect(bootstrap.holdings.map(({ value }) => value.status)).toEqual(["priced", "priced"]);
+    now = STOCK_REFERENCE_REFRESH_MS + 1;
+    const cached = await price(stockRead, "US", "cached");
+    expect(cached.holdings.map(({ value }) => value)).toEqual(bootstrap.holdings.map(({ value }) => value));
+    expect(scheduled).toHaveLength(1);
+    await runScheduledTask(scheduled, 0);
+    const refreshed = await price(stockRead, "US", "cached");
+    expect(refreshed.holdings[0]?.value).toEqual(bootstrap.holdings[0]?.value);
+    expect(refreshed.holdings[1]?.value).toMatchObject({
+      status: "priced", amount: { atoms: "250000000000000000000", scale: 18 },
+    });
+    expect(refreshed.revalidating).toBe(false);
+    expect(reads).toBe(2);
+  });
+
+  test.each(["unavailable", "omitted"] as const)("a repeatedly %s stock retains its reference only through its own age bound while another stock refreshes", async (outcome) => {
+    const secondStock = secondListedStock();
+    const stockRead = { ...read, holdings: [stockHolding(), stockHolding("100000000", secondStock)] };
+    const scheduled: Array<() => Promise<unknown>> = [];
+    let now = 0;
+    let reads = 0;
+    const price = createTestPricer({
+      nowMs: () => now,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => Promise.resolve(task)),
+      readStockReferences: async () => {
+        reads += 1;
+        if (reads === 1) return [stockReference("open"), stockReference("open", { atoms: "200", scale: 0 }, secondStock)];
+        const references: TokenizedEquityReference[] = [stockReference("open", { atoms: "250", scale: 0 }, secondStock)];
+        if (outcome === "unavailable") references.push({ assetId: listedStock.id, status: "unavailable", reason: "read-failed", block: null });
+        return references;
+      },
+    });
+    const bootstrap = await price(stockRead, "US", "bootstrap");
+    expect(bootstrap.holdings.map(({ value }) => value.status)).toEqual(["priced", "priced"]);
+    for (const refreshAt of [STOCK_REFERENCE_REFRESH_MS + 1, 2 * STOCK_REFERENCE_REFRESH_MS + 2, STOCK_REFERENCE_MAX_AGE_MS]) {
+      now = refreshAt;
+      await price(stockRead, "US", "cached");
+      await runScheduledTask(scheduled, -1);
+      const refreshed = await price(stockRead, "US", "cached");
+      expect(refreshed.holdings[0]?.value).toEqual(bootstrap.holdings[0]?.value);
+      expect(refreshed.holdings[1]?.value).toMatchObject({
+        status: "priced", amount: { atoms: "250000000000000000000", scale: 18 },
+      });
+      expect(refreshed.revalidating).toBe(false);
+    }
+    now = STOCK_REFERENCE_MAX_AGE_MS + 1;
+    const expired = await price(stockRead, "US", "cached");
+    expect(expired.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+    expect(expired.holdings[1]?.value).toMatchObject({
+      status: "priced", amount: { atoms: "250000000000000000000", scale: 18 },
+    });
+    expect(expired.revalidating).toBe(true);
+    expect(reads).toBe(4);
+    now += STOCK_REFERENCE_REFRESH_MS;
+    await price(stockRead, "US", "cached");
+    await runScheduledTask(scheduled, -1);
+    const afterRefresh = await price(stockRead, "US", "cached");
+    expect(afterRefresh.holdings[0]?.value).toEqual({ status: "unpriced", reason: "price-unavailable" });
+    expect(afterRefresh.holdings[1]?.value).toEqual(expired.holdings[1]?.value);
+    expect(afterRefresh.revalidating).toBe(true);
+    expect(reads).toBe(5);
+  });
 
   test("a resolved all-unavailable batch past the age bound is unpriced and degraded", async () => {
     const scheduled: Array<() => Promise<unknown>> = [];

@@ -3,6 +3,8 @@ import { readInviteStats } from "@/server/invites/store";
 import { readOperatorPageDecision } from "@/server/operator/page";
 import { authorizedOperatorAddress, OperatorEmpty, OperatorSection } from "../../section-content";
 
+export const instant = false;
+
 export default async function GrowthPage() {
   const decision = await readOperatorPageDecision();
   const address = authorizedOperatorAddress(decision);

@@ -6,8 +6,6 @@ import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
 import { createSessionHandler } from "@/server/cdp/session";
 import { inviteVerifiedCookies, recordVerifiedCustomer } from "@/server/invites/consumption";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export const GET = createSessionHandler({
   getValidator: () => getCdpAccessTokenValidator(),

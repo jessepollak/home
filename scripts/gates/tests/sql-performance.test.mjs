@@ -4,11 +4,24 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { changedSqlCandidates, containsSql, sqlPerformanceReport } from "../sql-performance.mjs";
+import { containsSql, sqlPerformanceReport } from "../sql-performance.mjs";
+import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
+const gateModule = new URL("../sql-performance.mjs", import.meta.url).href;
 const path = "apps/web/server/example/store.ts";
 const select = 'const statement = `SELECT id FROM items WHERE owner = ${owner}`;';
 const change = (content = select, baseContent = "", file = path) => ({ path: file, content, baseContent });
+
+function createGitFixture(t, callerEnv = process.env) {
+  const dir = mkdtempSync(join(tmpdir(), "home-sql-gate-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const env = gitFixtureEnv(callerEnv);
+  const run = (...args) => execFileSync("git", args, { cwd: dir, env, stdio: "pipe" });
+  const read = (base) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "--eval", `const { changedSqlCandidates } = await import(${JSON.stringify(gateModule)}); process.stdout.write(JSON.stringify(changedSqlCandidates(${JSON.stringify(base)})));`], { cwd: dir, env, encoding: "utf8" }));
+  const write = (file, source) => { mkdirSync(join(dir, file, ".."), { recursive: true }); writeFileSync(join(dir, file), source); };
+  run("init", "-q"); run("config", "user.name", "test"); run("config", "user.email", "test@example.test");
+  return { run, read, write };
+}
 
 for (const [name, file, source, expected] of [
   ["select template", path, select, true],
@@ -45,19 +58,42 @@ for (const body of ["", "SQL-performance: verified", "SQL-performance: verified 
   });
 }
 
-test("git integration includes new and deleted SQL, renamed query files, and excludes untouched SQL", () => {
-  const dir = mkdtempSync(join(tmpdir(), "home-sql-gate-"));
-  const previous = process.cwd();
-  const run = (...args) => execFileSync("git", args, { cwd: dir, stdio: "pipe" });
-  const write = (file, source) => { mkdirSync(join(dir, file, ".."), { recursive: true }); writeFileSync(join(dir, file), source); };
-  try {
-    run("init", "-q"); run("config", "user.name", "test"); run("config", "user.email", "test@example.test");
-    write(path, select); write("apps/web/server/stable.ts", select); write("apps/web/server/deleted.ts", select);
-    run("add", "."); run("commit", "-qm", "baseline"); run("branch", "baseline");
-    run("mv", path, "apps/web/server/renamed.ts"); run("rm", "apps/web/server/deleted.ts");
-    write("apps/web/server/db/migrations/099_new.sql", "CREATE INDEX items_owner_idx ON items(owner);");
-    run("add", "."); run("commit", "-qm", "changed"); process.chdir(dir);
-    const result = sqlPerformanceReport(changedSqlCandidates("baseline"), "");
-    assert.deepEqual(result.files.sort(), [path, "apps/web/server/deleted.ts", "apps/web/server/renamed.ts", "apps/web/server/db/migrations/099_new.sql"].sort());
-  } finally { process.chdir(previous); rmSync(dir, { recursive: true, force: true }); }
+test("git fixture stages and reads SQL despite caller global and system configuration", (t) => {
+  const caller = mkdtempSync(join(tmpdir(), "home-sql-caller-"));
+  t.after(() => rmSync(caller, { recursive: true, force: true }));
+  const ignore = join(caller, "ignore");
+  const globalConfig = join(caller, "global.gitconfig");
+  const systemConfig = join(caller, "system.gitconfig");
+  writeFileSync(ignore, "*.sql\n");
+  for (const config of [globalConfig, systemConfig]) writeFileSync(config, `[core]\n\texcludesFile = ${JSON.stringify(ignore)}\n[diff]\n\torderFile = .git/diff-order\n`);
+  const previous = { GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM: process.env.GIT_CONFIG_SYSTEM };
+  t.after(() => {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  // Keep hostile configs ambient so fixture or read isolation regressions fail.
+  process.env.GIT_CONFIG_GLOBAL = globalConfig;
+  process.env.GIT_CONFIG_SYSTEM = systemConfig;
+  const { run, read, write } = createGitFixture(t);
+  const migration = "apps/web/server/db/migrations/099_new.sql";
+  write(migration, "CREATE INDEX items_owner_idx ON items(owner);");
+  run("add", ".");
+  assert.equal(run("ls-files").toString().trim(), migration);
+  run("commit", "-qm", "baseline"); run("branch", "baseline");
+  write(path, select);
+  run("add", "."); run("commit", "-qm", "changed");
+  assert.deepEqual(read("baseline").map(({ path }) => path), [path]);
+});
+
+test("git integration includes new and deleted SQL, renamed query files, and excludes untouched SQL", (t) => {
+  const { run, read, write } = createGitFixture(t);
+  write(path, select); write("apps/web/server/stable.ts", select); write("apps/web/server/deleted.ts", select);
+  run("add", "."); run("commit", "-qm", "baseline"); run("branch", "baseline");
+  run("mv", path, "apps/web/server/renamed.ts"); run("rm", "apps/web/server/deleted.ts");
+  write("apps/web/server/db/migrations/099_new.sql", "CREATE INDEX items_owner_idx ON items(owner);");
+  run("add", "."); run("commit", "-qm", "changed");
+  const result = sqlPerformanceReport(read("baseline"), "");
+  assert.deepEqual(result.files.sort(), [path, "apps/web/server/deleted.ts", "apps/web/server/renamed.ts", "apps/web/server/db/migrations/099_new.sql"].sort());
 });

@@ -1,11 +1,7 @@
 import "server-only";
 
 import { URL } from "node:url";
-import {
-  sanitizeIdentifier,
-  sanitizeRoutePath,
-  scrubString,
-} from "@/shared/observability/scrub";
+import { parseClientErrorReport } from "@/shared/observability/client-error.contract";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 
@@ -14,17 +10,10 @@ export const CLIENT_ERROR_MAX_BODY_BYTES = 2_048;
 export const CLIENT_ERROR_WINDOW_MS = 60_000;
 export const CLIENT_ERROR_MAX_REPORTS_PER_WINDOW = 30;
 
-const allowedKeys = new Set(["name", "message", "route"]);
 const responseHeaders = {
   "cache-control": "no-store, max-age=0",
   "content-security-policy": "default-src 'none'",
   "x-content-type-options": "nosniff",
-};
-
-type ParsedClientErrorReport = {
-  name: string;
-  message: string;
-  route: string;
 };
 
 type Permit = () => boolean;
@@ -130,39 +119,6 @@ async function readBoundedBody(
   } catch {
     return { kind: "invalid" };
   }
-}
-
-export function parseClientErrorReport(value: unknown): ParsedClientErrorReport | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record);
-  if (keys.length !== allowedKeys.size || keys.some((key) => !allowedKeys.has(key))) {
-    return null;
-  }
-  if (
-    typeof record.name !== "string" ||
-    typeof record.message !== "string" ||
-    typeof record.route !== "string" ||
-    record.name.length === 0 ||
-    record.name.length > 80 ||
-    record.message.length === 0 ||
-    record.message.length > 1_024 ||
-    record.route.length === 0 ||
-    record.route.length > 512 ||
-    !record.route.startsWith("/") ||
-    record.route.startsWith("//") ||
-    record.route.includes("://")
-  ) {
-    return null;
-  }
-
-  const name = sanitizeIdentifier(record.name, "Error");
-  const message = scrubString(record.message).trim().slice(0, 256);
-  const route = sanitizeRoutePath(record.route);
-  if (!message) return null;
-
-  return { name, message, route };
 }
 
 export function createClientErrorHandler(dependencies?: {

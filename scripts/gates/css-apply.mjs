@@ -1,9 +1,9 @@
-// Shared CSS scanning for `@apply`: comments, quoted strings and bracketed
-// arbitrary values are blanked in place, preserving UTF-16 length so an offset in
-// the masked text still points at the same character of the original. Masking is
-// what keeps a `}` inside `content-['}']`, a `[` inside a quoted value, and an
-// escaped `\[` from being read as a delimiter.
-export function maskNonCode(css) {
+// Shared CSS scanning for `@apply` preserves UTF-16 offsets. Comments are
+// blanked; quoted strings and bracketed groups are also blanked by default.
+// Class scanning keeps brackets and quotes, filling non-whitespace quoted
+// content with `x` so quoted text cannot impersonate a class token while a
+// quoted whitespace still separates tokens the way Tailwind's scanner does.
+export function maskNonCode(css, { maskBrackets = true } = {}) {
   const masked = css.split("");
   const blank = (from, to) => {
     for (let i = from; i < to && i < masked.length; i++) {
@@ -32,10 +32,12 @@ export function maskNonCode(css) {
       blank(i, stop);
       i = stop - 1;
     } else if (ch === '"' || ch === "'") {
-      const stop = Math.min(skipString(i) + 1, css.length);
-      blank(i, stop);
+      const end = skipString(i);
+      const stop = Math.min(end + 1, css.length);
+      if (maskBrackets) blank(i, stop);
+      else for (let j = i + 1; j < end; j += 1) if (!/\s/.test(css[j])) masked[j] = "x";
       i = stop - 1;
-    } else if (ch === "[") {
+    } else if (ch === "[" && maskBrackets) {
       let depth = 0;
       let j = i;
       for (; j < css.length; j++) {
@@ -61,17 +63,24 @@ export function maskNonCode(css) {
 
 const APPLY = /@apply\s+/g;
 
-// Each body runs to the next top-level `;`, `{` or `}` in the masked text. The
-// original text keeps bracket contents for callers that need them; the masked body
-// is what token classification must read, so a commented-out token stays silent.
+// Each body runs to the next top-level `;`, `{` or `}` in the masked text.
+// Token classification reads classBody, preserving brackets and masked quotes.
+// Shorthand and important checks read maskedBody, which also blanks arbitrary
+// values so their contents cannot impersonate those uses.
 export function applyBodies(css) {
   const masked = maskNonCode(css);
+  const classMasked = maskNonCode(css, { maskBrackets: false });
   const bodies = [];
   for (const match of masked.matchAll(APPLY)) {
     const start = match.index + match[0].length;
     let end = start;
     while (end < masked.length && !";{}".includes(masked[end])) end++;
-    bodies.push({ body: css.slice(start, end), maskedBody: masked.slice(start, end), start });
+    bodies.push({
+      body: css.slice(start, end),
+      classBody: classMasked.slice(start, end),
+      maskedBody: masked.slice(start, end),
+      start,
+    });
   }
   return bodies;
 }

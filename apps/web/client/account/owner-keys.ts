@@ -1,13 +1,5 @@
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-
-type DataOwnerSession =
-  | VerifiedAccountSession
-  | {
-      subject: string;
-      smartAccountAddress: `0x${string}`;
-      chainId: number;
-      accountProvider?: string;
-    };
+export { dataOwnerKey } from "@/shared/account/data-owner";
 
 type OwnerSessionWallet = {
   ownerKey: string | null;
@@ -18,22 +10,6 @@ type UiBoundaryWallet = OwnerSessionWallet & {
   status: string;
 };
 
-export function dataOwnerKey(session: DataOwnerSession): string {
-  const subject = "user" in session ? session.user.subject : session.subject;
-  const address = "smartAccount" in session
-    ? session.smartAccount?.address
-    : session.smartAccountAddress;
-  const chainId = "smartAccount" in session
-    ? session.smartAccount?.chainId
-    : session.chainId;
-  const provider = session.accountProvider;
-  if (!address || !chainId) {
-    throw new Error("A verified smart account is required for an owner key.");
-  }
-  const base = `${subject}\u0000${address.toLowerCase()}\u0000${chainId}`;
-  return provider ? `${base}\u0000${provider}` : base;
-}
-
 export function ownerSessionBoundary(wallet: OwnerSessionWallet): string | null {
   const session = wallet.session;
   return wallet.ownerKey && session?.smartAccount
@@ -43,4 +19,35 @@ export function ownerSessionBoundary(wallet: OwnerSessionWallet): string | null 
 
 export function uiBoundary(wallet: UiBoundaryWallet): string | null {
   return wallet.status === "verified" ? ownerSessionBoundary(wallet) : null;
+}
+
+export function supportOwnerKey(wallet: { status: string; verification: string | null; session: VerifiedAccountSession | null }): string | null {
+  return wallet.status === "verified" && wallet.verification === "server" && wallet.session
+    ? `${wallet.session.accountProvider}\u0000${wallet.session.user.subject}`
+    : null;
+}
+
+export function savingsJourneyOwnerKey(session: VerifiedAccountSession): string {
+  return `${session.user.subject}\u0000${session.smartAccount?.address.toLowerCase() ?? ""}\u0000${session.smartAccount?.chainId ?? ""}\u0000${session.accountProvider}`;
+}
+
+export function tradeMoneyOwnerKey(session: VerifiedAccountSession): string {
+  return `${session.user.subject}:${session.smartAccount?.address ?? ""}:${session.accountProvider}`;
+}
+
+export function nativeBaseOwnerKey(session: VerifiedAccountSession): string {
+  if (session.accountProvider !== "base-account" || !session.smartAccount) {
+    throw new Error("Native Base authentication failed.");
+  }
+  return `${session.user.subject}\u0000${session.smartAccount.address}\u0000${session.smartAccount.chainId}`;
+}
+
+export function countryPreferenceOwnerKey(wallet: OwnerSessionWallet): string | null {
+  return wallet.ownerKey && wallet.session
+    ? `${wallet.ownerKey}\u0000${wallet.session.accountProvider}\u0000${wallet.session.user.subject}`
+    : null;
+}
+
+export function savingsGrowthOwnerKey(subject: string, address: string): string {
+  return `${subject}:${address.toLowerCase()}`;
 }

@@ -12,6 +12,7 @@ export type { ActivityTransferValuation } from "./valuation";
 export const ACTIVITY_BASE_CHAIN_ID = BASE_CHAIN_ID;
 export const ACTIVITY_PAGE_SIZE = 25 as const;
 export const ACTIVITY_WINDOW_DAYS = 31 as const;
+export const ACTIVITY_HISTORY_START = "2023-01-01T00:00:00.000Z";
 
 export type ActivityPanelDensity = "feed" | "page";
 

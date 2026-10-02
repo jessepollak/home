@@ -4,11 +4,14 @@ import { activity } from "./activity";
 import { activityOrders } from "./activity-orders";
 import { activityWindow } from "./activity-window";
 import { balances } from "./balances";
+import { balancesAction } from "./balances-action";
 import { basename } from "./basename";
 import { borrow } from "./borrow";
+import { borrowMarket } from "./borrow-market";
 import { cards } from "./cards";
 import { cardSpending } from "./card-spending";
 import { fundingOpenOrder } from "./funding-open-order";
+import { fundingOpenOrderByProvider } from "./funding-open-order-by-provider";
 import { fundingOrder } from "./funding-order";
 import { fundingOrderIsolated } from "./funding-order-isolated";
 import { fundingProviderCustomers } from "./funding-provider-customers";
@@ -26,6 +29,8 @@ import { stockTradeEligibility } from "./stock-trade-eligibility";
 import { supportConversation } from "./support-conversation";
 import { supportSummary } from "./support-summary";
 import { tradeAvailability } from "./trade-availability";
+import { transfersRecentRecipients } from "./transfers-recent-recipients";
+import { transfersRecipientName } from "./transfers-recipient-name";
 
 export const queryScopes = {
   "action-result-observation": actionResultObservation,
@@ -34,11 +39,14 @@ export const queryScopes = {
   "activity-orders": activityOrders,
   "activity-window": activityWindow,
   balances,
+  "balances-action": balancesAction,
   basename,
   borrow,
+  "borrow-market": borrowMarket,
   cards,
   "card-spending": cardSpending,
   "funding-open-order": fundingOpenOrder,
+  "funding-open-order-by-provider": fundingOpenOrderByProvider,
   "funding-order": fundingOrder,
   "funding-order-isolated": fundingOrderIsolated,
   "funding-provider-customers": fundingProviderCustomers,
@@ -56,4 +64,6 @@ export const queryScopes = {
   "support-conversation": supportConversation,
   "support-summary": supportSummary,
   "trade-availability": tradeAvailability,
+  "transfers-recent-recipients": transfersRecentRecipients,
+  "transfers-recipient-name": transfersRecipientName,
 } as const;

@@ -6,7 +6,7 @@ import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { dataOwnerKey } from "@/client/account/owner-keys";
+import { dataOwnerKey, tradeMoneyOwnerKey } from "@/client/account/owner-keys";
 import {
   MoneyAmountDisplay, MoneyAssetPicker, MoneyConfirmFooter, MoneyConfirmSummary, MoneyModal,
   MoneyModalBody, MoneyModalFooter, MoneyModalHeader,
@@ -78,7 +78,7 @@ export function TradeMoneyDialog({ open, onClose, onClosed, onAttemptedChange, .
     if (!attempted.current || dispatchUnknown.current) setResetKey((key) => key + 1);
     onClosed?.();
   }}>
-    <TradeMoneyFlow key={`${resetKey}:${props.session.user.subject}:${props.session.smartAccount?.address ?? ""}:${props.session.accountProvider}:${props.token.assetId}`} {...props} onDone={onClose} onAttemptedChange={(value, unknown = false) => {
+    <TradeMoneyFlow key={`${resetKey}:${tradeMoneyOwnerKey(props.session)}:${props.token.assetId}`} {...props} onDone={onClose} onAttemptedChange={(value, unknown = false) => {
       attempted.current = value;
       dispatchUnknown.current = unknown;
       onAttemptedChange?.(value, unknown);

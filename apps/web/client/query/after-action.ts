@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { VerifiedAccountSession } from "@/client/account/session-client";
 import { dataOwnerKey as dataOwnerKeyForSession } from "@/client/account/owner-keys";
 import { reportClientError } from "@/client/observability/client-reporter";
+import type { RegionId } from "@/config/regions";
 import {
   freshUntilMoved,
   type BalanceSnapshot,
@@ -20,12 +21,14 @@ export const afterActionScopes = [
   "balances",
   "activity",
   "borrow",
+  "borrow-market",
   "actions",
   tradeAvailabilityScope,
   "activity-orders",
+  "transfers-recent-recipients",
 ] as const satisfies readonly OwnerQueryScope[];
 
-export const indexedScopes = ["activity", "borrow", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
+export const indexedScopes = ["activity", "borrow", "borrow-market", "actions", tradeAvailabilityScope] as const satisfies readonly OwnerQueryScope[];
 
 const activityWindowQuantumMs = 60_000;
 const activityWindowAdvancers = new WeakMap<object, Map<string, Set<() => Promise<void>>>>();
@@ -91,17 +94,56 @@ export function advanceActivityWindowEnd(
   return next;
 }
 
+export type BalanceActionMarker = { at: number; fresh: Partial<Record<RegionId, true>> };
+
 export async function invalidateAfterAction(
-  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData" | "invalidateQueries">,
+  queryClient: QueryClient,
   dataOwnerKey: string,
   now = Date.now(),
 ): Promise<void> {
+  writeBalanceMarker(queryClient, dataOwnerKey, newestBalancesSource(queryClient, dataOwnerKey) + 1);
   const advancer = activityWindowAdvancers.get(queryClient)?.get(dataOwnerKey)?.values().next().value;
   if (advancer) void advancer();
   else advanceActivityWindowEnd(queryClient, dataOwnerKey, now);
+  await queryClient.cancelQueries({ queryKey: ownerQueryKey(dataOwnerKey, "balances") });
   await Promise.all(afterActionScopes.filter((scope) => !advancer || scope !== "activity").map((scope) =>
     queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, scope) })
   ));
+}
+
+export function requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey }: {
+  queryClient: QueryClient;
+  dataOwnerKey: string;
+}): void {
+  const markerKey = ownerQueryKey(dataOwnerKey, "balances-action");
+  const current = queryClient.getQueryData<BalanceActionMarker>(markerKey);
+  const at = Math.max(current?.at ?? 0, newestBalancesSource(queryClient, dataOwnerKey) + 1);
+  writeBalanceMarker(queryClient, dataOwnerKey, at);
+  void queryClient.cancelQueries({ queryKey: ownerQueryKey(dataOwnerKey, "balances") });
+  void queryClient.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey, "balances") });
+}
+
+function writeBalanceMarker(queryClient: QueryClient, dataOwnerKey: string, at: number): void {
+  const markerKey = ownerQueryKey(dataOwnerKey, "balances-action");
+  const markerQuery = queryClient.getQueryCache().build(queryClient, { queryKey: markerKey, gcTime: Infinity });
+  markerQuery.setOptions({ ...markerQuery.options, gcTime: Infinity });
+  markerQuery.destroy();
+  queryClient.setQueryData<BalanceActionMarker>(markerKey, { at, fresh: {} });
+}
+
+export function snapshotSourceTime(snapshot: unknown): number | null {
+  if (!isRecord(snapshot) || typeof snapshot.fetchedAt !== "string") return null;
+  const fetchedAt = Date.parse(snapshot.fetchedAt);
+  return Number.isFinite(fetchedAt) ? fetchedAt : null;
+}
+
+function newestBalancesSource(queryClient: QueryClient, dataOwnerKey: string): number {
+  let newest = 0;
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: ownerQueryKey(dataOwnerKey, "balances") })) {
+    const source = snapshotSourceTime(query.state.data);
+    if (source !== null && source > newest) newest = source;
+  }
+  return newest;
 }
 
 type FetchVerifiedResource = (
@@ -237,7 +279,7 @@ export async function applyActionHandleEffects(input: {
   path: string;
   body: unknown;
   dataOwnerKey: string;
-  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData" | "invalidateQueries">;
+  queryClient: QueryClient;
   startBalanceFreshness: (actionId: string) => void | Promise<void>;
 }): Promise<void> {
   const actionId = new URL(input.path, "https://home.invalid").pathname.split("/")[3];

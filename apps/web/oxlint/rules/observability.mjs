@@ -145,6 +145,60 @@ function importedReportingHelper(state, node) {
   return binding ? { name: binding.node.imported.name, module: sourceValue(binding.parent.source) } : null;
 }
 
+function enclosingFunction(node) {
+  let current = node;
+  while (current) {
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+function enclosingStatement(node) {
+  let current = node;
+  while (current.parent && !["Program", "BlockStatement", "StaticBlock", "SwitchCase"].includes(current.parent.type)) current = current.parent;
+  return current;
+}
+
+function readByLaterClosure(rejectionCall, read) {
+  const callerFunction = enclosingFunction(rejectionCall);
+  let closure = null;
+  for (let current = enclosingFunction(read); current && current !== callerFunction;
+    current = enclosingFunction(current.parent)) closure = current;
+  if (!closure || closure.type === "FunctionDeclaration"
+    || (callerFunction && !isWithin(closure, callerFunction))) return false;
+  return closure.start > enclosingStatement(rejectionCall).end;
+}
+
+function observesOuterValue(state, reference, span) {
+  const read = reference.identifier;
+  if (!reference.isRead() || read.start <= span.end) return false;
+  if (!state.rejectionCall) return true;
+  if (readByLaterClosure(state.rejectionCall, read)) return true;
+  let current = state.rejectionCall;
+  while (current.parent) {
+    const parent = current.parent;
+    if (transparentWrappers.has(parent.type)) {
+      current = parent;
+      continue;
+    }
+    if (parent.type === "AwaitExpression" && parent.argument === current) {
+      return read.start > parent.end && enclosingFunction(read) === enclosingFunction(parent);
+    }
+    if (parent.type !== "MemberExpression" || parent.object !== current) return false;
+    const method = staticMemberName(parent);
+    const call = parent.parent;
+    if (!["then", "finally", "catch"].includes(method)
+      || call?.type !== "CallExpression" || call.callee !== parent) return false;
+    const callback = unwrapTransparent(call.arguments[0]);
+    if ((method === "then" || method === "finally")
+      && (callback?.type === "ArrowFunctionExpression" || callback?.type === "FunctionExpression")
+      && !callback.generator && enclosingFunction(read) === callback) return true;
+    current = call;
+  }
+  return false;
+}
+
 function assignsOuterValue(state, node) {
   if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier"
     || isUndefinedValue(node.right)) return false;
@@ -152,7 +206,7 @@ function assignsOuterValue(state, node) {
   if (!variable) return false;
   const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause));
   return !declaredInside && variable.references.some((reference) =>
-    reference.identifier.start > state.catchClause.end && reference.isRead());
+    observesOuterValue(state, reference, state.catchClause));
 }
 
 function walkAssignments(node, visit) {
@@ -192,7 +246,7 @@ function retainsPreInitializedFallback(state, protectedRegion, statementSpan) {
       || !["let", "var"].includes(declaration.kind) || !declarator.init
       || isUndefinedValue(declarator.init) || !(declarator.start < statementSpan.start)) return false;
     return variable.references.some((reference) =>
-      reference.identifier.start > statementSpan.end && reference.isRead());
+      observesOuterValue(state, reference, statementSpan));
   });
 }
 
@@ -207,8 +261,12 @@ const transparentExpression = new Set([
 ]);
 
 function localHelperDisposes(state, identifier) {
+  if (state.skipHelpers) return false;
   const name = identifier.name;
-  if (state.stack.has(name)) return false;
+  if (state.stack.has(name)) {
+    state.cycleProbe.hits += 1;
+    return false;
+  }
   const entries = state.localFunctions.get(name);
   if (!entries) return false;
   const variable = findVariable(state, identifier);
@@ -269,20 +327,62 @@ function delegatedTelemetryCall(state, expression) {
     && isWithin(state.telemetryCallback, argument));
 }
 
-function finalizerInterruptsReturn(node) {
-  if (!node || typeof node !== "object") return false;
-  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
-  if (node.type === "ReturnStatement" || node.type === "AwaitExpression"
+function immediateInvocation(node) {
+  let current = node;
+  while (current.parent && transparentWrappers.has(current.parent.type)) current = current.parent;
+  return current.parent?.type === "CallExpression" && current.parent.callee === current;
+}
+
+function isFunctionNode(node) {
+  return ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type);
+}
+
+function invokedFunctionDiscards(node, limit) {
+  if (!immediateInvocation(node)) return false;
+  if (node.async && !node.generator) return false;
+  if (node.params.some((param) => invokedFunctionInterrupts(param, limit))) return true;
+  return !node.generator && invokedFunctionInterrupts(node.body, limit);
+}
+
+function invokedFunctionInterrupts(node, limit) {
+  if (!node || typeof node !== "object" || node.start >= limit) return false;
+  if (isFunctionNode(node)) return invokedFunctionDiscards(node, limit);
+  if (node.type === "ThrowStatement"
+    || (node.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using"))) return true;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent" || !value) continue;
+    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) {
+      if (node.type === "PropertyDefinition" && node.static && invokedFunctionInterrupts(value, limit)) return true;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.some((child) => invokedFunctionInterrupts(child, limit))) return true;
+    } else if (typeof value === "object" && invokedFunctionInterrupts(value, limit)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function finalizerInterruptsReturn(node, limit = Infinity) {
+  if (!node || typeof node !== "object" || node.start >= limit) return false;
+  if (limit !== Infinity && node.type === "ReturnStatement") return false;
+  if (isFunctionNode(node)) return invokedFunctionDiscards(node, limit);
+  if (visiblyDivergentLoop(node) && node.end <= limit) return true;
+  if ((node.type === "ReturnStatement" && limit === Infinity) || node.type === "AwaitExpression"
     || node.type === "BreakStatement" || node.type === "ContinueStatement"
     || node.type === "ThrowStatement"
     || (node.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using"))
     || (node.type === "ForOfStatement" && node.await)) return true;
   for (const [key, value] of Object.entries(node)) {
     if (key === "parent" || !value) continue;
-    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) continue;
+    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) {
+      if (node.type === "PropertyDefinition" && node.static && finalizerInterruptsReturn(value, limit)) return true;
+      continue;
+    }
     if (Array.isArray(value)) {
-      if (value.some(finalizerInterruptsReturn)) return true;
-    } else if (typeof value === "object" && finalizerInterruptsReturn(value)) {
+      if (value.some((child) => finalizerInterruptsReturn(child, limit))) return true;
+    } else if (typeof value === "object" && finalizerInterruptsReturn(value, limit)) {
       return true;
     }
   }
@@ -294,8 +394,13 @@ function hasInterruptingFinalizer(node) {
   while (current.parent) {
     const parent = current.parent;
     if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
-    if (parent.type === "TryStatement" && parent.finalizer && parent.finalizer !== current
-      && finalizerInterruptsReturn(parent.finalizer)) return true;
+    if (parent.type === "TryStatement" && parent.finalizer) {
+      if (parent.finalizer !== current) {
+        if (finalizerInterruptsReturn(parent.finalizer)) return true;
+      } else if (finalizerInterruptsReturn(current, node.start)) {
+        return true;
+      }
+    }
     current = parent;
   }
   return false;
@@ -306,12 +411,34 @@ function blockDeclaresUsing(block) {
     && (statement.kind === "using" || statement.kind === "await using"));
 }
 
+function declaresUsing(node) {
+  return node?.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using");
+}
+
+function loopHeaderDeclaresUsing(loop, body) {
+  if (loop.body !== body) return false;
+  if (loop.type === "ForStatement") return declaresUsing(loop.init);
+  return (loop.type === "ForOfStatement" || loop.type === "ForInStatement") && declaresUsing(loop.left);
+}
+
 function pendingUsingScope(node) {
   let current = node;
   while (current.parent) {
     const parent = current.parent;
     if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
     if (parent.type === "BlockStatement" && blockDeclaresUsing(parent)) return true;
+    if (loopHeaderDeclaresUsing(parent, current)) return true;
+    current = parent;
+  }
+  return false;
+}
+
+function pendingIteratorCloseScope(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
+    if (parent.type === "ForOfStatement") return true;
     current = parent;
   }
   return false;
@@ -322,7 +449,7 @@ function surfacedTelemetryWrite(node) {
   while (current.parent) {
     const parent = current.parent;
     if (parent.type === "AwaitExpression") return true;
-    if (parent.type === "ReturnStatement") return !hasInterruptingFinalizer(parent) && !pendingUsingScope(parent);
+    if (parent.type === "ReturnStatement") return !hasInterruptingFinalizer(parent) && !pendingUsingScope(parent) && !pendingIteratorCloseScope(parent);
     if ((parent.type === "ArrowFunctionExpression" || parent.type === "FunctionExpression")
       && parent.body === current) return true;
     if (transparentWrappers.has(parent.type)) {
@@ -413,8 +540,68 @@ function expressionHasDisposition(state, node) {
 
 const fallsThrough = 1;
 const exitsWithoutDisposition = 2;
+const diverges = 4;
+const telemetryCallbackIds = new WeakMap();
+let nextTelemetryCallbackId = 1;
+
+function outcomeMemoKey(state, inHelper) {
+  let callbackId = 0;
+  if (state.telemetryCallback) {
+    callbackId = telemetryCallbackIds.get(state.telemetryCallback);
+    if (callbackId === undefined) {
+      callbackId = nextTelemetryCallbackId++;
+      telemetryCallbackIds.set(state.telemetryCallback, callbackId);
+    }
+  }
+  return `${Boolean(state.requireReport)}:${Boolean(state.requireTelemetrySink)}:${Boolean(state.skipHelpers)}:${Boolean(inHelper)}:${callbackId}`;
+}
+
+function containsLoopJump(node) {
+  if (!node || typeof node !== "object") return false;
+  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
+  if (node.type === "BreakStatement" || node.type === "ContinueStatement") return true;
+  return Object.entries(node).some(([key, value]) => {
+    if (key === "parent" || !value) return false;
+    return Array.isArray(value) ? value.some(containsLoopJump) : typeof value === "object" && containsLoopJump(value);
+  });
+}
+
+function visiblyDivergentLoop(node) {
+  if (!["WhileStatement", "DoWhileStatement", "ForStatement"].includes(node.type)) return false;
+  const alwaysRuns = (node.type === "ForStatement" && !node.test)
+    || (node.test?.type === "Literal" && node.test.value === true);
+  return alwaysRuns && !containsLoopJump(node.body);
+}
+
+function containsDivergentLoop(state, node) {
+  return state.divergentSubtrees.has(node);
+}
+
+function armsMayDiverge(state, node, inHelper) {
+  if (!containsDivergentLoop(state, node.block) && !(node.handler && containsDivergentLoop(state, node.handler.body))) return false;
+  const probeState = { ...state, skipHelpers: true };
+  const block = blockOutcomes(probeState, node.block, inHelper);
+  const handler = node.handler
+    ? blockOutcomes(probeState, node.handler.body, inHelper)
+    : exitsWithoutDisposition;
+  return Boolean((block | handler) & diverges);
+}
 
 function statementOutcomes(state, node, inHelper) {
+  const key = outcomeMemoKey(state, inHelper);
+  const memo = state.memo.get(node);
+  if (memo?.has(key)) return memo.get(key);
+  const hits = state.cycleProbe.hits;
+  const outcomes = computeStatementOutcomes(state, node, inHelper);
+  if (state.cycleProbe.hits === hits) {
+    const entries = memo ?? new Map();
+    entries.set(key, outcomes);
+    state.memo.set(node, entries);
+  }
+  return outcomes;
+}
+
+function computeStatementOutcomes(state, node, inHelper) {
   if (state.requireReport && evaluatesAbruptCompletion(node)) return exitsWithoutDisposition;
   if (node.type === "ReturnStatement") {
     if (state.requireTelemetrySink || state.requireReport) {
@@ -427,9 +614,14 @@ function statementOutcomes(state, node, inHelper) {
     return blockOutcomes(state, node, inHelper);
   }
   if (node.type === "TryStatement") {
-    if (!state.requireTelemetrySink && !state.requireReport && node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) return 0;
+    if (!state.requireTelemetrySink && !state.requireReport && node.finalizer
+      && blockAlwaysThrows(state, node.finalizer, inHelper)) {
+      return armsMayDiverge(state, node, inHelper) ? diverges : 0;
+    }
     const finalizer = node.finalizer ? blockOutcomes(state, node.finalizer, inHelper) : null;
-    if (finalizer === 0 && finalizerReports(state, node, inHelper)) return 0;
+    if (finalizer === 0 && finalizerReports(state, node, inHelper)) {
+      return armsMayDiverge(state, node, inHelper) ? diverges : 0;
+    }
     const block = blockOutcomes(state, node.block, inHelper);
     const handler = node.handler
       ? blockOutcomes(state, node.handler.body, inHelper)
@@ -437,7 +629,7 @@ function statementOutcomes(state, node, inHelper) {
     const combined = block | handler;
     return finalizer === null
       ? combined
-      : combined | (finalizer & exitsWithoutDisposition);
+      : combined | (finalizer & ~fallsThrough);
   }
   if (node.type === "ExpressionStatement") {
     return expressionHasDisposition(state, node.expression) ? 0 : fallsThrough;
@@ -456,9 +648,14 @@ function statementOutcomes(state, node, inHelper) {
   if (node.type === "LabeledStatement" || node.type === "WithStatement") {
     return statementOutcomes(state, node.body, inHelper);
   }
+  if (visiblyDivergentLoop(node)) {
+    const body = statementOutcomes(state, node.body, inHelper);
+    return (body & ~fallsThrough) | (body & fallsThrough ? diverges : 0);
+  }
   if (node.type === "DoWhileStatement") {
     return statementOutcomes(state, node.body, inHelper);
   }
+  if (node.type === "ForOfStatement") return state.requireReport ? exitsWithoutDisposition : fallsThrough | statementOutcomes(state, node.body, inHelper);
   if (state.requireReport) return exitsWithoutDisposition;
   return fallsThrough;
 }
@@ -475,7 +672,11 @@ function statementAlwaysThrows(state, node, inHelper) {
     return statementAlwaysThrows(state, node.body, inHelper);
   }
   if (node.type === "TryStatement") {
-    if (node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) return true;
+    if (node.finalizer && containsDivergentLoop(state, node.finalizer)
+      && (blockOutcomes({ ...state, skipHelpers: true }, node.finalizer, inHelper) & diverges)) return false;
+    if (node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) {
+      if (!armsMayDiverge(state, node, inHelper)) return true;
+    }
     return Boolean(node.handler)
       && statementAlwaysThrows(state, node.block, inHelper)
       && statementAlwaysThrows(state, node.handler.body, inHelper);
@@ -495,7 +696,7 @@ function blockOutcomes(state, block, inHelper) {
   let outcomes = fallsThrough;
   for (const statement of block.body) {
     if (!(outcomes & fallsThrough)) break;
-    outcomes = (outcomes & exitsWithoutDisposition) | statementOutcomes(state, statement, inHelper);
+    outcomes = (outcomes & ~fallsThrough) | statementOutcomes(state, statement, inHelper);
   }
   return outcomes;
 }
@@ -541,8 +742,10 @@ function armAbruptCompletion(node) {
 }
 
 function catchHasDisposition(state, node) {
-  return blockOutcomes(state, node.body, false) === 0
-    || retainsPreInitializedFallback(state, node.parent?.type === "TryStatement" ? node.parent.block : null, node.parent);
+  const outcomes = blockOutcomes(state, node.body, false);
+  return outcomes === 0
+    || (!(outcomes & diverges)
+      && retainsPreInitializedFallback(state, node.parent?.type === "TryStatement" ? node.parent.block : null, node.parent));
 }
 
 const cleanupReceivers = new Set(["body", "iterator", "reader", "stream"]);
@@ -602,6 +805,7 @@ export const noSilentCatch = {
     const reportingHelpers = new Set(context.options[0]?.reportingHelpers ?? []);
     const reportingModules = new Set(context.options[0]?.reportingModules ?? []);
     const localFunctions = new Map();
+    const divergentSubtrees = new WeakSet();
     const catchClauses = [];
     const rejectionCallbacks = [];
     const addLocalFunction = (name, node, body) => {
@@ -609,7 +813,18 @@ export const noSilentCatch = {
       entries.push({ node, body });
       localFunctions.set(name, entries);
     };
+    const addDivergentLoop = (node) => {
+      if (!visiblyDivergentLoop(node)) return;
+      let current = node;
+      while (current?.parent && !["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) {
+        divergentSubtrees.add(current);
+        current = current.parent;
+      }
+    };
     return {
+      WhileStatement: addDivergentLoop,
+      DoWhileStatement: addDivergentLoop,
+      ForStatement: addDivergentLoop,
       FunctionDeclaration(node) {
         if (node.id && node.body) addLocalFunction(node.id.name, node, node.body);
       },
@@ -634,7 +849,10 @@ export const noSilentCatch = {
             reportingHelpers,
             reportingModules,
             localFunctions,
+            divergentSubtrees,
             stack: new Set(),
+            memo: new Map(),
+            cycleProbe: { hits: 0 },
           };
           if (catchHasDisposition(state, node)) continue;
           context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
@@ -648,13 +866,18 @@ export const noSilentCatch = {
           const state = {
             sourceCode: context.sourceCode,
             catchClause: node,
+            rejectionCall: statementSpan,
             reportingHelpers,
             reportingModules,
             localFunctions,
+            divergentSubtrees,
             stack: new Set(),
+            memo: new Map(),
+            cycleProbe: { hits: 0 },
           };
-          if (blockOutcomes(state, node.body, false) === 0
-            || retainsPreInitializedFallback(state, protectedRegion, statementSpan)) continue;
+          const outcomes = blockOutcomes(state, node.body, false);
+          if (outcomes === 0
+            || (!(outcomes & diverges) && retainsPreInitializedFallback(state, protectedRegion, statementSpan))) continue;
           context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
         }
       },

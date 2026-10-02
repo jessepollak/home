@@ -11,6 +11,7 @@ import { readCurrentBaseBlock, verifyBaseFundingReceipt } from "./base-receipt";
 import { createRuntimeFundingOrderStore } from "./postgres-store";
 import { createRuntimeFundingProviderCustomerStore } from "./customer-store";
 import { FundingCore } from "./service";
+import { readFundingOffering } from "@/server/funding/offering";
 import { emitServerEvent } from "@/server/observability/log";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
 import { FUNDING_BINDING_ENVIRONMENT_CODE, FUNDING_SANDBOX_MIGRATION_CODE } from "./provider-context";
@@ -22,6 +23,7 @@ export function getFundingCore(): FundingCore {
   core ??= new FundingCore({
     providers: fundingProviders,
     regionOffered: isRegionOffered,
+    readOffering: readFundingOffering,
     store: withFundingOrderEvents(createRuntimeFundingOrderStore(), (event) =>
       deferCustomerRecord((registry) => registry.record(event))),
     customerStore: withProviderCustomerEvents(createRuntimeFundingProviderCustomerStore(), (event) =>

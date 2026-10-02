@@ -83,14 +83,11 @@
     "apps/web/client/query/query-client.tsx": {
       "home/no-silent-catch": 1
     },
-    "apps/web/client/savings/savings-actions.tsx": {
-      "home/no-silent-catch": 2
-    },
     "apps/web/client/trading/trade-money-dialog.tsx": {
       "home/no-silent-catch": 1
     },
     "apps/web/client/transfers/send-dialog.tsx": {
-      "home/no-silent-catch": 5
+      "home/no-silent-catch": 2
     },
     "apps/web/components/address-field.tsx": {
       "home/no-silent-catch": 1
@@ -193,6 +190,20 @@
   },
   "exceptions": [
     {
+      "path": "apps/web/client/invest/explorations/investments-overview.stories.tsx",
+      "rule": "home/no-real-waits",
+      "count": 1,
+      "issue": "#1744",
+      "reason": "Exploration story polls the observable rendered-row count after an IntersectionObserver page reveal; 2 s is below callback delivery on a loaded shared runner, so the bounded wait is 5 s."
+    },
+    {
+      "path": "apps/web/components/ui/field.tsx",
+      "rule": "jsx-a11y/label-has-associated-control",
+      "count": 1,
+      "issue": "#1338",
+      "reason": "FieldLabel forwards htmlFor and children to the owned Label, which the label rule now recognizes; consumers associate the control."
+    },
+    {
       "path": "apps/web/gmail.test.ts",
       "rule": "home/no-source-reads",
       "count": 1,
@@ -219,6 +230,20 @@
       "count": 1,
       "issue": "#1463",
       "reason": "Fixture server tests read only their own system-temp state and log files to verify the recorded group, its leader, and the freed port."
+    },
+    {
+      "path": "apps/web/client/savings/savings-journey-step.tsx",
+      "rule": "home/no-silent-catch",
+      "count": 2,
+      "issue": "#1318",
+      "reason": "Two reviewed home/no-silent-catch disables moved unchanged out of savings-actions.tsx with the lazily loaded amount/confirm step: a stale preparation and a stale dispatch fenced by a newer journey generation have no state to report."
+    },
+    {
+      "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
+      "rule": "home/no-real-waits",
+      "count": 1,
+      "issue": "#1338",
+      "reason": "The Playwright fixed-date shim advances the pinned page clock by real elapsed time across reloads, so it reads the native clock once through a helper."
     }
   ]
 }
