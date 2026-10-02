@@ -1,7 +1,7 @@
 import { readdir, readFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { parseJunit } from "../../../scripts/gates/test-runtime.mjs";
-import ts from "typescript";
+import { isDomTestSource } from "./dom-test-source.mjs";
 
 const extensions = new Set(["ts", "tsx", "js", "jsx", "mts", "cts", "mjs", "cjs"]);
 const testName = /(?:\.test\.|_test\.|\.spec\.|_spec\.)/;
@@ -36,26 +36,7 @@ export async function discoverTests(cwd: string): Promise<string[]> {
   return files.sort();
 }
 
-export function isDomTestSource(source: string, file = "unit.test.ts") {
-  const syntax = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, false);
-  let usesDom = false;
-  function visit(node: ts.Node) {
-    if (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly && ts.isStringLiteral(node.moduleSpecifier)) {
-      usesDom ||= domModule(node.moduleSpecifier.text);
-    }
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments[0] && ts.isStringLiteral(node.arguments[0])) {
-      usesDom ||= domModule(node.arguments[0].text);
-    }
-    if (!usesDom) ts.forEachChild(node, visit);
-  }
-  visit(syntax);
-  return usesDom;
-}
-
-function domModule(name: string) {
-  return name.includes("dom-test-harness") || name === "@testing-library/react"
-    || name === "@happy-dom/global-registrator" || name.includes("tests/helpers/dom");
-}
+export { isDomTestSource };
 
 export function splitArgs(args: string[]) {
   const filters: string[] = [];
