@@ -74,8 +74,8 @@ export function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): Par
   if (!isRecord(value.market) || typeof value.market.id !== "string") return null;
   const configured = getBorrowMarketRef(value.market.id);
   if (!configured || !marketMatches(value.market, configured)) return null;
-  if (!isRecord(value.eligibility) || value.eligibility.mode !== configured.availability ||
-    value.eligibility.newRisk !== (configured.availability === "enabled") ||
+  if (!isRecord(value.eligibility) || !modeNotWider(value.eligibility.mode, configured.availability) ||
+    value.eligibility.newRisk !== (value.eligibility.mode === "enabled") ||
     (value.eligibility.reason !== null && typeof value.eligibility.reason !== "string")) return null;
   if (!validSource(value.source) || !isRecord(value.state) || !isRecord(value.wallet) || !isRecord(value.position)) return null;
   const decimalFields = [
@@ -143,10 +143,14 @@ export function parseBorrowOverview(value: unknown, expectedOwner: `0x${string}`
   };
 }
 
+function modeNotWider(mode: unknown, configured: "enabled" | "reducing-only"): mode is "enabled" | "reducing-only" {
+  return mode === "reducing-only" || (mode === "enabled" && configured === "enabled");
+}
+
 function validOpportunity(value: unknown, expectedOwner: `0x${string}`): value is BorrowOverviewOpportunity {
   if (!isRecord(value) || !isRecord(value.market) || typeof value.market.id !== "string" || !isRecord(value.availability)) return false;
   const configured = getBorrowMarketRef(value.market.id);
-  if (!configured || !marketMatches(value.market, configured) || value.availability.mode !== configured.availability) return false;
+  if (!configured || !marketMatches(value.market, configured) || !modeNotWider(value.availability.mode, configured.availability)) return false;
   if (value.availability.status === "available") {
     const snapshot = parseSnapshot(value.availability.snapshot, expectedOwner);
     return value.availability.reason === null && validSource(value.availability.source) && snapshot !== null &&

@@ -28,9 +28,10 @@ import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { RegionId } from "@/config/regions";
 
 const SendSheet = deferSheet(() => import("./send-dialog").then((module) => module.SendDialog),
-  (props) => moneySheetLoading({ title: "Send", titleId: "send-title", closeLabel: "Close send dialog", onCancel: props.onClose, onClosed: props.onClosed }));
+  (props) => moneySheetLoading({ title: props.sendOffered ? "Send" : "Cash out", titleId: "send-title", closeLabel: props.sendOffered ? "Close send dialog" : "Close cash-out dialog", onCancel: props.onClose, onClosed: props.onClosed }));
 
 export type TransferActionsProps = {
+  sendOffered?: boolean;
   initialOpen?: boolean;
   initialActionId?: string | null;
   availableAssets?: readonly TransferAssetAvailability[];
@@ -59,6 +60,7 @@ export function TransferActions(props: TransferActionsProps) {
 
 export function TransferActionsForWallet({
   wallet,
+  sendOffered = true,
   initialOpen = false,
   initialActionId = null,
   availableAssets,
@@ -139,7 +141,7 @@ export function TransferActionsForWallet({
         {...moneySheetIntent(SendSheet.preload)}
         onClick={openSend}
       >
-        Send
+        {sendOffered ? "Send" : "Cash out"}
       </Button> : null}
 
       <SendSheet
@@ -147,6 +149,7 @@ export function TransferActionsForWallet({
         open={visibleSend}
         opener={routing ? routing.flowOpener ?? null : sendOpener}
         address={verifiedAddress}
+        sendOffered={sendOffered}
         immediate={dropPrivate}
         availableAssets={availableAssets}
         assetMarkResolution={assetMarkResolution}

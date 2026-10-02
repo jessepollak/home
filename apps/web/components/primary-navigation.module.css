@@ -58,6 +58,8 @@
     box-shadow: inset 0 1px 0 var(--glass-pill-highlight), inset 0 0 0 1px var(--glass-pill-rim);
   }
 
+  .navigation[data-navigation-items="1"] .pill { width: calc(100% - .5rem); }
+
   .motionReady > .pill { transition: transform 180ms cubic-bezier(.25, 1.15, .35, 1); }
 
   .navigation[data-lens] { touch-action: none; -webkit-touch-callout: none; }

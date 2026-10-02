@@ -8,6 +8,7 @@ import { shellDesktopContentClassName } from "@/components/shell-layout";
 import { shellHref } from "@/config/shell-location";
 import { useOptionalHomeShellRouting } from "./panel-routing";
 import { useRouteShellLocation, useShellPage } from "./shell-page-context";
+import { useProductOffering } from "./product-offering";
 import { HomePanel } from "./home-panel";
 import { ActivityPage } from "./activity-panel";
 import { CashPanel, InvestPanel, InvestmentsPanel } from "./feature-panels";
@@ -19,6 +20,7 @@ export function HomePageContent() {
   const page = useShellPage();
   const routing = useOptionalHomeShellRouting();
   const open = routing?.openPanel;
+  const investOffered = useProductOffering().products.invest === "on";
   return <div data-shell-panel-id="home"><HomePanel
     assetBalances={page.paintedAssetBalances}
     activitySession={page.activitySession}
@@ -29,7 +31,7 @@ export function HomePageContent() {
     fetchActivity={page.fetchActivity}
     fetchOperations={page.fetchOperations}
     onOpenCash={() => open?.("cash")}
-    onOpenInvestments={() => open?.(page.paintedAssetBalances.summary?.investments.ownedCount === 0 &&
+    onOpenInvestments={() => open?.(investOffered && page.paintedAssetBalances.summary?.investments.ownedCount === 0 &&
       page.paintedAssetBalances.summary.investments.status === "complete" ? "invest" : "investments")}
     onOpenBorrow={() => open?.("borrow")}
     initialAddMoney={page.initialAddMoney}
@@ -105,10 +107,12 @@ export function InvestmentsPageContent() {
 
 export function InvestPageContent() {
   const page = useShellPage();
+  const investOffered = useProductOffering().products.invest === "on";
+  if (!investOffered) return <HomeRedirect />;
   return <div className={shellDesktopContentClassName} data-shell-panel-id="invest"><InvestPanel regionId={page.regionId} content={page.investContent} /></div>;
 }
 
-function CardUnavailableRedirect() {
+function HomeRedirect() {
   const router = useRouter();
   useEffect(() => { router.replace("/home"); }, [router]);
   return null;
@@ -123,7 +127,7 @@ export function ShellFallbackContent() {
   const location = useRouteShellLocation();
   switch (location.panel) {
     case "card":
-      return page.cardsEnabled ? <CardPageContent /> : <CardUnavailableRedirect />;
+      return page.cardsEnabled ? <CardPageContent /> : <HomeRedirect />;
     case "activity":
       return <ActivityPageContent />;
     case "cash":

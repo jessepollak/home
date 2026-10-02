@@ -12,6 +12,7 @@ import { currencyRecordForContract } from "@/shared/currencies/registry";
 import type { TradeSignerResolver } from "@/shared/trading/server-types";
 import { parseTradeAvailabilityResponse, TRADE_AVAILABILITY_CONTRACT_VERSION, type TradeUnavailableReason } from "@/shared/trading/contract";
 import { tradeBuyBlocked } from "./buy-policy";
+import { readProductOffering } from "@/server/operator-settings/offering";
 import { TradePreparationError } from "./permit2";
 import { createTradeSignerResolver } from "./signer";
 
@@ -21,6 +22,7 @@ export function createTradeAvailabilityHandler(deps: {
   env?: Readonly<Record<string, string | undefined>>;
   rpc?: typeof baseRpc;
   buyBlocked?: typeof tradeBuyBlocked;
+  readOffering?: typeof readProductOffering;
   convertPair?: typeof resolveConvertPair;
 } = {}) {
   return async function GET(request: Request): Promise<Response> {
@@ -55,10 +57,13 @@ export function createTradeAvailabilityHandler(deps: {
         read,
       });
       const symbol = resolved.configured?.representation.tokenSymbol ?? identity.symbol ?? `0x${resolved.address.slice(2, 6)}`;
+      let investOn = false;
+      try { investOn = (await (deps.readOffering ?? readProductOffering)()).products.invest === "on"; }
+      catch { investOn = false; }
       return privateJson(parseTradeAvailabilityResponse({
         version: TRADE_AVAILABILITY_CONTRACT_VERSION, status: "available",
         token: { assetId: resolved.assetId, address: resolved.address, symbol, decimals: identity.decimals },
-        buy: (currencyRecord && !convertDirectionAdmitted(currencyRecord.id, "buy", pairDeps)) ||
+        buy: !investOn || (currencyRecord && !convertDirectionAdmitted(currencyRecord.id, "buy", pairDeps)) ||
           (deps.buyBlocked ?? tradeBuyBlocked)(resolved.assetId) ? "blocked" : "available",
         balanceBaseUnits: identity.balance!.toString(),
       })!, 200);

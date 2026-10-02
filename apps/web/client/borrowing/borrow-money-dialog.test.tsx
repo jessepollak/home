@@ -28,7 +28,7 @@ const action: PreparedMoneyAction = {
   owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
   kind: "borrow", title: "Borrow USDC", calls: [], warnings: [],
   amounts: [{ assetId: snapshot.market.loanToken.id, symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "receive" }],
-  metadata: { product: "borrow", operation: "borrow", marketId: snapshot.market.id, loanAsset: { id: snapshot.market.loanToken.id, symbol: "USDC" }, collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: snapshot.source.blockHash, blockTimestamp: "1788897600" } },
+  metadata: { product: "borrow", operation: "borrow", marketId: snapshot.market.id, riskIncreased: true, loanAsset: { id: snapshot.market.loanToken.id, symbol: "USDC" }, collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: snapshot.source.blockHash, blockTimestamp: "1788897600" } },
   createdAt: "2026-09-25T12:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z",
 };
 const key = ownerQueryKey(dataOwnerKey(session), "actions");
@@ -205,6 +205,18 @@ describe("Borrow action result", () => {
     const label = await body.findByText(/ available$/);
     expect(label.textContent).toContain(snapshot.market.collateralToken.symbol);
     expect(label.textContent).not.toContain("$");
+  });
+  test("explains a withdrawn Borrow offer during preparation and confirmation", async () => {
+    const body = mount({ prepare: async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect((await dialog.findByRole("alert")).textContent).toContain("This is no longer offered.");
+    cleanup();
+    const later = mount({ execute: async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; } });
+    const reviewStep = await review(later);
+    fireEvent.click(reviewStep.confirm);
+    expect((await reviewStep.dialog.findByRole("alert")).textContent).toContain("This is no longer offered.");
   });
   test("submitting keeps the focused marked button busy and ignores a second press", async () => {
     let finish!: (value: { id: string; status: "submitted" }) => void;

@@ -8,6 +8,7 @@ import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
+import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
@@ -258,6 +259,11 @@ export function BorrowMoneyFlow({
         setStep("result");
         return;
       }
+      if (errorCode(caught) === PRODUCT_NOT_OFFERED_CODE) {
+        setError("This is no longer offered.");
+        setStep("confirm");
+        return;
+      }
       if (errorCode(caught) === "ACTION_EXPIRED") {
         setAttempted(false);
         setServerExpiredActionId(preparedAction.id);
@@ -480,6 +486,7 @@ function readableResourceError(error: unknown): string {
   if (fee) return fee;
   if (error instanceof BorrowActionClientError) return error.message;
   const code = errorCode(error);
+  if (code === PRODUCT_NOT_OFFERED_CODE) return "This is no longer offered.";
   const status = isRecord(error) && typeof error.status === "number" ? error.status : null;
   const serverMessage = isRecord(error) && typeof error.serverMessage === "string" ? error.serverMessage : null;
   const policyStatus: Record<string, number> = { LIMIT_EXCEEDED: 409, INVALID_INPUT: 400, UNSUPPORTED_MARKET: 400, SIMULATION_FAILED: 400 };

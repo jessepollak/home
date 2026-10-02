@@ -490,7 +490,7 @@ describe("presentActivityLedgerItems", () => {
     const borrow = action("confirmed");
     borrow.action.kind = "borrow";
     borrow.action.metadata = {
-      product: "borrow", operation: "supply-and-borrow", marketId: `0x${"1".repeat(64)}`,
+      product: "borrow", operation: "supply-and-borrow", marketId: `0x${"1".repeat(64)}`, riskIncreased: true,
       loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "cbbtc", symbol: "cbBTC" },
       projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
       source: { blockNumber: "1", blockHash: `0x${"2".repeat(64)}`, blockTimestamp: TIME },

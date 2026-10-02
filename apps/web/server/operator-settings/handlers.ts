@@ -13,6 +13,7 @@ import { AdminAuditLog } from "./audit";
 import { OperatorSettingsConflictError, OperatorSettingsStore, OperatorSettingsValidationError } from "./store";
 import { invalidateRegionPolicy } from "./regions";
 import { REGIONS_SETTINGS_DOMAIN } from "@/shared/operator-settings/regions";
+import { invalidateProductOffering } from "./offering";
 
 type Dependencies = {
   authorize?: (request: Request) => Promise<VerifiedAccountSession | Response>;
@@ -107,6 +108,7 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
         const written = await settingsStore.write({ domain, value: parsed.value, expectedRevision: parsed.expectedRevision, actor: decision.address });
         if (domain === REGIONS_SETTINGS_DOMAIN) invalidateRegionPolicy();
         if (domain === "invest") (deps.invalidateInvest ?? invalidateInvestVisibility)();
+        if (domain === "products") invalidateProductOffering();
         return privateJson({ version: OPERATOR_SETTINGS_CONTRACT_VERSION, ...written }, 200);
       } catch (cause) {
         if (cause instanceof OperatorSettingsConflictError) {

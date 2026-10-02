@@ -299,6 +299,8 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await page.keyboard.press("Escape");
     await expect(addDialog).toHaveCount(0);
     await expect(addMoney).toBeFocused();
+    await page.evaluate(() => window.dispatchEvent(new PopStateEvent("popstate")));
+    await expect(addMoney).toBeFocused();
 
     await addMoney.click();
     await expect(addDialog).toBeVisible();

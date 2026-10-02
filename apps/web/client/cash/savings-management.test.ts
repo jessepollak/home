@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { savingsManagement, savingsRateLabel } from "./savings-management";
 
 const fetchedAt = "2026-09-10T12:00:00.000Z";
@@ -56,6 +57,7 @@ describe("savings performance fee", () => {
     actionsAvailable: true,
     usdcBaseUnits: null,
     usdcUnavailable: false,
+    offering: resolveProductOffering({ kind: "deployment" }),
   }).details.find(([label]) => label === "Performance fee")?.[1];
 
   test("formats the fee like the savings rate for the presentation region", () => {

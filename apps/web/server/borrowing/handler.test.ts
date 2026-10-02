@@ -3,7 +3,8 @@ import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { BORROW_MARKETS, type BorrowMarketRef } from "@/shared/borrowing/config";
-import { parseBorrowOverview, type BorrowMarketSnapshot } from "@/shared/borrowing/contract";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
+import { parseBorrowOverview, parseSnapshot, type BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import { createBorrowHandler, createBorrowMarketHandler } from "./handler";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { BorrowRpcReader } from "./rpc";
@@ -49,6 +50,20 @@ describe("borrow API handlers", () => {
     expect(parsed.opportunities.map((entry) => entry.availability.status === "available" ? entry.availability.snapshot.market.id : null)).toEqual(BORROW_MARKETS.map((market) => market.marketId));
   });
 
+  test("projects paused and unavailable markets as reducing-only without widening compiled capabilities", async () => {
+    const deployment = resolveProductOffering({ kind: "deployment" });
+    const paused = resolveProductOffering({ kind: "saved", value: { products: { ...deployment.products, borrow: "exit-only" }, vaults: deployment.vaults, markets: deployment.markets } });
+    const result = await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(), readOffering: async () => paused })(request());
+    const value = await result.json();
+    for (const opportunity of value.opportunities) {
+      expect(opportunity.availability).toMatchObject({ mode: "reducing-only", snapshot: { eligibility: { mode: "reducing-only", newRisk: false } } });
+    }
+    expect(parseBorrowOverview(value, OWNER)).not.toBeNull();
+    const unavailable = await (await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(), readOffering: async () => { throw new Error("db outage"); } })(request())).json();
+    expect(unavailable.opportunities.every((item: { availability: { mode: string } }) => item.availability.mode === "reducing-only")).toBe(true);
+    expect(parseBorrowOverview(unavailable, OWNER)).not.toBeNull();
+  });
+
   test("isolates a failed market and emits redacted observability", async () => {
     const lines: string[] = [];
     setObservabilityLogWriterForTests((line) => { lines.push(line); });
@@ -73,6 +88,15 @@ describe("borrow API handlers", () => {
     if (!parsed) throw new Error("Invalid borrowing overview");
     expect(parsed.discovery).toMatchObject({ status: "partial", verifiedCount: 0, sourceBlock: null });
     expect(parsed.positions).toEqual([]);
+  });
+
+  test("market detail uses the same reducing-only projection as the overview", async () => {
+    const market = BORROW_MARKETS.find((item) => item.availability === "enabled");
+    if (!market) throw new Error("Expected an enabled borrow market fixture.");
+    const handler = createBorrowMarketHandler({ authorize: async () => Response.json(session()), rpc: rpc(), readOffering: async () => resolveProductOffering({ kind: "unavailable" }) });
+    const detail = await (await handler(request(`/api/borrow/markets/${market.marketId}`), { params: Promise.resolve({ marketId: market.marketId }) })).json();
+    expect(detail.eligibility).toMatchObject({ mode: "reducing-only", newRisk: false });
+    expect(parseSnapshot(detail, OWNER)).not.toBeNull();
   });
 
   test("returns detail only for a configured market and never reads without authentication", async () => {

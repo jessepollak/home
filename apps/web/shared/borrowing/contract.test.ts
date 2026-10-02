@@ -34,6 +34,20 @@ describe("borrow contract versions", () => {
     expect(parseSnapshot({ ...detail(), market: { ...detail().market, lltvWad: "1" } }, OWNER)).toBeNull();
   });
 
+  test("accepts narrowing an enabled market but rejects widening or mismatched new-risk flags", () => {
+    const enabled = BORROW_MARKETS.find((entry) => entry.availability === "enabled");
+    if (!enabled) throw new Error("Expected an enabled borrow market fixture.");
+    const reduced = { ...detail(enabled), eligibility: { mode: "reducing-only", newRisk: false, reason: null } };
+    expect(parseSnapshot(reduced, OWNER)).not.toBeNull();
+    const base = overview();
+    const narrowed = { ...base, opportunities: [{ market: reduced.market, availability: { ...base.opportunities[0].availability, mode: "reducing-only", snapshot: reduced } }] };
+    expect(parseBorrowOverview(narrowed, OWNER)).not.toBeNull();
+    expect(parseSnapshot({ ...reduced, eligibility: { ...reduced.eligibility, newRisk: true } }, OWNER)).toBeNull();
+    expect(parseBorrowOverview({ ...narrowed, opportunities: [{ ...narrowed.opportunities[0], availability: { ...narrowed.opportunities[0].availability, mode: "enabled" } }] }, OWNER)).toBeNull();
+    const restricted = BORROW_MARKETS.find((entry) => entry.availability === "reducing-only");
+    if (restricted) expect(parseSnapshot({ ...detail(restricted), eligibility: { mode: "enabled", newRisk: true, reason: null } }, OWNER)).toBeNull();
+  });
+
   test("accepts v2 shared-block available snapshots and no-market null-source envelopes", () => {
     expect(parseBorrowOverview(overview(), OWNER)).not.toBeNull();
     const empty = { ...overview(), discovery: { ...overview().discovery, sourceBlock: null, candidateCount: 0, verifiedCount: 0 }, opportunities: [] };

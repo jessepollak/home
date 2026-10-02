@@ -8,6 +8,7 @@ import { CONVERT_PROVIDER } from "@/shared/currencies/types";
 import { TradePreparationError } from "./permit2";
 import { createTradeAvailabilityHandler } from "./availability";
 import { tradeBuyBlocked } from "./buy-policy";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const session: VerifiedAccountSession = {
@@ -90,6 +91,13 @@ describe("trade availability", () => {
     expect(await readJson((await handler({ buyBlocked: (id) => tradeBuyBlocked(id, removed) })(request()))))
       .toMatchObject({ status: "available", buy: "blocked", balanceBaseUnits: "7" });
   });
+  test("invest pause and offering outage block only buying in the trade availability response", async () => {
+    const offering = resolveProductOffering({ kind: "deployment" });
+    const paused = { ...offering, products: { ...offering.products, invest: "exit-only" as const } };
+    expect(await (await handler({ readOffering: async () => paused })(request())).json()).toMatchObject({ status: "available", buy: "blocked", balanceBaseUnits: "7" });
+    expect(await (await handler({ readOffering: async () => { throw new Error("db outage"); } })(request())).json()).toMatchObject({ status: "available", buy: "blocked" });
+  });
+
   test("registry cash availability requires both verified directions", async () => {
     const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
     if (!record) throw new Error("Missing EURC currency record.");
