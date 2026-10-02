@@ -99,7 +99,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
   const schedule = dependencies.schedule ?? ((task) => { void (typeof task === "function" ? task() : task); });
   const priceBudgetMs = dependencies.priceBudgetMs ?? BALANCES_PRICE_BUDGET_MS;
   const refreshing = new Set<string>();
-  let stockReferences: { at: number; byId: Map<string, TokenizedEquityReference> } | null = null;
+  const stockReferences = new Map<string, { at: number; reference: TokenizedEquityReference }>();
   let stockReferenceAttemptAt: number | null = null;
   let stockReferenceScheduled = false;
   let stockReferencePending: Promise<void> | null = null;
@@ -173,8 +173,13 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       if (mode === "bootstrap") await startStockReferenceRead(stockFeeds, nowMs());
       else if (referencesDue) scheduleStockRefresh(stockFeeds, nowMs());
     }
-    const usableReferences = stockFeeds.length > 0 && stockReferences !== null && nowMs() - stockReferences.at <= STOCK_REFERENCE_MAX_AGE_MS ? stockReferences.byId : null;
-    const referencesById = usableReferences ?? new Map<string, TokenizedEquityReference>();
+    const referencesById = new Map<string, TokenizedEquityReference>();
+    if (stockFeeds.length > 0) {
+      const referenceTime = nowMs();
+      for (const [assetId, entry] of stockReferences) {
+        if (referenceTime - entry.at <= STOCK_REFERENCE_MAX_AGE_MS) referencesById.set(assetId, entry.reference);
+      }
+    }
     const referencesDegraded = stockFeeds.length > 0 && listedStockHoldings.some((holding) => {
       const reference = referencesById.get(holding.id);
       return reference === undefined || reference.status === "unavailable";
@@ -213,9 +218,11 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     stockReferenceAttemptAt = attemptAt;
     try {
       const references = await readStockReferences(feeds);
-      const usable = references.some((reference) => reference.status !== "unavailable");
-      const previousUsable = stockReferences !== null && attemptAt - stockReferences.at <= STOCK_REFERENCE_MAX_AGE_MS;
-      if (usable || !previousUsable) stockReferences = { at: attemptAt, byId: new Map(references.map((reference) => [reference.assetId, reference])) };
+      for (const reference of references) {
+        const existing = stockReferences.get(reference.assetId);
+        if (reference.status === "unavailable" && existing !== undefined && existing.reference.status !== "unavailable" && attemptAt - existing.at <= STOCK_REFERENCE_MAX_AGE_MS) continue;
+        stockReferences.set(reference.assetId, { at: attemptAt, reference });
+      }
     } catch { // oxlint-disable-line home/no-silent-catch -- a failed reference read keeps the last good references only while they are still within their usable age, and the next pass retries
     }
   }
