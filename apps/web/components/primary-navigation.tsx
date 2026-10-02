@@ -7,6 +7,8 @@ import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import { HomeMark } from "@/components/home-mark";
 import { useReducedMotion } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
+import { useOptionalSupport } from "@/client/support/support-provider";
+import { SupportUnreadDot, supportUnreadLabel } from "@/components/profile-mark";
 import { useNavLens } from "@/client/liquid-glass/use-nav-lens";
 import {
   shellChromeCompensationClassName,
@@ -298,6 +300,8 @@ function RailAccountButton({
   onOpenAccount?: (opener: HTMLButtonElement) => void;
 }) {
   const ready = account?.status === "ready";
+  const supportUnreadCount = useOptionalSupport()?.unreadCount ?? null;
+  const unreadCount = ready ? supportUnreadCount : null;
   const profile = useBasenameProfile({
     ownerKey: account?.ownerKey,
     address: account?.address,
@@ -312,7 +316,7 @@ function RailAccountButton({
       variant="ghost"
       size="lg"
       className={`relative h-11 justify-start gap-1 overflow-hidden px-0 ${collapsed ? "w-11" : "w-full"}`}
-      aria-label={basename ? `Account settings ${basename}` : "Account settings"}
+      aria-label={supportUnreadLabel(basename ? `Account settings ${basename}` : "Account settings", unreadCount)}
       aria-current={current ? "page" : undefined}
       disabled={account?.disabled}
       onClick={(event) => { if (!current) onOpenAccount?.(event.currentTarget); }}
@@ -321,7 +325,8 @@ function RailAccountButton({
       data-breakpoint-fallback="account-settings"
     >
       {current ? <span className="absolute start-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" /> : null}
-      <span className="grid size-11 shrink-0 place-items-center" aria-hidden="true">
+      <span className="relative grid size-11 shrink-0 place-items-center" aria-hidden="true">
+        <SupportUnreadDot unreadCount={unreadCount} />
         <span className={`grid size-8 place-items-center rounded-full bg-muted text-sm font-semibold lowercase text-foreground ${ready ? "" : "animate-pulse"}`} data-shimmer={ready ? undefined : "profile"}>
           {glyph}
         </span>

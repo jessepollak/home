@@ -6,6 +6,7 @@ import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui
 import { Button } from "@/components/ui/button";
 import { HomeMark } from "@/components/home-mark";
 import { ProfileMark } from "@/components/profile-mark";
+import { useOptionalSupport } from "@/client/support/support-provider";
 import { useAccountWallet } from "@/client/account/cdp-client";
 import {
   publicHeaderFrameClassName,
@@ -144,6 +145,7 @@ function HeaderAccountAction({
   onSignOut: () => void;
   onOpenSettings: (opener: HTMLButtonElement) => void;
 }) {
+  const unreadCount = useOptionalSupport()?.unreadCount ?? null;
   if (status === "signout-error") {
     return <Button className="h-11" onClick={onSignOut}>Retry sign out</Button>;
   }
@@ -157,6 +159,7 @@ function HeaderAccountAction({
           ownerKey={ownerKey}
           address={address}
           disabled={checking}
+          supportUnreadCount={signedIn ? unreadCount : null}
           onClick={signedIn && !checking ? onOpenSettings : undefined}
         />
       );

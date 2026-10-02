@@ -16,7 +16,7 @@ type BreakdownProps = {
 };
 
 export function SignedBalanceBar({ items, selectedId, onSelect }: BreakdownProps) {
-  const borrow = items.find((item) => item.id === "borrow");
+  const borrow = items.find((item) => item.id === "borrow" && item.weight > 0);
   const assets = items.filter((item) => item.id !== "borrow" && item.weight > 0);
   return (
     <div
@@ -71,7 +71,17 @@ export function MoneyBreakdownLegend({ items, selectedId, onSelect }: BreakdownP
                     {item.id === "pending-cash-out" ? <>Pending <span className="whitespace-nowrap">cash-out</span></> : item.label}
                   </span>
                 </span>
-                <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} />
+                {item.status === "unavailable" ? (
+                  <>
+                    <span className="text-[0.8125rem]" aria-hidden="true">—</span>
+                    <span className="sr-only">Unavailable</span>
+                  </>
+                ) : (
+                  <span className="text-foreground">
+                    <MoneyTicker className="text-[0.8125rem]" value={item.value} align="start" reserveDigits={false} animated={item.status === "complete"} />
+                  </span>
+                )}
+                {item.status === "partial" ? <span className="sr-only">Partial</span> : null}
               </Button>
             </li>
           );

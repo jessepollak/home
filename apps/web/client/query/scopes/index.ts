@@ -26,6 +26,8 @@ import { networkFeePolicy } from "./network-fee-policy";
 import { priceHistory } from "./price-history";
 import { savingsVaults } from "./savings-vaults";
 import { stockTradeEligibility } from "./stock-trade-eligibility";
+import { supportConversation } from "./support-conversation";
+import { supportSummary } from "./support-summary";
 import { tradeAvailability } from "./trade-availability";
 import { transfersRecentRecipients } from "./transfers-recent-recipients";
 import { transfersRecipientName } from "./transfers-recipient-name";
@@ -59,6 +61,8 @@ export const queryScopes = {
   "price-history": priceHistory,
   "savings-vaults": savingsVaults,
   "stock-trade-eligibility": stockTradeEligibility,
+  "support-conversation": supportConversation,
+  "support-summary": supportSummary,
   "trade-availability": tradeAvailability,
   "transfers-recent-recipients": transfersRecentRecipients,
   "transfers-recipient-name": transfersRecipientName,

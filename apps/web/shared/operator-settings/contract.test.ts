@@ -20,3 +20,15 @@ test("audit response canonicalizes checksummed actor and rejects malformed actor
     expect(parseAuditListResponse({ ...input, entries: [{ ...entry, actor: bad }] })).toBeNull();
   }
 });
+
+test("audit parsing accepts the credential actions and rejects their wrong shapes", () => {
+  const actor = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const entry = { id: "2", occurredAt: "2026-09-25T12:00:00Z", actor, action: "support.credential.update", target: { kind: "settings", id: "support-assistant-key" }, before: { last4: null }, after: { last4: "abcd" } };
+  const input = { version: 1, entries: [entry, { ...entry, action: "support.credential.delete", before: { last4: "abcd" }, after: { last4: null } }], nextCursor: null };
+  expect(parseAuditListResponse(input)?.entries.map((parsed) => parsed.action)).toEqual(["support.credential.update", "support.credential.delete"]);
+  for (const bad of [
+    { ...entry, target: { kind: "customer", id: "one" } },
+    { id: entry.id, occurredAt: entry.occurredAt, actor, action: entry.action, target: entry.target, after: entry.after },
+    { id: entry.id, occurredAt: entry.occurredAt, actor, action: entry.action, target: entry.target, before: entry.before },
+  ]) expect(parseAuditListResponse({ version: 1, entries: [bad], nextCursor: null })).toBeNull();
+});
