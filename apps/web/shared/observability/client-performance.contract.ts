@@ -1,3 +1,4 @@
+import * as z from "zod/mini";
 
 export const HOME_STARTUP_VERSION = 1 as const;
 export const HOME_STARTUP_ROUTES = [
@@ -137,295 +138,134 @@ export type HomeScrollReport = {
 export type ClientPerformanceReport = HomeStartupReport | HomeAuthRestoreReport | HomeAuthSignOutReport |
   HomeNavigationReport | HomeScrollReport;
 
-const navigationRequiredKeys = new Set([
-  "version", "kind", "route", "from", "trigger", "cache", "device", "durationMs",
-]);
-const navigationAllowedKeys = new Set([...navigationRequiredKeys, "engine", "dispatchDelayMs", "inputToPaintMs", "cachePersistMs", "contentState"]);
-const scrollRequiredKeys = new Set([
-  "version", "kind", "route", "cache", "device", "durationMs", "frameCount", "slowFrameCount", "maxFrameMs",
-]);
-const scrollAllowedKeys = new Set([...scrollRequiredKeys, "engine", "longFrameCount", "longFrameMs"]);
+function durationSchema(increment: number, maximum: number) {
+  return z.pipe(
+    z.number(),
+    z.transform((value) => Math.min(maximum, Math.max(0, Math.round(value / increment) * increment))),
+  );
+}
 
-const startupAllowedKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "outcome",
-  "cache",
-  "shellMs",
-  "sessionMs",
-  "balancesMs",
-  "balanceCache", "balanceFetchMs", "balanceResponseMs", "balanceParsedMs",
-  "interactiveMs",
-  "totalMs",
-]);
-const startupRequiredKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "outcome",
-  "cache",
-  "shellMs",
-  "totalMs",
-]);
-const authAllowedKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "flow",
-  "hint",
-  "outcome",
-  "sdkActivateMs",
-  "cdpInitializedMs",
-  "nativeSettledMs",
-  "tokenMs",
-  "validationMs",
-  "stalledStage",
-  "sessionSettledMs",
-  "totalMs",
-]);
-const authSignOutAllowedKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "flow",
-  "outcome",
-  "visibleNavigationMs",
-  "nativeLogoutAttempted",
-  "nativeLogoutMs",
-  "walletDisconnectAttempted",
-  "walletDisconnectMs",
-  "cdpSignOutAttempted",
-  "cdpSignOutMs",
-  "totalMs",
-]);
-const authSignOutRequiredKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "flow",
-  "outcome",
-  "nativeLogoutAttempted",
-  "walletDisconnectAttempted",
-  "cdpSignOutAttempted",
-  "totalMs",
-]);
-const authRequiredKeys = new Set([
-  "version",
-  "kind",
-  "route",
-  "flow",
-  "hint",
-  "outcome",
-  "sessionSettledMs",
-  "totalMs",
-]);
+const startupDurationSchema = durationSchema(1, 60_000);
+const authDurationSchema = durationSchema(50, 30_000);
+const navigationTimingSchema = durationSchema(10, 30_000);
+const startupVersionSchema = z.literal(HOME_STARTUP_VERSION);
+const startupRouteSchema = z.enum(HOME_STARTUP_ROUTES);
+const interactionVersionSchema = z.literal(HOME_STARTUP_VERSION);
+const interactionRouteSchema = z.enum(HOME_INTERACTION_ROUTES);
+const interactionCacheSchema = z.enum(HOME_PANEL_CACHE_STATES);
+const interactionDeviceSchema = z.enum(HOME_DEVICE_CLASSES);
+const interactionEngineSchema = z.exactOptional(z.enum(HOME_ENGINES));
+
+const homeStartupReportSchema = z.strictObject({
+  version: startupVersionSchema,
+  kind: z.literal("home-startup"),
+  route: startupRouteSchema,
+  outcome: z.enum(HOME_STARTUP_OUTCOMES),
+  cache: z.enum(HOME_STARTUP_CACHE_STATES),
+  shellMs: startupDurationSchema,
+  sessionMs: z.exactOptional(startupDurationSchema),
+  balancesMs: z.exactOptional(startupDurationSchema),
+  interactiveMs: z.exactOptional(startupDurationSchema),
+  balanceFetchMs: z.exactOptional(startupDurationSchema),
+  balanceResponseMs: z.exactOptional(startupDurationSchema),
+  balanceParsedMs: z.exactOptional(startupDurationSchema),
+  balanceCache: z.exactOptional(z.enum(HOME_STARTUP_CACHE_STATES)),
+  totalMs: startupDurationSchema,
+});
+
+const homeAuthRestoreReportSchema = z.strictObject({
+  version: startupVersionSchema,
+  kind: z.literal("home-auth-phase"),
+  route: startupRouteSchema,
+  flow: z.literal("restore"),
+  hint: z.enum(HOME_AUTH_HINTS),
+  outcome: z.enum(HOME_AUTH_OUTCOMES),
+  sdkActivateMs: z.exactOptional(authDurationSchema),
+  cdpInitializedMs: z.exactOptional(authDurationSchema),
+  nativeSettledMs: z.exactOptional(authDurationSchema),
+  tokenMs: z.exactOptional(authDurationSchema),
+  validationMs: z.exactOptional(authDurationSchema),
+  stalledStage: z.exactOptional(z.enum(HOME_AUTH_RESTORE_STAGES)),
+  sessionSettledMs: authDurationSchema,
+  totalMs: authDurationSchema,
+});
+
+const homeAuthSignOutReportSchema = z.strictObject({
+  version: startupVersionSchema,
+  kind: z.literal("home-auth-phase"),
+  route: startupRouteSchema,
+  flow: z.literal("signout"),
+  outcome: z.enum(HOME_AUTH_SIGNOUT_OUTCOMES),
+  visibleNavigationMs: z.exactOptional(authDurationSchema),
+  nativeLogoutMs: z.exactOptional(authDurationSchema),
+  walletDisconnectMs: z.exactOptional(authDurationSchema),
+  cdpSignOutMs: z.exactOptional(authDurationSchema),
+  nativeLogoutAttempted: z.boolean(),
+  walletDisconnectAttempted: z.boolean(),
+  cdpSignOutAttempted: z.boolean(),
+  totalMs: authDurationSchema,
+});
+
+const homeNavigationReportSchema = z.strictObject({
+  version: interactionVersionSchema,
+  kind: z.literal("home-navigation"),
+  route: interactionRouteSchema,
+  from: z.enum(HOME_INTERACTION_ROUTES),
+  trigger: z.enum(HOME_NAVIGATION_TRIGGERS),
+  cache: interactionCacheSchema,
+  device: interactionDeviceSchema,
+  dispatchDelayMs: z.exactOptional(navigationTimingSchema),
+  inputToPaintMs: z.exactOptional(navigationTimingSchema),
+  cachePersistMs: z.exactOptional(navigationTimingSchema),
+  contentState: z.exactOptional(z.enum(["loading", "ready", "unavailable"])),
+  engine: interactionEngineSchema,
+  durationMs: durationSchema(10, 10_000),
+}).check(
+  z.refine((report) => report.from !== report.route),
+  z.refine((report) => (report.dispatchDelayMs === undefined) === (report.inputToPaintMs === undefined)),
+  z.refine((report) => report.dispatchDelayMs === undefined || report.inputToPaintMs === undefined ||
+    (report.trigger === "in-app" && report.dispatchDelayMs <= report.inputToPaintMs &&
+      report.inputToPaintMs >= report.durationMs)),
+);
+
+const homeScrollReportSchema = z.strictObject({
+  version: interactionVersionSchema,
+  kind: z.literal("home-scroll"),
+  route: interactionRouteSchema,
+  cache: interactionCacheSchema,
+  device: interactionDeviceSchema,
+  engine: interactionEngineSchema,
+  durationMs: durationSchema(50, 30_000),
+  frameCount: durationSchema(1, 10_000),
+  slowFrameCount: durationSchema(1, 10_000),
+  maxFrameMs: durationSchema(10, 5_000),
+  longFrameCount: z.exactOptional(durationSchema(1, 1_000)),
+  longFrameMs: z.exactOptional(navigationTimingSchema),
+}).check(
+  z.refine((report) => (report.longFrameCount === undefined) === (report.longFrameMs === undefined)),
+  z.overwrite((report) => ({ ...report, slowFrameCount: Math.min(report.slowFrameCount, report.frameCount) })),
+);
 
 export function parseClientPerformanceReport(value: unknown): ClientPerformanceReport | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if (record.kind === "home-startup") return parseHomeStartupReport(record);
-  if (record.kind === "home-navigation") return parseHomeNavigationReport(record);
-  if (record.kind === "home-scroll") return parseHomeScrollReport(record);
-  if (record.kind === "home-auth-phase") {
-    return record.flow === "signout"
-      ? parseHomeAuthSignOutReport(record)
-      : parseHomeAuthRestoreReport(record);
+  const schema = record.kind === "home-startup" ? homeStartupReportSchema :
+    record.kind === "home-navigation" ? homeNavigationReportSchema :
+    record.kind === "home-scroll" ? homeScrollReportSchema :
+    record.kind === "home-auth-phase" ? (record.flow === "signout" ? homeAuthSignOutReportSchema : homeAuthRestoreReportSchema) : null;
+  if (!schema) return null;
+  const keys = new Set([...Object.keys(record), ...Object.keys(schema.shape).filter((key) => Object.hasOwn(record, key))]);
+  const ownRecord = Object.fromEntries([...keys].map((key) => [key, record[key]]));
+  if (schema === homeStartupReportSchema && !Object.hasOwn(record, "balanceCache") &&
+    homeStartupReportSchema.shape.balanceCache.safeParse(record.balanceCache).success) {
+    ownRecord.balanceCache = record.balanceCache;
   }
-  return null;
-}
-
-function hasInteractionDimensions(record: Record<string, unknown>): record is Record<string, unknown> & {
-  route: HomeInteractionRoute; cache: HomePanelCacheState; device: HomeDeviceClass;
-} {
-  return record.version === HOME_STARTUP_VERSION &&
-    isAllowed(record.route, HOME_INTERACTION_ROUTES) &&
-    isAllowed(record.cache, HOME_PANEL_CACHE_STATES) &&
-    isAllowed(record.device, HOME_DEVICE_CLASSES);
-}
-
-function parseHomeNavigationReport(record: Record<string, unknown>): HomeNavigationReport | null {
-  if (!hasExactShape(record, navigationAllowedKeys, navigationRequiredKeys) ||
-    !hasInteractionDimensions(record) || !isAllowed(record.from, HOME_INTERACTION_ROUTES) ||
-    record.from === record.route || !isAllowed(record.trigger, HOME_NAVIGATION_TRIGGERS) ||
-    !hasValidEngine(record)) return null;
-  const durationMs = normalizeDuration(record.durationMs, 10, 10_000);
-  if (durationMs === null) return null;
-  const timings: Partial<Pick<HomeNavigationReport, "dispatchDelayMs" | "inputToPaintMs" | "cachePersistMs">> = {};
-  for (const key of ["dispatchDelayMs", "inputToPaintMs", "cachePersistMs"] as const) {
-    if (!Object.hasOwn(record, key)) continue;
-    const value = normalizeDuration(record[key], 10, 30_000);
-    if (value === null) return null;
-    timings[key] = value;
+  if (schema === homeNavigationReportSchema && !Object.hasOwn(record, "contentState") &&
+    homeNavigationReportSchema.shape.contentState.safeParse(record.contentState).success) {
+    ownRecord.contentState = record.contentState;
   }
-  if ((timings.dispatchDelayMs === undefined) !== (timings.inputToPaintMs === undefined) ||
-    (timings.dispatchDelayMs !== undefined && timings.inputToPaintMs !== undefined && (record.trigger !== "in-app" ||
-      timings.dispatchDelayMs > timings.inputToPaintMs || timings.inputToPaintMs < durationMs))) return null;
-  if (Object.hasOwn(record, "contentState") && record.contentState !== "loading" &&
-    record.contentState !== "ready" && record.contentState !== "unavailable") return null;
-  return { version: 1, kind: "home-navigation", route: record.route, from: record.from,
-    trigger: record.trigger, cache: record.cache, device: record.device,
-    ...timings,
-    ...(record.contentState === "loading" || record.contentState === "ready" || record.contentState === "unavailable"
-      ? { contentState: record.contentState } : {}),
-    ...(Object.hasOwn(record, "engine") ? { engine: record.engine as HomeEngine } : {}), durationMs };
-}
-
-function parseHomeScrollReport(record: Record<string, unknown>): HomeScrollReport | null {
-  const hasLongCount = Object.hasOwn(record, "longFrameCount");
-  const hasLongMs = Object.hasOwn(record, "longFrameMs");
-  if (!hasExactShape(record, scrollAllowedKeys, scrollRequiredKeys) ||
-    !hasInteractionDimensions(record) || !hasValidEngine(record) || hasLongCount !== hasLongMs) return null;
-  const durationMs = normalizeDuration(record.durationMs, 50, 30_000);
-  const frameCount = normalizeDuration(record.frameCount, 1, 10_000);
-  const slowFrameCount = normalizeDuration(record.slowFrameCount, 1, 10_000);
-  const maxFrameMs = normalizeDuration(record.maxFrameMs, 10, 5_000);
-  const longFrameCount = hasLongCount ? normalizeDuration(record.longFrameCount, 1, 1_000) : 0;
-  const longFrameMs = hasLongMs ? normalizeDuration(record.longFrameMs, 10, 30_000) : 0;
-  if (durationMs === null || frameCount === null || slowFrameCount === null || maxFrameMs === null ||
-    longFrameCount === null || longFrameMs === null) return null;
-  return { version: 1, kind: "home-scroll", route: record.route, cache: record.cache, device: record.device,
-    ...(Object.hasOwn(record, "engine") ? { engine: record.engine as HomeEngine } : {}),
-    durationMs, frameCount, slowFrameCount: Math.min(slowFrameCount, frameCount), maxFrameMs,
-    ...(hasLongCount ? { longFrameCount, longFrameMs } : {}) };
-}
-
-function parseHomeStartupReport(record: Record<string, unknown>): HomeStartupReport | null {
-  if (
-    !hasExactShape(record, startupAllowedKeys, startupRequiredKeys) ||
-    record.version !== HOME_STARTUP_VERSION ||
-    !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
-    !isAllowed(record.outcome, HOME_STARTUP_OUTCOMES) ||
-    !isAllowed(record.cache, HOME_STARTUP_CACHE_STATES)
-  ) return null;
-
-  if (Object.hasOwn(record, "balanceCache") && !isAllowed(record.balanceCache, HOME_STARTUP_CACHE_STATES)) return null;
-  const shellMs = normalizeDuration(record.shellMs, 1, 60_000);
-  const totalMs = normalizeDuration(record.totalMs, 1, 60_000);
-  if (shellMs === null || totalMs === null) return null;
-
-  const optionalDurations: Partial<Pick<
-    HomeStartupReport,
-    "sessionMs" | "balancesMs" | "interactiveMs" | "balanceFetchMs" | "balanceResponseMs" | "balanceParsedMs"
-  >> = {};
-  for (const key of ["sessionMs", "balancesMs", "interactiveMs", "balanceFetchMs", "balanceResponseMs", "balanceParsedMs"] as const) {
-    if (!Object.hasOwn(record, key)) continue;
-    const normalized = normalizeDuration(record[key], 1, 60_000);
-    if (normalized === null) return null;
-    optionalDurations[key] = normalized;
-  }
-
-  return {
-    version: HOME_STARTUP_VERSION,
-    kind: "home-startup",
-    route: record.route,
-    outcome: record.outcome,
-    cache: record.cache,
-    shellMs,
-    ...optionalDurations,
-    ...(isAllowed(record.balanceCache, HOME_STARTUP_CACHE_STATES) ? { balanceCache: record.balanceCache } : {}),
-    totalMs,
-  };
-}
-
-function parseHomeAuthRestoreReport(record: Record<string, unknown>): HomeAuthRestoreReport | null {
-  if (
-    !hasExactShape(record, authAllowedKeys, authRequiredKeys) ||
-    record.version !== HOME_STARTUP_VERSION ||
-    record.flow !== "restore" ||
-    !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
-    !isAllowed(record.hint, HOME_AUTH_HINTS) ||
-    !isAllowed(record.outcome, HOME_AUTH_OUTCOMES) ||
-    (Object.hasOwn(record, "stalledStage") && !isAllowed(record.stalledStage, HOME_AUTH_RESTORE_STAGES))
-  ) return null;
-
-  const sessionSettledMs = normalizeDuration(record.sessionSettledMs, 50, 30_000);
-  const totalMs = normalizeDuration(record.totalMs, 50, 30_000);
-  if (sessionSettledMs === null || totalMs === null) return null;
-
-  const optionalDurations: Partial<Pick<
-    HomeAuthRestoreReport,
-    "sdkActivateMs" | "cdpInitializedMs" | "nativeSettledMs" | "tokenMs" | "validationMs"
-  >> = {};
-  for (const key of ["sdkActivateMs", "cdpInitializedMs", "nativeSettledMs", "tokenMs", "validationMs"] as const) {
-    if (!Object.hasOwn(record, key)) continue;
-    const normalized = normalizeDuration(record[key], 50, 30_000);
-    if (normalized === null) return null;
-    optionalDurations[key] = normalized;
-  }
-
-  return {
-    version: HOME_STARTUP_VERSION,
-    kind: "home-auth-phase",
-    route: record.route,
-    flow: "restore",
-    hint: record.hint,
-    outcome: record.outcome,
-    ...optionalDurations,
-    ...(Object.hasOwn(record, "stalledStage") ? { stalledStage: record.stalledStage as HomeAuthRestoreStage } : {}),
-    sessionSettledMs,
-    totalMs,
-  };
-}
-
-function parseHomeAuthSignOutReport(record: Record<string, unknown>): HomeAuthSignOutReport | null {
-  if (
-    !hasExactShape(record, authSignOutAllowedKeys, authSignOutRequiredKeys) ||
-    record.version !== HOME_STARTUP_VERSION ||
-    record.flow !== "signout" ||
-    !isAllowed(record.route, HOME_STARTUP_ROUTES) ||
-    !isAllowed(record.outcome, HOME_AUTH_SIGNOUT_OUTCOMES) ||
-    typeof record.nativeLogoutAttempted !== "boolean" ||
-    typeof record.walletDisconnectAttempted !== "boolean" ||
-    typeof record.cdpSignOutAttempted !== "boolean"
-  ) return null;
-  const totalMs = normalizeDuration(record.totalMs, 50, 30_000);
-  if (totalMs === null) return null;
-  const durations: Partial<Pick<HomeAuthSignOutReport,
-    "visibleNavigationMs" | "nativeLogoutMs" | "walletDisconnectMs" | "cdpSignOutMs"
-  >> = {};
-  for (const key of ["visibleNavigationMs", "nativeLogoutMs", "walletDisconnectMs", "cdpSignOutMs"] as const) {
-    if (!Object.hasOwn(record, key)) continue;
-    const normalized = normalizeDuration(record[key], 50, 30_000);
-    if (normalized === null) return null;
-    durations[key] = normalized;
-  }
-  return {
-    version: HOME_STARTUP_VERSION,
-    kind: "home-auth-phase",
-    route: record.route,
-    flow: "signout",
-    outcome: record.outcome,
-    ...durations,
-    nativeLogoutAttempted: record.nativeLogoutAttempted,
-    walletDisconnectAttempted: record.walletDisconnectAttempted,
-    cdpSignOutAttempted: record.cdpSignOutAttempted,
-    totalMs,
-  };
-}
-
-function hasValidEngine(record: Record<string, unknown>): boolean {
-  return !Object.hasOwn(record, "engine") || isAllowed(record.engine, HOME_ENGINES);
-}
-
-function hasExactShape(
-  record: Record<string, unknown>,
-  allowedKeys: ReadonlySet<string>,
-  requiredKeys: ReadonlySet<string>,
-): boolean {
-  const keys = Object.keys(record);
-  return !keys.some((key) => !allowedKeys.has(key)) &&
-    ![...requiredKeys].some((key) => !Object.hasOwn(record, key));
-}
-
-function normalizeDuration(value: unknown, increment: number, maximum: number): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value)) return null;
-  const rounded = Math.round(value / increment) * increment;
-  return Math.min(maximum, Math.max(0, rounded));
-}
-
-function isAllowed<const T extends readonly string[]>(value: unknown, allowed: T): value is T[number] {
-  return typeof value === "string" && allowed.includes(value);
+  const result = schema.safeParse(ownRecord);
+  return result.success ? result.data : null;
 }
 
 export function normalizeHomeStartupRoute(pathname: string): HomeStartupRoute | null {
