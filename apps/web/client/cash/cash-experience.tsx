@@ -279,7 +279,7 @@ export type CashExperienceProps = {
   balanceActionStale?: boolean;
   pendingCashout?: PendingCashoutEstimate;
   onRetryBalances?: () => void;
-  onAddMoney: (options?: { replaceFlow?: boolean }) => void;
+  onAddMoney: (options?: { replaceFlow?: boolean; opener?: HTMLElement | null }) => void;
   onAddMoneyIntent?: () => void;
   fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
@@ -378,6 +378,8 @@ export function CashExperience({
   const [journeyGeneration, setJourneyGeneration] = useState(0);
   const latestJourneyGeneration = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
+  const [savingsOpener, setSavingsOpener] = useState<HTMLElement | null>(null);
+  const [currencySessionOpener, setCurrencySessionOpener] = useState<HTMLElement | null>(null);
   const currencyOpener = useRef<HTMLElement | null>(null);
   const [currencyEntry, setCurrencyEntry] = useState<{ kind: "convert" | "currency"; source: CashConversionCurrencyCode } | null>(null);
   const [currencyOpen, setCurrencyOpen] = useState(false);
@@ -406,6 +408,7 @@ export function CashExperience({
   function openCurrency(kind: "convert" | "currency", source: CashConversionCurrencyCode, opener: HTMLElement) {
     if (!session?.smartAccount || !liveSnapshot || balanceStatus !== "ready") return;
     currencyOpener.current = opener;
+    setCurrencySessionOpener(opener);
     const owner = dataOwnerKey(session);
     if (!currencyUnresolved || currencyOwner !== owner || currencyEntry?.kind !== kind || currencyEntry.source !== source) {
       setCurrencyReset((key) => key + 1);
@@ -558,7 +561,7 @@ export function CashExperience({
     normalized.current = true;
     if (readClientHistoryFlag("cashSavingsFlowPushed")) return;
     routing.clearFlow({ mode: "replace", normalizeInbound: true });
-    routing.setFlow(initialRoute.current);
+    routing.setFlow(initialRoute.current, { opener: null });
   }, [routing]);
   useEffect(() => {
     if (previousView.current === "savings" && view === "cash")
@@ -693,21 +696,22 @@ export function CashExperience({
       throw error;
     }
   }
-  function startSaving() {
+  function startSaving(element: HTMLElement) {
     setDepositFailed(false);
     autoClosed.current = null;
     leavingForAddMoney.current = false;
     latestJourneyGeneration.current += 1;
     setJourneyGeneration(latestJourneyGeneration.current);
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    opener.current = element;
+    setSavingsOpener(element);
     setEntry("amount");
     setTargetSelection(null);
     setConfirmed(false);
     setChoosing(true);
-    if (routing) routing.setFlow("save-deposit");
+    if (routing) routing.setFlow("save-deposit", { opener: element });
     else setLocalMode("deposit");
   }
-  function open(nextMode: Mode, candidate: MorphoVaultCandidate) {
+  function open(nextMode: Mode, candidate: MorphoVaultCandidate, element: HTMLElement | null = null) {
     if (nextMode === "deposit" && !depositOffered(offering, candidate)) return;
     autoClosed.current = null;
     setAutoClosedSelection(null);
@@ -715,7 +719,8 @@ export function CashExperience({
     if (managementAddress === null) {
       latestJourneyGeneration.current += 1;
       setJourneyGeneration(latestJourneyGeneration.current);
-      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      opener.current = element;
+      setSavingsOpener(element);
       setEntry("amount");
     }
     setTargetSelection(candidate);
@@ -723,11 +728,12 @@ export function CashExperience({
     setConfirmed(false);
     if (routing)
       routing.setFlow(
-        nextMode === "deposit" ? "save-deposit" : "save-withdraw"
+        nextMode === "deposit" ? "save-deposit" : "save-withdraw",
+        { opener: managementAddress === null ? element : savingsOpener }
       );
     else setLocalMode(nextMode);
   }
-  function openManagement(address: string) {
+  function openManagement(address: string, element: HTMLElement) {
     latestJourneyGeneration.current += 1;
     setJourneyGeneration(latestJourneyGeneration.current);
     setClosingManagement(null);
@@ -735,7 +741,8 @@ export function CashExperience({
     setEntry("management");
     setTargetSelection(null);
     setLocalMode(null);
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    opener.current = element;
+    setSavingsOpener(element);
     setConfirmed(false);
   }
   function backToManagement() {
@@ -879,7 +886,7 @@ export function CashExperience({
           onAddMoney={onAddMoney}
           actionsAvailable={Boolean(session?.smartAccount)}
           onStartSaving={startSaving}
-          onDepositVault={(candidate) => open("deposit", candidate)}
+          onDepositVault={(candidate, element) => open("deposit", candidate, element)}
           onDepositIntent={() => void preloadSavingsJourneyStep()}
           onManageVault={openManagement}
           onRetryVaults={() => void query.refetch()}
@@ -906,6 +913,7 @@ export function CashExperience({
         onFailed={markDepositFailed}
       />
       {currencyReady && currencyEntry && session?.smartAccount && currencyBalanceSnapshot && fetchAccountResource ? <CashCurrencySheet key={`${currencyReset}:${currencyOwner}`} open={currencyOpen} entry={currencyEntry}
+        opener={currencySessionOpener}
         session={session} snapshot={currencyBalanceSnapshot} best={best} balanceStale={balanceStale || !liveSnapshot}
         fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeSavingsAction}
         onCancel={() => setCurrencyOpen(false)} onClosed={currencyClosed} onAddMoney={onAddMoney}
@@ -915,6 +923,7 @@ export function CashExperience({
           titleId={SAVINGS_JOURNEY_TITLE_ID}
           key={journeyKey}
           open={sheetOpen}
+          opener={entry === "management" ? savingsOpener : routing ? routing.flowOpener ?? null : savingsOpener}
           entry={entry}
           management={activeManagement}
           mode={journeyMode}
@@ -1033,7 +1042,7 @@ export function AuthenticatedCashExperience(props: {
         onAddMoneyIntent={moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(account, region, regionReady, queryClient)).onFocus}
         onAddMoney={(options) => {
           void preloadAddMoneySheet();
-          routing?.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push" });
+          routing?.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push", opener: options?.opener ?? null });
         }}
         prepareMoneyAction={account.prepareMoneyAction}
         executeMoneyAction={account.executeMoneyAction}

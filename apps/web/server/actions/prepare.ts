@@ -3,7 +3,7 @@ import "server-only";
 import { emitServerEvent } from "@/server/observability/log";
 import { PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE, cashoutPrepareErrorResponse, type PrepareActionResponse } from "@/shared/actions/contracts/prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { actionKindForBorrowOperation, parseBorrowActionIntent } from "@/shared/borrowing/types";
+import { actionKindForBorrowOperation, increasesBorrowRisk, parseBorrowActionIntent } from "@/shared/borrowing/types";
 import type { SavingsActionInput } from "@/server/savings/types";
 import { TransferExecutionError, type TransferRequest } from "@/shared/transfers/types";
 import { isActionKind, type ActionKind } from "@/shared/money-actions/types";
@@ -15,7 +15,7 @@ import { applyNetworkFee, NetworkFeeUnavailableError, NetworkFeeUnfundedError } 
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { privateError, privateJson } from "@/server/http/private-response";
 import { prepareSavingsAction, SavingsActionError } from "@/server/savings/prepare";
-import { prepareBorrowAction, BorrowPreparationError, increasesRisk } from "@/server/borrowing/prepare";
+import { prepareBorrowAction, BorrowPreparationError } from "@/server/borrowing/prepare";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
 import { getVerifiedSaveVault } from "@/shared/savings/config";
 import { offeredMarketMode, offeredVaultMode, resolveProductOffering } from "@/shared/operator-settings/products";
@@ -159,7 +159,7 @@ async function prepare(
     if (!market) throw new BorrowPreparationError("unsupported-market", "The borrowing market is not configured.");
     const rpc = dependencies.borrowRpc ?? getBaseBorrowing;
     const snapshot = await rpc.readSnapshot(session.smartAccount.address, market, signal);
-    const riskIncreasing = increasesRisk(request.operation, BigInt(snapshot.position.debtAssetsRaw));
+    const riskIncreasing = increasesBorrowRisk(request.operation, BigInt(snapshot.position.debtAssetsRaw));
     const current = riskIncreasing ? await offering() : null;
     const offered = current && offeredMarketMode(current, market.marketId) !== "enabled"
       ? { ...market, availability: "reducing-only" as const } : market;

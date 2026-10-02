@@ -3,7 +3,6 @@ import "server-only";
 import { keccak256 } from "viem";
 import { PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE } from "@/shared/actions/contracts/prepare";
 import { offeredMarketMode, offeredVaultMode, resolveProductOffering } from "@/shared/operator-settings/products";
-import { getVerifiedSaveVault } from "@/shared/savings/config";
 import { readProductOffering } from "@/server/operator-settings/offering";
 
 import { CONFIRM_CASHOUT_ERRORS, supportsBaseBatchGasHint, type ConfirmActionErrorCode, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
@@ -50,6 +49,10 @@ import type { ActionHandleResolver } from "./reconcile";
 import { followActionUntilSettled, type FollowActionDeps } from "./follow-through";
 import { confirmedAtMs, getDefaultActionHandleResolver, isReconcileCandidate, reconcileRow, rotatingWindow, settleRow } from "./settle";
 import { readJson } from "@/shared/http/read-json";
+import { getBorrowMarketRef, type BorrowMarketRef } from "@/shared/borrowing/config";
+import { actionKindForBorrowOperation, increasesBorrowRisk, isBorrowOperation, type BorrowOperation } from "@/shared/borrowing/types";
+import { getVerifiedSaveVault, isSaveActionAllowed, type VerifiedSaveVaultRef } from "@/shared/savings/config";
+import { getBaseBorrowing } from "@/server/borrowing/rpc";
 
 export type ActionAuthorizer = SessionAuthorizer;
 
@@ -58,6 +61,7 @@ const hashPattern = /^0x[0-9a-fA-F]{64}$/;
 const RECONCILE_MAX_PER_REQUEST = 5;
 const RECONCILE_DEADLINE_MS = 3_000;
 const CASHOUT_REFRESH_DEADLINE_MS = 3_000;
+const BORROW_DEBT_DEADLINE_MS = 3_000;
 const BALANCES_HOT_WINDOW_MS = 60_000;
 const FOLLOW_UP_THROTTLE_MS = 15_000;
 const FOLLOW_UP_MAX_ENTRIES = 500;
@@ -155,6 +159,33 @@ async function checkCardAllowanceSetGate(row: ActionRow, owner: MoneyActionOwner
   return null;
 }
 
+function isBorrowAdmissionAllowed(operation: BorrowOperation, availability: BorrowMarketRef["availability"], debt: bigint): boolean {
+  return availability === "enabled" || !increasesBorrowRisk(operation, debt);
+}
+
+async function readCurrentBorrowDebt(owner: `0x${string}`, market: BorrowMarketRef, signal: AbortSignal): Promise<bigint> {
+  const snapshot = await getBaseBorrowing.readSnapshot(owner, market, signal);
+  return BigInt(snapshot.position.debtAssetsRaw);
+}
+
+async function readBorrowDebtWithDeadline(
+  read: typeof readCurrentBorrowDebt, owner: `0x${string}`, market: BorrowMarketRef, signal: AbortSignal,
+): Promise<bigint> {
+  const deadline = createDeadline(signal, BORROW_DEBT_DEADLINE_MS);
+  let onAbort: () => void = () => undefined;
+  try {
+    deadline.signal.throwIfAborted();
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(deadline.signal.reason);
+      deadline.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    return await Promise.race([read(owner, market, deadline.signal), aborted]);
+  } finally {
+    deadline.signal.removeEventListener("abort", onAbort);
+    deadline.dispose();
+  }
+}
+
 export function createConfirmActionHandler(dependencies: {
   authorize: ActionAuthorizer;
   store?: Pick<ActionsStore, "get" | "confirm">;
@@ -170,6 +201,9 @@ export function createConfirmActionHandler(dependencies: {
   cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
   cardAllowanceEligible?: typeof checkCardAllowanceEligibility;
   corridorOffered?: (providerId: string, region: string, direction: FundingDirection, signal: AbortSignal) => Promise<boolean>;
+  saveVault?: (address: string) => VerifiedSaveVaultRef | null;
+  borrowMarket?: (marketId: string) => BorrowMarketRef | null;
+  readBorrowDebt?: typeof readCurrentBorrowDebt;
 }) {
   return async function POST(request: Request, context: { params: Promise<{ id: string }> }): Promise<Response> {
     const startedAt = Date.now();
@@ -221,6 +255,41 @@ export function createConfirmActionHandler(dependencies: {
     if (!draft.confirmed_at && draft.kind === "card-allowance") {
       const failure = await checkCardAllowanceSetGate(draft, owner, request.signal, dependencies, fail);
       if (failure) return failure;
+    }
+
+    if (!draft.confirmed_at && (draft.kind === "savings-deposit" || draft.kind === "savings-withdraw")) {
+      const metadata = draft.summary.metadata;
+      const operation = draft.kind === "savings-deposit" ? "deposit" : "withdraw";
+      const vault = metadata?.product === "savings" && metadata.operation === operation && typeof metadata.vaultAddress === "string"
+        ? (dependencies.saveVault ?? getVerifiedSaveVault)(metadata.vaultAddress) : null;
+      if (!isSaveActionAllowed(vault?.capabilities.save, operation)) {
+        return fail("ACTION_EXPIRED", "This vault is no longer available for this action. Prepare again.", 410);
+      }
+    }
+
+    if (!draft.confirmed_at && (draft.kind === "supply-collateral" || draft.kind === "borrow" || draft.kind === "repay" || draft.kind === "withdraw-collateral")) {
+      const metadata = draft.summary.metadata;
+      if (metadata?.product !== "borrow" || !isBorrowOperation(metadata.operation) ||
+        actionKindForBorrowOperation(metadata.operation) !== draft.kind || typeof metadata.marketId !== "string") {
+        return fail("ACTION_EXPIRED", "This borrowing review is no longer available. Prepare again.", 410);
+      }
+      const market = (dependencies.borrowMarket ?? getBorrowMarketRef)(metadata.marketId);
+      if (!market) return fail("ACTION_EXPIRED", "This borrowing market is no longer available. Prepare again.", 410);
+      let debt = BigInt(0);
+      if (market.availability !== "enabled" && metadata.operation === "withdraw-collateral") {
+        try {
+          debt = await readBorrowDebtWithDeadline(dependencies.readBorrowDebt ?? readCurrentBorrowDebt, owner.address, market, request.signal);
+        } catch {
+          emitServerEvent("action-confirm", {
+            route: "/api/actions/:id/confirm", code: "BORROW_DEBT_UNAVAILABLE", outcome: "unavailable",
+            provider: owner.accountProvider, owner, durationMs: Date.now() - startedAt,
+          });
+          return fail("ACTION_EXPIRED", "This borrowing position could not be checked. Prepare again.", 410);
+        }
+      }
+      if (!isBorrowAdmissionAllowed(metadata.operation, market.availability, debt)) {
+        return fail("ACTION_EXPIRED", "This market now accepts only actions that reduce risk. Prepare again.", 410);
+      }
     }
 
     if (!draft.confirmed_at && draft.kind === "cash-out") {

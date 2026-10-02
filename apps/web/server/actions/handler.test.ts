@@ -1,6 +1,6 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { isRecord } from "@/shared/guards";
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 import { setActionsStoreForTests, type ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
@@ -11,9 +11,11 @@ import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
 import { createCashoutCorridorOfferingReader } from "@/server/funding/offering";
 import { resolveProductOffering } from "@/shared/operator-settings/products";
-import { VERIFIED_SAVE_VAULTS } from "@/shared/savings/config";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import { createCardAllowanceEligibility } from "@/server/cards/allowance/prepare";
+import { DEFAULT_BORROW_MARKET, type BorrowMarketRef } from "@/shared/borrowing/config";
+import { actionKindForBorrowOperation, type BorrowOperation } from "@/shared/borrowing/types";
+import { VERIFIED_SAVE_VAULTS } from "@/shared/savings/config";
 
 function parseLog(line: string): unknown {
   const parsed: unknown = JSON.parse(line);
@@ -82,6 +84,29 @@ function authorize(subject = "owner-a", accountProvider: "cdp-embedded" | "base-
     smartAccount: { address: ADDRESS, chainId: 8453 },
     accountProvider,
   });
+}
+
+const SAVE_VAULT = VERIFIED_SAVE_VAULTS[0];
+
+function borrowConfirmRow(operation: BorrowOperation): ActionRow {
+  return { ...row, kind: actionKindForBorrowOperation(operation), summary: { ...row.summary, metadata: {
+    product: "borrow", operation, marketId: DEFAULT_BORROW_MARKET.marketId,
+    riskIncreased: operation === "borrow" || operation === "supply-and-borrow" || operation === "withdraw-collateral",
+    loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "weth", symbol: "WETH" },
+    projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
+    source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1" },
+  } } };
+}
+
+function savingsConfirmRow(operation: "deposit" | "withdraw"): ActionRow {
+  return { ...row, kind: operation === "deposit" ? "savings-deposit" : "savings-withdraw", summary: { ...row.summary, metadata: {
+    product: "savings", operation, vaultAddress: SAVE_VAULT.address, vaultName: SAVE_VAULT.name,
+    network: { name: "Base", chainId: 8453 }, feeWad: "0", limitBaseUnits: "1000000",
+    previewSharesBaseUnits: "1000000000000000000", shareDecimals: 18,
+    exchangeConstraint: operation === "deposit" ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
+    discoveryRate: { status: "unavailable", netApy: null, fetchedAt: null, stateAsOf: null },
+    source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1" },
+  } } };
 }
 
 describe("retained savings action reads", () => {
@@ -449,6 +474,162 @@ function baseRequest(path: string, init?: RequestInit) {
   });
 }
 
+describe("Borrow and savings confirmation admission", () => {
+  const reducingOnly: BorrowMarketRef = { ...DEFAULT_BORROW_MARKET, availability: "reducing-only" };
+
+  async function assertAdmission(draft: ActionRow, status: number, dependencies: Partial<Parameters<typeof createConfirmActionHandler>[0]> = {}, signal?: AbortSignal) {
+    const confirm = mock(async (_owner: MoneyActionOwner, _id: string, calls?: MoneyActionCall[]) => ({
+      ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] },
+    }));
+    const handler = createConfirmActionHandler({
+      ...dependencies, authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      recordConfirmed: async () => undefined, store: { get: async () => draft, confirm },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}", signal }), context());
+    expect(response.status).toBe(status);
+    const body = await readJson(response);
+    if (status === 200) {
+      expect(parseConfirmActionResponse(body)?.calls).toEqual(draft.pending?.calls);
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(confirm.mock.calls[0]?.[2]).toEqual(draft.pending?.calls);
+    } else {
+      expect(body).toMatchObject({ error: { code: status === 404 ? "ACTION_NOT_FOUND" : "ACTION_EXPIRED" } });
+      expect(confirm).not.toHaveBeenCalled();
+    }
+  }
+
+  test.each(["borrow", "supply-and-borrow"] as const)("refuses %s in a reducing-only market without reading debt", async (operation) => {
+    const readBorrowDebt = mock(async () => BigInt(0));
+    const borrowMarket = mock(() => reducingOnly);
+    await assertAdmission(borrowConfirmRow(operation), 410, { borrowMarket, readBorrowDebt });
+    expect(borrowMarket).toHaveBeenCalledWith(DEFAULT_BORROW_MARKET.marketId);
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each(["borrow", "supply-and-borrow", "withdraw-collateral"] as const)("confirms %s in an enabled market without reading debt", async (operation) => {
+    const readBorrowDebt = mock(async () => { throw new Error("must not read debt"); });
+    await assertAdmission(borrowConfirmRow(operation), 200, { readBorrowDebt });
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each(["repay", "repay-all", "supply-collateral", "close-position"] as const)("confirms reducing-only %s without reading debt", async (operation) => {
+    const readBorrowDebt = mock(async () => { throw new Error("must not read debt"); });
+    await assertAdmission(borrowConfirmRow(operation), 200, { borrowMarket: () => reducingOnly, readBorrowDebt });
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each([["0", 200], ["1", 410]] as const)("withdraw-collateral rechecks live debt %s for the verified owner", async (debt, status) => {
+    const readBorrowDebt = mock(async (owner: `0x${string}`, market: BorrowMarketRef, signal: AbortSignal) => {
+      expect(owner).toBe(ADDRESS);
+      expect(market).toBe(reducingOnly);
+      expect(signal.aborted).toBe(false);
+      return BigInt(debt);
+    });
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), status, { borrowMarket: () => reducingOnly, readBorrowDebt });
+    expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+  });
+
+  test("withdraw-collateral fails closed when the live debt read throws", async () => {
+    const events = captureObservabilityEvents();
+    const readBorrowDebt = mock(async () => { throw new Error("RPC unavailable"); });
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket: () => reducingOnly, readBorrowDebt });
+    expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+    expect(events("action-confirm").map((event) => event.code)).toEqual(["BORROW_DEBT_UNAVAILABLE", "ACTION_EXPIRED"]);
+  });
+
+  test("withdraw-collateral fails closed after a 3-second deadline even if the debt reader ignores abort", async () => {
+    jest.useFakeTimers();
+    try {
+      const started = Promise.withResolvers<AbortSignal>();
+      const readBorrowDebt = mock(async (_owner: `0x${string}`, _market: BorrowMarketRef, signal: AbortSignal) => {
+        started.resolve(signal);
+        return new Promise<bigint>(() => undefined);
+      });
+      const assertion = assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket: () => reducingOnly, readBorrowDebt });
+      const signal = await started.promise;
+      jest.advanceTimersByTime(2_999);
+      expect(signal.aborted).toBe(false);
+      jest.advanceTimersByTime(1);
+      await assertion;
+      expect(signal.aborted).toBe(true);
+      expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("withdraw-collateral fails closed when the request is aborted", async () => {
+    const controller = new AbortController();
+    const readBorrowDebt = mock(async (_owner: `0x${string}`, _market: BorrowMarketRef, signal: AbortSignal) => {
+      controller.abort();
+      expect(signal.aborted).toBe(true);
+      return new Promise<bigint>(() => undefined);
+    });
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket: () => reducingOnly, readBorrowDebt }, controller.signal);
+    expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+  });
+
+  test("refuses an unknown borrowing market without reading debt", async () => {
+    const borrowMarket = mock(() => null);
+    const readBorrowDebt = mock(async () => BigInt(0));
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket, readBorrowDebt });
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    undefined, null, {}, { product: "savings" }, { product: "borrow" },
+    { product: "borrow", operation: "unknown", marketId: DEFAULT_BORROW_MARKET.marketId },
+    { product: "borrow", operation: "repay", marketId: DEFAULT_BORROW_MARKET.marketId },
+    { product: "borrow", operation: "borrow", marketId: 12 },
+  ])("refuses malformed or mismatched borrowing metadata %j", async (metadata) => {
+    const draft = borrowConfirmRow("borrow");
+    draft.summary = { ...draft.summary };
+    Reflect.set(draft.summary, "metadata", metadata);
+    const borrowMarket = mock(() => DEFAULT_BORROW_MARKET);
+    await assertAdmission(draft, 410, { borrowMarket });
+    expect(borrowMarket).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["deposit", "enabled", 200], ["withdraw", "enabled", 200],
+    ["deposit", "reducing-only", 410], ["deposit", undefined, 410],
+    ["withdraw", "reducing-only", 200], ["withdraw", undefined, 410],
+  ] as const)("savings %s with capability %s returns %s", async (operation, capability, status) => {
+    const saveVault = mock(() => ({ ...SAVE_VAULT, capabilities: { save: capability } }));
+    await assertAdmission(savingsConfirmRow(operation), status, { saveVault });
+    expect(saveVault).toHaveBeenCalledWith(SAVE_VAULT.address);
+  });
+
+  test.each(["deposit", "withdraw"] as const)("refuses savings %s for an unknown vault", async (operation) => {
+    await assertAdmission(savingsConfirmRow(operation), 410, { saveVault: () => null });
+  });
+
+  test.each([
+    undefined, null, {}, { product: "borrow" }, { product: "savings" },
+    { product: "savings", operation: "withdraw", vaultAddress: SAVE_VAULT.address },
+    { product: "savings", operation: "deposit", vaultAddress: 12 },
+  ])("refuses malformed or mismatched savings metadata %j", async (metadata) => {
+    const draft = savingsConfirmRow("deposit");
+    draft.summary = { ...draft.summary };
+    Reflect.set(draft.summary, "metadata", metadata);
+    const saveVault = mock(() => SAVE_VAULT);
+    await assertAdmission(draft, 410, { saveVault });
+    expect(saveVault).not.toHaveBeenCalled();
+  });
+
+  test.each([borrowConfirmRow("borrow"), borrowConfirmRow("withdraw-collateral"), savingsConfirmRow("deposit")])(
+    "already-confirmed $kind never invokes admission dependencies", async (draft) => {
+      const borrowMarket = mock(() => null);
+      const saveVault = mock(() => null);
+      const readBorrowDebt = mock(async () => { throw new Error("must not read debt"); });
+      await assertAdmission({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }, 404, { borrowMarket, saveVault, readBorrowDebt });
+      expect(borrowMarket).not.toHaveBeenCalled();
+      expect(saveVault).not.toHaveBeenCalled();
+      expect(readBorrowDebt).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("actions HTTP handlers", () => {
   test("list returns a typed unavailable error and records a store-read event", async () => {
     const lines: string[] = [];
@@ -523,7 +704,7 @@ describe("actions HTTP handlers", () => {
         metadata: {
           product: "savings",
           operation: "withdraw",
-          vaultAddress: ADDRESS,
+          vaultAddress: SAVE_VAULT.address,
           vaultName: "Configured USDC vault",
           network: { name: "Base", chainId: 8453 },
           feeWad: "0",
@@ -983,8 +1164,8 @@ describe("actions HTTP handlers", () => {
   });
   test.each(["send", "savings-deposit", "borrow", "trade"] as const)("re-checks paused unconfirmed %s drafts before committing", async (kind) => {
     const market = enabledMarket();
-    const metadata = kind === "savings-deposit" ? { product: "savings", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
-      : kind === "borrow" ? { product: "borrow", marketId: market.marketId, riskIncreased: true }
+    const metadata = kind === "savings-deposit" ? { product: "savings", operation: "deposit", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
+      : kind === "borrow" ? { product: "borrow", operation: "borrow", marketId: market.marketId, riskIncreased: true }
       : kind === "trade" ? { product: "trade", direction: "buy" } : undefined;
     const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
     const offering = resolveProductOffering({ kind: "deployment" });
@@ -1007,7 +1188,7 @@ describe("actions HTTP handlers", () => {
     const deployment = resolveProductOffering({ kind: "deployment" });
     const offering = resolveProductOffering({ kind: "saved", value: { products: deployment.products,
       vaults: { ...deployment.vaults, [vault.id]: "reducing-only" }, markets: { ...deployment.markets, [market.marketId]: "reducing-only" } } });
-    const metadata = kind === "borrow" ? { product: "borrow", marketId: market.marketId, riskIncreased: true } : { product: "savings", vaultAddress: vault.address };
+    const metadata = kind === "borrow" ? { product: "borrow", operation: "borrow", marketId: market.marketId, riskIncreased: true } : { product: "savings", operation: "deposit", vaultAddress: vault.address };
     const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
     const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"), readOffering: async () => offering,
       store: { get: async () => draft, confirm: async () => { throw new Error("Must not confirm"); } } });
@@ -1018,7 +1199,9 @@ describe("actions HTTP handlers", () => {
 
   test.each(["savings-withdraw", "repay", "supply-collateral", "withdraw-collateral"] as const)("confirms %s exits without consulting settings", async (kind) => {
     let reads = 0;
-    const draft = { ...row, kind, summary: { ...row.summary, ...(kind === "withdraw-collateral" ? { metadata: { product: "borrow", riskIncreased: false } as ActionRow["summary"]["metadata"] } : {}) } };
+    const metadata = kind === "savings-withdraw" ? { product: "savings", operation: "withdraw", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
+      : { product: "borrow", operation: kind, marketId: enabledMarket().marketId, riskIncreased: false };
+    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
     const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
       readOffering: async () => { reads++; throw new Error("db outage"); },
       markHot: async () => {}, recordConfirmed: async () => {},
@@ -1077,8 +1260,8 @@ describe("actions HTTP handlers", () => {
       store: { get: async () => draft, confirm: async () => { throw new Error("Must not confirm"); } },
     });
     const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
-    expect(response.status).toBe(409);
-    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(response.status).toBe(410);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe("ACTION_EXPIRED");
   });
   test("an offering outage blocks a new send but not an already-confirmed non-entry action", async () => {
     let reads = 0;
@@ -1141,6 +1324,11 @@ describe("actions HTTP handlers", () => {
       kind,
       ...(metadata ? { summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } } : {}),
       pending: { calls },
+      summary: kind === "savings-deposit" || kind === "savings-withdraw"
+        ? savingsConfirmRow(kind === "savings-deposit" ? "deposit" : "withdraw").summary
+        : kind === "borrow" || kind === "supply-collateral" || kind === "repay" || kind === "withdraw-collateral"
+          ? borrowConfirmRow(kind).summary
+          : kind === "cash-out" || kind === "cash-out-withdraw" ? cashoutConfirmRow(kind).summary : row.summary,
     };
     const handler = createConfirmActionHandler({
       authorize: authorize(),

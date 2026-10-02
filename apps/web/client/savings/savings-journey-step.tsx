@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from "react";
 import type { SavingsManagement } from "@/client/cash/savings-management";
-import { formatWadPercent } from "@/client/cash/savings-management";
+import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { Button } from "@/components/ui/button";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
@@ -11,6 +11,7 @@ import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { savingsJourneyOwnerKey } from "@/client/account/owner-keys";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { RegionId } from "@/config/regions";
 import {
   MoneyAmountDisplay,
   MoneyAssetPicker,
@@ -38,6 +39,7 @@ import { TransferExecutionError } from "@/shared/transfers/types";
 import {
   formatPresentationDate,
   formatPresentationPercentage,
+  formatWadFeePercent,
   formatUsdStablecoinAmount,
 } from "@/shared/formatting";
 import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
@@ -94,6 +96,7 @@ export function SavingsJourneyStep({
   onConfirmed,
   depth,
 }: SavingsJourneyStepProps) {
+  const regionId = usePresentationRegionId();
   const {
     assetId: selectedAssetId,
     assetLabel: selectedAssetLabel,
@@ -393,7 +396,7 @@ export function SavingsJourneyStep({
         <MoneyConfirmSummary action={preparedAction}
           amount={confirmAmount}
           lead={mode === "deposit" ? "Deposit to Save" : "Withdraw from Save"}
-          rows={preparedReview && preparedAction ? savingsReviewRows(preparedReview, preparedAction.owner) : [
+          rows={preparedReview && preparedAction ? savingsReviewRows(preparedReview, preparedAction.owner, regionId) : [
             { label: "Review", value: "Prepared facts unavailable" },
           ]}
         />
@@ -477,11 +480,11 @@ function amountExceedsKnownAvailable(amount: string, available: bigint | null): 
   return BigInt(parsedAmount) > available;
 }
 
-function savingsReviewRows(review: SavingsPreparedReview, owner: MoneyActionOwner) {
+function savingsReviewRows(review: SavingsPreparedReview, owner: MoneyActionOwner, regionId: RegionId) {
   const apy = review.discoveryRate.status === "unavailable"
     ? "Unavailable"
-    : `${formatPresentationPercentage(Number(review.discoveryRate.netApy))} APY${review.discoveryRate.status === "stale" ? " at last update" : ""}`;
-  const fee = formatWadPercent(review.feeWad);
+    : `${formatPresentationPercentage(Number(review.discoveryRate.netApy), regionId)} APY${review.discoveryRate.status === "stale" ? " at last update" : ""}`;
+  const fee = formatWadFeePercent(review.feeWad, regionId);
   return [
     moneyConfirmFromRow(owner),
     { label: "Vault", value: review.vaultName },

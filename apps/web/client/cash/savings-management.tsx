@@ -9,7 +9,7 @@ import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import type { RegionId } from "@/config/regions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
-import { formatPresentationDate, formatPresentationPercentage, formatUsdStablecoinAmount } from "@/shared/formatting";
+import { formatPresentationDate, formatPresentationPercentage, formatUsdStablecoinAmount, formatWadFeePercent } from "@/shared/formatting";
 import type { ProductOffering } from "@/shared/operator-settings/products";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { depositOffered } from "./save-offering";
@@ -41,17 +41,6 @@ export function savingsRateLabel(candidate: MorphoVaultCandidate | null, metadat
     nowMs,
   });
   return rate.status !== "unavailable" ? `${formatPresentationPercentage(rate.value, regionId)} APY` : "Rate unavailable";
-}
-
-export function formatWadPercent(value: string): string {
-  const wad = BigInt(value);
-  const scaled = wad * BigInt(100_000_000) / BigInt("1000000000000000000");
-  const whole = scaled / BigInt(1_000_000);
-  const fraction = (scaled % BigInt(1_000_000))
-    .toString()
-    .padStart(6, "0")
-    .replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}%` : `${whole}%`;
 }
 
 export function savingsManagement({ address, snapshot, metadata, nowMs, regionId, actionsAvailable, usdcBaseUnits, usdcUnavailable, offering }: {
@@ -98,7 +87,7 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, regionId
     details: [
       ["Vault", `${normalized.slice(0, 6)}…${normalized.slice(-4)}`],
       ...(candidate?.chainId === 8453 ? [["Network", "Base"] as [string, string]] : []),
-      ...(typeof candidate?.feeRate === "number" ? [["Performance fee", formatWadPercent(BigInt(Math.round(candidate.feeRate * 1e18)).toString())] as [string, string]] : []),
+      ...(typeof candidate?.feeRate === "number" ? [["Performance fee", candidate.feeRate >= 0 ? formatWadFeePercent(BigInt(Math.round(candidate.feeRate * 1e18)), regionId) : "—"] as [string, string]] : []),
       ...(candidate?.stateAsOf ? [["Rate checked", formatPresentationDate(candidate.stateAsOf, { style: "date-time-zone" })] as [string, string]] : []),
     ],
     liquidityNote: candidate?.liquidityRaw === "0" ? "No liquidity available to withdraw right now." : null,

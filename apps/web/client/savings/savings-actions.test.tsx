@@ -10,6 +10,7 @@ import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { formatAddress } from "@/shared/formatting";
+import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsJourneyProps, SavingsActionMode } from "./savings-actions";
@@ -181,6 +182,31 @@ describe("SavingsJourney amount entry", () => {
     expect(page().queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
+  for (const { regionId, rate, fee } of [
+    { regionId: "DE", rate: "3,50\u00a0% APY at last update", fee: "10,00\u00a0%" },
+    { regionId: "TR", rate: "%3,50 APY at last update", fee: "%10,00" },
+  ] as const) {
+    test(`formats the review rate and vault fee for the ${regionId} presentation region`, async () => {
+      render(
+        <PresentationRegionProvider regionId={regionId}>
+          <AmountJourney
+            open mode="deposit" session={session} candidate={candidate}
+            availableLabel="$50.00 available" availableBaseUnits="50000000"
+            prepareMoneyAction={async () => prepared("savings-deposit", "1234567")}
+            executeMoneyAction={async () => ({ id: "action-1", status: "submitted" })}
+            onClose={() => {}}
+          />
+        </PresentationRegionProvider>,
+      );
+      await page().findByRole("textbox", { name: "Amount" });
+      await typeAmount("1.234567");
+      fireEvent.click(page().getByRole("button", { name: "Continue" }));
+      await page().findByRole("button", { name: "Deposit $1.234567" });
+      expect(document.body.textContent).toContain(`Rate${rate}`);
+      expect(document.body.textContent).toContain(`Vault fee${fee}`);
+    });
+  }
+
   test("prepares a deposit through the unified actions endpoint", async () => {
     const requests: Array<{ kind: string; input: unknown }> = [];
     render(
@@ -205,7 +231,7 @@ describe("SavingsJourney amount entry", () => {
     expect(page().getByRole("button", { name: `Copy ${formatAddress(prepared().owner.address)}` })).toBeTruthy();
     expect(document.body.textContent).toContain("Base (8453)");
     expect(document.body.textContent).toContain("Rate3.50% APY at last update");
-    expect(document.body.textContent).toContain("Vault fee10%");
+    expect(document.body.textContent).toContain("Vault fee10.00%");
     expect(document.body.textContent).not.toContain("Share preview");
     expect(document.body.textContent).not.toContain("Minimum shares");
     expect(document.body.textContent).not.toContain("no minimum-shares protection");

@@ -70,7 +70,7 @@ export type CashOverviewProps = {
   rateLabel?: string | null;
   growthAuthority?: SavingsGrowthAuthority | null;
   onOpenSavings: () => void;
-  onAddMoney: () => void;
+  onAddMoney: (options?: { opener?: HTMLElement | null }) => void;
   onAddMoneyIntent?: () => void;
   actionsAvailable?: boolean;
   onConvert?: (opener: HTMLElement) => void;
@@ -91,10 +91,10 @@ export type SavingsDetailProps = Omit<
   pendingActionsError?: boolean;
   onRetryActions?: () => void;
   depositFailed?: boolean;
-  onStartSaving: () => void;
-  onDepositVault: (candidate: MorphoVaultCandidate) => void;
+  onStartSaving: (opener: HTMLElement) => void;
+  onDepositVault: (candidate: MorphoVaultCandidate, opener: HTMLElement) => void;
   onDepositIntent?: () => void;
-  onManageVault: (address: string) => void;
+  onManageVault: (address: string, opener: HTMLElement) => void;
   onRetryVaults: () => void;
   actionsAvailable?: boolean;
 };
@@ -598,7 +598,7 @@ export function CashOverview({
         </Button>
       ) : null) : (
         <div className={onConvert && convertible ? "grid grid-cols-2 gap-2" : "grid gap-2"}>
-          <Button size="lg" className="h-11 w-full" {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})} onClick={onAddMoney}>
+          <Button size="lg" className="h-11 w-full" {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})} onClick={(event) => onAddMoney({ opener: event.currentTarget })}>
             <Plus aria-hidden="true" />
             Add money
           </Button>
@@ -967,7 +967,7 @@ export function SavingsDetail({
                 : `Up to ${formatPresentationPercentage(bestRate, regionId)} APY` },
               { icon: Eye, text: "Review the rate before you confirm" },
             ]}
-            primary={{ label: "Start saving", ref: startSavingRef, onClick: onStartSaving }}
+            primary={{ label: "Start saving", ref: startSavingRef, onClick: () => { if (startSavingRef.current) onStartSaving(startSavingRef.current); } }}
             availability={
               !actionsAvailable ? { kind: "unavailable", reason: "Savings isn't available for this account." }
               : !best ? { kind: "unavailable", reason: "Savings options aren't available right now.", recovery: { label: "Try again", onClick: onRetryVaults } }
@@ -1008,7 +1008,7 @@ export function SavingsDetail({
                     rateLoading={vaultStatus === "loading"}
                     nowMs={nowMs}
                     regionId={regionId}
-                    onActivate={actionsAvailable ? () => onManageVault(vault.address) : undefined}
+                    onActivate={actionsAvailable ? (element) => onManageVault(vault.address, element) : undefined}
                     activateLabel={actionsAvailable ? `Manage ${vault.name}` : undefined}
                   />
                 ))}
@@ -1070,7 +1070,7 @@ export function SavingsDetail({
                         onActivate={
                           depositUnavailable
                             ? undefined
-                            : () => onDepositVault(candidate)
+                            : (element) => onDepositVault(candidate, element)
                         }
                         onIntent={depositUnavailable ? undefined : onDepositIntent}
                         activateLabel={`Deposit to ${vault.name}`}

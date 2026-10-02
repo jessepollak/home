@@ -31,7 +31,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
   const verified = walletOwner !== null && account && isServerVerified(account) ? account.session : null;
   const [mountedOwner, setMountedOwner] = useState(walletOwner);
   const [direction, setDirection] = useState<TradeDirection | null>(null);
-  const [mounted, setMounted] = useState<{ owner: string; assetId: string; assetName: string; token: TradeToken; direction: TradeDirection } | null>(null);
+  const [mounted, setMounted] = useState<{ owner: string; assetId: string; assetName: string; token: TradeToken; direction: TradeDirection; opener: HTMLButtonElement | null } | null>(null);
   if (mountedOwner !== walletOwner) {
     setMountedOwner(walletOwner);
     setMounted(null);
@@ -75,7 +75,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
     const available = availability.get(assetId);
     if (!owner || !candidate || available?.status !== "available" || !session?.smartAccount ||
       (mode === "buy" ? states.get(assetId) !== "ready" : available.balanceBaseUnits === "0")) return null;
-    return { owner, assetId, assetName: candidate.assetName, token: available.token, direction: mode };
+    return { owner, assetId, assetName: candidate.assetName, token: available.token, direction: mode, opener: null };
   }
   function intent(assetId: string, mode: TradeDirection) {
     void TradeMoneySheet.preload();
@@ -87,7 +87,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
     if (!next) return;
     opener.current = button;
     closing.current = false;
-    setMounted(next);
+    setMounted({ ...next, opener: button });
     setDirection(mode);
   }
   const mountedAvailability = mounted ? availability.get(mounted.assetId) : null;
@@ -99,6 +99,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
   const assetPrice = pricedHolding?.unitValue ? { currency: pricedHolding.unitValue.currency, perUnit: pricedHolding.unitValue.amount } : null;
   const sheet = session?.smartAccount && account && mounted?.owner === owner ? <TradeMoneySheet
     key={`${owner}:${mounted.assetId}:${mounted.direction}`} open={direction !== null} direction={mounted.direction} session={session}
+    opener={mounted.opener}
     assetName={mounted.assetName} token={mounted.token} availableBaseUnits={mounted.direction === "buy" ? cash : holding} assetPrice={assetPrice}
     fetchAccountResource={account.fetchAccountResource} prepareMoneyAction={account.prepareMoneyAction}
     executeMoneyAction={account.executeMoneyAction} onClose={() => { closing.current = true; setDirection(null); }}

@@ -20,7 +20,7 @@ import {
   toSharesDown,
   toSharesUp,
 } from "./math";
-import { actionKindForBorrowOperation, type BorrowActionIntent, type BorrowActionPreparation, type BorrowOperation } from "@/shared/borrowing/types";
+import { actionKindForBorrowOperation, increasesBorrowRisk, type BorrowActionIntent, type BorrowActionPreparation, type BorrowOperation } from "@/shared/borrowing/types";
 import type { BorrowRpcReader } from "./rpc";
 
 const ACTION_EXPIRY_MS = 2 * 60_000;
@@ -58,7 +58,7 @@ export async function prepareBorrowAction(input: {
   const totalBorrowAssets = BigInt(snapshot.state.totalBorrowAssetsRaw);
   const totalBorrowShares = BigInt(snapshot.state.totalBorrowSharesRaw);
   const borrowShares = BigInt(snapshot.position.borrowSharesRaw);
-  const riskIncreased = increasesRisk(operation, debt);
+  const riskIncreased = increasesBorrowRisk(operation, debt);
   if (riskIncreased && market.availability !== "enabled") {
     throw new BorrowPreparationError("unsupported-market", "This market is available only for risk reduction.");
   }
@@ -182,10 +182,6 @@ function positiveAmount(value: string) { const amount = BigInt(value); if (amoun
 function required(value: bigint | null): bigint { if (value === null) throw new BorrowPreparationError("invalid-input", "The required amount is missing."); return value; }
 function requireAtMost(amount: bigint, maximum: bigint, message: string) { if (amount > maximum) throw new BorrowPreparationError("limit-exceeded", message); }
 function requireDebt(debt: bigint, shares: bigint) { if (debt === BigInt(0) || shares === BigInt(0)) throw new BorrowPreparationError("limit-exceeded", "There is no current debt to repay in this market."); }
-export function increasesRisk(operation: BorrowOperation, debt: bigint) {
-  return operation === "borrow" || operation === "supply-and-borrow" ||
-    (operation === "withdraw-collateral" && debt > BigInt(0));
-}
 function titleFor(operation: BorrowOperation, market: BorrowMarketRef) {
   switch (operation) {
     case "supply-collateral": return `Add ${market.collateralToken.symbol} collateral`;

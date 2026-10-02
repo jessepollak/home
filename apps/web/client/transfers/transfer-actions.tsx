@@ -71,6 +71,7 @@ export function TransferActionsForWallet({
 }: TransferActionsProps & { wallet: TransferWallet }) {
   const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
+  const [sendOpener, setSendOpener] = useState<HTMLElement | null>(null);
   const [modalOwner, setModalOwner] = useState<string | null>(null);
   const { markOpenedInApp, takeOpenedInApp } = useFlowModal();
   const boundary = uiBoundary(wallet);
@@ -91,17 +92,19 @@ export function TransferActionsForWallet({
     const frame = window.requestAnimationFrame(() => {
       setModalOwner(boundary);
       setSendOpen(true);
+      if (!routing) setSendOpener(null);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [boundary, routeOpen]);
+  }, [boundary, routeOpen, routing]);
 
-  const openSend = () => {
+  const openSend = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!boundary) return;
+    setSendOpener(event.currentTarget);
     void SendSheet.preload();
     setModalOwner(boundary);
     setSendOpen(true);
     const pushed = routing
-      ? routing.setFlow("send")
+      ? routing.setFlow("send", { opener: event.currentTarget })
       : commitFlowUrl(flowHref(window.location.pathname, "send"));
     if (pushed) markOpenedInApp();
   };
@@ -120,11 +123,11 @@ export function TransferActionsForWallet({
     if (!routeOpen) setModalOwner(null);
   };
   const showReview = useCallback((actionId: string) => {
-    if (routing) routing.setFlow("send", { actionId, mode: "replace" });
+    if (routing) routing.setFlow("send", { actionId, mode: "replace", opener: routing.flowOpener ?? null });
     else commitClientUrl(flowHref(window.location.pathname, "send", actionId), "replace");
   }, [routing]);
   const showFirstStep = useCallback(() => {
-    if (routing) routing.setFlow("send", { mode: "replace" });
+    if (routing) routing.setFlow("send", { mode: "replace", opener: routing.flowOpener ?? null });
     else commitClientUrl(flowHref(window.location.pathname, "send"), "replace");
   }, [routing]);
 
@@ -144,6 +147,7 @@ export function TransferActionsForWallet({
       <SendSheet
         key={regionId}
         open={visibleSend}
+        opener={routing ? routing.flowOpener ?? null : sendOpener}
         address={verifiedAddress}
         sendOffered={sendOffered}
         immediate={dropPrivate}
