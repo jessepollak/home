@@ -5,7 +5,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, setSystemTime, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
@@ -124,6 +124,7 @@ afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
   jest.useRealTimers();
+  setSystemTime();
   delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
 });
 
@@ -743,10 +744,11 @@ describe("Borrow bigint helpers", () => {
 });
 
 test("failed Borrow revalidation keeps the retained APR's observation age", async () => {
+  setSystemTime(new Date("2026-10-01T08:00:00.000Z"));
   const client = getHomeQueryClient();
   const active = session();
   const key = ownerQueryKey(dataOwnerKey(active), "borrow", "overview");
-  const observedAt = Date.now() - 1_000;
+  const observedAt = Date.parse("2026-10-01T07:59:59.000Z");
   client.setQueryData(key, overview({ position: false, snapshots: [noPosition()] }), { updatedAt: observedAt });
   const wallet: AccountWalletClient = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", session: active,
     fetchAccountResource: async () => { throw new Error("offline"); } };
