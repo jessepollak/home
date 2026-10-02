@@ -209,11 +209,11 @@ export function createHomeInteractionRecorder(deps: Dependencies) {
                 return undefined;
               }
             }, 0);
-          } catch {
+          } catch { // oxlint-disable-line home/no-silent-catch -- a failed frame callback cancels the pending navigation sample; telemetry failures have nothing further to report
             cancelNavigation();
           }
         });
-      } catch {
+      } catch { // oxlint-disable-line home/no-silent-catch -- a failed commit cancels the pending navigation sample; telemetry failures have nothing further to report
         cancelNavigation();
       }
     },
