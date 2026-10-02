@@ -72,13 +72,9 @@ export async function runNavigation(session: Session, baseUrl: string, rows: num
   fixture.verify();
   await page.evaluate(() => window.scrollTo(0, 0));
   await twoFrames(page);
-  for (const path of paths) {
-    await navigate(page, path);
-    await home(page);
-  }
-  await page.waitForLoadState("networkidle", { timeout: 15_000 });
-  await page.clock.setFixedTime(new Date());
+  await warmNavigation(page, paths);
   const latencies: number[] = [];
+  const latenciesByPath: Record<string, number[]> = Object.fromEntries(paths.map((path) => [path, []]));
   const cpu: CpuRate[] = [];
   const requests: { method: string; path: string; window: string }[] = [];
   let second: Awaited<ReturnType<typeof resourceSnapshot>> | null = null;
@@ -86,9 +82,13 @@ export async function runNavigation(session: Session, baseUrl: string, rows: num
   const started = Date.now();
   for (let cycle = 1; cycle <= navigationCycles; cycle++) {
     for (const path of paths) {
-      latencies.push(await navigate(page, path, requests, cycle));
+      const outbound = await navigate(page, path, requests, cycle);
+      latencies.push(outbound);
+      latenciesByPath[path]!.push(outbound);
       cpu.push({ ...session.cpu });
-      latencies.push(await home(page, requests, cycle));
+      const inbound = await home(page, requests, cycle);
+      latencies.push(inbound);
+      latenciesByPath[path]!.push(inbound);
       cpu.push({ ...session.cpu });
     }
     await leakCycle(page, seedLeak);
@@ -97,9 +97,18 @@ export async function runNavigation(session: Session, baseUrl: string, rows: num
   }
   const durationMs = Date.now() - started;
   if (durationMs >= 55_000) throw new Error(`Navigation windows crossed the 60 s savings poll interval (${durationMs} ms)`);
-  return { latencies, cpu, p50: median(latencies), p95: percentile(latencies, 0.95), samples: latencies.length,
+  return { latencies, latenciesByPath, cpu, p50: median(latencies), p95: percentile(latencies, 0.95), samples: latencies.length,
     requests, durationMs, growth: second && tenth ? {
       nodes: tenth.nodes - second.nodes, listeners: tenth.listeners - second.listeners,
       heapBytes: tenth.heapBytes - second.heapBytes, second, tenth,
     } : null };
+}
+
+export async function warmNavigation(page: Page, paths: readonly string[], options: { freezeTime?: boolean } = {}) {
+  for (const path of paths) {
+    await navigate(page, path);
+    await home(page);
+  }
+  await page.waitForLoadState("networkidle", { timeout: 15_000 });
+  if (options.freezeTime !== false) await page.clock.setFixedTime(new Date());
 }

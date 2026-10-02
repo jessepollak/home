@@ -1,8 +1,15 @@
 import type { NextConfig } from "next";
 
+// The performance job's attribution phase needs committed React render and commit
+// timing, which only React's profiling client records. Next serves that client when
+// reactProductionProfiling is set, so the attribution fixture is a separate build and
+// the structural gates keep measuring the shipped bundle.
+const reactProfiling = process.env.HOME_PERF_REACT_PROFILING === "1";
+
 const nextConfig: NextConfig = {
   cacheComponents: true,
   experimental: { staleTimes: { dynamic: 300 } },
+  ...(reactProfiling ? { reactProductionProfiling: true, distDir: ".next-profiling" } : {}),
   serverExternalPackages: [
     "@coinbase/cdp-sdk",
     "pg",
