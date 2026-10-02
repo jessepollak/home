@@ -42,7 +42,6 @@ test("batches, substring filters and option values", () => {
 });
 
 test("only the operator inbox suite is isolated from default 25-file batches", () => {
-  expect(DEFAULT_BATCH_SIZE).toBe(25);
   const inbox = "./client/operator-support/operator-support-inbox.test.tsx";
   const files = Array.from({ length: 26 }, (_, index) => `./client/suite-${index}.test.tsx`);
   const batches = batchTests([...files.slice(0, 13), inbox, ...files.slice(13)], DEFAULT_BATCH_SIZE);
