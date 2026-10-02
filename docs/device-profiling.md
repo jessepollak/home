@@ -47,7 +47,7 @@ Open `http://localhost:4199/__device-profile/` for tappable workload links, or `
 
 | Workload id | Measured action |
 |---|---|
-| `home-fling`, `activity-fling` | On `/home` or `/activity`, fill all 20, 100 or 300 synthetic rows before measurement, then JS-drive the authenticated main scroller down and up at 4,000 px/s; check visible blank gaps. |
+| `home-fling`, `activity-fling` | On `/home` or `/activity`, fill all 20, 100 or 300 synthetic rows before measurement, then JS-drive the document scroll host down and up at 4,000 px/s; check visible blank gaps. |
 | `nav-round-trips` | Warm up one Home → Cash → Home → Invest → Back round trip, then measure 10 such round trips. |
 | `add-money-open` | On `/home`, open Add money and close with Escape three times. |
 | `activity-detail-open` | On `/activity`, fill the feed, scroll to the logical middle row, and open/close its detail three times. |
