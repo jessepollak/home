@@ -146,13 +146,15 @@ for (const portals of [true, false]) {
   });
 }
 
-test("fullscreen portal frames retain the full height rather than the portal tile height", () => {
-  const entry = { ...story("fullscreen", () => null, "<Portal />"), layout: "fullscreen" };
-  const view = sheet([entry]);
-  const iframe = view.getByTitle("Fixture · fullscreen") as HTMLIFrameElement;
-  expect(iframe.height).toBe("844");
-  expect(iframe.width).toBe("390");
-});
+for (const portals of [true, false]) {
+  test(`fullscreen ${portals ? "portal" : "non-portal"} frames use the full phone screen`, () => {
+    const entry = { ...story("fullscreen", () => null, portals ? "<Portal />" : "", "Library override"), layout: "fullscreen" };
+    const view = sheet([entry]);
+    const iframe = view.getByTitle("Fixture · fullscreen") as HTMLIFrameElement;
+    expect(iframe.height).toBe("844");
+    expect(iframe.width).toBe("390");
+  });
+}
 
 test("child pointer and keyboard interaction never select; unconsumed Escape still clears selection", async () => {
   const view = sheet([story("frame", () => null, "<Portal />")]);

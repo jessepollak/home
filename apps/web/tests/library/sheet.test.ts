@@ -191,14 +191,26 @@ describe("declared frame viewports", () => {
     expect(framedWidth(1200)).toBe(390);
     for (const available of [0, -1, Number.NaN, Infinity]) expect(framedWidth(available)).toBe(390);
   });
+
+  test("undeclared fullscreen frames use a stage-fitted phone width and the full phone height", () => {
+    for (const available of [320, 390, 1200]) {
+      for (const portals of [false, true]) {
+        const viewport = { width: framedWidth(available), height: fittedFrameHeight(40, portals, true) };
+        expect(scaledViewport(viewport, available)).toEqual({ width: Math.min(available, 390), height: 844, scale: 1 });
+      }
+    }
+  });
 });
 
 describe("sheet grid spans", () => {
   const base = { layout: "padded", frame: null, portals: false };
-  test("fullscreen layouts and declared viewports span the full row", () => {
-    expect(spansFullRow({ ...base, layout: "fullscreen" })).toBe(true);
-    expect(spansFullRow({ ...base, frame: "Declared viewport", viewport: { width: 1440, height: 900 } })).toBe(true);
-    expect(spansFullRow({ ...base, layout: "fullscreen", frame: "Renders a portal", portals: true })).toBe(true);
+  test("only declared desktop viewports span the full row, regardless of layout", () => {
+    for (const layout of ["padded", "fullscreen"]) {
+      for (const width of [768, 1440]) {
+        expect(spansFullRow({ ...base, layout, frame: "Declared viewport", viewport: { width, height: 900 } })).toBe(true);
+      }
+      expect(spansFullRow({ ...base, layout, viewport: { width: 767, height: 844 } })).toBe(false);
+    }
   });
   test("other stories take one cell", () => {
     expect(spansFullRow(base)).toBe(false);
@@ -206,6 +218,8 @@ describe("sheet grid spans", () => {
     expect(spansFullRow({ ...base, frame: "Uses loaders" })).toBe(false);
     expect(spansFullRow({ ...base, frame: "Renders a portal", portals: true })).toBe(false);
     expect(spansFullRow({ ...base, portals: true })).toBe(false);
+    expect(spansFullRow({ ...base, layout: "fullscreen" })).toBe(false);
+    expect(spansFullRow({ ...base, layout: "fullscreen", frame: "Renders a portal", portals: true })).toBe(false);
   });
 });
 

@@ -60,7 +60,7 @@ export function framedWidth(available: number): number {
 }
 
 export function spansFullRow(story: { layout: string; frame: unknown; portals: boolean; viewport?: FrameViewport }): boolean {
-  return story.layout === "fullscreen" || story.viewport !== undefined;
+  return story.viewport !== undefined && story.viewport.width >= 768;
 }
 
 function record(value: unknown): Record<string, unknown> {
