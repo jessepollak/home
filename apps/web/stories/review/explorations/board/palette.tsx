@@ -5,6 +5,8 @@ import { Kbd } from "@/components/ui/kbd";
 import { paletteGroups, rankPaletteItems, type PaletteItem } from "./palette-items";
 import styles from "./board.module.css";
 
+const focusOnMount = (input: HTMLInputElement | null) => input?.focus({ preventScroll: true });
+
 export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -41,7 +43,7 @@ export function CommandPalette({ open, onOpenChange, returnFocus, items }: {
           change(false);
           item.run();
         }}>
-        <ComboboxInput aria-label="Search board navigation"
+        <ComboboxInput ref={focusOnMount} aria-label="Search board navigation"
           placeholder="Search commands, frames, boards, stories…" showTrigger={false} variant="search" />
         <ComboboxList className="max-h-[min(22.5rem,56vh)]">
           {(group: { value: string; items: PaletteItem[] }) =>
