@@ -500,7 +500,7 @@ describe("owner query hydration lifecycle", () => {
       );
 
       await waitFor(() => expect(observedClient?.verification).toBe("provisional"));
-      expect(view.getByTestId("valuation").textContent).toBe("12340000");
+      await waitFor(() => expect(view.getByTestId("valuation").textContent).toBe("12340000"));
       resolveSession(Response.json(row.server));
       await waitFor(() => expect(observedClient?.verification).toBe("server"));
       expect(queryClient.getQueryData(ownerQueryKey(provisionalOwnerKey, persistedScope, "usdc")))

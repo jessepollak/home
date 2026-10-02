@@ -1,4 +1,4 @@
-import { frameProblem, feedChangeMarker, feedComplete, round, settledPages, unsettledMarker, detailPosition, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
+import { frameProblem, feedComplete, round, settledPages, waitForQuietFeed, detailPosition, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
 import { activityList, activityPartialSources, activityReadinessMarkers, activityRecentRows, activityRowCount, activitySurfaces, activityUnsettledSources, mergePartialSources, visible } from "./activity-rows";
 
 const raf = () => new Promise<number>((done, reject) => {
@@ -114,10 +114,13 @@ async function fill() {
   return { rowsLoaded, detailRows, partialSource };
 }
 async function sourcePartials(filled: { rowsLoaded: number; partialSource: string[] }, pending: string[]) {
-  await twoFrames();
-  const changed = feedChangeMarker(filled.rowsLoaded, activityRowCount(main()));
-  const settling = unsettledMarker(pending);
-  return mergePartialSources(filled.partialSource, [...activityPartialSources(main()), ...activityReadinessMarkers(main()), ...changed ? [changed] : [], ...settling ? [settling] : []]);
+  const observed = await waitForQuietFeed({
+    rows: filled.rowsLoaded,
+    pending,
+    frame: raf,
+    sample: () => ({ rows: activityRowCount(main()), pending: activityUnsettledSources(main()), markers: activityReadinessMarkers(main()) }),
+  });
+  return mergePartialSources(filled.partialSource, [...activityPartialSources(main()), ...observed]);
 }
 async function fling() {
   for (const destination of [scroller().scrollHeight - scroller().clientHeight, 0]) {

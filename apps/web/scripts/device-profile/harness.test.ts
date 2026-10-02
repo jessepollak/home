@@ -4,6 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { activitySourcesAttribute } from "@/client/activity/activity-sources";
 import { activityPartialSources, activityReadinessMarkers, activityReadinessProblems, activityRecentRows, activityRowCount, activitySourceStates, activityUnsettledSources, mergePartialSources } from "./activity-rows";
+import { waitForQuietFeed } from "./model";
 
 afterEach(() => { document.body.innerHTML = ""; });
 
@@ -169,6 +170,24 @@ test("the Activity producer and profiling parser share the exact readiness contr
   const sources = activitySourcesAttribute({ transfers: "ready", actions: "ready", orders: "loading" });
   expect(sources).toBe("transfers:ready actions:ready orders:loading");
   expect(activityUnsettledSources(mainWith(`<section data-activity-feed="" data-activity-sources="${sources}"></section>`))).toEqual(["orders"]);
+});
+
+test("a deferred Activity row during the post-run quiet period marks the run partial", async () => {
+  const root = mainWith(`<section data-activity-feed="" data-activity-sources="transfers:ready actions:ready orders:ready"><ul><li aria-posinset="1" aria-setsize="1">Recent</li></ul></section>`);
+  const list = root.querySelector("ul");
+  if (!list) throw new Error("Expected the activity list");
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: activityRowCount(root),
+    now: () => now,
+    frame: async () => {
+      now += 16;
+      if (now === 160) list.insertAdjacentHTML("beforeend", `<li aria-posinset="2" aria-setsize="2">Recent</li>`);
+    },
+    sample: () => ({ rows: activityRowCount(root), pending: activityUnsettledSources(root), markers: activityReadinessMarkers(root) }),
+  });
+  expect(markers).toEqual(["The measured activity feed changed during the run (1 to 2 rows)"]);
+  expect(now).toBe(160);
 });
 
 test("the browser harness bundle stays a classic script a page can load", async () => {
