@@ -1,3 +1,6 @@
+import { dataOwnerKey } from "@/shared/account/data-owner";
+import { homeSummaryCookieName, parseHomeSummaryCookie } from "@/shared/balances/home-summary";
+import { resolvePresentation } from "@/config/regions";
 import { cookies, headers } from "next/headers";
 import { Suspense } from "react";
 import { AccountRouteProvider } from "@/client/account/account-route-provider";
@@ -14,8 +17,14 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
 }
 
 async function ShellContent({ children }: { children: React.ReactNode }) {
-  const rendered = readRenderSession(await cookies());
+  const cookieStore = await cookies();
+  const rendered = readRenderSession(cookieStore);
   const { accountPreference, investVisibility, regionOffer } = await readShellPolicyForRender(rendered?.session ?? null);
+  const detectedCountry = readRequestCountry(await headers());
+  const region = resolvePresentation({ persistedCountry: accountPreference?.regionId, detectedCountry, offer: regionOffer }).region.id;
+  const summaryCookies = cookieStore.getAll(homeSummaryCookieName);
+  const initialHomeSummary = rendered?.session.smartAccount && summaryCookies.length === 1
+    ? parseHomeSummaryCookie(summaryCookies[0]?.value, dataOwnerKey(rendered.session), region) : null;
   return (
     <AccountRouteProvider
       projectId={normalizeProjectId(process.env.NEXT_PUBLIC_CDP_PROJECT_ID)}
@@ -25,7 +34,8 @@ async function ShellContent({ children }: { children: React.ReactNode }) {
       hideWhileLoading
     >
       <PortfolioHomeExperience
-        detectedCountry={readRequestCountry(await headers())}
+        detectedCountry={detectedCountry}
+        initialHomeSummary={initialHomeSummary}
         regionOffer={regionOffer}
         accountPreference={accountPreference}
         investVisibility={investVisibility}
