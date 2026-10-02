@@ -24,7 +24,7 @@ for (const operation of ["deposit", "withdraw"] as const) {
     await expect(reviewRow(page, dialog, "Vault")).toHaveText("Gauntlet USDC Prime");
     await expect(reviewRow(page, dialog, "Network")).toHaveText("Base (8453)");
     await expect(reviewRow(page, dialog, "Rate")).toHaveText("3.50% APY at last update");
-    await expect(reviewRow(page, dialog, "Vault fee")).toHaveText("10%");
+    await expect(reviewRow(page, dialog, "Vault fee")).toHaveText("10.00%");
     await expect(reviewRow(page, dialog, "Amount")).toHaveText("$0.10");
     await expect(reviewRow(page, dialog, "Network fee")).toHaveText("Up to 0.02 USDC · ≈ $0.02");
     await expect(dialog.getByRole("button", { name: `${operation === "deposit" ? "Deposit" : "Withdraw"} $0.10` }))
