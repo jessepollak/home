@@ -228,6 +228,29 @@ const partialBorrowBalances = presentation(buildBalancesSnapshotFixture({
   borrow: { coverage: "partial", positions: [fundedPosition] },
 }));
 
+const partialPartBalances = presentation(buildBalancesSnapshotFixture({
+  registry: {
+    usdc: { balance: unavailableBalance },
+    eth: { balance: ready("25000000000000000"), value: priced("USD", "7821") },
+    cbbtc: { balance: ready("1000"), value: { status: "unpriced", reason: "price-stale" } },
+  },
+}));
+
+const unpricedLoanBalances = presentation(buildBalancesSnapshotFixture({
+  registry: cash,
+  borrow: { coverage: "complete", positions: [borrowPosition({
+    collateralBaseUnits: "100000",
+    collateralValue: priced("USD", "7821"),
+    debtBaseUnits: "30010000",
+    debtValue: { status: "unpriced", reason: "price-unavailable" },
+  })] },
+}));
+
+const unconfirmedLoanBalances = presentation(buildBalancesSnapshotFixture({
+  registry: cash,
+  borrow: { coverage: "partial", positions: [] },
+}));
+
 const noCountryBalances = presentation(buildBalancesSnapshotFixture({
   region: "GLOBAL",
   registry: cash,
@@ -441,9 +464,9 @@ export const BalanceAllocationTinyAndZero: Story = {
     assetBalances: {
       ...fundedBalances,
       breakdown: [
-        { id: "borrow", label: "Borrow", value: "−$9.99", weight: 999 },
-        { id: "cash", label: "Cash", value: "$0.01", weight: 1 },
-        { id: "investments", label: "Investments", value: "$0.00", weight: 0 },
+        { id: "borrow", label: "Borrow", value: "−$9.99", weight: 999, status: "complete" },
+        { id: "cash", label: "Cash", value: "$0.01", weight: 1, status: "complete" },
+        { id: "investments", label: "Investments", value: "$0.00", weight: 0, status: "complete" },
       ],
     },
   },
@@ -599,15 +622,39 @@ export const Loading: Story = {
   },
 };
 
+async function openHeaderStatus(canvasElement: HTMLElement) {
+  const button = canvasElement.querySelector<HTMLButtonElement>("[data-home-status]");
+  if (!button) throw new Error("Home header status control not found");
+  await userEvent.click(button);
+  return within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Status" });
+}
+
+async function expectStatusRetry(canvasElement: HTMLElement, detail: HTMLElement, onRetry: () => void) {
+  await waitFor(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
+  await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
+  await expect(onRetry).toHaveBeenCalledTimes(1);
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(within(canvasElement.ownerDocument.body).queryByRole("dialog", { name: "Status" })).toBeNull());
+}
+
 export const PartialBalances: Story = {
   args: {
     assetBalances: partialBalances,
     operations: [],
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
-    await expect(canvasElement.querySelector("[data-total-status='partial']")).not.toBeNull();
+    await expect(canvasElement.querySelector("[data-home-status]")).not.toBeNull();
+    await expect(canvasElement.querySelector("[data-home-total-status]")).toBeNull();
+    const hero = within(canvas.getByLabelText("Total balance"));
+    const total = hero.getAllByRole("img", { name: "$12.34" })[0];
+    await expect(total).toHaveAccessibleDescription("Partial balance");
+    await expect(total).toHaveAttribute("data-animated", "false");
+    const detail = await openHeaderStatus(canvasElement);
+    await expect(detail.textContent).toContain("Total counts only what Home could read and price.");
+    await expect(detail.textContent).toContain("Some balances couldn’t be read.");
+    await expect(detail.textContent).toContain("Home couldn’t check for a loan.");
+    await expectStatusRetry(canvasElement, detail, args.onRetry);
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("—");
     await expect(canvas.getByRole("button", { name: "Retry Borrow balance" })).toBeTruthy();
@@ -621,12 +668,77 @@ export const PartialBorrowPosition: Story = {
     assetBalances: partialBorrowBalances,
     operations: [],
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvasElement.querySelector("[data-home-status]")).toBeNull();
+    await expect(canvasElement.querySelector("[data-home-status]")).not.toBeNull();
     const borrow = canvas.getByRole("button", { description: "Open Borrow" });
     await expect(borrow.textContent).toContain("$30.01");
-    await expect(borrow.querySelector("[data-value-tone]")?.getAttribute("data-value-tone")).toBe("muted");
+    await expect(borrow.textContent).toContain("Partial · 5.10% APR");
+    await expect(borrow.querySelector("[data-value-tone]")).toHaveAttribute("data-value-tone", "default");
+    const detail = await openHeaderStatus(canvasElement);
+    await expect(detail.textContent).toContain("Home couldn’t check for a loan.");
+    await expectStatusRetry(canvasElement, detail, args.onRetry);
+  },
+};
+
+export const PartialWithUnavailablePart: Story = {
+  args: {
+    assetBalances: partialPartBalances,
+    operations: [],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const legend = within(canvas.getByRole("list", { name: "Balance allocation" }));
+    const cashPart = legend.getByRole("button", { name: /Cash/ });
+    await expect(cashPart.textContent).toContain("—");
+    await expect(cashPart).toHaveAccessibleName(/Unavailable/);
+    await expect(legend.getByRole("button", { name: /Investments/ })).toHaveAccessibleName(/Partial/);
+    await expect(canvasElement.querySelector("[data-balance-segment='cash']")).toBeNull();
+    const investments = canvas.getByRole("button", { description: "Open Investments" });
+    await expect(investments.textContent).toContain("Partial balance");
+    await expect(investments.querySelector("[data-value-tone]")).toHaveAttribute("data-value-tone", "default");
+    await expect(canvas.getByRole("button", { description: "Open Cash" }).textContent).toContain("—");
+    const detail = await openHeaderStatus(canvasElement);
+    await expect(detail.textContent).toContain("Some balances couldn’t be read.");
+    await expect(detail.textContent).toContain("Some prices are delayed.");
+    await expectStatusRetry(canvasElement, detail, args.onRetry);
+  },
+};
+
+export const UnpricedLoan: Story = {
+  args: {
+    assetBalances: unpricedLoanBalances,
+    operations: [],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const hero = canvas.getByLabelText("Total balance");
+    await expect(within(hero).getByRole("img", { name: "Unavailable" })).toHaveAccessibleDescription("Balance unavailable");
+    await expect(hero.textContent).not.toContain("$0.00");
+    const legend = within(canvas.getByRole("list", { name: "Balance allocation" }));
+    await expect(legend.getByRole("button", { name: /Borrow/ }).textContent).toContain("—");
+    await expect(canvasElement.querySelector("[data-balance-segment='borrow']")).toBeNull();
+    await expect(canvasElement.querySelector("[data-balance-axis]")).toBeNull();
+    const detail = await openHeaderStatus(canvasElement);
+    await expect(detail.textContent).toContain("A loan couldn’t be priced, so the total can’t be shown.");
+    await expectStatusRetry(canvasElement, detail, args.onRetry);
+  },
+};
+
+export const UnconfirmedLoan: Story = {
+  args: {
+    assetBalances: unconfirmedLoanBalances,
+    operations: [],
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const hero = within(canvas.getByLabelText("Total balance"));
+    await expect(hero.getAllByRole("img", { name: "$12.34" })[0]).toHaveAccessibleDescription("Partial balance");
+    await expect(canvas.getByRole("button", { description: "Open Borrow" }).textContent).toContain("—");
+    const detail = await openHeaderStatus(canvasElement);
+    await expect(detail.textContent).toContain("Home couldn’t check for a loan.");
+    await expect(detail.textContent).not.toContain("Some balances couldn’t be read.");
+    await expectStatusRetry(canvasElement, detail, args.onRetry);
   },
 };
 
@@ -647,10 +759,12 @@ export const BalancesUnavailable: Story = {
       return node;
     });
     await expect(detail.textContent).toContain("Balances are unavailable");
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
     await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
     await expect(args.onRetry).toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(canvasElement.ownerDocument.querySelector("[data-home-status-detail]")).toBeNull());
+    await expect(canvasElement.querySelector("[data-home-total-status]")).toBeNull();
   },
 };
 
@@ -767,6 +881,7 @@ export const Interrupted: Story = {
     await userEvent.click(canvas.getByRole("button", { name: message }));
     const detail = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Status" });
     await expect(detail.textContent).toContain(message);
+    await waitFor(() => expect(within(detail).getByRole("button", { name: "Retry" })).toBeVisible());
     await userEvent.click(within(detail).getByRole("button", { name: "Retry" }));
     await expect(args.onRetry).toHaveBeenCalled();
   },
