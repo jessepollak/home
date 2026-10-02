@@ -1,3 +1,4 @@
+import { requireValue, requireInstance } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
@@ -15,7 +16,12 @@ const callbacks = new Map<number, FrameRequestCallback>();
 const deadlines = new Map<number, () => void>();
 let next = 0;
 
-class Intersection {
+class Intersection implements IntersectionObserver {
+  get root() { return this.options?.root ?? null; }
+  get rootMargin() { return this.options?.rootMargin ?? "0px"; }
+  get thresholds() { const threshold = this.options?.threshold ?? 0; return Array.isArray(threshold) ? threshold : [threshold]; }
+  takeRecords() { return []; }
+  unobserve() {}
   static instances: Intersection[] = [];
   target: Element | null = null;
   disconnected = false;
@@ -26,13 +32,15 @@ class Intersection {
   disconnect() { this.disconnected = true; }
   emit(ratio: number, height: number) {
     act(() => this.callback([{
-      target: this.target!, isIntersecting: height > 0, intersectionRatio: ratio,
-      intersectionRect: { height },
-    } as IntersectionObserverEntry], this as unknown as IntersectionObserver));
+      target: requireValue(this.target), isIntersecting: height > 0, intersectionRatio: ratio,
+      intersectionRect: new DOMRect(0, 0, 0, height),
+      boundingClientRect: new DOMRect(), rootBounds: null, time: 0,
+    }], this));
   }
 }
 
-class Resize {
+class Resize implements ResizeObserver {
+  unobserve(target: Element) { this.targets.delete(target); }
   static instances: Resize[] = [];
   targets = new Set<Element>();
   disconnected = false;
@@ -41,7 +49,7 @@ class Resize {
   disconnect() { this.disconnected = true; }
   emit(target: Element) {
     if (!this.disconnected && this.targets.has(target)) {
-      act(() => this.callback([{ target } as ResizeObserverEntry], this as unknown as ResizeObserver));
+      act(() => this.callback([{ target, contentRect: new DOMRect(), borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [] }], this));
     }
   }
 }
@@ -52,18 +60,21 @@ beforeEach(() => {
   callbacks.clear();
   globalThis.requestAnimationFrame = (callback) => { callbacks.set(++next, callback); return next; };
   globalThis.cancelAnimationFrame = (id) => { callbacks.delete(id); };
-  globalThis.ResizeObserver = Resize as unknown as typeof ResizeObserver;
+  globalThis.ResizeObserver = Resize;
   deadlines.clear();
-  globalThis.IntersectionObserver = Intersection as unknown as typeof IntersectionObserver;
-  globalThis.setTimeout = ((callback: () => void, delay?: number, ...args: unknown[]) => {
+  globalThis.IntersectionObserver = Intersection;
+  globalThis.setTimeout = Object.assign((callback: () => void, delay?: number, ...args: unknown[]) => {
     if (delay !== 20_000) return originalTimeout(callback, delay, ...args);
+    const timer = originalTimeout(() => {}, 0);
+    originalClear(timer);
     const id = ++next;
-    deadlines.set(id, callback);
-    return id;
-  }) as typeof setTimeout;
-  globalThis.clearTimeout = ((timer: ReturnType<typeof setTimeout>) => {
-    if (!deadlines.delete(Number(timer))) originalClear(timer);
-  }) as typeof clearTimeout;
+    Object.defineProperty(timer, Symbol.toPrimitive, { value: () => id });
+    deadlines.set(Number(timer), callback);
+    return timer;
+  }, originalTimeout);
+  globalThis.clearTimeout = (timer) => {
+    if (!deadlines.delete(Number(timer))) originalClear(Number(timer));
+  };
 });
 afterEach(() => {
   cleanup();
@@ -114,7 +125,7 @@ test("playing clears its deadline, releases a slot and stays live without finish
   for (let index = 0; index < 4; index++) observers(index).nearby.emit(0.01, 1);
   expect(view.container.querySelectorAll("iframe")).toHaveLength(3);
   expect(deadlines.size).toBe(3);
-  const frame = view.getByTitle("Fixture · 1") as HTMLIFrameElement;
+  const frame = requireInstance(view.getByTitle("Fixture · 1"), HTMLIFrameElement);
   const currentRender = preview(frame, "1");
   tick();
   expect(view.queryByTitle("Fixture · 4")).toBeNull();
@@ -134,7 +145,7 @@ test("playing clears its deadline, releases a slot and stays live without finish
 test("a true rendering hang times out from mount at 20 seconds even while offscreen", () => {
   const view = sheet();
   observers().nearby.emit(0.01, 1);
-  const frame = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
+  const frame = requireInstance(view.getByTitle("Fixture · frame"), HTMLIFrameElement);
   const currentRender = preview(frame, "frame");
   const deadline = [...deadlines.values()][0];
   tick();
@@ -149,7 +160,7 @@ for (const phase of ["errored", "aborted"]) {
   test(`${phase} fails and releases the loading slot`, () => {
     const view = sheet([1, 2, 3, 4].map((id) => story(String(id))));
     for (let index = 0; index < 4; index++) observers(index).nearby.emit(0.01, 1);
-    const frame = view.getByTitle("Fixture · 1") as HTMLIFrameElement;
+    const frame = requireInstance(view.getByTitle("Fixture · 1"), HTMLIFrameElement);
     preview(frame, "1", phase);
     tick();
     expect(view.getByRole("alert").textContent).toBe("Story failed to render: 1");
@@ -216,7 +227,7 @@ test("a frame already visible starts its deadline at mount", () => {
 
 
 test("without IntersectionObserver, admission and the mount deadline start immediately", () => {
-  globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
+  Reflect.deleteProperty(globalThis, "IntersectionObserver");
   const view = sheet();
   expect(view.getByTitle("Fixture · frame")).toBeTruthy();
   expect(deadlines.size).toBe(1);
@@ -280,7 +291,7 @@ test("a tall frame filling a short scrolling root qualifies for priority admissi
   const root = document.createElement("div");
   Object.defineProperty(root, "clientHeight", { value: 300 });
   document.body.append(root);
-  const rect = spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 844 } as DOMRect);
+  const rect = spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 0, 844));
   const windowHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
   Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
   try {
@@ -307,7 +318,7 @@ test("root-only and window resizes recompute the visibility threshold", () => {
   let height = 600;
   Object.defineProperty(root, "clientHeight", { get: () => height });
   document.body.append(root);
-  const rect = spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 844 } as DOMRect);
+  const rect = spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 0, 844));
   try {
     sheet(undefined, null, root);
     const { nearby, visible } = observers();
@@ -318,12 +329,12 @@ test("root-only and window resizes recompute the visibility threshold", () => {
     height = 300;
     for (const resize of Resize.instances) resize.emit(root);
     expect(visible.disconnected).toBe(true);
-    const resized = Intersection.instances.findLast((observer) => !observer.options?.rootMargin)!;
+    const resized = requireValue(Intersection.instances.findLast((observer) => !observer.options?.rootMargin));
     expect(resized.options?.threshold).toContain(300 / (2 * 844));
     height = 200;
     act(() => { window.dispatchEvent(new Event("resize")); });
     expect(resized.disconnected).toBe(true);
-    const windowResized = Intersection.instances.findLast((observer) => !observer.options?.rootMargin)!;
+    const windowResized = requireValue(Intersection.instances.findLast((observer) => !observer.options?.rootMargin));
     expect(windowResized.options?.threshold).toContain(200 / (2 * 844));
     windowResized.emit(0.2, 100);
     expect(deadlines.size).toBe(1);

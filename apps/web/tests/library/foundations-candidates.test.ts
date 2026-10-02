@@ -18,7 +18,7 @@ describe("build-time oxide candidates", () => {
     ['`transition-${kind}`', []],
     ['`${state === "transition" ? fn({x:1}) : "duration-200"}`', ["transition", "duration-200"]],
     ['`${ready ? `duration-100` : `duration-200`}`', ["duration-100", "duration-200"]],
-  ] as [string, string[]][])("preserves native candidates in %s", (source, expected) => {
+  ] satisfies [string, string[]][])("preserves native candidates in %s", (source, expected) => {
     const [{ candidates }] = scanLibraryCandidates([{ path: "fixture.tsx", source }], new Scanner({}));
     expect(candidates.filter((name) => name.includes("duration") || name.includes("ease-") || name.includes("mt-1.5") || name === "transition"))
       .toEqual(expected);

@@ -1,3 +1,4 @@
+import { inactiveTimer, requireInstance } from "../library/fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, expect, test } from "bun:test";
@@ -36,7 +37,7 @@ test("string storyRendered keeps the deadline and queue slot until held afterEac
   try {
     const store = createFrameStore("fixture", "rev", positions, {
       now: () => 100,
-      schedule: () => { const timer = {} as ReturnType<typeof setTimeout>; timers.add(timer); return timer; },
+      schedule: () => { const timer = inactiveTimer(); timers.add(timer); return timer; },
       cancel: (timer) => { timers.delete(timer); },
     });
     store.start({ x: 0, y: 0 });
@@ -44,7 +45,7 @@ test("string storyRendered keeps the deadline and queue slot until held afterEac
     const view = render(<LiveFrame position={position} metric={store.metrics.frames[0]} loaded active
       frameSource="story" onMark={store.mark} onFinish={store.finish} onCancel={store.cancel}
       onSelect={() => {}} onInteract={() => {}} />);
-    const iframe = view.getByTitle("Section · Frame 0") as HTMLIFrameElement;
+    const iframe = requireInstance(view.getByTitle("Section · Frame 0"), HTMLIFrameElement);
     const currentRender = { id: position.story, phase: "completed" };
     Object.defineProperty(iframe, "contentWindow", { configurable: true, value: {
       __STORYBOOK_PREVIEW__: { currentRender },

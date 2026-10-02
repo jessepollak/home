@@ -1,3 +1,4 @@
+import { requireValue } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -47,7 +48,7 @@ describe("library overview specimens", () => {
     expect(view.queryByRole("region", { name: "Notifications" })).toBeNull();
     const navigation = view.getByRole("navigation", { name: "Library" });
     expect(within(navigation).getAllByRole("option")[0].getAttribute("aria-label")).toMatch(/^Overview, /);
-    const card = (id: string) => within(view.container.querySelector<HTMLElement>(`[data-library-specimen="${id}"]`)!);
+    const card = (id: string) => within(requireValue(view.container.querySelector<HTMLElement>(`[data-library-specimen="${id}"]`)));
     const cards = [...view.container.querySelectorAll("[data-library-specimen]")];
     expect(cards.map((node) => node.getAttribute("data-library-specimen")).sort()).toEqual(Object.keys(specimens).sort());
     expect(cards.filter((node) => /Couldn't render|No specimen yet/.test(node.textContent ?? ""))).toEqual([]);
@@ -72,11 +73,11 @@ describe("library overview specimens", () => {
     fireEvent.click(card("ui-switch").getByRole("button", { name: "Switch" }));
     expect(surface()).toBe("Switch preview");
     expect(new URL(location.href).searchParams.get("component")).toBe("ui-switch");
-    fireEvent.click(within(view.container.querySelector<HTMLElement>("nav")!).getByRole("option", { name: /^Overview, / }));
+    fireEvent.click(within(requireValue(view.container.querySelector<HTMLElement>("nav"))).getByRole("option", { name: /^Overview, / }));
     expect(surface()).toBe("Library overview");
     expect(new URL(location.href).searchParams.has("component")).toBe(false);
 
-    fireEvent.click(within(view.container.querySelector<HTMLElement>("[data-library-overview]")!).getByRole("button", { name: /^Motion/ }));
+    fireEvent.click(within(requireValue(view.container.querySelector<HTMLElement>("[data-library-overview]"))).getByRole("button", { name: /^Motion/ }));
     expect(surface()).toBe("Motion foundations");
     await act(async () => {});
   });
@@ -105,7 +106,7 @@ describe("library overview specimens", () => {
       expect(phase()).toBe("settling");
       const transition = new Event("transitionend", { bubbles: true });
       Object.defineProperty(transition, "propertyName", { value: "transform" });
-      void act(() => status.parentElement!.dispatchEvent(transition));
+      void act(() => requireValue(status.parentElement).dispatchEvent(transition));
       expect(phase()).toBe("idle");
     }
   });
@@ -114,7 +115,7 @@ describe("library overview specimens", () => {
     const index = sourceIndex();
     const view = render(<LibraryView build={build} storyIndex={index} frameSource="blank" />);
     for (const item of libraryCatalog(index, build).items) {
-      const card = within(view.container.querySelector<HTMLElement>(`[data-library-specimen="${item.id}"]`)!);
+      const card = within(requireValue(view.container.querySelector<HTMLElement>(`[data-library-specimen="${item.id}"]`)));
       fireEvent.click(card.getByRole("button", { name: item.name }));
       expect(view.getByRole("main", { name: `${item.name} preview` })).not.toBeNull();
       expect(new URL(location.href).searchParams.get("component")).toBe(item.id);

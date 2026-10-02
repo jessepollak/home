@@ -71,7 +71,9 @@ export const Workspace: Story = {
     await expect(canvas.queryByRole("form")).not.toBeInTheDocument();
 
     await expect(canvas.queryByTitle("Button · Loading")).not.toBeInTheDocument();
-    await userEvent.click(within(section(canvas, "Default").closest("section")!).getByRole("button", { name: "Continue" }));
+    const defaultSection = section(canvas, "Default").closest("section");
+    if (!defaultSection) throw new Error("Default section is missing");
+    await userEvent.click(within(defaultSection).getByRole("button", { name: "Continue" }));
     await expect(canvas.queryByRole("form")).not.toBeInTheDocument();
     canvas.getByRole("button", { name: "Primary" }).focus();
     await userEvent.keyboard("{Enter}");
@@ -157,7 +159,9 @@ export const Overview: Story = {
     await userEvent.click(within(grid).getByRole("button", { name: "Deposit" }));
     await expect(canvas.getByRole("main", { name: "Library overview" })).toBeVisible();
 
-    const navigation = canvasElement.ownerDocument.defaultView!.history;
+    const window = canvasElement.ownerDocument.defaultView;
+    if (!window) throw new Error("Library window is missing");
+    const navigation = window.history;
     const historyLength = navigation.length;
     await userEvent.click(within(grid).getByRole("button", { name: "Button" }));
     await expect(await canvas.findByRole("main", { name: "Button preview" })).toBeVisible();
@@ -186,9 +190,12 @@ export const Overview: Story = {
 
 const ownedStoryMetas = import.meta.glob(
   "../../components/ui/*.stories.tsx", { eager: true, import: "default" },
-) as unknown as Record<string, { id: string; title: string }>;
-const fullOverviewIndex = indexOf(Object.entries(ownedStoryMetas).map(([path, meta]) =>
-  story(`${meta.id}--default`, meta.title, "Default", `./components/ui/${path.split("/").at(-1)}`)));
+);
+const fullOverviewIndex = indexOf(Object.entries(ownedStoryMetas).map(([path, meta]) => {
+  if (!meta || typeof meta !== "object" || !("id" in meta) || typeof meta.id !== "string" ||
+    !("title" in meta) || typeof meta.title !== "string") throw new Error(`Invalid component meta: ${path}`);
+  return story(`${meta.id}--default`, meta.title, "Default", `./components/ui/${path.split("/").at(-1)}`);
+}));
 
 export const OverviewGrid: Story = {
   args: { build: fixtureBuild, storyIndex: fullOverviewIndex, frameSource: "blank" },
@@ -280,7 +287,8 @@ export const Foundations: Story = {
     await userEvent.click(within(surface).getAllByRole("button", { name: /^Play / })[0]);
 
     await userEvent.click(within(foundations).getByRole("option", { name: /^Type, / }));
-    const leading = within(surface).getByText("leading-none").closest("li")!;
+    const leading = within(surface).getByText("leading-none").closest("li");
+    if (!leading) throw new Error("Leading reference is missing");
     await expect(leading).toHaveTextContent(/16px · \d+ occurrences/);
     await userEvent.click(within(leading).getByText(/^Files \(/));
     await expect(within(leading).getByText("components/ui/drawer.tsx")).toBeVisible();

@@ -1,3 +1,4 @@
+import { requireValue, requireInstance } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -32,7 +33,7 @@ function child(iframe: HTMLIFrameElement) {
   const channel = {
     on: (event: string, listener: (payload: unknown) => void) => {
       if (!listeners.has(event)) listeners.set(event, new Set());
-      listeners.get(event)!.add(listener);
+      requireValue(listeners.get(event)).add(listener);
     },
     off: (event: string, listener: (payload: unknown) => void) => { listeners.get(event)?.delete(listener); },
   };
@@ -60,7 +61,7 @@ const props = {
 function mount(patch: Partial<typeof props> = {}) {
   const inputs = { ...props, ...patch };
   const view = render(<FrameSection {...inputs} />);
-  const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
+  const iframe = requireInstance(view.getByTitle("Button · Default"), HTMLIFrameElement);
   const preview = child(iframe);
   fireEvent.load(iframe);
   return { view, iframe, preview, inputs };
@@ -229,7 +230,7 @@ for (const failure of ["storyThrewException", "storyErrored", "preview-updated"]
     view.rerender(<FrameSection {...inputs} theme="light" />);
     await flush();
     if (failure === "preview-updated") {
-      iframe.contentDocument!.body.textContent = "Failed to fetch dynamically imported module";
+      requireValue(iframe.contentDocument).body.textContent = "Failed to fetch dynamically imported module";
       tick();
     } else {
       preview.emit(failure, { storyId: item.story, message: "Render failed" });

@@ -1,3 +1,4 @@
+import { requireInstance, requireValue } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -18,7 +19,7 @@ let next = 0;
 const callbacks = new Map<number, FrameRequestCallback>();
 beforeEach(() => {
   callbacks.clear();
-  globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
+  Reflect.deleteProperty(globalThis, "IntersectionObserver");
   globalThis.requestAnimationFrame = (callback) => { callbacks.set(++next, callback); return next; };
   globalThis.cancelAnimationFrame = (id) => { callbacks.delete(id); };
 });
@@ -118,16 +119,16 @@ for (const portals of [true, false]) {
   test(`${portals ? "portal" : "non-portal"} frames keep the correct viewport after restoration`, () => {
     const entry = story("height", () => null, portals ? "<Portal />" : "", "Library override");
     const view = sheet([entry]);
-    const iframe = view.getByTitle("Fixture · height") as HTMLIFrameElement;
+    const iframe = requireInstance(view.getByTitle("Fixture · height"), HTMLIFrameElement);
     if (portals) expect(iframe.height).toBe("560");
-    const doc = iframe.contentDocument!;
+    const doc = requireValue(iframe.contentDocument);
     const content = doc.createElement("div");
     content.id = "storybook-root";
     Object.defineProperty(content, "scrollHeight", { value: 64 });
     doc.body.append(content);
     const wrapper = doc.createElement("div");
     wrapper.setAttribute("data-base-ui-portal", "");
-    wrapper.getBoundingClientRect = () => ({ height: 0 }) as DOMRect;
+    wrapper.getBoundingClientRect = () => new DOMRect();
     const dialog = doc.createElement("div");
     dialog.setAttribute("role", "dialog");
     dialog.style.position = "fixed";
@@ -150,7 +151,7 @@ for (const portals of [true, false]) {
   test(`fullscreen ${portals ? "portal" : "non-portal"} frames use the full phone screen`, () => {
     const entry = { ...story("fullscreen", () => null, portals ? "<Portal />" : "", "Library override"), layout: "fullscreen" };
     const view = sheet([entry]);
-    const iframe = view.getByTitle("Fixture · fullscreen") as HTMLIFrameElement;
+    const iframe = requireInstance(view.getByTitle("Fixture · fullscreen"), HTMLIFrameElement);
     expect(iframe.height).toBe("844");
     expect(iframe.width).toBe("390");
   });
@@ -161,9 +162,9 @@ test("child pointer and keyboard interaction never select; unconsumed Escape sti
   const activated: string[] = [];
   let escaped = 0;
   view.update({ onToggle: (id) => activated.push(id), onEscape: () => { escaped++; } });
-  const iframe = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
+  const iframe = requireInstance(view.getByTitle("Fixture · frame"), HTMLIFrameElement);
   fireEvent.load(iframe);
-  const doc = iframe.contentDocument!;
+  const doc = requireValue(iframe.contentDocument);
   const control = doc.createElement("button");
   doc.body.append(control);
   control.focus();
@@ -196,9 +197,9 @@ test("reload and unmount remove child listeners and fence pending Escape from th
   let activated = 0;
   let escaped = 0;
   view.update({ onToggle: () => { activated++; }, onEscape: () => { escaped++; } });
-  const iframe = view.getByTitle("Fixture · frame") as HTMLIFrameElement;
+  const iframe = requireInstance(view.getByTitle("Fixture · frame"), HTMLIFrameElement);
   fireEvent.load(iframe);
-  const previous = iframe.contentDocument!;
+  const previous = requireValue(iframe.contentDocument);
   fireEvent.keyDown(previous.body, { key: "Escape" });
   const replacement = document.implementation.createHTMLDocument();
   Object.defineProperty(replacement, "defaultView", { value: window });
@@ -229,10 +230,10 @@ test("a framed interaction preserves restored Default props until its heading is
   const view = sheet(stories);
   view.update({ focused: "default", focusedArgs: { children: "PERSISTED" },
     onToggle: (id) => view.update({ focused: id, focusedArgs: null }) });
-  const iframe = view.getByTitle("Fixture · play") as HTMLIFrameElement;
+  const iframe = requireInstance(view.getByTitle("Fixture · play"), HTMLIFrameElement);
   fireEvent.load(iframe);
-  const control = iframe.contentDocument!.createElement("button");
-  iframe.contentDocument!.body.append(control);
+  const control = requireValue(iframe.contentDocument).createElement("button");
+  requireValue(iframe.contentDocument).body.append(control);
   act(() => control.focus());
   expect(view.getByRole("button", { name: "PERSISTED" })).toBeTruthy();
   expect(view.getByRole("button", { name: "default" }).getAttribute("aria-pressed")).toBe("true");
@@ -279,7 +280,7 @@ test("raw story and lexed imports prevent parent-document portal escapes", async
 test("desktop frames keep their declared dimensions and expose a standalone scaled caption link", () => {
   const entry = { ...story("desktop", () => null, "", "Declared viewport"), viewport: { width: 1440, height: 900 } };
   const view = sheet([entry]);
-  const iframe = view.getByTitle("Fixture · desktop") as HTMLIFrameElement;
+  const iframe = requireInstance(view.getByTitle("Fixture · desktop"), HTMLIFrameElement);
   expect(iframe.width).toBe("1440");
   expect(iframe.height).toBe("900");
   const link = view.getByRole("link", { name: "1440 × 900 · scaled" });

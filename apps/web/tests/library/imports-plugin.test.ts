@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import type { ViteDevServer } from "vite";
 import { lexLibraryImports, libraryImportsPlugin } from "../../.storybook/library-imports-plugin";
 
 for (const [name, source] of [
@@ -63,7 +62,8 @@ test("watched source changes, additions and deletions invalidate the virtual mod
     getModuleById: (id: string) => id === "\u0000virtual:library-imports" ? node : undefined,
     invalidateModule: (value: unknown) => { invalidated.push(value); },
   }, ws: { send: (message: unknown) => { messages.push(message); } } };
-  (plugin.configureServer as (server: ViteDevServer) => void)(server as unknown as ViteDevServer);
+  if (typeof plugin.configureServer !== "function") throw new Error("Missing configureServer hook");
+  Reflect.apply(plugin.configureServer, undefined, [server]);
   for (const event of ["change", "add", "unlink"]) {
     watcher.emit(event, "/fixture/components/ui/probe.stories.tsx");
     watcher.emit(event, "/fixture/components/ui/nested/index.tsx");
@@ -72,7 +72,8 @@ test("watched source changes, additions and deletions invalidate the virtual mod
   }
   expect(invalidated).toEqual(Array(6).fill(node));
   expect(messages).toEqual(Array(6).fill({ type: "full-reload" }));
-  (plugin.closeBundle as () => void)();
+  if (typeof plugin.closeBundle !== "function") throw new Error("Missing closeBundle hook");
+  Reflect.apply(plugin.closeBundle, undefined, []);
   watcher.emit("change", "/fixture/components/ui/probe.stories.tsx");
   expect(messages).toHaveLength(6);
 });

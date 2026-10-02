@@ -21,7 +21,7 @@ afterEach(() => {
 
 for (const data of [{ v: 5 }, { entries: [] }, { entries: null }]) {
   test(`the library renders unavailable for ${JSON.stringify(data)}`, async () => {
-    globalThis.fetch = (async () => new Response(JSON.stringify(data))) as unknown as typeof fetch;
+    globalThis.fetch = Object.assign(async () => new Response(JSON.stringify(data)), { preconnect: originalFetch.preconnect });
     const view = render(<LibraryView build={build} frameSource="blank" />);
     expect(view.getByRole("status").textContent).toBe("Loading library…");
     await act(async () => {});
@@ -32,7 +32,7 @@ for (const data of [{ v: 5 }, { entries: [] }, { entries: null }]) {
 test("a fetched valid index renders the component library", async () => {
   const entry = { id: "ui-button--default", title: "UI/Button", name: "Default", type: "story",
     importPath: "./components/ui/button.stories.tsx" };
-  globalThis.fetch = (async () => new Response(JSON.stringify({ v: 5, entries: { [entry.id]: entry } }))) as unknown as typeof fetch;
+  globalThis.fetch = Object.assign(async () => new Response(JSON.stringify({ v: 5, entries: { [entry.id]: entry } })), { preconnect: originalFetch.preconnect });
   const view = render(<LibraryView build={build} frameSource="blank" />);
   await act(async () => {});
   expect(view.getByRole("listbox", { name: "Components" })).not.toBeNull();
@@ -44,17 +44,17 @@ test("a fetched valid index renders the component library", async () => {
 });
 
 test("unmounting the library aborts its pending index request", async () => {
-  let resolve!: (response: Response) => void;
+  const pending = Promise.withResolvers<Response>();
   let signal: AbortSignal | undefined;
-  globalThis.fetch = (async (_input, options) => {
+  globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, options?: RequestInit) => {
     signal = options?.signal ?? undefined;
-    return new Promise<Response>((done) => { resolve = done; });
-  }) as typeof fetch;
+    return pending.promise;
+  }, { preconnect: originalFetch.preconnect });
   const view = render(<LibraryView build={build} frameSource="blank" />);
   expect(view.getByRole("status").textContent).toBe("Loading library…");
   view.unmount();
   expect(signal?.aborted).toBe(true);
-  await act(async () => { resolve(new Response(JSON.stringify({ entries: {} }))); });
+  await act(async () => { pending.resolve(new Response(JSON.stringify({ entries: {} }))); });
   expect(view.container.textContent).toBe("");
 });
 

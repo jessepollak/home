@@ -1,3 +1,4 @@
+import { requireValue } from "./fixtures/runtime";
 import { describe, expect, test } from "bun:test";
 import { libraryCatalog, monogram } from "../../stories/review/explorations/library/catalog";
 import { inputPropValue, propControls, propLabel, storyArgs } from "../../stories/review/explorations/library/controls";
@@ -74,8 +75,8 @@ describe("library props", () => {
       variant: { control: "object", table: { defaultValue: { summary: '"default"' } } },
       children: { control: "text" },
     }, { children: "Continue" });
-    const variant = controls.find((control) => control.name === "variant")!;
-    const children = controls.find((control) => control.name === "children")!;
+    const variant = requireValue(controls.find((control) => control.name === "variant"));
+    const children = requireValue(controls.find((control) => control.name === "children"));
     if (variant.kind !== "text" || children.kind !== "text") throw new Error("Missing text controls");
     expect(inputPropValue(variant, "secondary")).toBe("secondary");
     expect(inputPropValue(variant, "")).toBeUndefined();

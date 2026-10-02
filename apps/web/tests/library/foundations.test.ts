@@ -1,3 +1,4 @@
+import { documentFixture, requireValue } from "./fixtures/runtime";
 import { describe, expect, test } from "bun:test";
 import "@/client/account/dom-test-harness";
 import { Scanner } from "@tailwindcss/oxide";
@@ -118,7 +119,7 @@ describe("token parsing", () => {
   });
 
   test("assigns theme.md thresholds by role", () => {
-    const rule = (name: string) => colorTokens(css, validColor).find((token) => token.name === name)!;
+    const rule = (name: string) => requireValue(colorTokens(css, validColor).find((token) => token.name === name));
     expect(rule("muted-foreground").rule).toEqual({ use: "text", min: 4.5, against: { pair: "muted" } });
     expect(rule("market-loss").rule).toEqual({ use: "text", min: 4.5, against: "surfaces" });
     expect(rule("status-positive").rule).toEqual({ use: "graphic", min: 3, against: "surfaces" });
@@ -155,8 +156,8 @@ describe("Tailwind candidate usage", () => {
     style.textContent = cssText;
     document.head.append(style);
     try {
-      const layer = { name: "utilities", cssText: "@layer utilities { }", cssRules: style.sheet!.cssRules };
-      const owner = { styleSheets: [{ cssRules: [layer] }], defaultView: window } as unknown as Document;
+      const layer = { name: "utilities", cssText: "@layer utilities { }", cssRules: requireValue(style.sheet).cssRules };
+      const owner = documentFixture({ styleSheets: [{ cssRules: [layer] }], defaultView: window });
       const snapshot = confirmedCandidates(scanLibraryCandidates(files, new Scanner({})), owner);
       expect(snapshot.status).toBe("available");
       return snapshot.files;
@@ -240,7 +241,7 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
     foreign.textContent = ".duration-storybook { color: red; }";
     document.head.append(foreign);
     const utilities = { name: "utilities", cssText: "@layer utilities { }", cssRules: [] };
-    const owner = { styleSheets: [{ cssRules: [utilities] }, foreign.sheet!], defaultView: window } as unknown as Document;
+    const owner = documentFixture({ styleSheets: [{ cssRules: [utilities] }, requireValue(foreign.sheet)], defaultView: window });
     try {
       expect(confirmedCandidates(scanLibraryCandidates([{ path: "example.tsx", source: '"duration-storybook"' }], new Scanner({})), owner))
         .toEqual({ status: "available", files: [{ path: "example.tsx", candidates: [] }] });
@@ -287,9 +288,9 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
   });
 
   test("distinguishes inaccessible CSSOM, no stylesheets and available empty candidates", () => {
-    const denied = { styleSheets: [{ get cssRules() { throw new Error("Access denied"); } }] } as unknown as Document;
+    const denied = documentFixture({ styleSheets: [{ get cssRules() { throw new Error("Access denied"); } }] });
     expect(confirmedCandidates([], denied)).toEqual({ status: "unavailable", files: [] });
-    expect(confirmedCandidates([], { styleSheets: [] } as unknown as Document)).toEqual({ status: "unavailable", files: [] });
+    expect(confirmedCandidates([], documentFixture({ styleSheets: [] }))).toEqual({ status: "unavailable", files: [] });
     expect(scan([{ path: "empty.tsx", source: "" }])).toEqual([{ path: "empty.tsx", candidates: [] }]);
     expect(confirmedCandidates(null)).toEqual({ status: "unavailable", files: [] });
   });
@@ -302,9 +303,9 @@ const b = "p-2 gap-1.5 -mt-px px-hairline rounded-lg data-[x]:rounded-t-xl round
 });
 
 describe("measurement availability and discovered scales", () => {
-  const token = colorTokens(":root { --secondary: white; --secondary-foreground: white; }", (value) => value === "white")
-    .find(({ name }) => name === "secondary-foreground")!;
-  const convert = (value: string) => ({ white, black, tint: { ...black, a: 0.5 } })[value as "white" | "black" | "tint"] ?? null;
+  const token = requireValue(colorTokens(":root { --secondary: white; --secondary-foreground: white; }", (value) => value === "white")
+    .find(({ name }) => name === "secondary-foreground"));
+  const convert = (value: string) => value === "white" ? white : value === "black" ? black : value === "tint" ? { ...black, a: 0.5 } : null;
   const values = { card: "white", muted: "white", secondary: "white", "secondary-foreground": "white" };
 
   test("fails equal secondary pairs while retaining surface references", () => {
@@ -359,15 +360,15 @@ describe("measurement availability and discovered scales", () => {
   test("cleans up motion probes on inaccessible CSSOM", () => {
     let removed = false;
     const element = { style: {}, remove: () => { removed = true; } };
-    const owner = { createElement: () => element, body: { append: () => undefined },
-      styleSheets: [{ get cssRules() { throw new Error("Access denied"); } }] } as unknown as Document;
+    const owner = documentFixture({ createElement: () => element, body: { append: () => undefined },
+      styleSheets: [{ get cssRules() { throw new Error("Access denied"); } }] });
     expect(readMotionReference([], owner)).toBeNull();
     expect(removed).toBe(true);
   });
 
   test("reports CSSOM denial and reader exceptions as a whole-probe failure", () => {
-    const sheet = { get cssRules(): CSSRuleList { throw new Error("Access denied"); } } as CSSStyleSheet;
-    const owner = { styleSheets: [sheet] } as unknown as Document;
+    const sheet = { get cssRules(): CSSRuleList { throw new Error("Access denied"); } };
+    const owner = documentFixture({ styleSheets: [sheet] });
     expect(probeThemes(["card"], (names) => readThemeValues(names, owner))).toEqual({ status: "unavailable" });
     expect(probeThemes([], () => { throw new Error("reader failed"); })).toEqual({ status: "unavailable" });
     expect(probeThemes([], () => ({ light: {}, dark: {} }))).toEqual({ status: "measured", values: { light: {}, dark: {} } });
@@ -393,8 +394,8 @@ describe("measurement availability and discovered scales", () => {
   test("reads computed utility values without requiring a custom property and removes its probe", () => {
     let removed = false;
     const element = { style: {}, className: "", remove: () => { removed = true; } };
-    const owner = { createElement: () => element, body: { append: () => undefined },
-      defaultView: { getComputedStyle: () => ({ lineHeight: "16px" }) } } as unknown as Document;
+    const owner = documentFixture({ createElement: () => element, body: { append: () => undefined },
+      defaultView: { getComputedStyle: () => ({ lineHeight: "16px" }) } });
     expect(utilityValues(["leading-none"], "lineHeight", owner)).toEqual({ "leading-none": "16px" });
     expect(removed).toBe(true);
   });

@@ -1,3 +1,4 @@
+import { requireValue, requireInstance } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -15,14 +16,20 @@ const originalWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "cl
 const callbacks = new Map<number, FrameRequestCallback>();
 let next = 0;
 let width = 390;
-class Resize {
+class Resize implements ResizeObserver {
+  unobserve(target: Element) { this.targets.delete(target); }
   static all: Resize[] = [];
   targets = new Set<Element>();
   constructor(readonly callback: ResizeObserverCallback) { Resize.all.push(this); }
   observe(target: Element) { this.targets.add(target); }
   disconnect() { this.targets.clear(); }
 }
-class Intersection {
+class Intersection implements IntersectionObserver {
+  root = null;
+  rootMargin = "0px";
+  thresholds = [0];
+  takeRecords() { return []; }
+  unobserve() {}
   observe() {}
   disconnect() {}
 }
@@ -30,8 +37,8 @@ beforeEach(() => {
   Resize.all = [];
   callbacks.clear();
   width = 390;
-  globalThis.ResizeObserver = Resize as unknown as typeof ResizeObserver;
-  globalThis.IntersectionObserver = Intersection as unknown as typeof IntersectionObserver;
+  globalThis.ResizeObserver = Resize;
+  globalThis.IntersectionObserver = Intersection;
   globalThis.requestAnimationFrame = (callback) => { callbacks.set(++next, callback); return next; };
   globalThis.cancelAnimationFrame = (id) => { callbacks.delete(id); };
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => width });
@@ -49,7 +56,7 @@ const tick = () => act(() => {
   for (const [id, callback] of [...callbacks]) { callbacks.delete(id); callback(0); }
 });
 const resize = () => act(() => {
-  for (const observer of [...Resize.all]) observer.callback([], observer as unknown as ResizeObserver);
+  for (const observer of [...Resize.all]) observer.callback([], observer);
 });
 function story(id: string, viewport?: { width: number; height: number }): SheetStory {
   return { id, name: id, Story: () => null, frame: "Library override", portals: false, layout: "centered",
@@ -70,13 +77,13 @@ for (const interrupt of [false, true]) {
     let committedHeight = 0;
     const Target = () => {
       useLayoutEffect(() => {
-        const section = root.querySelector<HTMLElement>('[data-library-section="target"]')!;
+        const section = requireValue(root.querySelector<HTMLElement>('[data-library-section="target"]'));
         const offset = () => {
-          const placeholder = root.querySelector<HTMLElement>('[role="status"]')!;
+          const placeholder = requireValue(root.querySelector<HTMLElement>('[role="status"]'));
           committedHeight = Number.parseFloat(placeholder.style.height);
           return 50 + committedHeight + additionalOffset;
         };
-        section.getBoundingClientRect = () => ({ top: offset() - root.scrollTop }) as DOMRect;
+        section.getBoundingClientRect = () => new DOMRect(0, offset() - root.scrollTop);
         section.scrollIntoView = () => { calls++; root.scrollTop = offset() - 24; };
       }, []);
       return null;
@@ -87,12 +94,12 @@ for (const interrupt of [false, true]) {
     tick();
     expect(calls).toBe(1);
     expect(committedHeight).toBe(500);
-    expect(root.querySelector<HTMLElement>('[data-library-section="target"]')!.getBoundingClientRect().top).toBe(24);
+    expect(requireValue(root.querySelector<HTMLElement>('[data-library-section="target"]')).getBoundingClientRect().top).toBe(24);
     additionalOffset = 80;
     if (interrupt) fireEvent.wheel(root);
     tick();
     expect(calls).toBe(interrupt ? 1 : 2);
-    if (!interrupt) expect(root.querySelector<HTMLElement>('[data-library-section="target"]')!.getBoundingClientRect().top).toBe(24);
+    if (!interrupt) expect(requireValue(root.querySelector<HTMLElement>('[data-library-section="target"]')).getBoundingClientRect().top).toBe(24);
     fireEvent.wheel(root);
     root.scrollTop = 10;
     width = 640;
@@ -108,15 +115,15 @@ for (const interrupt of [false, true]) {
 }
 
 test("width changes refit rendered content without replacing the iframe or looping on stable sizes", () => {
-  globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
+  Reflect.deleteProperty(globalThis, "IntersectionObserver");
   const view = render(<VariantSheet {...defaults} stories={[story("wrap")]} />);
-  const frame = view.getByTitle("Fixture · wrap") as HTMLIFrameElement;
+  const frame = requireInstance(view.getByTitle("Fixture · wrap"), HTMLIFrameElement);
   const src = frame.src;
   let measurements = 0;
-  const content = frame.contentDocument!.createElement("div");
+  const content = requireValue(frame.contentDocument).createElement("div");
   content.id = "storybook-root";
   Object.defineProperty(content, "scrollHeight", { get: () => { measurements++; return Number(frame.width) < 350 ? 400 : 100; } });
-  frame.contentDocument!.body.append(content);
+  requireValue(frame.contentDocument).body.append(content);
   Object.defineProperty(frame, "contentWindow", { configurable: true, value: {
     __STORYBOOK_PREVIEW__: { currentRender: { id: "wrap", story: { id: "wrap" }, phase: "finished" } },
   } });

@@ -1,3 +1,4 @@
+import { inactiveTimer } from "./fixtures/runtime";
 import { afterEach, expect, test } from "bun:test";
 import { loadLibraryIndex } from "../../stories/review/explorations/library/story-index";
 import type { StoryIndexEntry } from "../../stories/review/explorations/board/review-build";
@@ -12,10 +13,7 @@ const entry: StoryIndexEntry = {
 const entries = { [entry.id]: entry };
 
 function deferred<T>() {
-  let resolve!: (value: T) => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
-  return { promise, resolve, reject };
+  return Promise.withResolvers<T>();
 }
 
 async function flush() {
@@ -30,7 +28,7 @@ function fixture() {
     schedule(run: () => void, ms: number) {
       callback = run;
       delay = ms;
-      return 1 as unknown as ReturnType<typeof setTimeout>;
+      return inactiveTimer();
     },
     cancel() { callback = undefined; },
   };
@@ -43,13 +41,15 @@ for (const phase of ["fetch", "body"]) {
     const response = deferred<Response>();
     const body = deferred<unknown>();
     let signal: AbortSignal | undefined;
-    globalThis.fetch = (async (_input, options) => {
+    globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, options?: RequestInit) => {
       signal = options?.signal ?? undefined;
       return response.promise;
-    }) as typeof fetch;
+    }, { preconnect: originalFetch.preconnect });
     const load = fixture();
     if (phase === "body") {
-      response.resolve({ ok: true, json: () => body.promise } as Response);
+      const pendingResponse = new Response();
+      pendingResponse.json = () => body.promise;
+      response.resolve(pendingResponse);
       await flush();
     }
     expect(load.updates).toEqual([]);
@@ -75,7 +75,7 @@ const malformed: unknown[] = [
 ];
 for (const [id, data] of malformed.entries()) {
   test(`invalid index envelope ${id} becomes unavailable and cancels the deadline`, async () => {
-    globalThis.fetch = (async () => ({ ok: true, json: async () => data })) as unknown as typeof fetch;
+    globalThis.fetch = Object.assign(async () => new Response(JSON.stringify(data)), { preconnect: originalFetch.preconnect });
     const load = fixture();
     await flush();
     expect(load.updates).toEqual(["unavailable"]);
@@ -86,7 +86,7 @@ for (const [id, data] of malformed.entries()) {
 
 for (const data of [{ v: 5, entries }, { entries: {} }]) {
   test(`a valid ${Object.keys(data.entries).length ? "populated" : "empty"} index completes and cancels the deadline`, async () => {
-    globalThis.fetch = (async () => new Response(JSON.stringify(data))) as unknown as typeof fetch;
+    globalThis.fetch = Object.assign(async () => new Response(JSON.stringify(data)), { preconnect: originalFetch.preconnect });
     const load = fixture();
     await flush();
     expect(load.updates).toEqual([data.entries]);
@@ -99,10 +99,10 @@ for (const data of [{ v: 5, entries }, { entries: {} }]) {
 
 for (const failure of ["http", "json", "network"]) {
   test(`${failure} failure becomes unavailable without leaving a deadline`, async () => {
-    globalThis.fetch = (async () => {
+    globalThis.fetch = Object.assign(async () => {
       if (failure === "network") throw new Error("Offline");
       return failure === "http" ? new Response(null, { status: 503 }) : new Response("{invalid");
-    }) as unknown as typeof fetch;
+    }, { preconnect: originalFetch.preconnect });
     const load = fixture();
     await flush();
     expect(load.updates).toEqual(["unavailable"]);
@@ -116,13 +116,15 @@ for (const phase of ["fetch", "body", "rejection"]) {
     const response = deferred<Response>();
     const body = deferred<unknown>();
     let signal: AbortSignal | undefined;
-    globalThis.fetch = (async (_input, options) => {
+    globalThis.fetch = Object.assign(async (_input: RequestInfo | URL, options?: RequestInit) => {
       signal = options?.signal ?? undefined;
       return response.promise;
-    }) as typeof fetch;
+    }, { preconnect: originalFetch.preconnect });
     const load = fixture();
     if (phase === "body") {
-      response.resolve({ ok: true, json: () => body.promise } as Response);
+      const pendingResponse = new Response();
+      pendingResponse.json = () => body.promise;
+      response.resolve(pendingResponse);
       await flush();
     }
     load.cancel();

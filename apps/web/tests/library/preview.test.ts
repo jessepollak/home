@@ -1,3 +1,4 @@
+import "@/client/account/dom-test-harness";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { isFrameLoaded, watchFrameLoaded } from "../../stories/review/explorations/library/frame-loading";
 
@@ -19,10 +20,9 @@ const tick = () => {
 };
 function fixture() {
   const render = { id: "story", story: { id: "story" }, phase: "rendering" };
-  const iframe = {
-    isConnected: true,
-    contentWindow: { __STORYBOOK_PREVIEW__: { currentRender: render } },
-  } as unknown as HTMLIFrameElement;
+  const iframe = document.createElement("iframe");
+  Object.defineProperty(iframe, "isConnected", { value: true });
+  Object.defineProperty(iframe, "contentWindow", { value: { __STORYBOOK_PREVIEW__: { currentRender: render } } });
   return { iframe, render };
 }
 

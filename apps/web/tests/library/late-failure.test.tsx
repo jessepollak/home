@@ -1,3 +1,4 @@
+import { requireInstance } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -55,7 +56,7 @@ async function revealed() {
     viewport: { width: 390, height: 560 }, onSettled: () => { settled += 1; }, onExitAnnotate: () => {},
   };
   const view = render(<FrameSection {...props} />);
-  const iframe = view.getByTitle("Button · Default") as HTMLIFrameElement;
+  const iframe = requireInstance(view.getByTitle("Button · Default"), HTMLIFrameElement);
   const preview = child(iframe);
   fireEvent.load(iframe);
   tick();
