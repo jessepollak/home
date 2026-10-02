@@ -10,6 +10,8 @@ export type LibraryItem = {
   changed: boolean;
 };
 
+export const OVERVIEW = "overview";
+
 export type LibraryCatalog = { items: LibraryItem[]; changes: number | null };
 
 const OWNED_STORY = /^(?:\.\/)?(?:apps\/web\/)?components\/ui\/[^/]+\.stories\.[^/]+$/;

@@ -56,6 +56,7 @@ export const Workspace: Story = {
     const options = within(list).getAllByRole("option");
     await expect(options.map((option) => option.getAttribute("aria-label")))
       .toEqual(["Badge, 1 story", "Button, 4 stories, changed in this build"]);
+    await userEvent.click(options[0]);
     await expect(await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
 
     options[0].focus();
@@ -119,6 +120,66 @@ export const Workspace: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Light" }));
     await expect(canvas.getByRole("button", { name: "Light" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(search(canvasElement).get("theme")).toBe("light"));
+  },
+};
+
+const overviewIndex = indexOf([
+  ...fixtureEntries,
+  story("ui-switch--default", "UI/Switch", "Default", "./components/ui/switch.stories.tsx"),
+]);
+
+export const Overview: Story = {
+  args: { build: fixtureBuild, storyIndex: overviewIndex, frameSource: "blank" },
+  parameters: { a11y: { test: "error" } },
+  beforeEach: () => {
+    const original = location.href;
+    const url = new URL(original);
+    for (const key of ["component", "story", "props"]) url.searchParams.delete(key);
+    url.searchParams.set("theme", "light");
+    history.replaceState(history.state, "", url);
+    return () => history.replaceState(history.state, "", original);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    const surface = await canvas.findByRole("main", { name: "Library overview" });
+    await expect(canvas.getByRole("option", { name: "Overview, 3 components" })).toHaveAttribute("aria-selected", "true");
+    await expect(search(canvasElement).has("component")).toBe(false);
+    const grid = within(surface).getByRole("region", { name: "All components" });
+    await expect(within(grid).getByRole("button", { name: "Badge" })).toBeVisible();
+
+    const toggle = within(grid).getByRole("switch", { name: "Show small balances" });
+    const checked = toggle.getAttribute("aria-checked");
+    await userEvent.click(toggle);
+    await expect(toggle).not.toHaveAttribute("aria-checked", checked ?? "");
+    await expect(canvas.getByRole("main", { name: "Library overview" })).toBeVisible();
+    await expect(search(canvasElement).has("component")).toBe(false);
+    await userEvent.click(within(grid).getByRole("button", { name: "Deposit" }));
+    await expect(canvas.getByRole("main", { name: "Library overview" })).toBeVisible();
+
+    const navigation = canvasElement.ownerDocument.defaultView!.history;
+    const historyLength = navigation.length;
+    await userEvent.click(within(grid).getByRole("button", { name: "Button" }));
+    await expect(await canvas.findByRole("main", { name: "Button preview" })).toBeVisible();
+    await expect(await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
+    await expect(search(canvasElement).get("component")).toBe("ui-button");
+    await expect(canvas.getByRole("option", { name: "Button, 4 stories, changed in this build" })).toHaveAttribute("aria-selected", "true");
+    await expect(navigation.length).toBe(historyLength + 1);
+    await userEvent.click(section(canvas, "Default"));
+    await expect(search(canvasElement).get("story")).toBe("ui-button--default");
+    await expect(navigation.length).toBe(historyLength + 1);
+    navigation.back();
+    await waitFor(() => expect(canvas.getByRole("main", { name: "Library overview" })).toBeVisible());
+    await expect(search(canvasElement).has("component")).toBe(false);
+    navigation.forward();
+    await waitFor(() => expect(canvas.getByRole("main", { name: "Button preview" })).toBeVisible());
+    await expect(await canvas.findByRole("form", { name: "Button · Default props" })).toBeVisible();
+    await expect(search(canvasElement).get("story")).toBe("ui-button--default");
+
+    await userEvent.click(canvas.getByRole("option", { name: "Overview, 3 components" }));
+    await expect(await canvas.findByRole("main", { name: "Library overview" })).toBeVisible();
+    await expect(search(canvasElement).has("component")).toBe(false);
+    await userEvent.click(within(canvas.getByRole("region", { name: "All components" })).getByRole("button", { name: /^Color/ }));
+    await expect(await canvas.findByRole("main", { name: "Color foundations" })).toBeVisible();
   },
 };
 

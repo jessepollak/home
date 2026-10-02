@@ -37,7 +37,9 @@ test("a fetched valid index renders the component library", async () => {
   await act(async () => {});
   expect(view.getByRole("listbox", { name: "Components" })).not.toBeNull();
   expect(view.getByRole("option", { name: "Button, 1 story" })).not.toBeNull();
-  expect(view.getByRole("main", { name: "Button preview" })).not.toBeNull();
+  expect(view.getByRole("main", { name: "Library overview" })).not.toBeNull();
+  expect(view.getByRole("option", { name: "Overview, 1 component" }).getAttribute("aria-selected")).toBe("true");
+  expect(new URL(location.href).searchParams.has("component")).toBe(false);
   expect(view.queryByText("Loading library…")).toBeNull();
 });
 

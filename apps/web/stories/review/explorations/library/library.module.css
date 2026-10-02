@@ -37,6 +37,9 @@
   flex-direction: column;
   min-height: 0;
 }
+.group[data-lead] {
+  margin-bottom: 8px;
+}
 .group[data-fill] {
   flex: 1;
   margin-top: 10px;

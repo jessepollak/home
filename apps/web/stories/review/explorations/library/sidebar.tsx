@@ -1,10 +1,10 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
-import { ActivityIcon, PaletteIcon, RulerIcon, TypeIcon } from "lucide-react";
-import { monogram, type LibraryCatalog } from "./catalog";
+import { ActivityIcon, LayoutGridIcon, PaletteIcon, RulerIcon, TypeIcon } from "lucide-react";
+import { monogram, OVERVIEW, type LibraryCatalog } from "./catalog";
 import { foundationPages, type FoundationId } from "./foundations/model";
 import styles from "./library.module.css";
 
-const FOUNDATION_ICONS: Record<FoundationId, ReactNode> = {
+export const FOUNDATION_ICONS: Record<FoundationId, ReactNode> = {
   "foundations/color": <PaletteIcon />,
   "foundations/type": <TypeIcon />,
   "foundations/radius-spacing": <RulerIcon />,
@@ -36,8 +36,12 @@ export function LibrarySidebar({ catalog, selected, onSelect, onPreload }: {
       label: `${item.name}, ${kind}${item.changed ? ", changed in this build" : ""}`,
     };
   });
+  const count = catalog.items.length === 1 ? "1 component" : `${catalog.items.length} components`;
+  const overviewRows = [{ id: OVERVIEW, name: "Overview", kind: count, label: `Overview, ${count}`, tile: <LayoutGridIcon /> }];
   return <nav className={styles.sidebar} aria-label="Library">
     <h1 className={styles.visuallyHidden}>Library</h1>
+    <SidebarGroup id="library-overview-heading" heading="Overview" rows={overviewRows} selected={selected}
+      onSelect={onSelect} hiddenHeading />
     <SidebarGroup id="library-foundations-heading" heading="Foundations" rows={foundationRows}
       selected={selected} onSelect={onSelect} />
     <SidebarGroup id="library-components-heading" heading="Components" summary={changeSummary(catalog.changes)}
@@ -45,7 +49,7 @@ export function LibrarySidebar({ catalog, selected, onSelect, onPreload }: {
   </nav>;
 }
 
-function SidebarGroup({ id, heading, summary, rows, selected, onSelect, onPreload, fill }: {
+function SidebarGroup({ id, heading, summary, rows, selected, onSelect, onPreload, fill, hiddenHeading }: {
   id: string;
   heading: string;
   summary?: string | null;
@@ -54,6 +58,7 @@ function SidebarGroup({ id, heading, summary, rows, selected, onSelect, onPreloa
   onSelect: (id: string) => void;
   onPreload?: (id: string) => void;
   fill?: boolean;
+  hiddenHeading?: boolean;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const current = rows.findIndex((row) => row.id === selected);
@@ -67,8 +72,9 @@ function SidebarGroup({ id, heading, summary, rows, selected, onSelect, onPreloa
     onSelect(next.id);
     list.current?.querySelector<HTMLElement>(`[data-library-item="${next.id}"]`)?.focus();
   };
-  return <section className={styles.group} data-fill={fill || undefined} aria-labelledby={id}>
-    <header className={styles.sidebarHeader}>
+  return <section className={styles.group} data-fill={fill || undefined} data-lead={hiddenHeading || undefined}
+    aria-labelledby={id}>
+    <header className={hiddenHeading ? styles.visuallyHidden : styles.sidebarHeader}>
       <h2 id={id}>{heading}</h2>
       {summary && <p>{summary}</p>}
     </header>

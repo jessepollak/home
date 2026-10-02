@@ -8,10 +8,11 @@ import { viewports } from "../board/manifest";
 import { startRenderDeadline } from "../board/render-deadline";
 import type { ReviewBuild, StoryIndexEntry } from "../board/review-build";
 import { writeBoardUrl } from "../board/url-state";
-import { libraryCatalog, type LibraryCatalog } from "./catalog";
+import { libraryCatalog, OVERVIEW, type LibraryCatalog } from "./catalog";
 import { propControls, storyArgs, type PropValue } from "./controls";
 import { FoundationsSurface } from "./foundations/foundations";
 import { foundationPages, isFoundation } from "./foundations/model";
+import { OverviewSurface } from "./overview/overview";
 import { PropsBar } from "./props-bar";
 import { VariantSheet } from "./sheet";
 import { restoredFocus, toggleFocus } from "./sheet-state";
@@ -77,6 +78,17 @@ function componentStories(index: StoryIndex, title: string): StoryIndexEntry[] {
   return Object.values(index).filter((entry) => entry.type === "story" && entry.title === title);
 }
 
+function restoredLibraryUrl(catalog: LibraryCatalog) {
+  const state = readLibraryUrl(new URL(location.href));
+  const component = catalog.items.some((item) => item.id === state.component);
+  return {
+    selected: component || isFoundation(state.component) ? state.component! : OVERVIEW,
+    focus: component ? state.story ?? null : null,
+    overrides: component && state.story ? state.props : {},
+    theme: state.theme,
+  };
+}
+
 function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSource }: {
   catalog: LibraryCatalog;
   index: StoryIndex;
@@ -84,13 +96,12 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   theme: string;
   frameSource: "story" | "blank";
 }) {
-  const original = useMemo(() => readLibraryUrl(new URL(location.href)), []);
-  const linked = catalog.items.some((item) => item.id === original.component) || isFoundation(original.component)
-    ? original.component : undefined;
-  const [selected, setSelected] = useState(linked ?? catalog.items[0].id);
+  const [original] = useState(() => restoredLibraryUrl(catalog));
+  const [selected, setSelected] = useState(original.selected);
+  const overview = selected === OVERVIEW;
   const foundation = isFoundation(selected) ? selected : null;
-  const [focus, setFocus] = useState<string | null>(linked ? original.story ?? null : null);
-  const [overrides, setOverrides] = useState<Record<string, PropValue>>(linked && original.story ? original.props : {});
+  const [focus, setFocus] = useState<string | null>(original.focus);
+  const [overrides, setOverrides] = useState<Record<string, PropValue>>(original.overrides);
   const [picked, setPicked] = useState({ source: toolbarTheme, value: original.theme ?? toolbarTheme });
   const theme = picked.source === toolbarTheme ? picked.value : toolbarTheme;
   const [annotating, setAnnotating] = useState(false);
@@ -103,7 +114,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   const position = Math.max(0, catalog.items.findIndex((entry) => entry.id === selected));
   const item = catalog.items[position];
   const entries = useMemo(() => componentStories(index, item.title), [index, item.title]);
-  const { module, failed } = useStoryModule(entries[0]?.importPath);
+  const { module, failed } = useStoryModule(overview ? undefined : entries[0]?.importPath);
   const allStories = useMemo(() => module ? sheetStories(module, entries, theme) : null, [module, entries, theme]);
   const stories = useMemo(() => allStories?.filter((story) => !story.themePinned) ?? null, [allStories]);
   const hiddenThemes = allStories ? allStories.length - (stories?.length ?? 0) : 0;
@@ -123,10 +134,25 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
     history.replaceState(history.state, "", writeBoardUrl(new URL(location.href),
       { rev: build.revision, deployment: build.deployment || undefined }));
   }, [build.revision, build.deployment]);
+  const sheet = !overview && !foundation;
   useEffect(() => {
-    history.replaceState(history.state, "", writeLibraryUrl(new URL(location.href),
-      { component: foundation ?? item.id, story: foundation ? undefined : focused ?? undefined, props: !foundation && focused ? overrides : {}, theme: theme === "dark" ? "dark" : "light" }));
-  }, [foundation, item.id, focused, overrides, theme]);
+    history.replaceState(history.state, "", writeLibraryUrl(new URL(location.href), {
+      component: overview ? undefined : foundation ?? item.id, story: sheet ? focused ?? undefined : undefined,
+      props: sheet && focused ? overrides : {}, theme: theme === "dark" ? "dark" : "light",
+    }));
+  }, [overview, foundation, sheet, item.id, focused, overrides, theme]);
+  useEffect(() => {
+    const restore = () => {
+      const state = restoredLibraryUrl(catalog);
+      setSelected(state.selected);
+      setFocus(state.focus);
+      setOverrides(state.overrides);
+      setPicked({ source: toolbarTheme, value: state.theme ?? toolbarTheme });
+      setAnnotating(false);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [catalog, toolbarTheme]);
   useEffect(() => {
     for (const neighbour of [catalog.items[position - 1], catalog.items[position + 1]]) {
       const path = neighbour && componentStories(index, neighbour.title)[0]?.importPath;
@@ -147,6 +173,9 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   }, [focused, annotating, clearFocus]);
   const select = (id: string) => {
     if (id === selected) return;
+    history.pushState(history.state, "", writeLibraryUrl(new URL(location.href), {
+      component: id === OVERVIEW ? undefined : id, story: undefined, props: {},
+    }));
     setSelected(id);
     clearFocus();
   };
@@ -165,8 +194,9 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   });
   const count = entries.length === 1 ? "1 story" : `${entries.length} stories`;
   return <div className={styles.library} data-review-library="workspace">
-    <LibrarySidebar catalog={catalog} selected={foundation ?? item.id} onSelect={select} onPreload={preload} />
-    <main className={styles.surface} aria-label={foundation
+    <LibrarySidebar catalog={catalog} selected={overview ? OVERVIEW : foundation ?? item.id} onSelect={select}
+      onPreload={preload} />
+    <main className={styles.surface} aria-label={overview ? "Library overview" : foundation
       ? `${foundationPages.find((page) => page.id === foundation)!.name} foundations` : `${item.name} preview`}>
       <header className={styles.toolbar}>
         <div className={styles.pickers}>
@@ -177,10 +207,11 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
             <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
           </ToggleGroup>
         </div>
-        {!foundation && focusedStory && controls && args &&
+        {sheet && focusedStory && controls && args &&
           <PropsBar name={`${item.name} · ${focusedStory.name}`} controls={controls} values={args} onChange={change} />}
       </header>
-      {foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <figure className={styles.stage}>
+      {overview ? <OverviewSurface items={catalog.items} onSelect={select} />
+        : foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <figure className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
           {stories ? <VariantSheet key={item.id} root={root} component={item.name} changed={item.changed}
             stories={stories} theme={theme} focused={focused} focusedArgs={args} annotating={annotating}
@@ -192,7 +223,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
         </div>
         <figcaption className={styles.caption}>{item.name} · {count} · {viewports.mobile.width} wide</figcaption>
       </figure>}
-      {!foundation && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
+      {sheet && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
     </main>
   </div>;
 }
