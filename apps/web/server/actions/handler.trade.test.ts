@@ -10,7 +10,8 @@ import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-a
 import { stockAssets } from "@/config/invest-assets";
 import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
-import type { resolveConvertPair } from "@/shared/currencies/convert";
+import { resolveConvertPair } from "@/shared/currencies/convert";
+import { CONVERT_PROVIDER, type ConvertPairRecord } from "@/shared/currencies/types";
 import type { ActionRow } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { createConfirmActionHandler, createGetActionHandler, createGetPendingTradeHandler, createRetryActionHandler } from "./handler";
@@ -157,6 +158,39 @@ describe("trade confirmation", () => {
     expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
     expect(confirms).toBe(0);
     expect(verifications).toBe(0);
+  });
+
+  test.each(["buy", "sell"] as const)("confirms a matching stored registry identity for %s", async (direction) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
+    if (!record) throw new Error("Missing currency record: base:eurc");
+    row.summary.metadata = { ...tradeMetadata(record.contractAddress, direction), currencyRecordId: record.id };
+    const sell: ConvertPairRecord = { id: "eurc-sell", from: record.id, to: "base:usdc", provider: CONVERT_PROVIDER,
+      regions: "all", status: "verified", verifiedAt: "2026-09-29", evidence: "test fixture" };
+    const buy = { ...sell, id: "eurc-buy", from: sell.to, to: sell.from };
+    const convertPair: typeof resolveConvertPair = (input) => resolveConvertPair(
+      { ...input, now: new Date("2026-09-30T12:00:00.000Z") }, { pairs: [sell, buy] });
+    let verifications = 0;
+    let confirms = 0;
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
+      convertPair,
+      verifySmartAccountSignature: async () => { verifications += 1; return true; },
+      markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => row, confirm: async (_owner, _id, calls) => {
+        if (!row.pending) throw new Error("Missing pending trade");
+        if (!calls) throw new Error("Missing confirmed calls");
+        confirms += 1;
+        return { ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending, calls } };
+      } },
+    });
+    const response = await handler(request(signature, "cdp-embedded"), context);
+    expect(response.status).toBe(200);
+    expect(verifications).toBe(1);
+    expect(confirms).toBe(1);
   });
 
   test("refuses a stored registry identity with a non-string traded asset address before verifying", async () => {

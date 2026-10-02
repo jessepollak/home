@@ -9,7 +9,7 @@ import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { BaseRpcError } from "@/server/chain/rpc";
 import { resolveConvertPair } from "@/shared/currencies/convert";
 import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
-import { CONVERT_PROVIDER } from "@/shared/currencies/types";
+import { CONVERT_PROVIDER, type ConvertPairRecord } from "@/shared/currencies/types";
 import { resolveTradeAsset } from "@/shared/trading/assets";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import type { Address, Hex } from "@/shared/trading/server-types";
@@ -28,6 +28,7 @@ import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 
 const inBatchTransferStrategy = createTradeFeeStrategy("in-batch-transfer");
 const providerNativeStrategy = createTradeFeeStrategy("provider-native");
+const inertActionsStore = { insert: async () => {} } as unknown as ActionsStore;
 const TOKEN = "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" as Address;
 const OWNER = "0x1111111111111111111111111111111111111111" as Address;
 const ROUTER = "0x3333333333333333333333333333333333333333" as Address;
@@ -470,7 +471,7 @@ describe("trade preparation", () => {
   });
   test("normalizes addresses and rejects tampered trade metadata or signing", async () => {
     const preparedTrade = await prepared("buy");
-    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    setActionsStoreForTests(inertActionsStore);
     const draft = structuredClone(preparedTrade.draft);
     if (draft.metadata?.product !== "trade" || draft.signing?.signer !== "cdp-embedded") throw new Error("missing trade facts");
     Object.assign(draft.metadata.fromAsset, { address: getAddress(draft.metadata.fromAsset.address) });
@@ -492,6 +493,27 @@ describe("trade preparation", () => {
     if (draft.signing.signer !== "cdp-embedded") throw new Error("missing signer");
     draft.signing.typedData.message.hash = `0x${"ab".repeat(32)}`;
     await expect(issueMoneyAction(sessions(), draft, { pending: { ...preparedTrade.pending, swapCallIndex: 1 } })).rejects.toMatchObject({ reason: "invalid-draft" });
+  });
+  test.each(["buy", "sell"] as const)("issues a matching registry %s identity and rejects tampered identities", async (direction) => {
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
+    if (!record) throw new Error("Missing EURC currency record.");
+    const sell: ConvertPairRecord = { id: "eurc-sell", from: record.id, to: "base:usdc", provider: CONVERT_PROVIDER,
+      regions: "all", status: "verified", verifiedAt: NOW.toISOString().slice(0, 10), evidence: "test fixture" };
+    const buy = { ...sell, id: "eurc-buy", from: sell.to, to: sell.from };
+    const convertPair: typeof resolveConvertPair = (input) => resolveConvertPair(input, { pairs: [sell, buy] });
+    const trade = await prepared(direction, "cdp-embedded", false, undefined, {
+      assetId: `base:${record.contractAddress.toLowerCase()}`, convertPair,
+    });
+    setActionsStoreForTests(inertActionsStore);
+    const issued = await issueMoneyAction(sessions(), structuredClone(trade.draft), { pending: { ...trade.pending, swapCallIndex: 1 } });
+    expect(issued.metadata).toMatchObject({ currencyRecordId: "base:eurc" });
+    for (const currencyRecordId of ["base:idrx", "base:removed"]) {
+      const tampered = structuredClone(trade.draft);
+      if (tampered.metadata?.product !== "trade") throw new Error("missing trade metadata");
+      tampered.metadata.currencyRecordId = currencyRecordId;
+      await expect(issueMoneyAction(sessions(), tampered, { pending: { ...trade.pending, swapCallIndex: 1 } }))
+        .rejects.toMatchObject({ reason: "invalid-draft" });
+    }
   });
   test("issues a zero-first allowance reset only when it precedes the exact approval", async () => {
     const preparedTrade = await prepared("sell", "cdp-embedded", false, undefined, { quoteAllowanceIssue: false, chainAllowance: BigInt(999_999) });
