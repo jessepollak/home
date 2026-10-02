@@ -24,6 +24,7 @@ import { ShellPageProvider } from "./shell-page-context";
 import { useShellDocumentScrollRestoration } from "./use-shell-document-scroll-restoration";
 import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
 import { ActionToasts } from "./action-toasts";
+import { scheduleAfterPaint } from "./after-paint";
 import { useHomeRefresh } from "./use-home-refresh";
 import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } from "@/components/ui/pull-to-refresh";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
@@ -52,7 +53,7 @@ export function DashboardShell(props: DashboardShellProps) {
 
 function DashboardShellBody({
   children, investContent, cashContent, investmentsContent, cardsEnabled = false, initialAccountOpen = false,
-  initialAccountSettingsOpen = false, assetBalances,
+  initialAccountSettingsOpen = false, assetBalances, initialRateLabels,
   interruption = null, interruptionAnnouncement = null, onRetryInterruption,
   sendAvailability = [], canOpenAssetDetail = () => false, assetMarkResolution,
   showSmallBalances = false, onShowSmallBalancesChange = () => {},
@@ -227,11 +228,23 @@ function DashboardShellBody({
     holdingRestoreRef.current = null;
   }, [account.ownerKey, isAccountSettingsOpen]);
   useEffect(() => {
-    if (previousPanelRef.current !== activeNavigation) {
-      previousPanelRef.current = activeNavigation;
-      panelStageRef.current?.focus({ preventScroll: true });
-      setSettingsRequested(false);
-    }
+    if (previousPanelRef.current === activeNavigation) return;
+    previousPanelRef.current = activeNavigation;
+    setSettingsRequested(false);
+    const stage = panelStageRef.current;
+    if (!stage) return;
+    let focusMoved = false;
+    const onFocus = () => { focusMoved = true; };
+    document.addEventListener("focusin", onFocus);
+    const cancel = scheduleAfterPaint(() => {
+      document.removeEventListener("focusin", onFocus);
+      if (focusMoved || panelStageRef.current !== stage) return;
+      stage.focus({ preventScroll: true });
+    });
+    return () => {
+      document.removeEventListener("focusin", onFocus);
+      cancel();
+    };
   }, [activeNavigation]);
   const pushRoute = useCallback((href: string) => {
     const target = new URL(href, window.location.origin);
@@ -322,7 +335,7 @@ function DashboardShellBody({
   const balanceRowRetry = headerStatus({ interruption, coverage: null })?.recovery === "none" ? undefined : retryHomeReads;
   const pageValue = {
     paintedAssetBalances, activitySession, fetchActivity: account.fetchActivity, fetchOperations: account.fetchOperations,
-    regionId, regionReady, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
+    regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
     showSmallBalances,
     cardsEnabled,
     cashContent, investContent, investmentsContent, onHomeDetailsOpenChange: setHomeDetailsOpen, onInvestmentsChromeChange: setInvestmentsChrome, openInvestmentHolding, closeInvestmentHolding, investmentsReturnHolding: location.panel === "investments" ? investmentsReturnHolding : null, openCashSavings,

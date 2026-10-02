@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
+import type { AccountRenderSeed } from "@/shared/account/session-types";
 import type { AccountWalletSdkBoundary } from "./cdp-client";
 import { AccountWalletSessionOwner } from "./cdp-session-lifecycle";
 
@@ -13,7 +14,7 @@ const RECIPIENT = "0x2222222222222222222222222222222222222222";
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const CALL_DATA = `0xa9059cbb${RECIPIENT.slice(2).padStart(64, "0")}${BigInt(1_000_000).toString(16).padStart(64, "0")}` as const;
 
-export function SmokeFixtureAccountProvider({ children }: { children: ReactNode }) {
+export function SmokeFixtureAccountProvider({ children, renderSeed = null }: { children: ReactNode; renderSeed?: AccountRenderSeed | null }) {
   const resolutionReads = useRef(0);
   const [ownerKey, setOwnerKey] = useState<string | null>(() =>
     typeof window !== "undefined" && window.sessionStorage.getItem(SIGNED_IN_KEY) === "1"
@@ -79,7 +80,7 @@ export function SmokeFixtureAccountProvider({ children }: { children: ReactNode 
   }), [ownerKey]);
 
   return (
-    <AccountWalletSessionOwner sdk={sdk} baseAccountEnabled>
+    <AccountWalletSessionOwner sdk={sdk} baseAccountEnabled renderSeed={renderSeed}>
       {children}
     </AccountWalletSessionOwner>
   );
