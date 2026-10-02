@@ -6,7 +6,7 @@ import { buyQuote, fixtureCash, fixtureHolding, quoteAmount } from "./trade-fixt
 import { shellContentFrameClassName } from "@/components/shell-layout";
 
 const displayPrice = 109589.04;
-const beforeCash = formatFiatAmount(fixtureCash, "USD");
+const beforeCash = formatFiatAmount(fixtureCash, "USD", { currencyNative: true });
 const estimate = `≈ +${quoteAmount(buyQuote, "receive")}`;
 const spend = buyQuote.action.amounts.find((amount) => amount.direction === "spend");
 if (!spend) throw new Error("Trade fixture has no spend amount");
@@ -15,7 +15,7 @@ const states = [
   { name: "Pending", cash: beforeCash, holding: fixtureHolding, activity: "Pending", received: estimate, tone: "default" },
   { name: "Unknown", cash: beforeCash, holding: fixtureHolding, activity: "Checking", received: estimate, tone: "default" },
   { name: "Failed", cash: beforeCash, holding: fixtureHolding, activity: "Failed", received: quoteAmount(buyQuote, "spend"), tone: "muted" },
-  { name: "Confirmed", cash: formatFiatAmount(String(confirmedCash), "USD"), holding: buyQuote.result.holding, activity: "Confirmed · Today", received: `+${buyQuote.result.confirmedReceive}`, tone: "success" },
+  { name: "Confirmed", cash: formatFiatAmount(String(confirmedCash), "USD", { currencyNative: true }), holding: buyQuote.result.holding, activity: "Confirmed · Today", received: `+${buyQuote.result.confirmedReceive}`, tone: "success" },
 ] as const;
 
 export function TradeConvergence() {
@@ -25,7 +25,7 @@ export function TradeConvergence() {
       <h2 className="text-base font-semibold">{state.name}</h2>
       <Card variant="flush"><CardContent inset="list"><ul className="list-none p-0">
         <BalanceRow icon={<Banknote className="size-4" />} label="Cash" value={state.cash} />
-        <AssetRow icon={<Bitcoin className="size-4" />} label="Bitcoin" value={formatFiatAmount(String(Number(state.holding) * displayPrice), "USD")} valueContext={`${state.holding} cbBTC`} />
+        <AssetRow icon={<Bitcoin className="size-4" />} label="Bitcoin" value={formatFiatAmount(String(Number(state.holding) * displayPrice), "USD", { currencyNative: true })} valueContext={`${state.holding} cbBTC`} />
         <ActivityRow icon={<ArrowLeftRight className="size-4" />} label="Buy Bitcoin" context={state.activity} value={state.received} valueTone={state.tone} />
       </ul></CardContent></Card>
     </section>)}

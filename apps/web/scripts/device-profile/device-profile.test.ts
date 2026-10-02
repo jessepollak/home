@@ -1,11 +1,28 @@
-import { test, expect } from "bun:test";
+import { test, expect, setSystemTime } from "bun:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { activityPage, syntheticActivity } from "./synthetic-activity";
+import { activityPage, fixtureSyntheticActivity, syntheticActivity } from "./synthetic-activity";
 import { parseHistoryResponse, MARKET_PRICE_RANGES } from "../../shared/invest/contracts/market-price-history";
-import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, proxyOptions } from "./proxy";
+import { parseSession } from "../../shared/account/contracts/session";
+import { isVerifiedActivitySession, parseActivityPage } from "../../shared/activity/contract";
+import { sessionBody } from "../../tests/browser/fixtures/bodies";
+import { FIXED_NOW } from "../../tests/browser/fixtures/fixed-time";
+import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, probeProxy, proxyOptions } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
-import { artifactName, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, validResult, visibilityProblem, androidFamily, androidView, type Result, type TraceEvent } from "./model";
+import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, detailTarget, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, runPartial, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, waitForQuietFeed, androidFamily, androidView, type Result, type Run, type TraceEvent } from "./model";
+
+const runFor = (overrides: Partial<Run> = {}): Run => ({
+  frameCount: 60, periodMs: 16.67, missedDeadlinePct: 0, longFramePct: 0, longFrameCount: 0,
+  frameMs: { p50: 16, p95: 17, p99: 20, max: 30 }, feedbackMs: [], blankCheck: { framesWithBlank: 0, maxBlankPx: 0 },
+  longTasks: { count: 0, totalMs: 0 }, loaf: { count: 0, totalMs: 0, blockingMs: 0 }, ...overrides,
+});
+const resultFor = (runs: Result["runs"], overrides: Partial<Result> = {}): Result => ({
+  version: 1,
+  plan: { workload: "activity-fling", rows: 300, label: "test", repeat: Math.max(1, runs.length), duration: 10 },
+  environment: { userAgent: "Chrome", viewport: { width: 390, height: 844 }, dpr: 3, standalone: false, navigatorStandalone: false, supportedEntryTypes: [] },
+  runs,
+  ...overrides,
+});
 
 test("synthetic generator keeps 25-transfer pagination and original deterministic row values", () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z"), data = syntheticActivity(300, anchor);
@@ -19,6 +36,26 @@ test("synthetic generator keeps 25-transfer pagination and original deterministi
   expect(second.transfers[0]?.id).toBe(data.transfers[25]?.id);
   expect(first.nextCursor).toBe("page-1");
   expect(() => activityPage(data, "page-99", to)).toThrow("Unexpected cursor");
+});
+
+test.each([-86_400_000 * 40, 0, 86_400_000 * 40])("fixture synthetic activity parses every page in the pinned clock window when the host clock is offset by %pms", (offset) => {
+  setSystemTime(new Date(FIXED_NOW + offset));
+  let data: ReturnType<typeof syntheticActivity>;
+  try { data = fixtureSyntheticActivity(300); } finally { setSystemTime(); }
+  const to = new Date(FIXED_NOW).toISOString();
+  const session = parseSession(sessionBody);
+  expect(isVerifiedActivitySession(session)).toBe(true);
+  if (!isVerifiedActivitySession(session)) throw new Error("Expected a verified fixture session");
+  const transferIds: string[] = [];
+  let cursor: string | null = "initial";
+  while (cursor !== null) {
+    const body = activityPage(data, cursor, to);
+    const page = parseActivityPage(body, session, to);
+    transferIds.push(...page.transfers.map((transfer) => transfer.id));
+    cursor = page.nextCursor;
+  }
+  expect(transferIds).toHaveLength(270);
+  expect(transferIds).toEqual(data.transfers.map((transfer) => transfer.id));
 });
 
 test("fixture glob routing distinguishes exact path and query and preserves ordered overrides", () => {
@@ -35,7 +72,7 @@ test("fixture glob routing distinguishes exact path and query and preserves orde
 
 test("proxy serves deterministic synthetic history accepted by the client parser for every range and asset", async () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z");
-  const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: tmpdir() }, "harness", () => anchor + 120_000);
+  const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: tmpdir() }, "harness", "toolkit", () => anchor + 120_000);
   for (const assetId of ["cbbtc", "eth", "base:0x1111111111111111111111111111111111111111"]) {
     for (const range of MARKET_PRICE_RANGES) {
       const url = `http://localhost/api/market-prices/history?${new URLSearchParams({ assetId, range })}`;
@@ -70,7 +107,7 @@ test("proxy validates writes, sanitizes filename, caps body and refuses reposito
     await expect(assertOutsideWorktree(resolve(import.meta.dir))).rejects.toThrow("outside");
     await assertOutsideWorktree(dir);
     expect(() => proxyOptions(new Map([["upstream", "https://example.com"]]))).toThrow("loopback");
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", () => 123456);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", "toolkit", () => 123456);
     const run = await handler(new Request("http://localhost/__device-profile/run?workload=home-fling&rows=20&label=test"));
     expect(run.headers.get("set-cookie")).toContain("home-device-profile-rows=20");
     const body = await run.text();
@@ -105,17 +142,100 @@ test("proxy validates writes, sanitizes filename, caps body and refuses reposito
   }
 });
 
-test("status reports the output directory only to a loopback client", async () => {
+test("proxy reuse requires the current toolkit", () => {
+  const toolkit = "a".repeat(64);
+  expect(() => assertProxyToolkit({ toolkit, files: [] }, toolkit, 4199)).not.toThrow();
+  const mismatch = "The device-profile proxy on port 4299 was started from a different checkout or build; stop the proxy you started there, or pass --port";
+  for (const status of [{ toolkit: "b".repeat(64) }, { files: [] }, { toolkit: null }]) expect(() => assertProxyToolkit(status, toolkit, 4299)).toThrow(mismatch);
+  for (const status of [null, undefined, [], "not JSON", 200]) expect(() => assertProxyToolkit(status, toolkit, 4299)).toThrow("The service on port 4299 isn't a current device-profile proxy");
+});
+
+function listeningPort(port: number | undefined): number {
+  expect(port).toBeDefined();
+  if (port === undefined) throw new Error("Expected a listening server port");
+  return port;
+}
+
+test("proxy probe reuses a matching toolkit", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ toolkit: "current", files: [] }) });
+  try {
+    expect(await probeProxy(listeningPort(server.port), "current", 200)).toBe("reuse");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe rejects a mismatched toolkit", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ toolkit: "other", files: [] }) });
+  try {
+    await expect(probeProxy(listeningPort(server.port), "current", 200)).rejects.toThrow("different checkout or build");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe rejects a non-JSON successful response", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("not JSON") });
+  try {
+    await expect(probeProxy(listeningPort(server.port), "current", 200)).rejects.toThrow("isn't a current device-profile proxy");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe treats an unavailable service as absent", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("unavailable", { status: 503 }) });
+  try {
+    expect(await probeProxy(listeningPort(server.port), "current", 200)).toBe("absent");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe treats a closed port as absent", async () => {
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  try {
+    const port = listeningPort(server.port);
+    await server.stop(true);
+    expect(await probeProxy(port, "current", 200)).toBe("absent");
+  } finally { await server.stop(true); }
+});
+
+test("proxy probe reports a stalled successful body as a read failure, not a non-proxy", async () => {
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"toolkit":')); },
+    })),
+  });
+  try {
+    const error = await probeProxy(listeningPort(server.port), "current", 200).catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(String(error)).toContain(`Reading the device-profile proxy status on port ${server.port} failed:`);
+    expect(String(error)).not.toContain("isn't a current device-profile proxy");
+  } finally { await server.stop(true); }
+});
+
+test("toolkit fingerprint is a deterministic sha256 of the bundled toolkit", async () => {
+  const script = `import { buildToolkit } from ${JSON.stringify(resolve(import.meta.dir, "proxy.ts"))}; console.log(JSON.stringify([await buildToolkit(), await buildToolkit()]));`;
+  const child = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+  const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+  expect(stderr).toBe("");
+  expect(code).toBe(0);
+  const builds: unknown = JSON.parse(stdout);
+  if (!Array.isArray(builds)) throw new Error("Expected an array of toolkit builds");
+  const [first, second]: unknown[] = builds;
+  if (typeof first !== "object" || first === null || !("harness" in first) || !("toolkit" in first)) throw new Error("Expected a toolkit build");
+  if (typeof first.harness !== "string" || typeof first.toolkit !== "string") throw new Error("Expected string harness and toolkit fields");
+  expect(first.harness.length).toBeGreaterThan(0);
+  expect(first.toolkit).toMatch(/^[a-f0-9]{64}$/);
+  expect(second).toEqual(first);
+});
+
+test("status reports the toolkit to every client and the output directory only to loopback", async () => {
   const dir = join(tmpdir(), `home-profile-status-${crypto.randomUUID()}`);
   try {
     await assertOutsideWorktree(dir);
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", () => 99);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", "toolkit", () => 99);
     for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
-      expect(await handler(new Request("http://localhost/__device-profile/status"), address).then((response) => response.json())).toEqual({ outDir: dir, files: [] });
+      expect(await handler(new Request("http://localhost/__device-profile/status"), address).then((response) => response.json())).toEqual({ toolkit: "toolkit", outDir: dir, files: [] });
     }
     for (const address of ["192.168.1.20", "::ffff:192.168.1.20", "", null]) {
       const lan = await handler(new Request("http://localhost/__device-profile/status"), address).then((response) => response.json());
-      expect(lan).toEqual({ files: [] });
+      expect(lan).toEqual({ toolkit: "toolkit", files: [] });
       expect(JSON.stringify(lan)).not.toContain(dir);
     }
   } finally {
@@ -129,7 +249,7 @@ test("a proxy failure answers with a generic error instead of a rendered stack",
   const path = join(tmpdir(), `home-profile-failure-${crypto.randomUUID()}`);
   try {
     await Bun.write(path, "not a directory");
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: path }, "harness", () => 1);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: path }, "harness", "toolkit", () => 1);
     const response = await handler(new Request("http://localhost/__device-profile/status"), "192.168.1.20");
     expect(response.status).toBe(500);
     expect(await response.text()).toBe(JSON.stringify({ error: "Device profile proxy failed" }));
@@ -197,7 +317,7 @@ test("the proxy names a result with the same suffix its client waits for", async
   const dir = join(tmpdir(), `home-profile-label-${crypto.randomUUID()}`);
   try {
     await assertOutsideWorktree(dir);
-    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", () => 123456);
+    const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: dir }, "harness", "toolkit", () => 123456);
     for (const label of ["feature/foo-123", "../../workspace/home/profile-1", "label with spaces & punctuation", "l".repeat(90)]) {
       const plan = { workload: "home-fling" as const, rows: 20, repeat: 1, label, duration: 10 };
       const result: Result = { version: 1, plan, environment: { userAgent: "Chrome", viewport: { width: 412, height: 811 }, dpr: 2.625, standalone: false, navigatorStandalone: false, supportedEntryTypes: [] }, runs: [] };
@@ -240,6 +360,110 @@ test("loaded activity rows prefer a positive setsize then the highest position t
   expect(settledPages(11, 10, 1)).toBe(0);
   expect(partialFeedComplete(0, 5)).toBe(false);
   expect(partialFeedComplete(1, 2)).toBe(true);
+  expect(feedComplete({ pending: [], end: true, partialSourceCount: 0, settled: 0 })).toBe(true);
+  expect(feedComplete({ pending: ["orders"], end: true, partialSourceCount: 0, settled: 5 })).toBe(false);
+  expect(feedComplete({ pending: [], end: false, partialSourceCount: 1, settled: 2 })).toBe(true);
+  expect(feedComplete({ pending: [], end: false, partialSourceCount: 0, settled: 5 })).toBe(false);
+});
+
+test("detail targets select the nearest eligible row to the midpoint and skip grouped rows", () => {
+  const rows = [{ posinset: 1, detail: true }, { posinset: 4, detail: false }, { posinset: 5, detail: true }, { posinset: 7, detail: true }];
+  expect(detailTarget(rows, detailPosition(7))).toBe(5);
+  expect(detailTarget([{ posinset: 6, detail: true }, { posinset: 4, detail: true }], 5)).toBe(4);
+  expect(detailTarget([{ posinset: 4, detail: false }], 4)).toBeNull();
+  expect(detailTarget([], 4)).toBeNull();
+  const invalid = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1].map((posinset) => ({ posinset, detail: true }));
+  expect(detailTarget(invalid, 1)).toBeNull();
+  expect(detailTarget([...invalid, { posinset: 3, detail: true }], 1)).toBe(3);
+});
+
+test("feed changes after the fill mark the measured run partial", () => {
+  expect(feedChangeMarker(20, 20)).toBeNull();
+  expect(feedChangeMarker(20, 24)).toBe("The measured activity feed changed during the run (20 to 24 rows)");
+});
+
+test("sources still loading when the run ends mark the measured run partial", () => {
+  expect(unsettledMarker([])).toBeNull();
+  expect(unsettledMarker(["orders"])).toBe("The activity feed was still loading when the run ended (orders)");
+});
+
+test("the post-run quiet period finalizes clean only after an unchanged, settled feed", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: 1, pending: [], markers: [] }),
+  });
+  expect(markers).toEqual([]);
+  expect(now).toBeGreaterThanOrEqual(500);
+});
+
+test("a feed change that lands after the run marks the run partial", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: now >= 160 ? 2 : 1, pending: [], markers: [] }),
+  });
+  expect(markers).toEqual(["The measured activity feed changed during the run (1 to 2 rows)"]);
+  expect(now).toBe(160);
+});
+
+test("a source that starts loading after the run marks the run partial", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: 1, pending: now >= 160 ? ["transfers"] : [], markers: [] }),
+  });
+  expect(markers).toEqual(["The activity feed was still loading when the run ended (transfers)"]);
+  expect(now).toBe(160);
+});
+
+test("a readiness problem that appears after the run marks the run partial", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: 1, pending: [], markers: now >= 160 ? ["Activity source orders reported error"] : [] }),
+  });
+  expect(markers).toEqual(["Activity source orders reported error"]);
+  expect(now).toBe(160);
+});
+
+test("a dirty post-run sample keeps every observed marker", async () => {
+  let now = 0;
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    quietMs: 500,
+    now: () => now,
+    frame: async () => { now += 16; },
+    sample: () => ({ rows: now >= 160 ? 2 : 1, pending: now >= 160 ? ["transfers"] : [], markers: now >= 160 ? ["Activity source orders reported error"] : [] }),
+  });
+  expect(markers).toEqual([
+    "The measured activity feed changed during the run (1 to 2 rows)",
+    "The activity feed was still loading when the run ended (transfers)",
+    "Activity source orders reported error",
+  ]);
+});
+
+test("a source still loading when the measurement ends marks the run partial", async () => {
+  const markers = await waitForQuietFeed({
+    rows: 1,
+    pending: ["orders"],
+    quietMs: 0,
+    frame: async () => {},
+    sample: () => ({ rows: 1, pending: [], markers: [] }),
+  });
+  expect(markers).toEqual(["The activity feed was still loading when the run ended (orders)"]);
 });
 
 test("production all runs each fling once using the plan placeholder while the fixture matrix keeps 11 entries", () => {
@@ -260,6 +484,7 @@ test("command flags reject unsupported options and ignored production flags", ()
   expect(parseArgs("android", ["--serial", "device", "--url", "https://x", "--trace", "/tmp/traces"])).toEqual({ flags: new Map([["serial", "device"], ["url", "https://x"], ["trace", "/tmp/traces"]]), paths: [] });
   expect(parseArgs("serve", ["--port", "4199", "--rows", "20"])).toEqual({ flags: new Map([["port", "4199"], ["rows", "20"]]), paths: [] });
   expect(parseArgs("summarize", ["one.json", "--markdown", "two.json"])).toEqual({ flags: new Map([["markdown", "true"]]), paths: ["one.json", "two.json"] });
+  expect(parseArgs("summarize", ["--include-partial", "one.json"])).toEqual({ flags: new Map([["include-partial", "true"]]), paths: ["one.json"] });
 });
 
 test("summary distinguishes measured production rows from fixture plan rows", () => {
@@ -271,7 +496,8 @@ test("summary distinguishes measured production rows from fixture plan rows", ()
   expect(summarize([result])).toContain("Chrome | activity-detail-open | 300 |");
   result.runs[0]!.partialSource = ["Onchain transfers are unavailable."];
   expect(summarize([result], true)).toContain("| Onchain transfers are unavailable. |");
-  expect(summarize([result], true)).toContain("| 300 | 16.67 | 0 | 0 | 17 | — | — | 0 | Onchain transfers are unavailable. |");
+  expect(summarize([result], true)).toContain("| excluded 1/1 partial |");
+  expect(summarize([result], true, true)).toContain("| 300 | — | 16.67 | 0 | 0 | 17 | — | — | 0 | Onchain transfers are unavailable. |");
 });
 
 test("summary computes percentiles, median, trace totals and replaceState count", () => {
@@ -279,14 +505,71 @@ test("summary computes percentiles, median, trace totals and replaceState count"
   expect(percentile([10, 40, 20, 30], 0.95)).toBe(40);
   expect(safeName("../../unsafe")).toBe("______unsafe");
   const result = { environment: { userAgent: "Safari", fixture: { tokenImages: "omitted" } }, plan: { workload: "replace-state-probe", rows: 20 }, runs: [{ periodMs: 16.67, missedDeadlinePct: 5, longFrameCount: 1, frameMs: { p95: 20 }, feedbackMs: [5, 10, 20], replaceState: [{ errors: [{ name: "SecurityError", message: "limited" }] }] }] } as Result;
-  expect(summarize([result], true)).toContain("| Safari | replace-state-probe | 20 | 16.67 | 5 | 1 | 20 | 10 | — | 1 | — |");
+  expect(summarize([result], true)).toContain("| Safari | replace-state-probe | 20 | — | 16.67 | 5 | 1 | 20 | 10 | — | 1 | — |");
   const fling = { environment: { userAgent: "Chrome", fixture: { tokenImages: "omitted" } }, plan: { workload: "home-fling", rows: 20 }, runs: [{ periodMs: 16.67, missedDeadlinePct: 0, longFrameCount: 0, frameMs: { p95: 17 }, feedbackMs: [] as number[] }] } as Result;
-  expect(summarize([fling], true)).toContain("| Chrome | home-fling | 20 | 16.67 | 0 | 0 | 17 | — | — | 0 | — |");
+  expect(summarize([fling], true)).toContain("| Chrome | home-fling | 20 | — | 16.67 | 0 | 0 | 17 | — | — | 0 | — |");
   const table = summarize([fling], true).split("\n");
   const cells = (line: string) => line.split("|").length;
-  expect(cells(table[0]!)).toBe(14);
+  expect(cells(table[0]!)).toBe(15);
   expect(cells(table[1]!)).toBe(cells(table[0]!));
   expect(cells(table[2]!)).toBe(cells(table[0]!));
+});
+
+test("summary excludes partial measurements by default and includes them on request", () => {
+  const run = runFor({ periodMs: 16.67, missedDeadlinePct: 9, longFrameCount: 2, frameMs: { p50: 16, p95: 40, p99: 50, max: 60 }, rowsLoaded: 151, groupedRows: 2, underlyingRows: 153, partial: true, partialSource: ["Activity source orders reported error"] });
+  const result = resultFor([run], { plan: { workload: "activity-fling", rows: 300, label: "test", repeat: 1, duration: 10 } });
+  const excluded = summarize([result], true).split("\n"), included = summarize([result], true, true).split("\n");
+  expect(excluded).toHaveLength(3);
+  expect(excluded.at(-1)).toBe("| Chrome | activity-fling | — | — | — | — | — | — | — | — | — | Activity source orders reported error | excluded 1/1 partial |");
+  expect(included).toHaveLength(3);
+  expect(included.at(-1)).toBe("| Chrome | activity-fling | 151 | 2/153 | 16.67 | 9 | 2 | 40 | — | — | 0 | Activity source orders reported error | ok 1/1 |");
+  expect(included.at(0)).toContain("| Rows | Grouped/underlying | Period ms |");
+  for (const table of [excluded, included]) for (const line of table) expect(line.split("|")).toHaveLength(15);
+  expect(runPartial(run)).toBe(true);
+  run.partial = undefined;
+  expect(runPartial(run)).toBe(true);
+  expect(summarize([result])).toContain("excluded 1/1 partial");
+  run.partialSource = undefined;
+  expect(runPartial(run)).toBe(false);
+  run.partial = true;
+  expect(summarize([result])).toContain("| — | excluded 1/1 partial");
+});
+
+test("summary preserves failures and incomplete results when every run is excluded as partial", () => {
+  const run = runFor({ partial: true, partialSource: ["Orders unavailable"] });
+  const cases: [Partial<Result>, string][] = [
+    [{ error: "Timed out | waiting\nfor rows" }, "failed 1/3: Timed out waiting for rows"],
+    [{}, "incomplete 1/3"],
+  ];
+  for (const [overrides, status] of cases) {
+    const result = resultFor([run], { plan: { workload: "activity-fling", rows: 300, label: "test", repeat: 3, duration: 10 }, ...overrides });
+    const summary = summarize([result]);
+    expect(summary.split("\n")).toHaveLength(2);
+    expect(summary).toContain(`excluded 1/3 partial; ${status}`);
+    const markdown = summarize([result], true).split("\n");
+    expect(markdown).toHaveLength(3);
+    expect(markdown.at(-1)).toEndWith(`| Orders unavailable | excluded 1/3 partial; ${status} |`);
+    for (const line of markdown) expect(line.split("|")).toHaveLength(15);
+  }
+});
+
+test("summary aggregates unique partial sources after measured rows with consistent cells", () => {
+  const plain = runFor();
+  const run = runFor({ partialSource: ["Orders unavailable", "Transfers unavailable"] });
+  const partial = runFor({ partial: true, partialSource: ["Orders unavailable"] });
+  const result = resultFor([run, plain, partial], { plan: { workload: "activity-fling", rows: 300, label: "test", repeat: 3, duration: 10 } });
+  const table = summarize([result], true).split("\n");
+  expect(table).toHaveLength(4);
+  expect(table.at(2)).toContain("| — | — | 16.67 | 0 | 0 | 17 | — | — | 0 | — | ok 3/3 |");
+  expect(table.at(-1)).toEndWith("| Orders unavailable; Transfers unavailable | excluded 2/3 partial |");
+  for (const line of table) expect(line.split("|")).toHaveLength(15);
+  const included = summarize([result], true, true).split("\n");
+  expect(included).toHaveLength(5);
+  expect(included.some((line) => line.includes("excluded"))).toBe(false);
+  for (const line of included) expect(line.split("|")).toHaveLength(15);
+  const marker = "The activity feed has a grouped run whose transfer count could not be read";
+  run.partialSource = [marker, "Orders unavailable"];
+  expect(summarize([result], true)).toContain("| The activity feed has a grouped run whose transfer count could not be read; Orde | excluded 2/3 partial |");
 });
 
 test("summary surfaces failed and incomplete results with completed repeat counts", () => {
@@ -295,7 +578,7 @@ test("summary surfaces failed and incomplete results with completed repeat count
   const failed = { ...base, runs: [], error: "Timed out | waiting\nfor rows" } as unknown as Result;
   const table = summarize([failed], true).split("\n");
   expect(table).toHaveLength(3);
-  expect(table[2]).toBe("| Safari | home-fling | 20 | — | — | — | — | — | — | — | — | failed 0/3: Timed out waiting for rows |");
+  expect(table[2]).toBe("| Safari | home-fling | 20 | — | — | — | — | — | — | — | — | — | failed 0/3: Timed out waiting for rows |");
   expect(table[2]!.split("|").length).toBe(table[0]!.split("|").length);
   const partial = { ...base, runs: [run], error: "Frame budget lost" } as unknown as Result;
   expect(summarize([partial])).toContain("| failed 1/3: Frame budget lost");
@@ -408,6 +691,11 @@ test("saved results must carry every field the summary reads", () => {
   expect(validResult({ ...result, runs: [missingFrames] })).toBe(false);
   expect(validResult({ ...result, runs: [{ ...run, replaceState: [{}] }] })).toBe(false);
   expect(validResult({ ...result, runs: [{ ...run, partialSource: [1] }] })).toBe(false);
+  expect(validResult({ ...result, runs: [{ ...run, partial: true, groupedRows: 2, underlyingRows: 153 }] })).toBe(true);
+  expect(validResult({ ...result, runs: [{ ...run, partial: false }] })).toBe(true);
+  expect(validResult({ ...result, runs: [{ ...run, partial: "true" }] })).toBe(false);
+  expect(validResult({ ...result, runs: [{ ...run, groupedRows: "2" }] })).toBe(false);
+  expect(validResult({ ...result, runs: [{ ...run, underlyingRows: "153" }] })).toBe(false);
   expect(validResult({ ...result, runs: [null] })).toBe(false);
   expect(validResult({ ...result, traceError: 3 })).toBe(false);
   expect(validResult({ ...result, runs: [{ ...run, trace: { scriptMs: 5, styleMs: 1, layoutMs: 2, paintMs: 3 } }] })).toBe(true);

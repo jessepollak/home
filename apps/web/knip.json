@@ -43,6 +43,8 @@
     "server/customers/record-ids-backfill-command.ts!",
     "server/funding/core/user-token-rotation.ts!",
     "live-login.ts!",
+    // Fixture server lifecycle CLI is run directly by its package script.
+    "scripts/fixture-server.ts!",
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
     "scripts/review-links.ts!",
@@ -68,10 +70,13 @@
     "**/*.stories.fixture.ts",
     // Test-only harnesses are excluded rather than treated as production roots.
     "tests/**",
+    "oxlint/tests/**",
     "scripts/unit-tests-fixture.ts",
     "server/funding/core/testing/**",
     "client/account/dom-test-harness.ts",
     "shared/balances/fixtures.ts",
+    // Currency-registry drift validator: the CI drift test is its only consumer and it ships no runtime behavior (#1495).
+    "shared/currencies/drift.ts",
     // Deferred to #594: root layout will consume the brand resolver.
     "server/operator-settings/brand.ts",
     // Deferred to #686: home and activity surfaces still carry exports that

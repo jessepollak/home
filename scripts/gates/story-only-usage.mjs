@@ -84,6 +84,7 @@ export function evaluateStoryOnlyUsage(files) {
       }
       const variantFns = user === file ? new Set([...exported].filter((name) => name.endsWith("Variants"))) : new Set();
       for (const binding of bindings.get(user) ?? []) if (binding.target === file) {
+        if (binding.typeOnly) continue;
         if (binding.imported === "*" && binding.local !== "*") continue;
         if (binding.imported === "*" || binding.imported === "default" || /^[A-Z]/.test(binding.imported)) local.add(binding.local);
         if (binding.imported.endsWith("Variants")) variantFns.add(binding.local);

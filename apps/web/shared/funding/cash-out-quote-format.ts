@@ -11,7 +11,7 @@ function isIsoCurrency(code: string): boolean {
 }
 
 function formatCashoutAmount(amount: string, currency: string): string {
-  if (isIsoCurrency(currency)) return formatFiatAmount(amount, currency);
+  if (isIsoCurrency(currency)) return formatFiatAmount(amount, currency, { currencyNative: true });
   const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(amount);
   if (!match) return "—";
   const fraction = (match[2] ?? "").padEnd(6, "0");

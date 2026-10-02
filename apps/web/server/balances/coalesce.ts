@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
+import { registryHoldingsMatchExpectations } from "@/shared/balances/registry-expectations";
 import type { RegionId } from "@/config/regions";
 import {
   BALANCES_CHAIN_ID,
@@ -17,7 +18,7 @@ import { borrowReadCurrent, carryForwardBorrow, readBorrowPositions as defaultRe
 import { readBalances as defaultReadBalances } from "./read";
 import { resolveBalances as defaultResolveBalances } from "./resolve";
 import { assembleBalancesSnapshot } from "./snapshot";
-import { emitServerEvent, writeObservabilityEvent } from "@/server/observability/log";
+import { emitServerEvent, observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type {
   BalancesReadDurations,
   BalancesReadIncomplete,
@@ -62,6 +63,7 @@ type Dependencies = {
     read: BalancesRead,
     region: RegionId,
     mode: ValuationMode,
+    signal?: AbortSignal,
   ) => Promise<PriceBalancesResult>;
   now?: () => Date;
   nowMs?: () => number;
@@ -69,6 +71,7 @@ type Dependencies = {
   borrowRetryMs?: number;
   log?: (event: ObservabilityEvent) => unknown;
   schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
+  registryHoldingsMatch?: typeof registryHoldingsMatchExpectations;
 };
 
 type ObservedResult = {
@@ -77,7 +80,7 @@ type ObservedResult = {
   outcome: Exclude<BalancesReadOutcome, "error">;
   durationMs: Omit<
     BalancesReadDurations,
-    "price" | "valuation-store" | "codex" | "coinbase" | "total"
+    "price" | "pricing-index" | "pricing-compute" | "valuation-store" | "codex" | "coinbase" | "total"
   >;
 };
 
@@ -96,6 +99,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   const backstopMs = dependencies.backstopMs ?? BALANCES_BACKSTOP_MS;
   const borrowRetryMs = dependencies.borrowRetryMs ?? BALANCES_BORROW_RETRY_MS;
   const log = dependencies.log ?? writeObservabilityEvent;
+  const registryHoldingsMatch = dependencies.registryHoldingsMatch ?? registryHoldingsMatchExpectations;
   const schedule = dependencies.schedule ?? ((task) => {
     void (typeof task === "function" ? task() : task);
   });
@@ -131,8 +135,9 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
     const degraded = row !== null && needsFullObservation(readFromRow(row), current, borrowRetryMs);
     const required = signaled || expired || degraded;
+    const registryChanged = row !== null && !hot && !registryHoldingsMatch(row.holdings);
 
-    if (row && !hot) {
+    if (row && !hot && !registryChanged) {
       if (required) scheduleRevalidation(owner, row, "background-full");
       else if (row.enumerationCursor) scheduleRevalidation(owner, row, "background-resume");
       return {
@@ -149,17 +154,18 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         ? await observeRegistryOnly(owner, row!, durationMs)
         : await observeFull(owner, row, durationMs);
       const winner = await persistObserved(owner, observed, durationMs);
+      const currentWinner = winner && registryHoldingsMatch(winner.holdings) ? winner : null;
       const refresh = registryOnly &&
         (signaled || expired || needsFullObservation(observed, current, borrowRetryMs));
       if (refresh) scheduleRevalidation(owner, row!, "background-full");
       return {
-        read: winner ?? observed,
+        read: currentWinner ?? observed,
         stale: refresh,
         outcome: registryOnly ? "registry-only" : "full",
         durationMs,
       };
     } catch (error) {
-      if (!row) throw error;
+      if (!row || registryChanged || !registryHoldingsMatch(row.holdings)) throw error;
       if (required) scheduleRevalidation(owner, row, "background-full");
       return {
         read: readFromRow(row),
@@ -211,7 +217,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
           coinbase: 0,
           total: Math.max(0, nowMs() - startedAt),
         }, observed.coverage);
-      } catch { // oxlint-disable-line home/no-silent-catch -- the background failure is reported through emitBalancesRead, which isolates the balances log sink
+      } catch {
         emitBalancesRead(log, "background-error", {
           ...durationMs,
           price: 0,
@@ -278,13 +284,14 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     const borrow = await readBorrow(owner, registryRead.block);
     const withEnrichment = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, unavailableEnumeration()));
+    const registryKeys = new Set(withEnrichment.holdings.filter((holding) => holding.source === "registry").map((holding) => holding.key));
     return {
       ...withEnrichment,
       borrow: carryForwardBorrow(borrow, row.borrow, registryRead.block.number),
       observedAt: row.observedAt,
       holdings: [
         ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
-        ...row.holdings.filter((holding) => holding.source !== "registry"),
+        ...row.holdings.filter((holding) => holding.source !== "registry" && !registryKeys.has(holding.key)),
       ],
       coverage: {
         registry: withEnrichment.coverage.registry,
@@ -299,7 +306,6 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     region: RegionId,
     signal?: AbortSignal,
   ): Promise<BalancesSnapshot> {
-    void signal;
     const startedAt = nowMs();
     let coverage: Extract<ObservabilityEvent, { kind: "balances-read" }>["coverage"] = {
       registry: "unknown",
@@ -313,6 +319,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         observed.read,
         region,
         observed.outcome === "full" ? "bootstrap" : "cached",
+        signal,
       );
       const priceDuration = Math.max(0, nowMs() - priceStartedAt);
       const snapshot = assembleBalancesSnapshot({
@@ -327,6 +334,8 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         ...observed.durationMs,
         price: priceDuration,
         "valuation-store": priced.durationMs.store,
+        "pricing-index": priced.durationMs.index,
+        "pricing-compute": priced.durationMs.compute,
         codex: priced.durationMs.codex,
         coinbase: priced.durationMs.coinbase,
         total: Math.max(0, nowMs() - startedAt),
@@ -445,17 +454,14 @@ function emitBalancesRead(
   coverage: Extract<ObservabilityEvent, { kind: "balances-read" }>["coverage"],
   snapshot?: BalancesSnapshot,
 ): void {
-  try {
-    log({
-      kind: "balances-read",
-      route: "/api/balances",
-      outcome,
-      durationMs,
-      coverage,
-      incomplete: snapshot ? countIncomplete(snapshot) : emptyIncomplete(),
-    });
-  } catch { // oxlint-disable-line home/no-silent-catch -- the balances log sink is isolated so observability cannot change the read result
-  }
+  observeSafely(() => log({
+    kind: "balances-read",
+    route: "/api/balances",
+    outcome,
+    durationMs,
+    coverage,
+    incomplete: snapshot ? countIncomplete(snapshot) : emptyIncomplete(),
+  }));
 }
 
 function emptyIncomplete(): BalancesReadIncomplete {

@@ -1,25 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } from "react";
 import { readClientHistoryFlag } from "@/config/shell-location";
 import {
   isServerVerified,
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
-import { useBalances } from "@/client/balances";
+import { OwnerBoundary } from "@/client/account/owner-boundary";
+import { savingsGrowthOwnerKey, uiBoundary } from "@/client/account/owner-keys";
+import { useBalancesData } from "@/client/balances";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
-import { fetchRecentActions, recentActionsQueryOptions, refetchFailedRecentActions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
-import { isRecentActionsResponse, parseRecentMoneyActions } from "@/shared/actions/contracts/list";
+import { recentActionsPath, recentActionsQuery, refetchFailedRecentActions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
+import type { RecentMoneyActionOperation, UnparsedSavingsDeposit } from "@/shared/actions/contracts/list";
 import { readSavingsPreparedReview } from "@/shared/savings/review";
-import { ownerQueryKey, ownerQueryMeta, useHomeQuery } from "@/client/query/query-client";
+import { useHomeQuery } from "@/client/query/query-client";
 import { preloadAddMoneySheet } from "@/client/funding/funding-experience";
 import { prefetchAddMoneyMethods } from "@/client/funding/funding-prefetch";
 import { browserHomeQueryClient, getHomeQueryClient, useHomeQueryClient } from "@/client/query/query-client";
+import { queryViewState } from "@/client/query/query-view-state";
 import { useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
-import { SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry } from "@/client/savings/savings-actions";
+import { preloadSavingsJourneyStep, SavingsJourney, type SavingsActionMode, type SavingsJourneyEntry, type SavingsJourneyProps } from "@/client/savings/savings-actions";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetIntent, moneySheetLoading } from "@/client/money-modal";
 import { invalidateAfterAction } from "@/client/query/after-action";
@@ -33,7 +36,7 @@ import { savingsTeaserApyLabel } from "@/client/savings/savings-teaser-apy";
 import { useSavingsVaults } from "@/client/savings/use-savings-vaults";
 import { useNow } from "@/client/time/use-now";
 import type { SavingsGrowthAuthority } from "@/client/savings/use-estimated-growth";
-import { selectVaultPositions } from "@/shared/balances/select";
+import { useVaultPositions } from "@/client/balances/vault-positions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
 import type { CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
@@ -55,9 +58,39 @@ import { TransferExecutionError } from "@/shared/transfers/types";
 import { CashOverview, SavingsDetail } from "./cash-overview";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 import { savingsManagement, type SavingsManagement } from "./savings-management";
+import { useProductOffering } from "@/client/home/product-offering";
+import { depositOffered } from "./save-offering";
 
 const SAVINGS_JOURNEY_TITLE_ID = "savings-journey-title";
-const noDeadline = () => null;
+
+function StagedSavingsJourney(props: SavingsJourneyProps) {
+  const [stage] = useState(() => {
+    let ready = false;
+    let frame: number | undefined;
+    const listeners = new Set<() => void>();
+    return {
+      subscribe(listener: () => void) {
+        listeners.add(listener);
+        if (!ready && frame === undefined) frame = requestAnimationFrame(() => {
+          ready = true;
+          frame = undefined;
+          listeners.forEach((notify) => notify());
+        });
+        return () => {
+          listeners.delete(listener);
+          if (listeners.size === 0 && frame !== undefined) {
+            cancelAnimationFrame(frame);
+            frame = undefined;
+          }
+        };
+      },
+      getSnapshot: () => ready,
+      getServerSnapshot: () => false,
+    };
+  });
+  const entered = useSyncExternalStore(stage.subscribe, stage.getSnapshot, stage.getServerSnapshot);
+  return <SavingsJourney {...props} open={props.open && entered} />;
+}
 
 const CashCurrencySheet = deferSheet(() => import("./cash-currency-sheet").then((module) => module.CashCurrencySheet),
   (props) => moneySheetLoading({
@@ -69,7 +102,7 @@ const CashCurrencySheet = deferSheet(() => import("./cash-currency-sheet").then(
   }));
 type View = "cash" | "savings";
 type Mode = SavingsActionMode;
-type PendingFirstDeposit = { account: string; action: PreparedMoneyAction; submission: "submitted" | "ambiguous" };
+type PendingLocalDeposit = { account: string; action: PreparedMoneyAction; submission: "submitted" | "ambiguous" };
 
 type ScopedSavingsDeposit = {
   action: PreparedMoneyAction;
@@ -84,15 +117,10 @@ function isUsdcAmount(amount: unknown): amount is { symbol: string; amountBaseUn
     typeof amount.amountBaseUnits === "string";
 }
 
-function scopedSavingsDeposits(value: unknown, session: VerifiedAccountSession | null): ScopedSavingsDeposit[] {
-  if (!session?.smartAccount || !isRecentActionsResponse(value)) return [];
-  const scoped = value.actions.filter((item) => {
-    if (!item || typeof item !== "object" || !("owner" in item)) return false;
-    const owner = item.owner;
-    return owner && typeof owner === "object" && "chainId" in owner && owner.chainId === session.smartAccount?.chainId;
-  });
+function scopedSavingsDeposits(operations: RecentMoneyActionOperation[] | undefined, session: VerifiedAccountSession | null): ScopedSavingsDeposit[] {
+  if (!session?.smartAccount || !operations) return [];
   const deposits: ScopedSavingsDeposit[] = [];
-  for (const row of parseRecentMoneyActions({ actions: scoped }, session)) {
+  for (const row of operations) {
     if (row.action.kind !== "savings-deposit") continue;
     deposits.push({
       action: { ...row.action, calls: [], owner: {
@@ -106,53 +134,16 @@ function scopedSavingsDeposits(value: unknown, session: VerifiedAccountSession |
   return deposits;
 }
 
-function isOwnedSavingsDeposit(item: unknown, session: VerifiedAccountSession): boolean {
-  if (!isRecord(item) || item.kind !== "savings-deposit") return false;
-  const owner = item.owner;
-  if (!isRecord(owner)) return false;
-  return owner.subject === session.user.subject &&
-    owner.accountProvider === session.accountProvider &&
-    typeof owner.address === "string" &&
-    owner.address.toLowerCase() === session.smartAccount?.address.toLowerCase() &&
-    owner.chainId === session.smartAccount?.chainId;
-}
-
-function unparsedSavingsDepositBlocker(
-  value: unknown,
-  session: VerifiedAccountSession | null,
-  snapshot: BalancesSnapshot | null,
-): boolean {
-  if (!session?.smartAccount || !isRecentActionsResponse(value)) return false;
-  const parsedIds = new Set(
-    parseRecentMoneyActions(value, session)
-      .filter((row) => row.action.kind === "savings-deposit")
-      .map((row) => row.action.id),
-  );
-  return value.actions.some((item) => {
-    if (!isOwnedSavingsDeposit(item, session) || !isRecord(item)) return false;
-    if (typeof item.id === "string" && parsedIds.has(item.id)) return false;
-    if (item.status === "failed") return false;
-    const summary = item.summary;
-    return !(item.status === "confirmed" &&
-      balancePostdatesReceipt(
-        typeof item.settledAt === "string" ? item.settledAt : undefined,
-        savingsVaultAddressFromMetadata(isRecord(summary) ? summary.metadata : undefined),
-        snapshot,
-      ));
-  });
-}
-
-function savingsVaultAddressFromMetadata(metadata: unknown): string | null {
-  if (!isRecord(metadata)) return null;
-  return metadata.product === "savings" && metadata.operation === "deposit" && typeof metadata.vaultAddress === "string"
-    ? metadata.vaultAddress
-    : null;
+function unparsedSavingsDepositBlocker(stubs: UnparsedSavingsDeposit[] | undefined, snapshot: BalancesSnapshot | null): boolean {
+  return stubs?.some((stub) => stub.status !== "failed" &&
+    !(stub.status === "confirmed" && balancePostdatesReceipt(stub.settledAt, stub.vaultAddress, snapshot))) ?? false;
 }
 
 function savingsDepositVaultAddress(deposit: ScopedSavingsDeposit): string | null {
   const review = readSavingsPreparedReview(deposit.action);
   if (review) return review.vaultAddress;
-  return savingsVaultAddressFromMetadata(deposit.action.metadata);
+  const metadata = deposit.action.metadata;
+  return metadata?.product === "savings" && metadata.operation === "deposit" ? metadata.vaultAddress : null;
 }
 
 function balancePostdatesReceipt(settledAt: string | undefined, vaultAddress: string | null, snapshot: BalancesSnapshot | null): boolean {
@@ -213,16 +204,18 @@ function groupPendingSavingsDeposits(actions: PreparedMoneyAction[]) {
   return [...byVault.values()];
 }
 
-function pendingSavingsDeposits(value: unknown, session: VerifiedAccountSession | null, local: PreparedMoneyAction | null, snapshot: BalancesSnapshot | null) {
+function pendingSavingsDeposits(operations: RecentMoneyActionOperation[] | undefined, session: VerifiedAccountSession | null, local: PreparedMoneyAction[], snapshot: BalancesSnapshot | null) {
   const byId = new Map<string, PreparedMoneyAction>();
-  const server = scopedSavingsDeposits(value, session);
+  const server = scopedSavingsDeposits(operations, session);
   for (const action of inFlightSavingsDepositActions(server, snapshot)) byId.set(action.id, action);
-  if (local && !server.some((deposit) => deposit.action.id === local.id)) byId.set(local.id, local);
+  for (const action of local) {
+    if (!server.some((deposit) => deposit.action.id === action.id)) byId.set(action.id, action);
+  }
   return groupPendingSavingsDeposits([...byId.values()]);
 }
 
-function PendingFirstDepositWatcher({ pending, fetchAccountResource, onFailed }: {
-  pending: PendingFirstDeposit;
+function PendingLocalDepositWatcher({ pending, fetchAccountResource, onFailed }: {
+  pending: PendingLocalDeposit;
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   onFailed: (actionId: string) => void;
 }) {
@@ -230,7 +223,7 @@ function PendingFirstDepositWatcher({ pending, fetchAccountResource, onFailed }:
     action: pending.action,
     submission: pending.submission,
     fetchOperations: (signal) => fetchAccountResource
-      ? fetchAccountResource("/api/actions", { signal })
+      ? fetchAccountResource(recentActionsPath, { signal })
       : Promise.reject(new Error("Actions unavailable")),
   });
   useEffect(() => {
@@ -283,9 +276,10 @@ export type CashExperienceProps = {
   snapshot: BalancesSnapshot | null;
   balanceStatus: "ready" | "loading" | "failed";
   balanceStale?: boolean;
+  balanceActionStale?: boolean;
   pendingCashout?: PendingCashoutEstimate;
   onRetryBalances?: () => void;
-  onAddMoney: (options?: { replaceFlow?: boolean }) => void;
+  onAddMoney: (options?: { replaceFlow?: boolean; opener?: HTMLElement | null }) => void;
   onAddMoneyIntent?: () => void;
   fetchVaults?: (signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
@@ -295,6 +289,7 @@ export type CashExperienceProps = {
   ) => Promise<PreparedMoneyAction>;
   executeMoneyAction: (action: PreparedMoneyAction) => Promise<OperationResult>;
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
+  routeReady?: boolean;
 };
 
 export function CashExperience({
@@ -304,6 +299,7 @@ export function CashExperience({
   snapshot,
   balanceStatus,
   balanceStale = false,
+  balanceActionStale = false,
   pendingCashout = null,
   onRetryBalances,
   onAddMoney,
@@ -313,9 +309,11 @@ export function CashExperience({
   prepareMoneyAction,
   executeMoneyAction,
   fetchAccountResource,
+  routeReady = true,
 }: CashExperienceProps) {
   const routing = useOptionalHomeShellRouting();
-  const ownerIdentity = session ? `${session.user.subject}:${session.smartAccount?.address.toLowerCase() ?? ""}:${session.accountProvider}` : "signed-out";
+  const region = usePresentationRegionId();
+  const offering = useProductOffering();
   const query = useSavingsVaults({ fetchVaults });
   const metadata = query.data ?? null;
   const nextDeadline = useCallback(
@@ -325,12 +323,10 @@ export function CashExperience({
     [metadata],
   );
   const rateNowMs = useNow(metadata, nextDeadline, now);
-  const vaultStatus = metadata ? "ready" : query.isError ? "failed" : "loading";
+  const vaultView = queryViewState(query, { hasCachedData: metadata !== null });
+  const vaultStatus = vaultView === "failed" ? "failed" : vaultView === "loading" ? "loading" : "ready";
   const liveSnapshot = balanceStatus === "failed" ? null : snapshot;
-  const positions = useMemo(
-    () => (liveSnapshot ? selectVaultPositions(liveSnapshot) : null),
-    [liveSnapshot]
-  );
+  const positions = useVaultPositions(liveSnapshot);
   const summary = useMemo(
     () =>
       metadata && positions
@@ -348,18 +344,19 @@ export function CashExperience({
   );
   const rateLabel = metadata
     ? savingsTeaserApyLabel({
+        regionId: region,
         summary,
+        offering,
         candidates: metadata.candidates,
         metadata,
         nowMs: rateNowMs,
       })
     : null;
-  const growthAuthority: SavingsGrowthAuthority | null =
-    liveSnapshot && session
+  const growthOwner = session?.user.subject ?? null;
+  const growthAuthority = useMemo<SavingsGrowthAuthority | null>(() =>
+    liveSnapshot && growthOwner !== null
       ? {
-          accountIdentity: `${
-            session.user.subject
-          }:${liveSnapshot.owner.address.toLowerCase()}`,
+          accountIdentity: savingsGrowthOwnerKey(growthOwner, liveSnapshot.owner.address),
           assetIdentity: `${BASE_USDC_ADDRESS.toLowerCase()}:8453:${BASE_USDC_DECIMALS}`,
           blockNumber: liveSnapshot.block.number,
           blockHash: liveSnapshot.block.hash,
@@ -368,21 +365,21 @@ export function CashExperience({
           registryCoverageComplete:
             liveSnapshot.coverage.registry === "complete",
         }
-      : null;
+      : null, [liveSnapshot, growthOwner, balanceStale]);
 
   const [localMode, setLocalMode] = useState<Mode | null>(null);
-  const [targetSelection, setTargetSelection] = useState<{ owner: string; candidate: MorphoVaultCandidate } | null>(null);
+  const [openMode, setOpenMode] = useState<Mode | null>(null);
+  const [target, setTargetSelection] = useState<MorphoVaultCandidate | null>(null);
   const [choosing, setChoosing] = useState(false);
-  const [firstUseHistoryFloor, setFirstUseHistoryFloor] = useState(0);
-  const hasHistorySource = fetchAccountResource !== undefined;
   const [confirmed, setConfirmed] = useState(false);
-  const [managementSelection, setManagementSelection] = useState<{ owner: string; address: string } | null>(null);
+  const [managementAddress, setManagementSelection] = useState<string | null>(null);
   const [entry, setEntry] = useState<SavingsJourneyEntry>("amount");
   const [closingManagement, setClosingManagement] = useState<SavingsManagement | null>(null);
   const [journeyGeneration, setJourneyGeneration] = useState(0);
   const latestJourneyGeneration = useRef(0);
-  const previousOwner = useRef(ownerIdentity);
   const opener = useRef<HTMLElement | null>(null);
+  const [savingsOpener, setSavingsOpener] = useState<HTMLElement | null>(null);
+  const [currencySessionOpener, setCurrencySessionOpener] = useState<HTMLElement | null>(null);
   const currencyOpener = useRef<HTMLElement | null>(null);
   const [currencyEntry, setCurrencyEntry] = useState<{ kind: "convert" | "currency"; source: CashConversionCurrencyCode } | null>(null);
   const [currencyOpen, setCurrencyOpen] = useState(false);
@@ -411,6 +408,7 @@ export function CashExperience({
   function openCurrency(kind: "convert" | "currency", source: CashConversionCurrencyCode, opener: HTMLElement) {
     if (!session?.smartAccount || !liveSnapshot || balanceStatus !== "ready") return;
     currencyOpener.current = opener;
+    setCurrencySessionOpener(opener);
     const owner = dataOwnerKey(session);
     if (!currencyUnresolved || currencyOwner !== owner || currencyEntry?.kind !== kind || currencyEntry.source !== source) {
       setCurrencyReset((key) => key + 1);
@@ -433,12 +431,12 @@ export function CashExperience({
   }
   const autoClosed = useRef<{ mode: Mode; target: MorphoVaultCandidate } | null>(null);
   const [autoClosedSelection, setAutoClosedSelection] = useState<{ mode: Mode; target: MorphoVaultCandidate } | null>(null);
-  const [routedJourney, setRoutedJourney] = useState<Mode | null>(null);
   const initialRoute = useRef(
     routing &&
-      view === "savings" &&
-      (routing.state.flow === "save-deposit" ||
-        routing.state.flow === "save-withdraw")
+    routeReady &&
+    view === "savings" &&
+    (routing.state.flow === "save-deposit" ||
+      routing.state.flow === "save-withdraw")
       ? routing.state.flow
       : null
   );
@@ -446,49 +444,50 @@ export function CashExperience({
   const previousView = useRef(view);
   const restoreSavingsFocus = useRef(false);
   const leavingForAddMoney = useRef(false);
-  const target = targetSelection?.owner === ownerIdentity ? targetSelection.candidate : null;
-  const managementAddress = managementSelection?.owner === ownerIdentity ? managementSelection.address : null;
   const routeMode =
-    routing?.state.flow === "save-deposit"
+    routeReady && routing?.state.flow === "save-deposit"
       ? "deposit"
-      : routing?.state.flow === "save-withdraw"
+      : routeReady && routing?.state.flow === "save-withdraw"
       ? "withdraw"
       : null;
   const mode = routing ? routeMode : localMode;
+  const retainedMode = mode ?? openMode;
   const accountIdentity = session?.smartAccount ? dataOwnerKey(session) : null;
-  const actionsQueryKey = useMemo(
-    () => accountIdentity ? ownerQueryKey(accountIdentity, "actions") : ["unauthenticated", "savings-actions-disabled"],
-    [accountIdentity]
-  );
-  const [pendingFirstDeposit, setPendingFirstDeposit] = useState<PendingFirstDeposit | null>(null);
+  const [pendingLocalDeposits, setPendingLocalDeposits] = useState<PendingLocalDeposit[]>([]);
+  const latestSavingsActionId = useRef<string | null>(null);
   const [depositFailed, setDepositFailed] = useState(false);
   const markDepositFailed = useCallback(() => setDepositFailed(true), [setDepositFailed]);
   const savingsPortfolioEmpty = summary?.funded === false;
   const actions = useHomeQuery({
-    queryKey: actionsQueryKey,
+    ...recentActionsQuery({
+      owner: accountIdentity,
+      session,
+      fetchOperations: (signal) => fetchAccountResource
+        ? fetchAccountResource(recentActionsPath, { signal })
+        : Promise.reject(new Error("Actions unavailable")),
+    }),
     enabled: (view === "savings" || currencyOpen) && accountIdentity !== null && fetchAccountResource !== undefined,
-    ...recentActionsQueryOptions,
     refetchOnWindowFocus: (query) => refetchFailedRecentActions(query) || (savingsPortfolioEmpty ? "always" : false),
     refetchOnReconnect: (query) => refetchFailedRecentActions(query) || (savingsPortfolioEmpty ? "always" : false),
     refetchInterval: (query) => savingsEntryRefreshInterval({
       funded: summary?.funded,
-      inFlightDeposits: inFlightSavingsDepositActions(scopedSavingsDeposits(query.state.data, session), liveSnapshot).length,
+      inFlightDeposits: inFlightSavingsDepositActions(scopedSavingsDeposits([...(query.state.data?.operations ?? []), ...(query.state.data?.retainedSavingsDeposits ?? [])], session), liveSnapshot).length,
     }),
-    meta: accountIdentity ? ownerQueryMeta(accountIdentity, "owner") : undefined,
-    queryFn: ({ signal }) => fetchRecentActions((requestSignal) => fetchAccountResource
-      ? fetchAccountResource("/api/actions", { signal: requestSignal })
-      : Promise.reject(new Error("Actions unavailable")), signal),
   });
   const actionsStatus = useRecentActionsStatus({
-    hasData: actions.data !== undefined,
+    hasData: actions.data?.operations !== undefined,
     isPending: actions.isPending && actions.fetchStatus !== "idle",
     isError: actions.isError,
     dataUpdatedAt: actions.dataUpdatedAt,
     errorUpdatedAt: actions.errorUpdatedAt,
   }, { tolerateStaleError: false });
+  const savingsOperations = useMemo(
+    () => [...(actions.data?.operations ?? []), ...(actions.data?.retainedSavingsDeposits ?? [])],
+    [actions.data?.operations, actions.data?.retainedSavingsDeposits],
+  );
   const scopedServerDeposits = useMemo(
-    () => scopedSavingsDeposits(actions.data, session),
-    [actions.data, session]
+    () => scopedSavingsDeposits(savingsOperations, session),
+    [savingsOperations, session]
   );
   const serverInFlightDeposits = useMemo(
     () => inFlightSavingsDepositActions(scopedServerDeposits, liveSnapshot),
@@ -500,54 +499,49 @@ export function CashExperience({
     snapshot: liveSnapshot,
     metadata,
     nowMs: rateNowMs,
+    regionId: region,
     actionsAvailable: Boolean(session?.smartAccount),
     usdcBaseUnits: usdc?.status === "ready" ? usdc.baseUnits : null,
     usdcUnavailable: usdc?.status !== "ready" || balanceStatus === "failed",
-  }) : null, [managementAddress, liveSnapshot, metadata, rateNowMs, session?.smartAccount, usdc, balanceStatus]);
+    offering,
+  }) : null, [managementAddress, liveSnapshot, metadata, rateNowMs, region, session?.smartAccount, usdc, balanceStatus, offering]);
   const activeManagement = management ?? closingManagement;
   const [previousAccountIdentity, setPreviousAccountIdentity] = useState(accountIdentity);
   const fundedNow = Boolean(summary?.funded || liveSnapshot?.holdings.some((holding) =>
     holding.kind === "vault-share" && holding.underlyingBalance?.status === "ready" &&
     BigInt(holding.underlyingBalance.baseUnits) > BigInt(0)
   ));
-  const localPendingUnresolved = !fundedNow && pendingFirstDeposit !== null &&
-    pendingFirstDeposit.account === accountIdentity &&
-    !savingsDepositRetired(scopedServerDeposits, liveSnapshot, pendingFirstDeposit.action.id);
-  const undisplayableLocalDeposit = pendingFirstDeposit !== null &&
-    pendingFirstDeposit.account === accountIdentity &&
-    pendingDepositDisplay(pendingFirstDeposit.action) === null;
+  const undisplayableLocalDeposit = pendingLocalDeposits.some((pending) =>
+    pending.account === accountIdentity && pendingDepositDisplay(pending.action) === null);
   const undisplayableInFlightDeposit = !fundedNow &&
     (serverInFlightDeposits.some((action) => pendingDepositDisplay(action) === null) ||
       undisplayableLocalDeposit);
   const unparsedSavingsDeposit = useMemo(
-    () => unparsedSavingsDepositBlocker(actions.data, session, liveSnapshot),
-    [actions.data, session, liveSnapshot],
+    () => unparsedSavingsDepositBlocker(actions.data?.unparsedSavingsDeposits, liveSnapshot),
+    [actions.data?.unparsedSavingsDeposits, liveSnapshot],
   );
   const actionHistoryUnresolved = actionsStatus === "error" && !fundedNow && fetchAccountResource !== undefined;
-  const savingsEntryUnresolved = actionHistoryUnresolved || undisplayableInFlightDeposit || unparsedSavingsDeposit;
-  const depositEntryBlocked = !fundedNow &&
-    (localPendingUnresolved || serverInFlightDeposits.length > 0 || savingsEntryUnresolved || actionsStatus === "loading");
-  const currencyDepositBlocked = !fundedNow && (depositEntryBlocked || actions.data === undefined);
-  const firstUseHistoryPending = hasHistorySource && firstUseHistoryFloor > 0 &&
-    Math.max(actions.dataUpdatedAt, actions.errorUpdatedAt) < firstUseHistoryFloor;
-  const firstUseHistoryBlocked = !fundedNow && !confirmed &&
-    (firstUseHistoryPending || savingsEntryUnresolved || actions.isFetching);
-  const localPendingAction = pendingFirstDeposit?.account === accountIdentity ? pendingFirstDeposit.action : null;
+  const savingsEntryUnresolved = actionHistoryUnresolved || undisplayableInFlightDeposit || unparsedSavingsDeposit ||
+    (actions.data?.retainedSavingsDepositsUnavailable === true && !fundedNow);
+  const localPendingActions = useMemo(() => pendingLocalDeposits
+    .filter((pending) => pending.account === accountIdentity)
+    .map((pending) => pending.action), [pendingLocalDeposits, accountIdentity]);
   const pendingDeposits = useMemo(
-    () => fundedNow ? [] : pendingSavingsDeposits(actions.data, session, localPendingAction, liveSnapshot),
-    [fundedNow, actions.data, session, localPendingAction, liveSnapshot]
+    () => fundedNow ? [] : pendingSavingsDeposits(savingsOperations, session, localPendingActions, liveSnapshot),
+    [fundedNow, savingsOperations, session, localPendingActions, liveSnapshot]
   );
   if (previousAccountIdentity !== accountIdentity) {
     setPreviousAccountIdentity(accountIdentity);
-    setPendingFirstDeposit(null);
+    setPendingLocalDeposits([]);
     setDepositFailed(false);
     setTargetSelection(null);
     setChoosing(false);
     setConfirmed(false);
     setLocalMode(null);
-  } else if (pendingFirstDeposit !== null &&
-    (fundedNow || savingsDepositRetired(scopedServerDeposits, liveSnapshot, pendingFirstDeposit.action.id))) {
-    setPendingFirstDeposit(null);
+  } else if (pendingLocalDeposits.some((pending) =>
+    fundedNow || savingsDepositRetired(scopedServerDeposits, liveSnapshot, pending.action.id))) {
+    setPendingLocalDeposits((current) => current.filter((pending) =>
+      !fundedNow && !savingsDepositRetired(scopedServerDeposits, liveSnapshot, pending.action.id)));
   }
   const chooseFlowSuperseded = choosing && fundedNow && !confirmed && mode !== null && target === null;
   if (!routing && chooseFlowSuperseded) setLocalMode(null);
@@ -561,36 +555,14 @@ export function CashExperience({
     chooseFlowCleared.current = true;
     routing.clearFlow({ mode: "replace" });
   }, [routing, chooseFlowSuperseded]);
-  const firstDepositSuperseded = !confirmed && !fundedNow &&
-    (serverInFlightDeposits.length > 0 || savingsEntryUnresolved || localPendingUnresolved);
-  const depositFlowSuperseded = mode === "deposit" && firstDepositSuperseded;
-  if (!routing && depositFlowSuperseded) setLocalMode(null);
 
   useEffect(() => {
     if (!routing || !initialRoute.current || normalized.current) return;
     normalized.current = true;
     if (readClientHistoryFlag("cashSavingsFlowPushed")) return;
     routing.clearFlow({ mode: "replace", normalizeInbound: true });
-    routing.setFlow(initialRoute.current);
+    routing.setFlow(initialRoute.current, { opener: null });
   }, [routing]);
-  useEffect(() => {
-    const previous = previousOwner.current;
-    if (previous === ownerIdentity) return;
-    previousOwner.current = ownerIdentity;
-    if (previous === "signed-out") return;
-    latestJourneyGeneration.current += 1;
-    setJourneyGeneration(latestJourneyGeneration.current);
-    setTargetSelection(null);
-    setChoosing(false);
-    setManagementSelection(null);
-    setClosingManagement(null);
-    setConfirmed(false);
-    setLocalMode(null);
-    autoClosed.current = null;
-    opener.current = null;
-    currencyOpener.current = null;
-    if (routing) routing.clearFlow({ mode: "replace" });
-  }, [ownerIdentity, routing]);
   useEffect(() => {
     if (previousView.current === "savings" && view === "cash")
       restoreSavingsFocus.current = true;
@@ -605,15 +577,17 @@ export function CashExperience({
     }
   });
 
-  const available =
-    mode === "deposit"
-      ? liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
-      : liveSnapshot?.holdings.find(
-          (holding) =>
-            holding.kind === "vault-share" &&
-            holding.contractAddress?.toLowerCase() ===
-              target?.vaultAddress.toLowerCase()
-        )?.underlyingBalance;
+  const withdrawalHolding = liveSnapshot?.holdings.find(
+    (holding) =>
+      holding.kind === "vault-share" &&
+      holding.contractAddress?.toLowerCase() === target?.vaultAddress.toLowerCase()
+  );
+  const withdrawalLimitReady = withdrawalHolding?.withdrawableBalance?.status === "ready";
+  const available = retainedMode === "deposit"
+    ? liveSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
+    : withdrawalLimitReady
+      ? withdrawalHolding.withdrawableBalance
+      : withdrawalHolding?.underlyingBalance;
   const availableBaseUnits =
     available?.status === "ready" ? available.baseUnits : null;
   const withdrawable = useMemo(
@@ -621,7 +595,8 @@ export function CashExperience({
     [liveSnapshot, metadata]
   );
   const best =
-    metadata?.candidates.reduce<MorphoVaultCandidate | null>(
+    metadata?.candidates.filter((candidate) => depositOffered(offering, candidate))
+      .reduce<MorphoVaultCandidate | null>(
       (current, candidate) => {
         const rate = getSavingsRateState(candidate, {
           metadataFetchedAt: metadata.source.fetchedAt,
@@ -645,46 +620,29 @@ export function CashExperience({
       null
     ) ?? null;
   if (!mode && autoClosedSelection !== null) setAutoClosedSelection(null);
-  if (!mode && routedJourney !== null) setRoutedJourney(null);
   const routedDepositCandidate = best && usdc?.status === "ready" &&
     !(summary?.funded === false && BigInt(usdc.baseUnits) === BigInt(0)) ? best : null;
   const routedCandidate = routeMode === "deposit" ? routedDepositCandidate
     : routeMode === "withdraw" && withdrawable.length === 1 ? withdrawable[0]!.candidate
     : null;
-  const routedOpenBlocked = routeMode === "deposit" &&
-    (choosing || query.isError || (!fundedNow &&
-      (savingsEntryUnresolved || serverInFlightDeposits.length > 0 || actionsStatus === "loading" ||
-        pendingFirstDeposit?.account === accountIdentity)));
+  const routedOpenBlocked = routeMode === "deposit" && (choosing || query.isError);
   const routedSelection = routing && view === "savings" && routedCandidate && !target &&
     autoClosedSelection?.mode !== routeMode && balanceStatus !== "failed" && !routedOpenBlocked &&
     liveSnapshot && session?.smartAccount && (metadata || query.isError) ? routedCandidate : null;
-  const routedEntryNowMs = useNow(routedSelection, noDeadline);
   if (routedSelection) {
-    setRoutedJourney(routeMode);
-    setTargetSelection({ owner: ownerIdentity, candidate: routedSelection });
+    setTargetSelection(routedSelection);
     setEntry("amount");
-    if (routeMode === "deposit" && !fundedNow && hasHistorySource) setFirstUseHistoryFloor(routedEntryNowMs);
   }
-  const routedDepositNeedsFreshHistory = routedJourney === "deposit" && !fundedNow && hasHistorySource;
-  useEffect(() => {
-    if (!routedDepositNeedsFreshHistory) return;
-    void browserHomeQueryClient()?.refetchQueries({ queryKey: actionsQueryKey });
-  }, [routedDepositNeedsFreshHistory, actionsQueryKey]);
 
   useEffect(() => {
     if (!routing) return;
-    if (depositFlowSuperseded && autoClosed.current?.mode !== mode) {
-      routing.clearFlow({ mode: "replace" });
-      return;
-    }
     if (view !== "savings" || !routeMode || target || (routeMode === "deposit" && choosing) || autoClosed.current?.mode === routeMode) return;
-    if (balanceStatus === "failed" || (routeMode === "deposit" && (query.isError || (pendingFirstDeposit?.account === accountIdentity && !fundedNow)))) {
+    if (balanceStatus === "failed" || (routeMode === "deposit" && query.isError)) {
       routing.clearFlow({ mode: "replace" });
       return;
     }
     if (!liveSnapshot || !session?.smartAccount || (!metadata && !query.isError)) return;
     if (routeMode === "deposit") {
-      if (!fundedNow && actionsStatus === "loading") return;
       if (!routedDepositCandidate) routing.clearFlow({ mode: "replace" });
       return;
     }
@@ -693,26 +651,14 @@ export function CashExperience({
     routing,
     view,
     routeMode,
-    mode,
     target,
     choosing,
-    confirmed,
     balanceStatus,
     query.isError,
     liveSnapshot,
     metadata,
     session,
-    best,
-    usdc,
     withdrawable,
-    summary?.funded,
-    pendingFirstDeposit,
-    accountIdentity,
-    fundedNow,
-    actionsStatus,
-    savingsEntryUnresolved,
-    depositFlowSuperseded,
-    serverInFlightDeposits,
     routedDepositCandidate,
   ]);
 
@@ -725,72 +671,78 @@ export function CashExperience({
       routing.clearFlow({ mode: "replace" });
     } else setLocalMode(null);
   }
-  function armFirstDepositHistory() {
-    setConfirmed(false);
-    setFirstUseHistoryFloor(Date.now());
-    if (fetchAccountResource) void actions.refetch();
-  }
   async function executeSavingsAction(action: PreparedMoneyAction): Promise<OperationResult> {
     const holdsConfirmation = action.kind === "savings-deposit" || action.kind === "savings-withdraw";
-    if (holdsConfirmation) setConfirmed(true);
-    const markPending = (submission: PendingFirstDeposit["submission"]) => {
-      if (action.kind === "savings-deposit" && accountIdentity) setPendingFirstDeposit({ account: accountIdentity, action, submission });
+    if (holdsConfirmation) {
+      latestSavingsActionId.current = action.id;
+      setConfirmed(true);
+    }
+    const markPending = (submission: PendingLocalDeposit["submission"]) => {
+      if (action.kind === "savings-deposit" && accountIdentity) {
+        setPendingLocalDeposits((current) => [
+          ...current.filter((pending) => pending.action.id !== action.id),
+          { account: accountIdentity, action, submission },
+        ]);
+      }
     };
     try {
       const result = await executeMoneyAction(action);
       if (result.status !== "rejected" && result.status !== "failed") markPending("submitted");
-      else if (holdsConfirmation) setConfirmed(false);
+      else if (holdsConfirmation && latestSavingsActionId.current === action.id) setConfirmed(false);
       return result;
     } catch (error) {
       if (error instanceof TransferExecutionError && (error.reason === "submission-unknown" || error.reason === "dispatch-unknown")) markPending("ambiguous");
-      else if (holdsConfirmation) setConfirmed(false);
+      else if (holdsConfirmation && latestSavingsActionId.current === action.id) setConfirmed(false);
       throw error;
     }
   }
-  function startSaving() {
+  function startSaving(element: HTMLElement) {
     setDepositFailed(false);
     autoClosed.current = null;
     leavingForAddMoney.current = false;
     latestJourneyGeneration.current += 1;
     setJourneyGeneration(latestJourneyGeneration.current);
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    armFirstDepositHistory();
+    opener.current = element;
+    setSavingsOpener(element);
     setEntry("amount");
     setTargetSelection(null);
     setConfirmed(false);
     setChoosing(true);
-    if (routing) routing.setFlow("save-deposit");
+    if (routing) routing.setFlow("save-deposit", { opener: element });
     else setLocalMode("deposit");
   }
-  function open(nextMode: Mode, candidate: MorphoVaultCandidate) {
+  function open(nextMode: Mode, candidate: MorphoVaultCandidate, element: HTMLElement | null = null) {
+    if (nextMode === "deposit" && !depositOffered(offering, candidate)) return;
     autoClosed.current = null;
     setAutoClosedSelection(null);
     leavingForAddMoney.current = false;
-    if (nextMode === "deposit" && !fundedNow) armFirstDepositHistory();
     if (managementAddress === null) {
       latestJourneyGeneration.current += 1;
       setJourneyGeneration(latestJourneyGeneration.current);
-      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      opener.current = element;
+      setSavingsOpener(element);
       setEntry("amount");
     }
-    setTargetSelection({ owner: ownerIdentity, candidate });
+    setTargetSelection(candidate);
     setChoosing(false);
     setConfirmed(false);
     if (routing)
       routing.setFlow(
-        nextMode === "deposit" ? "save-deposit" : "save-withdraw"
+        nextMode === "deposit" ? "save-deposit" : "save-withdraw",
+        { opener: managementAddress === null ? element : savingsOpener }
       );
     else setLocalMode(nextMode);
   }
-  function openManagement(address: string) {
+  function openManagement(address: string, element: HTMLElement) {
     latestJourneyGeneration.current += 1;
     setJourneyGeneration(latestJourneyGeneration.current);
     setClosingManagement(null);
-    setManagementSelection({ owner: ownerIdentity, address });
+    setManagementSelection(address);
     setEntry("management");
     setTargetSelection(null);
     setLocalMode(null);
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    opener.current = element;
+    setSavingsOpener(element);
     setConfirmed(false);
   }
   function backToManagement() {
@@ -844,6 +796,12 @@ export function CashExperience({
   const sheetOpen = view === "savings" && session !== null && (management !== null ||
     (choosing && mode === "deposit") ||
     (mode !== null && target !== null && ((availableBaseUnits !== null && balanceStatus !== "failed") || confirmed)));
+  if (sheetOpen && mode !== openMode) setOpenMode(mode);
+  const journeyMode = sheetOpen ? mode : retainedMode;
+  const journeyKey = session && (activeManagement !== null || target !== null || choosing)
+    ? `${journeyGeneration}`
+    : null;
+  if (journeyKey === null && openMode !== null) setOpenMode(null);
   const currentTarget = target && metadata?.candidates.find((candidate) =>
     candidate.vaultAddress.toLowerCase() === target.vaultAddress.toLowerCase()
   );
@@ -854,7 +812,7 @@ export function CashExperience({
   }) : null;
   const depositCashState: "ready" | "empty" | "unavailable" =
     availableBaseUnits === null ? "unavailable" : BigInt(availableBaseUnits) > BigInt(0) ? "ready" : "empty";
-  const pickerOptions = choosing && metadata ? metadata.candidates.map((candidate) => {
+  const pickerOptions = choosing && metadata ? metadata.candidates.filter((candidate) => depositOffered(offering, candidate)).map((candidate) => {
     const rate = getSavingsRateState(candidate, {
       metadataFetchedAt: metadata.source.fetchedAt, metadataStale: metadata.stale, nowMs: rateNowMs,
     });
@@ -862,14 +820,14 @@ export function CashExperience({
       candidate,
       name: candidate.name,
       rateLabel: rate.status === "unavailable" ? "Rate unavailable"
-        : `${formatPresentationPercentage(rate.value)} APY${rate.status === "stale" ? " at last update" : ""}`,
+        : `${formatPresentationPercentage(rate.value, region)} APY${rate.status === "stale" ? " at last update" : ""}`,
       rate: rate.status === "unavailable" ? -1 : rate.value,
-      disabled: rate.status === "unavailable" || depositCashState !== "ready" || firstUseHistoryPending,
+      disabled: rate.status === "unavailable" || depositCashState !== "ready",
     };
   }).sort((left, right) => right.rate - left.rate) : [];
   const destinationLabel = target
     ? `${target.name}${destinationRate && destinationRate.status !== "unavailable"
-      ? ` · ${formatPresentationPercentage(destinationRate.value)} APY${destinationRate.status === "stale" ? " at last update" : ""}` : ""}`
+      ? ` · ${formatPresentationPercentage(destinationRate.value, region)} APY${destinationRate.status === "stale" ? " at last update" : ""}` : ""}`
     : undefined;
   const centsLabel =
     availableBaseUnits !== null
@@ -879,13 +837,15 @@ export function CashExperience({
             BigInt(10) ** BigInt(BASE_USDC_DECIMALS - 2)
           ).toString(),
           2
-        )} available`
+        )} ${retainedMode === "deposit" || withdrawalLimitReady ? "available" : "saved"}`
       : undefined;
   return (
     <>
       {view === "cash" ? (
         <CashOverview
+          regionId={region}
           snapshot={liveSnapshot}
+          balanceActionStale={balanceActionStale}
           pendingCashout={pendingCashout}
           balanceStatus={balanceStatus}
           metadata={metadata}
@@ -906,6 +866,7 @@ export function CashExperience({
         />
       ) : (
         <SavingsDetail
+          regionId={region}
           key={accountIdentity ?? "signed-out"}
           snapshot={liveSnapshot}
           balanceStatus={balanceStatus}
@@ -916,32 +877,34 @@ export function CashExperience({
           growthAuthority={growthAuthority}
           summary={summary}
           balanceStale={balanceStale}
+          balanceActionStale={balanceActionStale}
           pendingDeposits={pendingDeposits}
           depositFailed={depositFailed}
           pendingActionsLoading={actionsStatus === "loading" && !fundedNow}
           pendingActionsError={savingsEntryUnresolved}
-          depositEntryBlocked={depositEntryBlocked}
           onRetryActions={() => void actions.refetch()}
           onAddMoney={onAddMoney}
           actionsAvailable={Boolean(session?.smartAccount)}
           onStartSaving={startSaving}
-          onDepositVault={(candidate) => open("deposit", candidate)}
+          onDepositVault={(candidate, element) => open("deposit", candidate, element)}
+          onDepositIntent={() => void preloadSavingsJourneyStep()}
           onManageVault={openManagement}
           onRetryVaults={() => void query.refetch()}
           onRetryBalances={onRetryBalances}
         />
       )}
-      {pendingFirstDeposit && pendingFirstDeposit.account === accountIdentity && !fundedNow ? (
-        <PendingFirstDepositWatcher
-          pending={pendingFirstDeposit}
+      {!fundedNow ? pendingLocalDeposits.filter((pending) => pending.account === accountIdentity).map((pending) => (
+        <PendingLocalDepositWatcher
+          key={pending.action.id}
+          pending={pending}
           fetchAccountResource={fetchAccountResource}
           onFailed={(actionId) => {
-            setPendingFirstDeposit((current) => current?.action.id === actionId ? null : current);
-            setConfirmed(false);
+            setPendingLocalDeposits((current) => current.filter((entry) => entry.action.id !== actionId));
+            if (latestSavingsActionId.current === actionId) setConfirmed(false);
             setDepositFailed(true);
           }}
         />
-      ) : null}
+      )) : null}
       <RehydratedDepositFailureWatcher
         key={`rehydrated-deposit-${accountIdentity ?? "signed-out"}`}
         deposits={scopedServerDeposits}
@@ -950,19 +913,20 @@ export function CashExperience({
         onFailed={markDepositFailed}
       />
       {currencyReady && currencyEntry && session?.smartAccount && currencyBalanceSnapshot && fetchAccountResource ? <CashCurrencySheet key={`${currencyReset}:${currencyOwner}`} open={currencyOpen} entry={currencyEntry}
-        session={session} snapshot={currencyBalanceSnapshot} best={best} balanceStale={balanceStale || !liveSnapshot} depositEntryBlocked={currencyDepositBlocked}
-        historyBlocked={firstUseHistoryBlocked || firstDepositSuperseded} onSaveEntry={armFirstDepositHistory}
+        opener={currencySessionOpener}
+        session={session} snapshot={currencyBalanceSnapshot} best={best} balanceStale={balanceStale || !liveSnapshot}
         fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeSavingsAction}
         onCancel={() => setCurrencyOpen(false)} onClosed={currencyClosed} onAddMoney={onAddMoney}
         onConfirmed={() => invalidateAfterAction(getHomeQueryClient(), dataOwnerKey(session))} /> : null}
-      {session && (activeManagement !== null || target !== null || choosing) ? (
-        <SavingsJourney
+      {session && journeyKey !== null ? (
+        <StagedSavingsJourney
           titleId={SAVINGS_JOURNEY_TITLE_ID}
-          key={`${session.user.subject}:${session.smartAccount?.address ?? ""}:${activeManagement?.address ?? target?.vaultAddress ?? ""}:${entry}`}
+          key={journeyKey}
           open={sheetOpen}
+          opener={entry === "management" ? savingsOpener : routing ? routing.flowOpener ?? null : savingsOpener}
           entry={entry}
           management={activeManagement}
-          mode={mode}
+          mode={journeyMode}
           session={session}
           candidate={target}
           picker={choosing ? {
@@ -970,7 +934,7 @@ export function CashExperience({
             cash: depositCashState,
             onRetryBalances,
             onRetryVaults: () => void query.refetch(),
-            onPick: (candidate) => setTargetSelection({ owner: ownerIdentity, candidate }),
+            onPick: (candidate) => setTargetSelection(candidate),
             onBack: () => setTargetSelection(null),
             onAddMoney: () => {
               if (routing) {
@@ -986,7 +950,6 @@ export function CashExperience({
           } : undefined}
           availableLabel={centsLabel}
           destinationLabel={mode === "deposit" ? destinationLabel : undefined}
-          historyBlocked={mode === "deposit" && firstUseHistoryBlocked}
           availableBaseUnits={availableBaseUnits}
           availableStale={
             balanceStale || (confirmed && availableBaseUnits === null)
@@ -1016,6 +979,35 @@ export function AuthenticatedCashExperience(props: {
   const routing = useOptionalHomeShellRouting();
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const session = isServerVerified(account) ? account.session : null;
+  const boundary = uiBoundary(account);
+  const [routeBoundary, setRouteBoundary] = useState(boundary);
+  const [pendingRouteClear, setPendingRouteClear] = useState(false);
+  const clearedRoute = useRef<{ revision: number } | null>(null);
+  if (routeBoundary !== boundary) {
+    setRouteBoundary(boundary);
+    if (routeBoundary !== null && routing?.state.flow != null) setPendingRouteClear(true);
+  } else if (pendingRouteClear && (!routing || routing.state.flow === null)) {
+    setPendingRouteClear(false);
+  }
+  const routeReady = !routing || !pendingRouteClear || routing.state.flow === null;
+  useEffect(() => {
+    if (!pendingRouteClear) {
+      clearedRoute.current = null;
+      return;
+    }
+    if (!routing) return;
+    const flow = routing.state.flow;
+    const cleared = clearedRoute.current;
+    if (cleared === null) {
+      if (flow === null) return;
+      clearedRoute.current = { revision: routing.popRevision };
+      routing.clearFlow({ mode: "replace" });
+      return;
+    }
+    if (flow === null || routing.popRevision === cleared.revision) return;
+    clearedRoute.current = { revision: routing.popRevision };
+    routing.clearFlow({ mode: "replace", normalizeInbound: true });
+  }, [pendingRouteClear, routing]);
   const balancesSession = session?.smartAccount
     ? {
         subject: session.user.subject,
@@ -1024,34 +1016,38 @@ export function AuthenticatedCashExperience(props: {
         accountProvider: session.accountProvider,
       }
     : null;
-  const balances = useBalances(balancesSession, region, account.fetchBalances, {
+  const balances = useBalancesData(balancesSession, region, account.fetchBalances, {
     held: !regionReady,
   });
   const snapshot = balances.snapshot;
   return (
-    <CashExperience
-      view={view}
-      onOpenSavings={onOpenSavings}
-      session={session}
-      snapshot={snapshot}
-      pendingCashout={pendingCashout}
-      balanceStatus={
-        snapshot
-          ? "ready"
-          : balances.status === "error" || (session !== null && balancesSession === null)
-            ? "failed"
-            : "loading"
-      }
-      balanceStale={snapshot?.stale === true || balances.refreshError === true}
-      onRetryBalances={balancesSession ? () => void balances.retry() : undefined}
-      onAddMoneyIntent={moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(account, region, regionReady, queryClient)).onFocus}
-      onAddMoney={(options) => {
-        void preloadAddMoneySheet();
-        routing?.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push" });
-      }}
-      prepareMoneyAction={account.prepareMoneyAction}
-      executeMoneyAction={account.executeMoneyAction}
-      fetchAccountResource={account.fetchAccountResource}
-    />
+    <OwnerBoundary>
+      <CashExperience
+        routeReady={routeReady}
+        view={view}
+        onOpenSavings={onOpenSavings}
+        session={session}
+        snapshot={snapshot}
+        pendingCashout={pendingCashout}
+        balanceStatus={
+          snapshot
+            ? "ready"
+            : balances.status === "error" || (session !== null && balancesSession === null)
+              ? "failed"
+              : "loading"
+        }
+        balanceStale={snapshot?.stale === true || balances.refreshError === true || balances.actionStale === true}
+        balanceActionStale={balances.actionStale === true}
+        onRetryBalances={balancesSession ? () => void balances.retry() : undefined}
+        onAddMoneyIntent={moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(account, region, regionReady, queryClient)).onFocus}
+        onAddMoney={(options) => {
+          void preloadAddMoneySheet();
+          routing?.setFlow("add-money", { mode: options?.replaceFlow ? "replace" : "push", opener: options?.opener ?? null });
+        }}
+        prepareMoneyAction={account.prepareMoneyAction}
+        executeMoneyAction={account.executeMoneyAction}
+        fetchAccountResource={account.fetchAccountResource}
+      />
+    </OwnerBoundary>
   );
 }

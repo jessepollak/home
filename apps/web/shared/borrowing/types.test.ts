@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DEFAULT_BORROW_MARKET } from "./config";
 import {
   actionKindForBorrowOperation,
+  increasesBorrowRisk,
   parseBorrowActionIntent,
   type BorrowOperation,
 } from "./types";
@@ -22,6 +23,15 @@ describe("borrow operation contract", () => {
   });
 
   test.each([
+    ["supply-collateral", false, false], ["borrow", true, true], ["supply-and-borrow", true, true],
+    ["repay", false, false], ["repay-all", false, false],
+    ["withdraw-collateral", false, true], ["close-position", false, false],
+  ] as const)("shares prepare/confirm risk classification for %s with zero and outstanding debt", (operation, zeroDebtRisk, outstandingDebtRisk) => {
+    expect(increasesBorrowRisk(operation, BigInt(0))).toBe(zeroDebtRisk);
+    expect(increasesBorrowRisk(operation, BigInt(1))).toBe(outstandingDebtRisk);
+  });
+
+  test.each([
     ["supply-collateral", { amountBaseUnits: "1" }],
     ["borrow", { amountBaseUnits: "1" }],
     ["supply-and-borrow", { amountBaseUnits: "1", collateralAmountBaseUnits: "2" }],
@@ -30,10 +40,16 @@ describe("borrow operation contract", () => {
     ["withdraw-collateral", { amountBaseUnits: "1" }],
     ["close-position", { maximumRepayBaseUnits: "2" }],
   ] as const)("parses the bounded %s intent shape", (operation, amounts) => {
-    expect(parseBorrowActionIntent({ marketId, operation, ...amounts })).toEqual({
+    expect(JSON.parse(JSON.stringify(parseBorrowActionIntent({ marketId, operation, ...amounts })))).toEqual({
       marketId,
       operation: operation as BorrowOperation,
       ...amounts,
     });
   });
+});
+
+test("borrow intents canonicalize any-case market hashes and reject malformed ones", () => {
+  const input = { marketId: `0x${"Ab".repeat(32)}`, operation: "borrow", amountBaseUnits: "1" };
+  expect(String(parseBorrowActionIntent(input)?.marketId)).toBe(`0x${"ab".repeat(32)}`);
+  for (const marketId of ["0x1234", `0x${"zz".repeat(32)}`]) expect(parseBorrowActionIntent({ ...input, marketId })).toBeNull();
 });

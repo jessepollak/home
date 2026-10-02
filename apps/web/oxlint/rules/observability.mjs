@@ -133,6 +133,72 @@ function findVariable(state, identifier) {
   return null;
 }
 
+function importedReportingHelper(state, node) {
+  if (state.reportingHelpers.size === 0 || state.reportingModules.size === 0) return null;
+  const callee = unwrapTransparent(node.callee);
+  if (callee?.type !== "Identifier") return null;
+  const variable = findVariable(state, callee);
+  const binding = variable?.defs.find((definition) =>
+    definition.type === "ImportBinding"
+      && state.reportingHelpers.has(definition.node?.imported?.name)
+      && state.reportingModules.has(sourceValue(definition.parent?.source)));
+  return binding ? { name: binding.node.imported.name, module: sourceValue(binding.parent.source) } : null;
+}
+
+function enclosingFunction(node) {
+  let current = node;
+  while (current) {
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
+function enclosingStatement(node) {
+  let current = node;
+  while (current.parent && !["Program", "BlockStatement", "StaticBlock", "SwitchCase"].includes(current.parent.type)) current = current.parent;
+  return current;
+}
+
+function readByLaterClosure(rejectionCall, read) {
+  const callerFunction = enclosingFunction(rejectionCall);
+  let closure = null;
+  for (let current = enclosingFunction(read); current && current !== callerFunction;
+    current = enclosingFunction(current.parent)) closure = current;
+  if (!closure || closure.type === "FunctionDeclaration"
+    || (callerFunction && !isWithin(closure, callerFunction))) return false;
+  return closure.start > enclosingStatement(rejectionCall).end;
+}
+
+function observesOuterValue(state, reference, span) {
+  const read = reference.identifier;
+  if (!reference.isRead() || read.start <= span.end) return false;
+  if (!state.rejectionCall) return true;
+  if (readByLaterClosure(state.rejectionCall, read)) return true;
+  let current = state.rejectionCall;
+  while (current.parent) {
+    const parent = current.parent;
+    if (transparentWrappers.has(parent.type)) {
+      current = parent;
+      continue;
+    }
+    if (parent.type === "AwaitExpression" && parent.argument === current) {
+      return read.start > parent.end && enclosingFunction(read) === enclosingFunction(parent);
+    }
+    if (parent.type !== "MemberExpression" || parent.object !== current) return false;
+    const method = staticMemberName(parent);
+    const call = parent.parent;
+    if (!["then", "finally", "catch"].includes(method)
+      || call?.type !== "CallExpression" || call.callee !== parent) return false;
+    const callback = unwrapTransparent(call.arguments[0]);
+    if ((method === "then" || method === "finally")
+      && (callback?.type === "ArrowFunctionExpression" || callback?.type === "FunctionExpression")
+      && !callback.generator && enclosingFunction(read) === callback) return true;
+    current = call;
+  }
+  return false;
+}
+
 function assignsOuterValue(state, node) {
   if (node.type !== "AssignmentExpression" || node.left.type !== "Identifier"
     || isUndefinedValue(node.right)) return false;
@@ -140,7 +206,7 @@ function assignsOuterValue(state, node) {
   if (!variable) return false;
   const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause));
   return !declaredInside && variable.references.some((reference) =>
-    reference.identifier.start > state.catchClause.end && reference.isRead());
+    observesOuterValue(state, reference, state.catchClause));
 }
 
 function walkAssignments(node, visit) {
@@ -180,7 +246,7 @@ function retainsPreInitializedFallback(state, protectedRegion, statementSpan) {
       || !["let", "var"].includes(declaration.kind) || !declarator.init
       || isUndefinedValue(declarator.init) || !(declarator.start < statementSpan.start)) return false;
     return variable.references.some((reference) =>
-      reference.identifier.start > statementSpan.end && reference.isRead());
+      observesOuterValue(state, reference, statementSpan));
   });
 }
 
@@ -194,27 +260,242 @@ const transparentExpression = new Set([
   "TSTypeAssertion",
 ]);
 
-function localHelperDisposes(state, name) {
-  if (state.stack.has(name)) return false;
-  const bodies = state.localFunctions.get(name);
-  if (!bodies) return false;
+function localHelperDisposes(state, identifier) {
+  if (state.skipHelpers) return false;
+  const name = identifier.name;
+  if (state.stack.has(name)) {
+    state.cycleProbe.hits += 1;
+    return false;
+  }
+  const entries = state.localFunctions.get(name);
+  if (!entries) return false;
+  const variable = findVariable(state, identifier);
+  if (!variable) return false;
+  const owned = entries.filter((entry) => variable.defs.some((definition) =>
+    (definition.type === "FunctionName" || definition.type === "Variable")
+      && definition.node === entry.node));
+  if (owned.length === 0 || owned.some((entry) => entry.body.parent?.generator === true)) return false;
   state.stack.add(name);
-  const disposes = bodies.every((body) => body.type === "BlockStatement"
-    ? blockOutcomes(state, body, true) === 0
-    : expressionHasDisposition(state, body));
+  const disposes = owned.every((entry) => entry.body.type === "BlockStatement"
+    ? blockOutcomes(state, entry.body, true) === 0
+    : !(state.requireReport && evaluatesAbruptCompletion(entry.body)) && expressionHasDisposition(state, entry.body));
   state.stack.delete(name);
   return disposes;
 }
 
+function telemetryCallbackDisposes(state, node) {
+  const callback = unwrapTransparent(node.arguments[0]);
+  if (callback?.type !== "ArrowFunctionExpression" && callback?.type !== "FunctionExpression") return false;
+  if (callback.generator) return false;
+  const telemetryState = { ...state, requireTelemetrySink: true, telemetryCallback: state.telemetryCallback ?? callback };
+  return callback.body.type === "BlockStatement"
+    ? blockOutcomes(telemetryState, callback.body, false) === 0
+    : !(telemetryState.requireReport && evaluatesAbruptCompletion(callback.body)) && expressionHasDisposition(telemetryState, callback.body);
+}
+
+const telemetryReportingImports = new Map([
+  ["@/server/observability/log", new Set(["emitServerEvent", "writeObservabilityEvent"])],
+  ["@/client/observability/client-reporter", new Set(["reportClientError"])],
+]);
+
+function isTelemetrySinkCall(state, node, callee) {
+  if (callee?.type !== "Identifier" || node.arguments.length === 0) return false;
+  const variable = findVariable(state, callee);
+  if (!variable || variable.references.some((reference) => reference.isWrite())) return false;
+  return variable.defs.some((definition) => definition.type === "Parameter"
+    && isWithin(state.telemetryCallback, definition.node)
+    && !isWithin(definition.node, state.telemetryCallback)
+    && telemetryDelegationBody(state, definition.node));
+}
+
+function telemetryDelegationBody(state, fn) {
+  const body = fn?.body;
+  if (!body) return false;
+  if (body.type !== "BlockStatement") return delegatedTelemetryCall(state, body);
+  if (body.body.length !== 1) return false;
+  const [statement] = body.body;
+  if (statement.type === "ExpressionStatement") return delegatedTelemetryCall(state, statement.expression);
+  return false;
+}
+
+function delegatedTelemetryCall(state, expression) {
+  const call = unwrapTransparent(expression);
+  if (call?.type !== "CallExpression") return false;
+  const imported = importedReportingHelper(state, call);
+  if (imported?.name !== "observeSafely" || imported.module !== "@/server/observability/log") return false;
+  return call.arguments.some((argument) => argument?.type !== "SpreadElement"
+    && isWithin(state.telemetryCallback, argument));
+}
+
+function immediateInvocation(node) {
+  let current = node;
+  while (current.parent && transparentWrappers.has(current.parent.type)) current = current.parent;
+  return current.parent?.type === "CallExpression" && current.parent.callee === current;
+}
+
+function isFunctionNode(node) {
+  return ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type);
+}
+
+function invokedFunctionDiscards(node, limit) {
+  if (!immediateInvocation(node)) return false;
+  if (node.async && !node.generator) return false;
+  if (node.params.some((param) => invokedFunctionInterrupts(param, limit))) return true;
+  return !node.generator && invokedFunctionInterrupts(node.body, limit);
+}
+
+function invokedFunctionInterrupts(node, limit) {
+  if (!node || typeof node !== "object" || node.start >= limit) return false;
+  if (isFunctionNode(node)) return invokedFunctionDiscards(node, limit);
+  if (node.type === "ThrowStatement"
+    || (node.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using"))) return true;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent" || !value) continue;
+    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) {
+      if (node.type === "PropertyDefinition" && node.static && invokedFunctionInterrupts(value, limit)) return true;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.some((child) => invokedFunctionInterrupts(child, limit))) return true;
+    } else if (typeof value === "object" && invokedFunctionInterrupts(value, limit)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function finalizerInterruptsReturn(node, limit = Infinity) {
+  if (!node || typeof node !== "object" || node.start >= limit) return false;
+  if (limit !== Infinity && node.type === "ReturnStatement") return false;
+  if (isFunctionNode(node)) return invokedFunctionDiscards(node, limit);
+  if (visiblyDivergentLoop(node) && node.end <= limit) return true;
+  if ((node.type === "ReturnStatement" && limit === Infinity) || node.type === "AwaitExpression"
+    || node.type === "BreakStatement" || node.type === "ContinueStatement"
+    || node.type === "ThrowStatement"
+    || (node.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using"))
+    || (node.type === "ForOfStatement" && node.await)) return true;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent" || !value) continue;
+    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) {
+      if (node.type === "PropertyDefinition" && node.static && finalizerInterruptsReturn(value, limit)) return true;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.some((child) => finalizerInterruptsReturn(child, limit))) return true;
+    } else if (typeof value === "object" && finalizerInterruptsReturn(value, limit)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasInterruptingFinalizer(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
+    if (parent.type === "TryStatement" && parent.finalizer) {
+      if (parent.finalizer !== current) {
+        if (finalizerInterruptsReturn(parent.finalizer)) return true;
+      } else if (finalizerInterruptsReturn(current, node.start)) {
+        return true;
+      }
+    }
+    current = parent;
+  }
+  return false;
+}
+
+function blockDeclaresUsing(block) {
+  return block.body.some((statement) => statement.type === "VariableDeclaration"
+    && (statement.kind === "using" || statement.kind === "await using"));
+}
+
+function declaresUsing(node) {
+  return node?.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using");
+}
+
+function loopHeaderDeclaresUsing(loop, body) {
+  if (loop.body !== body) return false;
+  if (loop.type === "ForStatement") return declaresUsing(loop.init);
+  return (loop.type === "ForOfStatement" || loop.type === "ForInStatement") && declaresUsing(loop.left);
+}
+
+function pendingUsingScope(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
+    if (parent.type === "BlockStatement" && blockDeclaresUsing(parent)) return true;
+    if (loopHeaderDeclaresUsing(parent, current)) return true;
+    current = parent;
+  }
+  return false;
+}
+
+function pendingIteratorCloseScope(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
+    if (parent.type === "ForOfStatement") return true;
+    current = parent;
+  }
+  return false;
+}
+
+function surfacedTelemetryWrite(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (parent.type === "AwaitExpression") return true;
+    if (parent.type === "ReturnStatement") return !hasInterruptingFinalizer(parent) && !pendingUsingScope(parent) && !pendingIteratorCloseScope(parent);
+    if ((parent.type === "ArrowFunctionExpression" || parent.type === "FunctionExpression")
+      && parent.body === current) return true;
+    if (transparentWrappers.has(parent.type)) {
+      current = parent;
+      continue;
+    }
+    if (parent.type === "ConditionalExpression"
+      && (parent.consequent === current || parent.alternate === current)) {
+      current = parent;
+      continue;
+    }
+    if (parent.type === "SequenceExpression" && parent.expressions.at(-1) === current) {
+      current = parent;
+      continue;
+    }
+    if (parent.type === "LogicalExpression" && (parent.right === current
+      || (parent.left === current && (parent.operator === "||" || parent.operator === "??")))) {
+      current = parent;
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
 function expressionHasDisposition(state, node) {
   if (!node) return false;
-  if (node.type === "AssignmentExpression" && assignsOuterValue(state, node)) return true;
+  if (!state.requireTelemetrySink && !state.requireReport && node.type === "AssignmentExpression" && assignsOuterValue(state, node)) return true;
   if (node.type === "CallExpression" || node.type === "NewExpression") {
     const name = callName(node);
-    if (!node.optional && name && (state.reportingHelpers.has(name) || recoveryCall.test(name))) return true;
+    const imported = node.type === "CallExpression" ? importedReportingHelper(state, node) : null;
+    if (!node.optional && imported?.name === "observeSafely"
+      && imported.module === "@/server/observability/log") return telemetryCallbackDisposes(state, node);
+    if (!node.optional && imported && (!state.requireTelemetrySink
+      || (node.arguments.length > 0 && telemetryReportingImports.get(imported.module)?.has(imported.name)
+        && surfacedTelemetryWrite(node)))) return true;
     const callee = unwrapTransparent(node.callee);
-    if (!node.optional && callee.type === "Identifier"
-      && localHelperDisposes(state, callee.name)) return true;
+    if (!node.optional && callee?.type === "Identifier"
+      && localHelperDisposes(state, callee)
+      && (!state.requireTelemetrySink || surfacedTelemetryWrite(node))) return true;
+    if (!node.optional && state.requireTelemetrySink) {
+      return node.type === "CallExpression" && isTelemetrySinkCall(state, node, callee)
+        && surfacedTelemetryWrite(node);
+    }
+    if (state.requireReport) return false;
+    if (!node.optional && name && recoveryCall.test(name)) return true;
     return !node.optional && node.arguments.some((argument) =>
       argument.type !== "SpreadElement"
         ? expressionHasDisposition(state, argument)
@@ -259,25 +540,96 @@ function expressionHasDisposition(state, node) {
 
 const fallsThrough = 1;
 const exitsWithoutDisposition = 2;
+const diverges = 4;
+const telemetryCallbackIds = new WeakMap();
+let nextTelemetryCallbackId = 1;
+
+function outcomeMemoKey(state, inHelper) {
+  let callbackId = 0;
+  if (state.telemetryCallback) {
+    callbackId = telemetryCallbackIds.get(state.telemetryCallback);
+    if (callbackId === undefined) {
+      callbackId = nextTelemetryCallbackId++;
+      telemetryCallbackIds.set(state.telemetryCallback, callbackId);
+    }
+  }
+  return `${Boolean(state.requireReport)}:${Boolean(state.requireTelemetrySink)}:${Boolean(state.skipHelpers)}:${Boolean(inHelper)}:${callbackId}`;
+}
+
+function containsLoopJump(node) {
+  if (!node || typeof node !== "object") return false;
+  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
+  if (node.type === "BreakStatement" || node.type === "ContinueStatement") return true;
+  return Object.entries(node).some(([key, value]) => {
+    if (key === "parent" || !value) return false;
+    return Array.isArray(value) ? value.some(containsLoopJump) : typeof value === "object" && containsLoopJump(value);
+  });
+}
+
+function visiblyDivergentLoop(node) {
+  if (!["WhileStatement", "DoWhileStatement", "ForStatement"].includes(node.type)) return false;
+  const alwaysRuns = (node.type === "ForStatement" && !node.test)
+    || (node.test?.type === "Literal" && node.test.value === true);
+  return alwaysRuns && !containsLoopJump(node.body);
+}
+
+function containsDivergentLoop(state, node) {
+  return state.divergentSubtrees.has(node);
+}
+
+function armsMayDiverge(state, node, inHelper) {
+  if (!containsDivergentLoop(state, node.block) && !(node.handler && containsDivergentLoop(state, node.handler.body))) return false;
+  const probeState = { ...state, skipHelpers: true };
+  const block = blockOutcomes(probeState, node.block, inHelper);
+  const handler = node.handler
+    ? blockOutcomes(probeState, node.handler.body, inHelper)
+    : exitsWithoutDisposition;
+  return Boolean((block | handler) & diverges);
+}
 
 function statementOutcomes(state, node, inHelper) {
+  const key = outcomeMemoKey(state, inHelper);
+  const memo = state.memo.get(node);
+  if (memo?.has(key)) return memo.get(key);
+  const hits = state.cycleProbe.hits;
+  const outcomes = computeStatementOutcomes(state, node, inHelper);
+  if (state.cycleProbe.hits === hits) {
+    const entries = memo ?? new Map();
+    entries.set(key, outcomes);
+    state.memo.set(node, entries);
+  }
+  return outcomes;
+}
+
+function computeStatementOutcomes(state, node, inHelper) {
+  if (state.requireReport && evaluatesAbruptCompletion(node)) return exitsWithoutDisposition;
   if (node.type === "ReturnStatement") {
+    if (state.requireTelemetrySink || state.requireReport) {
+      return expressionHasDisposition(state, node.argument) ? 0 : exitsWithoutDisposition;
+    }
     return inHelper ? exitsWithoutDisposition : node.argument ? 0 : exitsWithoutDisposition;
   }
-  if (node.type === "ThrowStatement") return 0;
+  if (node.type === "ThrowStatement") return state.requireTelemetrySink || state.requireReport ? exitsWithoutDisposition : 0;
   if (node.type === "BlockStatement") {
     return blockOutcomes(state, node, inHelper);
   }
   if (node.type === "TryStatement") {
-    if (node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) return 0;
+    if (!state.requireTelemetrySink && !state.requireReport && node.finalizer
+      && blockAlwaysThrows(state, node.finalizer, inHelper)) {
+      return armsMayDiverge(state, node, inHelper) ? diverges : 0;
+    }
+    const finalizer = node.finalizer ? blockOutcomes(state, node.finalizer, inHelper) : null;
+    if (finalizer === 0 && finalizerReports(state, node, inHelper)) {
+      return armsMayDiverge(state, node, inHelper) ? diverges : 0;
+    }
     const block = blockOutcomes(state, node.block, inHelper);
     const handler = node.handler
       ? blockOutcomes(state, node.handler.body, inHelper)
       : exitsWithoutDisposition;
     const combined = block | handler;
-    return node.finalizer
-      ? combined | (blockOutcomes(state, node.finalizer, inHelper) & exitsWithoutDisposition)
-      : combined;
+    return finalizer === null
+      ? combined
+      : combined | (finalizer & ~fallsThrough);
   }
   if (node.type === "ExpressionStatement") {
     return expressionHasDisposition(state, node.expression) ? 0 : fallsThrough;
@@ -296,9 +648,15 @@ function statementOutcomes(state, node, inHelper) {
   if (node.type === "LabeledStatement" || node.type === "WithStatement") {
     return statementOutcomes(state, node.body, inHelper);
   }
+  if (visiblyDivergentLoop(node)) {
+    const body = statementOutcomes(state, node.body, inHelper);
+    return (body & ~fallsThrough) | (body & fallsThrough ? diverges : 0);
+  }
   if (node.type === "DoWhileStatement") {
     return statementOutcomes(state, node.body, inHelper);
   }
+  if (node.type === "ForOfStatement") return state.requireReport ? exitsWithoutDisposition : fallsThrough | statementOutcomes(state, node.body, inHelper);
+  if (state.requireReport) return exitsWithoutDisposition;
   return fallsThrough;
 }
 
@@ -314,7 +672,11 @@ function statementAlwaysThrows(state, node, inHelper) {
     return statementAlwaysThrows(state, node.body, inHelper);
   }
   if (node.type === "TryStatement") {
-    if (node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) return true;
+    if (node.finalizer && containsDivergentLoop(state, node.finalizer)
+      && (blockOutcomes({ ...state, skipHelpers: true }, node.finalizer, inHelper) & diverges)) return false;
+    if (node.finalizer && blockAlwaysThrows(state, node.finalizer, inHelper)) {
+      if (!armsMayDiverge(state, node, inHelper)) return true;
+    }
     return Boolean(node.handler)
       && statementAlwaysThrows(state, node.block, inHelper)
       && statementAlwaysThrows(state, node.handler.body, inHelper);
@@ -334,14 +696,56 @@ function blockOutcomes(state, block, inHelper) {
   let outcomes = fallsThrough;
   for (const statement of block.body) {
     if (!(outcomes & fallsThrough)) break;
-    outcomes = (outcomes & exitsWithoutDisposition) | statementOutcomes(state, statement, inHelper);
+    outcomes = (outcomes & ~fallsThrough) | statementOutcomes(state, statement, inHelper);
   }
   return outcomes;
 }
 
+function finalizerReports(state, node, inHelper) {
+  const arms = node.handler ? [node.block, node.handler.body] : [node.block];
+  if (arms.some((block) => armAbruptCompletion(block))) return false;
+  if (node.finalizer.body.some((statement) =>
+    !(statement.type === "VariableDeclaration" && (statement.kind === "using" || statement.kind === "await using"))
+    && evaluatesResourceDeclaration(statement))) return false;
+  if (state.requireReport) return true;
+  return blockOutcomes({ ...state, requireReport: true }, node.finalizer, inHelper) === 0;
+}
+
+function evaluatesResourceDeclaration(node) {
+  if (!node || typeof node !== "object") return false;
+  if (node.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using")) return true;
+  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
+  return Object.entries(node).some(([key, value]) => {
+    if (key === "parent" || !value) return false;
+    return Array.isArray(value) ? value.some(evaluatesResourceDeclaration) : typeof value === "object" && evaluatesResourceDeclaration(value);
+  });
+}
+
+function evaluatesAbruptCompletion(node) {
+  if (!node || typeof node !== "object") return false;
+  if (node.type === "ClassExpression" || node.type === "ClassDeclaration" || node.type === "YieldExpression") return true;
+  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
+  return Object.entries(node).some(([key, value]) => {
+    if (key === "parent" || !value) return false;
+    return Array.isArray(value) ? value.some(evaluatesAbruptCompletion) : typeof value === "object" && evaluatesAbruptCompletion(value);
+  });
+}
+
+function armAbruptCompletion(node) {
+  if (!node || typeof node !== "object") return false;
+  if (node.type === "ReturnStatement" || node.type === "YieldExpression") return true;
+  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
+  return Object.entries(node).some(([key, value]) => {
+    if (key === "parent" || !value) return false;
+    return Array.isArray(value) ? value.some(armAbruptCompletion) : typeof value === "object" && armAbruptCompletion(value);
+  });
+}
+
 function catchHasDisposition(state, node) {
-  return blockOutcomes(state, node.body, false) === 0
-    || retainsPreInitializedFallback(state, node.parent?.type === "TryStatement" ? node.parent.block : null, node.parent);
+  const outcomes = blockOutcomes(state, node.body, false);
+  return outcomes === 0
+    || (!(outcomes & diverges)
+      && retainsPreInitializedFallback(state, node.parent?.type === "TryStatement" ? node.parent.block : null, node.parent));
 }
 
 const cleanupReceivers = new Set(["body", "iterator", "reader", "stream"]);
@@ -387,7 +791,10 @@ function rejectionCallback(node) {
 export const noSilentCatch = {
   meta: {
     type: "problem",
-    schema: [{ type: "object", properties: { reportingHelpers: { type: "array", items: { type: "string" } } }, additionalProperties: false }],
+    schema: [{ type: "object", properties: {
+      reportingHelpers: { type: "array", items: { type: "string" } },
+      reportingModules: { type: "array", items: { type: "string" } },
+    }, additionalProperties: false }],
     messages: {
       empty: "Empty catch clauses and rejection handlers are forbidden; return or throw a typed error result, or report the failure.",
       silent: "Caught failures and rejection handlers must be rethrown, returned as a typed error result, or passed to an approved reporting helper.",
@@ -396,22 +803,35 @@ export const noSilentCatch = {
   create(context) {
     if (filenameIsInstrumentation(context)) return {};
     const reportingHelpers = new Set(context.options[0]?.reportingHelpers ?? []);
+    const reportingModules = new Set(context.options[0]?.reportingModules ?? []);
     const localFunctions = new Map();
+    const divergentSubtrees = new WeakSet();
     const catchClauses = [];
     const rejectionCallbacks = [];
-    const addLocalFunction = (name, body) => {
-      const bodies = localFunctions.get(name) ?? [];
-      bodies.push(body);
-      localFunctions.set(name, bodies);
+    const addLocalFunction = (name, node, body) => {
+      const entries = localFunctions.get(name) ?? [];
+      entries.push({ node, body });
+      localFunctions.set(name, entries);
+    };
+    const addDivergentLoop = (node) => {
+      if (!visiblyDivergentLoop(node)) return;
+      let current = node;
+      while (current?.parent && !["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(current.type)) {
+        divergentSubtrees.add(current);
+        current = current.parent;
+      }
     };
     return {
+      WhileStatement: addDivergentLoop,
+      DoWhileStatement: addDivergentLoop,
+      ForStatement: addDivergentLoop,
       FunctionDeclaration(node) {
-        if (node.id && node.body) addLocalFunction(node.id.name, node.body);
+        if (node.id && node.body) addLocalFunction(node.id.name, node, node.body);
       },
       VariableDeclarator(node) {
         if (node.id.type !== "Identifier" || !node.init) return;
         if (node.init.type === "ArrowFunctionExpression" || node.init.type === "FunctionExpression") {
-          addLocalFunction(node.id.name, node.init.body);
+          addLocalFunction(node.id.name, node, node.init.body);
         }
       },
       CatchClause(node) {
@@ -427,23 +847,37 @@ export const noSilentCatch = {
             sourceCode: context.sourceCode,
             catchClause: node,
             reportingHelpers,
+            reportingModules,
             localFunctions,
+            divergentSubtrees,
             stack: new Set(),
+            memo: new Map(),
+            cycleProbe: { hits: 0 },
           };
           if (catchHasDisposition(state, node)) continue;
           context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
         }
         for (const { callback: node, protectedRegion, statementSpan } of rejectionCallbacks) {
           if (node.body.type !== "BlockStatement") continue;
+          if (node.generator) {
+            context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
+            continue;
+          }
           const state = {
             sourceCode: context.sourceCode,
             catchClause: node,
+            rejectionCall: statementSpan,
             reportingHelpers,
+            reportingModules,
             localFunctions,
+            divergentSubtrees,
             stack: new Set(),
+            memo: new Map(),
+            cycleProbe: { hits: 0 },
           };
-          if (blockOutcomes(state, node.body, false) === 0
-            || retainsPreInitializedFallback(state, protectedRegion, statementSpan)) continue;
+          const outcomes = blockOutcomes(state, node.body, false);
+          if (outcomes === 0
+            || (!(outcomes & diverges) && retainsPreInitializedFallback(state, protectedRegion, statementSpan))) continue;
           context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
         }
       },

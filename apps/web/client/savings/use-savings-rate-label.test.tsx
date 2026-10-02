@@ -1,14 +1,19 @@
 import "@/client/account/dom-test-harness";
 
+import { useMemo } from "react";
 import { afterEach, expect, jest, test } from "bun:test";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
-import { getHomeQueryClient, publicQueryKey } from "@/client/query/query-client";
+import { getHomeQueryClient, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultsResult } from "@/shared/savings/types";
 import { getSavingsRateState, SAVINGS_RATE_FRESHNESS_MS } from "./portfolio-summary";
 const { act, cleanup, render } = await import("@testing-library/react");
-const { AccountWalletContext } = await import("@/client/account/cdp-client");
+const { AccountWalletContext, AccountWalletClientProvider, createBlockedAccountWalletClient } = await import("@/client/account/cdp-client");
 const { useSavingsRateLabel } = await import("./use-savings-rate-label");
+const { resolveProductOffering } = await import("@/shared/operator-settings/products");
+const deploymentOffering = resolveProductOffering({ kind: "deployment" });
 
 const wallet = { verification: null, session: null, fetchBalances: async () => { throw new Error("Unexpected balance request"); } } as unknown as AccountWalletClient;
 
@@ -25,7 +30,7 @@ function rates(at: number, netApy: number): MorphoVaultsResult {
 }
 
 function RateLabel({ onRender }: { onRender?: (label: string | null) => void }) {
-  const label = useSavingsRateLabel("US");
+  const { value: label } = useSavingsRateLabel("US", true, deploymentOffering);
   onRender?.(label);
   return <output>{label}</output>;
 }
@@ -38,6 +43,7 @@ afterEach(() => {
 });
 
 test("a fresh savings observation replaces the displayed rate", () => {
+  jest.setSystemTime(Date.parse("2025-01-01T00:00:00.000Z"));
   const start = Date.now();
   const query = getHomeQueryClient();
   const key = publicQueryKey("savings-vaults");
@@ -84,5 +90,56 @@ test("the rate label recomputes at its freshness deadline and retains the stale 
   nowMs += SAVINGS_RATE_FRESHNESS_MS;
   void act(() => jest.advanceTimersByTime(SAVINGS_RATE_FRESHNESS_MS));
   expect(stateAt(Date.now()).status).toBe("stale");
+  expect(view.container.textContent).toBe("Up to 4.00% APY");
+});
+
+
+test("vault positions reuse a snapshot and invalidate when balances change", () => {
+  jest.setSystemTime(Date.parse("2025-01-01T00:00:00.000Z"));
+  const query = getHomeQueryClient();
+  const snapshot = buildBalancesSnapshotFixture();
+  const session = { user: { subject: "memo-savings" }, smartAccount: { address: snapshot.owner.address, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+  const key = ownerQueryKey(dataOwnerKey(session), "balances", "US");
+  query.setQueryData(key, snapshot);
+  query.setQueryData(publicQueryKey("savings-vaults"), rates(Date.now(), 0.04));
+  const stored = query.getQueryData<typeof snapshot>(key)!;
+  const holdings = stored.holdings;
+  let reads = 0;
+  Object.defineProperty(stored, "holdings", { configurable: true, get: () => { reads++; return holdings; } });
+  const currentWallet = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified" as const,
+    verification: "server" as const, session, fetchBalances: async () => snapshot };
+  const surface = () => <AccountWalletClientProvider client={currentWallet as never}><RateLabel /></AccountWalletClientProvider>;
+  const view = render(surface());
+  const initial = reads;
+  expect(initial).toBeGreaterThan(0);
+  expect(view.container.textContent).toBe("Up to 4.00% APY");
+  view.rerender(surface());
+  expect(reads).toBe(initial);
+  query.setQueryData(key, { ...snapshot, block: { ...snapshot.block, number: "999999" } });
+  const replacement = query.getQueryData<typeof snapshot>(key)!;
+  const replacementHoldings = replacement.holdings;
+  let replacementReads = 0;
+  Object.defineProperty(replacement, "holdings", { configurable: true, get: () => { replacementReads++; return replacementHoldings; } });
+  view.rerender(surface());
+  expect(replacementReads).toBeGreaterThan(0);
+  expect(view.container.textContent).toBe("Up to 4.00% APY");
+});
+
+test("unknown owner holdings never become the advertised maximum rate", () => {
+  jest.setSystemTime(Date.parse("2025-01-01T00:00:00.000Z"));
+  const query = getHomeQueryClient();
+  const snapshot = buildBalancesSnapshotFixture();
+  const session = { user: { subject: "loading-savings" }, smartAccount: { address: snapshot.owner.address, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+  query.setQueryData(publicQueryKey("savings-vaults"), rates(Date.now(), 0.04));
+  const currentWallet: AccountWalletClient = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "restoring" as const,
+    verification: "provisional" as const, session, fetchBalances: async () => snapshot };
+  function Surface() {
+    const client = useMemo(() => currentWallet, []);
+    return <AccountWalletContext.Provider value={client}><RateLabel /></AccountWalletContext.Provider>;
+  }
+  const view = render(<Surface />);
+  expect(view.container.textContent).toBe("");
+  query.setQueryData(ownerQueryKey(dataOwnerKey(session), "balances", "US"), snapshot);
+  view.rerender(<Surface />);
   expect(view.container.textContent).toBe("Up to 4.00% APY");
 });

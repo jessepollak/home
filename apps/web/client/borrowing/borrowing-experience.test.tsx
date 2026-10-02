@@ -1,29 +1,33 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import "@/client/account/dom-test-harness";
 
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, setSystemTime, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
   BorrowExperience,
+  useBorrowOfferRate,
   formatCash,
   openingBorrowAvailableBaseUnits,
   presentBorrowAssetMark,
   recommendedOpeningCollateralBaseUnits,
   recommendedRepayMaximumBaseUnits,
 } = await import("./borrowing-experience");
+const { AccountWalletClientProvider, createBlockedAccountWalletClient } = await import("@/client/account/cdp-client");
 const { parseClientTokenAmount, selectPrimaryBorrowAsset } = await import("./borrow-money-dialog");
 
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
-const BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
+const BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`)!;
 const BORROW_MARKET = VERIFIED_MORPHO_MARKETS[0]!;
 const BORROW_MARKET_ID = BORROW_MARKET.marketId;
 const BORROW_LOAN_TOKEN = BORROW_MARKET.loanToken;
@@ -101,7 +105,7 @@ function prepared(operation: "borrow" | "supply-and-borrow" | "repay" | "repay-a
     calls: [{ to: MORPHO_BLUE_ADDRESS, data: "0x1234", value: "0" }],
     amounts,
     warnings: [],
-    metadata: { product: "borrow", operation, marketId: BORROW_MARKET_ID, loanAsset: { id: BORROW_LOAN_TOKEN.id, symbol: "USDC" }, collateralAsset: { id: BORROW_COLLATERAL_TOKEN.id, symbol: "cbBTC" }, projectedHealthFactorWad: "1500000000000000000", projectedLiquidationPriceRaw: "610000000000000000000000000000000000000", borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: BLOCK_HASH, blockTimestamp: "1788897600" } },
+    metadata: { product: "borrow", operation, marketId: BORROW_MARKET_ID, riskIncreased: operation === "borrow" || operation === "supply-and-borrow", loanAsset: { id: BORROW_LOAN_TOKEN.id, symbol: "USDC" }, collateralAsset: { id: BORROW_COLLATERAL_TOKEN.id, symbol: "cbBTC" }, projectedHealthFactorWad: "1500000000000000000", projectedLiquidationPriceRaw: "610000000000000000000000000000000000000", borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: BLOCK_HASH, blockTimestamp: "1788897600" } },
     createdAt: "2026-09-13T12:00:00.000Z",
     expiresAt: "2030-09-13T12:02:00.000Z",
     ...overrides,
@@ -120,6 +124,7 @@ afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
   jest.useRealTimers();
+  setSystemTime();
   delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
 });
 
@@ -140,6 +145,16 @@ describe("Borrow overview and management", () => {
     expect(loans.getByRole("button", { description: "Manage Bitcoin loan" })).toBeTruthy();
     expect(body.getByText("Borrowed")).toBeTruthy();
     expect(body.getAllByText(/APR/)).toBeTruthy();
+  });
+
+  test("overview seeds the market scope without creating legacy detail entries", async () => {
+    const snapshot = detail();
+    const client = getHomeQueryClient();
+    const owner = dataOwnerKey(session());
+    render(<BorrowExperience session={session()} fetchAccountResource={accountFetch(snapshot)} />);
+    await waitFor(() => expect(client.getQueryData<BorrowMarketSnapshot>(ownerQueryKey(owner, "borrow-market", BORROW_MARKET_ID)))
+      .toMatchObject({ walletAddress: OWNER, market: { id: BORROW_MARKET_ID }, position: snapshot.position }));
+    expect(client.getQueryData(ownerQueryKey(owner, "borrow", "detail", BORROW_MARKET_ID))).toBeUndefined();
   });
 
   test("renders wide debt and held opening capacity as dollars, preserving collateral units and inert rows", async () => {
@@ -617,6 +632,23 @@ describe("Borrow overview and management", () => {
   }, 30_000);
 });
 describe("Borrow direct market", () => {
+  test("revalidates cached market detail on mount, remount, and invalidation", async () => {
+    const client = getHomeQueryClient();
+    const marketKey = ownerQueryKey(dataOwnerKey(session()), "borrow-market", BORROW_MARKET_ID);
+    client.setQueryData(marketKey, detail());
+    let reads = 0;
+    const fetchAccountResource = async () => detail({ source: { ...detail().source, blockNumber: `${100 + ++reads}` } });
+    const flow = <BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID} fetchAccountResource={fetchAccountResource} />;
+    const first = render(flow);
+    await waitFor(() => expect(client.getQueryData<BorrowMarketSnapshot>(marketKey)?.source.blockNumber).toBe("101"));
+    first.unmount();
+    render(flow);
+    await waitFor(() => expect(client.getQueryData<BorrowMarketSnapshot>(marketKey)?.source.blockNumber).toBe("102"));
+    await act(async () => { await client.invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey(session()), "borrow-market") }); });
+    expect(reads).toBe(3);
+    expect(client.getQueryData<BorrowMarketSnapshot>(marketKey)?.source.blockNumber).toBe("103");
+  });
+
   test("keeps the configured market route on the direct money dialog", async () => {
     let closed = 0;
     render(<BorrowExperience session={session()} selectedMarketId={BORROW_MARKET_ID}
@@ -709,4 +741,28 @@ describe("Borrow bigint helpers", () => {
   test("formats borrowed cash with the loan token symbol", () => {
     expect(formatCash("100000000", { ...BORROW_LOAN_TOKEN, id: BORROW_COLLATERAL_TOKEN.id }, "US")).toContain("USDC");
   });
+});
+
+test("failed Borrow revalidation keeps the retained APR's observation age", async () => {
+  setSystemTime(new Date("2026-10-01T08:00:00.000Z"));
+  const client = getHomeQueryClient();
+  const active = session();
+  const key = ownerQueryKey(dataOwnerKey(active), "borrow", "overview");
+  const observedAt = Date.parse("2026-10-01T07:59:59.000Z");
+  client.setQueryData(key, overview({ position: false, snapshots: [noPosition()] }), { updatedAt: observedAt });
+  const wallet: AccountWalletClient = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", session: active,
+    fetchAccountResource: async () => { throw new Error("offline"); } };
+  function Rate() {
+    const observation = useBorrowOfferRate({ enabled: true, regionId: "US" });
+    return <output data-observed-at={observation.updatedAt}>{observation.value}</output>;
+  }
+  const view = render(<AccountWalletClientProvider client={wallet}><Rate /></AccountWalletClientProvider>);
+  const before = view.getByRole("status").textContent;
+  expect(before).toContain("APR");
+  const query = client.getQueryCache().find({ queryKey: key, exact: true });
+  if (!query) throw new Error("Borrow query missing");
+  await act(async () => { await expect(query.fetch()).rejects.toThrow("offline"); });
+  expect(query.state.errorUpdatedAt).toBeGreaterThan(observedAt);
+  expect(view.getByRole("status").textContent).toBe(before);
+  expect(view.getByRole("status").getAttribute("data-observed-at")).toBe(String(observedAt));
 });

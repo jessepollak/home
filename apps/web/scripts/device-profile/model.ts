@@ -1,7 +1,7 @@
 export const workloads = ["home-fling", "activity-fling", "nav-round-trips", "add-money-open", "activity-detail-open", "chart-scrub", "replace-state-probe", "record"] as const;
 export type Workload = typeof workloads[number];
 export type Plan = { workload: Workload; rows: number; label: string; repeat: number; duration: number };
-export type Run = { frameCount: number; periodMs: number; missedDeadlinePct: number; longFramePct: number; longFrameCount: number; frameMs: { p50: number; p95: number; p99: number; max: number }; feedbackMs: number[]; blankCheck: { framesWithBlank: number; maxBlankPx: number }; longTasks: { count: number; totalMs: number }; loaf: { count: number; totalMs: number; blockingMs: number }; rowsLoaded?: number; partialSource?: string[]; scrollDriver?: "js"; replaceState?: { calls: number; maxCalls10s: number; errors: { name: string; message: string }[]; securityError: boolean }[]; trace?: { scriptMs: number; styleMs: number; layoutMs: number; paintMs: number } };
+export type Run = { frameCount: number; periodMs: number; missedDeadlinePct: number; longFramePct: number; longFrameCount: number; frameMs: { p50: number; p95: number; p99: number; max: number }; feedbackMs: number[]; blankCheck: { framesWithBlank: number; maxBlankPx: number }; longTasks: { count: number; totalMs: number }; loaf: { count: number; totalMs: number; blockingMs: number }; rowsLoaded?: number; groupedRows?: number; underlyingRows?: number; partial?: true; partialSource?: string[]; scrollDriver?: "js"; replaceState?: { calls: number; maxCalls10s: number; errors: { name: string; message: string }[]; securityError: boolean }[]; trace?: { scriptMs: number; styleMs: number; layoutMs: number; paintMs: number } };
 export type Result = { version: 1; plan: Plan; environment: { userAgent: string; viewport: { width: number; height: number }; dpr: number; standalone: boolean; navigatorStandalone: boolean; supportedEntryTypes: readonly string[]; fixture?: { tokenImages: "omitted" } }; runs: Run[]; error?: string; traceError?: string };
 export const integer = (text: string | null | undefined, min: number, max: number): number | null => {
   if (text == null || !/^(0|[1-9]\d*)$/.test(text)) return null;
@@ -11,6 +11,10 @@ export const integer = (text: string | null | undefined, min: number, max: numbe
 export const safeName = (name: string) => name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60) || "profile";
 export const artifactName = (unique: string, workload: string, suffix: string) => `${safeName(unique)}-${safeName(workload)}${suffix}`;
 export const runId = (index: number, label: string, now: number, nonce: string) => `${index}-${now.toString(36)}-${nonce}-${label}`;
+export function assertProxyToolkit(status: unknown, toolkit: string, port: number): void {
+  if (!status || typeof status !== "object" || Array.isArray(status)) throw new Error(`The service on port ${port} isn't a current device-profile proxy`);
+  if ((status as Record<string, unknown>).toolkit !== toolkit) throw new Error(`The device-profile proxy on port ${port} was started from a different checkout or build; stop the proxy you started there, or pass --port`);
+}
 export const CHROME_COMMAND_LINE = "_ --disable-fre --no-default-browser-check --no-first-run --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
 export const chromeCommandLineArgs = (base64: string | null) => base64 === null
   ? ["shell", "rm", "-f", "/data/local/tmp/chrome-command-line"]
@@ -43,6 +47,10 @@ export const productionTarget = (url: string, workload: Workload): string => {
 };
 export const loadedRowCount = (items: { posinset: number; setsize: number }[], fallbackCount: number): number => Math.max(0, ...items.map((item) => item.setsize).filter((n) => n > 0)) || Math.max(0, ...items.map((item) => item.posinset).filter((n) => n > 0)) || fallbackCount;
 export const detailPosition = (rows: number): number => { if (!Number.isSafeInteger(rows) || rows < 1) throw new Error("Detail requires at least one loaded row"); return Math.floor(rows / 2) + 1; };
+export const detailTarget = (rows: readonly { posinset: number; detail: boolean }[], position: number): number | null => {
+  const eligible = rows.filter((row) => row.detail && Number.isSafeInteger(row.posinset) && row.posinset > 0);
+  return eligible.reduce<number | null>((best, row) => best === null || Math.abs(row.posinset - position) < Math.abs(best - position) || Math.abs(row.posinset - position) === Math.abs(best - position) && row.posinset < best ? row.posinset : best, null);
+};
 export const deviceFields = (record: Record<string, unknown>, keys: string[]) => Object.fromEntries(keys.filter((key) => typeof record[key] === "string" && record[key] !== "").map((key) => [key, record[key] as string]));
 const simulatorIdentifiers = "com\\.apple\\.CoreSimulator\\.";
 const runtimeGrammar = new RegExp(`^${simulatorIdentifiers}SimRuntime\\.(iOS|watchOS|tvOS|visionOS|xrOS)-(\\d{1,2})-(\\d{1,2})$`);
@@ -119,14 +127,14 @@ export function matrix(workload: string, rows: number, production: boolean): { w
   return [{ workload: workload as Workload, rows }];
 }
 export function parseArgs(command: string | undefined, args: string[]): { flags: Map<string, string>; paths: string[] } {
-  const allowed: Record<string, string[]> = { serve: ["port", "host", "upstream", "rows", "out-dir"], inventory: ["public"], "ios-sim": ["device", "port", "rows", "repeat", "workload", "label"], android: ["serial", "rows", "repeat", "port", "workload", "label", "url", "trace"], summarize: ["markdown"] };
+  const allowed: Record<string, string[]> = { serve: ["port", "host", "upstream", "rows", "out-dir"], inventory: ["public"], "ios-sim": ["device", "port", "rows", "repeat", "workload", "label"], android: ["serial", "rows", "repeat", "port", "workload", "label", "url", "trace"], summarize: ["markdown", "include-partial"] };
   const flags = new Map<string, string>(), paths: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const key = args[i]!;
     if (!key.startsWith("--")) { if (command !== "summarize") throw new Error(`Unexpected argument ${key}`); paths.push(key); continue; }
     const name = key.slice(2);
     if (!allowed[command ?? ""]?.includes(name)) throw new Error(`Unknown --${name} for ${command}`);
-    if (key === "--public" || key === "--markdown") { flags.set(name, "true"); continue; }
+    if (key === "--public" || key === "--markdown" || key === "--include-partial") { flags.set(name, "true"); continue; }
     if (!args[i + 1] || args[i + 1]!.startsWith("--")) throw new Error(`Missing value for ${key}`);
     flags.set(name, args[++i]!);
   }
@@ -141,7 +149,7 @@ export const validPlan = (value: unknown): value is Plan => {
 export function validResult(value: unknown): value is Result {
   if (!value || typeof value !== "object") return false;
   const r = value as Partial<Result>;
-  return r.version === 1 && validPlan(r.plan) && !!r.environment && typeof r.environment.userAgent === "string" && Array.isArray(r.runs) && r.runs.length <= r.plan.repeat && r.runs.every((run) => !!run && typeof run.frameCount === "number" && Number.isFinite(run.frameCount) && typeof run.periodMs === "number" && typeof run.missedDeadlinePct === "number" && typeof run.longFrameCount === "number" && typeof run.frameMs?.p95 === "number" && Array.isArray(run.feedbackMs) && run.feedbackMs.every((n) => typeof n === "number") && (run.replaceState === undefined || (Array.isArray(run.replaceState) && run.replaceState.every((x) => Array.isArray(x?.errors)))) && (run.partialSource === undefined || (Array.isArray(run.partialSource) && run.partialSource.every((s) => typeof s === "string"))) && (run.trace === undefined || [run.trace?.scriptMs, run.trace?.styleMs, run.trace?.layoutMs, run.trace?.paintMs].every((n) => typeof n === "number"))) && (r.error === undefined || typeof r.error === "string") && (r.traceError === undefined || typeof r.traceError === "string");
+  return r.version === 1 && validPlan(r.plan) && !!r.environment && typeof r.environment.userAgent === "string" && Array.isArray(r.runs) && r.runs.length <= r.plan.repeat && r.runs.every((run) => !!run && typeof run.frameCount === "number" && Number.isFinite(run.frameCount) && typeof run.periodMs === "number" && typeof run.missedDeadlinePct === "number" && typeof run.longFrameCount === "number" && typeof run.frameMs?.p95 === "number" && Array.isArray(run.feedbackMs) && run.feedbackMs.every((n) => typeof n === "number") && (run.replaceState === undefined || (Array.isArray(run.replaceState) && run.replaceState.every((x) => Array.isArray(x?.errors)))) && (run.partial === undefined || typeof run.partial === "boolean") && (run.groupedRows === undefined || typeof run.groupedRows === "number") && (run.underlyingRows === undefined || typeof run.underlyingRows === "number") && (run.partialSource === undefined || (Array.isArray(run.partialSource) && run.partialSource.every((s) => typeof s === "string"))) && (run.trace === undefined || [run.trace?.scriptMs, run.trace?.styleMs, run.trace?.layoutMs, run.trace?.paintMs].every((n) => typeof n === "number"))) && (r.error === undefined || typeof r.error === "string") && (r.traceError === undefined || typeof r.traceError === "string");
 }
 export const median = (values: number[]) => { const sorted = [...values].sort((a, b) => a - b); return sorted.length ? (sorted[Math.floor((sorted.length - 1) / 2)]! + sorted[Math.floor(sorted.length / 2)]!) / 2 : 0; };
 export const percentile = (values: number[], p: number) => { const sorted = [...values].sort((a, b) => a - b); return sorted.length ? sorted[Math.ceil(sorted.length * p) - 1]! : 0; };
@@ -153,14 +161,60 @@ export const frameProblem = (sampleCount: number) => sampleCount > 0 ? null : "N
 export const resultFailure = (result: Result) => result.error ?? (result.runs.length === result.plan.repeat ? null : `Incomplete result: ${result.runs.length}/${result.plan.repeat} runs`);
 export const settledPages = (listed: number, previous: number, settled: number) => listed === previous ? settled + 1 : 0;
 export const partialFeedComplete = (partialSourceCount: number, settled: number) => partialSourceCount > 0 && settled >= 2;
-export function summarize(results: Result[], markdown = false) {
-  const lines = ["Device | Workload | Rows | Period ms | Missed % | Long frames | p95 ms | Feedback median ms | Script/Style/Layout/Paint ms | replaceState errors | Partial | Status"];
+export const feedComplete = (state: { pending: readonly string[]; end: boolean; partialSourceCount: number; settled: number }): boolean =>
+  state.pending.length === 0 && (state.end || partialFeedComplete(state.partialSourceCount, state.settled));
+export const feedChangeMarker = (before: number, after: number) => before === after ? null : `The measured activity feed changed during the run (${before} to ${after} rows)`;
+export const unsettledMarker = (pending: readonly string[]) => pending.length ? `The activity feed was still loading when the run ended (${pending.join(", ")})` : null;
+
+export const feedQuietMs = 1000;
+
+export type FeedQuietSample = { rows: number; pending: readonly string[]; markers: readonly string[] };
+
+export async function waitForQuietFeed(input: {
+  rows: number;
+  pending?: readonly string[];
+  quietMs?: number;
+  now?: () => number;
+  frame: () => Promise<unknown>;
+  sample: () => FeedQuietSample;
+}): Promise<string[]> {
+  const { rows, pending = [], quietMs = feedQuietMs, now = () => performance.now(), frame, sample } = input;
+  const markers: string[] = [];
+  const settling = unsettledMarker(pending);
+  if (settling) markers.push(settling);
+  const started = now();
+  while (now() - started < quietMs) {
+    await frame();
+    const observed = sample();
+    const changed = feedChangeMarker(rows, observed.rows);
+    const unsettled = unsettledMarker(observed.pending);
+    if (changed) markers.push(changed);
+    if (unsettled) markers.push(unsettled);
+    if (observed.markers.length) markers.push(...observed.markers);
+    if (changed || unsettled || observed.markers.length) break;
+  }
+  return markers;
+}
+
+export const runPartial = (run: Run) => run.partial === true || (run.partialSource?.length ?? 0) > 0;
+export function summarize(results: Result[], markdown = false, includePartial = false) {
+  const lines = ["Device | Workload | Rows | Grouped/underlying | Period ms | Missed % | Long frames | p95 ms | Feedback median ms | Script/Style/Layout/Paint ms | replaceState errors | Partial | Status"];
   const cell = (text: string) => text.replace(/\s*[|\r\n]+\s*/g, " ").slice(0, 80);
   for (const r of results) {
     const expected = r.plan.repeat ?? r.runs.length, completed = r.runs.length;
     const status = r.error ? `failed ${completed}/${expected}: ${cell(r.error)}` : completed < expected ? `incomplete ${completed}/${expected}` : `ok ${completed}/${expected}`;
-    if (!completed) { lines.push(`${cell(r.environment.userAgent).slice(0, 55)} | ${r.plan.workload} | ${r.environment.fixture ? r.plan.rows : "—"} | — | — | — | — | — | — | — | — | ${status}`); continue; }
-    for (const run of r.runs) lines.push(`${cell(r.environment.userAgent).slice(0, 55)} | ${r.plan.workload} | ${r.environment.fixture ? r.plan.rows : (run.rowsLoaded ?? "—")} | ${run.periodMs} | ${run.missedDeadlinePct} | ${run.longFrameCount} | ${run.frameMs.p95} | ${run.feedbackMs.length ? round(median(run.feedbackMs)) : "—"} | ${run.trace ? [run.trace.scriptMs, run.trace.styleMs, run.trace.layoutMs, run.trace.paintMs].join("/") : r.traceError ? `— (${cell(r.traceError)})` : "—"} | ${run.replaceState?.reduce((n, x) => n + x.errors.length, 0) ?? 0} | ${run.partialSource?.length ? cell(run.partialSource.join("; ")) : "—"} | ${status}`);
+    if (!completed) { lines.push(`${cell(r.environment.userAgent).slice(0, 55)} | ${r.plan.workload} | ${r.environment.fixture ? r.plan.rows : "—"} | — | — | — | — | — | — | — | — | — | ${status}`); continue; }
+    const excluded = includePartial ? [] : r.runs.filter(runPartial);
+    for (const run of r.runs) {
+      if (!includePartial && runPartial(run)) continue;
+      const grouped = run.groupedRows !== undefined || run.underlyingRows !== undefined ? `${run.groupedRows ?? "—"}/${run.underlyingRows ?? "—"}` : "—";
+      lines.push(`${cell(r.environment.userAgent).slice(0, 55)} | ${r.plan.workload} | ${r.environment.fixture ? r.plan.rows : (run.rowsLoaded ?? "—")} | ${grouped} | ${run.periodMs} | ${run.missedDeadlinePct} | ${run.longFrameCount} | ${run.frameMs.p95} | ${run.feedbackMs.length ? round(median(run.feedbackMs)) : "—"} | ${run.trace ? [run.trace.scriptMs, run.trace.styleMs, run.trace.layoutMs, run.trace.paintMs].join("/") : r.traceError ? `— (${cell(r.traceError)})` : "—"} | ${run.replaceState?.reduce((n, x) => n + x.errors.length, 0) ?? 0} | ${run.partialSource?.length ? cell(run.partialSource.join("; ")) : "—"} | ${status}`);
+    }
+    if (excluded.length) {
+      const sources = [...new Set(excluded.flatMap((run) => run.partialSource ?? []))];
+      const exclusionStatus = `excluded ${excluded.length}/${expected} partial${status === `ok ${completed}/${expected}` ? "" : `; ${status}`}`;
+      lines.push([cell(r.environment.userAgent).slice(0, 55), r.plan.workload, ...Array<string>(9).fill("—"), sources.length ? cell(sources.join("; ")) : "—", exclusionStatus].join(" | "));
+    }
   }
   if (markdown) lines.splice(1, 0, lines[0]!.split(" | ").map(() => "---").join(" | "));
   return lines.map((line) => markdown ? `| ${line} |` : line).join("\n");

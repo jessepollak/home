@@ -37,9 +37,10 @@ export function parseStripeCardholder(value: unknown): { id: string; status: "ac
 }
 
 export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fetch = fetch) {
-  async function request(path: string, params?: URLSearchParams, key?: string, root = false): Promise<unknown> {
+  async function request(path: string, params?: URLSearchParams, key?: string, root = false, signal?: AbortSignal): Promise<unknown> {
+    signal?.throwIfAborted();
     const response = await fetcher(`https://api.stripe.com/v1/${root ? "" : "issuing/"}${path}`, {
-      method: params ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: AbortSignal.timeout(5000),
+      method: params ? "POST" : "GET", redirect: "manual", cache: "no-store", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(5000)]) : AbortSignal.timeout(5000),
       headers: { [["Author", "ization"].join("")]: ["Bearer", config.stripeSecretKey].join(" "), "Stripe-Version": config.stripeApiVersion,
         ...(params ? { "Content-Type": "application/x-www-form-urlencoded", ...(key ? { "Idempotency-Key": key } : {}) } : {}) },
       ...(params ? { body: params.toString() } : {}),
@@ -48,16 +49,16 @@ export function createStripeClient(config: CardJourneyConfig, fetcher: typeof fe
     return readProviderJson(response, "Stripe");
   }
   return {
-    async readCardholder(id: string): Promise<ReturnType<typeof parseStripeCardholder>> {
+    async readCardholder(id: string, signal?: AbortSignal): Promise<ReturnType<typeof parseStripeCardholder>> {
       if (!/^ich_[A-Za-z0-9]+$/.test(id)) throw new Error("Invalid Stripe cardholder ID");
-      const payload = await request(`cardholders/${encodeURIComponent(id)}`);
+      const payload = await request(`cardholders/${encodeURIComponent(id)}`, undefined, undefined, false, signal);
       const cardholder = parseStripeCardholder(payload);
       if (cardholder.id !== id) throw new Error("Stripe cardholder ID mismatch");
       return cardholder;
     },
-    async readCard(id: string): Promise<StripeCard> {
+    async readCard(id: string, signal?: AbortSignal): Promise<StripeCard> {
       if (!/^ic_[A-Za-z0-9]+$/.test(id)) throw new Error("Invalid Stripe card ID");
-      const payload = await request(`cards/${encodeURIComponent(id)}`);
+      const payload = await request(`cards/${encodeURIComponent(id)}`, undefined, undefined, false, signal);
       const card = parseStripeCard(payload);
       if (card.id !== id) throw new Error("Stripe card ID mismatch");
       return card;

@@ -1,21 +1,23 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { installApiFixtures, RECIPIENT, seedSignedInSession } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
 
-function zeroDurationTransitions(locator: Locator) {
-  return locator.evaluate((element) =>
-    getComputedStyle(element).transitionDuration
-      .split(",")
-      .every((duration) => Number.parseFloat(duration) === 0));
-}
-
-test("submitted send shows a pending result and clears its review route before reload", async ({ page }) => {
+test("submitted send shows a pending result and clears its review route before reload", { tag: "@smoke" }, async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
   await page.getByRole("button", { name: "Send" }).click();
-  expect(await zeroDurationTransitions(page.locator("[data-slot=drawer-popup]"))).toBe(true);
+  await expect.poll(() => page.evaluate(() => {
+    const sheets = document.querySelectorAll<HTMLElement>("[data-slot=drawer-popup]");
+    const sheet = sheets.length === 1 ? sheets[0] : null;
+    if (!sheet) return null;
+    const bounds = sheet.getBoundingClientRect();
+    const style = getComputedStyle(sheet);
+    if (bounds.width === 0 || bounds.height === 0 || style.visibility !== "visible") return null;
+    if (sheet.hasAttribute("data-starting-style") || sheet.hasAttribute("data-ending-style")) return null;
+    return style.transitionDuration;
+  })).toBe("0s");
   await typeAmount(page, "1");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("textbox", { name: "To" }).fill(RECIPIENT);

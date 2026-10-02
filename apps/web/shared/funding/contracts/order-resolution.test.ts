@@ -28,6 +28,14 @@ describe("funding order resolution contract", () => {
 
   test("reads only a versioned order response", () => {
     expect(readResolveFundingOrderResponse({ version: 1, order })).toEqual({ version: 1, order });
+    expect(readResolveFundingOrderResponse({
+      version: 1,
+      order: { id: order.id, providerId: order.providerId, state: order.state, fiatAmount: order.fiatAmount, instructions: null },
+    })).toBeNull();
+    expect(readResolveFundingOrderResponse({
+      version: 1,
+      order: { id: order.id, providerId: order.providerId, state: order.state, fiatAmount: order.fiatAmount, providerStatus: null },
+    })).toBeNull();
     expect(readResolveFundingOrderResponse({ version: 2, order })).toBeNull();
     expect(readResolveFundingOrderResponse({
       version: 1,

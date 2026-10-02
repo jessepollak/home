@@ -67,7 +67,7 @@ function parseStripePurchase(value: unknown, kind: "authorization" | "transactio
     if (typeof value.approved !== "boolean" || !["pending", "closed", "reversed"].includes(String(value.status))) throw new Error("Invalid Stripe authorization status");
     status = !value.approved ? "declined" : value.status === "reversed" ? "reversed" : "pending";
     const history = value.request_history;
-    const entry = Array.isArray(history) ? history.at(-1) : null;
+    const entry: unknown = Array.isArray(history) ? history.at(-1) : null;
     reason = !value.approved && record(entry) && typeof entry.reason === "string" && /^[a-z_]{1,64}$/.test(entry.reason) ? entry.reason : null;
     authorizationId = id;
   } else {

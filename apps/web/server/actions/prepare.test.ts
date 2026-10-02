@@ -1,16 +1,30 @@
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { encodeFunctionData, erc20Abi } from "viem";
+import { parseHash32 } from "@/shared/chain/hex";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import { PRODUCT_NOT_OFFERED_CODE, parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse } from "@/shared/actions/contracts/prepare";
 import { SavingsActionError } from "@/server/savings/prepare";
+import { VERIFIED_SAVE_VAULTS } from "@/shared/savings/config";
+import { BORROW_MARKETS } from "@/shared/borrowing/config";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
+import { TRADE_ACTION_CONTRACT_VERSION } from "@/shared/trading/contract";
+import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import { makePaymasterApproval, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, NETWORK_FEE_ETH_UNFUNDED_MESSAGE, NETWORK_FEE_UNFUNDED_MESSAGE } from "@/shared/money-actions/network-fee";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { setActionsStoreForTests, type ActionsStore } from "./store";
 import { TradePreparationError } from "./kinds/trade/permit2";
 import { createPrepareActionHandler } from "./prepare";
+import { CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
 
 const OWNER = "0x1111111111111111111111111111111111111111";
 const NOW = new Date("2026-09-28T12:00:00.000Z");
 beforeEach(() => setSystemTime(NOW));
+const VAULT = VERIFIED_SAVE_VAULTS[0].address;
+const BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`);
+if (!BLOCK_HASH) throw new Error("Expected a 32-byte block hash fixture.");
+const MARKET = BORROW_MARKETS.find((market) => market.availability === "enabled");
+if (!MARKET) throw new Error("Expected an enabled borrow market fixture.");
 
 function request(kind = "savings-deposit") {
   return new Request("https://home.test/api/actions/prepare", {
@@ -22,7 +36,7 @@ function request(kind = "savings-deposit") {
     body: JSON.stringify({
       kind,
       params: {
-        vaultAddress: "0x2222222222222222222222222222222222222222",
+        vaultAddress: VAULT,
         amountBaseUnits: "1000000",
       },
     }),
@@ -31,7 +45,7 @@ function request(kind = "savings-deposit") {
 
 function savingsDraft(operation: "deposit" | "withdraw"): MoneyActionDraft {
   const deposit = operation === "deposit";
-  const vault = "0x2222222222222222222222222222222222222222" as const;
+  const vault = VAULT;
   return {
     kind: deposit ? "savings-deposit" : "savings-withdraw",
     title: deposit ? "Deposit USDC" : "Withdraw USDC",
@@ -71,6 +85,176 @@ function authorized() {
 afterEach(() => { setActionsStoreForTests(null); setSystemTime(); });
 
 describe("prepare action handler", () => {
+  test.each([
+    ["invalid", "CARD_ALLOWANCE_INVALID", 400],
+    ["not-ready", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["unchanged", "CARD_ALLOWANCE_UNCHANGED", 409],
+    ["unavailable", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+  ] as const)("maps card allowance %s to %s", async (reason, code, status) => {
+    const handler = createPrepareActionHandler({ authorize: async () => authorized(),
+      prepareCardAllowance: async () => { throw new CardAllowancePreparationError(reason); } });
+    const response = await handler(request("card-allowance"));
+    expect(response.status).toBe(status);
+    const body = await response.json();
+    expect(body).toMatchObject({ error: { code } });
+    expect(parsePrepareActionErrorResponse(body)).toEqual(body);
+  });
+  test("maps a removed card spender at issue time to unavailable", async () => {
+    const before = process.env.BRIDGE_ENABLED;
+    process.env.BRIDGE_ENABLED = "0";
+    try {
+      const handler = createPrepareActionHandler({ authorize: async () => authorized(), applyFee: async (_session, draft) => draft,
+        prepareCardAllowance: async () => ({ kind: "card-allowance", title: "Set card spending limit", amounts: [], warnings: ["Card program spender"],
+          expiresAt: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
+          calls: [{ to: BASE_USDC_ADDRESS, data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: ["0x65bf8b55EEDef53C094E40003a03390De744DF33", BigInt(25_000_000)] }),
+            value: "0", approval: { assetId: "usdc", spender: "0x65bf8b55eedef53c094e40003a03390de744df33" } }],
+          metadata: { product: "card", operation: "set-allowance", provider: "bridge", mode: "production",
+            token: BASE_USDC_ADDRESS.toLowerCase() as `0x${string}`, spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+            allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "0", maximumBaseUnits: "100000000", source: { blockNumber: "100" } },
+        }),
+      });
+      const response = await handler(request("card-allowance"));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: { code: "CARD_ALLOWANCE_UNAVAILABLE" } });
+    } finally {
+      if (before === undefined) delete process.env.BRIDGE_ENABLED;
+      else process.env.BRIDGE_ENABLED = before;
+    }
+  });
+  test.each(["savings-deposit", "trade", "send"] as const)("blocks paused %s before building a draft and allows entries when on", async (kind) => {
+    const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
+    setActionsStoreForTests({ insert: async (input) => { inserts.push(input); } } as ActionsStore);
+    let prepared = 0;
+    const settings = resolveProductOffering({ kind: "deployment" });
+    const handler = (paused: boolean) => createPrepareActionHandler({
+      authorize: async () => authorized(),
+      readOffering: async () => paused ? { ...settings, products: { ...settings.products, save: "exit-only", invest: "exit-only", send: "off" } } : settings,
+      prepareSavings: async () => { prepared++; return savingsDraft("deposit"); },
+      prepareTrade: async () => { prepared++; throw new TradePreparationError("no-liquidity"); },
+      applyFee: async (_session, draft) => draft,
+    });
+    const input = () => kind === "trade" ? new Request("https://home.test/api/actions/prepare", {
+      method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
+      body: JSON.stringify({ kind, params: { version: TRADE_ACTION_CONTRACT_VERSION, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1000000" } }),
+    }) : kind === "send" ? new Request("https://home.test/api/actions/prepare", {
+      method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
+      body: JSON.stringify({ kind, params: { assetId: "usdc", recipient: OWNER, amountBaseUnits: "1000000" } }),
+    }) : request(kind);
+    const blocked = await handler(true)(input());
+    expect(blocked.status).toBe(409);
+    expect((await blocked.json()).error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(prepared).toBe(0);
+    const allowed = await handler(false)(input());
+    expect(allowed.status).toBe(kind === "trade" ? 422 : 201);
+    if (kind !== "trade") expect(inserts).toHaveLength(1);
+  });
+  test("blocks Save deposits when the verified vault is reducing-only, not just when Save is paused", async () => {
+    const deployment = resolveProductOffering({ kind: "deployment" });
+    const paused = resolveProductOffering({ kind: "saved", value: { products: deployment.products, vaults: { ...deployment.vaults, [VERIFIED_SAVE_VAULTS[0].id]: "reducing-only" }, markets: deployment.markets } });
+    let prepared = 0;
+    const handler = createPrepareActionHandler({ authorize: async () => authorized(), readOffering: async () => paused,
+      prepareSavings: async () => { prepared++; return savingsDraft("deposit"); } });
+    const result = await handler(request());
+    expect(result.status).toBe(409);
+    expect(parseProductNotOfferedPrepareErrorResponse(await result.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(prepared).toBe(0);
+  });
+
+  test.each(["savings-withdraw", "trade"] as const)("does not read settings for %s exits", async (kind) => {
+    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    let reads = 0;
+    const handler = createPrepareActionHandler({
+      authorize: async () => authorized(),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      prepareSavings: async () => savingsDraft("withdraw"),
+      prepareTrade: async () => { throw new TradePreparationError("no-liquidity"); },
+      applyFee: async (_session, draft) => draft,
+    });
+    const input = kind === "trade" ? new Request("https://home.test/api/actions/prepare", {
+      method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
+      body: JSON.stringify({ kind, params: { version: TRADE_ACTION_CONTRACT_VERSION, assetId: "cbbtc", direction: "sell", amountBaseUnits: "all" } }),
+    }) : request(kind);
+    expect((await handler(input)).status).toBe(kind === "trade" ? 422 : 201);
+    expect(reads).toBe(0);
+  });
+  test("borrow uses the offered market ceiling, rejects a paused market and prepares when enabled", async () => {
+    const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
+    setActionsStoreForTests({ insert: async (input) => { inserts.push(input); } } as ActionsStore);
+    const collateral = (BigInt(10_000) * BigInt(10) ** BigInt(MARKET.collateralToken.decimals)).toString();
+    const snapshot: BorrowMarketSnapshot = {
+      version: "1", chainId: 8453, walletAddress: OWNER,
+      market: { id: MARKET.marketId, morpho: MARKET.morpho, loanToken: MARKET.loanToken, collateralToken: MARKET.collateralToken, oracle: MARKET.oracle, irm: MARKET.irm, lltvWad: MARKET.lltvWad.toString(), rank: MARKET.rank },
+      eligibility: { mode: MARKET.availability, newRisk: true, reason: null },
+      source: { provider: "Base JSON-RPC", blockNumber: "51714405", blockHash: BLOCK_HASH, blockTimestamp: "1790218157", fetchedAt: "2026-09-24T02:49:17.000Z" },
+      state: { oraclePriceRaw: "843242900000000000000000000000000000000", borrowRatePerSecondWad: "0", borrowAprWad: "0", totalSupplyAssetsRaw: "10000000000", totalBorrowAssetsRaw: "1000000000", totalBorrowSharesRaw: "1000000000", liquidityAssetsRaw: "9000000000", lastUpdateTimestamp: "1790218150" },
+      wallet: { collateralBalanceRaw: collateral, loanBalanceRaw: "10000000000", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
+      position: { collateralRaw: collateral, borrowSharesRaw: "1000000", debtAssetsRaw: "1000000", rawBorrowCapacityAssetsRaw: "1", borrowCapacityAssetsRaw: "1", rawWithdrawableCollateralRaw: collateral, withdrawableCollateralRaw: collateral, healthFactorWad: "1500000000000000000", liquidationPriceRaw: "1" },
+    };
+    const deployment = resolveProductOffering({ kind: "deployment" });
+    const marketPaused = resolveProductOffering({ kind: "saved", value: { products: deployment.products, vaults: deployment.vaults, markets: { ...deployment.markets, [MARKET.marketId]: "reducing-only" } } });
+    const handler = (pause: boolean) => createPrepareActionHandler({ authorize: async () => authorized(),
+      readOffering: async () => pause ? marketPaused : deployment,
+      borrowRpc: { readSnapshots: async () => [], readSnapshot: async () => snapshot, simulateBatch: async () => {} },
+      applyFee: async (_session, draft) => draft,
+    });
+    const input = () => new Request("https://home.test/api/actions/prepare", { method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
+      body: JSON.stringify({ kind: "borrow", params: { marketId: MARKET.marketId, operation: "borrow", amountBaseUnits: "100" } }) });
+    const blocked = await handler(true)(input());
+    expect(blocked.status).toBe(409);
+    expect((await blocked.json()).error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    const allowed = await handler(false)(input());
+    expect(allowed.status).toBe(201);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]?.summary.metadata).toMatchObject({ product: "borrow", operation: "borrow", marketId: MARKET.marketId });
+    let reads = 0;
+    const exit = createPrepareActionHandler({ authorize: async () => authorized(),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      borrowRpc: { readSnapshots: async () => [], readSnapshot: async () => snapshot, simulateBatch: async () => {} },
+      applyFee: async (_session, draft) => draft,
+    });
+    for (const operation of ["repay", "repay-all", "close-position", "supply-collateral"] as const) {
+      const kind = operation === "repay-all" || operation === "close-position" ? "repay" : operation;
+      const response = await exit(new Request("https://home.test/api/actions/prepare", { method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
+        body: JSON.stringify({ kind, params: { marketId: MARKET.marketId, operation, ...(operation === "repay-all" || operation === "close-position" ? { maximumRepayBaseUnits: "1250000" } : { amountBaseUnits: "100" }) } }) }));
+      expect(response.status).toBe(201);
+    }
+    const withdraw = createPrepareActionHandler({ authorize: async () => authorized(), readOffering: async () => { reads++; throw new Error("db outage"); },
+      borrowRpc: { readSnapshots: async () => [], readSnapshot: async () => ({ ...snapshot, position: { ...snapshot.position, debtAssetsRaw: "0", borrowSharesRaw: "0", healthFactorWad: null } }), simulateBatch: async () => {} },
+      applyFee: async (_session, draft) => draft,
+    });
+    const zeroDebt = await withdraw(new Request("https://home.test/api/actions/prepare", { method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
+      body: JSON.stringify({ kind: "withdraw-collateral", params: { marketId: MARKET.marketId, operation: "withdraw-collateral", amountBaseUnits: "100" } }) }));
+    expect(zeroDebt.status).toBe(201);
+    expect(reads).toBe(0);
+  });
+
+  test("only risk-increasing borrowing reads the offering; zero-debt collateral withdrawal is an exit", async () => {
+    let debt = "0";
+    let reads = 0;
+    const snapshot = { position: { debtAssetsRaw: debt } } as BorrowMarketSnapshot;
+    const handler = createPrepareActionHandler({
+      authorize: async () => authorized(),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      borrowRpc: { readSnapshot: async () => ({ ...snapshot, position: { ...snapshot.position, debtAssetsRaw: debt } }), readSnapshots: async () => [], simulateBatch: async () => {} },
+      prepareBorrow: async () => { throw new Error("prepared"); },
+    });
+    const input = (operation: string) => new Request("https://home.test/api/actions/prepare", {
+      method: "POST", headers: { "content-type": "application/json", [ACCOUNT_PROVIDER_HEADER]: "cdp-embedded" },
+      body: JSON.stringify({ kind: operation === "repay-all" || operation === "close-position" ? "repay" : operation === "supply-and-borrow" ? "borrow" : operation,
+        params: { marketId: MARKET.marketId, operation, ...(operation === "repay-all" || operation === "close-position" ? { maximumRepayBaseUnits: "1" } : { amountBaseUnits: "1", ...(operation === "supply-and-borrow" ? { collateralAmountBaseUnits: "1" } : {}) }) } }),
+    });
+    for (const operation of ["repay", "repay-all", "close-position", "supply-collateral", "withdraw-collateral"]) {
+      expect((await handler(input(operation))).status).toBe(502);
+      expect(reads).toBe(0);
+    }
+    debt = "1";
+    expect((await handler(input("withdraw-collateral"))).status).toBe(409);
+    expect(reads).toBe(1);
+    expect((await handler(input("borrow"))).status).toBe(409);
+    expect((await handler(input("supply-and-borrow"))).status).toBe(409);
+    expect(reads).toBe(3);
+  });
+
   test("refuses a stock buy before quoting even when params claim another country", async () => {
     let quoted = false;
     const handler = createPrepareActionHandler({

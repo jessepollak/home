@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import type { RegionId } from "@/config/regions";
 import {
@@ -34,6 +34,7 @@ export type FundingActionsProps = {
   regionId?: RegionId;
   regionReady?: boolean;
   onClosed?: () => void;
+  showTrigger?: boolean;
 };
 
 export function FundingActions(props: FundingActionsProps) {
@@ -49,13 +50,16 @@ export function FundingActionsForWallet({
   regionId = "GLOBAL",
   regionReady = true,
   onClosed,
+  showTrigger = true,
 }: FundingActionsProps & {
   wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
 }) {
   const pathname = usePathname();
+  const triggerRef = useRef<HTMLAnchorElement>(null);
   const routing = useOptionalHomeShellRouting();
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
+  const [userOpener, setUserOpener] = useState<HTMLElement | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const { mounted, markOpenedInApp, takeOpenedInApp } = useFlowModal();
   useIdlePreload(preloadAddMoneySheet, uiBoundary(wallet) !== null);
@@ -75,8 +79,8 @@ export function FundingActionsForWallet({
     if (open) closingRef.current = false;
   }, [open]);
 
-  function setFundingFlow(flow: FundingFlow, mode: "push" | "replace"): boolean {
-    if (routing) return routing.setFlow(flow, { mode });
+  function setFundingFlow(flow: FundingFlow, mode: "push" | "replace", opener: HTMLElement | null): boolean {
+    if (routing) return routing.setFlow(flow, { mode, opener });
     return commitFlowUrl(flowHref(pathname, flow), mode);
   }
 
@@ -109,7 +113,7 @@ export function FundingActionsForWallet({
 
   function onStepChange(step: AddMoneyStep) {
     if (!open) return;
-    setFundingFlow(step === "receive" ? "receive" : "add-money", "replace");
+    setFundingFlow(step === "receive" ? "receive" : "add-money", "replace", routing ? routing.flowOpener ?? null : userOpener);
   }
 
   const modal = (
@@ -117,8 +121,16 @@ export function FundingActionsForWallet({
       wallet={wallet}
       navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
+      opener={routing ? routing.flowOpener ?? null : userOpen ? userOpener : null}
       onClose={close}
-      onClosed={onClosed}
+      onClosed={() => {
+        const before = document.activeElement;
+        onClosed?.();
+        const trigger = triggerRef.current;
+        if (before === document.activeElement && trigger?.isConnected) {
+          trigger.focus({ preventScroll: true });
+        }
+      }}
       returnedFromProvider={returnedFromProvider}
       returnedFromVerification={returnedFromVerification}
       initialStep={requestedFlow === "receive" ? "receive" : "method"}
@@ -130,19 +142,24 @@ export function FundingActionsForWallet({
 
   return (
     <>
-      <Button
-        size="touch"
+      {showTrigger ? <a
+        ref={triggerRef}
+        className={buttonVariants({ size: "touch" })}
+        href={flowHref(pathname, "add-money", null, new URLSearchParams())}
         {...intent}
-        onClick={() => {
+        onClick={(event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
           void preloadAddMoneySheet();
           setDismissed(false);
+          setUserOpener(event.currentTarget);
           setUserOpen(true);
-          if (setFundingFlow("add-money", "push") && !routing) markOpenedInApp();
+          if (setFundingFlow("add-money", "push", event.currentTarget) && !routing) markOpenedInApp();
         }}
       >
         <Plus className="size-4" aria-hidden="true" />
         Add money
-      </Button>
+      </a> : null}
       {mounted ? modal : null}
     </>
   );

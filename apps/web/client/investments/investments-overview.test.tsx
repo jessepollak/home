@@ -5,6 +5,7 @@ import { render } from "@testing-library/react";
 import { cryptoAssets } from "@/config/invest-assets";
 import { buildBalancesSnapshotFixture, walletHolding } from "@/shared/balances/fixtures";
 
+const { OwnedAssetDetail } = await import("./owned-asset-detail");
 const { InvestmentsOverview, holdingsQuantity, quantity } = await import("./investments-overview");
 
 function configuredCrypto(id: string) {
@@ -59,4 +60,51 @@ describe("investments route quantity precision", () => {
     expect(holdingsQuantity([wallet, collateral], wallet, buildBalancesSnapshotFixture()))
       .toBe(`2.4690 ${symbol}`);
   });
+});
+
+test("owned detail reuses its selection on refresh status and replaces it with the owner snapshot", () => {
+  const snapshot = buildBalancesSnapshotFixture({ registry: { eth: { balance: { status: "ready", baseUnits: "1000000000000000000" }, value: { status: "priced", currency: "USD", amount: { atoms: "123400", scale: 2 }, asOf: "2026-09-10T12:00:00.000Z" } } } });
+  const holdings = snapshot.holdings;
+  const assetKey = holdings.find((holding) => holding.id === "eth")!.key;
+  let reads = 0;
+  Object.defineProperty(snapshot, "holdings", { get: () => { reads += 1; return holdings; } });
+  const props = { snapshot, balanceStatus: "ready" as const, assetKey, catalog: [], markets: { stockMarket: { status: "unavailable" as const }, memeMarket: { status: "unavailable" as const }, cryptoMarket: { status: "unavailable" as const } }, assetMarkResolution: {}, onBack: () => {}, onRetryBalances: () => {} };
+  const view = render(<OwnedAssetDetail {...props} />);
+  expect(view.getByRole("img", { name: "$1,234.00" })).toBeTruthy();
+  const initialReads = reads;
+  view.rerender(<OwnedAssetDetail {...props} refreshFailed />);
+  expect(reads).toBe(initialReads);
+  const replacement = buildBalancesSnapshotFixture();
+  replacement.owner = { ...replacement.owner, address: "0x9999999999999999999999999999999999999999" };
+  view.rerender(<OwnedAssetDetail {...props} snapshot={replacement} />);
+  expect(view.queryByRole("img", { name: "$1,234.00" })).toBeNull();
+});
+
+test("pending rows preserve their list section only within the same owner and region", () => {
+  const snapshot = buildBalancesSnapshotFixture();
+  const props = { snapshot, balanceStatus: "ready" as const, ownedRows: [], rowsPending: true,
+    visibleCount: 20, onVisibleCountChange: () => {}, onOpenAsset: () => {}, onRetryBalances: () => {} };
+  const view = render(<InvestmentsOverview {...props} />);
+  const initial = view.getByRole("region", { name: "Your investments" });
+  view.rerender(<InvestmentsOverview {...props} snapshot={{ ...snapshot, fetchedAt: "2026-09-30T00:00:00.000Z" }} />);
+  expect(view.getByRole("region", { name: "Your investments" })).toBe(initial);
+  const replacement: typeof snapshot = { ...snapshot, owner: { ...snapshot.owner, address: "0x9999999999999999999999999999999999999999" } };
+  view.rerender(<InvestmentsOverview {...props} snapshot={replacement} />);
+  const ownerSection = view.getByRole("region", { name: "Your investments" });
+  expect(ownerSection).not.toBe(initial);
+  view.rerender(<InvestmentsOverview {...props} snapshot={{ ...replacement, region: "MX" }} />);
+  expect(view.getByRole("region", { name: "Your investments" })).not.toBe(ownerSection);
+});
+
+
+test("same-owner pending selection restores keyboard focus to the refreshed holding", () => {
+  const snapshot = buildBalancesSnapshotFixture({ catalog: [holdingAt("0x9999999999999999999999999999999999999999", "Focus asset", 18, "1000000000000000000")] });
+  const props = { snapshot, balanceStatus: "ready" as const, visibleCount: 20, onVisibleCountChange: () => {}, onOpenAsset: () => {}, onRetryBalances: () => {} };
+  const view = render(<InvestmentsOverview {...props} />);
+  view.getByRole("button", { description: "Open Focus asset" }).focus();
+  view.rerender(<InvestmentsOverview {...props} rowsPending ownedRows={[]} />);
+  expect(document.activeElement).toBe(document.body);
+  expect(view.queryByRole("button", { description: "Open Focus asset" })).toBeNull();
+  view.rerender(<InvestmentsOverview {...props} />);
+  expect(document.activeElement).toBe(view.getByRole("button", { description: "Open Focus asset" }));
 });

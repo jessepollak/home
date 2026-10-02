@@ -16,7 +16,7 @@ import {
   type MoneyActionOwner,
 } from "@/shared/money-actions/types";
 import type { CashoutProgressState } from "@/shared/funding/contracts/cash-out-progress";
-import { RECENT_ACTIONS_LIMIT } from "@/shared/actions/contracts/list";
+import { RECENT_ACTIONS_LIMIT, RETAINED_SAVINGS_DEPOSITS_LIMIT } from "@/shared/actions/contracts/list";
 import type { AccountProvider } from "@/shared/account/session-types";
 import type { CoinbaseSmartWalletTypedData, Address, Hex } from "@/shared/trading/server-types";
 import type { TradeSigningRequest } from "@/shared/trading/contract";
@@ -589,6 +589,24 @@ export class ActionsStore {
     });
   }
 
+  async listRetainedSavingsDeposits(owner: MoneyActionOwner): Promise<ActionRow[]> {
+    const result = await this.sql.query<RawActionRow>(
+      `SELECT * FROM actions
+       WHERE owner_key = $1 AND kind = 'savings-deposit' AND confirmed_at IS NOT NULL
+         AND confirmed_at < now() - interval '23 hours'
+         AND confirmed_at >= now() - interval '30 days'
+         AND (outcome IS NULL OR outcome_recorded_at >= now() - interval '24 hours')
+         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
+       ORDER BY (outcome IS NULL) DESC, (confirmed_at < now() - interval '24 hours') DESC, confirmed_at DESC LIMIT ${RETAINED_SAVINGS_DEPOSITS_LIMIT}`,
+      [actionOwnerKey(owner)],
+      { timeoutMs: 5_000 },
+    );
+    return result.rows.flatMap((row) => {
+      const normalized = normalizeActionRowOrNull(row);
+      return normalized ? [normalized] : [];
+    });
+  }
+
   async dispose(): Promise<void> {
     await this.sql.dispose?.();
   }
@@ -607,7 +625,8 @@ export function ownerFromActionKey(key: string): MoneyActionOwner | null {
   try {
     const parsed: unknown = JSON.parse(key);
     if (!Array.isArray(parsed) || parsed.length !== 4) return null;
-    const [subject, address, chainId, accountProvider] = parsed;
+    const fields: unknown[] = parsed;
+    const [subject, address, chainId, accountProvider] = fields;
     if (typeof subject !== "string" || !subject.trim() || typeof address !== "string" ||
       !/^0x[0-9a-f]{40}$/.test(address) || chainId !== 8453 ||
       (accountProvider !== "base-account" && accountProvider !== "cdp-embedded")) return null;

@@ -1,5 +1,6 @@
+import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
 import { expect, spyOn, test } from "bun:test";
-import { onlineManager } from "@tanstack/react-query";
+import { focusManager, onlineManager } from "@tanstack/react-query";
 import { clearOwnerQueryBoundary, createHomeQueryClient, dehydrateOwnerQueries, ownerQueryKey } from "./query-client";
 import { invalidateMutationScopes, ownerMutation } from "./mutation-options";
 import { readQuoteDraft } from "@/shared/funding/contracts/quotes";
@@ -17,7 +18,7 @@ test("a successful mutation invalidates each declared owner key once and refetch
   const client = createHomeQueryClient();
   const openKey = ownerQueryKey("owner-a", "funding-open-order", "US");
   let reads = 0;
-  await client.fetchQuery({ queryKey: openKey, queryFn: async () => ++reads });
+  await client.fetchQuery({ queryKey: openKey, queryFn: async () => { reads += 1; return { version: FUNDING_OPEN_ORDER_VERSION, order: null }; } });
   client.setQueryData(activityKey, { orders: [] });
   const invalidate = spyOn(client, "invalidateQueries");
   const operation = mutation(client, ownerMutation({
@@ -94,7 +95,7 @@ test("per-call invalidations resolve the region from variables without touching 
   const usKey = ownerQueryKey("owner-a", "funding-open-order", "US");
   const arKey = ownerQueryKey("owner-a", "funding-open-order", "AR");
   const otherOwner = ownerQueryKey("owner-b", "funding-open-order", "US");
-  for (const key of [usKey, arKey, otherOwner]) client.setQueryData(key, { order: null });
+  for (const key of [usKey, arKey, otherOwner]) client.setQueryData(key, { version: FUNDING_OPEN_ORDER_VERSION, order: null });
   const operation = mutation(client, ownerMutation({
     owner: "owner-a",
     invalidates: (variables: { region: string }) => [{ scope: "funding-open-order", key: [variables.region] }],
@@ -123,8 +124,10 @@ test("malformed or missing mutation metadata is ignored", async () => {
   client.clear();
 });
 
-test("an offline POST runs and fails immediately instead of pausing, and owner persistence never stores mutations", async () => {
+async function exerciseOfflineMutation(afterAssertions?: () => void) {
   const client = createHomeQueryClient();
+  const wasOnline = onlineManager.isOnline();
+  let pausedCompletion: Promise<string> | undefined;
   onlineManager.setOnline(false);
   try {
     const request = mutation(client, ownerMutation({
@@ -134,13 +137,48 @@ test("an offline POST runs and fails immediately instead of pausing, and owner p
     await expect(request.execute("private-token")).rejects.toThrow("offline");
     expect(request.state.isPaused).toBe(false);
     const paused = client.getMutationCache().build(client, { networkMode: "online", mutationFn: async (token: string) => token });
-    void paused.execute("private-token").catch(() => undefined);
+    pausedCompletion = paused.execute("private-token");
     await Promise.resolve();
     expect(paused.state.isPaused).toBe(true);
     expect(JSON.stringify(dehydrateOwnerQueries(client, "owner-a"))).not.toContain("private-token");
+    afterAssertions?.();
   } finally {
-    onlineManager.setOnline(true);
-    client.clear();
+    const focused = spyOn(focusManager, "isFocused").mockReturnValue(true);
+    try {
+      onlineManager.setOnline(true);
+      await client.resumePausedMutations();
+      if (pausedCompletion) await pausedCompletion;
+    } finally {
+      focused.mockRestore();
+      onlineManager.setOnline(wasOnline);
+      client.clear();
+    }
+  }
+}
+
+test("an offline POST runs and fails immediately instead of pausing, and owner persistence never stores mutations", () => exerciseOfflineMutation());
+
+test("offline cleanup preserves document-driven focus after success or an assertion failure", async () => {
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const testDocument = { visibilityState: "hidden" };
+  const wasOnline = onlineManager.isOnline();
+  Object.defineProperty(globalThis, "document", { configurable: true, value: testDocument });
+  try {
+    expect(focusManager.isFocused()).toBe(false);
+    await exerciseOfflineMutation();
+    expect(focusManager.isFocused()).toBe(false);
+    expect(onlineManager.isOnline()).toBe(wasOnline);
+    testDocument.visibilityState = "visible";
+    expect(focusManager.isFocused()).toBe(true);
+    testDocument.visibilityState = "hidden";
+    await expect(exerciseOfflineMutation(() => { throw new Error("assertion failed"); })).rejects.toThrow("assertion failed");
+    expect(focusManager.isFocused()).toBe(false);
+    expect(onlineManager.isOnline()).toBe(wasOnline);
+    testDocument.visibilityState = "visible";
+    expect(focusManager.isFocused()).toBe(true);
+  } finally {
+    if (originalDocument) Object.defineProperty(globalThis, "document", originalDocument);
+    else Reflect.deleteProperty(globalThis, "document");
   }
 });
 
@@ -148,8 +186,8 @@ test("an owner boundary drops retained POST variables and results even when the 
   const client = createHomeQueryClient();
   const request = client.getMutationCache().build(client, { gcTime: 60_000, mutationFn: async (email: string) => ({ handoff: `https://provider.invalid/?t=${email}` }) });
   await request.execute("owner-a@example.com");
-  client.setQueryData(ownerQueryKey("owner-b", "activity-orders"), { orders: [] });
+  client.setQueryData(ownerQueryKey("owner-b", "activity-orders"), []);
   clearOwnerQueryBoundary(client, undefined, "owner-b");
   expect(client.getMutationCache().getAll()).toEqual([]);
-  expect(client.getQueryData<{ orders: unknown[] }>(ownerQueryKey("owner-b", "activity-orders"))).toEqual({ orders: [] });
+  expect(client.getQueryData<unknown>(ownerQueryKey("owner-b", "activity-orders"))).toEqual([]);
 });

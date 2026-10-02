@@ -1,37 +1,17 @@
-import { afterAll, describe, expect, it } from "bun:test";
-import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
+import { describe, expect, it } from "bun:test";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
+applyRuleCheckTimeout();
 
-const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-no-request-only-playwright-"));
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-afterAll(() => rm(mirror, { recursive: true, force: true }));
+const { lint: lintFixtures } = await createOxlintWorkspace("home-oxlint-no-request-only-playwright-", {
+  rules: ["no-request-only-playwright"],
+});
 
 let fixtureIndex = 0;
 async function lint(code, suffix = ".pw.ts") {
   fixtureIndex += 1;
   const fixture = `fixture-${fixtureIndex}${suffix}`;
-  const config = `.oxlintrc-${fixtureIndex}.json`;
-  await writeFile(path.join(mirror, fixture), code);
-  await writeFile(path.join(mirror, config), JSON.stringify({
-    plugins: [],
-    categories: { correctness: "off" },
-    jsPlugins: ["./oxlint/home-plugin.mjs"],
-    rules: { "home/no-request-only-playwright": "error" },
-  }));
-  const result = spawnSync(
-    path.join(appsWebDir, "node_modules", ".bin", "oxlint"),
-    ["-c", config, "--disable-nested-config", "-f", "json", fixture],
-    { cwd: mirror, encoding: "utf8" },
-  );
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  return JSON.parse(result.stdout).diagnostics.filter((diagnostic) =>
-    diagnostic.code === "home(no-request-only-playwright)");
+  return (await lintFixtures({ fixture: { code, path: fixture } })).fixture;
 }
 
 describe("no-request-only-playwright", () => {
@@ -49,7 +29,7 @@ describe("no-request-only-playwright", () => {
       test("x", async ({ "request": api }) => {});
       test("x", async ({ request, ...fixtures }) => {});
     `)).toHaveLength(11);
-  });
+  }, budgetMs);
 
   it("accepts browser fixtures and opaque fixtures", async () => {
     expect(await lint(`
@@ -60,7 +40,7 @@ describe("no-request-only-playwright", () => {
       test("x", async (fixtures) => {});
       test("x", async ({ page, request, ...rest }) => {});
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("ignores hooks, suites, steps, computed properties, and unrelated callees", async () => {
     expect(await lint(`
@@ -73,18 +53,18 @@ describe("no-request-only-playwright", () => {
       test("x", async ({ ["request"]: api }) => {});
       test("x", async ({ page, ["request"]: api }) => {});
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("inspects the final function argument", async () => {
     expect(await lint(`
       test("x", async ({ request }) => {}, () => {});
       test("x", () => {}, function ({ request }) {});
     `)).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("does not inspect non-Playwright test files even when directly enabled", async () => {
     expect(await lint('test("x", async ({ request }) => {});', ".test.ts")).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("documents aliased and extended test bindings as known non-detections", async () => {
     expect(await lint(`
@@ -93,9 +73,9 @@ describe("no-request-only-playwright", () => {
       const apiTest = smoke.extend({});
       apiTest("x", async ({ request }) => {});
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("covers Playwright TSX files", async () => {
     expect(await lint('test("x", async ({ request }) => {});', ".pw.tsx")).toHaveLength(1);
-  });
+  }, budgetMs);
 });

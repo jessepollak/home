@@ -1,4 +1,6 @@
 
+import type { FundingDirection } from "@/shared/funding/provider-contract";
+
 export const FUNDING_PROVIDERS_VERSION = 3 as const;
 
 type FundingBindingBase = {
@@ -16,6 +18,7 @@ export type FundingOnrampBinding = FundingBindingBase & {
   paymentMethods: ReadonlyArray<{ id: string; label: string }>;
   quotes: boolean;
   customerSetup: { hosted: true } | null;
+  resumeOnly?: boolean;
 };
 
 export type FundingOfframpBinding = FundingBindingBase & {
@@ -36,6 +39,27 @@ export type FundingOfframpBinding = FundingBindingBase & {
 };
 
 export type FundingBinding = FundingOnrampBinding | FundingOfframpBinding;
+export function assertFundingProvidersResponse(
+  value: unknown,
+  direction: FundingDirection,
+  region: string,
+): asserts value is { version: typeof FUNDING_PROVIDERS_VERSION; direction: FundingDirection; providers: unknown[] } {
+  if (!isRecord(value) || value.version !== FUNDING_PROVIDERS_VERSION || value.direction !== direction || !Array.isArray(value.providers)) {
+    throw new Error("Invalid funding providers response");
+  }
+  const bindings = readProviderBindings(value);
+  if (bindings.length !== value.providers.length || !bindings.every((binding) => binding.direction === direction && binding.region === region)) {
+    throw new Error("Invalid funding providers response");
+  }
+}
+
+/** @public validates a parsed binding list against the requested region and direction, for restored and cached values */
+export function isFundingBindingListFor(value: unknown, direction: FundingDirection, region: string): value is ReadonlyArray<FundingBinding> {
+  if (!Array.isArray(value)) return false;
+  const bindings = readProviderBindings({ providers: value });
+  return bindings.length === value.length && bindings.every((binding) => binding.region === region && binding.direction === direction);
+}
+
 export function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
   if (!isRecord(value) || !Array.isArray(value.providers)) return [];
   const parsed: FundingBinding[] = [];
@@ -43,7 +67,8 @@ export function readProviderBindings(value: unknown): ReadonlyArray<FundingBindi
     if (!isBaseBinding(item) || !Array.isArray(item.paymentMethods)) continue;
     const direction = item.direction === undefined ? "onramp" : item.direction;
     if (direction === "onramp") {
-      if (typeof item.quotes !== "boolean" || !(item.customerSetup === undefined || item.customerSetup === null || isCustomerSetup(item.customerSetup))) continue;
+      if (typeof item.quotes !== "boolean" || !(item.customerSetup === undefined || item.customerSetup === null || isCustomerSetup(item.customerSetup)) ||
+        !(item.resumeOnly === undefined || typeof item.resumeOnly === "boolean")) continue;
       const paymentMethods = item.paymentMethods.filter(isPaymentMethod);
       if (paymentMethods.length !== item.paymentMethods.length) continue;
       parsed.push({
@@ -51,6 +76,7 @@ export function readProviderBindings(value: unknown): ReadonlyArray<FundingBindi
         assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
         currency: item.currency, direction, paymentMethods, quotes: item.quotes,
         customerSetup: (item.customerSetup ?? null) as FundingOnrampBinding["customerSetup"],
+        resumeOnly: item.resumeOnly === true,
       });
     } else if (direction === "offramp") {
       const paymentMethods = item.paymentMethods.filter(isOfframpPaymentMethod);

@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../../config/portfolio-assets";
 import { investAssets } from "../../../config/invest-assets";
 import { buyRouteForToken } from "../../../shared/trading/assets";
@@ -12,6 +13,7 @@ import {
   policyMaximumDebtAssets,
 } from "../../../shared/morpho-markets/math";
 import { BORROW_HEALTH_FLOOR_WAD } from "../../../shared/borrowing/config";
+import { FUNDING_PROVIDERS_VERSION } from "../../../shared/funding/contracts/providers";
 import { CARDS_CONTRACT_VERSION, type CardsResponse, type CardState } from "../../../shared/cards/contract";
 
 import { FIXED_NOW } from "./fixed-time";
@@ -23,7 +25,7 @@ export const sessionBody = {
 };
 
 export const actionsBody = { actions: [] };
-export const fundingProvidersBody = { providers: [] };
+export const fundingProvidersBody = { version: FUNDING_PROVIDERS_VERSION, direction: "onramp" as const, providers: [] };
 export const basenameProfileBody = { profile: null };
 
 export function cardsBody(state: CardState = "active", now = new Date(FIXED_NOW)): CardsResponse {
@@ -47,7 +49,7 @@ export function tradeAvailabilityBody(assetId: string) {
     : { version: 2, status: "unavailable", reason: "asset-unsupported" };
 }
 
-const BORROW_BLOCK_HASH = `0x${"ab".repeat(32)}` as `0x${string}`;
+const BORROW_BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`)!;
 const BORROW_FETCHED_AT = "2026-09-13T12:00:00.000Z";
 const BORROW_ORACLE_PRICES = [
   "843242900000000000000000000000000000000",

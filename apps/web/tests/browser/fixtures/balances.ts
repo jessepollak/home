@@ -118,9 +118,9 @@ export function scrollableBalancesSnapshot(region: RegionId = "US"): BalancesSna
   return { ...base, holdings: [...base.holdings, ...extras] };
 }
 
-export function manyOwnedInvestmentsSnapshot(): BalancesSnapshot {
+export function manyOwnedInvestmentsSnapshot(extraCount = 48): BalancesSnapshot {
   const base = balancesSnapshot();
-  const extras = Array.from({ length: 48 }, (_, index) =>
+  const extras = Array.from({ length: extraCount }, (_, index) =>
     catalogHolding(
       {
         address: `0x${(4096 + index).toString(16).padStart(40, "0")}`,
@@ -132,7 +132,7 @@ export function manyOwnedInvestmentsSnapshot(): BalancesSnapshot {
       priced("USD", "1"),
     ));
   const increaseValue = (amount: BalancesSnapshot["total"]) => amount.value
-    ? { ...amount.value, atoms: (BigInt(amount.value.atoms) + BigInt(48)).toString() }
+    ? { ...amount.value, atoms: (BigInt(amount.value.atoms) + BigInt(extraCount)).toString() }
     : null;
   return {
     ...base,

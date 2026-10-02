@@ -29,6 +29,7 @@ type RecorderDependencies = {
 export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
   let route: HomeStartupRoute | null = null;
   let cache: HomeStartupCacheState = "unknown";
+  let balance: Pick<HomeStartupReport, "balanceCache" | "balanceFetchMs" | "balanceResponseMs" | "balanceParsedMs"> = {};
   let terminal = false;
   let pendingOutcome: Exclude<HomeStartupOutcome, "ready" | "timeout"> | null = null;
   let timeout: TimeoutHandle | null = null;
@@ -55,6 +56,7 @@ export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
       route,
       outcome,
       cache,
+      ...(outcome === "signed-out" ? {} : balance),
       shellMs: duration(shellMs),
       ...(marks.has("session:verified")
         ? { sessionMs: duration(marks.get("session:verified")!) }
@@ -103,6 +105,15 @@ export function createHomeStartupRecorder(dependencies: RecorderDependencies) {
         return finish(outcome);
       }
       return maybeFinishReady();
+    },
+    setBalance(value: typeof balance): void {
+      if (terminal || marks.has("balances:painted")) return;
+      balance = {
+        ...(value.balanceCache ? { balanceCache: value.balanceCache } : {}),
+        ...(value.balanceFetchMs === undefined ? {} : { balanceFetchMs: duration(value.balanceFetchMs) }),
+        ...(value.balanceResponseMs === undefined ? {} : { balanceResponseMs: duration(value.balanceResponseMs) }),
+        ...(value.balanceParsedMs === undefined ? {} : { balanceParsedMs: duration(value.balanceParsedMs) }),
+      };
     },
     setCache(nextCache: HomeStartupCacheState): void {
       if (!terminal) cache = nextCache;
@@ -174,4 +185,8 @@ export function recordHomeStartupCache(cache: HomeStartupCacheState): void {
     recorder.setCache(cache);
   } catch {
   }
+}
+
+export function recordHomeStartupBalances(value: Pick<HomeStartupReport, "balanceCache" | "balanceFetchMs" | "balanceResponseMs" | "balanceParsedMs">): void {
+  recorder.setBalance(value);
 }

@@ -1,4 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+// oxlint-disable-next-line home/no-source-reads -- Login fixtures write only system-temp scratch files.
+import { symlink, utimes, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 import { checkAccount, liveLogin, loadVerificationEnv } from "./live-login";
@@ -100,6 +102,128 @@ test("OTP and gated password are passed only via stdin, never argv or output", a
     expect(Bun.spawnSync(["ls", "-ld", resolve(home, ".home-verify")]).stdout.toString()).toStartWith("drwx------");
     expect(calls.at(-1)?.args).toEqual(["close"]);
   }
+});
+
+function fakeLogin(home: string, events: string[], label: string, getOtp: (submittedAt: number) => Promise<string>, now?: () => number) {
+  return liveLogin(["--base-url", "https://example.com"], {
+    home,
+    env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: (args) => {
+      if (args[0] === "find" && args.includes("Continue with email")) events.push(`${label}:submit`);
+      if (args[0] === "state") {
+        events.push(`${label}:save`);
+        Bun.spawnSync(["touch", args[2]]);
+      }
+      return "";
+    },
+    getOtp: async (_email, submittedAt) => getOtp(submittedAt),
+    now,
+  });
+}
+
+test("concurrent logins queue before email submit and save distinct states in order", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-queue-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  const events: string[] = [];
+  let firstCode!: (code: string) => void;
+  let firstSubmitted!: () => void;
+  const submitted = new Promise<void>((resolveSubmitted) => { firstSubmitted = resolveSubmitted; });
+  const first = fakeLogin(home, events, "first", async () => {
+    firstSubmitted();
+    return new Promise<string>((resolveCode) => { firstCode = resolveCode; });
+  });
+  await submitted;
+  let wakeSecond!: () => void;
+  let secondQueued!: () => void;
+  const queued = new Promise<void>((resolveQueued) => { secondQueued = resolveQueued; });
+  const second = liveLogin(["--base-url", "https://example.com"], {
+    home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: (args) => {
+      if (args[0] === "find" && args.includes("Continue with email")) events.push("second:submit");
+      if (args[0] === "state") { events.push("second:save"); Bun.spawnSync(["touch", args[2]]); }
+      return "";
+    },
+    getOtp: async () => "654321",
+    sleep: () => { secondQueued(); return new Promise<void>((resolveWake) => { wakeSecond = resolveWake; }); },
+  });
+  await queued;
+  expect(events).toEqual(["first:submit"]);
+  firstCode("123456");
+  const firstPath = await first;
+  wakeSecond();
+  const secondPath = await second;
+  expect(events).toEqual(["first:submit", "first:save", "second:submit", "second:save"]);
+  expect(firstPath).not.toBe(secondPath);
+  expect(firstPath).toMatch(/home-live-\d+-[a-f0-9]{32}\.state\.json$/);
+  expect(secondPath).toMatch(/home-live-\d+-[a-f0-9]{32}\.state\.json$/);
+  expect(Bun.spawnSync(["test", "-f", firstPath]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["test", "-f", secondPath]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["test", "-e", resolve(home, ".home-verify/live-login.lock")]).exitCode).not.toBe(0);
+});
+test("removes only marked, owned, regular generated-default states older than 24 hours", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-prune-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  const now = Date.parse("2026-09-21T12:00:00.000Z");
+  const stale = await fakeLogin(home, [], "old", async () => "123456", () => now);
+  const directory = resolve(home, ".home-verify");
+  const old = new Date(now - 25 * 60 * 60_000);
+  const unmarked = resolve(directory, `home-live-42-${"a".repeat(32)}.state.json`);
+  await writeFile(unmarked, "fixture", { mode: 0o600 });
+  await utimes(unmarked, old, old);
+  const explicit = await liveLogin(["--session", "operator-state", "--base-url", "https://example.com"], {
+    home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: (args) => { if (args[0] === "state") Bun.spawnSync(["touch", args[2]]); return ""; },
+    getOtp: async () => "123456",
+    now: () => now,
+  });
+  await utimes(stale, old, old);
+  await utimes(explicit, old, old);
+  const linkedState = resolve(directory, `home-live-43-${"b".repeat(32)}.state.json`);
+  await symlink(unmarked, linkedState);
+  await writeFile(`${linkedState}.generated`, "", { mode: 0o600 });
+  const linkedMarkerState = resolve(directory, `home-live-44-${"c".repeat(32)}.state.json`);
+  await writeFile(linkedMarkerState, "fixture", { mode: 0o600 });
+  await utimes(linkedMarkerState, old, old);
+  await symlink(`${stale}.generated`, `${linkedMarkerState}.generated`);
+  const recent = await fakeLogin(home, [], "new", async () => "123456", () => now);
+  expect(Bun.spawnSync(["test", "-e", stale]).exitCode).not.toBe(0);
+  expect(Bun.spawnSync(["test", "-e", `${stale}.generated`]).exitCode).not.toBe(0);
+  for (const path of [unmarked, explicit, linkedState, `${linkedState}.generated`, linkedMarkerState]) {
+    expect(Bun.spawnSync(["test", "-L", path]).exitCode === 0 || Bun.spawnSync(["test", "-f", path]).exitCode === 0).toBe(true);
+  }
+  expect(Bun.spawnSync(["test", "-L", `${linkedMarkerState}.generated`]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["test", "-f", recent]).exitCode).toBe(0);
+  expect(Bun.spawnSync(["test", "-f", `${recent}.generated`]).exitCode).toBe(0);
+  const recentDate = new Date(now - 23 * 60 * 60_000);
+  await utimes(recent, recentDate, recentDate);
+  await fakeLogin(home, [], "later", async () => "123456", () => now);
+  expect(Bun.spawnSync(["test", "-f", recent]).exitCode).toBe(0);
+});
+
+test("rejects explicit sessions using the generated-default name pattern before creating state", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-reserved-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  await expect(liveLogin(["--session", `home-live-42-${"a".repeat(32)}`, "--base-url", "https://example.com"], {
+    home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: () => { throw new Error("browser must not launch"); },
+    getOtp: async () => "123456",
+  })).rejects.toThrow("--session cannot use the reserved generated-default name pattern.");
+  expect(Bun.spawnSync(["test", "-e", resolve(home, ".home-verify")]).exitCode).not.toBe(0);
+});
+
+test("releases the email lock when code retrieval or state save fails", async () => {
+  const home = Bun.spawnSync(["mktemp", "-d", resolve(tmpdir(), "home-failure-test-XXXXXX")]).stdout.toString().trim();
+  directories.push(home);
+  const lock = resolve(home, ".home-verify/live-login.lock");
+  await expect(fakeLogin(home, [], "failed", async () => { throw new Error("OTP unavailable"); })).rejects.toThrow("OTP unavailable");
+  expect(Bun.spawnSync(["test", "-e", lock]).exitCode).not.toBe(0);
+  await expect(liveLogin(["--base-url", "https://example.com"], {
+    home, env: { HOME_VERIFY_ACCOUNT_EMAIL: "bot@example.com" },
+    command: (args) => { if (args[0] === "state") throw new Error("State save failed"); return ""; },
+    getOtp: async () => "123456",
+  })).rejects.toThrow("State save failed");
+  expect(Bun.spawnSync(["test", "-e", lock]).exitCode).not.toBe(0);
+  await expect(fakeLogin(home, [], "retry", async () => "123456")).resolves.toContain(".state.json");
 });
 
 async function privateEnvFile(contents: string): Promise<{ home: string; path: string }> {

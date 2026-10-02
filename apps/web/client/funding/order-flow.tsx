@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupOption } from "@/components/ui/radio-group";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
-import { isTerminalFundingOrderState as terminal, shouldPollFundingOrder } from "./order-polling";
+import { isTerminalFundingOrderState as terminal } from "./order-polling";
+import { fundingOrderKey, fundingOrderQuery } from "./funding-queries";
 import {
   formatFiatAmount,
   formatPresentationDate,
@@ -29,16 +30,15 @@ import {
 import {
   browserHomeQueryClient,
   ownerQueryKey,
-  disabledQueryKey,
-  ownerQueryMeta,
-  publicQueryKey,
   useHomeMutation,
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { mutationOptions } from "@tanstack/react-query";
 import { ownerMutation } from "@/client/query/mutation-options";
+import { readFundingFailure } from "@/shared/funding/contracts/errors";
 import {
   readQuoteDraft,
   type QuoteDraft,
@@ -54,10 +54,7 @@ import {
   readResolveFundingOrderResponse,
 } from "@/shared/funding/contracts/order-resolution";
 
-type AccountFetch = (
-  path: string,
-  options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal },
-) => Promise<unknown>;
+type AccountFetch = AccountWalletClient["fetchAccountResource"];
 
 export type { FundingBinding } from "@/shared/funding/contracts/providers";
 export type { FundingOrderSummary } from "@/shared/funding/contracts/order";
@@ -127,8 +124,11 @@ export function FundingOrderFlow({
   }));
   const resolveMutation = useHomeMutation(ownerMutation({
     owner: queryOwnerKey ?? null,
-    invalidates: [
+    invalidates: () => [
       { scope: "funding-open-order", key: [binding.region], refetchType: "all" },
+      ...(binding.direction === "onramp" && binding.resumeOnly
+        ? [{ scope: "funding-open-order-by-provider" as const, key: [binding.region, binding.providerId], refetchType: "all" as const }]
+        : []),
       { scope: "activity-orders" },
     ],
     mutationFn: async (id: string) => {
@@ -150,35 +150,7 @@ export function FundingOrderFlow({
       return next;
     },
   }));
-  const orderQueryKey = order
-    ? queryOwnerKey
-      ? ownerQueryKey(queryOwnerKey, "funding-order", order.id)
-      : publicQueryKey("funding-order-isolated", order.id)
-    : disabledQueryKey("funding-order");
-  const orderQuery = useHomeQuery({
-    queryKey: orderQueryKey,
-    enabled: shouldPollFundingOrder(order),
-    initialData: order ?? undefined,
-    initialDataUpdatedAt: () => Date.now(),
-    staleTime: 4_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchInterval: (query) => {
-      const current = query.state.data as FundingOrderSummary | undefined;
-      return shouldPollFundingOrder(current) ? 4_000 : false;
-    },
-    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
-    queryFn: async ({ signal }) => {
-      if (!order) throw new Error("Funding order is unavailable.");
-      const next = readFundingOrder(
-        await fetchAccountResource(`/api/funding/orders/${order.id}`, {
-          signal,
-        }),
-      );
-      if (!next) throw new Error("Funding order response is invalid.");
-      return next;
-    },
-  });
+  const orderQuery = useHomeQuery(fundingOrderQuery(queryOwnerKey ?? null, order, fetchAccountResource));
   const currentOrder = orderQuery.data ?? order;
   const observedOrderStateRef = useRef<{ id: string; state: string } | null>(null);
   const polledOrderId = orderQuery.data?.id;
@@ -207,7 +179,7 @@ export function FundingOrderFlow({
   }, [currentOrder, onOpenRedirect]);
 
   async function requestQuote() {
-    if (busy || draft || !method || !positiveDecimal(amount)) return;
+    if ((binding.direction === "onramp" && binding.resumeOnly) || busy || draft || !method || !positiveDecimal(amount)) return;
     setBusy(true);
     setError(null);
     try {
@@ -239,7 +211,7 @@ export function FundingOrderFlow({
       const resolved = await resolveMutation.mutateAsync(currentOrder.id);
       setClearedOrderId(resolved.order.id);
       setOrder(resolved.order);
-      queryClient.setQueryData(orderQueryKey, resolved.order);
+      queryClient.setQueryData(fundingOrderKey(queryOwnerKey ?? null, order), resolved.order);
     } catch (resolveFailure) {
       setResolutionError(resolveAmbiguousErrorCopy(resolveFailure));
     } finally {
@@ -261,7 +233,7 @@ export function FundingOrderFlow({
       ) {
         queryClient.setQueryData(
           ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
-          { order: next },
+          next,
         );
       }
     } catch (orderError) {
@@ -349,7 +321,7 @@ export function FundingOrderFlow({
     );
   }
 
-  const quoteDisabled = busy || !positiveDecimal(amount);
+  const quoteDisabled = (binding.direction === "onramp" && binding.resumeOnly === true) || busy || !positiveDecimal(amount);
   const amountAssetProps = {
     assetId: binding.currency.toLocaleLowerCase(),
     assetLabel: binding.currency,
@@ -445,7 +417,7 @@ function QuoteReview({
                     // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
-                    value={formatFiatAmount(fee.amount, fee.currency)}
+                    value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
                   />
                 ))
               ) : (
@@ -501,7 +473,7 @@ function ProviderEconomicsReview({
   const instruction = order.instructions;
   const pay =
     instruction && instruction.kind !== "redirect"
-      ? formatFiatAmount(instruction.amount, instruction.currency)
+      ? formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })
       : null;
   return (
     <>
@@ -523,7 +495,7 @@ function ProviderEconomicsReview({
                     // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
-                    value={formatFiatAmount(fee.amount, fee.currency)}
+                    value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
                   />
                 ))
               ) : (
@@ -576,7 +548,7 @@ export function OpenOrderPrompt({
           </CardHeader>
           <CardContent>
             <dl className="space-y-3">
-              <DefinitionRow label="You pay" value={formatFiatAmount(order.fiatAmount, binding.currency)} />
+              <DefinitionRow label="You pay" value={formatFiatAmount(order.fiatAmount, binding.currency, { currencyNative: true })} />
               {order.createdAt ? (
                 <DefinitionRow
                   label="Started"
@@ -679,7 +651,7 @@ function SettledAmounts({
           // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
           key={`${fee.label}:${index}`}
           label={fee.label}
-          value={formatFiatAmount(fee.amount, fee.currency)}
+          value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
         />
       ))}
     </dl>
@@ -736,7 +708,7 @@ function InstructionView({
             ) : null}
           </dl>
           <MoneyLine
-            value={`Send exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`}
+            value={`Send exactly ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })}`}
           />
         </div>
       </section>
@@ -755,7 +727,7 @@ function InstructionView({
             valueKind="payment code"
           />
           <MoneyLine
-            value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`}
+            value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })}`}
           />
         </div>
       </section>
@@ -773,7 +745,7 @@ function InstructionView({
           />
         </dl>
         <MoneyLine
-          value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency)}`}
+          value={`Pay exactly ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })}`}
         />
       </div>
     </section>
@@ -837,7 +809,7 @@ function EmbedInstruction({
   return (
     <section className="flex flex-col gap-3">
       <MoneyLine
-        value={`Pay ${formatFiatAmount(instruction.amount, instruction.currency)} with Apple Pay`}
+        value={`Pay ${formatFiatAmount(instruction.amount, instruction.currency, { currencyNative: true })} with Apple Pay`}
       />
       <iframe
         ref={iframeRef}
@@ -962,9 +934,11 @@ function stateCopy(state: string, sandbox = false) {
   };
 }
 function confirmOrderErrorCopy(error: unknown): string {
-  const code = typeof error === "object" && error !== null && "code" in error
-    ? error.code
-    : null;
+  const failure = readFundingFailure(error);
+  const code = failure?.code;
+  if (code === "CORRIDOR_NOT_OFFERED" && failure?.message) {
+    return failure.message;
+  }
   if (code === "AMBIGUOUS_ORDER_OPEN") {
     return "Home is still waiting on an earlier deposit. Close and reopen Add money, then continue it; no new provider request was created.";
   }
@@ -975,13 +949,11 @@ function confirmOrderErrorCopy(error: unknown): string {
 }
 
 function quoteErrorCopy(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    if ((error.code === "QUOTE_BELOW_MINIMUM" || error.code === "QUOTE_DECLINED") &&
-      "serverMessage" in error && typeof error.serverMessage === "string" && error.serverMessage.length <= 200) {
-      return error.serverMessage;
-    }
-    if (error.code === "QUOTE_UNAVAILABLE") return "Quotes are unavailable right now. Try again shortly.";
+  const failure = readFundingFailure(error);
+  if ((failure?.code === "QUOTE_BELOW_MINIMUM" || failure?.code === "QUOTE_DECLINED" || failure?.code === "CORRIDOR_NOT_OFFERED") && failure.message) {
+    return failure.message;
   }
+  if (failure?.code === "QUOTE_UNAVAILABLE") return "Quotes are unavailable right now. Try again shortly.";
   return "This quote could not be created. Try again.";
 }
 

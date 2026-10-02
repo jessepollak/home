@@ -40,6 +40,7 @@
     "next-env.d.ts"
   ],
   "rules": {
+    "home/bounded-cdp-event-query": "error",
     "nextjs/google-font-display": "error",
     "nextjs/google-font-preconnect": "error",
     "nextjs/inline-script-id": "error",
@@ -151,7 +152,7 @@
     "jsx-a11y/iframe-has-title": "error",
     "jsx-a11y/img-redundant-alt": "error",
     "jsx-a11y/interactive-supports-focus": "error",
-    "jsx-a11y/label-has-associated-control": ["error", { "controlComponents": ["Input", "NativeSelect", "Switch"] }],
+    "jsx-a11y/label-has-associated-control": ["error", { "labelComponents": ["Label"], "controlComponents": ["Input", "NativeSelect", "Switch"] }],
     "jsx-a11y/lang": "error",
     "jsx-a11y/media-has-caption": "error",
     "jsx-a11y/mouse-events-have-key-events": "error",
@@ -182,6 +183,16 @@
     {
       "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "excludeFiles": [
+        "client/account/owner-keys.ts",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/owner-identity-helper": "error" }
+    },
+    {
+      "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
         "components/ui/**", "client/money-modal/**",
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -208,6 +219,24 @@
       }
     },
     {
+      "files": ["{app,client,config,lib,server,shared,types}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/no-unowned-loading": "error" }
+    },
+    {
+      "files": ["client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/no-transient-money-copy": "error" }
+    },
+    {
       "files": [
         "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -217,12 +246,17 @@
         "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.ts",
-        "next.config.ts",
-        "proxy.ts"
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-storybook-imports": "error"
@@ -238,21 +272,44 @@
         "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "next.config.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "proxy.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
         "**/tests/**",
         "**/testing/**",
         "**/explorations/**",
-        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-exploration-imports": "error",
+        "home/no-test-support-imports": "error",
         "home/no-full-portfolio-presentation": "error"
+      }
+    },
+    {
+      "files": ["{app,client,server}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**",
+        "**/*test-harness.{ts,tsx}",
+        "**/*smoke-fixture*.{ts,tsx}"
+      ],
+      "rules": {
+        "typescript/no-unsafe-assignment": "error",
+        "typescript/no-unsafe-return": "error"
       }
     },
     {
@@ -483,8 +540,13 @@
     },
     {
       "files": [
-        "{app,client,components,config,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.ts"
+        "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -492,7 +554,14 @@
         "**/testing/**",
         "**/*test-harness.{ts,tsx}",
         "**/*smoke-fixture*.{ts,tsx}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-silent-catch": [
@@ -501,7 +570,12 @@
             "reportingHelpers": [
               "emitServerEvent",
               "writeObservabilityEvent",
-              "reportClientError"
+              "reportClientError",
+              "observeSafely"
+            ],
+            "reportingModules": [
+              "@/server/observability/log",
+              "@/client/observability/client-reporter"
             ]
           }
         ]
@@ -509,10 +583,15 @@
     },
     {
       "files": [
-        "{app,client,components,config,lib,server,shared,types}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
-        "instrumentation*.ts",
-        "next.config.ts",
-        "proxy.ts"
+        "app/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "client/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "components/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "config/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "lib/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "shared/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "types/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
       ],
       "excludeFiles": [
         "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -520,7 +599,14 @@
         "**/testing/**",
         "**/*test-harness.{ts,tsx}",
         "**/*smoke-fixture*.{ts,tsx}",
-        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "./gmail.ts",
+        "./live-login.ts",
+        "./pinned-agent-browser.ts",
+        "./playwright.config.ts",
+        "./postcss.config.mjs",
+        "./verification-paths.ts",
+        "./vitest.config.ts"
       ],
       "rules": {
         "home/no-chained-type-assertions": "error",
@@ -545,6 +631,7 @@
               "markHomeAuthRestore",
               "markHomePerformance",
               "markHomeStartupOutcome",
+              "observeSafely",
               "recordAuthDiagnostic",
               "recordHomeStartupCache",
               "reportCaughtClientError",
@@ -556,6 +643,87 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "files": [
+        "{app,server,shared}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "server/http/**",
+        "shared/http/**",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-inline-request-json": "error"
+      }
+    },
+    {
+      "files": [
+        "server/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "server/http/**",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-manual-abort-timeout": "error"
+      }
+    },
+    {
+      "files": [
+        "{client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-fetch-in-client-components": "error",
+        "home/query-key-factory": "error"
+      }
+    },
+    {
+      "files": [
+        "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "excludeFiles": [
+        "oxlint/**",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.test.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**",
+        "**/testing/**",
+        "**/explorations/**",
+        "**/*.stories.fixture.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*test-harness.*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+      ],
+      "rules": {
+        "home/no-address-literal-regex": "error"
       }
     }
   ]

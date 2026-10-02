@@ -65,7 +65,7 @@ export type HomeMoneySummary = {
   investments: HomeSummaryAmount & { assetCount: number; ownedCount: number };
   borrow:
     | (HomeSummaryAmount & { kind: "position"; rate: string | null; debts: Array<{ marketId: string; baseUnits: string }> })
-    | { kind: "none" }
+    | { kind: "none"; hasCollateral: boolean }
     | { kind: "unavailable" };
 };
 
@@ -78,6 +78,7 @@ export type HomeBalancesPresentation = {
   breakdown: MoneyBreakdownItem[];
   summary: HomeMoneySummary | null;
   revalidating?: true;
+  cachedAt?: number;
 };
 
 export type BalancesPresentation = HomeBalancesPresentation & {
@@ -92,6 +93,7 @@ export type PresentBalancesOptions = {
   pendingCashout?: PendingCashoutEstimate;
 };
 
+/** @public builds the grouped list in tests and stories, and the Reveal small balances control returns to a page-scoped caller in #1468; no production page constructs the full list. */
 export function presentBalances(
   state: BalancesState,
   { showSmallBalances, pendingCashout }: PresentBalancesOptions = {
@@ -286,11 +288,14 @@ function presentBorrowSummary(
   snapshot: BalancesSnapshot,
   total: BalancesTotal,
 ): HomeMoneySummary["borrow"] {
-  const owing = selectBorrowPositions(snapshot).filter((position) =>
+  const positions = selectBorrowPositions(snapshot);
+  const owing = positions.filter((position) =>
     BigInt(position.debt.balance.baseUnits) > BigInt(0)
   );
   if (owing.length === 0) {
-    return snapshot.borrow.coverage === "complete" ? { kind: "none" } : { kind: "unavailable" };
+    return snapshot.borrow.coverage === "complete"
+      ? { kind: "none", hasCollateral: positions.some((position) => BigInt(position.collateral.balance.baseUnits) > BigInt(0)) }
+      : { kind: "unavailable" };
   }
   const rate = weightedBorrowAprWad(owing);
   return {
@@ -395,9 +400,9 @@ export function presentCashSelection(entry: CashSelection, snapshot: BalancesSna
       group: "cash",
       name: entry.name,
       mark: { kind: "flag", currency: entry.currency },
-      primary: formatPresentationFiat({ atoms: "0", scale: 2 }, entry.currency, 2, snapshot.region),
+      primary: entry.verificationStatus,
       secondary: null,
-      tone: "default",
+      tone: "muted",
     };
   }
   const { holding } = entry;

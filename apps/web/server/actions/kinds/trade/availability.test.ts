@@ -2,9 +2,13 @@ import { readJson } from "@/tests/helpers/read-json";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { BaseRpcError } from "@/server/chain/rpc";
+import { resolveConvertPair } from "@/shared/currencies/convert";
+import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
+import { CONVERT_PROVIDER } from "@/shared/currencies/types";
 import { TradePreparationError } from "./permit2";
 import { createTradeAvailabilityHandler } from "./availability";
 import { tradeBuyBlocked } from "./buy-policy";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const session: VerifiedAccountSession = {
@@ -87,6 +91,37 @@ describe("trade availability", () => {
     expect(await readJson((await handler({ buyBlocked: (id) => tradeBuyBlocked(id, removed) })(request()))))
       .toMatchObject({ status: "available", buy: "blocked", balanceBaseUnits: "7" });
   });
+  test("invest pause and offering outage block only buying in the trade availability response", async () => {
+    const offering = resolveProductOffering({ kind: "deployment" });
+    const paused = { ...offering, products: { ...offering.products, invest: "exit-only" as const } };
+    expect(await (await handler({ readOffering: async () => paused })(request())).json()).toMatchObject({ status: "available", buy: "blocked", balanceBaseUnits: "7" });
+    expect(await (await handler({ readOffering: async () => { throw new Error("db outage"); } })(request())).json()).toMatchObject({ status: "available", buy: "blocked" });
+  });
+
+  test("registry cash availability requires both verified directions", async () => {
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
+    if (!record) throw new Error("Missing EURC currency record.");
+    const assetId = `base:${record.contractAddress.toLowerCase()}`;
+    const noPair: typeof resolveConvertPair = (input) => resolveConvertPair(input, { pairs: [] });
+    expect(await readJson(await handler({ convertPair: noPair })(request(assetId))))
+      .toEqual({ version: 2, status: "unavailable", reason: "asset-unsupported" });
+    for (const direction of ["sell", "buy"] as const) {
+      const pair = { id: `eurc-${direction}`, from: direction === "sell" ? record.id : "base:usdc",
+        to: direction === "sell" ? "base:usdc" : record.id, provider: CONVERT_PROVIDER,
+        regions: "all" as const, status: "verified" as const, verifiedAt: "2026-09-28", evidence: "test fixture" };
+      const convertPair: typeof resolveConvertPair = (input) => resolveConvertPair({ ...input, now: new Date("2026-09-28T12:00:00Z") }, { pairs: [pair] });
+      expect(await readJson(await handler({ convertPair })(request(assetId))))
+        .toEqual({ version: 2, status: "unavailable", reason: "asset-unsupported" });
+    }
+    const sell = { id: "eurc-sell", from: record.id, to: "base:usdc", provider: CONVERT_PROVIDER,
+      regions: "all" as const, status: "verified" as const, verifiedAt: "2026-09-28", evidence: "test fixture" };
+    const buy = { ...sell, id: "eurc-buy", from: sell.to, to: sell.from };
+    const both: typeof resolveConvertPair = (input) => resolveConvertPair({ ...input, now: new Date("2026-09-28T12:00:00Z") }, { pairs: [sell, buy] });
+    expect(await readJson(await handler({ convertPair: both })(request(assetId)))).toMatchObject({
+      status: "available", buy: "available", token: { assetId, address: record.contractAddress },
+    });
+  });
+
   test("rejects the wrong RPC chain without claiming token availability", async () => {
     const wrongChain = handler({ rpc: async (method, params) => method === "eth_chainId" ? "0x1" : rpc(method, params) });
     expect(await readJson((await wrongChain(request())))).toEqual({ version: 2, status: "unavailable", reason: "chain-unavailable" });

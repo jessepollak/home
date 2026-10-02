@@ -45,6 +45,8 @@ function isPortfolioStatus(value: string): value is CoveragePortfolioStatus {
   return coveragePortfolioStatuses.includes(value as CoveragePortfolioStatus);
 }
 
+export const instant = false;
+
 export default async function CoveragePage({ searchParams }: PageProps<"/coverage">) {
   const query = await searchParams;
   const search = queryValue(query.q).trim().toLocaleLowerCase();

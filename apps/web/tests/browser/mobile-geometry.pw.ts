@@ -1,19 +1,20 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { cashoutFixtureWithdraw } from "./feature-map/cashout-fixture";
+import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
 
 const PEER_OFFRAMP = {
-  version: 2,
+  version: FUNDING_PROVIDERS_VERSION,
   direction: "offramp",
   providers: [{
     direction: "offramp", providerId: "peer", displayName: "Peer", region: "US", assetId: "base:usdc",
-    assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, kyc: null,
+    assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, customerSetup: null,
     paymentMethods: [{ id: "cashapp", label: "Cash App", platform: "cashapp", handleHint: "Cashtag", minimumAmountAtomic: "10000", maximumAmountAtomic: null, estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", corridorConfirmedBy: "pending" }],
   }],
 };
 
 const IDRX_TWO_METHODS = {
-  version: 3,
+  version: FUNDING_PROVIDERS_VERSION,
   direction: "onramp",
   providers: [{
     direction: "onramp", providerId: "idrx", displayName: "IDRX", region: "ID", assetId: "base:idrx",
@@ -26,7 +27,7 @@ const IDRX_TWO_METHODS = {
 };
 
 const ID_LONG_METHODS = {
-  version: 3,
+  version: FUNDING_PROVIDERS_VERSION,
   direction: "onramp",
   providers: [
     IDRX_TWO_METHODS.providers[0],
@@ -71,7 +72,7 @@ async function waitForHomeMark(page: Page, mark: "session:verified" | "action:fi
 async function openPaymentMethodRadioGroup(page: Page) {
   await page.goto("/home");
   await waitForHomeMark(page, "action:first-interactive");
-  await page.getByRole("button", { name: "Add money" }).click();
+  await page.getByRole("link", { name: "Add money" }).click();
   await page.getByRole("button", { name: /Deposit IDR/ }).click();
   return page.getByRole("radiogroup", { name: "Payment method" });
 }
@@ -86,7 +87,7 @@ async function installPickerFixtures(page: Page) {
   await seedSignedInSession(page, "ID");
   await installApiFixtures(page);
   await page.route("**/api/funding/providers**", async (route) => {
-    if (new URL(route.request().url()).searchParams.get("region") !== "ID") return route.fallback();
+    if (new URL(route.request().url()).searchParams.get("region") !== "ID" || new URL(route.request().url()).searchParams.get("direction") === "offramp") return route.fallback();
     return json(route, IDRX_TWO_METHODS);
   });
 }
@@ -98,7 +99,7 @@ test("add-money method rows contain their full descriptions and loading geometry
   let releaseProviders = () => {};
   const providersReleased = new Promise<void>((resolve) => { releaseProviders = resolve; });
   await page.route("**/api/funding/providers**", async (route) => {
-    if (new URL(route.request().url()).searchParams.get("region") !== "ID") return route.fallback();
+    if (new URL(route.request().url()).searchParams.get("region") !== "ID" || new URL(route.request().url()).searchParams.get("direction") === "offramp") return route.fallback();
     await providersReleased;
     return json(route, ID_LONG_METHODS);
   });
@@ -304,7 +305,7 @@ test("mobile capsule floats above the browser-tab bottom while keeping content c
   await expect.poll(async () => navigation.evaluate((nav) =>
     Math.round(window.innerHeight - nav.getBoundingClientRect().bottom))).toBe(12);
   const main = page.locator("[data-app-main-authenticated]");
-  await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(async () => main.evaluate((element) => {
     const lastContent = element.lastElementChild;
     const nav = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]:not(#desktop-rail nav)');

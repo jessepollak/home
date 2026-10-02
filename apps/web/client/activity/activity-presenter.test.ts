@@ -20,13 +20,13 @@ function transfer(direction: ActivityTransfer["direction"]): ActivityTransfer {
 
 describe("presentActivityTransferRow", () => {
   test("formats all transfer directions without inferring fiat", () => {
-    expect(presentActivityTransferRow(transfer("incoming"), { timeZone: "UTC" })).toMatchObject({
+    expect(presentActivityTransferRow(transfer("incoming"), { regionId: "US", timeZone: "UTC" })).toMatchObject({
       directionLabel: "Received", sign: "+", value: "+1.00 USDC", valueContext: null,
     });
-    expect(presentActivityTransferRow(transfer("outgoing"), { timeZone: "UTC" })).toMatchObject({
+    expect(presentActivityTransferRow(transfer("outgoing"), { regionId: "US", timeZone: "UTC" })).toMatchObject({
       directionLabel: "Sent", sign: "−", value: "−1.00 USDC",
     });
-    expect(presentActivityTransferRow(transfer("self"), { timeZone: "UTC" })).toMatchObject({
+    expect(presentActivityTransferRow(transfer("self"), { regionId: "US", timeZone: "UTC" })).toMatchObject({
       directionLabel: "Self transfer", sign: "", value: "1.00 USDC",
     });
   });

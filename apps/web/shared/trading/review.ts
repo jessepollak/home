@@ -1,17 +1,17 @@
+import { parseAddress, parseHash32, requireAddress } from "@/shared/chain/hex";
 import { hashTypedData } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { operatorFeeAmount, parseOperatorFeeRecord } from "@/shared/fees/contract";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatPresentationPrice } from "@/shared/formatting";
 import { formatDecimalAmount } from "@/shared/formatting/money";
-import { isTradeTokenSymbol, MAX_TRADE_TOKEN_DECIMALS, TRADE_SLIPPAGE_BPS, type TradeAssetRef, type TradeMoneyActionMetadata, type TradeSigningRequest } from "./contract";
-import type { Address, CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
+import { isTradeTokenSymbol, MAX_TRADE_TOKEN_DECIMALS, TRADE_SLIPPAGE_BPS, type TradeAssetRef, type TradeMoneyActionMetadata, type ParsedTradeSigningRequest } from "./contract";
+import type { CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
 
-const PERMIT2 = "0x000000000022d473030f116ddee9f6b43ac78ba3";
-const address = /^0x[0-9a-fA-F]{40}$/;
+const PERMIT2 = requireAddress("0x000000000022d473030f116ddee9f6b43ac78ba3");
 const integer = /^(?:0|[1-9][0-9]*)$/;
-const hash = /^0x[0-9a-fA-F]{64}$/;
-const usdc: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
+const CBBTC_ADDRESS = parseAddress("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf");
+const usdc: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: requireAddress(BASE_USDC_ADDRESS) };
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -19,17 +19,21 @@ function record(value: unknown): value is Record<string, unknown> {
 function uint(value: unknown, positive = false): value is string {
   return typeof value === "string" && integer.test(value) && BigInt(value) <= (BigInt(1) << BigInt(256)) - BigInt(1) && (!positive || BigInt(value) > BigInt(0));
 }
+function parseCurrencyRecordId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 64 ? value : null;
+}
 function parseAsset(value: unknown): TradeAssetRef | null {
+  const tokenAddress = record(value) ? parseAddress(value.address) : null;
   if (!record(value) || typeof value.id !== "string" || !value.id || value.id === "usdc" ||
     !isTradeTokenSymbol(value.symbol) || typeof value.decimals !== "number" || !Number.isInteger(value.decimals) ||
     value.decimals < 0 || value.decimals > MAX_TRADE_TOKEN_DECIMALS ||
-    typeof value.address !== "string" || !address.test(value.address) ||
-    value.address.toLowerCase() === usdc.address || /^0x0{40}$/.test(value.address)) return null;
-  return { id: value.id, symbol: value.symbol, decimals: value.decimals, address: value.address.toLowerCase() as Address };
+    !tokenAddress ||
+    tokenAddress === usdc.address || /^0x0{40}$/.test(tokenAddress)) return null;
+  return { id: value.id, symbol: value.symbol, decimals: value.decimals, address: tokenAddress };
 }
 function usdcMatches(value: unknown): boolean {
   return record(value) && value.id === usdc.id && value.symbol === usdc.symbol && value.decimals === usdc.decimals &&
-    typeof value.address === "string" && value.address.toLowerCase() === usdc.address;
+    parseAddress(value.address) === usdc.address;
 }
 
 export function tradeRateLabel(metadata: TradeMoneyActionMetadata): string {
@@ -62,10 +66,12 @@ export function parseTradeMetadata(value: unknown): TradeMoneyActionMetadata | n
   const traded = parseAsset(value.direction === "buy" ? value.toAsset : value.fromAsset);
   if (!traded || (value.assetId !== undefined && value.assetId !== traded.id) ||
     (value.assetName !== undefined && (typeof value.assetName !== "string" || !value.assetName.trim() || value.assetName.length > 100)) ||
-    (value.assetId === undefined && (traded.id !== "cbbtc" || traded.address !== "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf" || traded.decimals !== 8 || traded.symbol !== "cbBTC")) ||
+    (value.assetId === undefined && (traded.id !== "cbbtc" || traded.address !== CBBTC_ADDRESS || traded.decimals !== 8 || traded.symbol !== "cbBTC")) ||
     (value.assetId !== undefined && value.assetName === undefined)) return null;
   const operatorFee = value.operatorFee === undefined ? null : parseOperatorFeeRecord(value.operatorFee);
   if (value.operatorFee !== undefined && !operatorFee) return null;
+  const currencyRecordId = value.currencyRecordId === undefined ? null : parseCurrencyRecordId(value.currencyRecordId);
+  if (value.currencyRecordId !== undefined && !currencyRecordId) return null;
   if (operatorFee) {
     const from = BigInt(value.fromAmountBaseUnits);
     const minimum = BigInt(value.minimumToAmountBaseUnits);
@@ -88,39 +94,43 @@ export function parseTradeMetadata(value: unknown): TradeMoneyActionMetadata | n
     fromAsset: value.direction === "buy" ? usdc : traded, toAsset: value.direction === "buy" ? traded : usdc,
     fromAmountBaseUnits: value.fromAmountBaseUnits, expectedToAmountBaseUnits: value.expectedToAmountBaseUnits,
     minimumToAmountBaseUnits: value.minimumToAmountBaseUnits, slippageBps: TRADE_SLIPPAGE_BPS,
-    fees, ...(operatorFee ? { operatorFee } : {}), approval: value.approval, quoteBlockNumber: value.quoteBlockNumber,
+    fees, ...(operatorFee ? { operatorFee } : {}), ...(currencyRecordId ? { currencyRecordId } : {}), approval: value.approval, quoteBlockNumber: value.quoteBlockNumber,
     quotedAt: value.quotedAt, permitDeadline: value.permitDeadline, executionDeadline: value.executionDeadline,
   };
 }
-export function parseTradeSigning(value: unknown, metadata: TradeMoneyActionMetadata, owner: Address): TradeSigningRequest | null {
-  if (!record(value) || (value.signer !== "base-account" && value.signer !== "cdp-embedded") || !record(value.typedData)) return null;
+export function parseTradeSigning(value: unknown, metadata: TradeMoneyActionMetadata, owner: `0x${string}`): ParsedTradeSigningRequest | null {
+  const parsedOwner = parseAddress(owner);
+  if (!parsedOwner || !record(value) || (value.signer !== "base-account" && value.signer !== "cdp-embedded") || !record(value.typedData)) return null;
   const typed = value.typedData;
   if (!record(typed.domain) || !record(typed.types) || !record(typed.message)) return null;
   if (value.signer === "cdp-embedded") {
-    if (typeof value.evmAccount !== "string" || !address.test(value.evmAccount) ||
+    const evmAccount = parseAddress(value.evmAccount);
+    const messageHash = parseHash32(typed.message.hash);
+    if (!evmAccount ||
       typed.domain.name !== "Coinbase Smart Wallet" || typed.domain.version !== "1" || typed.domain.chainId !== 8453 ||
-      typeof typed.domain.verifyingContract !== "string" || typed.domain.verifyingContract.toLowerCase() !== owner.toLowerCase() ||
-      typed.primaryType !== "CoinbaseSmartWalletMessage" || typeof typed.message.hash !== "string" || !hash.test(typed.message.hash) ||
+      parseAddress(typed.domain.verifyingContract) !== parsedOwner ||
+      typed.primaryType !== "CoinbaseSmartWalletMessage" || !messageHash ||
       JSON.stringify(typed.types.EIP712Domain) !== JSON.stringify([
         { name: "name", type: "string" }, { name: "version", type: "string" },
         { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" },
       ]) || JSON.stringify(typed.types.CoinbaseSmartWalletMessage) !== JSON.stringify([{ name: "hash", type: "bytes32" }])) return null;
     return {
-      signer: "cdp-embedded", evmAccount: value.evmAccount.toLowerCase() as Address,
+      signer: "cdp-embedded", evmAccount,
       typedData: {
-        domain: { name: "Coinbase Smart Wallet", version: "1", chainId: 8453, verifyingContract: owner.toLowerCase() as Address },
+        domain: { name: "Coinbase Smart Wallet", version: "1", chainId: 8453, verifyingContract: parsedOwner },
         types: typed.types as CoinbaseSmartWalletTypedData["types"], primaryType: "CoinbaseSmartWalletMessage",
-        message: { hash: typed.message.hash.toLowerCase() as `0x${string}` },
+        message: { hash: messageHash },
       },
     };
   }
+  const spender = parseAddress(typed.message.spender);
   if (value.evmAccount !== undefined || typed.domain.name !== "Permit2" || typed.domain.chainId !== 8453 ||
-    typeof typed.domain.verifyingContract !== "string" || typed.domain.verifyingContract.toLowerCase() !== PERMIT2 ||
+    parseAddress(typed.domain.verifyingContract) !== PERMIT2 ||
     typed.primaryType !== "PermitTransferFrom" || !record(typed.message.permitted) ||
-    (typeof typed.message.permitted.token === "string" ? typed.message.permitted.token.toLowerCase() : null) !== metadata.fromAsset.address ||
+    parseAddress(typed.message.permitted.token) !== metadata.fromAsset.address ||
     typed.message.permitted.amount !== metadata.fromAmountBaseUnits ||
     typed.message.deadline !== metadata.permitDeadline || !uint(typed.message.nonce) ||
-    typeof typed.message.spender !== "string" || !address.test(typed.message.spender) ||
+    !spender ||
     JSON.stringify(typed.types.PermitTransferFrom) !== JSON.stringify([
       { name: "permitted", type: "TokenPermissions" }, { name: "spender", type: "address" },
       { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" },
@@ -136,7 +146,7 @@ export function parseTradeSigning(value: unknown, metadata: TradeMoneyActionMeta
         types: typed.types as Permit2TypedData["types"], primaryType: "PermitTransferFrom",
         message: {
           permitted: { token: metadata.fromAsset.address, amount: metadata.fromAmountBaseUnits },
-          spender: typed.message.spender.toLowerCase() as Address,
+          spender,
           nonce: typed.message.nonce, deadline: metadata.permitDeadline,
         },
       },

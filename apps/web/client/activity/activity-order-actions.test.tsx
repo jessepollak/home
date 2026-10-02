@@ -6,7 +6,7 @@ import { ConnectedActivityPanel } from "@/client/home/activity-panel";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { cashoutFixtureAction, cashoutFixtureWithdraw } from "@/tests/browser/feature-map/cashout-fixture";
-import { activityOrdersFixture } from "@/tests/browser/feature-map/fixtures";
+import { activityOrdersFixture, fundingOrderResolutionFixture } from "@/tests/browser/feature-map/fixtures";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ReactNode } from "react";
 
@@ -21,7 +21,7 @@ function ActivityProviders({ wallet, routing, children }: { wallet: AccountWalle
   return <AccountWalletContext.Provider value={wallet}><HomeShellRoutingProvider value={routing}>{children}</HomeShellRoutingProvider></AccountWalletContext.Provider>;
 }
 
-function setup(options: { failOrders?: boolean; failResolve?: boolean; fallback?: boolean | "waiting"; completePayment?: boolean; density?: "page" | "feed" } = {}) {
+function setup(options: { failOrders?: boolean; failResolve?: boolean; resolveBody?: unknown; fallback?: boolean | "waiting"; completePayment?: boolean; density?: "page" | "feed" } = {}) {
   const requests: Array<{ path: string; method: string; body?: unknown }> = [];
   const prepared: Array<{ kind: string; params: unknown }> = [];
   const flows: Array<{ flow: string; options: unknown }> = [];
@@ -46,7 +46,7 @@ function setup(options: { failOrders?: boolean; failResolve?: boolean; fallback?
       }
       if (path === "/api/funding/orders/fixture-funding-ambiguous/resolve") {
         if (options.failResolve) throw { serverMessage: "Clear failed. Try again." };
-        return { version: 1 };
+        return options.resolveBody === undefined ? fundingOrderResolutionFixture("fixture-funding-ambiguous") : options.resolveBody;
       }
       throw new Error(`Unexpected resource ${path}`);
     },
@@ -55,10 +55,11 @@ function setup(options: { failOrders?: boolean; failResolve?: boolean; fallback?
       return cashoutFixtureWithdraw as PreparedMoneyAction;
     },
   } as AccountWalletClient;
-  const routing = { state: {} as HomeInboundPanelState, popRevision: 0, rootRequest: null,
+  const routing = { state: {} as HomeInboundPanelState, activityReturn: null, popRevision: 0, rootRequest: null,
     openPanel: () => {}, setFlow: (flow: string, flowOptions: unknown) => {
       flows.push({ flow, options: flowOptions }); return true;
     }, clearFlow: () => {}, canOpenAssetDetail: () => false, openAssetDetail: () => false,
+    pushRoute: () => {}, leaveRoute: () => {},
   };
   const view = render(<ActivityProviders wallet={wallet} routing={routing}>
     <ConnectedActivityPanel density={options.density ?? "page"} activitySession={session}
@@ -84,10 +85,10 @@ test("Clear order posts only to resolve, with version 1, and refreshes orders an
     queryKey: openOrderKey,
     queryFn: async () => {
       openOrderReads += 1;
-      return { order: openOrderReads === 1 ? { id: "fixture-funding-ambiguous" } : null };
+      return openOrderReads === 1 ? { id: "fixture-funding-ambiguous" } : null;
     },
   });
-  client.setQueryData(otherRegionKey, { order: null });
+  client.setQueryData(otherRegionKey, null);
   const { view, requests } = setup();
   await openOrder(view, "30");
   fireEvent.click(await view.findByRole("button", { name: "Clear order" }));
@@ -95,7 +96,7 @@ test("Clear order posts only to resolve, with version 1, and refreshes orders an
     { path: "/api/funding/orders/fixture-funding-ambiguous/resolve", method: "POST", body: { version: 1 } },
   ]));
   await waitFor(() => expect(requests.filter(({ path }) => path === "/api/activity/orders").length).toBeGreaterThan(1));
-  await waitFor(() => expect(client.getQueryData<{ order: { id: string } | null }>(openOrderKey)).toEqual({ order: null }));
+  await waitFor(() => expect(client.getQueryData<{ id: string } | null>(openOrderKey)).toBeNull());
   expect(openOrderReads).toBe(2);
   expect(client.getQueryState(otherRegionKey)?.isInvalidated).toBe(false);
   expect(requests.some((request) => request.path === "/api/funding/orders")).toBe(false);
@@ -106,7 +107,7 @@ for (const [completePayment, label] of [[false, "Continue with Coinbase"], [true
     const { view, requests, flows } = setup({ completePayment });
     await openOrder(view, "25");
     fireEvent.click(await view.findByRole("button", { name: label }));
-    expect(flows).toEqual([{ flow: "add-money", options: { mode: "push" } }]);
+    expect(flows).toEqual([{ flow: "add-money", options: { mode: "push", opener: null } }]);
     expect(requests.every((request) => request.method === "GET")).toBe(true);
   });
 }
@@ -114,7 +115,7 @@ for (const [completePayment, label] of [[false, "Continue with Coinbase"], [true
 test("a failed clear shows the server message without starting another order", async () => {
   const client = getHomeQueryClient();
   const openOrderKey = ownerQueryKey(activityOwnerKey(session), "funding-open-order", "US");
-  client.setQueryData(openOrderKey, { order: { id: "fixture-funding-ambiguous" } });
+  client.setQueryData(openOrderKey, { id: "fixture-funding-ambiguous" });
   const { view, requests } = setup({ failResolve: true });
   await openOrder(view, "30");
   fireEvent.click(await view.findByRole("button", { name: "Clear order" }));
@@ -123,6 +124,28 @@ test("a failed clear shows the server message without starting another order", a
     .toEqual(["/api/funding/orders/fixture-funding-ambiguous/resolve"]);
   expect(client.getQueryState(openOrderKey)?.isInvalidated).toBe(false);
 });
+
+for (const [label, resolveBody] of [
+  ["malformed", { version: 1 }],
+  ["partial order", { version: 1, order: {
+    id: "fixture-funding-ambiguous", providerId: "coinbase", region: "US", state: "cancelled", fiatAmount: "30.00",
+  } }],
+  ["mismatched order", fundingOrderResolutionFixture("fixture-funding-other")],
+] as const) {
+  test(`a ${label} clear response shows an error without invalidating or refetching orders`, async () => {
+    const client = getHomeQueryClient();
+    const openOrderKey = ownerQueryKey(activityOwnerKey(session), "funding-open-order", "US");
+    client.setQueryData(openOrderKey, { id: "fixture-funding-ambiguous" });
+    const { view, requests } = setup({ resolveBody });
+    await openOrder(view, "30");
+    fireEvent.click(await view.findByRole("button", { name: "Clear order" }));
+    await waitFor(() => expect(view.getByText("Could not clear the order. Try again.")).toBeTruthy());
+    expect(requests.filter(({ method }) => method === "POST").map(({ path }) => path))
+      .toEqual(["/api/funding/orders/fixture-funding-ambiguous/resolve"]);
+    expect(client.getQueryState(openOrderKey)?.isInvalidated).toBe(false);
+    expect(requests.filter(({ path }) => path === "/api/activity/orders")).toHaveLength(1);
+  });
+}
 
 test("returned funds review the withdrawal against the order deposit ID in the same sheet", async () => {
   const { view, prepared, flows } = setup({ fallback: true });

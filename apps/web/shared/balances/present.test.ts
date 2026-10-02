@@ -1,4 +1,5 @@
 import { cryptoAssets, stockAssets } from "@/config/invest-assets";
+import { presentationRegions } from "@/config/regions";
 import { formatPresentationTokenAmount, presentationAssetClass } from "@/shared/formatting/money";
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "./contract";
@@ -20,6 +21,7 @@ import type { BalancesFixtureOptions } from "./fixtures";
 import type { BalancesSnapshot } from "./types";
 import {
   presentBalances,
+  presentCashSelection,
   presentPendingCashout,
   presentInvestmentTotal,
   presentHoldingMark,
@@ -55,11 +57,11 @@ describe("focused investment presentation", () => {
 
 function validatedPresentationSnapshot(options: BalancesFixtureOptions): BalancesSnapshot {
   const snapshot = buildBalancesSnapshotFixture(options);
-  expect(parseBalancesSnapshot(snapshot, {
+  expect(JSON.parse(JSON.stringify(parseBalancesSnapshot(snapshot, {
     subject: "cdp:test",
     smartAccountAddress: snapshot.owner.address,
     chainId: snapshot.owner.chainId,
-  }, snapshot.region)).toEqual(snapshot);
+  }, snapshot.region)))).toEqual(snapshot);
   return snapshot;
 }
 
@@ -450,6 +452,63 @@ describe("balance presentation", () => {
     expect(presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: true }).groups[0]?.displaySubtotal).toBeNull();
   });
 
+  test("keeps an unverified local currency visible without inventing a balance or affecting totals", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      region: "MX",
+      registry: {
+        usdc: { balance: ready("5000000"), value: priced("MXN", "2500"), cashValue: pricedCash("USD", "500") },
+      },
+    });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+    const cash = presentation.groups.find((group) => group.id === "cash");
+    const unsupported = cash?.rows.find((row) => row.key === "cash:unsupported:MXN");
+
+    expect(unsupported).toMatchObject({
+      name: "Mexican peso",
+      mark: { kind: "flag", currency: "MXN" },
+      primary: "Verification pending",
+      secondary: null,
+      tone: "muted",
+    });
+    expect(`${unsupported?.primary}${unsupported?.secondary ?? ""}`).not.toMatch(/[0-9]/);
+    expect(cash?.displaySubtotal).toBe("$25.00");
+    expect(presentation.displayTotal).toBe("$25.00");
+    expect(presentation.summary?.cash.value).toBe("$25.00");
+  });
+
+  test("uses the additional verification status for an unsupported Canadian dollar row", () => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "CA" });
+    const presentation = presentBalances({ status: "ready", snapshot, error: null });
+    expect(presentation.groups.find((group) => group.id === "cash")?.rows.find((row) => row.key === "cash:unsupported:CAD"))
+      .toMatchObject({
+        name: "Canadian dollar",
+        mark: { kind: "flag", currency: "CAD" },
+        primary: "Additional verification",
+        secondary: null,
+        tone: "muted",
+      });
+  });
+
+  test("presents an unsupported Brazilian real candidate with its configured verification status", () => {
+    const snapshot = buildBalancesSnapshotFixture({ region: "BR" });
+    const region = presentationRegions.BR;
+    const candidate = region.candidateAsset;
+    if (!candidate) throw new Error("Brazilian real candidate asset missing");
+    expect(presentCashSelection({
+      kind: "unsupported",
+      key: "cash:unsupported:BRL",
+      currency: "BRL",
+      name: region.currency.name,
+      symbol: candidate.symbol,
+      verificationStatus: candidate.verificationStatus,
+    }, snapshot)).toMatchObject({
+      name: "Brazilian real",
+      primary: "Additional verification",
+      secondary: null,
+      tone: "muted",
+    });
+  });
+
   test("renders a positive non-selected cash holding once in the cash group", () => {
     const snapshot = buildBalancesSnapshotFixture({
       region: "US",
@@ -657,7 +716,13 @@ describe("balance presentation", () => {
     const summary = presentBalances({ status: "ready", snapshot, error: null }).summary;
 
     expect(summary?.investments.assetCount).toBe(2);
-    expect(summary?.borrow).toEqual({ kind: "none" });
+    expect(summary?.borrow).toEqual({ kind: "none", hasCollateral: true });
+  });
+
+  test("reports an empty Borrow summary without collateral", () => {
+    const snapshot = buildBalancesSnapshotFixture({ borrow: { coverage: "complete", positions: [] } });
+    expect(presentBalances({ status: "ready", snapshot, error: null }).summary?.borrow)
+      .toEqual({ kind: "none", hasCollateral: false });
   });
 
   test("shows a negative net with a leading minus when debt exceeds assets", () => {

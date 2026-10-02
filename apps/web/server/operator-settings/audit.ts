@@ -1,4 +1,5 @@
 import "server-only";
+import { parseAddress } from "@/shared/chain/hex";
 
 import type { SqlExecutor } from "@/server/db/sql";
 import { validCursor, type AuditEntry } from "@/shared/operator-settings/contract";
@@ -24,7 +25,9 @@ export class AdminAuditLog {
     const result = await this.sql.query<AuditRow>(`SELECT * FROM admin_audit_log
       WHERE ($1::bigint IS NULL OR id < $1::bigint) ORDER BY id DESC LIMIT $2`, [input.before ?? null, limit + 1]);
     const entries: AuditEntry[] = result.rows.slice(0, limit).map((row) => {
-      const common = { id: row.id, occurredAt: row.occurred_at.toISOString(), actor: row.actor };
+      const actor = parseAddress(row.actor);
+      if (!actor) throw new Error("Stored audit actor is not a canonical address");
+      const common = { id: row.id, occurredAt: row.occurred_at.toISOString(), actor };
       return row.action === "settings.update"
         ? { ...common, action: "settings.update", target: { kind: "settings", id: row.target_id }, before: row.before, after: row.after }
         : { ...common, action: "customer.read", target: { kind: "customer", id: row.target_id }, purpose: row.purpose! };

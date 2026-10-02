@@ -1,21 +1,22 @@
 "use client";
 
-import { useCallback, useContext, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import {
   ActivityPanelView,
   type ActivityPanelDensity,
   type FetchActivity,
 } from "@/client/activity";
-import { activityOwnerKey, useActivity } from "@/client/activity/use-activity";
+import { activityOwnerKey, useActivity, type RetrySchedule } from "@/client/activity/use-activity";
 import { activityOrdersNeedPolling } from "@/client/activity/activity-feed";
-import { parseRecentMoneyActions } from "@/client/actions";
-import { fetchRecentActions, recentActionsQueryOptions, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
-import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeMutation, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { activityOrdersPath, activityOrdersQuery } from "@/client/activity/activity-orders-query";
+import { recentActionsQuery, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
+import { browserHomeQueryClient, ownerQueryKey, useHomeMutation, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { ownerMutation } from "@/client/query/mutation-options";
 import { AccountWalletContext } from "@/client/account/cdp-client";
-import { cashoutOrderAction, cashoutWithdrawForDeposit, linkedCashoutWithdraw, presentCashout } from "@/client/activity/cash-out-presenter";
-import { isRecentActionsResponse, type RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
-import { parseActivityOrders, type ActivityOrder } from "@/shared/activity/contract-orders";
+import { cashoutOrderAction, cashoutProgress, cashoutWithdrawForDeposit, linkedCashoutWithdraw } from "@/client/activity/cash-out-presenter";
+import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { ActivityOrder } from "@/shared/activity/contract-orders";
+import { FUNDING_ORDER_RESOLUTION_VERSION, readResolveFundingOrderResponse } from "@/shared/funding/contracts/order-resolution";
 import type { ActivityLedgerNextActionKind } from "@/client/activity/activity-ledger";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
@@ -65,6 +66,7 @@ export function ActivityPage({
 }
 
 export function ConnectedActivityPanel({
+  quietLoading = false,
   density,
   header,
   activitySession,
@@ -73,7 +75,9 @@ export function ConnectedActivityPanel({
   regionId,
   emptyAction,
   onDetailsOpenChange,
+  scheduleContinuationRetry,
 }: {
+  quietLoading?: boolean;
   density: ActivityPanelDensity;
   header?: ReactNode | null;
   emptyAction?: ReactNode;
@@ -82,6 +86,7 @@ export function ConnectedActivityPanel({
   fetchActivity: FetchActivity;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
   regionId: RegionId;
+  scheduleContinuationRetry?: RetrySchedule;
 }) {
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
@@ -89,9 +94,15 @@ export function ConnectedActivityPanel({
   const clearOrderMutation = useHomeMutation(ownerMutation({
     owner: ownerKey,
     invalidates: (order: ActivityOrder) => [{ scope: "funding-open-order", key: [order.region], refetchType: "all" }],
-    mutationFn: async (order: ActivityOrder) => wallet!.fetchAccountResource(
-      `/api/funding/orders/${encodeURIComponent(order.id)}/resolve`, { method: "POST", body: { version: 1 } },
-    ),
+    mutationFn: async (order: ActivityOrder) => {
+      const body = await wallet!.fetchAccountResource(
+        `/api/funding/orders/${encodeURIComponent(order.id)}/resolve`,
+        { method: "POST", body: { version: FUNDING_ORDER_RESOLUTION_VERSION } },
+      );
+      const resolved = readResolveFundingOrderResponse(body);
+      if (!resolved || resolved.order.id !== order.id) throw new Error("resolution");
+      return resolved;
+    },
   }));
   const routing = useOptionalHomeShellRouting();
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -99,88 +110,60 @@ export function ConnectedActivityPanel({
   const [reviewOpened, setReviewOpened] = useState(0);
   const [restoreDetailsRequest, setRestoreDetailsRequest] = useState(0);
   const [suspendDetailsRequest, setSuspendDetailsRequest] = useState(0);
-  const assetReturnRef = useRef<{ panel: string; path: string; opening: boolean; suspended: boolean } | null>(null);
-  const previousPopRevisionRef = useRef(routing?.popRevision);
-  const previousRootRevisionRef = useRef(routing?.rootRequest?.revision);
-  useLayoutEffect(() => {
-    if (previousPopRevisionRef.current === routing?.popRevision) return;
-    previousPopRevisionRef.current = routing?.popRevision;
-    const pending = assetReturnRef.current;
-    if (!pending) return;
-    if (routing?.state.panel === pending.panel && window.location.pathname === pending.path) {
-      if (pending.suspended) {
-        pending.suspended = false;
-        setRestoreDetailsRequest((request) => request + 1);
+  const [appliedPopRevision, setAppliedPopRevision] = useState(routing?.popRevision);
+  const [appliedRootRevision, setAppliedRootRevision] = useState(routing?.rootRequest?.revision);
+  if (routing && appliedPopRevision !== routing.popRevision) {
+    setAppliedPopRevision(routing.popRevision);
+    const pending = routing.getActivityReturn?.();
+    if (pending) {
+      if (routing.state.panel === pending.panel && window.location.pathname === pending.path) {
+        if (!pending.suspended) {
+          setRestoreDetailsRequest((request) => request + 1);
+        }
+      } else if (!pending.suspended) {
+        setSuspendDetailsRequest((request) => request + 1);
       }
-    } else if (!pending.suspended) {
-      pending.suspended = true;
+    }
+  }
+  if (routing && appliedRootRevision !== routing.rootRequest?.revision) {
+    setAppliedRootRevision(routing.rootRequest?.revision);
+    const pending = routing.getActivityReturn?.();
+    if (pending && !(pending.opening && routing.rootRequest?.panel === "investments") && !pending.suspended) {
       setSuspendDetailsRequest((request) => request + 1);
     }
-  }, [routing?.popRevision, routing?.state.panel]);
-  useLayoutEffect(() => {
-    if (previousRootRevisionRef.current === routing?.rootRequest?.revision) return;
-    previousRootRevisionRef.current = routing?.rootRequest?.revision;
-    const pending = assetReturnRef.current;
-    if (!pending) return;
-    if (pending.opening && routing?.rootRequest?.panel === "investments") {
-      pending.opening = false;
-      return;
-    }
-    if (!pending.suspended) setSuspendDetailsRequest((request) => request + 1);
-    assetReturnRef.current = null;
-  }, [routing?.rootRequest]);
+  }
   const cancelAttempt = useRef(0);
-  const activity = useActivity(activitySession, fetchActivity, regionId);
-  const selectActions = useCallback((value: unknown) => activitySession?.smartAccount
-    ? parseRecentMoneyActions(value, activitySession)
-    : EMPTY_OPERATIONS, [activitySession]);
+  const activity = useActivity(activitySession, fetchActivity, regionId, { scheduleContinuationRetry });
   const actions = useHomeQuery({
-    queryKey: ownerKey
-      ? ownerQueryKey(ownerKey, "actions")
-      : ["unauthenticated", "actions-disabled"],
-    enabled: ownerKey !== null,
-    ...recentActionsQueryOptions,
+    ...recentActionsQuery({ owner: ownerKey, session: activitySession, fetchOperations }),
     refetchInterval: (query) => {
       if (typeof document === "undefined" || document.visibilityState !== "visible" || !activitySession?.smartAccount ||
-        !isRecentActionsResponse(query.state.data)) return false;
-      const operations = parseRecentMoneyActions(query.state.data, activitySession);
+        !Array.isArray(query.state.data?.operations)) return false;
+      const operations = query.state.data.operations;
       return operations.some((operation) => operation.action.kind === "cash-out" &&
-        presentCashout(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
+        cashoutProgress(operation, linkedCashoutWithdraw(operation, operations)).refreshing) ? 15_000 : false;
     },
-    meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
-    select: selectActions,
   });
-  const selectOrders = useCallback((value: unknown) => activitySession?.smartAccount
-    ? parseActivityOrders(value, activitySession)
-    : EMPTY_ORDERS, [activitySession]);
-  const orders = useHomeQuery({
-    queryKey: ownerKey ? ownerQueryKey(ownerKey, "activity-orders") : ["unauthenticated", "activity-orders-disabled"],
-    enabled: ownerKey !== null && Boolean(wallet),
-    ...recentActionsQueryOptions,
+  const ordersQuery = useHomeQuery({
+    ...activityOrdersQuery({ owner: ownerKey, session: activitySession,
+      fetchOrders: (signal) => wallet!.fetchAccountResource(activityOrdersPath, { signal }), enabled: Boolean(wallet) }),
     refetchInterval: (query) => {
       if (typeof document === "undefined" || document.visibilityState !== "visible" || !activitySession?.smartAccount ||
-        !query.state.data) return false;
-      try {
-        const parsed = parseActivityOrders(query.state.data, activitySession);
-        return activityOrdersNeedPolling(parsed) ? 15_000 : false;
-      } catch {
-        return false;
-      }
+        !Array.isArray(query.state.data)) return false;
+      return activityOrdersNeedPolling(query.state.data) ? 15_000 : false;
     },
-    meta: ownerKey ? ownerQueryMeta(ownerKey, "owner") : undefined,
-    queryFn: ({ signal }) => wallet!.fetchAccountResource("/api/activity/orders", { signal }),
-    select: selectOrders,
   });
+  const operations = Array.isArray(actions.data?.operations) ? actions.data.operations : EMPTY_OPERATIONS;
+  const orders = Array.isArray(ordersQuery.data) ? ordersQuery.data : EMPTY_ORDERS;
   const queriedOrdersStatus = useRecentActionsStatus({
-    hasData: orders.data !== undefined, isPending: orders.isPending, isError: orders.isError,
-    dataUpdatedAt: orders.dataUpdatedAt, errorUpdatedAt: orders.errorUpdatedAt,
+    hasData: Array.isArray(ordersQuery.data), isPending: ordersQuery.isPending, isError: ordersQuery.isError,
+    dataUpdatedAt: ordersQuery.dataUpdatedAt, errorUpdatedAt: ordersQuery.errorUpdatedAt,
   });
   const ordersStatus = ownerKey && wallet ? queriedOrdersStatus : "ready";
-  const refetchOrders = orders.refetch;
+  const refetchOrders = ordersQuery.refetch;
   const retryOrders = useCallback(() => { void refetchOrders(); }, [refetchOrders]);
   const actionStatus = useRecentActionsStatus({
-    hasData: actions.data !== undefined,
+    hasData: Array.isArray(actions.data?.operations),
     isPending: actions.isPending,
     isError: actions.isError,
     dataUpdatedAt: actions.dataUpdatedAt,
@@ -196,20 +179,21 @@ export function ConnectedActivityPanel({
   } });
   const cancelCashout = (operation: RecentMoneyActionOperation) => {
     const progress = operation.cashout;
-    if (progress?.depositId && presentCashout(operation, linkedCashoutWithdraw(operation, actions.data ?? EMPTY_OPERATIONS)).cancellable) {
+    if (progress?.depositId && cashoutProgress(operation, linkedCashoutWithdraw(operation, operations)).cancellable) {
       void withdrawJourney.prepare(progress.providerId, progress.region, progress.depositId);
     }
   };
   const onOrderAction = async (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => {
     if (kind === "resume" || kind === "complete-payment") {
-      if (order.kind === "funding" && order.resumable && order.region === regionId && routing?.setFlow("add-money", { mode: "push" })) {
+      if (order.kind === "funding" && order.resumable && order.region === regionId && routing?.setFlow("add-money", { mode: "push", opener: null })) {
+        routing.setActivityReturn?.(null);
         setReviewOpened((count) => count + 1);
       }
       return;
     }
     if (kind === "withdraw-returned-funds" || kind === "cancel-cash-out") {
       if (order.kind === "cash-out" && order.orderId &&
-        cashoutOrderAction(order, cashoutWithdrawForDeposit(order.orderId, actions.data ?? EMPTY_OPERATIONS)) === kind) {
+        cashoutOrderAction(order, cashoutWithdrawForDeposit(order.orderId, operations)) === kind) {
         void withdrawJourney.prepare(order.providerId, order.region, order.orderId);
       }
       return;
@@ -234,12 +218,17 @@ export function ConnectedActivityPanel({
   };
   return (
     <ActivityPanelView
+      quietLoading={quietLoading}
       key={`${ownerKey ?? "signed-out"}:${reviewOpened}`}
       activity={activity}
-      operations={actions.data ?? EMPTY_OPERATIONS}
-      orders={orders.data ?? EMPTY_ORDERS}
+      operations={operations}
+      orders={orders}
       actionsStatus={actionStatus}
+      actionsRefreshing={actions.isFetching || actions.isPaused}
+      actionsFailed={actions.isError}
       ordersStatus={ordersStatus}
+      ordersRefreshing={ordersQuery.isFetching || ordersQuery.isPaused}
+      ordersFailed={ordersQuery.isError}
       regionId={regionId}
       density={density}
       header={header}
@@ -251,10 +240,10 @@ export function ConnectedActivityPanel({
       canOpenAsset={routing?.canOpenAssetDetail}
       onOpenAsset={(assetKey) => {
         if (!routing) return false;
-        const previous = assetReturnRef.current;
-        assetReturnRef.current = { panel: routing.state.panel, path: window.location.pathname, opening: true, suspended: true };
+        const previous = routing.getActivityReturn?.() ?? null;
+        if (previous) routing.setActivityReturn?.({ ...previous, opening: true, suspended: true });
         if (routing.openAssetDetail(assetKey)) return true;
-        assetReturnRef.current = previous;
+        routing.setActivityReturn?.(previous);
         return false;
       }}
       restoreDetailsRequest={restoreDetailsRequest}
@@ -265,10 +254,16 @@ export function ConnectedActivityPanel({
       fetchOperations={fetchOperations}
       onViewActivity={(close) => openPanelAfterClose(routing, "activity", close)}
       onDetailsOpenChange={onDetailsOpenChange}
+      initialDetailItem={ownerKey && routing?.activityReturn?.ownerKey === ownerKey &&
+        routing.activityReturn.path === window.location.pathname && !routing.activityReturn.suspended
+          ? routing.activityReturn.item : null}
+      onDetailsSelectionChange={(item) => {
+        routing?.setActivityReturn?.(item && ownerKey
+          ? { ownerKey, panel: routing.state.panel, path: window.location.pathname, item, opening: false, suspended: false }
+          : null);
+      }}
       onDetailsChange={(open) => {
-        assetReturnRef.current = open && routing
-          ? { panel: routing.state.panel, path: window.location.pathname, opening: false, suspended: false }
-          : null;
+        if (!open) routing?.setActivityReturn?.(null);
         cancelAttempt.current += 1;
         setCancelBusy(false);
         setCancelError(null);

@@ -1,5 +1,7 @@
 "use client";
 
+import { clearHomeSummaryCookie } from "./home-summary-cookie";
+
 import {
   MutationCache,
   QueryClient,
@@ -17,6 +19,7 @@ import {
   type QueryCacheNotifyEvent,
 } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
+import { recordRestoredBalance } from "@/client/observability/balance-performance";
 import { recordHomeStartupCache } from "@/client/observability/perf-marks";
 import { recordHomeCachePersistence } from "@/client/observability/interaction-performance";
 import type { HomeStartupCacheState } from "@/shared/observability/client-performance.contract";
@@ -26,6 +29,8 @@ import type { OwnerQueryScope, PublicQueryScope, QueryScope } from "./query-scop
 import { invalidateMutationScopes } from "./mutation-options";
 import { queryScopes } from "./scopes";
 import type { QueryScopePolicy } from "./scopes/policy";
+import { decodeOwnerCache, encodeOwnerCache, isCompressedOwnerCache, ownerCacheCompressionThreshold } from "./owner-cache-codec";
+import { clearBrowserIndexedOwnerCache, openIndexedOwnerCache } from "./indexed-owner-cache";
 
 export const ownerQueryCachePrefix = "home.query.v1:";
 export const ownerQueryCacheTtlMs = OWNER_SESSION_RETENTION_MS;
@@ -67,9 +72,11 @@ export function ownerQueryMeta(ownerKey: string, persistence: "memory" | "owner"
 
 export function shouldPersistOwnerQuery(query: Query, ownerKey: string, now = Date.now()): boolean {
   const meta = query.meta as HomeQueryMeta | undefined;
-  return isSafeQueryIdentity(ownerKey) && meta?.persistence === "owner" && meta.ownerKey === ownerKey &&
-    query.queryKey[0] === ownerKey && query.state.status === "success" &&
-    now - query.state.dataUpdatedAt <= ownerQueryCacheTtlMs;
+  const scope = query.queryKey[1];
+  const policy = typeof scope === "string" ? scopePolicies[scope] : undefined;
+  return isSafeQueryIdentity(ownerKey) && policy?.audience === "owner" && policy.persistence === "owner" &&
+    meta?.persistence === "owner" && meta.ownerKey === ownerKey && query.queryKey[0] === ownerKey &&
+    query.state.status === "success" && now - query.state.dataUpdatedAt <= ownerQueryCacheTtlMs;
 }
 
 export function dehydrateOwnerQueries(
@@ -108,39 +115,83 @@ export function createOwnerQueryPersister(
   if (!key) return null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let pending: PersistedOwnerClient | (() => PersistedOwnerClient) | null = null;
-  const writePending = () => {
+  let revision = 0;
+  let restoredValue: string | null = null;
+  const reportWrite = (startedAt: number) => {
+    try {
+      onWrite?.(startedAt, performance.now() - startedAt);
+    } catch {
+      return undefined;
+    }
+  };
+  const writePending = async () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
     if (!pending) return;
     const value = pending;
     pending = null;
-    const startedAt = performance.now();
+    const writeRevision = revision;
+    let startedAt = performance.now();
     try {
-      storage.setItem(key, JSON.stringify(typeof value === "function" ? value() : value));
+      const previous = storage.getItem(key);
+      const serialized = JSON.stringify(typeof value === "function" ? value() : value);
+      let encoded = serialized;
+      if (serialized.length >= ownerCacheCompressionThreshold && typeof CompressionStream !== "undefined") {
+        reportWrite(startedAt);
+        try {
+          encoded = await encodeOwnerCache(serialized);
+        } finally {
+          startedAt = performance.now();
+        }
+      }
+      if (revision === writeRevision && storage.getItem(key) === previous) storage.setItem(key, encoded);
     } catch { // oxlint-disable-line home/no-silent-catch -- persisted owner queries are a best-effort cache; quota or privacy failures cannot block the app
     } finally {
-      try {
-        onWrite?.(startedAt, performance.now() - startedAt);
-      } catch {
-        return undefined;
-      }
+      reportWrite(startedAt);
     }
   };
   return {
     persistClient(value: PersistedOwnerClient | (() => PersistedOwnerClient)) {
+      revision += 1;
       pending = value;
-      if (timer === null) timer = setTimeout(writePending, throttleTime);
+      if (timer === null) timer = setTimeout(() => { void writePending(); }, throttleTime);
     },
-    restoreClient(): PersistedOwnerClient | undefined {
+    restoreClient(): unknown {
       try {
         const value = storage.getItem(key);
-        return value ? JSON.parse(value) as PersistedOwnerClient : undefined;
+        if (value && isCompressedOwnerCache(value)) return undefined;
+        return value ? JSON.parse(value) : undefined;
       } catch {
         removePersistedQuietly(storage, key);
         return undefined;
       }
     },
+    async restoreClientAsync(): Promise<unknown> {
+      let value: string | null = null;
+      try {
+        value = storage.getItem(key);
+        restoredValue = value;
+        if (!value) return undefined;
+        const decoded: unknown = JSON.parse(await decodeOwnerCache(value));
+        return storage.getItem(key) === value ? decoded : undefined;
+      } catch {
+        try {
+          if (storage.getItem(key) === value) removePersistedQuietly(storage, key);
+        } catch {
+          return undefined;
+        }
+        return undefined;
+      }
+    },
+    isRestoreCurrent(): boolean {
+      try {
+        return storage.getItem(key) === restoredValue;
+      } catch {
+        return false;
+      }
+    },
     removeClient() {
+      revision += 1;
       if (timer !== null) clearTimeout(timer);
       timer = null;
       pending = null;
@@ -148,6 +199,7 @@ export function createOwnerQueryPersister(
     },
     flush: writePending,
     cancel() {
+      revision += 1;
       if (timer !== null) clearTimeout(timer);
       timer = null;
       pending = null;
@@ -195,7 +247,7 @@ export function subscribeOwnerQueryPersistence(
     if (!affectsPersistedOwner(event, ownerKey)) return;
     persister.persistClient(() => ({
       timestamp: Date.now(),
-      buster: "home-query-v3",
+      buster: "home-query-v4",
       clientState: dehydrateOwnerQueries(queryClient, ownerKey),
     }));
   });
@@ -236,7 +288,8 @@ export function clearPersistedOwnerQueries(
   const keys: string[] = [];
   for (let index = 0; index < storage.length; index += 1) {
     const key = storage.key(index);
-    if (key?.startsWith(ownerQueryCachePrefix) && key !== preservedStorageKey) keys.push(key);
+    if (key?.startsWith(ownerQueryCachePrefix) && key !== preservedStorageKey &&
+      !(preservedStorageKey && key.startsWith(`${preservedStorageKey}:home-summary:`))) keys.push(key);
   }
   for (const key of keys) storage.removeItem(key);
 }
@@ -246,6 +299,10 @@ export function clearOwnerQueryBoundary(
   storage?: Storage,
   preserveOwnerKey?: string,
 ): void {
+  clearHomeSummaryCookie(preserveOwnerKey);
+  ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
+  for (const listener of boundaryListeners.get(queryClient) ?? []) listener(preserveOwnerKey);
+  clearBrowserIndexedOwnerCache(preserveOwnerKey);
   pauseOwnerPersistence(queryClient, () => {
     if (preserveOwnerKey) {
       queryClient.removeQueries({
@@ -260,6 +317,8 @@ export function clearOwnerQueryBoundary(
 }
 
 export function clearOwnerQueryMemory(queryClient: QueryClient): void {
+  ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
+  for (const listener of boundaryListeners.get(queryClient) ?? []) listener();
   pauseOwnerPersistence(queryClient, () => queryClient.clear());
 }
 
@@ -273,6 +332,15 @@ type TrustedRestoredQuery = {
 };
 
 const scopePolicies: Partial<Record<string, QueryScopePolicy>> = queryScopes;
+const ownerRestoreRevisions = new WeakMap<QueryClient, number>();
+const boundaryListeners = new WeakMap<QueryClient, Set<(preserveOwner?: string) => void>>();
+
+export function subscribeOwnerQueryBoundary(queryClient: QueryClient, listener: (preserveOwner?: string) => void) {
+  const listeners = boundaryListeners.get(queryClient) ?? new Set();
+  boundaryListeners.set(queryClient, listeners);
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
 
 export function trustedRestoredQuery(query: unknown, ownerKey: string, now = Date.now()): TrustedRestoredQuery | null {
   if (!isRecord(query)) return null;
@@ -307,7 +375,32 @@ export function restoreOwnerQueries(
   const persister = createOwnerQueryPersister(storage, ownerKey);
   const persisted = persister?.restoreClient();
   persister?.cancel();
-  if (!persisted || persisted.buster !== "home-query-v3" || typeof persisted.timestamp !== "number" ||
+  return hydrateOwnerClient(queryClient, persister, persisted, now, ownerKey);
+}
+
+export async function restoreOwnerQueriesAsync(
+  queryClient: QueryClient,
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  ownerKey: string,
+  isCurrent: () => boolean,
+): Promise<boolean> {
+  if (isCurrent() && restoreOwnerQueries(queryClient, storage, ownerKey)) return true;
+  const revision = ownerRestoreRevisions.get(queryClient);
+  const persister = createOwnerQueryPersister(storage, ownerKey);
+  const persisted = await persister?.restoreClientAsync();
+  persister?.cancel();
+  if (!isCurrent() || ownerRestoreRevisions.get(queryClient) !== revision || !persister?.isRestoreCurrent()) return false;
+  return hydrateOwnerClient(queryClient, persister, persisted, Date.now(), ownerKey);
+}
+
+function hydrateOwnerClient(
+  queryClient: QueryClient,
+  persister: ReturnType<typeof createOwnerQueryPersister>,
+  persisted: unknown,
+  now: number,
+  ownerKey: string,
+): boolean {
+  if (!isRecord(persisted) || persisted.buster !== "home-query-v4" || typeof persisted.timestamp !== "number" ||
     !Number.isFinite(persisted.timestamp) || now - persisted.timestamp > ownerQueryCacheTtlMs) {
     if (persisted) persister?.removeClient();
     return false;
@@ -344,6 +437,12 @@ export function restoreOwnerQueries(
     return false;
   }
   hydrate(queryClient, { mutations: [], queries });
+  for (const query of queries) {
+    if (query.queryKey[1] === "balances" && typeof query.state.data === "object" && query.state.data !== null &&
+      queryClient.getQueryData(query.queryKey) === query.state.data) {
+      recordRestoredBalance(query.state.data);
+    }
+  }
   return true;
 }
 
@@ -359,14 +458,93 @@ export function OwnerQueryPersistence({ ownerKey }: { ownerKey: string | null })
   const queryClient = useQueryClient(browserHomeQueryClient());
   useEffect(() => {
     if (!ownerKey || typeof window === "undefined") return;
-    const restored = restoreOwnerQueries(queryClient, window.localStorage, ownerKey);
-    recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
-  }, [ownerKey, queryClient]);
-  useEffect(() => {
-    if (!ownerKey || typeof window === "undefined") return;
-    return subscribeOwnerQueryPersistence(queryClient, window.localStorage, ownerKey, recordHomeCachePersistence);
+    let current = true;
+    let stop: (() => void) | undefined;
+    const revision = ownerRestoreRevisions.get(queryClient);
+    const isCurrent = () => current && ownerRestoreRevisions.get(queryClient) === revision;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        void startIndexedOwnerPersistence(queryClient, ownerKey, () => current, isCurrent).then((cleanup) => {
+          if (current) stop = cleanup;
+          else cleanup();
+        });
+      });
+    });
+    return () => { current = false; cancelAnimationFrame(frame); stop?.(); };
   }, [ownerKey, queryClient]);
   return null;
+}
+
+function browserOwnerStorage(): Storage | null {
+  try { return window.localStorage; } catch { return null; }
+}
+
+async function startIndexedOwnerPersistence(queryClient: QueryClient, ownerKey: string, alive: () => boolean, restoreCurrent: () => boolean) {
+  const storage = browserOwnerStorage();
+  const storageKey = ownerQueryStorageKey(ownerKey);
+  try {
+    let cache = await openIndexedOwnerCache(ownerKey);
+    if (!alive()) return () => {};
+    let legacy: string | null = null;
+    try { legacy = storageKey ? storage?.getItem(storageKey) ?? null : null; } catch { legacy = null; }
+    const value = cache.value ?? legacy;
+    let restored = false;
+    if (value) {
+      try {
+        const decoded: unknown = JSON.parse(await decodeOwnerCache(value));
+        if (restoreCurrent() && await cache.isCurrent(cache.value) && restoreCurrent() &&
+          (cache.value !== null || storageKey && storage?.getItem(storageKey) === legacy)) {
+          restored = hydrateOwnerClient(queryClient, null, decoded, Date.now(), ownerKey);
+          if (!restored && cache.value) await cache.remove(cache.value);
+        }
+      } catch { restored = false; }
+    }
+    if (!alive()) return () => {};
+    recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let writeRevision = 0;
+    let paused = false;
+    let renewLease = false;
+    const valid = (revision: number) => alive() && !paused && revision === writeRevision;
+    const persist = async (revision: number): Promise<boolean> => {
+      try {
+        if (renewLease) { cache = await openIndexedOwnerCache(ownerKey); renewLease = false; }
+        if (!valid(revision)) return false;
+        const startedAt = performance.now();
+        const savedAt = Date.now();
+        const serialized = JSON.stringify({ timestamp: savedAt, buster: "home-query-v4", clientState: dehydrateOwnerQueries(queryClient, ownerKey, savedAt) });
+        recordHomeCachePersistence(startedAt, performance.now() - startedAt);
+        const encoded = await encodeOwnerCache(serialized);
+        const committed = await cache.write(encoded, savedAt, () => valid(revision));
+        if (committed && storageKey && legacy !== null && storage?.getItem(storageKey) === legacy) storage.removeItem(storageKey);
+        return committed;
+      } catch { return false; }
+    };
+    const queue = () => {
+      writeRevision += 1;
+      if (timer === null) timer = setTimeout(() => { timer = null; void persist(writeRevision); }, ownerQueryPersistThrottleMs);
+    };
+    const cancel = () => { writeRevision += 1; if (timer !== null) clearTimeout(timer); timer = null; };
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (paused || event.type !== "removed" && queryClient.getQueryCache().get(event.query.queryHash) !== event.query) return;
+      if (affectsPersistedOwner(event, ownerKey)) queue();
+    });
+    const subscriptions = ownerPersistenceSubscriptions.get(queryClient) ?? new Set();
+    ownerPersistenceSubscriptions.set(queryClient, subscriptions);
+    const subscription = { ownerKey, pause: () => { paused = true; cancel(); }, resume: () => { paused = false; renewLease = true; } };
+    subscriptions.add(subscription);
+    if (restoreCurrent()) queue();
+    return () => { cancel(); unsubscribe(); subscriptions.delete(subscription); };
+  } catch {
+    if (storage && alive()) {
+      const restored = await restoreOwnerQueriesAsync(queryClient, storage, ownerKey, restoreCurrent);
+      if (alive()) {
+        recordHomeStartupCache(ownerRestoreCacheState(ownerKey, restored));
+        return subscribeOwnerQueryPersistence(queryClient, storage, ownerKey, recordHomeCachePersistence);
+      }
+    }
+    return () => {};
+  }
 }
 
 let sharedClient: QueryClient | null = null;

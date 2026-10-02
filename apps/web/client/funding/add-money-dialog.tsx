@@ -18,17 +18,16 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { CircleAlertIcon, ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
 import { CurrencyMark } from "@/components/currency-mark";
-import {
-  verifiedLocalCashAssets,
-  type DirectPortfolioAsset,
-} from "@/config/portfolio-assets";
+import { verifiedLocalCashAsset, type DirectPortfolioAsset } from "@/config/portfolio-assets";
 import {
   presentationRegions,
   type FiatCurrencyCode,
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
+import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
 import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
 import { MethodShimmerRow } from "./method-skeleton";
 import { ReceiveQr } from "./receive-qr";
@@ -92,10 +91,7 @@ export function AddMoneyDialog({
   onStartNewOrder: () => void;
   startNewAllowed: boolean;
   initialCustomer?: FundingProviderCustomerSummary | null;
-  fetchAccountResource: (
-    path: string,
-    options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal },
-  ) => Promise<unknown>;
+  fetchAccountResource: AccountWalletClient["fetchAccountResource"];
   queryOwnerKey?: string | null;
   onSelectBinding: (binding: FundingBinding) => void;
   onOpenRedirect: (url: string) => void;
@@ -145,7 +141,7 @@ export function AddMoneyDialog({
         <OpenOrderPrompt
           binding={selectedBinding}
           order={promptOrder}
-          startNewAllowed={startNewAllowed}
+          startNewAllowed={startNewAllowed && (selectedBinding.direction !== "onramp" || selectedBinding.resumeOnly !== true)}
           onContinue={onContinueOrder}
           onStartNew={onStartNewOrder}
         />
@@ -248,7 +244,8 @@ export function MethodBody({
                   hint="Open deposit flow"
                   disabled={
                     providerBindingsDisabled ||
-                    (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding))
+                    (binding.customerSetup !== null && !customerSetupReady && !resumableBinding(binding) &&
+                      !(binding.direction === "onramp" && binding.resumeOnly === true))
                   }
                   onSelect={() => onSelectBinding(binding)}
                 />
@@ -468,11 +465,8 @@ export function SupportedAssets({ regionId }: { regionId: RegionId }) {
 function supportedRegionalAsset(
   currency: FiatCurrencyCode | null,
 ): DirectPortfolioAsset | null {
-  if (!currency || currency === "USD") return null;
-  const configured = verifiedLocalCashAssets as Partial<
-    Record<FiatCurrencyCode, DirectPortfolioAsset>
-  >;
-  return configured[currency] ?? null;
+  if (!currency || !receiveSupportedCashCurrencies.some((supported) => supported === currency)) return null;
+  return verifiedLocalCashAsset(currency);
 }
 
 function SignedOutBody() {

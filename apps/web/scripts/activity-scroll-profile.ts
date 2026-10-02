@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { seedSignedInSession, installApiFixtures, json } from "../tests/browser/fixtures/api";
-import { syntheticActivity, activityPage } from "./device-profile/synthetic-activity";
+import { activityPage, fixtureSyntheticActivity } from "./device-profile/synthetic-activity";
 
 const options = new Map<string, string>();
 const args = process.argv.slice(2);
@@ -33,7 +33,7 @@ if (!rows || !repeat || ![1, 4, 6].includes(throttle) || !["/home", "/activity"]
   new URL(baseUrl).protocol !== "http:") throw new Error("Invalid profiling options");
 const origin = new URL(baseUrl).origin;
 if (!["localhost", "127.0.0.1"].includes(new URL(origin).hostname)) throw new Error("Use a loopback fixture server only");
-const { transferCount, actionCount, pageSize, wallet, timestamp, transfers, actions } = syntheticActivity(rows, Date.now() - 120_000);
+const { transferCount, actionCount, pageSize, wallet, timestamp, transfers, actions } = fixtureSyntheticActivity(rows);
 const selector = routePath === "/home" ? "section[data-activity-feed]" : 'section[aria-label="Activity"]:not([id="navigation-panel"])';
 const rowSelector = `${selector} ul > li`;
 const metricNames = ["ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "TaskDuration", "LayoutCount"];
@@ -55,8 +55,8 @@ async function start(page: Page, cdp: Awaited<ReturnType<BrowserContext["newCDPS
       const list = [...(main?.querySelectorAll<HTMLElement>('section[data-activity-feed] ul, section[aria-label="Activity"]:not([id="navigation-panel"]) ul') ?? [])]
         .filter((node) => node.getClientRects().length > 0).at(-1);
       if (main && list) {
-        const viewport = main.getBoundingClientRect(), bounds = list.getBoundingClientRect();
-        const top = Math.max(viewport.top, bounds.top), bottom = Math.min(viewport.bottom, bounds.bottom);
+        const bounds = list.getBoundingClientRect();
+        const top = Math.max(0, bounds.top), bottom = Math.min(window.innerHeight, bounds.bottom);
         if (bottom > top) {
           const intervals = [...list.querySelectorAll("li")].map((row) => row.getBoundingClientRect())
             .filter((rect) => rect.bottom > top && rect.top < bottom).sort((a, b) => a.top - b.top);
@@ -101,12 +101,11 @@ async function stop(page: Page, cdp: Awaited<ReturnType<BrowserContext["newCDPSe
   };
 }
 async function fill(page: Page, target: number, loadedRows: () => number) {
-  const main = page.locator("main[data-app-main-authenticated]");
   const end = page.locator(`${selector} [role="status"]`).filter({ hasText: "End of activity" });
   const until = Date.now() + 120_000;
   while (Date.now() < until) {
     if (loadedRows() === target && await end.isVisible()) return;
-    await main.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await delay(150);
   }
   throw new Error(`Fill stopped at ${loadedRows()}/${target} served Activity rows; end visible: ${await end.isVisible()}`);
@@ -183,7 +182,7 @@ async function runOnce(index: number, video: boolean) {
         });
         observer.observe(document.querySelector(rowSelector)!.parentElement!, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-posinset"] });
       }, { rowSelector, firstPageRows });
-      await page.locator("main[data-app-main-authenticated]").evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       await page.waitForFunction(() => Boolean((window as typeof window & { __append?: { rowsAt: number } }).__append?.rowsAt), null, { timeout: 30_000 });
       const timing = await page.evaluate(() => (window as typeof window & { __append: { responseAt: number; rowsAt: number } }).__append);
       append = { ...await finish(appendBefore), responseToRowsMs: round(timing.rowsAt - timing.responseAt) };
@@ -194,7 +193,7 @@ async function runOnce(index: number, video: boolean) {
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: throttle });
     const filled = await finish(fillBefore);
     const fillFetches = { ...fetches };
-    await page.locator("main[data-app-main-authenticated]").evaluate((element) => { element.scrollTop = 0; });
+    await page.evaluate(() => window.scrollTo(0, 0));
     await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
     const beforeFling = await takeSnapshot();
     const flingBefore = await start(page, cdp);
@@ -202,10 +201,9 @@ async function runOnce(index: number, video: boolean) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.start");
     }
-    const mainRect = await page.locator("main[data-app-main-authenticated]").boundingBox();
-    if (!mainRect) throw new Error("Missing scroll container");
-    const position = { x: mainRect.x + mainRect.width / 2, y: mainRect.y + mainRect.height / 2, gestureSourceType: viewport === "mobile" ? "touch" as const : "mouse" as const, speed: 4000 };
-    const scrollHeight = await page.locator("main[data-app-main-authenticated]").evaluate((element) => element.scrollHeight);
+    const position = { ...(await page.evaluate(() => ({ x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 2) }))),
+      gestureSourceType: viewport === "mobile" ? "touch" as const : "mouse" as const, speed: 4000 };
+    const scrollHeight = await page.evaluate(() => document.documentElement.scrollHeight);
     const distance = Math.min(flingDistance || scrollHeight, scrollHeight);
     await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: -distance });
     await cdp.send("Input.synthesizeScrollGesture", { ...position, yDistance: distance });
@@ -222,9 +220,9 @@ async function runOnce(index: number, video: boolean) {
     const virtualized = await page.locator(`${rowSelector}[aria-posinset]`).count() > 0;
     const middleRow = virtualized ? page.locator(`${rowSelector}[aria-posinset="${middleIndex + 1}"]`) : page.locator(rowSelector).nth(middleIndex);
     if (virtualized) {
-      await page.locator("main[data-app-main-authenticated]").evaluate((main, { index, total }) => {
-        const list = main.querySelector("ul:has(li[aria-posinset])")!;
-        main.scrollTop += list.getBoundingClientRect().top - main.getBoundingClientRect().top + list.scrollHeight * index / total - main.clientHeight / 2;
+      await page.evaluate(({ index, total }) => {
+        const list = document.querySelector("main[data-app-main-authenticated] ul:has(li[aria-posinset])")!;
+        window.scrollTo(0, list.getBoundingClientRect().top + window.scrollY + list.scrollHeight * index / total - window.innerHeight / 2);
       }, { index: middleIndex, total: rows });
       for (let attempt = 0; attempt < 12 && await middleRow.count() === 0; attempt += 1) {
         await delay(100);
@@ -233,7 +231,7 @@ async function runOnce(index: number, video: boolean) {
           return Math.abs(position - index) < Math.abs(best - index) ? position : best;
         }, Number(nodes[0]?.getAttribute("aria-posinset")) - 1), middleIndex);
         if (await middleRow.count()) break;
-        await page.locator("main[data-app-main-authenticated]").evaluate((main, delta) => { main.scrollTop += delta * 76; }, middleIndex - nearest);
+        await page.evaluate((delta) => window.scrollBy(0, delta * 76), middleIndex - nearest);
       }
     }
     await middleRow.waitFor({ timeout: 10_000 });
@@ -263,17 +261,17 @@ async function runOnce(index: number, video: boolean) {
     const actionsBefore = actionsFetches;
     const statusAt = Date.now();
     const statusBefore = await start(page, cdp);
-    await page.locator("main[data-app-main-authenticated]").evaluate((main, rowSelector) => {
-      const list = main.querySelector(rowSelector)?.parentElement;
-      if (list) main.scrollTop += list.getBoundingClientRect().top - main.getBoundingClientRect().top;
-    }, rowSelector);
+    await page.evaluate((rowSelector) => {
+      const list = document.querySelector(rowSelector)?.parentElement;
+      if (list) window.scrollTo(0, list.getBoundingClientRect().top + window.scrollY);
+    }, `main[data-app-main-authenticated] ${rowSelector}`);
     const updatedRow = page.locator(rowSelector).filter({ has: page.locator(`time[datetime="${timestamp(1)}"]`), hasText: "Send USDC" });
     for (let attempt = 0; attempt < 80 && await updatedRow.count() === 0; attempt += 1) {
-      await page.locator("main[data-app-main-authenticated]").evaluate((main) => { main.scrollTop += main.clientHeight / 2; });
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
       await delay(70);
     }
     if (await updatedRow.count() === 0) throw new Error("Status row not mounted after scanning from the top of the feed");
-    await page.locator("main[data-app-main-authenticated]").evaluate((main) => { main.scrollTop += 200; });
+    await page.evaluate(() => window.scrollBy(0, 200));
     await page.locator(selector).getByRole("list", { name: "Recent" }).locator("li")
       .filter({ has: page.locator(`time[datetime="${timestamp(1)}"]`), hasText: "Send USDC" })
       .first().waitFor({ timeout: 35_000 });

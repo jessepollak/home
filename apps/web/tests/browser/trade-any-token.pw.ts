@@ -1,8 +1,16 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { degenAssetId, syntheticDegen, tradePrepareFixture } from "./feature-map/fixtures";
 
-test("exact Base address has an identity and can review partial and full DEGEN sells", async ({ page }) => {
+async function warmTradeStep(page: Page, label: "Buy" | "Sell") {
+  // The deferred trade step is fetched on idle; warm it so the measured taps render the loaded sheet.
+  await page.getByRole("button", { name: label, exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Amount" })).toBeVisible({ timeout: process.env.CI ? 15_000 : 5_000 });
+  await page.getByRole("button", { name: "Close trade dialog" }).click();
+  await expect(page.locator("[data-money-sheet]")).toHaveCount(0);
+}
+
+test("exact Base address has an identity and can review partial and full DEGEN sells", { tag: "@smoke" }, async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);
   const requests: Array<{ version: number; amountBaseUnits: string; assetId: string; direction: string }> = [];
@@ -52,6 +60,7 @@ test("Buy and Sell focus Amount during the tap at 390px", async ({ page }) => {
   }));
   await page.goto(`/invest/${degenAssetId}`);
   await expect(page.getByRole("button", { name: "Buy", exact: true })).toBeEnabled();
+  await warmTradeStep(page, "Buy");
   await page.evaluate(() => {
     const state = window as Window & { tradeTapFocus?: Record<string, string | null> };
     state.tradeTapFocus = {};
@@ -108,7 +117,7 @@ test("buy-blocked availability still allows a DEGEN sell", async ({ page }) => {
   await expect(page.getByText("Buying is unavailable. You can still sell or send.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Buy", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Sell", exact: true })).toBeEnabled();
-  await page.waitForLoadState("networkidle");
+  await warmTradeStep(page, "Sell");
   await page.evaluate(() => {
     const state = window as Window & { sellTapFocus?: string | null };
     window.addEventListener("click", () => { state.sellTapFocus ??= document.activeElement?.getAttribute("aria-label") ?? null; });

@@ -19,3 +19,13 @@ export function homeSessionToken(address: string): string {
   const input = `v1.${encoded}`;
   return `${input}.${createHmac("sha256", Buffer.from(secret)).update(input).digest("base64url")}`;
 }
+
+export function cdpRenderSessionCookies(session: { user: { subject: string }; smartAccount: { address: string; chainId: number }; accountProvider: "cdp-embedded" }): Array<{ name: string; value: string }> {
+  const nonce = "a".repeat(48);
+  const encoded = Buffer.from(JSON.stringify({ version: 1, provider: "cdp-embedded", session, nonce,
+    issuedAt: new Date(FIXED_NOW).toISOString(), expiresAt: new Date(FIXED_NOW + 100 * 365 * 24 * 60 * 60_000).toISOString(),
+  })).toString("base64url");
+  const input = `v1.${encoded}`;
+  return [{ name: "home-cdp-session", value: `${input}.${createHmac("sha256", Buffer.from(secret)).update(input).digest("base64url")}` },
+    { name: "home-cdp-live", value: nonce }];
+}

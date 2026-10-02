@@ -14,6 +14,7 @@ import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authoriz
 import { issueMoneyAction } from "./issue";
 import { applyNetworkFee } from "@/server/paymaster/fee";
 import { privateError, privateJson } from "@/server/http/private-response";
+import { readJson } from "@/shared/http/read-json";
 import {
   resolveTransferRecipientName,
   type TransferRecipientNameResolver,
@@ -31,7 +32,7 @@ export function createPrepareSendMoneyActionHandler(dependencies: {
     if (!session.smartAccount) {
       return privateError("SMART_ACCOUNT_UNAVAILABLE", "A verified Base account is required.", 503);
     }
-    const body = await readJson(request);
+    const body = await readJson(request).catch(() => null);
     if (!isTransferRequest(body)) {
       return privateError("INVALID_SEND_REQUEST", "Use a valid Base recipient, asset, and integer amount.", 400);
     }
@@ -152,8 +153,4 @@ function isTransferRequest(value: unknown): value is TransferRequest {
     ((value as TransferRequest).recipientName === undefined ||
       typeof (value as TransferRequest).recipientName === "string"),
   );
-}
-
-async function readJson(request: Request): Promise<unknown> {
-  try { return await request.json(); } catch { return null; }
 }

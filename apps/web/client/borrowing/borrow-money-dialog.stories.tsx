@@ -15,7 +15,7 @@ const action: PreparedMoneyAction = {
   owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
   kind: "borrow", title: "Borrow USDC", calls: [], warnings: [],
   amounts: [{ assetId: snapshot.market.loanToken.id, symbol: snapshot.market.loanToken.symbol, decimals: snapshot.market.loanToken.decimals, amountBaseUnits: "1000000", direction: "receive" }],
-  metadata: { product: "borrow", operation: "borrow", marketId: snapshot.market.id, loanAsset: { id: snapshot.market.loanToken.id, symbol: snapshot.market.loanToken.symbol }, collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: snapshot.source.blockHash, blockTimestamp: "1788897600" } },
+  metadata: { product: "borrow", operation: "borrow", marketId: snapshot.market.id, riskIncreased: true, loanAsset: { id: snapshot.market.loanToken.id, symbol: snapshot.market.loanToken.symbol }, collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: snapshot.source.blockHash, blockTimestamp: "1788897600" } },
   createdAt: "2026-09-23T10:35:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z",
 };
 
@@ -28,7 +28,12 @@ function BorrowDialogStory({ state }: { state: StoryState }) {
     prepareMoneyAction={async () => action}
     executeMoneyAction={async () => state === "submitting" ? new Promise(() => {}) : { id: action.id, status: "submitted" }}
     fetchAccountResource={async (path) => path === "/api/actions"
-      ? { actions: state === "pending" ? [] : [{ id: action.id, owner: action.owner, status: state }] }
+      ? { actions: state === "pending" ? [] : [{
+          id: action.id, owner: action.owner, provider: "cdp-embedded",
+          kind: action.kind, status: state,
+          createdAt: action.createdAt, confirmedAt: action.createdAt,
+          summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+        }] }
       : { version: 1, usdcReserveBaseUnits: null }}
   />;
 }

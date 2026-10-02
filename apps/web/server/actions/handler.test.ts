@@ -1,17 +1,31 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { isRecord } from "@/shared/guards";
-import { afterEach, describe, expect, test } from "bun:test";
-import type { ActionRow } from "./store";
+import { afterEach, describe, expect, jest, mock, test } from "bun:test";
+import { setActionsStoreForTests, type ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
+import { parseRecentActionsPayload, parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
-import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
+import { createCashoutCorridorOfferingReader } from "@/server/funding/offering";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
+import { BORROW_MARKETS } from "@/shared/borrowing/config";
+import { createCardAllowanceEligibility } from "@/server/cards/allowance/prepare";
+import { DEFAULT_BORROW_MARKET, type BorrowMarketRef } from "@/shared/borrowing/config";
+import { actionKindForBorrowOperation, type BorrowOperation } from "@/shared/borrowing/types";
+import { VERIFIED_SAVE_VAULTS } from "@/shared/savings/config";
 
 function parseLog(line: string): unknown {
   const parsed: unknown = JSON.parse(line);
   return parsed;
+}
+
+function captureObservabilityEvents() {
+  const lines: string[] = [];
+  setObservabilityLogWriterForTests((line) => lines.push(line));
+  return (kind: string) => lines.map(parseLog).filter(isRecord).filter((event) => event.kind === kind);
 }
 
 async function readStatus(response: Response): Promise<unknown> {
@@ -31,6 +45,13 @@ const ADDRESS = "0x1111111111111111111111111111111111111111" as const;
 const CALL = { to: ADDRESS, data: "0x1234" as const, value: "0" };
 const HANDLE = "bundle:base-account:fixture";
 const HASH = `0x${"ab".repeat(32)}` as const;
+
+function enabledMarket() {
+  const market = BORROW_MARKETS.find((item) => item.availability === "enabled");
+  if (!market) throw new Error("Expected an enabled borrow market fixture.");
+  return market;
+}
+
 const recorded = async (_owner: MoneyActionOwner, _id: string, input: { outcome: "succeeded" | "reverted" | "not_submitted" }) => ({
   row: { ...row, outcome: input.outcome }, written: true, conflict: false,
 });
@@ -64,6 +85,340 @@ function authorize(subject = "owner-a", accountProvider: "cdp-embedded" | "base-
     accountProvider,
   });
 }
+
+const SAVE_VAULT = VERIFIED_SAVE_VAULTS[0];
+
+function borrowConfirmRow(operation: BorrowOperation): ActionRow {
+  return { ...row, kind: actionKindForBorrowOperation(operation), summary: { ...row.summary, metadata: {
+    product: "borrow", operation, marketId: DEFAULT_BORROW_MARKET.marketId,
+    riskIncreased: operation === "borrow" || operation === "supply-and-borrow" || operation === "withdraw-collateral",
+    loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "weth", symbol: "WETH" },
+    projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
+    source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1" },
+  } } };
+}
+
+function savingsConfirmRow(operation: "deposit" | "withdraw"): ActionRow {
+  return { ...row, kind: operation === "deposit" ? "savings-deposit" : "savings-withdraw", summary: { ...row.summary, metadata: {
+    product: "savings", operation, vaultAddress: SAVE_VAULT.address, vaultName: SAVE_VAULT.name,
+    network: { name: "Base", chainId: 8453 }, feeWad: "0", limitBaseUnits: "1000000",
+    previewSharesBaseUnits: "1000000000000000000", shareDecimals: 18,
+    exchangeConstraint: operation === "deposit" ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
+    discoveryRate: { status: "unavailable", netApy: null, fetchedAt: null, stateAsOf: null },
+    source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1" },
+  } } };
+}
+
+describe("retained savings action reads", () => {
+  const now = () => new Date("2026-09-12T12:10:00.000Z");
+  function recordOf(value: unknown): Record<string, unknown> {
+    if (!isRecord(value)) throw new Error("expected a JSON object body");
+    return value;
+  }
+
+  const recent: ActionRow = { ...row, confirmed_at: "2026-09-12T12:00:00.000Z", outcome: "succeeded" };
+  const retained: ActionRow = { ...row, id: "22222222-2222-4222-8222-222222222222", kind: "savings-deposit",
+    confirmed_at: "2026-09-10T12:00:00.000Z", provider_handle: HASH, transaction_hash: HASH };
+  const baseStore = { list: async () => [recent], recordHandle: async () => null, recordOutcome: recorded };
+  const session = { user: { subject: "owner-a" }, smartAccount: { address: ADDRESS, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+  test("starts recent and retained reads before either resolves", async () => {
+    const recentRead = Promise.withResolvers<ActionRow[]>();
+    const retainedRead = Promise.withResolvers<ActionRow[]>();
+    const readsStarted = Promise.withResolvers<void>();
+    const calls: string[] = [];
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore,
+        list: () => { calls.push("recent"); return recentRead.promise; },
+        listRetainedSavingsDeposits: () => {
+          calls.push("retained");
+          readsStarted.resolve();
+          return retainedRead.promise;
+        },
+      },
+    });
+    let responded = false;
+    const responseRead = handler(request("/api/actions")).then((response) => { responded = true; return response; });
+    try {
+      await readsStarted.promise;
+      expect(calls).toEqual(["recent", "retained"]);
+      expect(responded).toBe(false);
+      recentRead.resolve([recent]);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(responded).toBe(false);
+      retainedRead.resolve([{ ...retained, outcome: "reverted" }]);
+      const response = await responseRead;
+      expect(response.status).toBe(200);
+      expect(await readJson(response)).toMatchObject({ actions: [{ id: recent.id }], retainedSavingsDeposits: [{ id: retained.id }] });
+    } finally {
+      recentRead.resolve([]);
+      retainedRead.resolve([]);
+      await responseRead;
+    }
+  });
+  test.each(["before-list", "after-response"] as const)("list rejection returns 503 without an unhandled retained rejection %s", async (timing) => {
+    const recentRead = Promise.withResolvers<ActionRow[]>();
+    const retainedRead = Promise.withResolvers<ActionRow[]>();
+    const readsStarted = Promise.withResolvers<void>();
+    const events = captureObservabilityEvents();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    const handler = createListActionsHandler({ authorize: authorize(),
+      store: { ...baseStore, list: () => recentRead.promise,
+        listRetainedSavingsDeposits: () => { readsStarted.resolve(); return retainedRead.promise; },
+      },
+    });
+    const responseRead = handler(request("/api/actions"));
+    try {
+      await readsStarted.promise;
+      if (timing === "before-list") {
+        retainedRead.reject(new Error("retained offline"));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      recentRead.reject(new Error("store offline"));
+      const response = await responseRead;
+      expect(response.status).toBe(503);
+      expect(await readJson(response)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+      if (timing === "after-response") retainedRead.reject(new Error("retained offline"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+      expect(events("action-read")).toMatchObject([{ code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable" }]);
+    } finally {
+      recentRead.resolve([]);
+      retainedRead.resolve([]);
+      await responseRead;
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+  test.each(["succeeded", "reverted"] as const)("round-trips retained %s list-handler JSON through the client parser", async (outcome) => {
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => [{ ...retained, outcome, settled_at: blockTimestamp }] },
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const payload = parseRecentActionsPayload(await readJson(response), session);
+    expect(payload.operations.map(({ action, status }) => ({ id: action.id, status }))).toEqual([{ id: recent.id, status: "confirmed" }]);
+    expect(payload.retainedSavingsDeposits.map(({ action, status }) => ({ id: action.id, status })))
+      .toEqual([{ id: retained.id, status: outcome === "succeeded" ? "confirmed" : "failed" }]);
+    expect(payload.retainedSavingsDepositsUnavailable).toBe(false);
+  });
+  test("round-trips retained-unavailable list-handler JSON through the client parser", async () => {
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => { throw new Error("retained offline"); } },
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const payload = parseRecentActionsPayload(await readJson(response), session);
+    expect(payload.operations.map(({ action, status }) => ({ id: action.id, status }))).toEqual([{ id: recent.id, status: "confirmed" }]);
+    expect(payload.retainedSavingsDeposits).toEqual([]);
+    expect(payload.retainedSavingsDepositsUnavailable).toBe(true);
+  });
+  test("returns retained deposits separately, leaving recent actions and cash-out refresh unchanged", async () => {
+    const baseline = await readJson(await createListActionsHandler({ authorize: authorize(), store: baseStore, now, refreshCashouts: async () => [] })(request("/api/actions")));
+    let refreshedIds: string[] = [];
+    const handler = createListActionsHandler({ authorize: authorize(), now,
+      store: { ...baseStore, listRetainedSavingsDeposits: async (owner) => { expect(owner.subject).toBe("owner-a"); return [retained]; } },
+      readReceipt: async () => ({ status: "pending", transactionHash: HASH, finalizedBlockNumber: "0" }),
+      refreshCashouts: async ({ rows }) => { refreshedIds = rows.map(({ row }) => row.id); return []; },
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(body).toMatchObject({ ...recordOf(baseline), retainedSavingsDeposits: [{ id: retained.id, kind: "savings-deposit", status: "pending" }] });
+    expect(isRecord(body) && isRecord(baseline) && JSON.stringify(body.actions)).toBe(isRecord(baseline) && JSON.stringify(baseline.actions));
+    expect(isRecord(body) && body.truncated).toBe(isRecord(baseline) && baseline.truncated);
+    expect(refreshedIds).toEqual([recent.id]);
+  });
+  test("a retained read failure returns unchanged Activity rows and records an unavailable event", async () => {
+    const events = captureObservabilityEvents();
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => { throw new Error("retained offline"); } },
+    });
+    const baseline = await readJson(await createListActionsHandler({ authorize: authorize(), store: baseStore, now, refreshCashouts: async () => [] })(request("/api/actions")));
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({ ...recordOf(baseline), retainedSavingsDepositsUnavailable: true });
+    expect(events("action-read")).toContainEqual(expect.objectContaining({ code: "RETAINED_SAVINGS_DEPOSITS_UNAVAILABLE", outcome: "unavailable" }));
+  });
+  test("deduplicates retained ids against recent actions and omits empty retained fields", async () => {
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => [recent] },
+    });
+    const baseline = await readJson(await createListActionsHandler({ authorize: authorize(), store: baseStore, now, refreshCashouts: async () => [] })(request("/api/actions")));
+    expect(await readJson(await handler(request("/api/actions")))).toEqual(baseline);
+    expect(isRecord(baseline) && Object.keys(baseline)).toEqual(["actions"]);
+  });
+  test.each([true, false])("settles a retained deposit once with a finalized receipt success=%s", async (success) => {
+    let writtenOutcome: string | undefined;
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => [retained],
+        recordOutcome: async (_owner, id, input) => {
+          expect(id).toBe(retained.id); writtenOutcome = input.outcome;
+          return { row: { ...retained, outcome: input.outcome, settled_at: input.settledAt }, written: true, conflict: false };
+        } },
+      readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: true, userOperations: [operation(success)] }),
+    });
+    const body = await readJson(await handler(request("/api/actions")));
+    expect(writtenOutcome).toBe(success ? "succeeded" : "reverted");
+    expect(body).toMatchObject({ actions: [{ id: recent.id }], retainedSavingsDeposits: [{ id: retained.id, status: success ? "confirmed" : "failed", settledAt: blockTimestamp }] });
+  });
+  test("shares the five-candidate rotating reconciliation budget with recent rows", async () => {
+    const candidates = Array.from({ length: 8 }, (_, index): ActionRow => ({ ...retained, id: `candidate-${index}`, transaction_hash: null, provider_handle: `handle-${index}`, provider: "base-account" }));
+    const resolved: string[] = [];
+    const handler = createListActionsHandler({ authorize: authorize("owner-a", "base-account"), now, refreshCashouts: async () => [],
+      store: { ...baseStore, list: async () => candidates.slice(0, 4), listRetainedSavingsDeposits: async () => candidates.slice(4) },
+      resolveHandle: async (input) => { if (typeof input.provider_handle === "string") resolved.push(input.provider_handle); return { status: "pending" }; },
+    });
+    const body = await readJson(await handler(baseRequest("/api/actions")));
+    expect(new Set(resolved).size).toBe(5);
+    expect(isRecord(body) && Array.isArray(body.actions) && body.actions.length).toBe(4);
+    expect(isRecord(body) && Array.isArray(body.retainedSavingsDeposits) && body.retainedSavingsDeposits.length).toBe(4);
+  });
+});
+
+describe("card allowance confirmation", () => {
+  const metadata = { product: "card" as const, operation: "set-allowance" as const, provider: "bridge" as const,
+    mode: "production" as const, token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const,
+    spender: "0x65bf8b55eedef53c094e40003a03390de744df33" as const,
+    allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "5000000", maximumBaseUnits: "100000000", source: { blockNumber: "100" } };
+  test.each(["removed", "settings-unavailable"] as const)("refuses an unconfirmed set when %s", async (reason) => {
+    let confirms = 0;
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => ({ ...row, kind: "card-allowance", summary: { ...row.summary, metadata } }),
+        confirm: async () => { confirms++; return row; } },
+      cardAllowanceSetAllowed: () => { if (reason === "settings-unavailable") throw new Error("settings unavailable"); return false; },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(await readJson(response)).toEqual({ error: { code: "CARD_ALLOWANCE_UNAVAILABLE", message: "Card spending limits changed. Prepare again." } });
+    expect(confirms).toBe(0);
+  });
+  test.each([
+    ["canceled", "CARD_ALLOWANCE_NOT_READY", 409], ["restricted", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["no-link", "CARD_ALLOWANCE_NOT_READY", 409], ["no-owner-link", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["unavailable", "CARD_ALLOWANCE_UNAVAILABLE", 503], ["read-failed", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["active", null, 200],
+  ] as const)("rechecks %s card eligibility before confirming an unconfirmed set", async (gate, code, status) => {
+    let confirms = 0;
+    const eligible = createCardAllowanceEligibility({
+      customer: async () => ({ id: "customer-1", walletId: gate === "no-owner-link" ? null : "wallet-1" }),
+      account: async () => ({ bridgeCustomerId: "bridge-1", stripeCardholderId: "ich_test", cards: gate === "no-link" ? [] :
+        [{ id: "card-1", stripeCardId: "ic_test", walletAddress: ADDRESS }] }),
+      state: async () => {
+        if (gate === "read-failed") throw new Error("provider unavailable");
+        return { version: 1, state: gate === "no-link" || gate === "no-owner-link" ? "active" : gate,
+        cards: [{ id: "ic_test", status: gate === "canceled" ? "canceled" : gate === "restricted" ? "restricted" : "active", last4: "4242" }],
+        provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-28T12:00:00.000Z" } };
+      },
+    });
+    const draft = { ...row, kind: "card-allowance" as const, summary: { ...row.summary, metadata } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      cardAllowanceSetAllowed: () => true, cardAllowanceEligible: eligible, markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async () => { confirms++; return { ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(status);
+    expect(confirms).toBe(code ? 0 : 1);
+    if (code) expect(parseConfirmActionErrorResponse(await readJson(response))?.error.code).toBe(code);
+  });
+  test("confirm returns calls accepted by the shared parser for a set", async () => {
+    const calls: MoneyActionCall[] = [{ to: ADDRESS,
+      data: `0x095ea7b3${"0".repeat(24)}${metadata.spender.slice(2)}${"0".repeat(62)}25`, value: "0",
+      approval: { assetId: "usdc", spender: metadata.spender } }];
+    const draft = { ...row, kind: "card-allowance" as const, pending: { calls }, summary: { ...row.summary, metadata } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => draft, confirm: async (_owner, _id, confirmedCalls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: confirmedCalls ?? [] } }) },
+      cardAllowanceSetAllowed: () => true, cardAllowanceEligible: async () => {}, markHot: async () => {}, recordConfirmed: async () => {},
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(200);
+    expect(parseConfirmActionResponse(await readJson(response))?.calls).toEqual(calls);
+  });
+
+  test("default confirm gate refuses a set when Bridge is disabled", async () => {
+    const prior = process.env.BRIDGE_ENABLED;
+    process.env.BRIDGE_ENABLED = "0";
+    try {
+      let confirms = 0;
+      const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+        store: { get: async () => ({ ...row, kind: "card-allowance", summary: { ...row.summary, metadata } }),
+          confirm: async () => { confirms++; return row; } },
+      });
+      const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+      expect(response.status).toBe(503);
+      expect(confirms).toBe(0);
+    } finally {
+      if (prior === undefined) delete process.env.BRIDGE_ENABLED;
+      else process.env.BRIDGE_ENABLED = prior;
+    }
+  });
+  test("confirms enabled set and a revoke without rechecking set eligibility", async () => {
+    const confirmed = { ...row, kind: "card-allowance" as const, summary: { ...row.summary, metadata } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => confirmed, confirm: async () => ({ ...confirmed, confirmed_at: "2026-09-12T12:05:00.000Z" }) },
+      cardAllowanceSetAllowed: () => true, cardAllowanceEligible: async () => {}, markHot: async () => {}, recordConfirmed: async () => {},
+    });
+    expect((await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+    const revoke = { ...confirmed, summary: { ...confirmed.summary, metadata: { ...metadata, operation: "revoke-allowance" as const,
+      allowanceBaseUnits: "0", maximumBaseUnits: null } } };
+    const revokeHandler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      store: { get: async () => revoke, confirm: async () => ({ ...revoke, confirmed_at: "2026-09-12T12:05:00.000Z" }) },
+      cardAllowanceSetAllowed: () => { throw new Error("Should not read set configuration for revoke"); }, markHot: async () => {}, recordConfirmed: async () => {},
+    });
+    expect((await revokeHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+  });
+  test.each([
+    ["retired", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["set-disabled", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["canceled", "CARD_ALLOWANCE_NOT_READY", 409],
+    ["eligibility-unavailable", "CARD_ALLOWANCE_UNAVAILABLE", 503],
+    ["eligible", null, 200],
+  ] as const)("rechecks %s before retrying a confirmed card set", async (reason, code, status) => {
+    const confirmed = { ...row, kind: "card-allowance" as const, confirmed_at: "2026-09-12T12:05:00.000Z",
+      summary: { ...row.summary, metadata } };
+    let retries = 0;
+    let eligibilityChecks = 0;
+    const eligible = createCardAllowanceEligibility({
+      customer: async () => ({ id: "customer-1", walletId: "wallet-1" }),
+      account: async () => ({ bridgeCustomerId: "bridge-1", stripeCardholderId: "ich_test",
+        cards: [{ id: "card-1", stripeCardId: "ic_test", walletAddress: ADDRESS }] }),
+      state: async () => ({ version: 1, state: reason === "eligibility-unavailable" ? "unavailable" : "active",
+        cards: [{ id: "ic_test", status: reason === "canceled" ? "canceled" : "active", last4: "4242" }],
+        provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-28T12:00:00.000Z" } }),
+    });
+    const handler = createRetryActionHandler({ authorize: authorize(),
+      store: { get: async () => confirmed, beginRetry: async () => { retries++; return { row: confirmed, conflict: false, dispatched: false }; } },
+      cardAllowanceSetAllowed: (candidate) => reason !== "set-disabled" && candidate.spender ===
+        (reason === "retired" ? "0x4444444444444444444444444444444444444444" : metadata.spender),
+      cardAllowanceEligible: async (session, mode, signal) => {
+        eligibilityChecks++;
+        expect(signal).toBe(requestSignal);
+        return eligible(session, mode, signal);
+      },
+    });
+    const retryRequest = request(`/api/actions/${ID}/retry`, { method: "POST", body: '{"version":1,"attempt":1}' });
+    const requestSignal = retryRequest.signal;
+    const response = await handler(retryRequest, context());
+    expect(response.status).toBe(status);
+    expect(retries).toBe(code ? 0 : 1);
+    expect(eligibilityChecks).toBe(reason === "retired" || reason === "set-disabled" ? 0 : 1);
+    if (code) expect(await readJson(response)).toMatchObject({ error: { code } });
+  });
+  test("retrying a confirmed revoke skips the set gate and card eligibility", async () => {
+    const confirmed = { ...row, kind: "card-allowance" as const, confirmed_at: "2026-09-12T12:05:00.000Z",
+      summary: { ...row.summary, metadata: { ...metadata, operation: "revoke-allowance" as const,
+        allowanceBaseUnits: "0", maximumBaseUnits: null } } };
+    let retries = 0;
+    const handler = createRetryActionHandler({ authorize: authorize(),
+      store: { get: async () => confirmed, beginRetry: async () => { retries++; return { row: confirmed, conflict: false, dispatched: false }; } },
+      cardAllowanceSetAllowed: () => { throw new Error("Set disabled"); },
+      cardAllowanceEligible: async () => { throw new Error("Revoke must not check card eligibility"); },
+    });
+    const response = await handler(request(`/api/actions/${ID}/retry`, { method: "POST", body: '{"version":1,"attempt":1}' }), context());
+    expect(response.status).toBe(200);
+    expect(retries).toBe(1);
+  });
+});
 
 describe("action confirm operator capture", () => {
   const confirmed = { ...row, owner_key: JSON.stringify(["owner-a", ADDRESS, 8453, "cdp-embedded"]),
@@ -119,6 +474,162 @@ function baseRequest(path: string, init?: RequestInit) {
   });
 }
 
+describe("Borrow and savings confirmation admission", () => {
+  const reducingOnly: BorrowMarketRef = { ...DEFAULT_BORROW_MARKET, availability: "reducing-only" };
+
+  async function assertAdmission(draft: ActionRow, status: number, dependencies: Partial<Parameters<typeof createConfirmActionHandler>[0]> = {}, signal?: AbortSignal) {
+    const confirm = mock(async (_owner: MoneyActionOwner, _id: string, calls?: MoneyActionCall[]) => ({
+      ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] },
+    }));
+    const handler = createConfirmActionHandler({
+      ...dependencies, authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      recordConfirmed: async () => undefined, store: { get: async () => draft, confirm },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}", signal }), context());
+    expect(response.status).toBe(status);
+    const body = await readJson(response);
+    if (status === 200) {
+      expect(parseConfirmActionResponse(body)?.calls).toEqual(draft.pending?.calls);
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(confirm.mock.calls[0]?.[2]).toEqual(draft.pending?.calls);
+    } else {
+      expect(body).toMatchObject({ error: { code: status === 404 ? "ACTION_NOT_FOUND" : "ACTION_EXPIRED" } });
+      expect(confirm).not.toHaveBeenCalled();
+    }
+  }
+
+  test.each(["borrow", "supply-and-borrow"] as const)("refuses %s in a reducing-only market without reading debt", async (operation) => {
+    const readBorrowDebt = mock(async () => BigInt(0));
+    const borrowMarket = mock(() => reducingOnly);
+    await assertAdmission(borrowConfirmRow(operation), 410, { borrowMarket, readBorrowDebt });
+    expect(borrowMarket).toHaveBeenCalledWith(DEFAULT_BORROW_MARKET.marketId);
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each(["borrow", "supply-and-borrow", "withdraw-collateral"] as const)("confirms %s in an enabled market without reading debt", async (operation) => {
+    const readBorrowDebt = mock(async () => { throw new Error("must not read debt"); });
+    await assertAdmission(borrowConfirmRow(operation), 200, { readBorrowDebt });
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each(["repay", "repay-all", "supply-collateral", "close-position"] as const)("confirms reducing-only %s without reading debt", async (operation) => {
+    const readBorrowDebt = mock(async () => { throw new Error("must not read debt"); });
+    await assertAdmission(borrowConfirmRow(operation), 200, { borrowMarket: () => reducingOnly, readBorrowDebt });
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each([["0", 200], ["1", 410]] as const)("withdraw-collateral rechecks live debt %s for the verified owner", async (debt, status) => {
+    const readBorrowDebt = mock(async (owner: `0x${string}`, market: BorrowMarketRef, signal: AbortSignal) => {
+      expect(owner).toBe(ADDRESS);
+      expect(market).toBe(reducingOnly);
+      expect(signal.aborted).toBe(false);
+      return BigInt(debt);
+    });
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), status, { borrowMarket: () => reducingOnly, readBorrowDebt });
+    expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+  });
+
+  test("withdraw-collateral fails closed when the live debt read throws", async () => {
+    const events = captureObservabilityEvents();
+    const readBorrowDebt = mock(async () => { throw new Error("RPC unavailable"); });
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket: () => reducingOnly, readBorrowDebt });
+    expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+    expect(events("action-confirm").map((event) => event.code)).toEqual(["BORROW_DEBT_UNAVAILABLE", "ACTION_EXPIRED"]);
+  });
+
+  test("withdraw-collateral fails closed after a 3-second deadline even if the debt reader ignores abort", async () => {
+    jest.useFakeTimers();
+    try {
+      const started = Promise.withResolvers<AbortSignal>();
+      const readBorrowDebt = mock(async (_owner: `0x${string}`, _market: BorrowMarketRef, signal: AbortSignal) => {
+        started.resolve(signal);
+        return new Promise<bigint>(() => undefined);
+      });
+      const assertion = assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket: () => reducingOnly, readBorrowDebt });
+      const signal = await started.promise;
+      jest.advanceTimersByTime(2_999);
+      expect(signal.aborted).toBe(false);
+      jest.advanceTimersByTime(1);
+      await assertion;
+      expect(signal.aborted).toBe(true);
+      expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("withdraw-collateral fails closed when the request is aborted", async () => {
+    const controller = new AbortController();
+    const readBorrowDebt = mock(async (_owner: `0x${string}`, _market: BorrowMarketRef, signal: AbortSignal) => {
+      controller.abort();
+      expect(signal.aborted).toBe(true);
+      return new Promise<bigint>(() => undefined);
+    });
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket: () => reducingOnly, readBorrowDebt }, controller.signal);
+    expect(readBorrowDebt).toHaveBeenCalledTimes(1);
+  });
+
+  test("refuses an unknown borrowing market without reading debt", async () => {
+    const borrowMarket = mock(() => null);
+    const readBorrowDebt = mock(async () => BigInt(0));
+    await assertAdmission(borrowConfirmRow("withdraw-collateral"), 410, { borrowMarket, readBorrowDebt });
+    expect(readBorrowDebt).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    undefined, null, {}, { product: "savings" }, { product: "borrow" },
+    { product: "borrow", operation: "unknown", marketId: DEFAULT_BORROW_MARKET.marketId },
+    { product: "borrow", operation: "repay", marketId: DEFAULT_BORROW_MARKET.marketId },
+    { product: "borrow", operation: "borrow", marketId: 12 },
+  ])("refuses malformed or mismatched borrowing metadata %j", async (metadata) => {
+    const draft = borrowConfirmRow("borrow");
+    draft.summary = { ...draft.summary };
+    Reflect.set(draft.summary, "metadata", metadata);
+    const borrowMarket = mock(() => DEFAULT_BORROW_MARKET);
+    await assertAdmission(draft, 410, { borrowMarket });
+    expect(borrowMarket).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["deposit", "enabled", 200], ["withdraw", "enabled", 200],
+    ["deposit", "reducing-only", 410], ["deposit", undefined, 410],
+    ["withdraw", "reducing-only", 200], ["withdraw", undefined, 410],
+  ] as const)("savings %s with capability %s returns %s", async (operation, capability, status) => {
+    const saveVault = mock(() => ({ ...SAVE_VAULT, capabilities: { save: capability } }));
+    await assertAdmission(savingsConfirmRow(operation), status, { saveVault });
+    expect(saveVault).toHaveBeenCalledWith(SAVE_VAULT.address);
+  });
+
+  test.each(["deposit", "withdraw"] as const)("refuses savings %s for an unknown vault", async (operation) => {
+    await assertAdmission(savingsConfirmRow(operation), 410, { saveVault: () => null });
+  });
+
+  test.each([
+    undefined, null, {}, { product: "borrow" }, { product: "savings" },
+    { product: "savings", operation: "withdraw", vaultAddress: SAVE_VAULT.address },
+    { product: "savings", operation: "deposit", vaultAddress: 12 },
+  ])("refuses malformed or mismatched savings metadata %j", async (metadata) => {
+    const draft = savingsConfirmRow("deposit");
+    draft.summary = { ...draft.summary };
+    Reflect.set(draft.summary, "metadata", metadata);
+    const saveVault = mock(() => SAVE_VAULT);
+    await assertAdmission(draft, 410, { saveVault });
+    expect(saveVault).not.toHaveBeenCalled();
+  });
+
+  test.each([borrowConfirmRow("borrow"), borrowConfirmRow("withdraw-collateral"), savingsConfirmRow("deposit")])(
+    "already-confirmed $kind never invokes admission dependencies", async (draft) => {
+      const borrowMarket = mock(() => null);
+      const saveVault = mock(() => null);
+      const readBorrowDebt = mock(async () => { throw new Error("must not read debt"); });
+      await assertAdmission({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }, 404, { borrowMarket, saveVault, readBorrowDebt });
+      expect(borrowMarket).not.toHaveBeenCalled();
+      expect(saveVault).not.toHaveBeenCalled();
+      expect(readBorrowDebt).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe("actions HTTP handlers", () => {
   test("list returns a typed unavailable error and records a store-read event", async () => {
     const lines: string[] = [];
@@ -133,6 +644,23 @@ describe("actions HTTP handlers", () => {
     expect(lines.map(parseLog)).toMatchObject([{
       kind: "action-read", route: "/api/actions", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable", provider: "cdp-embedded",
     }]);
+  });
+
+  test("list returns 503 when the default store cannot be initialized", async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    const events = captureObservabilityEvents();
+    setActionsStoreForTests(null);
+    process.env.DATABASE_URL = "";
+    try {
+      const response = await createListActionsHandler({ authorize: authorize() })(request("/api/actions"));
+      expect(response.status).toBe(503);
+      expect(await readJson(response)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+      expect(events("action-read")).toMatchObject([{ code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable" }]);
+    } finally {
+      if (databaseUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = databaseUrl;
+      setActionsStoreForTests(null);
+    }
   });
 
   test("get returns a typed unavailable error and records a store-read event", async () => {
@@ -176,7 +704,7 @@ describe("actions HTTP handlers", () => {
         metadata: {
           product: "savings",
           operation: "withdraw",
-          vaultAddress: ADDRESS,
+          vaultAddress: SAVE_VAULT.address,
           vaultName: "Configured USDC vault",
           network: { name: "Base", chainId: 8453 },
           feeWad: "0",
@@ -532,7 +1060,7 @@ describe("actions HTTP handlers", () => {
         ...row.summary,
         title: "Repay all",
         metadata: {
-          product: "borrow", operation: "repay-all", marketId: HASH,
+          product: "borrow", operation: "repay-all", marketId: HASH, riskIncreased: false,
           loanAsset: { id: "usdc", symbol: "USDC" },
           collateralAsset: { id: "eth", symbol: "ETH" },
           projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null,
@@ -620,6 +1148,7 @@ describe("actions HTTP handlers", () => {
     let draft: ActionRow = row;
     const handler = createConfirmActionHandler({ authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
       store: { get: async () => draft, confirm: async () => {
         draft = { ...row, confirmed_at: "2026-09-12T12:05:00.000Z" };
         return draft;
@@ -632,6 +1161,117 @@ describe("actions HTTP handlers", () => {
     expect(subscribed).toEqual([ADDRESS]);
     expect((await post()).status).toBe(404);
     expect(subscribed).toEqual([ADDRESS]);
+  });
+  test.each(["send", "savings-deposit", "borrow", "trade"] as const)("re-checks paused unconfirmed %s drafts before committing", async (kind) => {
+    const market = enabledMarket();
+    const metadata = kind === "savings-deposit" ? { product: "savings", operation: "deposit", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
+      : kind === "borrow" ? { product: "borrow", operation: "borrow", marketId: market.marketId, riskIncreased: true }
+      : kind === "trade" ? { product: "trade", direction: "buy" } : undefined;
+    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const offering = resolveProductOffering({ kind: "deployment" });
+    const paused = { ...offering, products: { save: "exit-only" as const, borrow: "exit-only" as const, invest: "exit-only" as const, send: "off" as const } };
+    let reads = 0;
+    let confirms = 0;
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; return paused; },
+      store: { get: async () => draft, confirm: async () => { confirms++; throw new Error("Must not confirm"); } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(409);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(reads).toBe(1);
+    expect(confirms).toBe(0);
+  });
+  test.each(["savings-deposit", "borrow"] as const)("rejects late confirm when the %s catalog entry is paused", async (kind) => {
+    const vault = VERIFIED_SAVE_VAULTS[0];
+    const market = enabledMarket();
+    const deployment = resolveProductOffering({ kind: "deployment" });
+    const offering = resolveProductOffering({ kind: "saved", value: { products: deployment.products,
+      vaults: { ...deployment.vaults, [vault.id]: "reducing-only" }, markets: { ...deployment.markets, [market.marketId]: "reducing-only" } } });
+    const metadata = kind === "borrow" ? { product: "borrow", operation: "borrow", marketId: market.marketId, riskIncreased: true } : { product: "savings", operation: "deposit", vaultAddress: vault.address };
+    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"), readOffering: async () => offering,
+      store: { get: async () => draft, confirm: async () => { throw new Error("Must not confirm"); } } });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(409);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+  });
+
+  test.each(["savings-withdraw", "repay", "supply-collateral", "withdraw-collateral"] as const)("confirms %s exits without consulting settings", async (kind) => {
+    let reads = 0;
+    const metadata = kind === "savings-withdraw" ? { product: "savings", operation: "withdraw", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
+      : { product: "borrow", operation: kind, marketId: enabledMarket().marketId, riskIncreased: false };
+    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async () => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }) },
+    });
+    expect((await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+    expect(reads).toBe(0);
+  });
+  test("confirms an offered cash-out without consulting product settings", async () => {
+    let reads = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      regionOffered: async () => true,
+      corridorOffered: async () => true,
+      markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
+    });
+    expect((await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
+    expect(reads).toBe(0);
+  });
+  test.each([
+    ["borrow exit-only", "paused-product", true, 409],
+    ["market reducing-only", "paused-market", true, 409],
+    ["legacy paused", "paused-product", undefined, 409],
+    ["legacy offered", "offered", undefined, 200],
+  ] as const)("re-checks %s collateral withdrawal before confirming", async (_label, offeringMode, riskIncreased, expectedStatus) => {
+    const market = enabledMarket();
+    const deployment = resolveProductOffering({ kind: "deployment" });
+    const offering = offeringMode === "paused-product"
+      ? { ...deployment, products: { ...deployment.products, borrow: "exit-only" as const } }
+      : offeringMode === "paused-market"
+        ? resolveProductOffering({ kind: "saved", value: { products: deployment.products, vaults: deployment.vaults, markets: { ...deployment.markets, [market.marketId]: "reducing-only" } } })
+        : deployment;
+    const draft: ActionRow = { ...row, kind: "withdraw-collateral", summary: { ...row.summary, metadata: { product: "borrow", operation: "withdraw-collateral", marketId: market.marketId,
+      ...(riskIncreased === undefined ? {} : { riskIncreased }), loanAsset: { id: market.loanToken.id, symbol: market.loanToken.symbol },
+      collateralAsset: { id: market.collateralToken.id, symbol: market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null,
+      borrowAprWad: "0", source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1789214400" },
+    } as ActionRow["summary"]["metadata"] } };
+    let reads = 0;
+    let confirms = 0;
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; return offering; }, markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => draft, confirm: async () => { confirms++; return { ...draft, confirmed_at: "2026-09-12T12:05:00.000Z" }; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(expectedStatus);
+    if (expectedStatus === 409) expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(reads).toBe(1);
+    expect(confirms).toBe(expectedStatus === 200 ? 1 : 0);
+  });
+  test("rejects collateral withdrawal without borrow metadata even when Borrow is offered", async () => {
+    const draft = { ...row, kind: "withdraw-collateral" as const };
+    const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
+      store: { get: async () => draft, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(410);
+    expect(parseConfirmActionErrorResponse(await response.json())?.error.code).toBe("ACTION_EXPIRED");
+  });
+  test("an offering outage blocks a new send but not an already-confirmed non-entry action", async () => {
+    let reads = 0;
+    const handler = (confirmed: boolean) => createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
+      readOffering: async () => { reads++; throw new Error("db outage"); },
+      store: { get: async () => ({ ...row, confirmed_at: confirmed ? "2026-09-12T12:04:00.000Z" : null }), confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    expect((await handler(false)(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(409);
+    expect((await handler(true)(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
+    expect(reads).toBe(1);
   });
 
   test("confirm returns only the reviewed calls after the store clears pending", async () => {
@@ -667,7 +1307,7 @@ describe("actions HTTP handlers", () => {
     };
   }
 
-  test.each(ACTION_KINDS.filter((kind) => kind !== "trade"))("confirm %s returns calls accepted by the shared parser", async (kind) => {
+  test.each(ACTION_KINDS.filter((kind) => kind !== "trade" && kind !== "card-allowance"))("confirm %s returns calls accepted by the shared parser", async (kind) => {
     const transfer: MoneyActionCall = { to: ADDRESS, data: "0x", value: "123" };
     const approval: MoneyActionCall = {
       to: ADDRESS,
@@ -676,15 +1316,26 @@ describe("actions HTTP handlers", () => {
       approval: { assetId: "usdc", spender: ADDRESS },
     };
     const calls = kind === "send" ? [transfer] : [CALL, approval];
+    const market = enabledMarket();
+    const metadata = kind === "savings-deposit" ? { product: "savings", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
+      : kind === "borrow" || kind === "withdraw-collateral" ? { product: "borrow", marketId: market.marketId, riskIncreased: kind === "borrow" } : null;
     const draft: ActionRow = {
       ...(kind === "cash-out" || kind === "cash-out-withdraw" ? cashoutConfirmRow(kind) : row),
       kind,
+      ...(metadata ? { summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } } : {}),
       pending: { calls },
+      summary: kind === "savings-deposit" || kind === "savings-withdraw"
+        ? savingsConfirmRow(kind === "savings-deposit" ? "deposit" : "withdraw").summary
+        : kind === "borrow" || kind === "supply-collateral" || kind === "repay" || kind === "withdraw-collateral"
+          ? borrowConfirmRow(kind).summary
+          : kind === "cash-out" || kind === "cash-out-withdraw" ? cashoutConfirmRow(kind).summary : row.summary,
     };
     const handler = createConfirmActionHandler({
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered: async () => true,
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
+      corridorOffered: async () => true,
       store: {
         get: async () => draft,
         confirm: async (_owner, _id, confirmedCalls) => {
@@ -734,6 +1385,7 @@ describe("actions HTTP handlers", () => {
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered: async () => true,
+      corridorOffered: async () => true,
       store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
     });
     const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
@@ -743,14 +1395,68 @@ describe("actions HTTP handlers", () => {
     expect(parseConfirmActionErrorResponse(body)).toBeNull();
   });
 
-  test("confirm never rechecks the region for withdrawals or already-confirmed cash-outs", async () => {
+  test("confirm rechecks the corridor offering and refuses one paused after prepare", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: async (providerId, region, direction) => {
+        expect([providerId, region, direction]).toEqual(["peer", "US", "offramp"]);
+        return false;
+      },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(502);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_UNAVAILABLE", message: "This cash-out option is no longer offered." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm fails closed when the corridor settings are unavailable", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: async () => { throw new Error("settings unavailable"); },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm bounds a stalled corridor settings read and refuses the cash-out", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: createCashoutCorridorOfferingReader({ read: async () => new Promise<never>(() => {}), deadlineMs: 25 }),
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm never rechecks the region or corridor for withdrawals or already-confirmed cash-outs", async () => {
     let regionChecks = 0;
+    let corridorChecks = 0;
     const regionOffered = async () => { regionChecks += 1; return true; };
+    const corridorOffered = async () => { corridorChecks += 1; return true; };
     const withdraw = cashoutConfirmRow("cash-out-withdraw");
     const withdrawHandler = createConfirmActionHandler({
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered,
+      corridorOffered,
       store: { get: async () => withdraw, confirm: async (_owner, _id, calls) => ({ ...withdraw, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
     });
     expect((await withdrawHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
@@ -760,10 +1466,12 @@ describe("actions HTTP handlers", () => {
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered,
+      corridorOffered,
       store: { get: async () => confirmed, confirm: async () => null },
     });
     expect((await confirmedHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
     expect(regionChecks).toBe(0);
+    expect(corridorChecks).toBe(0);
   });
 
   test("confirm fails closed for a cash-out without persisted region metadata", async () => {
@@ -784,8 +1492,7 @@ describe("actions HTTP handlers", () => {
 
   test("Base confirm returns a padded batch gas hint and estimator failure remains non-blocking", async () => {
     const estimatedCalls: unknown[] = [];
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const events = captureObservabilityEvents();
     const store = {
       get: async () => ({ ...row, provider: "base-account" as const }),
       confirm: async (_owner: MoneyActionOwner, _id: string, calls?: MoneyActionCall[]) => ({
@@ -799,6 +1506,7 @@ describe("actions HTTP handlers", () => {
       authorize: authorize("owner-a", "base-account"),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       store,
+      recordConfirmed: async () => {},
       estimateBaseBatch: async (calls, account) => {
         estimatedCalls.push({ calls, account });
         return BigInt(100_000);
@@ -808,25 +1516,27 @@ describe("actions HTTP handlers", () => {
     expect(response.status).toBe(200);
     expect(await readJson(response)).toMatchObject({ calls: [CALL], batchGasLimit: "150000" });
     expect(estimatedCalls).toEqual([{ calls: [CALL], account: ADDRESS }]);
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
-      kind: "action-confirm",
-      code: "BASE_BATCH_GAS_HINT_APPLIED",
-      outcome: "ok",
-    });
 
     const unavailable = createConfirmActionHandler({
       authorize: authorize("owner-a", "base-account"),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       store,
+      recordConfirmed: async () => {},
       estimateBaseBatch: async () => { throw new Error("rpc unavailable"); },
     });
     const fallback = await unavailable(baseRequest(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
     expect(fallback.status).toBe(200);
     expect(await readJson(fallback)).not.toHaveProperty("batchGasLimit");
-    expect(JSON.parse(writes[1] ?? "{}")).toMatchObject({
+    expect(events("action-confirm")).toHaveLength(2);
+    expect(events("action-confirm")).toMatchObject([{
+      kind: "action-confirm",
+      code: "BASE_BATCH_GAS_HINT_APPLIED",
+      outcome: "ok",
+    }, {
+      kind: "action-confirm",
       code: "BASE_BATCH_GAS_HINT_UNAVAILABLE",
       outcome: "unavailable",
-    });
+    }]);
   });
 
   test("Base confirm still estimates a two-call batch", async () => {
@@ -856,12 +1566,12 @@ describe("actions HTTP handlers", () => {
       { to: "0x3333333333333333333333333333333333333333", data: "0x238d6579", value: "0" },
       { to: "0x3333333333333333333333333333333333333333", data: "0x50d8cd4b", value: "0" },
     ];
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const events = captureObservabilityEvents();
     let estimates = 0;
     const handler = createConfirmActionHandler({
       authorize: authorize("owner-a", "base-account"),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
+      recordConfirmed: async () => {},
       estimateBaseBatch: async () => { estimates += 1; return BigInt(100_000); },
       store: {
         get: async () => ({ ...row, provider: "base-account", pending: { calls } }),
@@ -877,10 +1587,10 @@ describe("actions HTTP handlers", () => {
     expect(parseConfirmActionResponse(body)?.calls).toEqual(calls);
     expect(body).not.toHaveProperty("batchGasLimit");
     expect(estimates).toBe(0);
-    expect(writes).toHaveLength(1);
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+    expect(events("action-confirm")).toHaveLength(1);
+    expect(events("action-confirm")).toMatchObject([{
       level: "info", kind: "action-confirm", code: "BASE_BATCH_GAS_HINT_SKIPPED", outcome: "skipped", provider: "base-account",
-    });
+    }]);
   });
 
   test("CDP confirm never invokes the Base estimator", async () => {
@@ -1035,11 +1745,11 @@ describe("actions HTTP handlers", () => {
   });
 
   test("a rejected balance signal still returns the normal confirm response and emits one event", async () => {
-    const writes: string[] = [];
-    setObservabilityLogWriterForTests((line) => writes.push(line));
+    const events = captureObservabilityEvents();
     const handler = createConfirmActionHandler({
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
+      recordConfirmed: async () => {},
       markHot: async () => { throw new Error("database unavailable"); },
       store: {
         get: async () => row,
@@ -1053,12 +1763,12 @@ describe("actions HTTP handlers", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(writes).toHaveLength(1);
-    expect(JSON.parse(writes[0] ?? "{}")).toMatchObject({
+    expect(events("balances-signal")).toHaveLength(1);
+    expect(events("balances-signal")).toMatchObject([{
       kind: "balances-signal",
       code: "BALANCE_SIGNAL_FAILED",
       outcome: "unavailable",
-    });
+    }]);
   });
 
   test("a failed confirm emits exactly one bounded event without money or call fields", async () => {
@@ -1191,6 +1901,24 @@ describe("actions HTTP handlers", () => {
 
     expect(response.status).toBe(200);
     expect(resolverCalls).toBe(0);
+  });
+
+  test("the list response parses through the shared action parser for its owner", async () => {
+    const session = { user: { subject: "owner-a" }, smartAccount: { address: ADDRESS, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+    const stored: ActionRow = { ...row, summary: { ...row.summary,
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }] } };
+    const handler = createListActionsHandler({
+      authorize: authorize(),
+      store: { list: async () => [stored], recordHandle: async () => null, recordOutcome: recorded },
+      now: () => new Date("2026-09-12T12:00:30.000Z"),
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const parsed = parseRecentMoneyActions(await readJson(response), session);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.action).toMatchObject({ id: ID, kind: "send", title: "Send USDC",
+      amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }] });
+    expect(parsed[0]?.status).toBe("pending");
   });
 
   test("list records a completed handle and derives status from its receipt", async () => {

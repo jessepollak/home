@@ -1,5 +1,5 @@
-import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
-import { presentationRegions, type FiatCurrencyCode } from "@/config/regions";
+import { canonicalUsdcAsset, verifiedLocalCashAsset, type DirectPortfolioAsset } from "@/config/portfolio-assets";
+import { presentationRegions, type CandidateVerificationStatus, type FiatCurrencyCode } from "@/config/regions";
 import { exactDecimalToFraction } from "@/shared/balances/math";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import type { TransferAsset } from "@/shared/transfers/types";
@@ -24,6 +24,7 @@ export type CashSelection =
       currency: FiatCurrencyCode;
       name: string;
       symbol: string;
+      verificationStatus: CandidateVerificationStatus;
     };
 
 export type MoneyGroups = {
@@ -40,7 +41,7 @@ export function selectBalanceBaseUnits(snapshot: BalancesSnapshot, id: string): 
   return holding?.balance.status === "ready" ? holding.balance.baseUnits : null;
 }
 
-export function selectVaultPositions(snapshot: BalancesSnapshot): Array<{
+export function selectVaultPositions(snapshot: Pick<BalancesSnapshot, "holdings">): Array<{
   vaultAddress: string;
   position: { assetsRaw: string } | null;
 }> {
@@ -74,11 +75,12 @@ export function selectSendable(snapshot: BalancesSnapshot): SendableBalance[] {
   });
 }
 
-export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
+export function selectCash(
+  snapshot: BalancesSnapshot,
+  deps: { localCashAsset?: (currency: FiatCurrencyCode) => DirectPortfolioAsset | null } = {},
+): CashSelection[] {
   const currency = presentationRegions[snapshot.region].currency.code;
-  const localAsset = currency
-    ? Object.values(verifiedLocalCashAssets).find((asset) => asset.cashCurrency === currency)
-    : undefined;
+  const localAsset = currency ? (deps.localCashAsset ?? verifiedLocalCashAsset)(currency) : null;
   const cashHoldings = snapshot.holdings.filter((holding) => holding.cashCurrency !== null);
   const byId = new Map(cashHoldings.map((holding) => [holding.id, holding]));
   const selected: CashSelection[] = [];
@@ -99,6 +101,7 @@ export function selectCash(snapshot: BalancesSnapshot): CashSelection[] {
         currency,
         name: presentationRegions[snapshot.region].currency.name,
         symbol: candidate.symbol,
+        verificationStatus: candidate.verificationStatus,
       });
     }
   }
@@ -134,13 +137,14 @@ function investmentHoldings(snapshot: BalancesSnapshot, cash: CashSelection[]): 
   const selectedCashIds = new Set(
     cash.flatMap((entry) => entry.kind === "holding" ? [entry.holding.id] : []),
   );
-  return snapshot.holdings.filter((holding) =>
-    holding.kind !== "vault-share" &&
+  return snapshot.holdings.filter((holding) => !selectedCashIds.has(holding.id) && isInvestmentHolding(holding));
+}
+
+export function isInvestmentHolding(holding: Holding): boolean {
+  return holding.kind !== "vault-share" &&
     holding.cashCurrency === null &&
-    !selectedCashIds.has(holding.id) &&
     (holding.balance.status !== "ready" || holding.balance.baseUnits !== "0") &&
-    (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim())
-  );
+    (holding.balance.status === "ready" || !!holding.name.trim() || !!holding.symbol.trim());
 }
 
 export function selectBalanceTotals(snapshot: BalancesSnapshot): BalancesTotals {

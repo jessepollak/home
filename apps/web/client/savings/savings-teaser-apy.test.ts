@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { RegionId } from "@/config/regions";
+import { resolveProductOffering, type ProductOffering } from "@/shared/operator-settings/products";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { summarizeSavingsPortfolio } from "./portfolio-summary";
@@ -40,10 +42,16 @@ function scenario({
   balances,
   rates,
   stale = false,
+  unknownPositions = false,
+  regionId = "GLOBAL",
+  offering = resolveProductOffering({ kind: "deployment" }),
 }: {
   balances: readonly [string, string];
   rates: readonly [number | null, number | null];
   stale?: boolean;
+  unknownPositions?: boolean;
+  regionId?: RegionId;
+  offering?: ProductOffering;
 }) {
   const candidates = [candidate(VAULT_A, rates[0]), candidate(VAULT_B, rates[1])];
   const metadata = {
@@ -60,14 +68,14 @@ function scenario({
     candidates,
     positions: [VAULT_A, VAULT_B].map((vaultAddress, index) => ({
       vaultAddress,
-      position: balances[index] === "0" ? null : { assetsRaw: balances[index]! },
+      position: unknownPositions ? null : { assetsRaw: balances[index]! },
     })),
     metadataFetchedAt: FETCHED_AT,
     metadataStale: stale,
     nowMs: NOW,
   });
   return {
-    label: savingsTeaserApyLabel({ summary, candidates, metadata, nowMs: NOW }),
+    label: savingsTeaserApyLabel({ summary, offering, candidates, metadata, nowMs: NOW, regionId }),
     summary,
   };
 }
@@ -90,9 +98,14 @@ describe("savings teaser APY", () => {
       expected: "Up to 6.00% APY",
     },
     {
-      name: "falls back to the best public offer when a funded rate is incomplete",
+      name: "does not treat unavailable holdings as an empty portfolio",
+      input: { balances: ["0", "0"], rates: [0.04, 0.06], unknownPositions: true },
+      expected: null,
+    },
+    {
+      name: "does not substitute a public offer for an incomplete funded rate",
       input: { balances: ["100000000", "300000000"], rates: [0.04, null] },
-      expected: "Up to 4.00% APY",
+      expected: null,
     },
   ] as const;
 
@@ -102,6 +115,38 @@ describe("savings teaser APY", () => {
     });
   }
 
+  test("uses presentation-region separators for funded and public rates", () => {
+    expect(scenario({ balances: ["100000000", "100000000"], rates: [12345, 12345], regionId: "DE" }).label)
+      .toBe("1.234.500,00\u00a0% APY");
+    expect(scenario({ balances: ["0", "0"], rates: [0.025, 0.035], regionId: "DE" }).label)
+      .toBe("Up to 3,50\u00a0% APY");
+  });
+
+  test("localizes funded zero and rounded-to-zero APY without losing nonzero precision", () => {
+    for (const { regionId, zero, nonzero } of [
+      { regionId: "TR", zero: "%0 APY", nonzero: "%0,01 APY" },
+      { regionId: "DE", zero: "0\u00a0% APY", nonzero: "0,01\u00a0% APY" },
+    ] as const) {
+      expect(scenario({ balances: ["100000000", "1"], rates: [0, 0], regionId }).label).toBe(zero);
+      expect(scenario({ balances: ["100000000", "1"], rates: [0.000049, 0.000049], regionId }).label).toBe(zero);
+      expect(scenario({ balances: ["100000000", "1"], rates: [0.00005, 0.00005], regionId }).label).toBe(nonzero);
+      expect(scenario({ balances: ["100000000", "1"], rates: [null, null], regionId }).label).toBeNull();
+    }
+  });
+
+  test("hides the unfunded public offer when Save is exit-only but keeps funded APY", () => {
+    const offering = resolveProductOffering({
+      kind: "saved",
+      value: {
+        products: { save: "exit-only", borrow: "on", invest: "on", send: "on" },
+        vaults: {},
+        markets: {},
+      },
+    });
+    expect(scenario({ balances: ["0", "0"], rates: [0.04, 0.06], offering }).label).toBeNull();
+    expect(scenario({ balances: ["100000000", "300000000"], rates: [0.04, 0.06], offering }).label).toBe("5.50% APY");
+  });
+
   test("keeps numeric stale public offers, including zero, but omits unknown rates", () => {
     const stale = scenario({ balances: ["0", "0"], rates: [0.04, 0.06], stale: true });
     expect(stale.label).toBe("Up to 6.00% APY");
@@ -110,7 +155,7 @@ describe("savings teaser APY", () => {
     expect(scenario({ balances: ["100000000", "1"], rates: [0, 0] }).label).toBe("0% APY");
   });
 
-  test("uses the public offer when account positions are not yet available", () => {
+  test("uses the public offer without an owner portfolio", () => {
     const metadata = {
       version: "v1",
       chainId: 8453,
@@ -121,7 +166,9 @@ describe("savings teaser APY", () => {
     } satisfies MorphoVaultsResult;
 
     expect(savingsTeaserApyLabel({
+      regionId: "GLOBAL",
       summary: null,
+      offering: resolveProductOffering({ kind: "deployment" }),
       candidates: metadata.candidates,
       metadata,
       nowMs: NOW,

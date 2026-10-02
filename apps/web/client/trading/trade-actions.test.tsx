@@ -1,3 +1,4 @@
+import { parseAddress } from "@/shared/chain/hex";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -17,6 +18,11 @@ const { TradeActions } = await import("./trade-actions");
 const bitcoin = cryptoAssets.find((asset) => asset.id === "cbbtc")!;
 const xrp = cryptoAssets.find((asset) => asset.id === "cbxrp")!;
 const owner = balancesSnapshot().owner.address;
+function buyButton(view: ReturnType<typeof render>): HTMLButtonElement {
+  const control = view.getByRole("button", { name: "Buy" });
+  if (!(control instanceof HTMLButtonElement)) throw new Error("Expected a Buy button");
+  return control;
+}
 
 function show(
   asset: InvestAsset = bitcoin,
@@ -37,6 +43,7 @@ function show(
     ...createBlockedAccountWalletClient("provider-unavailable"),
     status: "verified" as const,
     verification: "server" as const,
+    ownerKey: session.user.subject,
     session,
     fetchBalances: async () => {
       if (balanceRequests++ > 0 && refresh) await refresh();
@@ -61,6 +68,42 @@ function show(
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 describe("per-asset trading availability", () => {
+  test("a verified session without an SDK owner stays unable to trade", () => {
+    const session = { user: { subject: "trade-a" }, smartAccount: { address: owner, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+    let requests = 0;
+    const client = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified" as const, verification: "server" as const, session,
+      fetchBalances: async () => { requests++; return balancesSnapshot(); },
+      fetchAccountResource: async () => { requests++; throw new Error("No owner-scoped request expected"); } };
+    const view = render(<AccountWalletClientProvider client={client}><PresentationRegionProvider regionId="US"><TradeActions asset={bitcoin} /></PresentationRegionProvider></AccountWalletClientProvider>);
+    expect(buyButton(view).disabled).toBe(true);
+    expect(view.queryByRole("textbox", { name: "Amount" })).toBeNull();
+    expect(requests).toBe(0);
+  });
+  test("a mounted trade does not return after switching owners or signing out", async () => {
+    const base = createBlockedAccountWalletClient("provider-unavailable");
+    const sessionA = { user: { subject: "trade-a" }, smartAccount: { address: owner, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+    const sessionB = { ...sessionA, user: { subject: "trade-b" }, smartAccount: { address: "0x2222222222222222222222222222222222222222" as const, chainId: 8453 as const } };
+    const available = { version: 2, status: "available", token: { assetId: bitcoin.id, address: bitcoin.contractAddress.toLowerCase(), symbol: bitcoin.representation.tokenSymbol, decimals: 8 }, buy: "available", balanceBaseUnits: "100000" };
+    const clientA = { ...base, status: "verified" as const, verification: "server" as const, ownerKey: "trade-a", session: sessionA,
+      fetchBalances: async () => balancesSnapshot(), fetchAccountResource: async () => available };
+    const clientB = { ...clientA, ownerKey: "trade-b", session: sessionB,
+      fetchBalances: async () => ({ ...balancesSnapshot(), owner: { address: sessionB.smartAccount.address, chainId: 8453 as const } }) };
+    const surface = (client: typeof clientA) => <AccountWalletClientProvider client={client}><PresentationRegionProvider regionId="US"><TradeActions asset={bitcoin} /></PresentationRegionProvider></AccountWalletClientProvider>;
+    const view = render(surface(clientA));
+    const buy = buyButton(view);
+    await waitFor(() => expect(buy.disabled).toBe(false));
+    fireEvent.click(buy);
+    await view.findByRole("textbox", { name: "Amount" });
+    view.rerender(surface(clientB));
+    await waitFor(() => expect(view.queryByRole("textbox", { name: "Amount" })).toBeNull());
+    view.rerender(surface(clientA));
+    await waitFor(() => expect(buyButton(view).disabled).toBe(false));
+    expect(view.queryByRole("textbox", { name: "Amount" })).toBeNull();
+    view.rerender(<AccountWalletClientProvider client={base}><PresentationRegionProvider regionId="US"><TradeActions asset={bitcoin} /></PresentationRegionProvider></AccountWalletClientProvider>);
+    view.rerender(surface(clientA));
+    await waitFor(() => expect(buyButton(view).disabled).toBe(false));
+    expect(view.queryByRole("textbox", { name: "Amount" })).toBeNull();
+  });
   test.each(["Buy", "Sell"] as const)("%s pointer intent mounts a closed sheet so click focuses Amount in the tap", async (label) => {
     const view = show();
     const button = view.getByRole("button", { name: label }) as HTMLButtonElement;
@@ -164,7 +207,7 @@ describe("per-asset trading availability", () => {
     expect(view.availabilityRequests()).toBe(1);
   });
   test("keeps refreshing successful availability so balance and chain recovery reach a mounted page", () => {
-    const token = { assetId: "cbbtc", address: "0x2222222222222222222222222222222222222222" as const, symbol: "cbBTC", decimals: 8 };
+    const token = { assetId: "cbbtc", address: parseAddress("0x2222222222222222222222222222222222222222")!, symbol: "cbBTC", decimals: 8 };
     expect(tradeAvailabilityRefetchInterval({ state: { status: "error" } })).toBe(30_000);
     expect(tradeAvailabilityRefetchInterval({ state: { status: "success", data: { version: 2, status: "unavailable", reason: "chain-unavailable" } } })).toBe(30_000);
     expect(tradeAvailabilityRefetchInterval({ state: { status: "success", data: { version: 2, status: "available", token, buy: "available", balanceBaseUnits: "1" } } })).toBe(60_000);

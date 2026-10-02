@@ -8,21 +8,6 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 const requireWeb = createRequire(path.join(root, "apps/web/package.json"));
 export const ts = requireWeb("typescript");
 const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
-const requireKnip = createRequire(requireWeb.resolve("knip"));
-const picomatch = requireKnip("picomatch");
-const knipMatchers = new Map();
-
-// Knip's IssueCollector matches entry and ignore patterns with Picomatch and
-// `dot: true`. Reuse that exact matcher so an exemption can never match nothing
-// because this gate implements a different glob dialect.
-export function knipGlob(file, pattern) {
-  let matcher = knipMatchers.get(pattern);
-  if (!matcher) {
-    matcher = picomatch(pattern, { dot: true });
-    knipMatchers.set(pattern, matcher);
-  }
-  return matcher(file);
-}
 
 export function readWebSources() {
   const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
@@ -125,9 +110,22 @@ function staticSpecifiers(node) {
   }, [node.head.text]);
 }
 
+function importNames(clause, typeOnly = false) {
+  const names = [];
+  if (!clause) return names;
+  const clauseOnly = typeOnly || clause.isTypeOnly === true;
+  if (clause.name) names.push(["default", clause.name.text, clauseOnly]);
+  if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) names.push(["*", clause.namedBindings.name.text, clauseOnly]);
+  if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+    for (const element of clause.namedBindings.elements) names.push([element.propertyName?.text ?? element.name.text, element.name.text, clauseOnly || element.isTypeOnly === true]);
+  }
+  return names;
+}
+
 export function importGraph(files) {
   const paths = new Set(files.map((file) => file.path));
   const importers = new Map(files.map((file) => [file.path, new Set()]));
+  const imports = new Map(files.map((file) => [file.path, new Set()]));
   const bindings = new Map(files.map((file) => [file.path, []]));
   for (const file of files) {
     const ast = source(file.path, file.content);
@@ -135,19 +133,17 @@ export function importGraph(files) {
       const target = resolveImport(file.path, specifier, paths);
       if (!target) return;
       importers.get(target).add(file.path);
-      for (const [imported, local] of names) bindings.get(file.path).push({ target, imported, local });
+      imports.get(file.path).add(target);
+      for (const [imported, local, typeOnly = false] of names) bindings.get(file.path).push({ target, imported, local, typeOnly });
     }
     function visit(node) {
       for (const doc of node.jsDoc ?? []) visit(doc);
       if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-        const clause = node.importClause;
-        const names = [];
-        if (clause?.name) names.push(["default", clause.name.text]);
-        if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) names.push(["*", clause.namedBindings.name.text]);
-        if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
-          for (const element of clause.namedBindings.elements) names.push([element.propertyName?.text ?? element.name.text, element.name.text]);
-        }
-        add(node.moduleSpecifier.text, names);
+        add(node.moduleSpecifier.text, importNames(node.importClause));
+      } else if (ts.isJSDocImportTag(node)) {
+        if (ts.isStringLiteral(node.moduleSpecifier)) add(node.moduleSpecifier.text, importNames(node.importClause, true));
+      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && ts.isStringLiteral(node.moduleReference.expression)) {
+        add(node.moduleReference.expression.text, [["*", node.name.text, node.isTypeOnly === true]]);
       } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
         const names = node.exportClause && ts.isNamedExports(node.exportClause)
           ? node.exportClause.elements.map((el) => [el.propertyName?.text ?? el.name.text, el.name.text]) : [["*", "*"]];
@@ -161,7 +157,7 @@ export function importGraph(files) {
     }
     visit(ast);
   }
-  return { importers, bindings };
+  return { importers, bindings, imports };
 }
 
 export const webRoot = path.join(root, "apps/web");

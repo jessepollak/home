@@ -6,6 +6,19 @@ export type FundingProviderCustomerSummary = {
   verificationStartedAt: string | null;
   updatedAt: string;
 };
+export function assertFundingProviderCustomersResponse(value: unknown, region: string): asserts value is { version: typeof FUNDING_PROVIDER_CUSTOMERS_VERSION; customers: unknown[] } {
+  if (!record(value) || value.version !== FUNDING_PROVIDER_CUSTOMERS_VERSION || !Array.isArray(value.customers) || !value.customers.every((customer) => isCustomer(customer) && customer.region === region)) {
+    throw new Error("Invalid funding provider customers response");
+  }
+}
+
+/** @public validates a parsed customer list against the requested region, for restored and cached values */
+export function isFundingCustomerListFor(value: unknown, region: string): value is ReadonlyArray<FundingProviderCustomerSummary> {
+  if (!Array.isArray(value)) return false;
+  const customers = readFundingProviderCustomers({ customers: value });
+  return customers.length === value.length && customers.every((customer) => customer.region === region);
+}
+
 export function readFundingProviderCustomers(value: unknown): ReadonlyArray<FundingProviderCustomerSummary> {
   if (!record(value) || !Array.isArray(value.customers)) return [];
   return value.customers.filter(isCustomer);
@@ -18,6 +31,6 @@ export function readVerificationHandoff(value: unknown): string | null {
   return value.handoff.url;
 }
 function isCustomer(value: unknown): value is FundingProviderCustomerSummary {
-  return record(value) && typeof value.providerId === "string" && typeof value.region === "string" && ["reserving","pending","verified","rejected","dispatch-ambiguous"].includes(String(value.state)) && (value.verificationStartedAt === null || typeof value.verificationStartedAt === "string") && typeof value.updatedAt === "string";
+  return record(value) && typeof value.providerId === "string" && typeof value.region === "string" && typeof value.state === "string" && ["reserving","pending","verified","rejected","dispatch-ambiguous"].includes(value.state) && (value.verificationStartedAt === null || typeof value.verificationStartedAt === "string") && typeof value.updatedAt === "string";
 }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

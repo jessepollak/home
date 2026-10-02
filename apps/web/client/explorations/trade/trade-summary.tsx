@@ -24,7 +24,7 @@ export function TradeSummary({ amount, lead, receive, action }: { amount: string
         </div>
         <div className="flex items-start justify-between gap-4 px-3 py-3 text-sm">
           <dt className="text-muted-foreground">Network fee</dt>
-          <dd className="min-w-0 text-end font-medium tabular-nums"><bdi dir="ltr">{action.networkFee?.payment === "usdc" ? `Up to ${formatFiatAmount(BigInt(action.networkFee.maxFeeBaseUnits), action.networkFee.decimals, "USD", { fractionDigits: 2 })}` : "—"}</bdi></dd>
+          <dd className="min-w-0 text-end font-medium tabular-nums"><bdi dir="ltr">{action.networkFee?.payment === "usdc" ? `Up to ${formatFiatAmount(BigInt(action.networkFee.maxFeeBaseUnits), action.networkFee.decimals, "USD", { currencyNative: true, fractionDigits: 2 })}` : "—"}</bdi></dd>
         </div>
       </dl></CardContent></Card>
     </div>

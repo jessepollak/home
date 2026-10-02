@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   MONEY_CHANGE_COLOR_TOKENS,
   formatBasisPoints,
+  formatWadFeePercent,
   formatChartPrice,
   formatExactPresentationCashAmount,
   formatExactPresentationTokenAmount,
@@ -79,6 +80,76 @@ const localeCases = [
     date: "7 Sep 2026, 11.05",
   },
 ];
+
+describe("explicit fiat presentation modes", () => {
+  test("the same currency uses the chosen region's separators", () => {
+    const us = formatFiatAmount("1234.56", "USD", { regionId: "US" });
+    const br = formatFiatAmount("1234.56", "USD", { regionId: "BR" });
+    expect(us).toBe("$1,234.56");
+    expect(br).toContain("1.234,56");
+    expect(br).not.toBe(us);
+  });
+
+  test("currency-native amounts match their currency's region", () => {
+    expect(formatFiatAmount("1234.56", "BRL", { currencyNative: true }))
+      .toBe(formatFiatAmount("1234.56", "BRL", { regionId: "BR" }));
+    expect(formatFiatAmount("1234.56", "IDR", { currencyNative: true }))
+      .toBe(formatFiatAmount("1234.56", "IDR", { regionId: "ID" }));
+  });
+
+  test("keeps every high-scale bigint digit in both presentation modes", () => {
+    const atoms = BigInt("123456789012345678901234567890123456");
+    for (const options of [{ regionId: "US" } as const, { currencyNative: true } as const]) {
+      const formatted = formatFiatAmount(atoms, 18, "USD", {
+        ...options, fractionDigits: 18, minimumFractionDigits: 18,
+      });
+      expect(formatted).toBe("$123,456,789,012,345,678.901234567890123456");
+    }
+  });
+
+  test("requires a presentation choice in the type and at runtime", () => {
+    const invalidPresentations = () => {
+      // @ts-expect-error options are required
+      formatFiatAmount("1", "USD");
+      // @ts-expect-error an empty options object does not choose a region
+      formatFiatAmount("1", "USD", {});
+      // @ts-expect-error precision without a region is not presentation
+      formatFiatAmount("1", "USD", { fractionDigits: 2 });
+      // @ts-expect-error the two presentation modes are exclusive
+      formatFiatAmount("1", "USD", { regionId: "US", currencyNative: true });
+    };
+    expect(invalidPresentations).toBeFunction();
+    expect(() => formatFiatAmount("1", "USD", {} as { regionId: "US" }))
+      .toThrow("A presentation region is required.");
+    const untyped = formatFiatAmount as (...args: unknown[]) => string;
+    expect(() => untyped("bad", "USD")).toThrow("A presentation region is required.");
+    expect(() => untyped("bad", "USD", {})).toThrow("A presentation region is required.");
+    expect(() => untyped("bad", "USD", null)).toThrow("A presentation region is required.");
+    expect(() => untyped(BigInt(1), 2, "USD")).toThrow("A presentation region is required.");
+  });
+
+  test("rejects missing, mixed, and unknown modes in both runtime overloads", () => {
+    const untyped = formatFiatAmount as (...args: unknown[]) => string;
+    const formatters = [
+      (options: unknown) => untyped("1.25", "USD", options),
+      (options: unknown) => untyped(BigInt(125), 2, "USD", options),
+    ];
+    for (const format of formatters) {
+      for (const options of [undefined, null, {}, { fractionDigits: 4 }, { currencyNative: false }]) {
+        expect(() => format(options)).toThrow("A presentation region is required.");
+      }
+      for (const options of [
+        { currencyNative: true, regionId: "US" },
+        { currencyNative: true, regionId: undefined },
+      ]) {
+        expect(() => format(options)).toThrow("Choose exactly one fiat presentation mode.");
+      }
+      for (const regionId of ["ZZ", "toString", null, 1]) {
+        expect(() => format({ regionId })).toThrow("Unknown presentation region.");
+      }
+    }
+  });
+});
 
 describe("presentation money formatting", () => {
   test("presents atomic stablecoin amounts as fiat without rounding or changing the input", () => {
@@ -316,9 +387,12 @@ describe("presentation money formatting", () => {
       { actual: formatUsdStablecoinAmount("1234560000"), expected: "$1,234.56" },
       { actual: formatUsdStablecoinAmount("1000001"), expected: "$1.000001" },
       { actual: formatUsdStablecoinAmount("not-raw"), expected: "—" },
-      { actual: formatFiatAmount("1234.565", "USD"), expected: "$1,234.56" },
+      { actual: formatFiatAmount("1234.565", "USD", { currencyNative: true }), expected: "$1,234.56" },
       { actual: formatWadPercent("455000000000000"), expected: "0.05%" },
       { actual: formatBasisPoints("455"), expected: "4.55%" },
+      { actual: formatBasisPoints("455", "DE"), expected: "4,55\u00a0%" },
+      { actual: formatBasisPoints("455", "TR"), expected: "%4,55" },
+      { actual: formatBasisPoints(BigInt(10) ** BigInt(313)), expected: "—" },
       { actual: formatHealthFactor("1235000000000000000"), expected: "1.24" },
       { actual: formatHealthFactor(null), expected: "No debt" },
       { actual: formatOracleUsd("800000000000000000000000000000000000000", { loanDecimals: 6, collateralDecimals: 8 }), expected: "$80,000.00" },
@@ -329,12 +403,31 @@ describe("presentation money formatting", () => {
     expect(formatPresentationPercentage(null)).toBe("—");
 
     expect(formatPresentationTokenAmount("bad", 6, "USDC")).toBe("—");
-    expect(formatFiatAmount("-1", "USD")).toBe("—");
+    expect(formatFiatAmount("-1", "USD", { currencyNative: true })).toBe("—");
     expect(() => formatUnsignedTokenAmount("-1", 6)).toThrow(TypeError);
     expect(() => formatWadPercent("-1")).toThrow(TypeError);
     expect(() => formatBasisPoints("-1")).toThrow(TypeError);
+    expect(() => formatWadFeePercent("-1")).toThrow(TypeError);
     expect(() => formatHealthFactor("-1")).toThrow(TypeError);
     expect(() => formatOracleUsd("-1", { loanDecimals: 6, collateralDecimals: 8 })).toThrow(TypeError);
+  });
+
+  test("formats WAD fees as locale-aware percents without hiding small fees", () => {
+    const cases: Array<[string, "GLOBAL" | "DE" | "TR", string]> = [
+      ["100000000000000000", "GLOBAL", "10.00%"],
+      ["100000000000000000", "DE", "10,00\u00a0%"],
+      ["100000000000000000", "TR", "%10,00"],
+      ["40000000000000", "GLOBAL", "0.004%"],
+      ["40000000000000", "DE", "0,004\u00a0%"],
+      ["40000000000000", "TR", "%0,004"],
+      ["123456789000000000", "GLOBAL", "12.345679%"],
+      ["10000000000", "GLOBAL", "0.000001%"],
+      ["1000000000000000000", "DE", "100,00\u00a0%"],
+      ["0", "GLOBAL", "0%"],
+      ["0", "DE", "0\u00a0%"],
+      ["0", "TR", "%0"],
+    ];
+    for (const [raw, regionId, expected] of cases) expect(formatWadFeePercent(raw, regionId)).toBe(expected);
   });
 
   test("formats exact cash amounts in the currency's own decimals", () => {

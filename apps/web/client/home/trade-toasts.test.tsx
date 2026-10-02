@@ -5,6 +5,7 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { toast } from "@/components/ui/toast";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 
 const { act, cleanup, render, waitFor } = await import("@testing-library/react");
 const { ActionToasts } = await import("./action-toasts");
@@ -26,6 +27,7 @@ const buyDegen = { ...quoted, direction: "buy", assetId: "degen", assetName: "De
 const base = {
   id: "synthetic-trade", kind: "trade", provider: "cdp-embedded", status: "pending",
   createdAt: now, confirmedAt: now,
+  owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
   summary: { title: "Trade", warnings: [], expiresAt: now,
     amounts: [
       { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1230000", direction: "spend" },
@@ -35,23 +37,27 @@ const base = {
   },
 };
 
+const setActions = (rows: unknown[]) => getHomeQueryClient().setQueryData(
+  ownerQueryKey(activityOwnerKey(session), "actions"), parseRecentActionsPayload({ actions: rows }, session),
+);
+
 afterEach(() => { toast.close(); cleanup(); getHomeQueryClient().clear(); });
 
 test("trade toasts use metadata name and exact buy spend rather than warnings", async () => {
   const key = ownerQueryKey(activityOwnerKey(session), "actions");
-  const view = render(<ActionToasts session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
+  const view = render(<ActionToasts regionId="US" session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
   await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
-  act(() => { getHomeQueryClient().setQueryData(key, { actions: [base] }); });
+  act(() => { setActions([base]); });
   await waitFor(() => expect(view.getByText("Buying Degen for $1.23")).toBeTruthy());
-  act(() => { getHomeQueryClient().setQueryData(key, { actions: [{ ...base, status: "confirmed" }] }); });
+  act(() => { setActions([{ ...base, status: "confirmed" }]); });
   await waitFor(() => expect(view.getByText("Bought Degen for $1.23")).toBeTruthy());
 });
 
 test("sell toast presents exact 18-decimal token spend, not estimated Cash receive", async () => {
   const key = ownerQueryKey(activityOwnerKey(session), "actions");
-  const view = render(<ActionToasts session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
+  const view = render(<ActionToasts regionId="US" session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
   await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
-  act(() => { getHomeQueryClient().setQueryData(key, { actions: [{ ...base, summary: {
+  act(() => { setActions([{ ...base, summary: {
     ...base.summary,
     metadata: { ...quoted, direction: "sell", assetId: "degen", assetName: "Degen", fromAsset: degen, toAsset: usdc,
       fromAmountBaseUnits: "500000000000000000", expectedToAmountBaseUnits: "350000", minimumToAmountBaseUnits: "346500" },
@@ -59,13 +65,13 @@ test("sell toast presents exact 18-decimal token spend, not estimated Cash recei
       { assetId: "degen", symbol: "DEGEN", decimals: 18, amountBaseUnits: "500000000000000000", direction: "spend" },
       { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "350000", direction: "receive", estimated: true },
     ],
-  } }] }); });
+  } }]); });
   await waitFor(() => expect(view.getByText("Selling 0.5 DEGEN of Degen")).toBeTruthy());
 });
 
 test("a legacy cbBTC trade without an asset name still gets its completion toast", async () => {
   const key = ownerQueryKey(activityOwnerKey(session), "actions");
-  const view = render(<ActionToasts session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
+  const view = render(<ActionToasts regionId="US" session={session} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />);
   await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
   const legacy = { ...base, summary: { ...base.summary,
     metadata: { ...quoted, direction: "buy", fromAsset: usdc, toAsset: cbbtc,
@@ -74,8 +80,8 @@ test("a legacy cbBTC trade without an asset name still gets its completion toast
       { assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1230000", direction: "spend" },
       { assetId: "cbbtc", symbol: "cbBTC", decimals: 8, amountBaseUnits: "1000", direction: "receive", estimated: true },
     ] } };
-  act(() => { getHomeQueryClient().setQueryData(key, { actions: [legacy] }); });
+  act(() => { setActions([legacy]); });
   await waitFor(() => expect(view.getByText("Buying Bitcoin for $1.23")).toBeTruthy());
-  act(() => { getHomeQueryClient().setQueryData(key, { actions: [{ ...legacy, status: "confirmed" }] }); });
+  act(() => { setActions([{ ...legacy, status: "confirmed" }]); });
   await waitFor(() => expect(view.getByText("Bought Bitcoin for $1.23")).toBeTruthy());
 });

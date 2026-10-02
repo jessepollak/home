@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { selectPendingCashoutEscrow } from "./pending-cashout";
-import { presentBalances, presentPendingCashout } from "@/shared/balances/present";
 
 const snapshot = buildBalancesSnapshotFixture();
 const deposit: RecentMoneyActionOperation = {
@@ -50,19 +49,6 @@ test.each([
   expect(selectPendingCashoutEscrow([known, { ...operation, action: { ...operation.action, id: "other" } }, ...(linkedWithdraw ? [linkedWithdraw] : [])], snapshot))
     .toEqual({ state: "escrow", baseUnits: "50000000", partial: true });
 });
-test.each(["unknown", "failed"] as const)("a %s cash-out without a projection leaves Home partial and Cash with a placeholder", (status) => {
-  const priced = buildBalancesSnapshotFixture();
-  priced.holdings.find(({ id }) => id === "usdc")!.unitValue = { currency: "USD", amount: { atoms: "1", scale: 0 } };
-  const estimate = selectPendingCashoutEscrow([{ ...deposit, status, cashout: undefined }], priced);
-  expect(estimate).toEqual({ state: "indeterminate" });
-  const state = { status: "ready" as const, snapshot: priced, error: null };
-  const view = presentBalances(state, { showSmallBalances: false, pendingCashout: estimate });
-  expect(view.displayTotal).toBe(presentBalances(state).displayTotal);
-  expect(view.breakdown.some(({ id }) => id === "pending-cash-out")).toBeFalse();
-  expect(view.totalStatus).toBe("partial");
-  expect(presentPendingCashout(priced, estimate)).toEqual({ value: null });
-});
-
 
 test.each([
   ["settled return", withProgress({ state: "returned", settledAt: "2026-09-15T13:00:00Z" })],

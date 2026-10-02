@@ -3,12 +3,15 @@
 // are parsed by Oxlint directly, with no ESLint compatibility parser. The 96
 // cases ported from PR #673 are retained below, followed by scope, mutation,
 // reachability, role, and TypeScript-assertion regressions for Oxlint.
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
 import { afterAll, describe, expect, it } from "bun:test";
 import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { budgetMs } from "./helpers/oxlint-workspace.mjs";
+applyRuleCheckTimeout();
 
 const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
 const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-detached-"));
@@ -50,7 +53,7 @@ class OxlintRuleTester {
     describe(name, () => {
       cases.valid.forEach((entry, index) => {
         it(`valid ${index + 1}`, async () =>
-          expect(await lint(typeof entry === "string" ? entry : entry.code, entry.extension)).toHaveLength(0));
+          expect(await lint(typeof entry === "string" ? entry : entry.code, entry.extension)).toHaveLength(0), budgetMs);
       });
       cases.invalid.forEach((entry, index) => {
         it(`invalid ${index + 1}`, async () => {
@@ -62,7 +65,7 @@ class OxlintRuleTester {
             expect(message).toContain(expectedMessage[expected.messageId]);
             if (expected.messageId === "detached") expect(message).not.toContain("local static class map");
           }
-        });
+        }, budgetMs);
       });
     });
   }

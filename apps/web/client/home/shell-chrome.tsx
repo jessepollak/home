@@ -42,7 +42,7 @@ export function ShellHeader({
   account: ReturnType<typeof useAccountWallet>;
   onHome: () => void;
   onDashboard: () => void;
-  onSignIn: () => void;
+  onSignIn: (opener: HTMLButtonElement) => void;
   onSignOut: () => void;
   onOpenSettings: (opener: HTMLButtonElement) => void;
   onCloseSettings: () => void;
@@ -62,7 +62,7 @@ export function ShellHeader({
     : shellFrameClassName;
 
   return (
-    <header className={`order-0 w-full shrink-0 bg-background ${shellChromeCompensationClassName}`}>
+    <header className={`sticky top-0 z-30 order-0 w-full shrink-0 bg-background ${shellChromeCompensationClassName}`}>
       <div
         className={`${headerFrameClassName} flex min-h-14 items-center justify-between gap-4 border-b py-2`}
         data-shell-header-frame={routeMode}
@@ -140,7 +140,7 @@ function HeaderAccountAction({
   ownerKey: string | null;
   address: string | null;
   onDashboard: () => void;
-  onSignIn: () => void;
+  onSignIn: (opener: HTMLButtonElement) => void;
   onSignOut: () => void;
   onOpenSettings: (opener: HTMLButtonElement) => void;
 }) {
@@ -168,7 +168,7 @@ function HeaderAccountAction({
   if (status === "verified" || (status === "unavailable" && isSignedIn)) {
     return <Button className="h-11" onClick={onDashboard}>Dashboard</Button>;
   }
-  return <Button className="h-11" onClick={onSignIn}>Sign in</Button>;
+  return <Button className="h-11" onClick={(event) => onSignIn(event.currentTarget)}>Sign in</Button>;
 }
 
 export function SignedOutLanding({
@@ -185,7 +185,7 @@ export function SignedOutLanding({
   landingVisual?: ReactNode;
   showCreateAccount: boolean;
   onDashboard: () => void;
-  onSignIn: () => void;
+  onSignIn: (opener: HTMLButtonElement) => void;
   onRetrySignOut: () => void;
 }) {
   return (
@@ -206,9 +206,9 @@ export function SignedOutLanding({
               <Button size="touch" onClick={onDashboard}>Open dashboard</Button>
             ) : (
               <>
-                <Button size="touch" onClick={onSignIn}>Sign in</Button>
+                <Button size="touch" onClick={(event) => onSignIn(event.currentTarget)}>Sign in</Button>
                 {showCreateAccount ? (
-                  <Button size="touch" variant="secondary" onClick={onSignIn}>
+                  <Button size="touch" variant="secondary" onClick={(event) => onSignIn(event.currentTarget)}>
                     Create account
                   </Button>
                 ) : null}

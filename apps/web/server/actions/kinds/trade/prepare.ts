@@ -1,9 +1,12 @@
 import "server-only";
+import { parseAddress, requireAddress } from "@/shared/chain/hex";
 
 import { randomUUID } from "node:crypto";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
-import { resolveTradeAsset } from "@/shared/trading/assets";
+import { convertDirectionAdmitted, resolveTradeAsset } from "@/shared/trading/assets";
+import { resolveConvertPair } from "@/shared/currencies/convert";
+import { currencyRecordForContract } from "@/shared/currencies/registry";
 import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { feePolicyForTaker, resolveOperatorFeePolicy } from "@/server/fees/policy";
@@ -31,6 +34,7 @@ type TradePreparationDependencies = {
   now?: () => Date;
   requestKey?: () => string;
   buyBlocked?: typeof tradeBuyBlocked;
+  convertPair?: typeof resolveConvertPair;
   resolveFeePolicy?: typeof resolveOperatorFeePolicy;
   feeStrategy?: TradeFeeStrategy;
 };
@@ -45,8 +49,13 @@ export async function prepareTradeAction(
   const taker = session.smartAccount.address;
   const signer = await (deps.resolveSigner ?? createTradeSignerResolver({ getValidator: getCdpAccessTokenValidator }))(request, session, signal);
   if (signer.smartAccount.toLowerCase() !== taker.toLowerCase() || signer.ownerIndex !== 0) throw new TradePreparationError("signer-unsupported");
-  const resolved = resolveTradeAsset(parsed.assetId);
+  const pairDeps = { convertPair: deps.convertPair };
+  const resolved = resolveTradeAsset(parsed.assetId, pairDeps);
   if (!resolved || resolved.status !== "tradeable") throw new TradePreparationError("invalid-request");
+  const currencyRecord = currencyRecordForContract(resolved.address);
+  if (currencyRecord && !convertDirectionAdmitted(currencyRecord.id, parsed.direction, pairDeps)) {
+    throw new TradePreparationError(parsed.direction === "buy" ? "buy-unavailable" : "invalid-request");
+  }
   if (parsed.direction === "buy" && (deps.buyBlocked ?? tradeBuyBlocked)(resolved.assetId)) throw new TradePreparationError("buy-unavailable");
   const rpc = deps.rpc ?? baseRpc;
   const read = (method: string, params: readonly unknown[]) => rpc(method, params, { signal });
@@ -68,7 +77,7 @@ export async function prepareTradeAction(
     id: resolved.assetId, address: resolved.address, decimals: identity.decimals,
     symbol: resolved.configured?.representation.tokenSymbol ?? identity.symbol ?? `0x${resolved.address.slice(2, 6)}`,
   };
-  const usdcAsset: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: BASE_USDC_ADDRESS.toLowerCase() as Address };
+  const usdcAsset: TradeAssetRef = { id: "usdc", symbol: "USDC", decimals: 6, address: requireAddress(BASE_USDC_ADDRESS) };
   const grossAmount = parsed.amountBaseUnits === "all" ? identity.balance! : BigInt(parsed.amountBaseUnits);
   if (grossAmount === BigInt(0)) throw new TradePreparationError("insufficient-balance");
   const policy = feePolicyForTaker(await (deps.resolveFeePolicy ?? resolveOperatorFeePolicy)("trade"), taker);
@@ -155,9 +164,11 @@ export async function prepareTradeAction(
     primaryType: "CoinbaseSmartWalletMessage",
     message: { hash: reviewed.permit.hash },
   };
-  const signing: TradeSigningRequest = session.accountProvider === "base-account"
+  const evmAccount = parseAddress(signer.signerAddress);
+  if (session.accountProvider !== "base-account" && !evmAccount) throw new TradePreparationError("signer-unsupported");
+  const signing: TradeSigningRequest = session.accountProvider === "base-account" || !evmAccount
     ? { signer: "base-account", typedData: reviewed.permit.typedData }
-    : { signer: "cdp-embedded", evmAccount: signer.signerAddress, typedData: signingTypedData };
+    : { signer: "cdp-embedded", evmAccount, typedData: signingTypedData };
   const expiresAt = Math.min(Number(reviewed.executionDeadline) * 1000 - 30_000, now.getTime() + 120_000);
   if (expiresAt <= now.getTime()) throw new TradePreparationError("stale-quote");
   const metadata: TradeMoneyActionMetadata = {
@@ -165,6 +176,7 @@ export async function prepareTradeAction(
     fromAsset, toAsset, fromAmountBaseUnits: reviewed.fromAmount.toString(), expectedToAmountBaseUnits: reviewed.toAmount.toString(),
     minimumToAmountBaseUnits: reviewed.minToAmount.toString(), slippageBps: TRADE_SLIPPAGE_BPS, fees,
     ...(collection.record ? { operatorFee: collection.record } : {}),
+    ...(currencyRecord ? { currencyRecordId: currencyRecord.id } : {}),
     approval: needsApproval ? "permit2-exact" : "existing-permit2-allowance",
     quoteBlockNumber: reviewed.blockNumber.toString(), quotedAt: now.toISOString(), permitDeadline: reviewed.permit.deadline.toString(),
     executionDeadline: reviewed.executionDeadline.toString(),

@@ -35,6 +35,8 @@ const symbolBytes32Abi = [{
 const A = "0x1111111111111111111111111111111111111111" as const;
 const B = "0x2222222222222222222222222222222222222222" as const;
 const C = "0x3333333333333333333333333333333333333333" as const;
+const DOCUMENTED_RPC_DEADLINE_CEILING_MS = 3_000;
+const DEADLINE_TOLERANCE_MS = 25;
 
 function aggregate(results: Array<{ success: boolean; returnData: Hex }>): Hex {
   return encodeFunctionResult({
@@ -254,7 +256,7 @@ describe("Activity token metadata RPC fallback", () => {
       expect(requestStarted).toBeTrue();
       jest.advanceTimersByTime(1);
       expect(requestSignal?.aborted).toBeFalse();
-      jest.advanceTimersByTime(10_000);
+      jest.advanceTimersByTime(DOCUMENTED_RPC_DEADLINE_CEILING_MS + DEADLINE_TOLERANCE_MS - 1);
       expect(requestSignal?.aborted).toBeTrue();
       let failure: Error | undefined;
       void pending.catch((error: Error) => { failure = error; });

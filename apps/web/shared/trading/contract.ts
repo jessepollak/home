@@ -1,5 +1,8 @@
+import { parseAddress, type Address, type Hash32 } from "@/shared/chain/hex";
+import { CONVERT_PROVIDER } from "@/shared/currencies/types";
 import type { OperatorFeeRecord } from "@/shared/fees/contract";
-import type { Address, CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
+import type { CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
+import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 
 export const TRADE_ACTION_CONTRACT_VERSION = 3 as const;
 export const TRADE_AVAILABILITY_CONTRACT_VERSION = 2 as const;
@@ -32,11 +35,12 @@ export type TradeFeeFact = {
 
 export type TradeMoneyActionMetadata = {
   product: "trade";
-  provider: "cdp-swaps";
+  provider: typeof CONVERT_PROVIDER;
   direction: TradeDirection;
   network: { name: "Base"; chainId: 8453 };
   assetId: string;
   assetName: string;
+  currencyRecordId?: string;
   fromAsset: TradeAssetRef;
   toAsset: TradeAssetRef;
   fromAmountBaseUnits: string;
@@ -56,6 +60,16 @@ export type TradeSigningRequest =
   | { signer: "base-account"; typedData: Permit2TypedData }
   | { signer: "cdp-embedded"; evmAccount: Address; typedData: CoinbaseSmartWalletTypedData };
 
+export type ParsedTradeSigningRequest =
+  | { signer: "base-account"; typedData: Permit2TypedData & {
+      domain: Permit2TypedData["domain"] & { verifyingContract: Address };
+      message: Permit2TypedData["message"] & { permitted: { token: Address; amount: string }; spender: Address };
+    } }
+  | { signer: "cdp-embedded"; evmAccount: Address; typedData: CoinbaseSmartWalletTypedData & {
+      domain: CoinbaseSmartWalletTypedData["domain"] & { verifyingContract: Address };
+      message: { hash: Hash32 };
+    } };
+
 export type TradeConfirmRequest = { signature: `0x${string}` };
 
 export const TRADE_ERROR_CODES = [
@@ -66,6 +80,7 @@ export const TRADE_ERROR_CODES = [
   "TRADE_ROUTE_UNAVAILABLE",
   "TRADE_BELOW_MINIMUM",
   "TRADE_TOKEN_UNREADABLE",
+  PRODUCT_NOT_OFFERED_CODE,
   "TRADE_BUY_UNAVAILABLE",
   "TRADE_QUOTE_STALE",
   "TRADE_QUOTE_REJECTED",
@@ -100,7 +115,6 @@ export type TradeAvailabilityResponse = {
 
 export const MAX_TRADE_TOKEN_DECIMALS = 36;
 const integerPattern = /^(?:0|[1-9][0-9]*)$/;
-const addressPattern = /^0x[0-9a-f]{40}$/;
 const symbolPattern = /^[A-Za-z0-9$._-]{1,16}$/;
 const MAX_TRADE_BASE_UNITS = (BigInt(1) << BigInt(256)) - BigInt(1);
 
@@ -130,12 +144,13 @@ export function isTradeTokenSymbol(value: unknown): value is string {
 }
 
 function parseTradeToken(value: unknown): TradeToken | null {
-  if (!isRecord(value) || typeof value.assetId !== "string" || !value.assetId ||
-    typeof value.address !== "string" || !addressPattern.test(value.address) ||
+  if (!isRecord(value) || typeof value.assetId !== "string" || !value.assetId) return null;
+  const address = parseAddress(value.address);
+  if (!address ||
     !isTradeTokenSymbol(value.symbol) ||
     typeof value.decimals !== "number" || !Number.isInteger(value.decimals) ||
     value.decimals < 0 || value.decimals > MAX_TRADE_TOKEN_DECIMALS) return null;
-  return { assetId: value.assetId, address: value.address as Address, symbol: value.symbol, decimals: value.decimals };
+  return { assetId: value.assetId, address, symbol: value.symbol, decimals: value.decimals };
 }
 
 export function parseTradeAvailabilityResponse(value: unknown): TradeAvailabilityResponse | null {

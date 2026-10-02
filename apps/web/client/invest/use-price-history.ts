@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { browserHomeQueryClient, publicQueryKey, useHomeQuery } from "@/client/query/query-client";
 import { publicQuery } from "@/client/query/query-options";
 import { publicResource } from "@/client/query/public-resource";
+import { queryViewState } from "@/client/query/query-view-state";
 import {
   MARKET_HISTORY_PRIORITY_HEADER,
   parseHistoryResponse,
@@ -20,6 +21,7 @@ const speculativeFetches = new Map<string, symbol>();
 export type PriceHistoryState =
   | { status: "loading"; points: readonly MarketPriceHistoryPoint[] }
   | { status: "ready"; points: readonly MarketPriceHistoryPoint[] }
+  | { status: "stale"; points: readonly MarketPriceHistoryPoint[]; asOf: number }
   | { status: "empty"; points: readonly MarketPriceHistoryPoint[] }
   | { status: "error"; points: readonly MarketPriceHistoryPoint[] };
 
@@ -33,7 +35,7 @@ async function fetchHistory(
     `${HISTORY_ENDPOINT}?assetId=${encodeURIComponent(assetId)}&range=${encodeURIComponent(range)}`,
     { signal, headers: speculative ? { [MARKET_HISTORY_PRIORITY_HEADER]: "prefetch" } : undefined },
   ));
-  if (payload?.unavailableReason === "overloaded") {
+  if (payload?.status === "error" || payload?.status === "unavailable") {
     throw new Error("History request failed");
   }
   if (!payload || payload.assetId !== assetId || payload.range !== range) {
@@ -84,15 +86,21 @@ export function usePriceHistory(assetId: string, range: MarketPriceRange, option
     void client.cancelQueries({ queryKey: publicQueryKey("price-history", assetId, range), exact: true })
       .then(() => { if (liveHash.current === queryHash) void refetch(); });
   }, [speculative, fetchStatus, queryHash, assetId, range, refetch]);
-  if (query.isPending) return { status: "loading", points: [] };
-  if (query.isError) return { status: "error", points: [] };
-  if (query.isPlaceholderData) return { status: "loading", points: query.data.points };
-  if (query.data.status === "ready" && query.data.points.length > 0) {
-    return { status: "ready", points: query.data.points };
+  const cached = query.isPlaceholderData || query.data?.assetId !== assetId || query.data?.range !== range
+    ? undefined : query.data;
+  const view = queryViewState(query, {
+    hasCachedData: cached?.status === "ready" || cached?.status === "empty",
+    isEmpty: cached?.status === "empty" || (cached?.status === "ready" && cached.points.length === 0),
+    degraded: query.data !== undefined && !query.isPlaceholderData
+      && cached?.status !== "ready" && cached?.status !== "empty",
+  });
+  if (view === "loading") return { status: "loading", points: query.isPlaceholderData ? query.data.points : [] };
+  if (view === "ready") return { status: "ready", points: cached?.points ?? [] };
+  if (view === "failed-with-data" && cached?.status === "ready") {
+    const fetchedAt = Date.parse(cached.fetchedAt ?? "");
+    return { status: "stale", points: cached.points, asOf: Number.isFinite(fetchedAt) ? fetchedAt : query.dataUpdatedAt };
   }
-  if (query.data.status === "empty" || query.data.status === "ready") {
-    return { status: "empty", points: [] };
-  }
+  if (view === "empty") return { status: "empty", points: [] };
   return { status: "error", points: [] };
 }
 

@@ -2,8 +2,8 @@
   "routes": {
     "access/logout/route.ts": { "exempt": { "kind": "redirect", "reason": "Logout clears the deployment-access cookie and redirects without a parsed response body." } },
     "access/route.ts": { "contracts": ["shared/access/contract.ts"] },
-    "account/country-preference/route.ts": { "contracts": ["shared/account/contracts/country-preference.ts"] },
-    "account/email-request/route.ts": { "contracts": ["shared/account/contracts/email-request.ts"] },
+    "account/country-preference/route.ts": { "contracts": ["shared/account/contracts/country-preference.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/country-preference.ts"] }, "PUT": { "contracts": ["shared/account/contracts/country-preference.ts"] } } },
+    "account/email-request/route.ts": { "contracts": ["shared/account/contracts/email-request.ts"], "methods": { "GET": { "contracts": ["shared/account/contracts/email-request.ts"] }, "POST": { "contracts": ["shared/account/contracts/email-request.ts"] } } },
     "actions/[id]/confirm/route.ts": { "contracts": ["shared/actions/contracts/confirm.ts"] },
     "actions/[id]/decline/route.ts": { "contracts": ["shared/actions/contracts/decline.ts"] },
     "actions/[id]/handle/route.ts": { "contracts": ["shared/actions/contracts/handle.ts"] },
@@ -16,10 +16,10 @@
     "actions/trade-pending/route.ts": { "contracts": ["shared/actions/contracts/trade-pending.ts"], "client": "No Home client fetcher consumes this pending trade compatibility response." },
     "activity/orders/route.ts": { "contracts": ["shared/activity/contract-orders.ts"] },
     "activity/route.ts": { "contracts": ["shared/activity/contract.ts"] },
-    "admin/[...path]/route.ts": { "contracts": ["shared/operator/contract.ts"], "client": "The operator API fallback is not called by a Home client; admin pages render on the server." },
+    "admin/[...path]/route.ts": { "contracts": ["shared/operator/contract.ts"], "methods": { "GET": { "contracts": ["shared/operator/contract.ts"] }, "HEAD": { "contracts": ["shared/operator/contract.ts"] }, "POST": { "contracts": ["shared/operator/contract.ts"] }, "PUT": { "contracts": ["shared/operator/contract.ts"] }, "PATCH": { "contracts": ["shared/operator/contract.ts"] }, "DELETE": { "contracts": ["shared/operator/contract.ts"] }, "OPTIONS": { "contracts": ["shared/operator/contract.ts"] } }, "client": "The operator API fallback is not called by a Home client; admin pages render on the server." },
     "admin/audit/route.ts": { "contracts": ["shared/operator-settings/contract.ts"], "client": "The audit API has no Home client fetcher; admin pages render on the server." },
     "admin/session/route.ts": { "contracts": ["shared/operator/contract.ts"], "client": "The operator session API has no Home client fetcher; admin pages render on the server." },
-    "admin/settings/[domain]/route.ts": { "contracts": ["shared/operator-settings/contract.ts"] },
+    "admin/settings/[domain]/route.ts": { "contracts": ["shared/operator-settings/contract.ts"], "methods": { "GET": { "contracts": ["shared/operator-settings/contract.ts"] }, "PUT": { "contracts": ["shared/operator-settings/contract.ts"] } } },
     "admin/settings/route.ts": { "contracts": ["shared/operator-settings/contract.ts"], "client": "The settings API has no Home client fetcher; admin pages render on the server." },
     "auth/base/logout/route.ts": { "exempt": { "kind": "status", "reason": "Native-session logout clears cookies; the client checks only response status and never parses its JSON body." } },
     "auth/base/nonce/route.ts": { "contracts": ["shared/account/contracts/base-nonce.ts"] },
@@ -31,15 +31,16 @@
     "cards/[id]/freeze/route.ts": { "contracts": ["shared/cards/contract.ts"] },
     "cards/[id]/unfreeze/route.ts": { "contracts": ["shared/cards/contract.ts"] },
     "cards/enrollment/route.ts": { "contracts": ["shared/cards/contract.ts"] },
-    "cards/route.ts": { "contracts": ["shared/cards/contract.ts"] },
+    "cards/route.ts": { "contracts": ["shared/cards/contract.ts"], "methods": { "GET": { "contracts": ["shared/cards/contract.ts"] }, "POST": { "contracts": ["shared/cards/contract.ts"] } } },
+    "cards/spending/route.ts": { "contracts": ["shared/cards/allowance-contract.ts"] },
     "cards/webhooks/bridge/route.ts": { "exempt": { "kind": "webhook", "reason": "Bridge sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/immersve/[topic]/route.ts": { "exempt": { "kind": "webhook", "reason": "Immersve sends provider-defined event notifications; Home returns acknowledgement status without a parsed client body." } },
     "cards/webhooks/stripe/route.ts": { "exempt": { "kind": "webhook", "reason": "Stripe sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
     "client-errors/route.ts": { "exempt": { "kind": "status", "reason": "The client error transport resolves only the response status and never parses a JSON body." } },
     "client-performance/route.ts": { "contracts": ["shared/observability/client-performance.contract.ts"] },
     "funding/orders/[id]/resolve/route.ts": { "contracts": ["shared/funding/contracts/order-resolution.ts"] },
-    "funding/orders/[id]/route.ts": { "contracts": ["shared/funding/contracts/order.ts"] },
-    "funding/orders/route.ts": { "contracts": ["shared/funding/contracts/order.ts"] },
+    "funding/orders/[id]/route.ts": { "contracts": ["shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/order.ts"], "allowance": { "kind": "unversioned-compatibility", "reason": "The order-by-id GET keeps the compatibility order body that the permissive funding order reader validates without a version token." } } } },
+    "funding/orders/route.ts": { "contracts": ["shared/funding/contracts/open-order.ts", "shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/open-order.ts"] }, "POST": { "contracts": ["shared/funding/contracts/order.ts"], "allowance": { "kind": "unversioned-compatibility", "reason": "The create-order POST keeps the compatibility order body that the permissive funding order reader validates without a version token." } } } },
     "funding/provider-customers/route.ts": { "contracts": ["shared/funding/contracts/provider-customers.ts"] },
     "funding/provider-customers/verification/route.ts": { "contracts": ["shared/funding/contracts/provider-customers.ts"] },
     "funding/providers/route.ts": { "contracts": ["shared/funding/contracts/providers.ts"] },
@@ -60,6 +61,10 @@
     "transfers/recipient-name/route.ts": { "contracts": ["shared/transfers/contracts/recipients.ts"] },
     "webhooks/cdp/route.ts": { "exempt": { "kind": "webhook", "reason": "CDP sends signed provider-defined wallet activity; Home returns only webhook acknowledgement status." } }
   },
+  "appRoutes": {
+    "app/coverage.csv/route.ts": { "exempt": { "kind": "document", "reason": "The coverage CSV is downloaded as a document and is never parsed by a Home client." } },
+    "app/invite/[code]/route.ts": { "exempt": { "kind": "redirect", "reason": "Invite landing links answer with a 303 redirect to /home or / and return no parsed body." } }
+  },
   "baseline": {
     "routesWithoutVersionedParser": {
       "actions/[id]/confirm/route.ts": ["shared/actions/contracts/confirm.ts"],
@@ -69,9 +74,6 @@
       "actions/route.ts": ["shared/actions/contracts/list.ts"],
       "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
       "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-      "balances/route.ts": ["shared/balances/contract.ts"],
-      "funding/orders/[id]/route.ts": ["shared/funding/contracts/order.ts"],
-      "funding/orders/route.ts": ["shared/funding/contracts/order.ts"],
       "session/route.ts": ["shared/account/contracts/session.ts"]
     },
     "unversionedContracts": [
@@ -82,9 +84,9 @@
       "shared/actions/contracts/handle.ts",
       "shared/actions/contracts/list.ts",
       "shared/actions/contracts/prepare.ts",
-      "shared/balances/contract.ts",
       "shared/cards/transactions-contract.ts",
       "shared/fees/contract.ts",
+      "shared/funding/contracts/errors.ts",
       "shared/funding/contracts/order.ts",
       "shared/funding/provider-contract.ts"
     ],

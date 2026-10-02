@@ -2,16 +2,16 @@
 
 import { defaultRangeExtractor, elementScroll, measureElement as measureVirtualElement, observeElementOffset, observeWindowOffset, observeWindowRect, windowScroll, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { forwardRef, memo, useCallback, useContext, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type HTMLAttributes } from "react";
-import { ShellPanelActiveContext } from "@/client/home/panel-shared";
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type HTMLAttributes } from "react";
 import type { ActivityLedgerGroup, ActivityLedgerItem } from "./activity-ledger";
+import { shellVirtualKeyMissingEvent, shellVirtualMeasurementsKey, shellVirtualScrollKeyEvent, shellVirtualSnapshotEvent } from "@/client/home/use-shell-document-scroll-restoration";
+import { isRecord } from "@/shared/guards";
 
 export type ActivityVirtualRow =
   | { key: string; item: ActivityLedgerItem; child?: boolean }
   | { key: string; group: ActivityLedgerGroup; expanded: boolean; controls?: string };
 
 const keyFor = (row: ActivityVirtualRow) => row.key;
-const INACTIVE_ROWS: ReturnType<Virtualizer<HTMLElement, HTMLLIElement>["getVirtualItems"]> = [];
 
 type Anchor = { key: string; top: number; items: readonly ActivityVirtualRow[] };
 type RowProps = {
@@ -19,7 +19,7 @@ type RowProps = {
   attentionLabel: string;
   onOpen: (item: ActivityLedgerItem, opener: HTMLElement) => void;
   onToggle: (children: readonly ActivityLedgerItem[], expanded: boolean) => void;
-  liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void; "data-index"?: number };
+  liProps?: HTMLAttributes<HTMLLIElement> & { ref?: (element: HTMLLIElement | null) => void; "data-index"?: number; "data-row-key"?: string };
 };
 
 function asWindowVirtualizer(instance: Virtualizer<HTMLElement, HTMLLIElement>): Virtualizer<Window, HTMLLIElement> {
@@ -28,15 +28,17 @@ function asWindowVirtualizer(instance: Virtualizer<HTMLElement, HTMLLIElement>):
   return checked as Virtualizer<Window, HTMLLIElement>;
 }
 
+const viewportRect = () => typeof window === "undefined"
+  ? { width: 1024, height: 800 }
+  : { width: window.innerWidth, height: window.innerHeight };
+
 export type ActivityListHandle = { restore: (key: string) => boolean };
 
 function scrollHost(list: HTMLUListElement | null): HTMLElement | Window | null {
   if (!list) return null;
-  const shell = list.closest<HTMLElement>("main[data-app-main-authenticated]");
-  if (shell) return shell;
   for (let parent = list.parentElement; parent; parent = parent.parentElement) {
     const overflow = getComputedStyle(parent).overflowY;
-    if ((overflow === "auto" || overflow === "scroll") && parent.scrollHeight > parent.clientHeight) return parent;
+    if (overflow === "auto" || overflow === "scroll") return parent;
   }
   return window;
 }
@@ -62,7 +64,6 @@ type Props = {
 export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(function VirtualActivityList({
   id, items, exhausted, labelledBy, attentionLabel, onOpen, onToggle, Row,
 }, ref) {
-  const active = useContext(ShellPanelActiveContext);
   const [renderedItems, setRenderedItems] = useState(items);
   const [list, setList] = useState<HTMLUListElement | null>(null);
   const [host, setHost] = useState<HTMLElement | Window | null>(null);
@@ -74,10 +75,27 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   const observedRect = useRef<{ host: HTMLElement; rect: { width: number; height: number } } | null>(null);
   const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const attached = useRef(false);
+  const programmaticScroll = useRef(false);
   const pendingFocus = useRef<string | null>(null);
   const anchor = useRef<Anchor | null>(null);
   const pendingCorrection = useRef<Anchor | null>(null);
-  const retainedHeight = useRef(0);
+  const [initialMeasurements] = useState<VirtualItem[]>(() => {
+    if (typeof window === "undefined") return [];
+    const stored: unknown = window.history.state?.[shellVirtualMeasurementsKey];
+    if (!Array.isArray(stored)) return [];
+    return stored.filter((entry): entry is VirtualItem => {
+      if (!isRecord(entry)) return false;
+      const item = entry;
+      const indexed = typeof item.index === "number" && Number.isInteger(item.index) && item.index >= 0
+        ? items[item.index] : undefined;
+      return indexed !== undefined && item.key === keyFor(indexed) &&
+        typeof item.size === "number" && Number.isFinite(item.size) && item.size > 0 &&
+        typeof item.start === "number" && Number.isFinite(item.start) &&
+        typeof item.end === "number" && Number.isFinite(item.end) &&
+        typeof item.lane === "number" && Number.isInteger(item.lane);
+    });
+  });
+  const [initialRect] = useState(viewportRect);
   const indexByKey = useMemo(() => new Map(renderedItems.map((item, index) => [keyFor(item), index])), [renderedItems]);
   const focusedIndex = focusedKey === null ? null : indexByKey.get(focusedKey) ?? null;
   const rangeExtractor = useCallback((range: Parameters<typeof defaultRangeExtractor>[0]) => {
@@ -90,12 +108,13 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   // oxlint-disable-next-line react/incompatible-library -- The virtualizer owns scroll updates and rendered ranges.
   const virtualizer = useVirtualizer<HTMLElement, HTMLLIElement>({
     count: renderedItems.length,
-    getScrollElement: () => active ? host as HTMLElement | null : null,
+    getScrollElement: () => host as HTMLElement | null,
     estimateSize: () => 64,
     overscan: 8,
     getItemKey: (index) => keyFor(renderedItems[index]!),
     scrollMargin: margin,
-    initialRect: { width: typeof window === "undefined" ? 1024 : window.innerWidth, height: typeof window === "undefined" ? 800 : window.innerHeight },
+    initialRect,
+    initialMeasurementsCache: initialMeasurements,
     initialOffset: () => typeof window === "undefined" ? 0 : host instanceof HTMLElement ? host.scrollTop : host === window ? window.scrollY : 0,
     rangeExtractor,
     observeElementRect: (instance, callback) => {
@@ -123,7 +142,7 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
     },
     observeElementOffset: (instance, callback) => host === window ? observeWindowOffset(asWindowVirtualizer(instance), callback) : observeElementOffset(instance, callback),
     measureElement: (node, entry, instance) => {
-      if (!active || !node.isConnected) {
+      if (!node.isConnected) {
         const index = instance.indexFromElement(node);
         return instance.itemSizeCache.get(instance.options.getItemKey(index)) ?? instance.options.estimateSize(index);
       }
@@ -145,18 +164,56 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
       return measuredSize;
     },
     scrollToFn: (offset, options, instance) => {
-      if (!active || !attached.current) return;
+      if (!attached.current) return;
+      if (offset + (options.adjustments ?? 0) !== (host instanceof HTMLElement ? host.scrollTop : window.scrollY)) programmaticScroll.current = true;
       if (host === window) windowScroll(offset, options, asWindowVirtualizer(instance));
       else elementScroll(offset, options, instance);
     },
   });
+  useEffect(() => {
+    const snapshot = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isRecord(event.detail)) return;
+      const measurements = virtualizer.takeSnapshot();
+      if (measurements.length) event.detail.measurements = measurements;
+    };
+    const measureBeforeJump = () => {
+      if (virtualizer.isScrolling && !programmaticScroll.current) return;
+      programmaticScroll.current = false;
+      if (!list || !host) return;
+      const offset = host instanceof HTMLElement ? host.scrollTop : window.scrollY;
+      const viewport = host instanceof HTMLElement ? host.clientHeight : window.innerHeight;
+      if (Math.abs(offset - (virtualizer.scrollOffset ?? 0)) < viewport) return;
+      for (const row of list.querySelectorAll<HTMLLIElement>("li[data-index]")) virtualizer.measureElement(row);
+    };
+    window.addEventListener(shellVirtualSnapshotEvent, snapshot);
+    host?.addEventListener("scroll", measureBeforeJump, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener(shellVirtualSnapshotEvent, snapshot);
+      host?.removeEventListener("scroll", measureBeforeJump, true);
+    };
+  }, [host, list, virtualizer]);
+  useEffect(() => {
+    const scrollToKey = (event: Event) => {
+      if (!(event instanceof CustomEvent) || !isRecord(event.detail)) return;
+      const key = event.detail.key;
+      if (typeof key !== "string") return;
+      const index = indexByKey.get(key);
+      if (index === undefined) {
+        if (exhausted) window.dispatchEvent(new CustomEvent(shellVirtualKeyMissingEvent, { detail: { key } }));
+        return;
+      }
+      virtualizer.scrollToIndex(index, { align: "start" });
+    };
+    window.addEventListener(shellVirtualScrollKeyEvent, scrollToKey);
+    return () => window.removeEventListener(shellVirtualScrollKeyEvent, scrollToKey);
+  }, [exhausted, indexByKey, virtualizer]);
   useLayoutEffect(() => {
-    attached.current = active && host !== null;
+    attached.current = host !== null;
     return () => { attached.current = false; };
-  }, [active, host]);
+  }, [host]);
   const measureElement = useCallback((node: HTMLLIElement | null) => {
-    if (active) virtualizer.measureElement(node);
-  }, [active, virtualizer]);
+    virtualizer.measureElement(node);
+  }, [virtualizer]);
   const attachList = useCallback((node: HTMLUListElement | null) => {
     setList(node);
     if (node) {
@@ -169,10 +226,10 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   }, [list]);
   useLayoutEffect(() => {
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (row, _delta, instance) =>
-      active && row.end <= (instance.scrollOffset ?? 0) + instance.scrollAdjustments;
-  }, [active, virtualizer]);
+      row.end <= (instance.scrollOffset ?? 0) + instance.scrollAdjustments;
+  }, [virtualizer]);
   useLayoutEffect(() => {
-    if (!active || !list || !host || typeof ResizeObserver === "undefined") return;
+    if (!list || !host || typeof ResizeObserver === "undefined") return;
     marginReady.current = false;
     const update = () => {
       const next = listMargin(list, host);
@@ -203,26 +260,26 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
       observer.disconnect();
       marginReady.current = false;
     };
-  }, [active, list, host]);
+  }, [list, host]);
   const restore = useCallback((key: string) => {
     const index = indexByKey.get(key);
-    if (!active || index === undefined || !list) return false;
+    if (index === undefined || !list) return false;
     pendingFocus.current = key;
     setFocusedKey(key);
     virtualizer.scrollToIndex(index, { align: "center" });
     return true;
-  }, [active, indexByKey, list, virtualizer]);
+  }, [indexByKey, list, virtualizer]);
   useImperativeHandle(ref, () => ({ restore }), [restore]);
-  const virtualItems = active ? virtualizer.getVirtualItems() : INACTIVE_ROWS;
+  const virtualItems = virtualizer.getVirtualItems();
   useLayoutEffect(() => {
     if (renderedItems === items) return;
-    if (active && focusedKey !== null && !items.some((item) => keyFor(item) === focusedKey) && list?.contains(document.activeElement)) {
+    if (focusedKey !== null && !items.some((item) => keyFor(item) === focusedKey) && list?.contains(document.activeElement)) {
       list.closest<HTMLElement>('section[tabindex="-1"]')?.focus();
       setFocusedKey(null);
     }
     let offset = host instanceof HTMLElement ? host.scrollTop : host === window ? window.scrollY : 0;
-    const live = active && attached.current && list && host ? listMargin(list, host) : 0;
-    if (active && attached.current && host && offset > 0 && offset > marginRef.current) {
+    const live = attached.current && list && host ? listMargin(list, host) : 0;
+    if (attached.current && host && offset > 0 && offset > marginRef.current) {
       const delta = live - marginRef.current;
       if (Math.abs(delta) > 0.5) {
         if (host instanceof HTMLElement) host.scrollTop += delta;
@@ -230,16 +287,16 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
         offset += delta;
       }
     }
-    if (active && attached.current && list && host && Math.abs(marginRef.current - live) > 0.5) {
+    if (attached.current && list && host && Math.abs(marginRef.current - live) > 0.5) {
       marginRef.current = live;
       setMargin(live);
     }
-    const row = active && attached.current && offset > 0 && offset > live ? virtualizer.getVirtualItemForOffset(offset - live + virtualizer.options.scrollMargin) : null;
+    const row = attached.current && offset > 0 && offset > live ? virtualizer.getVirtualItemForOffset(offset - live + virtualizer.options.scrollMargin) : null;
     anchor.current = row ? { key: String(row.key), top: row.start - virtualizer.options.scrollMargin + live - offset, items: renderedItems } : null;
     setRenderedItems(items);
-  }, [active, focusedKey, host, items, list, renderedItems, virtualizer]);
+  }, [focusedKey, host, items, list, renderedItems, virtualizer]);
   useLayoutEffect(() => {
-    if (!active || !host || !list || !attached.current) {
+    if (!host || !list || !attached.current) {
       anchor.current = null;
       pendingCorrection.current = null;
       return;
@@ -276,12 +333,9 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
     });
     pendingCorrection.current = awaitingMeasurement ? previous : null;
     anchor.current = null;
-  }, [active, renderedItems, host, list, indexByKey, virtualizer, virtualItems]);
+  }, [renderedItems, host, list, indexByKey, virtualizer, virtualItems]);
   useLayoutEffect(() => {
-    if (active) retainedHeight.current = Math.max(0, virtualizer.getTotalSize());
-  });
-  useLayoutEffect(() => {
-    if (!active || pendingFocus.current === null || !list) return;
+    if (pendingFocus.current === null || !list) return;
     const index = indexByKey.get(pendingFocus.current);
     if (index === undefined) {
       pendingFocus.current = null;
@@ -293,8 +347,8 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
       button.focus({ preventScroll: true });
       pendingFocus.current = null;
     }
-  }, [active, focusedIndex, indexByKey, list, virtualItems]);
-  const height = active ? Math.max(0, virtualizer.getTotalSize()) : retainedHeight.current;
+  }, [focusedIndex, indexByKey, list, virtualItems]);
+  const height = Math.max(0, virtualizer.getTotalSize());
   return (
     <ul
       ref={attachList}
@@ -348,6 +402,7 @@ const WindowedRow = memo(function WindowedRow({ Row, row, index, offset, setsize
       liProps={{
         ref: measureElement,
         "data-index": index,
+        "data-row-key": row.key,
         "aria-posinset": index + 1,
         "aria-setsize": setsize,
         style: { position: "absolute", top: 0, insetInlineStart: 0, inlineSize: "100%", transform: `translateY(${offset}px)` },

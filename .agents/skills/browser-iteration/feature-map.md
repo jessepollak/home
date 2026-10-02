@@ -14,13 +14,28 @@ is in **Unknowns** — never invent a selector when Reach is ambiguous, snapshot
 The CI Playwright replay in `apps/web/tests/browser/feature-map-replay.pw.ts` reads the surface files
 through `apps/web/tests/browser/feature-map/map.ts` and executes every non-manual fixture Reach, plus each additional `Reach (replay: <name>)` block
 (each needs a matching fixture setup in the replay). Keep its explicit skip
-reasons aligned with the map when changing a Reach or fixture. Reach guides the agent; it never
+reasons aligned with the map when changing a Reach or fixture. Every step in a non-manual `Reach` or
+`Reach (replay: <name>)` list must be a backticked command (`click "X"`, `expect "Y"`, `fill "A" "B"`).
+`map.ts` rejects a step verb written as prose — a case-insensitive verb outside backticks followed by a
+backticked operand, optionally through a determiner and across a wrapped line (``click `X` ``,
+``expect the `Rate` row``), or a verb that opens a numbered item (`3. goto /cash`) — with the surface id
+and offending line. A code span the replay cannot read — one that wraps onto another line or is never
+closed — fails as a wrapped or unclosed code span, and a heading of
+a non-manual `Reach` or `Reach (replay: <name>)` block is a label line in the form `- **Reach** (label):`;
+it must not carry a backticked token and its content must not open with a numbered step, because the replay
+reads only the list below the heading and would silently skip an inline command. Move the token into the
+list, keep heading context as plain prose, and use a recognised prefix — anything else fails as
+unsupported. Prose between
+steps or on headings stays valid — a sentence that merely mentions a verb word, a noun that reads like
+one (`a second click closes the sheet`), or an operand more than a determiner away — and `manual`
+surfaces are exempt (their Reach is never replayed). Reach guides the agent; it never
 authorizes a money click. Full-text snapshots reveal facts hidden by interactive-only snapshots; number-flow amounts appear as images (for example `image "$1.00"`), not text;
 scope huge trees (notably coverage's globe), and prefer current `@refs` when names churn. Do not use
 `wait --text` on accessible-name-only labels when no visible copy exists. A live Reach ends at review; its separate marked confirm requires the ladder's Rung 3 or Jesse's direct authorization, a fresh `live-login` and the shared confirm lock. `HOME_VERIFY_ACCOUNT_ADDRESS` (the bot account's full 0x wallet address) is the trusted anchor. On Rung 2 up-to-review walks of a prepared wallet action and before each marked click, read the review `From` row's full address from the copy control's title or `Full address …` fallback and run `bun run --silent --cwd apps/web live-login --check-account <address>`. It compares case-insensitively against the environment or private file without printing the anchor; stop on nonzero exit. The short address alone is insufficient. If the anchor is absent on a Rung 2 walk (no click), Account settings' full address can serve only as a consistency check; evidence must say the anchor was not provisioned and bot identity was not established. Before a marked click the anchor is required: if missing, do not press the control and report `Real money: not tested`, naming `HOME_VERIFY_ACCOUNT_ADDRESS`. The row identifies the prepared action's executing account; only the provisioned anchor establishes it is the bot account. Provider funding (`add-money`) reviews carry no prepared action, `From` row or marked control; its Rung 2 walk reads the quote facts and stops before the provider hand-off.
 
-Fixture baseline referenced throughout: `HOME_PLAYWRIGHT_SMOKE=1`, rootless
-`bun --cwd apps/web dev -- --port "${HOME_FIXTURE_PORT:-3199}"` ([browser validation](../../../docs/browser-validation.md#fixture-session-on-port-3199)).
+Fixture baseline referenced throughout: export `HOME_FIXTURE_PORT="${HOME_FIXTURE_PORT:-3199}"`, then run
+`bun run --cwd apps/web fixture-server start` (rootless, credential-free `HOME_PLAYWRIGHT_SMOKE=1`); clean up with
+`bun run --cwd apps/web fixture-server stop` ([browser validation](../../../docs/browser-validation.md#fixture-session-on-port-3199)).
 `fixture-session` seeds `sessionStorage["home:playwright-smoke:signed-in"]="1"` before navigation
 and installs the [shared fixture routes](../../../apps/web/tests/browser/feature-map/fixtures.ts).
 The Playwright replay uses `tests/browser/fixtures/api.ts` and the same static recipient routes.
@@ -58,7 +73,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
 ## Gaps
 
 **Playwright Reach replay:** `apps/web/tests/browser/feature-map-replay.pw.ts` exercises the
-non-manual fixture Reaches for landing, sign-in, home-panel, balances, activity, save,
+non-manual fixture Reaches for landing, sign-in, home-panel, activity, save,
 invest, investments, send, account-settings, and coverage, plus save's Convert replay up to review. Manual surfaces are explicitly skipped with reasons in the test. This mostly checks entry
 steps; it does not cover borrow markets, activity pagination, invest categories or memes,
 coverage filters, or dev-ui behavior.

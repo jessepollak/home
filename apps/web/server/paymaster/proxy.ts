@@ -6,6 +6,7 @@ import { getActionsStore, type ActionsStore } from "@/server/actions/store";
 import { BASE_USDC_PAYMASTER_ADDRESS, parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
 import { createPaymasterClient, PAYMASTER_METHODS, type PaymasterMethod } from "./client";
 import { readTokenPayment, ENTRY_POINT_V06 } from "./fee";
+import { readJson } from "@/shared/http/read-json";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -30,7 +31,7 @@ export function createPaymasterProxyHandler(deps: {
       return privateError("ACTION_EXPIRED", "The action is no longer available.", 410);
     }
     let body: unknown;
-    try { body = await request.json(); } catch { return privateError("INVALID_RPC", "A JSON-RPC object is required.", 400); }
+    try { body = await readJson(request); } catch { return privateError("INVALID_RPC", "A JSON-RPC object is required.", 400); }
     if (!isRecord(body) || body.jsonrpc !== "2.0" || !isRpcId(body.id) || typeof body.method !== "string" || !PAYMASTER_METHODS.includes(body.method as PaymasterMethod) || !Array.isArray(body.params)) {
       return privateError("INVALID_RPC", "A supported JSON-RPC request is required.", 400);
     }

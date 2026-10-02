@@ -21,13 +21,14 @@ import {
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
+import { queryViewState } from "@/client/query/query-view-state";
 import {
   browserHomeQueryClient,
   ownerQueryKey,
-  ownerQueryMeta,
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
+import { ownerQuery } from "@/client/query/query-options";
 import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { LoadErrorCard } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
@@ -126,14 +127,17 @@ export function useBorrowOfferRate({
 }: {
   enabled: boolean;
   regionId?: RegionId;
-}): string | null {
+}): { pending: boolean; value: string | null; updatedAt: number } {
   const account = useAccountWallet();
   const session = account.status === "verified" ? account.session : null;
   const overview = useBorrowOverview(enabled ? session : null, account.fetchAccountResource);
   const leading = overview.data ? leadingBorrowOffer(overview.data.opportunities) : null;
   const snapshot = leading?.availability.status === "available" ? leading.availability.snapshot : null;
-  if (!enabled || !snapshot) return null;
-  return `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR`;
+  return {
+    pending: enabled && overview.isPending,
+    updatedAt: enabled && snapshot ? overview.dataUpdatedAt : Math.max(overview.dataUpdatedAt, overview.errorUpdatedAt),
+    value: enabled && snapshot ? `${formatWadPercent(snapshot.state.borrowAprWad, regionId)} APR` : null,
+  };
 }
 
 export function BorrowExperience(props: BorrowExperienceProps) {
@@ -155,6 +159,7 @@ function BorrowExperienceInner({
 }: BorrowExperienceProps) {
   const configuredSelection = selectedMarketId && getBorrowMarketRef(selectedMarketId) ? selectedMarketId : null;
   const overview = useBorrowOverview(configuredSelection ? null : session, fetchAccountResource);
+  const overviewView = queryViewState(overview, { hasCachedData: overview.data !== undefined });
 
   if (configuredSelection) {
     return (
@@ -176,7 +181,7 @@ function BorrowExperienceInner({
   return (
     <>
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
-      {session?.smartAccount && overview.isError && overview.data ? (
+      {session?.smartAccount && overviewView === "failed-with-data" && overview.data ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow data could not be refreshed"
           description={`Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`}
           onRetry={() => void overview.refetch()} />
@@ -184,7 +189,7 @@ function BorrowExperienceInner({
       {session?.smartAccount || sessionSettling ? <BorrowOverview
         overview={overview.data ?? null}
         borrowSummary={borrowSummary}
-        status={(!session?.smartAccount && sessionSettling) || overview.isPending ? "loading" : overview.isError && !overview.data ? "error" : "ready"}
+        status={(!session?.smartAccount && sessionSettling) || overviewView === "loading" ? "loading" : overviewView === "failed" ? "error" : "ready"}
         onRetry={() => void overview.refetch()}
         session={session}
         fetchAccountResource={fetchAccountResource}
@@ -219,6 +224,7 @@ function BorrowDirectMarket({
   assetMarkResolution?: AssetMarkResolution;
 }) {
   const detail = useBorrowDetail(session, marketId, fetchAccountResource, true);
+  const detailView = queryViewState(detail, { hasCachedData: detail.data !== undefined });
   const snapshot = detail.data ?? null;
   const hasCollateral = snapshot ? BigInt(snapshot.position.collateralRaw) > BigInt(0) : false;
   const risk = borrowRiskState(snapshot?.position.healthFactorWad ?? null);
@@ -236,8 +242,8 @@ function BorrowDirectMarket({
         <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
       </div>
       {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
-      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detail.isPending) ? <BorrowOverviewLoading /> : null}
-      {session?.smartAccount && detail.isError ? (
+      {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detailView === "loading") ? <BorrowOverviewLoading /> : null}
+      {session?.smartAccount && (detailView === "failed" || detailView === "failed-with-data") ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
       ) : null}
       {snapshot && !canOpen && !dialogSnapshot ? (
@@ -265,6 +271,7 @@ function BorrowDirectMarket({
           executeMoneyAction={executeMoneyAction}
           regionId={regionId}
           open={dialogOpen}
+          opener={null}
           onClose={() => setDialogOpen(false)}
           onClosed={onClose}
           assetMarkResolution={assetMarkResolution}
@@ -391,13 +398,13 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
   const owner = session?.smartAccount?.address ?? null;
   const key = session?.smartAccount ? ownerDataKey(session) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const overview = useHomeQuery({
-    queryKey: key ? ownerQueryKey(key, "borrow", "overview") : ["unauthenticated", "borrow-overview-disabled"],
-    enabled: Boolean(key && owner && fetchAccountResource),
-    staleTime: 15_000,
+  const overview = useHomeQuery(ownerQuery<BorrowOverviewResponse>({
+    owner: key,
+    scope: "borrow",
+    key: key ? ["overview"] : [],
+    enabled: Boolean(owner && fetchAccountResource),
     retry: false,
     refetchOnWindowFocus: true,
-    meta: key ? ownerQueryMeta(key, "owner") : undefined,
     queryFn: async ({ signal }): Promise<BorrowOverviewResponse> => {
       if (!fetchAccountResource || !owner) throw new Error("Borrow is unavailable.");
       const parsed = parseBorrowOverview(await fetchAccountResource("/api/borrow", { signal }), owner);
@@ -409,12 +416,12 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
       ))) throw new Error("Borrow overview response is invalid.");
       return parsed;
     },
-  });
+  }));
   useEffect(() => {
     if (!key || !overview.data) return;
     for (const opportunity of overview.data.opportunities) {
       if (opportunity.availability.status !== "available") continue;
-      const detailKey = ownerQueryKey(key, "borrow", "detail", opportunity.market.id);
+      const detailKey = ownerQueryKey(key, "borrow-market", opportunity.market.id);
       if ((queryClient.getQueryState(detailKey)?.dataUpdatedAt ?? 0) > overview.dataUpdatedAt) continue;
       queryClient.setQueryData(detailKey, opportunity.availability.snapshot);
     }
@@ -425,25 +432,22 @@ function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountR
 function useBorrowDetail(session: VerifiedAccountSession | null, marketId: BorrowMarketId | null, fetchAccountResource: FetchAccountResource | undefined, enabled: boolean) {
   const owner = session?.smartAccount?.address ?? null;
   const key = session?.smartAccount ? ownerDataKey(session) : null;
-  return useHomeQuery({
-    queryKey: key && marketId ? ownerQueryKey(key, "borrow", "detail", marketId) : ["unauthenticated", "borrow-detail-disabled"],
+  return useHomeQuery(ownerQuery<BorrowMarketSnapshot>({
+    owner: key && marketId ? key : null,
+    scope: "borrow-market",
+    key: key && marketId ? [marketId] : [],
     enabled: Boolean(enabled && marketId && key && owner && fetchAccountResource),
-    staleTime: 0,
     retry: false,
     refetchOnWindowFocus: true,
-    meta: key ? ownerQueryMeta(key, "owner") : undefined,
-    queryFn: ({ signal }) => {
+    refetchOnMount: "always",
+    queryFn: async ({ signal }) => {
       if (!marketId) throw new Error("Borrow market is unavailable.");
-      if (!fetchAccountResource) throw new Error("Borrow is unavailable.");
-      return fetchAccountResource(`/api/borrow/markets/${marketId}`, { signal });
-    },
-    select: (value): BorrowMarketSnapshot => {
-      if (!owner) throw new Error("Borrow is unavailable.");
-      const parsed = parseTrustedSnapshot(value, owner);
+      if (!fetchAccountResource || !owner) throw new Error("Borrow is unavailable.");
+      const parsed = parseTrustedSnapshot(await fetchAccountResource(`/api/borrow/markets/${marketId}`, { signal }), owner);
       if (!parsed) throw new Error("Borrow market response is invalid.");
       return parsed;
     },
-  });
+  }));
 }
 
 export function formatToken(raw: string, asset: BorrowMarketIdentity["loanToken"], regionId: RegionId): string {

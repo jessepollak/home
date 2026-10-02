@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { getAddress } from "viem";
+import { parseAddress } from "@/shared/chain/hex";
 import { EMAIL_REQUEST_ERROR_CODES, isEmailRequestErrorCode, isWalletCode, normalizeReportedEmail, parseEmailRequestClaimResponse, parseEmailRequestErrorResponse, parseEmailRequestReadResponse, parseEmailRequestWrite, parseEmailRequestWriteResponse, type EmailRequestClaimWrite } from "./email-request";
 
 describe("email request contract", () => {
-  const address = `0x${"aB".repeat(20)}`;
-  const normalizedAddress = `0x${"ab".repeat(20)}`;
+  const normalizedAddress = parseAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")!;
+  const address = getAddress(normalizedAddress);
 
   test("normalizes and validates reported email without accepting malformed or oversized values", () => {
     expect(normalizeReportedEmail("  ALICE@Example.COM  ")).toBe("alice@example.com");
@@ -31,6 +33,7 @@ describe("email request contract", () => {
       { version: 1, kind: "email", channel: "share_step", email: "a@b.com" },
       { version: 1, kind: "email", channel: "share_step", email: "a@b.com", address: "0x123" },
       { version: 1, kind: "email", channel: "share_step", email: "a@b.com", address: `0x${"g".repeat(40)}` },
+      { version: 1, kind: "email", channel: "share_step", email: "a@b.com", address: address.replace(/[A-F]/, (letter) => letter.toLowerCase()) },
       { version: 1, kind: "email", channel: "share_step", email: "bad", address },
       { version: 1, kind: "email", channel: "share_step", email: "a@b.com", address, bundleId: "" },
       { version: 1, kind: "email", channel: "share_step", email: "a@b.com", address, bundleId: "b".repeat(513) },

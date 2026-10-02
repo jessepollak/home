@@ -84,6 +84,8 @@ test("requires Rung 3 for the actions routes and the money modal", () => {
   assert.equal(requiredRung(realSurface("send"), "apps/web/app/api/actions/[id]/confirm/route.ts"), 3);
   assert.equal(requiredRung(realSurface("send"), "apps/web/client/money-modal/amount.tsx"), 3);
   assert.equal(requiredRung(realSurface("send"), "apps/web/client/transfers/send-dialog.tsx"), 3);
+  assert.equal(requiredRung(realSurface("save"), "apps/web/client/savings/savings-actions.tsx"), 3);
+  assert.equal(requiredRung(realSurface("save"), "apps/web/client/savings/savings-journey-step.tsx"), 3);
   assert.equal(requiredRung(realSurface("send"), "apps/web/client/transfers/recipient.tsx"), 2);
 });
 

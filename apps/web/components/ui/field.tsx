@@ -103,6 +103,7 @@ function FieldLabel({
   ...props
 }: React.ComponentProps<typeof Label>) {
   return (
+    // oxlint-disable-next-line jsx-a11y/label-has-associated-control -- Owned field label forwards htmlFor and children to its consumer.
     <Label
       data-slot="field-label"
       className={cn(

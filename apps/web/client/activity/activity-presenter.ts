@@ -25,7 +25,7 @@ export type ActivityRowViewModel = {
 };
 
 export type ActivityPresenterOptions = {
-  regionId?: RegionId;
+  regionId: RegionId;
   timeZone?: string;
 };
 
@@ -81,7 +81,7 @@ export function presentActivityTransferRow(
 function presentRowValue(
   transfer: ActivityTransfer,
   sign: string,
-  regionId?: RegionId,
+  regionId: RegionId,
 ): Pick<ActivityRowViewModel, "value" | "valueContext" | "priced"> {
   const { amount, symbol } = formatActivityAmountParts(transfer, regionId);
   const quantity = joinAmountAndSymbol(`${sign}${amount}`, symbol);
@@ -97,7 +97,7 @@ function presentRowValue(
 
 export function formatValuationAmount(
   valuation: ActivityPricedValuation,
-  regionId?: RegionId,
+  regionId: RegionId,
 ): string {
   return formatFiatAmount(
     BigInt(valuation.amount.atoms),
@@ -109,7 +109,7 @@ export function formatValuationAmount(
 
 function formatActivityAmountParts(
   transfer: ActivityTransfer,
-  regionId?: RegionId,
+  regionId: RegionId,
 ): { amount: string; symbol: string } {
   if (transfer.tokenSymbol === null || transfer.tokenDecimals === null) {
     return { amount: transfer.amountBaseUnits, symbol: "base units" };

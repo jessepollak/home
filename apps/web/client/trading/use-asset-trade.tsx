@@ -1,14 +1,16 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
+import { uiBoundary } from "@/client/account/owner-keys";
 import { useBalances } from "@/client/balances";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
 import { moneySheetLoading } from "@/client/money-modal";
 import { browserHomeQueryClient } from "@/client/query/query-client";
 import { selectBalanceBaseUnits } from "@/shared/balances/select";
+import { useProductOffering } from "@/client/home/product-offering";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
 import type { TradeDirection, TradeToken } from "@/shared/trading/contract";
@@ -24,12 +26,21 @@ type Options = { session?: VerifiedAccountSession | null; regionId?: RegionId; o
 
 export function useAssetTrade(candidates: readonly TradeCandidate[], { session: expectedSession, regionId, onFallbackFocus }: Options = {}) {
   const account = useOptionalAccountWallet();
-  const verified = account && isServerVerified(account) ? account.session : null;
-  const [mounted, setMounted] = useState<{ owner: string; assetId: string; assetName: string; token: TradeToken; direction: TradeDirection } | null>(null);
-  const keepMountedSession = expectedSession === null && !!verified?.smartAccount && mounted?.owner === `${verified.user.subject}:${verified.smartAccount.address}`;
+  const investOffered = useProductOffering().products.invest === "on";
+  const walletOwner = account ? uiBoundary(account) : null;
+  const verified = walletOwner !== null && account && isServerVerified(account) ? account.session : null;
+  const [mountedOwner, setMountedOwner] = useState(walletOwner);
+  const [direction, setDirection] = useState<TradeDirection | null>(null);
+  const [mounted, setMounted] = useState<{ owner: string; assetId: string; assetName: string; token: TradeToken; direction: TradeDirection; opener: HTMLButtonElement | null } | null>(null);
+  if (mountedOwner !== walletOwner) {
+    setMountedOwner(walletOwner);
+    setMounted(null);
+    setDirection(null);
+  }
+  const keepMountedSession = expectedSession === null && !!verified?.smartAccount && mounted?.owner === walletOwner;
   const session = expectedSession === undefined || (verified?.user.subject === expectedSession?.user.subject && verified?.smartAccount?.address === expectedSession?.smartAccount?.address) || keepMountedSession
     ? verified : null;
-  const owner = session?.smartAccount ? `${session.user.subject}:${session.smartAccount.address}` : null;
+  const owner = session?.smartAccount ? walletOwner : null;
   const region = usePresentationRegionId(regionId);
   const activeCandidates = mounted && mounted.owner === owner && !candidates.some((entry) => entry.assetId === mounted.assetId)
     ? [...candidates, { assetId: mounted.assetId, assetName: mounted.assetName }] : candidates;
@@ -46,22 +57,25 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
   const states = new Map(candidates.map(({ assetId }) => {
     const available = availability.get(assetId);
     const state = !account || !session?.smartAccount || available?.status === "unavailable" ||
-      (available?.status === "available" && available.buy === "blocked") || balances.status === "error" ||
+      (!investOffered || (available?.status === "available" && available.buy === "blocked")) || balances.status === "error" ||
       (balances.status === "ready" && (!usableBalances || cash === null)) ? "none"
       : available === null || balances.status === "loading" ? "pending"
         : cash === "0" ? "zero" : "ready";
     return [assetId, state] as const;
   }));
-  const [direction, setDirection] = useState<TradeDirection | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const closing = useRef(false);
+  useEffect(() => {
+    closing.current = false;
+    opener.current = null;
+  }, [walletOwner]);
   useIdlePreload(TradeMoneySheet.preload, candidates.some(({ assetId }) => eligible(assetId, "buy") !== null || eligible(assetId, "sell") !== null));
   function eligible(assetId: string, mode: TradeDirection) {
     const candidate = candidates.find((entry) => entry.assetId === assetId);
     const available = availability.get(assetId);
     if (!owner || !candidate || available?.status !== "available" || !session?.smartAccount ||
       (mode === "buy" ? states.get(assetId) !== "ready" : available.balanceBaseUnits === "0")) return null;
-    return { owner, assetId, assetName: candidate.assetName, token: available.token, direction: mode };
+    return { owner, assetId, assetName: candidate.assetName, token: available.token, direction: mode, opener: null };
   }
   function intent(assetId: string, mode: TradeDirection) {
     void TradeMoneySheet.preload();
@@ -73,7 +87,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
     if (!next) return;
     opener.current = button;
     closing.current = false;
-    setMounted(next);
+    setMounted({ ...next, opener: button });
     setDirection(mode);
   }
   const mountedAvailability = mounted ? availability.get(mounted.assetId) : null;
@@ -85,6 +99,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
   const assetPrice = pricedHolding?.unitValue ? { currency: pricedHolding.unitValue.currency, perUnit: pricedHolding.unitValue.amount } : null;
   const sheet = session?.smartAccount && account && mounted?.owner === owner ? <TradeMoneySheet
     key={`${owner}:${mounted.assetId}:${mounted.direction}`} open={direction !== null} direction={mounted.direction} session={session}
+    opener={mounted.opener}
     assetName={mounted.assetName} token={mounted.token} availableBaseUnits={mounted.direction === "buy" ? cash : holding} assetPrice={assetPrice}
     fetchAccountResource={account.fetchAccountResource} prepareMoneyAction={account.prepareMoneyAction}
     executeMoneyAction={account.executeMoneyAction} onClose={() => { closing.current = true; setDirection(null); }}

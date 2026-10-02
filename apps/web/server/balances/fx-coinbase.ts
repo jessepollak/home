@@ -3,11 +3,13 @@ import "server-only";
 import type { FiatCurrencyCode } from "@/config/regions";
 import { parseExactDecimal } from "@/shared/balances/math";
 import type { FxQuote, NativeEthQuote, ValuationSource } from "@/shared/balances/quotes";
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 
 export const COINBASE_EXCHANGE_RATES_URL =
   "https://api.coinbase.com/v2/exchange-rates?currency=USD" as const;
 export const COINBASE_FX_CACHE_MS = 60_000;
 export const COINBASE_FX_TIMEOUT_MS = 6_000;
+export const COINBASE_FX_MAX_RESPONSE_BYTES = 64_000;
 
 export const supportedFiatCurrencies = [
   "ARS",
@@ -92,49 +94,43 @@ async function fetchRates({
   now: () => Date;
   timeoutMs: number;
 }): Promise<ExchangeRatesSnapshot> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetchImpl(COINBASE_EXCHANGE_RATES_URL, {
-      method: "GET",
-      headers: { accept: "application/json" },
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new CoinbaseExchangeRatesError(
-        `Coinbase exchange rates returned HTTP ${response.status}.`,
-      );
+  const deadline = createUpstreamDeadline({ timeoutMs });
+  const result = await upstreamRequest(COINBASE_EXCHANGE_RATES_URL, {
+    deadline,
+    maxBytes: COINBASE_FX_MAX_RESPONSE_BYTES,
+    init: { method: "GET", headers: { accept: "application/json" } },
+    fetchImpl,
+  });
+  if (!result.ok) {
+    if (result.kind === "http") {
+      throw new CoinbaseExchangeRatesError(`Coinbase exchange rates returned HTTP ${result.status}.`);
     }
-    const payload: unknown = await response.json();
-    const rates = readRates(payload);
-    const fetchedAt = now();
-    if (Number.isNaN(fetchedAt.getTime())) {
-      throw new CoinbaseExchangeRatesError("The exchange-rate fetch time is invalid.");
-    }
-    const source: ValuationSource = {
-      provider: "Coinbase Exchange Rates",
-      method: "USD exchange rates",
-      fetchedAt: fetchedAt.toISOString(),
-      asOf: null,
-      timeBasis: "retrieved-at",
-    };
-    const quotes = supportedFiatCurrencies.map((currency) =>
-      normalizeFiatQuote(currency, rates[currency], source),
-    );
-    const nativeEthQuote = normalizeEthQuote(rates.ETH, source);
-    return { fetchedAt: fetchedAt.toISOString(), quotes, nativeEthQuote };
-  } catch (error) {
-    if (error instanceof CoinbaseExchangeRatesError) throw error;
+    const cause = "cause" in result ? result.cause : undefined;
     throw new CoinbaseExchangeRatesError(
-      controller.signal.aborted
+      result.kind === "aborted" || result.kind === "timeout"
         ? "Coinbase exchange rates timed out."
         : "Coinbase exchange rates request failed.",
-      { cause: error },
+      cause === undefined ? undefined : { cause },
     );
-  } finally {
-    clearTimeout(timeout);
   }
+  const payload = result.value;
+  const rates = readRates(payload);
+  const fetchedAt = now();
+  if (Number.isNaN(fetchedAt.getTime())) {
+    throw new CoinbaseExchangeRatesError("The exchange-rate fetch time is invalid.");
+  }
+  const source: ValuationSource = {
+    provider: "Coinbase Exchange Rates",
+    method: "USD exchange rates",
+    fetchedAt: fetchedAt.toISOString(),
+    asOf: null,
+    timeBasis: "retrieved-at",
+  };
+  const quotes = supportedFiatCurrencies.map((currency) =>
+    normalizeFiatQuote(currency, rates[currency], source),
+  );
+  const nativeEthQuote = normalizeEthQuote(rates.ETH, source);
+  return { fetchedAt: fetchedAt.toISOString(), quotes, nativeEthQuote };
 }
 
 function readRates(value: unknown): Record<string, unknown> {

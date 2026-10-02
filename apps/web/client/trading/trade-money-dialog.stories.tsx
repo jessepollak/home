@@ -1,3 +1,4 @@
+import { parseAddress } from "@/shared/chain/hex";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
 import { useState } from "react";
@@ -10,6 +11,7 @@ import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { memeAssets } from "@/config/invest-assets";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { TradeActions } from "./trade-actions";
@@ -20,12 +22,12 @@ const TIME = "2026-09-28T12:00:00.000Z";
 const NOW = Date.parse(TIME);
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
-const usdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
+const usdc = parseAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")!;
 const degen = memeAssets.find((asset) => asset.id === "degen")!;
-const token = { assetId: degen.id, address: degen.contractAddress.toLowerCase() as `0x${string}`, symbol: "DEGEN", decimals: 18 };
+const token = { assetId: degen.id, address: parseAddress(degen.contractAddress)!, symbol: "DEGEN", decimals: 18 };
 const eur = cashConversionCurrencies.find((currency) => currency.code === "EUR")!;
 const usd = cashConversionCurrencies.find((currency) => currency.code === "USD")!;
-const eurToken = { assetId: eur.tradeAssetId, address: eur.address as `0x${string}`, symbol: eur.symbol, decimals: eur.decimals };
+const eurToken = { assetId: eur.tradeAssetId, address: parseAddress(eur.address)!, symbol: eur.symbol, decimals: eur.decimals };
 const session: VerifiedAccountSession = {
   user: { subject: "synthetic-story-owner" }, smartAccount: { address: wallet, chainId: 8453 }, accountProvider: "cdp-embedded",
 };
@@ -113,7 +115,7 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
     <main className="mx-auto flex min-h-svh w-full max-w-2xl items-center justify-center p-4">
       {view === "availability" ? <AccountWalletClientProvider client={{
         ...createBlockedAccountWalletClient("provider-unavailable"),
-        status: "verified", verification: "server", session,
+        status: "verified", verification: "server", isSignedIn: true, ownerKey: dataOwnerKey(session), session,
         fetchBalances: async () => balancesSnapshot("US"), fetchAccountResource,
       }}><TradeActions asset={degen} /></AccountWalletClientProvider> :
         <TradeMoneyDialog open direction={direction} session={session} token={conversion ? eurToken : token} assetName={conversion ? eur.name : assetName}

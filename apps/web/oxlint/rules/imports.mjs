@@ -1,9 +1,12 @@
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const productionIsolationMessage =
   "Storybook and MSW are development-only; production modules must not import workshop packages, config, or stories";
 const explorationIsolationMessage =
   "Exploration code is design-lane only; production modules must not import or re-export from explorations/";
+const testSupportIsolationMessage =
+  "Test-support code is not production code; production modules must not import tests/, testing/, *.test.* modules, or test harnesses";
 const sharedLayerMessage =
   "shared modules must remain runtime-agnostic and independent of web application layers";
 const clientLayerMessage = "client modules must not import the server layer";
@@ -25,6 +28,18 @@ function sourceValue(node) {
 
 const assertionNodes = ["ParenthesizedExpression", "TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion", "TypeAssertionExpression"];
 const unknownSegment = Symbol("unknown");
+const tooComplexSegment = Symbol("tooComplex");
+const analysisLimits = { alternatives: 4096, evaluations: 16384, work: 16384 };
+
+function analysisBudget() {
+  return { work: 0, exceeded: false };
+}
+
+function chargeWork(budget, amount) {
+  budget.work += amount;
+  if (budget.work > analysisLimits.work) budget.exceeded = true;
+  return !budget.exceeded;
+}
 
 function mergeSegments(left, right) {
   if (!left.length) return right;
@@ -35,51 +50,98 @@ function mergeSegments(left, right) {
   return [...left, ...right];
 }
 
-function combineSegments(lefts, rights) {
+const alternativeKey = (alternative) => JSON.stringify(alternative.map((segment) => (typeof segment === "string" ? segment : null)));
+
+function dedupeAlternatives(alternatives, budget) {
+  const seen = new Set();
+  const distinct = [];
+  for (const alternative of alternatives) {
+    if (!chargeWork(budget, alternative.length)) return null;
+    const key = alternativeKey(alternative);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(alternative);
+  }
+  return distinct;
+}
+
+function combineSegments(lefts, rights, budget) {
+  if (isTruncated(lefts)) return lefts;
+  if (isTruncated(rights)) return rights;
+  if (budget.exceeded) return truncatedSegments([...lefts, ...rights]);
   const combined = [];
-  for (const left of lefts) for (const right of rights) {
-    combined.push(mergeSegments(left, right));
-    if (combined.length > 4096) return [widenSegments(combined)];
+  const seenMerged = new Set();
+  let evaluated = 0;
+  const distinctLefts = dedupeAlternatives(lefts, budget);
+  const distinctRights = dedupeAlternatives(rights, budget);
+  if (distinctLefts === null || distinctRights === null) return truncatedSegments([...lefts, ...rights]);
+  for (const left of distinctLefts) for (const right of distinctRights) {
+    evaluated += 1;
+    if (evaluated > analysisLimits.evaluations) return truncatedSegments([...combined, ...lefts, ...rights]);
+    const merged = mergeSegments(left, right);
+    if (!chargeWork(budget, merged.length)) return truncatedSegments([...combined, merged, ...lefts, ...rights]);
+    const key = alternativeKey(merged);
+    if (seenMerged.has(key)) continue;
+    seenMerged.add(key);
+    combined.push(merged);
+    if (combined.length > analysisLimits.alternatives) return truncatedSegments([...combined, ...lefts, ...rights]);
   }
   return combined;
 }
 
-// A pathological alternative count must not erase known segments and let a
-// definite exploration import through, so widen the constructed alternatives
-// into one fail-closed sequence of every known segment seen.
-function widenSegments(alternatives) {
-  const segments = [unknownSegment];
-  for (const alternative of alternatives) for (const segment of alternative) {
-    if (typeof segment === "string" && segment.length && !segments.includes(segment)) segments.push(segment);
-  }
-  return segments;
+function unionAlternatives(lefts, rights, budget) {
+  if (isTruncated(lefts)) return lefts;
+  if (isTruncated(rights)) return rights;
+  if (budget.exceeded) return truncatedSegments([...lefts, ...rights]);
+  const union = [...lefts, ...rights];
+  if (union.length > analysisLimits.alternatives || !chargeWork(budget, union.reduce((total, alternative) => total + alternative.length, 0))) return truncatedSegments(union);
+  return dedupeAlternatives(union, budget) ?? truncatedSegments(union);
 }
 
+// Preserve known fragments for shared rules and mark truncation for rules that
+// reject specifiers whose cross-operand joins exceed the analysis bounds.
+function truncatedSegments(alternatives) {
+  const segments = [tooComplexSegment, unknownSegment];
+  const seen = new Set();
+  for (const alternative of alternatives) for (const segment of alternative) {
+    if (typeof segment !== "string" || !segment.length || seen.has(segment)) continue;
+    seen.add(segment);
+    segments.push(segment);
+  }
+  return [segments];
+}
 
-function segmentAlternatives(node) {
+const isTruncated = (alternatives) => alternatives.some((alternative) => alternative[0] === tooComplexSegment);
+
+function segmentAlternatives(node, budget) {
   if (node == null) return [[unknownSegment]];
-  if (assertionNodes.includes(node?.type)) return segmentAlternatives(node.expression);
+  if (assertionNodes.includes(node?.type)) return segmentAlternatives(node.expression, budget);
   if (node?.type === "Literal" || node?.type === "StringLiteral") return typeof node.value === "string" ? [[node.value]] : [[unknownSegment]];
-  if (node?.type === "BinaryExpression" && node.operator === "+") return combineSegments(segmentAlternatives(node.left), segmentAlternatives(node.right));
-  if (node?.type === "ConditionalExpression") return [...segmentAlternatives(node.consequent), ...segmentAlternatives(node.alternate)];
-  if (node?.type === "LogicalExpression") return [...segmentAlternatives(node.left), ...segmentAlternatives(node.right)];
+  if (node?.type === "BinaryExpression" && node.operator === "+") return combineSegments(segmentAlternatives(node.left, budget), segmentAlternatives(node.right, budget), budget);
+  if (node?.type === "ConditionalExpression") return unionAlternatives(segmentAlternatives(node.consequent, budget), segmentAlternatives(node.alternate, budget), budget);
+  if (node?.type === "LogicalExpression") return unionAlternatives(segmentAlternatives(node.left, budget), segmentAlternatives(node.right, budget), budget);
   if (node?.type !== "TemplateLiteral") return [[unknownSegment]];
   let alternatives = [[]];
   for (const [index, quasi] of node.quasis.entries()) {
     const cooked = quasi.value.cooked;
-    alternatives = combineSegments(alternatives, [[typeof cooked === "string" ? cooked : unknownSegment]]);
-    if (index < node.expressions.length) alternatives = combineSegments(alternatives, segmentAlternatives(node.expressions[index]));
+    alternatives = combineSegments(alternatives, [[typeof cooked === "string" ? cooked : unknownSegment]], budget);
+    if (index < node.expressions.length) alternatives = combineSegments(alternatives, segmentAlternatives(node.expressions[index], budget), budget);
   }
   return alternatives;
 }
 
-function sourceVisitors(check) {
+function sourceVisitors(check, tooComplex) {
   function visit(node) {
-    for (const segments of segmentAlternatives(node)) {
+    const budget = analysisBudget();
+    let truncated = false;
+    for (const segments of segmentAlternatives(node, budget)) {
+      if (segments[0] === tooComplexSegment) truncated = true;
+      const complete = segments[0] !== tooComplexSegment && segments.length === 1 && typeof segments[0] === "string";
       for (const segment of segments) {
-        if (typeof segment === "string" && segment.length) check(node, segment);
+        if (typeof segment === "string" && segment.length) check(node, segment, complete);
       }
     }
+    if (truncated) tooComplex?.(node);
   }
   return {
     ImportDeclaration(node) { visit(node.source); },
@@ -93,16 +155,59 @@ function sourceVisitors(check) {
   };
 }
 
-function rule(message, reject) {
+// Oxc does not surface JSDoc types as type-query nodes in JS files; consult TypeScript's JSDoc parse.
+// TypeScript loads only when a file has a JSDoc block with a tag, so most runs skip the parser.
+const requireTypeScript = createRequire(import.meta.url);
+let typeScript;
+
+function jsdocImportReferences(filename, text) {
+  const firstBlock = text.indexOf("/**");
+  // One linear scan: a regex over a file of tag-less doc comments rescans the tail from every block.
+  if (firstBlock === -1 || text.indexOf("@", firstBlock + 3) === -1) return [];
+  typeScript ??= requireTypeScript("typescript");
+  const ts = typeScript;
+  const source = ts.createSourceFile(filename, text, ts.ScriptTarget.Latest, true, /\.[cm]?[jt]sx$/.test(filename) ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const references = [];
+  function visit(node) {
+    if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
+      references.push({ value: node.argument.literal.text, start: node.argument.literal.getStart(source) });
+    }
+    if (ts.isJSDocImportTag(node)) references.push({ value: node.moduleSpecifier.text, start: node.moduleSpecifier.getStart(source) });
+    for (const doc of node.jsDoc ?? []) visit(doc);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return references;
+}
+
+function rule(message, reject, { jsdoc = false, failClosed = false } = {}) {
   return {
     meta: { type: "problem", schema: [], messages: { rejected: message } },
     create(context) {
       const reported = new WeakSet();
-      return sourceVisitors((node, value) => {
-        if (typeof value !== "string" || reported.has(node) || !reject(value, context.filename)) return;
+      const visitors = sourceVisitors((node, value, complete) => {
+        if (typeof value !== "string" || reported.has(node) || !reject(value, context.filename, complete)) return;
         reported.add(node);
         context.report({ node, messageId: "rejected" });
-      });
+      }, failClosed ? (node) => {
+        if (reported.has(node)) return;
+        reported.add(node);
+        context.report({ node, messageId: "rejected" });
+      } : undefined);
+      if (jsdoc) visitors["Program:exit"] = () => {
+        const offending = jsdocImportReferences(context.filename, context.sourceCode.text)
+          .filter((reference) => reject(reference.value, context.filename, true))
+          .sort((left, right) => left.start - right.start);
+        if (!offending.length) return;
+        let index = 0;
+        for (const comment of context.sourceCode.getAllComments()) {
+          while (index < offending.length && offending[index].start < comment.range[0]) index += 1;
+          if (index === offending.length || offending[index].start >= comment.range[1]) continue;
+          context.report({ loc: comment.loc, messageId: "rejected" });
+          while (index < offending.length && offending[index].start < comment.range[1]) index += 1;
+        }
+      };
+      return visitors;
     },
   };
 }
@@ -115,6 +220,14 @@ function isStorybookImport(value) {
 
 function normalizedFilename(filename) {
   return String(filename ?? "").replaceAll("\\", "/");
+}
+
+// Normalize the specifier, not the importer path, so checkout ancestry cannot change classification; fully normalize complete specifiers, but preserve a fragment's trailing .. because an unknown expression may continue that segment.
+function normalizedSpecifier(value, complete) {
+  const normalized = value.replaceAll("\\", "/").replace(/^@\//, "");
+  const partialTraversal = !complete && /(?:^|\/)\.\.$/.test(normalized);
+  const resolved = path.posix.normalize(partialTraversal ? normalized.slice(0, -2) : normalized);
+  return partialTraversal ? `${resolved}/..` : resolved;
 }
 
 function layerForImport(value, filename) {
@@ -139,7 +252,13 @@ function packageRoot(value) {
 
 export const noStorybookImports = rule(productionIsolationMessage, isStorybookImport);
 export const noExplorationImports = rule(explorationIsolationMessage, (value) =>
-  /(?:^|\/)explorations(?:\/|$)/.test(value));
+  /(?:^|\/)explorations(?:\/|$)/.test(value), { jsdoc: true, failClosed: true });
+export const noTestSupportImports = rule(testSupportIsolationMessage, (value, _filename, complete) => {
+  const specifier = normalizedSpecifier(value, complete);
+  return /(?:^|\/)(?:tests|testing)(?:\/|$)/.test(specifier)
+    || /\.test(?:\.[^/]+)?$/.test(specifier)
+    || /(?:^|\/)[^/]*test-harness(?:\.[^/]+)?$/.test(specifier);
+}, { jsdoc: true, failClosed: true });
 export const noClassicZodImports = rule(classicZodMessage, (value) =>
   value !== "zod/mini" && (value === "zod" || value.startsWith("zod/")));
 

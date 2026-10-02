@@ -1,3 +1,5 @@
+import type { RegionId } from "@/config/regions";
+import { formatBasisPoints, formatPresentationPercentage } from "@/shared/formatting";
 import type { MorphoVaultCandidate, MorphoVaultPosition } from "@/shared/savings/types";
 
 const canonicalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
@@ -236,16 +238,14 @@ export function nextSavingsRateExpiryAt(
   return futureExpirations.length > 0 ? Math.min(...futureExpirations) : null;
 }
 
-export function formatExactSavingsApy(value: ExactSavingsApy): string {
+export function formatExactSavingsApy(value: ExactSavingsApy, regionId: RegionId = "GLOBAL"): string {
   if (value.denominator <= BigInt(0) || value.numerator < BigInt(0)) return "—";
   const percentageHundredths = divideAndRound(
     value.numerator * BigInt(10_000),
     value.denominator,
   );
-  if (percentageHundredths === BigInt(0)) return "0%";
-  const whole = percentageHundredths / BigInt(100);
-  const fraction = (percentageHundredths % BigInt(100)).toString().padStart(2, "0");
-  return `${whole}.${fraction}%`;
+  if (percentageHundredths === BigInt(0)) return formatPresentationPercentage(0, regionId);
+  return formatBasisPoints(percentageHundredths, regionId);
 }
 
 function unavailableSummary(

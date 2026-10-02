@@ -143,7 +143,13 @@ const ambiguousExecution: AccountWalletClient["executeMoneyAction"] = async () =
 };
 
 function storyActions(status: "pending" | "confirmed" | "failed"): AccountWalletClient["fetchAccountResource"] {
-  return async () => ({ actions: [{ id: "storybook-savings-deposit", status, owner: preparedAction("savings-deposit").owner }] });
+  const action = preparedAction("savings-deposit");
+  return async () => ({ actions: [{
+    id: action.id, owner: action.owner, provider: "cdp-embedded",
+    kind: action.kind, status,
+    createdAt: action.createdAt, confirmedAt: action.createdAt,
+    summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+  }] });
 }
 
 type DialogStorySurfaceProps = {
@@ -295,10 +301,10 @@ export const WithdrawNothingSaved: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
     await expect(await screen.findByRole("dialog", { name: "Withdraw" })).toBeVisible();
-    await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
+    await expect(await screen.findByText("Nothing available to withdraw right now.")).toBeVisible();
     await userEvent.type(await screen.findByRole("textbox", { name: "Amount" }), "0.10");
     await expect(await screen.findByRole("button", { name: "Continue" })).toBeDisabled();
-    await expect(await screen.findByText("Nothing saved to withdraw.")).toBeVisible();
+    await expect(await screen.findByText("Nothing available to withdraw right now.")).toBeVisible();
     await expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   },
 };

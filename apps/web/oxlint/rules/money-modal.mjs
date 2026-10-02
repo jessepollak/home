@@ -247,3 +247,96 @@ export const noAlternateMoneyModal = {
     };
   },
 };
+
+const spinClass = /(?:^|\s)(?:[^\s:]+:)*animate-spin(?=\s|$)/u;
+const transientProgress = /^(?:Preparing|Getting|Waiting for|Loading|Verifying)\b.*(?:…|\.\.\.)$/u;
+
+function jsxName(node) {
+  return node?.type === "JSXIdentifier" ? node.name : null;
+}
+
+function jsxAttribute(opening, name) {
+  return opening.attributes.find((attribute) => attribute.type === "JSXAttribute" && jsxName(attribute.name) === name);
+}
+
+function activeLoadingButton(opening) {
+  if (jsxName(opening.name) !== "Button") return false;
+  const loading = jsxAttribute(opening, "loading");
+  return Boolean(loading && (!loading.value || loading.value.expression?.value !== false));
+}
+
+function allowedLoadingCopy(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (parent.type === "JSXAttribute") {
+      const opening = parent.parent;
+      const name = jsxName(opening?.name);
+      const label = jsxName(parent.name);
+      return label === "primaryLabel" && ["MoneyModalFooter", "MoneyConfirmFooter"].includes(name);
+    }
+    if (parent.type === "JSXElement" && activeLoadingButton(parent.openingElement)) return true;
+    current = parent;
+  }
+  return false;
+}
+
+export const noUnownedLoading = {
+  meta: {
+    type: "problem", schema: [],
+    messages: {
+      icon: "Use an owned loading control instead of importing LoaderCircle in product code.",
+      spin: "Use Button loading or an owned loading component instead of animate-spin here.",
+    },
+  },
+  create(context) {
+    const filename = filenameWithinWeb(context.filename);
+    if (filename.startsWith("components/") || filename.startsWith("stories/")
+      || /(?:^|\/)(?:tests|testing|explorations)\//u.test(filename)
+      || /\.(?:test|stories)\.[cm]?[jt]sx?$/u.test(filename)) return {};
+    function checkSpin(node, value) {
+      if (typeof value === "string" && spinClass.test(value)) context.report({ node, messageId: "spin" });
+    }
+    return {
+      ImportDeclaration(node) {
+        if (sourceValue(node.source) !== "lucide-react") return;
+        for (const specifier of node.specifiers) {
+          if (specifier.type === "ImportSpecifier" && (specifier.imported.name ?? specifier.imported.value) === "LoaderCircle") {
+            context.report({ node: specifier, messageId: "icon" });
+          }
+        }
+      },
+      Literal(node) { checkSpin(node, node.value); },
+      StringLiteral(node) { checkSpin(node, node.value); },
+      TemplateElement(node) { checkSpin(node, node.value.raw); },
+    };
+  },
+};
+
+export const noTransientMoneyCopy = {
+  meta: {
+    type: "problem", schema: [],
+    messages: { rejected: "Keep the current money step and show loading on its primary footer button, not in progress-only copy." },
+  },
+  create(context) {
+    if (!filenameWithinWeb(context.filename).startsWith("client/")) return {};
+    let hasMoneyStep = false;
+    function check(node, value) {
+      if (hasMoneyStep && typeof value === "string" && transientProgress.test(value.trim()) && !allowedLoadingCopy(node)) {
+        context.report({ node, messageId: "rejected" });
+      }
+    }
+    return {
+      Program(node) {
+        hasMoneyStep = node.body.some((statement) => statement.type === "ImportDeclaration"
+          && withoutExtension(resolvedSource(sourceValue(statement.source), context.filename) ?? "") === "client/money-modal"
+          && statement.specifiers.some((specifier) => specifier.type === "ImportSpecifier"
+            && ["MoneyModalStep", "MoneyModalFooter", "MoneyConfirmFooter"].includes(specifier.imported.name ?? specifier.imported.value)));
+      },
+      JSXText(node) { check(node, node.value.replace(/\s+/gu, " ")); },
+      Literal(node) { if (typeof node.value === "string") check(node, node.value); },
+      StringLiteral(node) { if (typeof node.value === "string") check(node, node.value); },
+      TemplateLiteral(node) { if (node.expressions.length === 0) check(node, node.quasis[0]?.value.cooked); },
+    };
+  },
+};

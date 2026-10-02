@@ -2,6 +2,40 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("bounds request diagnostics and rejects private or non-boolean diagnostic fields", () => {
+    const input: Parameters<typeof normalizeObservabilityEvent>[0] = { kind: "activity-read", route: "/api/activity", outcome: "succeeded",
+      reason: "primary-source", source: "cdp-sql", durationMs: 1, sourceDurationMs: 1, sourceAttemptCount: 1,
+      pageCount: 1, rowCount: 0, valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
+    };
+    Object.assign(input, {
+      cdpCorrelationId: "private-owner", requestKey: "private-owner", requestPage: "private-cursor", windowEndAgeSeconds: Infinity, windowEndAlignment: "private-timestamp",
+      sourceCached: "private-payload", sourceStale: 1, sqlRejectionReason: "private-body", sql: "private-query",
+    });
+    const event = normalizeObservabilityEvent(input);
+    expect(event).toMatchObject({ sqlRejectionReason: "unknown" });
+    for (const field of ["cdpCorrelationId", "requestKey", "requestPage", "windowEndAgeSeconds", "windowEndAlignment", "sourceCached", "sourceStale", "sql"]) expect(event).not.toHaveProperty(field);
+    expect(JSON.stringify(event)).not.toContain("private-");
+  });
+  test("activity source diagnostics use a closed code and valid HTTP status", () => {
+    const event = {
+      kind: "activity-read" as const, route: "/api/activity" as const,
+      outcome: "failed" as const, reason: "primary-source" as const, source: "cdp-sql" as const,
+      durationMs: 10, sourceDurationMs: 8, sourceAttemptCount: 1, pageCount: 0, rowCount: 0,
+      valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
+    };
+    expect(normalizeObservabilityEvent(event)).not.toHaveProperty("sourceError");
+    expect(normalizeObservabilityEvent(event)).not.toHaveProperty("upstreamStatus");
+    expect(normalizeObservabilityEvent({ ...event, sourceError: "rate-limited", upstreamStatus: 429 }))
+      .toMatchObject({ sourceError: "rate-limited", upstreamStatus: 429 });
+    for (const status of [99, 600, 502.5, Infinity, "private-status", null]) {
+      const line = normalizeObservabilityEvent({ ...event, sourceError: "private-error", upstreamStatus: status,
+        message: "private-body", cause: "private-token" } as never);
+      expect(line).toHaveProperty("sourceError", "unknown");
+      expect(line).not.toHaveProperty("upstreamStatus");
+      expect(JSON.stringify(line)).not.toMatch(/private-/);
+    }
+  });
+
   test("normalizes boundary parse failures without source metadata or sensitive payload", () => {
     const line = normalizeObservabilityEvent({
       kind: "balances-contract",
@@ -90,6 +124,15 @@ describe("observability schema", () => {
       },
     };
     expect(normalizeObservabilityEvent(event)).toMatchObject({ outcome: "revalidating", incomplete: event.incomplete });
+    expect(normalizeObservabilityEvent(event)).not.toHaveProperty("durationMs.pricing-compute");
+    expect(normalizeObservabilityEvent({
+      ...event,
+      durationMs: { ...event.durationMs, "pricing-index": 2.6, "pricing-compute": Infinity, owner: "private-owner" },
+    } as never)).toMatchObject({ durationMs: { "pricing-index": 3, "pricing-compute": 0 } });
+    expect(JSON.stringify(normalizeObservabilityEvent({
+      ...event,
+      durationMs: { ...event.durationMs, "pricing-index": -2, "pricing-compute": 90_000, owner: "private-owner" },
+    } as never))).not.toContain("private-owner");
     expect(normalizeObservabilityEvent({ ...event, outcome: "surprise" as never })).toMatchObject({ outcome: "error" });
     expect(normalizeObservabilityEvent({
       ...event,
@@ -528,4 +571,11 @@ describe("observability schema", () => {
       provider: "fixture",
     });
   });
+});
+
+test("retains the provider-issued correlation ID at the closed logging boundary", () => {
+  const event = normalizeObservabilityEvent({ kind: "activity-read", route: "/api/activity", outcome: "failed",
+    reason: "primary-source", source: "cdp-sql", valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
+    durationMs: 10, sourceDurationMs: 10, sourceAttemptCount: 1, pageCount: 0, rowCount: 0, cdpCorrelationId: "41deb8d59a9dc9a7-IAD" });
+  expect(event).toHaveProperty("cdpCorrelationId", "41deb8d59a9dc9a7-IAD");
 });

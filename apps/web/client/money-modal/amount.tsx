@@ -39,6 +39,8 @@ import {
   type MoneyChipSet,
 } from "./amount-units";
 
+const isSizeArray: (value: readonly ResizeObserverSize[] | ResizeObserverSize) => value is readonly ResizeObserverSize[] = Array.isArray;
+
 const AMOUNT_MIN_FONT_PROPERTY = "--money-amount-min-size";
 const AMOUNT_MIN_FONT_SIZE_FALLBACK = 20;
 const AMOUNT_FIT_TOLERANCE_PX = 0.5;
@@ -151,10 +153,10 @@ export function useAutoFitAmountText<T extends HTMLElement = HTMLLabelElement>(
       for (const entry of entries) {
         if (entry.target === container) {
           const box = entry.contentBoxSize;
-          availableWidthRef.current = (Array.isArray(box) ? box[0] : box)?.inlineSize ?? entry.contentRect.width;
+          availableWidthRef.current = (isSizeArray(box) ? box[0] : box)?.inlineSize ?? entry.contentRect.width;
         } else if (entry.target === sizer) {
           const box = entry.borderBoxSize;
-          naturalWidthRef.current = (Array.isArray(box) ? box[0] : box)?.inlineSize ?? sizer.getBoundingClientRect().width;
+          naturalWidthRef.current = (isSizeArray(box) ? box[0] : box)?.inlineSize ?? sizer.getBoundingClientRect().width;
         }
       }
       flushSync(() => fitWidths(availableWidthRef.current, naturalWidthRef.current));
@@ -211,6 +213,7 @@ export function MoneyAmountDisplay({
   amountError,
   onSubmit,
   disabled = false,
+  readOnly = false,
   children,
   availableLabel,
   availableAmount,
@@ -235,6 +238,7 @@ export function MoneyAmountDisplay({
   amountError?: string;
   onSubmit?: () => void;
   disabled?: boolean;
+  readOnly?: boolean;
   children?: ReactNode;
   availableLabel?: string;
   availableAmount?: string | null;
@@ -279,7 +283,7 @@ export function MoneyAmountDisplay({
   const availableLine = formatAvailableLine(availableLabel, unit, nativeSymbol);
   const labelAmount = parseAvailableDecimal(availableLabel ?? "");
   const ceilingDiffers = Boolean(maxAmount && labelAmount && (amountExceedsCeiling(labelAmount, maxAmount) || amountExceedsCeiling(maxAmount, labelAmount)));
-  const ceilingLine = ceilingDiffers && maxAmount ? formatAvailableDecimal(maxAmount, unit, nativeSymbol) : undefined;
+  const ceilingLine = ceilingDiffers && maxAmount ? formatAvailableDecimal(maxAmount, unit, nativeSymbol, /\s+saved$/i.test(availableLabel ?? "") ? "saved" : "available") : undefined;
   const secondaryNative = amount === "" ? "0" : amount;
   const secondary = unit.kind === "convertible"
     ? mode === "fiat" ? `${secondaryNative} ${nativeSymbol}` : `≈ ${formatPrimaryAmount(nativeToFiat(secondaryNative, unit.perUnit), { kind: "fiat", currency: unit.currency })}`
@@ -304,6 +308,7 @@ export function MoneyAmountDisplay({
         maxDecimals={mode === "fiat" ? 2 : maxDecimals}
         onSubmit={onSubmit}
         disabled={disabled}
+        readOnly={readOnly}
         focusKey={assetId}
         availableId={availableLine || amountError ? availableId : undefined}
         overAvailable={overAvailable || Boolean(amountError)}
@@ -318,6 +323,7 @@ export function MoneyAmountDisplay({
       {unit.kind === "convertible" ? (
         <MoneyUnitToggle
           secondaryLabel={secondary}
+          disabled={disabled || readOnly}
           onToggle={() => setEntryState({ ...entryState, assetId, unitKind: unit.kind, mode: mode === "native" ? "fiat" : "native" })}
         />
       ) : null}
@@ -329,6 +335,7 @@ export function MoneyAmountDisplay({
             unit={primaryUnit}
             availableAmount={maxAmount}
             quickMaximum={mode === "fiat" && unit.kind === "convertible" && maxAmount ? nativeToFiat(maxAmount, unit.perUnit) : maxAmount}
+            disabled={disabled || readOnly}
             onSelect={(value) => {
               if (mode === "fiat" && unit.kind === "convertible") {
                 const maxFiat = maxAmount ? nativeToFiat(maxAmount, unit.perUnit) : null;
@@ -353,6 +360,7 @@ export function MoneyPrimaryAmount({
   maxDecimals,
   onSubmit,
   disabled = false,
+  readOnly = false,
   focusKey,
   availableId,
   overAvailable = false,
@@ -364,6 +372,7 @@ export function MoneyPrimaryAmount({
   maxDecimals: number;
   onSubmit?: () => void;
   disabled?: boolean;
+  readOnly?: boolean;
   focusKey?: string;
   availableId?: string;
   overAvailable?: boolean;
@@ -414,7 +423,7 @@ export function MoneyPrimaryAmount({
 
   const applyEdit = (raw: string, rawCaret: number, input: HTMLInputElement) => {
     const result = normalizeTypedAmount(raw, maxDecimals);
-    if (!result.ok) {
+    if (readOnly || !result.ok) {
       input.value = amount;
       input.setSelectionRange(previousSelection.current.start, previousSelection.current.end);
       return;
@@ -458,6 +467,8 @@ export function MoneyPrimaryAmount({
                 value={amount}
                 placeholder="0"
                 disabled={disabled}
+                readOnly={readOnly}
+                aria-readonly={readOnly || undefined}
                 onSelect={rememberSelection}
                 onBeforeInput={rememberSelection}
                 onKeyDown={(event) => {
@@ -617,6 +628,7 @@ export function MoneyQuickChips({
   quickMaximum = availableAmount,
   onSelect,
   onMax = onSelect,
+  disabled = false,
 }: {
   chipSet: MoneyChipSet;
   unit: MoneyAmountUnit;
@@ -624,10 +636,11 @@ export function MoneyQuickChips({
   quickMaximum?: string | null;
   onSelect: (amount: string) => void;
   onMax?: (amount: string) => void;
+  disabled?: boolean;
 }) {
   if (chipSet === "none") return null;
-  const maxEnabled = isAvailablePositive(availableAmount);
-  const quickDisabled = unit.kind === "native";
+  const maxEnabled = !disabled && isAvailablePositive(availableAmount);
+  const quickDisabled = disabled || unit.kind === "native";
   const localCurrency = unit.kind === "native" ? "USD" : unit.currency;
 
   return (
@@ -672,9 +685,11 @@ export function MoneyQuickChips({
 export function MoneyUnitToggle({
   secondaryLabel,
   onToggle,
+  disabled = false,
 }: {
   secondaryLabel: string;
   onToggle: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Button
@@ -682,6 +697,7 @@ export function MoneyUnitToggle({
       size="sm"
       className="h-11 md:pointer-fine:h-7"
       onClick={onToggle}
+      disabled={disabled}
       aria-label={`Show ${secondaryLabel} as the primary amount`}
     >
       <ArrowDownUp className="size-4" aria-hidden="true" />

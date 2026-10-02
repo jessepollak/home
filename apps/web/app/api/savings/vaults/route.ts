@@ -1,6 +1,8 @@
+import { connection } from "next/server";
 import { getMorphoVaultCandidates } from "@/server/morpho";
 
 export async function GET() {
+  await connection();
   try {
     const result = await getMorphoVaultCandidates();
     return Response.json(result, {

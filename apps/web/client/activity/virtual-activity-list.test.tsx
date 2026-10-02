@@ -1,9 +1,8 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, expect, mock, test } from "bun:test";
-import { ShellPanelActiveContext } from "@/client/home/panel-shared";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import type { ActivityLedgerItem } from "./activity-ledger";
-import type { ComponentProps } from "react";
+import { Activity, createRef, type ComponentProps } from "react";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { VirtualActivityList } = await import("./virtual-activity-list");
@@ -26,6 +25,12 @@ afterEach(() => {
   if (originalResizeObserver) Object.defineProperty(globalThis, "ResizeObserver", originalResizeObserver);
   else Reflect.deleteProperty(globalThis, "ResizeObserver");
 });
+
+function requiredElement<K extends keyof HTMLElementTagNameMap>(root: ParentNode, tag: K): HTMLElementTagNameMap[K] {
+  const node = root.querySelector(tag);
+  if (!node) throw new Error(`missing <${tag}>`);
+  return node;
+}
 
 function mockHeights(rowHeight: (index: number) => number = () => 64) {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
@@ -75,7 +80,7 @@ function item(id: string): ActivityLedgerItem {
 const props = { attentionLabel: "Action needed", onOpen, onToggle: () => {}, Row };
 
 function list(items: ActivityLedgerItem[], exhausted = false) {
-  return <main data-app-main-authenticated=""><section tabIndex={-1} aria-label="Activity">
+  return <main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section tabIndex={-1} aria-label="Activity">
     <VirtualActivityList {...props} id="recent-list" items={items.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted={exhausted} labelledBy="recent-title" />
   </section></main>;
 }
@@ -194,10 +199,10 @@ test("keeps the visible row fixed when content above pushes the list top below t
   expect(main.scrollTop).toBe(274);
 });
 
-test("pauses rows while hidden and restores measured positions on resume", async () => {
+test("restores measured positions on resume", async () => {
   mockHeights((index) => index < 6 || index % 2 === 0 ? 116 : 36);
   const rows = Array.from({ length: 80 }, (_, index) => item(`row-${index}`));
-  const show = (active: boolean) => <ShellPanelActiveContext value={active}>{list(rows, true)}</ShellPanelActiveContext>;
+  const show = (active: boolean) => <Activity mode={active ? "visible" : "hidden"}>{list(rows, true)}</Activity>;
   const view = render(show(true));
   const ul = view.container.querySelector("ul")!;
   expect(ul.getAttribute("aria-labelledby")).toBe("recent-title");
@@ -218,7 +223,6 @@ test("pauses rows while hidden and restores measured positions on resume", async
   expect(visible).toBeDefined();
   expect(Number.parseFloat(height)).toBeGreaterThan(80 * 64);
   view.rerender(show(false));
-  expect(ul.querySelectorAll("li")).toHaveLength(0);
   expect(ul.style.height).toBe(height);
   view.rerender(show(true));
   expect(Number.parseFloat(ul.style.height)).toBeGreaterThan(80 * 64);
@@ -237,9 +241,9 @@ test("resumes measured rows without synchronous geometry reads and updates after
   const resize = mockListResize();
   const rows = Array.from({ length: 14 }, (_, index) => item(`row-${index}`));
   const items = rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }));
-  const show = (active: boolean) => <ShellPanelActiveContext value={active}><main data-app-main-authenticated=""><section>
+  const show = (active: boolean) => <Activity mode={active ? "visible" : "hidden"}><main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section>
     <VirtualActivityList {...props} id="recent-list" items={items} exhausted={false} />
-  </section></main></ShellPanelActiveContext>;
+  </section></main></Activity>;
   const view = render(show(true));
   const ul = view.container.querySelector("ul")!;
   const main = view.container.querySelector("main")!;
@@ -298,9 +302,9 @@ test("resumes rows measured at the estimate without synchronous row geometry rea
   mockListResize();
   const rows = Array.from({ length: 14 }, (_, index) => item(`row-${index}`));
   const items = rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }));
-  const show = (active: boolean) => <ShellPanelActiveContext value={active}><main data-app-main-authenticated=""><section>
+  const show = (active: boolean) => <Activity mode={active ? "visible" : "hidden"}><main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section>
     <VirtualActivityList {...props} id="recent-list" items={items} exhausted={false} />
-  </section></main></ShellPanelActiveContext>;
+  </section></main></Activity>;
   const view = render(show(true));
   const ul = view.container.querySelector("ul")!;
   const row = (index: number) => ul.querySelector<HTMLElement>(`li[data-index="${index}"]`)!;
@@ -331,6 +335,7 @@ test("resumes rows measured at the estimate without synchronous row geometry rea
   expect(row(13).style.transform).toBe(lastPosition);
   expect(ul.style.height).toBe(height);
 });
+
 test("reads a newly mounted row once on resume while reused rows stay unread", () => {
   mockHeights();
   mockListOffset({ current: 40 });
@@ -343,9 +348,9 @@ test("reads a newly mounted row once on resume while reused rows stay unread", (
   mockListResize();
   const rows = Array.from({ length: 14 }, (_, index) => item(`row-${index}`));
   const items = (entries: ActivityLedgerItem[]) => entries.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }));
-  const show = (active: boolean, entries: ActivityLedgerItem[]) => <ShellPanelActiveContext value={active}><main data-app-main-authenticated=""><section>
+  const show = (active: boolean, entries: ActivityLedgerItem[]) => <Activity mode={active ? "visible" : "hidden"}><main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section>
     <VirtualActivityList {...props} id="recent-list" items={items(entries)} exhausted={false} />
-  </section></main></ShellPanelActiveContext>;
+  </section></main></Activity>;
   const view = render(show(true, rows));
   const ul = view.container.querySelector("ul")!;
   const row = (index: number) => ul.querySelector<HTMLElement>(`li[data-index="${index}"]`)!;
@@ -372,6 +377,7 @@ test("reads a newly mounted row once on resume while reused rows stay unread", (
   expect(row(14).style.transform).toBe("translateY(896px)");
   expect(ul.style.height).toBe("962.5px");
 });
+
 
 test("keeps fractional row heights on initial measurement before a resize observation", () => {
   mockHeights(() => 60);
@@ -400,7 +406,7 @@ test("scroll margin positions the rows without reducing the list's content heigh
 test("never writes the shell's restored scroll when attaching or resuming", () => {
   mockHeights();
   const rows = Array.from({ length: 80 }, (_, index) => item(`row-${index}`));
-  const view = render(<main data-app-main-authenticated="" />);
+  const view = render(<main data-app-main-authenticated="" style={{ overflowY: "auto" }} />);
   const main = view.container.querySelector("main")!;
   const write = mock((options?: ScrollToOptions | number, y?: number) => {
     main.scrollTop = typeof options === "number" ? y ?? 0 : options?.top ?? 0;
@@ -410,9 +416,90 @@ test("never writes the shell's restored scroll when attaching or resuming", () =
   view.rerender(list(rows));
   expect(main.scrollTop).toBe(100);
   expect(write).not.toHaveBeenCalled();
-  view.rerender(<ShellPanelActiveContext value={false}>{list(rows)}</ShellPanelActiveContext>);
+  view.rerender(<></>);
   main.scrollTop = 200;
-  view.rerender(<ShellPanelActiveContext value={true}>{list(rows)}</ShellPanelActiveContext>);
+  view.rerender(list(rows));
   expect(main.scrollTop).toBe(200);
   expect(write).not.toHaveBeenCalled();
+});
+
+test("remeasures a far jump but skips redundant measurements during a fling", () => {
+  mockHeights();
+  mockListOffset({ current: 0 });
+  const rows = Array.from({ length: 300 }, (_, index) => item(`row-${index}`));
+  const handle = createRef<{ restore: (key: string) => boolean }>();
+  const view = render(<main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section>
+    <VirtualActivityList {...props} ref={handle} id="recent-list" items={rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted />
+  </section></main>);
+  const main = requiredElement(view.container, "main");
+  const ul = requiredElement(view.container, "ul");
+  Object.defineProperty(main, "clientHeight", { configurable: true, value: 800 });
+  const query = spyOn(ul, "querySelectorAll");
+  main.scrollTop = 1000;
+  fireEvent.scroll(main);
+  expect(query).toHaveBeenCalledWith("li[data-index]");
+  query.mockClear();
+  main.scrollTop = 2200;
+  fireEvent.scroll(main);
+  expect(query).not.toHaveBeenCalledWith("li[data-index]");
+  Object.defineProperty(main, "scrollTo", { configurable: true, value: (options: ScrollToOptions) => {
+    main.scrollTop = options.top ?? 0;
+    fireEvent.scroll(main);
+  } });
+  act(() => expect(handle.current?.restore("onchain-transfer:row-170")).toBe(true));
+  expect(query).toHaveBeenCalledWith("li[data-index]");
+});
+
+test("a no-op jump does not remeasure rows on the next fling scroll", () => {
+  mockHeights();
+  mockListOffset({ current: 0 });
+  const rows = Array.from({ length: 300 }, (_, index) => item(`row-${index}`));
+  const handle = createRef<{ restore: (key: string) => boolean }>();
+  const view = render(<main data-app-main-authenticated="" style={{ overflowY: "auto" }}><section>
+    <VirtualActivityList {...props} ref={handle} id="recent-list" items={rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted />
+  </section></main>);
+  const main = requiredElement(view.container, "main");
+  const ul = requiredElement(view.container, "ul");
+  Object.defineProperty(main, "clientHeight", { configurable: true, value: 800 });
+  Object.defineProperty(main, "scrollHeight", { configurable: true, value: 300 * 64 });
+  const query = spyOn(ul, "querySelectorAll");
+  main.scrollTop = 1040;
+  fireEvent.scroll(main);
+  expect(query).toHaveBeenCalledWith("li[data-index]");
+  query.mockClear();
+  const scrollTo = mock((options: ScrollToOptions) => {
+    expect(options.top).toBe(1040);
+  });
+  Object.defineProperty(main, "scrollTo", { configurable: true, value: scrollTo });
+  act(() => expect(handle.current?.restore("onchain-transfer:row-22")).toBe(true));
+  expect(scrollTo).toHaveBeenCalled();
+  query.mockClear();
+  main.scrollTop = 2300;
+  fireEvent.scroll(main);
+  expect(query).not.toHaveBeenCalledWith("li[data-index]");
+});
+
+test("reads the viewport size only when the list mounts", () => {
+  mockHeights();
+  const rows = Array.from({ length: 20 }, (_, index) => item(`row-${index}`));
+  const reads = { width: 0, height: 0 };
+  const width = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  const height = Object.getOwnPropertyDescriptor(window, "innerHeight");
+  Object.defineProperty(window, "innerWidth", { configurable: true, get() { reads.width++; return 390; } });
+  Object.defineProperty(window, "innerHeight", { configurable: true, get() { reads.height++; return 844; } });
+  try {
+    const view = render(list(rows));
+    expect(reads).toEqual({ width: 1, height: 1 });
+    view.rerender(<main data-app-main-authenticated=""><section tabIndex={-1} aria-label="Activity">
+      <VirtualActivityList {...props} onOpen={() => {}} id="recent-list" items={rows.map((entry) => ({ key: `${entry.family}:${entry.id}`, item: entry }))} exhausted={false} labelledBy="recent-title" />
+    </section></main>);
+    view.rerender(list([item("row-new"), ...rows]));
+    expect(view.container.querySelectorAll("li").length).toBeGreaterThan(0);
+    expect(reads).toEqual({ width: 1, height: 1 });
+  } finally {
+    if (width) Object.defineProperty(window, "innerWidth", width);
+    else Reflect.deleteProperty(window, "innerWidth");
+    if (height) Object.defineProperty(window, "innerHeight", height);
+    else Reflect.deleteProperty(window, "innerHeight");
+  }
 });

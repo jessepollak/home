@@ -8,6 +8,7 @@ import {
   noServerClientImports,
   noSharedRuntimeImports,
   noStorybookImports,
+  noTestSupportImports,
 } from "./rules/imports.mjs";
 import { requireServerOnly } from "./rules/server-only.mjs";
 import { noDescendantHas, noImportantUtilities, noLiteralUtilityStyles } from "./rules/styles.mjs";
@@ -39,16 +40,24 @@ import { noLiteralJsxColors } from "./rules/jsx-colors.mjs";
 import { isolateInstrumentationCalls, noSilentCatch } from "./rules/observability.mjs";
 import { noAmountFallback } from "./rules/amounts.mjs";
 import { noComments } from "./rules/no-comments.mjs";
-import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives } from "./rules/money-modal.mjs";
+import { moneyModalPublicApi, noAlternateMoneyModal, noSheetPrimitiveReexports, noSheetPrimitives, noTransientMoneyCopy, noUnownedLoading } from "./rules/money-modal.mjs";
 import { explorationStoryTag } from "./rules/exploration-story-tag.mjs";
+import { ownerIdentityHelper } from "./rules/owner-identity.mjs";
 import { noDeferredEffectSetstate } from "./rules/react-effects.mjs";
+import { noInlineRequestJson, noManualAbortTimeout } from "./rules/http-primitives.mjs";
+import { noFetchInClientComponents, queryKeyFactory } from "./rules/client-data.mjs";
+import { noAddressLiteralRegex } from "./rules/address-literals.mjs";
 import { noFullPortfolioPresentation } from "./rules/portfolio-presentation.mjs";
+
+import { boundedCdpEventQuery } from "./rules/cdp-event-query.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
   rules: {
+    "bounded-cdp-event-query": boundedCdpEventQuery,
     "no-storybook-imports": noStorybookImports,
     "no-exploration-imports": noExplorationImports,
+    "no-test-support-imports": noTestSupportImports,
     "no-client-server-imports": noClientServerImports,
     "no-server-client-imports": noServerClientImports,
     "no-shared-runtime-imports": noSharedRuntimeImports,
@@ -85,12 +94,20 @@ const homePlugin = {
     "no-silent-catch": noSilentCatch,
     "isolate-instrumentation-calls": isolateInstrumentationCalls,
     "no-amount-fallback": noAmountFallback,
+    "no-inline-request-json": noInlineRequestJson,
+    "no-manual-abort-timeout": noManualAbortTimeout,
+    "no-fetch-in-client-components": noFetchInClientComponents,
+    "query-key-factory": queryKeyFactory,
+    "no-address-literal-regex": noAddressLiteralRegex,
     "no-comments": noComments,
     "no-sheet-primitives": noSheetPrimitives,
     "no-sheet-primitive-reexports": noSheetPrimitiveReexports,
     "money-modal-public-api": moneyModalPublicApi,
     "no-alternate-money-modal": noAlternateMoneyModal,
+    "no-unowned-loading": noUnownedLoading,
+    "no-transient-money-copy": noTransientMoneyCopy,
     "exploration-story-tag": explorationStoryTag,
+    "owner-identity-helper": ownerIdentityHelper,
     "no-deferred-effect-setstate": noDeferredEffectSetstate,
     "no-full-portfolio-presentation": noFullPortfolioPresentation,
   },

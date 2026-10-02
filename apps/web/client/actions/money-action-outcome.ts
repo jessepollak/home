@@ -1,11 +1,12 @@
 "use client";
 
 import { skipToken } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useEffect, useRef } from "react";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import { invalidateAfterAction, requalifyBalancesAfterSettlement } from "@/client/query/after-action";
 import { browserHomeQueryClient, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import type { PreparedMoneyAction, DerivedActionStatus, MoneyActionOwner } from "@/shared/money-actions/types";
-import { fetchRecentActions, recentActionsQueryOptions } from "./recent-actions-query";
+import { recentActionsQuery } from "./recent-actions-query";
 
 type Submission = "submitted" | "ambiguous" | "failed";
 type MoneyResultStatus = "success" | "pending" | "failed" | "unknown";
@@ -19,40 +20,19 @@ export function moneyResultOutcome({ submission, row }: { submission: Submission
   return "pending";
 }
 
-function ownerKeyForAction(action: PreparedMoneyAction): string {
-  return dataOwnerKey({
-    subject: action.owner.subject,
-    smartAccountAddress: action.owner.address,
-    chainId: action.owner.chainId,
-    accountProvider: action.owner.accountProvider,
-  });
-}
-
-function matchingRow(value: unknown, action: PreparedMoneyAction): ResultRow | undefined {
-  if (!value || typeof value !== "object" || !("actions" in value) || !Array.isArray(value.actions)) return undefined;
-  const ownerKey = ownerKeyForAction(action);
-  return value.actions.find((candidate: unknown): candidate is ResultRow => {
-    if (!candidate || typeof candidate !== "object" || !("owner" in candidate) || !("id" in candidate) || !("status" in candidate)) return false;
-    const row = candidate as Record<string, unknown>;
-    const owner = row.owner;
-    if (!owner || typeof owner !== "object" || Array.isArray(owner)) return false;
-    const fields = owner as Record<string, unknown>;
-    if (typeof fields.subject !== "string" || typeof fields.address !== "string" || typeof fields.chainId !== "number" ||
-      typeof fields.accountProvider !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(fields.address)) return false;
-    return row.id === action.id &&
-      (row.status === "pending" || row.status === "confirmed" || row.status === "failed" || row.status === "unknown") &&
-      dataOwnerKey({ subject: fields.subject, smartAccountAddress: fields.address as `0x${string}`, chainId: fields.chainId, accountProvider: fields.accountProvider }) === ownerKey;
-  });
-}
-
 export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
   action: PreparedMoneyAction;
   submission: Submission;
   fetchOperations: (signal?: AbortSignal) => Promise<unknown>;
 }): { outcome: MoneyResultStatus; row?: ResultRow } {
-  const ownerKey = ownerKeyForAction(action);
+  const session = {
+    user: { subject: action.owner.subject },
+    smartAccount: { address: action.owner.address, chainId: action.owner.chainId },
+    accountProvider: action.owner.accountProvider,
+  };
+  const ownerKey = dataOwnerKey(session);
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
-  const observationKey = useMemo(() => ownerQueryKey(ownerKey, "action-result-observation", action.id), [ownerKey, action.id]);
+  const observationKey = ownerQueryKey(ownerKey, "action-result-observation", action.id);
   const observation = useHomeQuery<ResultRow>({
     queryKey: observationKey,
     queryFn: skipToken,
@@ -60,20 +40,43 @@ export function useMoneyActionOutcome({ action, submission, fetchOperations }: {
     meta: ownerQueryMeta(ownerKey, "memory"),
   });
   const actions = useHomeQuery({
-    queryKey: ownerQueryKey(ownerKey, "actions"),
+    ...recentActionsQuery({ owner: ownerKey, session, fetchOperations }),
     enabled: submission !== "failed",
-    ...recentActionsQueryOptions,
-    meta: ownerQueryMeta(ownerKey, "owner"),
-    queryFn: ({ signal }) => fetchRecentActions(fetchOperations, signal),
     refetchInterval: (query) => {
-      const outcome = moneyResultOutcome({ submission, row: matchingRow(query.state.data, action) ?? queryClient.getQueryData<ResultRow>(observationKey) });
+      const operation = query.state.data?.operations.find((candidate) => candidate.action.id === action.id) ??
+        query.state.data?.retainedSavingsDeposits.find((candidate) => candidate.action.id === action.id);
+      const outcome = moneyResultOutcome({ submission, row: operation ?? queryClient.getQueryData<ResultRow>(observationKey) });
       return outcome === "pending" || outcome === "unknown" ? 5_000 : false;
     },
   });
-  const observedRow = matchingRow(actions.data, action);
+  const operation = actions.data?.operations.find((candidate) => candidate.action.id === action.id) ??
+    actions.data?.retainedSavingsDeposits.find((candidate) => candidate.action.id === action.id);
   useEffect(() => {
-    if (observedRow && submission !== "failed") queryClient.setQueryData(observationKey, observedRow);
-  }, [observedRow, submission, queryClient, observationKey]);
-  const row = observedRow ?? observation.data;
-  return { outcome: moneyResultOutcome({ submission, row }), ...(row ? { row } : {}) };
+    if (operation && submission !== "failed") {
+      queryClient.setQueryData(ownerQueryKey(ownerKey, "action-result-observation", action.id),
+        { id: operation.action.id, status: operation.status, owner: action.owner });
+    }
+  }, [operation, submission, queryClient, ownerKey, action.id, action.owner]);
+  const row = operation ? { id: operation.action.id, status: operation.status, owner: action.owner } : observation.data;
+  const outcome = moneyResultOutcome({ submission, row });
+  const settled = row?.status === "confirmed";
+  const settledStamp = settled ? `${action.id}\u0000${operation?.settledAt ?? ""}` : null;
+  const qualifiedUnknown = useRef(false);
+  const qualifiedSettlement = useRef<string | null>(null);
+  const settledBefore = useRef(settled);
+  useEffect(() => {
+    const newlySettled = settled && !settledBefore.current;
+    settledBefore.current = settled;
+    if (submission === "failed" || outcome === "failed") return;
+    if (settledStamp !== null) {
+      if (!newlySettled && qualifiedSettlement.current === settledStamp) return;
+      qualifiedSettlement.current = settledStamp;
+      requalifyBalancesAfterSettlement({ queryClient, dataOwnerKey: ownerKey });
+      return;
+    }
+    if (submission !== "ambiguous" || outcome !== "unknown" || qualifiedUnknown.current) return;
+    qualifiedUnknown.current = true;
+    void invalidateAfterAction(queryClient, ownerKey);
+  }, [submission, outcome, settled, settledStamp, queryClient, ownerKey]);
+  return { outcome, ...(row ? { row } : {}) };
 }

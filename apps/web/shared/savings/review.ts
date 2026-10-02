@@ -1,3 +1,4 @@
+import { parseAddress, parseHash32, type Address } from "@/shared/chain/hex";
 import type {
   PreparedMoneyAction,
   SavingsMoneyActionMetadata,
@@ -5,7 +6,7 @@ import type {
 
 export type SavingsPreparedReview = {
   operation: "deposit" | "withdraw";
-  vaultAddress: `0x${string}`;
+  vaultAddress: Address;
   vaultName: string;
   network: { name: "Base"; chainId: 8453 };
   feeWad: string;
@@ -22,8 +23,6 @@ export type SavingsPreparedReview = {
 
 const integer = /^(?:0|[1-9][0-9]*)$/;
 const decimal = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
-const address = /^0x[0-9a-fA-F]{40}$/;
-const hash = /^0x[0-9a-fA-F]{64}$/;
 const WAD = BigInt("1000000000000000000");
 
 export function readSavingsPreparedReview(
@@ -47,7 +46,9 @@ export function readSavingsPreparedReview(
     amount.estimated === true &&
     amount.direction === (metadata.operation === "deposit" ? "receive" : "spend")
   );
+  const vaultAddress = parseAddress(metadata.vaultAddress);
   if (
+    !vaultAddress ||
     !usdc ||
     !shares ||
     typeof usdc.amountBaseUnits !== "string" ||
@@ -62,7 +63,7 @@ export function readSavingsPreparedReview(
 
   return {
     operation: metadata.operation,
-    vaultAddress: metadata.vaultAddress,
+    vaultAddress,
     vaultName: metadata.vaultName,
     network: metadata.network,
     feeWad: metadata.feeWad,
@@ -98,7 +99,7 @@ export function isSavingsMetadata(
 
   return item.product === "savings" &&
     (operation === "deposit" || operation === "withdraw") &&
-    typeof item.vaultAddress === "string" && address.test(item.vaultAddress) &&
+    parseAddress(item.vaultAddress) !== null &&
     typeof item.vaultName === "string" && item.vaultName.trim() === item.vaultName &&
     item.vaultName.length > 0 && item.vaultName.length <= 128 &&
     Boolean(network && typeof network === "object" && !Array.isArray(network) &&
@@ -117,7 +118,7 @@ export function isSavingsMetadata(
       typeof (source as Record<string, unknown>).blockNumber === "string" &&
       integer.test((source as Record<string, unknown>).blockNumber as string) &&
       typeof (source as Record<string, unknown>).blockHash === "string" &&
-      hash.test((source as Record<string, unknown>).blockHash as string) &&
+      parseHash32((source as Record<string, unknown>).blockHash) !== null &&
       typeof (source as Record<string, unknown>).blockTimestamp === "string" &&
       integer.test((source as Record<string, unknown>).blockTimestamp as string));
 }

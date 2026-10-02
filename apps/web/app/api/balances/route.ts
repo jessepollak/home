@@ -7,8 +7,6 @@ import { getBalanceWebhookSubscriptions } from "@/server/balances/webhook-subscr
 import { emitServerEvent } from "@/server/observability/log";
 import { createAfterSchedule } from "@/server/scheduling/after-schedule";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const schedule = createAfterSchedule(after, () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
+import { accessErrorCode } from "@/shared/access/contract";
 import { issueAccessToken } from "./token";
 import { enforceAccess } from "./policy";
 
@@ -45,6 +46,7 @@ describe("deployment access policy", () => {
       "/api/cards/webhooks/immersve",
       "/api/cards/webhooks/immersve/payment-updated/extra",
       "/api/cards/webhooks/other",
+      "/api/cards/spending",
       "/api/actions/not-a-uuid/paymaster",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d",
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/confirm",
@@ -75,7 +77,9 @@ describe("deployment access policy", () => {
       const response = enforceAccess(request(path, { method }), enabled, now)!;
       expect(response.status).toBe(401);
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      const parsed = response.clone();
       expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_REQUIRED" } });
+      expect(accessErrorCode(await parsed.json())).toBe("ACCESS_REQUIRED");
     }
   });
 
@@ -85,7 +89,9 @@ describe("deployment access policy", () => {
     const response = enforceAccess(request("/api/session"), { kind: "misconfigured" }, now)!;
     expect(response.status).toBe(503);
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    const parsed = response.clone();
     expect(await response.json()).toEqual({ version: 1, error: { code: "ACCESS_UNAVAILABLE" } });
+    expect(accessErrorCode(await parsed.json())).toBe("ACCESS_UNAVAILABLE");
   });
 
   test("allows a valid independent access cookie and makes the response private", () => {

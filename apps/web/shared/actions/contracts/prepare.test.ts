@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cashoutPrepareErrorResponse, isCashoutPrepareErrorCode, parseCashoutPrepareErrorResponse, validPrepared } from "./prepare";
+import { cashoutPrepareErrorResponse, isCashoutPrepareErrorCode, parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse, validPrepared } from "./prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 const address = "0x1111111111111111111111111111111111111111" as const;
@@ -11,6 +11,16 @@ const approval = { to: token, value: "0", data: `0x095ea7b3${paymaster.slice(2).
 const prepared = { id: "action", owner: { subject: "subject", address, accountProvider: "cdp-embedded" }, calls: [approval], amounts: [], warnings: [], networkFee: fee };
 
 describe("prepared network fee validation", () => {
+  test("accepts a zero-amount card allowance only with matching typed metadata", () => {
+    const metadata = { product: "card", operation: "set-allowance", provider: "bridge", mode: "production",
+      token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+      allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "0", maximumBaseUnits: "100000000", source: { blockNumber: "100" } };
+    const card = { ...prepared, kind: "card-allowance", metadata };
+    expect(validPrepared(card, session)).toBe(true);
+    expect(validPrepared({ ...card, metadata: undefined }, session)).toBe(false);
+    expect(validPrepared({ ...card, amounts: [{ assetId: "usdc" }] }, session)).toBe(false);
+    expect(validPrepared({ ...card, kind: "send" }, session)).toBe(false);
+  });
   test("accepts native and absent fee and a matching USDC approval", () => {
     expect(validPrepared(prepared, session)).toBe(true);
     expect(validPrepared({ ...prepared, networkFee: { payment: "native" }, calls: [] }, session)).toBe(true);
@@ -47,13 +57,23 @@ describe("cashout prepare error contract", () => {
   });
 
   test("parses a cashout prepare error and rejects unknown or malformed responses", () => {
-    expect(parseCashoutPrepareErrorResponse({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Try again shortly." } }))
+    expect(parsePrepareActionErrorResponse({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Try again shortly." } }))
       .toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Try again shortly." } });
     expect(isCashoutPrepareErrorCode("CASHOUT_ORDER_IN_FLIGHT")).toBe(true);
     expect(isCashoutPrepareErrorCode("CASHOUT_IN_PROGRESS")).toBe(false);
     expect(isCashoutPrepareErrorCode("ACTION_PREPARE_UNAVAILABLE")).toBe(false);
-    expect(parseCashoutPrepareErrorResponse({ error: { code: "CASHOUT_IN_PROGRESS", message: "x" } })).toBeNull();
-    expect(parseCashoutPrepareErrorResponse({ error: { code: "CASHOUT_UNAVAILABLE" } })).toBeNull();
-    expect(parseCashoutPrepareErrorResponse({ code: "CASHOUT_UNAVAILABLE", message: "x" })).toBeNull();
+    expect(parsePrepareActionErrorResponse({ error: { code: "CASHOUT_IN_PROGRESS", message: "x" } })).toBeNull();
+    expect(parsePrepareActionErrorResponse({ error: { code: "CASHOUT_UNAVAILABLE" } })).toBeNull();
+    expect(parsePrepareActionErrorResponse({ code: "CASHOUT_UNAVAILABLE", message: "x" })).toBeNull();
+    expect(parsePrepareActionErrorResponse({ error: { code: "CARD_ALLOWANCE_NOT_READY", message: "An eligible card is required." } }))
+      .toEqual({ error: { code: "CARD_ALLOWANCE_NOT_READY", message: "An eligible card is required." } });
+  });
+
+  test("parses a product-not-offered prepare error and rejects malformed responses", () => {
+    expect(parseProductNotOfferedPrepareErrorResponse({ error: { code: "PRODUCT_NOT_OFFERED", message: "This is no longer offered." } }))
+      .toEqual({ error: { code: "PRODUCT_NOT_OFFERED", message: "This is no longer offered." } });
+    expect(parseProductNotOfferedPrepareErrorResponse({ error: { code: "PRODUCT_NOT_OFFERED" } })).toBeNull();
+    expect(parseProductNotOfferedPrepareErrorResponse({ error: { code: "CASHOUT_UNAVAILABLE", message: "x" } })).toBeNull();
+    expect(parseProductNotOfferedPrepareErrorResponse({ code: "PRODUCT_NOT_OFFERED", message: "x" })).toBeNull();
   });
 });

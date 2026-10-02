@@ -4,7 +4,7 @@ import {
 } from "@/server/funding/core/auth";
 import { privateError, privateJson } from "@/server/http/private-response";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
+import { assertFundingProvidersResponse, FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 import type { FundingDirection } from "@/shared/funding/provider-contract";
 
 type FundingProvidersRouteDependencies = {
@@ -39,7 +39,7 @@ export async function handleFundingProvidersRequest(
   }
 
   try {
-    return privateJson({
+    const envelope = {
       version: FUNDING_PROVIDERS_VERSION,
       direction: requestedDirection,
       providers: await dependencies.listProviders(
@@ -47,7 +47,9 @@ export async function handleFundingProvidersRequest(
         authorized.session,
         requestedDirection,
       ),
-    });
+    };
+    assertFundingProvidersResponse(envelope, requestedDirection, region);
+    return privateJson(envelope);
   } catch {
     return privateError(
       "PROVIDERS_UNAVAILABLE",

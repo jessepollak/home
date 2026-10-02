@@ -1,7 +1,7 @@
 import "../account/dom-test-harness";
 
-import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, describe, expect, jest, test } from "bun:test";
+import { clearOwnerQueryBoundary, getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { ActivityPage, ActivityTransfer, FetchActivity } from "./types";
 import {
@@ -11,20 +11,20 @@ import {
 import type { RegionId } from "@/config/regions";
 import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 import { ResourceFailure } from "@/client/account/resource-failure";
-import { activityWindowScope } from "@/client/query/after-action";
+import { activityWindowScope, invalidateAfterAction, nextActivityWindowEnd } from "@/client/query/after-action";
 import { initialActivityWindowEnd } from "@/client/query/after-action";
-import type { InfiniteData } from "@tanstack/react-query";
+import { defaultScheduler, notifyManager, type InfiniteData, type QueryKey } from "@tanstack/react-query";
+import { transfersReadiness } from "./activity-sources";
 
-const { act, cleanup, fireEvent, render, waitFor } = await import(
+const { act, cleanup, fireEvent, render, renderHook, waitFor } = await import(
   "@testing-library/react"
 );
-const { useActivity, activityOwnerKey, activityFirstPageRetryDelaysMs, refreshLatestActivity } = await import("./use-activity");
+const { useActivity, activityOwnerKey, activityFirstPageRetryDelaysMs, activityLatestReadTimeoutMs, refreshLatestActivity, refreshActivityThroughController } = await import("./use-activity");
 
 const WALLET_A = "0x1111111111111111111111111111111111111111" as const;
 const WALLET_B = "0x2222222222222222222222222222222222222222" as const;
 const OTHER = "0x3333333333333333333333333333333333333333" as const;
 const waitedFor = { timeout: 5_000 };
-const recoveryWait = { timeout: 7_000 };
 
 function session(
   subject: string,
@@ -133,6 +133,30 @@ function cursors(queries: readonly string[]): (string | null)[] {
   return queries.map((query) => new URLSearchParams(query).get("cursor"));
 }
 
+const paginationRetryNow = Date.parse("2026-09-28T12:00:00.000Z");
+
+async function flushContinuation() {
+  for (let index = 0; index < 12; index++) await Promise.resolve();
+}
+
+async function settleContinuation() {
+  await act(async () => {
+    await flushContinuation();
+  });
+}
+
+async function advanceContinuation(delayMs: number) {
+  await act(async () => {
+    jest.advanceTimersByTime(delayMs);
+    await flushContinuation();
+  });
+}
+
+function controlPaginationClock() {
+  jest.useFakeTimers({ now: paginationRetryNow });
+  notifyManager.setScheduler((callback) => queueMicrotask(callback));
+}
+
 function HookHarness({
   owner,
   fetchActivity,
@@ -146,10 +170,11 @@ function HookHarness({
   regionId?: RegionId;
   scheduleValuationRetry?: (run: () => void, delayMs: number) => () => void;
 }) {
-  const activity = useActivity(owner, fetchActivity, regionId, scheduleValuationRetry);
+  const activity = useActivity(owner, fetchActivity, regionId, { scheduleValuationRetry });
   return (
     <div>
       <output data-testid={`${testId}status`}>{activity.status}</output>
+      {activity.status === "error" ? <button type="button" onClick={activity.retry}>retry first load</button> : null}
       {activity.status === "ready" ? (
         <>
           <output data-testid={`${testId}ids`}>
@@ -160,8 +185,11 @@ function HookHarness({
             {activity.page.transfers.map((item) => item.valuation.status).join(",")}
           </output>
           <output data-testid={`${testId}onchain-status`}>{activity.page.onchainStatus ?? "healthy"}</output>
+          <output data-testid={`${testId}latest-unavailable`}>{String(activity.latestUnavailable === true)}</output>
+          <output data-testid={`${testId}currency`}>{activity.page.currency}</output>
           <output data-testid={`${testId}card-ids`}>{activity.page.cards?.rows.map((row) => row.id).join(",") ?? ""}</output>
-          <button type="button" onClick={activity.retry}>refetch</button>
+          <output data-testid={`${testId}card-statuses`}>{activity.page.cards?.rows.map((row) => row.status).join(",") ?? ""}</output>
+          <button type="button" data-testid={`${testId}refetch`} onClick={activity.retry}>refetch</button>
           <output data-testid="loading-more">
             {String(activity.loadingMore)}
           </output>
@@ -182,10 +210,16 @@ function HookHarness({
   );
 }
 
-afterEach(() => {
-  jest.useRealTimers();
+async function drainTeardownMicrotasks() {
+  for (let index = 0; index < 32; index++) await Promise.resolve();
+}
+
+afterEach(async () => {
+  notifyManager.setScheduler(defaultScheduler);
   cleanup();
   getHomeQueryClient().clear();
+  await drainTeardownMicrotasks();
+  jest.useRealTimers();
 });
 
 describe("useActivity pagination", () => {
@@ -424,6 +458,7 @@ describe("useActivity pagination", () => {
   });
 
   test("recovers a transient later-page failure without showing Retry and continues to exhaustion", async () => {
+    controlPaginationClock();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
@@ -435,15 +470,21 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-10", "10")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     const errors: string[] = [];
     const observer = new MutationObserver(() => { errors.push(view.queryByTestId("load-more-error")?.textContent ?? ""); });
     observer.observe(view.container, { subtree: true, childList: true, characterData: true });
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(queries).toHaveLength(2));
-    await waitFor(() => expect(view.getByTestId("continuing").textContent).toBe("true"));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
+    expect(view.getByTestId("continuing").textContent).toBe("true");
     expect(view.getByTestId("ids").textContent).toBe("event-30");
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), recoveryWait);
+    await advanceContinuation(1_000);
+    expect(queries).toHaveLength(3);
+    await advanceContinuation(0);
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     observer.disconnect();
     expect(errors).not.toContain("true");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-2"]);
@@ -452,30 +493,40 @@ describe("useActivity pagination", () => {
   });
 
   test("keeps the retry backoff when the sentinel leaves and returns during the wait", async () => {
+    controlPaginationClock();
+    jest.useFakeTimers({ now: paginationRetryNow });
     const queries: string[] = [];
     const requestedAt: number[] = [];
-    const started = performance.now();
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
-      requestedAt.push(performance.now() - started);
+      requestedAt.push(Date.now() - paginationRetryNow);
       if (queries.length === 1) return page(query, WALLET_A, [transfer(query, WALLET_A, "event-30", "30")], "cursor-1");
       if (queries.length === 2) throw new Error("transient later page failure");
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(queries).toHaveLength(2));
-    await act(async () => { await Promise.resolve(); });
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     fireEvent.click(view.getByText("sentinel hidden"));
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), recoveryWait);
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
+    await advanceContinuation(999);
+    expect(queries).toHaveLength(2);
+    await advanceContinuation(1);
+    expect(queries).toHaveLength(3);
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1"]);
     expect(requestedAt[2]! - requestedAt[1]!).toBeGreaterThanOrEqual(900);
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
   });
 
   test("exhausts two automatic retries, preserves rows, then manually retries the exact cursor", async () => {
+    controlPaginationClock();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
@@ -484,12 +535,22 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(queries).toHaveLength(2));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
     expect(view.getByTestId("continuing").textContent).toBe("true");
-    await waitFor(() => expect(view.getByTestId("load-more-error").textContent).toBe("true"), recoveryWait);
+    await advanceContinuation(1_000);
+    expect(queries).toHaveLength(3);
+    expect(view.getByTestId("load-more-error").textContent).toBe("false");
+    await advanceContinuation(2_999);
+    expect(queries).toHaveLength(3);
+    await advanceContinuation(1);
+    expect(queries).toHaveLength(4);
+    await settleContinuation();
+    expect(view.getByTestId("load-more-error").textContent).toBe("true");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getByTestId("ids").textContent).toBe("event-30");
     expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
@@ -497,11 +558,14 @@ describe("useActivity pagination", () => {
     fireEvent.click(view.getByText("sentinel visible"));
     expect(queries).toHaveLength(4);
     fireEvent.click(view.getByText("manual retry"));
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"));
+    await advanceContinuation(0);
+    await settleContinuation();
+    expect(queries).toHaveLength(5);
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getByTestId("ids").textContent).toBe("event-30,event-20");
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
-  }, 10_000);
+  });
 
   test("a next-page request joined to an in-flight refetch does not consume the cursor", async () => {
     const refetch = deferred<unknown>();
@@ -529,6 +593,7 @@ describe("useActivity pagination", () => {
   });
 
   test("a joined failed background refetch uses the same bounded retry budget", async () => {
+    controlPaginationClock();
     const refetch = deferred<unknown>();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
@@ -538,19 +603,27 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], null);
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("refetch"));
-    await waitFor(() => expect(queries).toHaveLength(2));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     fireEvent.click(view.getByText("sentinel visible"));
+    await settleContinuation();
+    expect(queries).toHaveLength(2);
     await act(async () => { refetch.reject(new Error("background refetch unavailable")); await refetch.promise.catch(() => undefined); });
+    await settleContinuation();
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
     expect(view.getByTestId("continuing").textContent).toBe("true");
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("end"), recoveryWait);
+    await advanceContinuation(1_000);
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("end");
     expect(cursors(queries)).toEqual([null, null, "cursor-1"]);
     expect(view.getByTestId("load-more-error").textContent).toBe("false");
   });
 
   test("bounds non-advancing cursor retries without losing earlier rows", async () => {
+    controlPaginationClock();
     const queries: string[] = [];
     const fetchActivity: FetchActivity = async (query) => {
       queries.push(query);
@@ -560,13 +633,23 @@ describe("useActivity pagination", () => {
       return page(query, WALLET_A, [transfer(query, WALLET_A, "event-20", "20")], "cursor-1");
     };
     const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
-    await waitFor(() => expect(view.getByTestId("cursor").textContent).toBe("cursor-1"));
+    await settleContinuation();
+    expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     fireEvent.click(view.getByText("sentinel visible"));
-    await waitFor(() => expect(view.getByTestId("load-more-error").textContent).toBe("true"), recoveryWait);
+    await settleContinuation();
+    expect(view.getByTestId("load-more-error").textContent).toBe("false");
+    await advanceContinuation(1_000);
+    expect(queries).toHaveLength(3);
+    expect(view.getByTestId("load-more-error").textContent).toBe("false");
+    await advanceContinuation(2_999);
+    expect(queries).toHaveLength(3);
+    await advanceContinuation(1);
+    await settleContinuation();
+    expect(view.getByTestId("load-more-error").textContent).toBe("true");
     expect(cursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getByTestId("ids").textContent).toBe("event-30");
     expect(view.getByTestId("continuing").textContent).toBe("false");
-  }, 10_000);
+  });
 
   test("rejects a cyclic cursor without issuing a further request", async () => {
     const queries: string[] = [];
@@ -939,7 +1022,7 @@ function recoveryWindow(owner: VerifiedAccountSession, prior: "healthy" | "parti
   const current = prior === "partial" ? partialPage(query, owner.smartAccount!.address as typeof WALLET_A | typeof WALLET_B)
     : page(query, owner.smartAccount!.address as typeof WALLET_A | typeof WALLET_B, [], null);
   queryClient.setQueryData(windowKey, windowEnd);
-  queryClient.setQueryData(ownerQueryKey(ownerKey, "activity", windowEnd, "USD"),
+  queryClient.setQueryData(ownerQueryKey(ownerKey, "activity", windowEnd, "USD", "all"),
     { pages: [current], pageParams: [null] } satisfies InfiniteData<ActivityPage>);
   return { queryClient, ownerKey, windowKey, windowEnd };
 }
@@ -1043,6 +1126,11 @@ describe("mounted first-page recovery with an empty cache", () => {
     await flushMountedRecovery();
     expect(view.getByTestId("status").textContent).toBe("ready");
     expect(view.getByTestId("ids").textContent).toBe("kept");
+    const queryClient = getHomeQueryClient();
+    const ownerKey = activityOwnerKey(session("subject-a", WALLET_A));
+    const windowEnd = queryClient.getQueryData<string>(ownerQueryKey(ownerKey, activityWindowScope))!;
+    const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, "USD", "all");
+    const updatedAt = queryClient.getQueryState(currentKey)!.dataUpdatedAt;
     fireEvent.click(view.getByText("refetch"));
     await flushMountedRecovery();
     for (const delay of activityFirstPageRetryDelaysMs) {
@@ -1053,11 +1141,994 @@ describe("mounted first-page recovery with an empty cache", () => {
     expect(view.getByTestId("status").textContent).toBe("ready");
     expect(view.getByTestId("ids").textContent).toBe("kept");
     expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+  });
+});
+
+describe("after-action activity windows", () => {
+  beforeEach(() => {
+    notifyManager.setScheduler((callback) => queueMicrotask(callback));
+  });
+
+  for (const requestKind of ["after-action", "pull"] as const) {
+    test.each([0, 1, 2, 3, 4, 5, 6])(`services a ${requestKind} request after %s settling microtasks`, async (gap) => {
+      jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+      const owner = session("subject-a", WALLET_A);
+      const ownerKey = activityOwnerKey(owner);
+      const queryClient = getHomeQueryClient();
+      const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+      const firstLatest = deferred<ActivityResponse>();
+      const nextLatest = deferred<ActivityResponse>();
+      const queries: string[] = [];
+      const fetchActivity: FetchActivity = (query) => {
+        queries.push(query);
+        if (queries.length === 2) return firstLatest.promise;
+        if (queries.length === 3) return nextLatest.promise;
+        return Promise.resolve(page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null));
+      };
+      const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+      await flushMountedRecovery();
+      await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+      expect(queries).toHaveLength(2);
+      const firstEnd = new URLSearchParams(queries[1]).get("to")!;
+      const committedWindow = deferred<void>();
+      const windowQuery = queryClient.getQueryCache().find({ queryKey: windowKey, exact: true });
+      const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+        if (event.query === windowQuery && event.query.state.data === firstEnd) committedWindow.resolve();
+      });
+      let pullOutcome = "pending";
+      let pull: Promise<void> | undefined;
+      await act(async () => {
+        firstLatest.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "first", "40"))], null));
+        await committedWindow.promise;
+        unsubscribe();
+        for (let step = 0; step < gap; step += 1) await Promise.resolve();
+        if (requestKind === "after-action") {
+          void invalidateAfterAction(queryClient, ownerKey);
+        } else {
+          pull = refreshActivityThroughController({
+            queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity,
+            isCurrent: () => true, onPrefetchKey: () => {},
+          }).then(() => { pullOutcome = "resolved"; }, () => { pullOutcome = "rejected"; });
+        }
+      });
+      await flushMountedRecovery();
+      expect(queries).toHaveLength(3);
+      expect(pullOutcome).toBe("pending");
+      const nextEnd = new URLSearchParams(queries[2]).get("to")!;
+      expect(nextEnd).not.toBe(firstEnd);
+      expect(queryClient.getQueryData<string>(windowKey)).toBe(firstEnd);
+      await act(async () => {
+        nextLatest.resolve(page(queries[2]!, WALLET_A, [priced(transfer(queries[2]!, WALLET_A, "latest", "60"))], null));
+        await pull;
+      });
+      await flushMountedRecovery();
+      expect(queries).toHaveLength(3);
+      expect(queryClient.getQueryData<string>(windowKey)).toBe(nextEnd);
+      expect(view.getByTestId("ids").textContent).toBe("latest");
+      expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+      if (requestKind === "pull") expect(pullOutcome).toBe("resolved");
+    });
+  }
+
+  test("services new-epoch action and pull requests before an abandoned read settles", async () => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const oldLatest = deferred<ActivityResponse>();
+    const newLatest = deferred<ActivityResponse>();
+    const followupLatest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = (query) => {
+      queries.push(query);
+      if (queries.length === 2) return oldLatest.promise;
+      if (queries.length === 4) return newLatest.promise;
+      if (queries.length === 5) return followupLatest.promise;
+      return Promise.resolve(page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null));
+    };
+    const first = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const originalEnd = queryClient.getQueryData<string>(windowKey);
+    const abandonedPull = refreshActivityThroughController({
+      queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity,
+      isCurrent: () => true, onPrefetchKey: () => {},
+    }).then(() => "resolved", () => "rejected");
+    expect(queries).toHaveLength(2);
+    first.unmount();
+    const fallbackEnd = queryClient.getQueryData<string>(windowKey);
+    expect(fallbackEnd).not.toBe(originalEnd);
+    const remounted = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    let pullOutcome = "pending";
+    void invalidateAfterAction(queryClient, ownerKey);
+    const pull = refreshActivityThroughController({
+      queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity,
+      isCurrent: () => true, onPrefetchKey: () => {},
+    }).then(() => { pullOutcome = "resolved"; }, () => { pullOutcome = "rejected"; });
+    await act(async () => {
+      oldLatest.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "old-latest", "40"))], null));
+    });
+    await flushMountedRecovery();
+    expect(await abandonedPull).toBe("rejected");
+    expect(queries).toHaveLength(4);
+    expect(pullOutcome).toBe("pending");
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(fallbackEnd);
+    expect(remounted.getByTestId("ids").textContent).toBe("kept");
+    expect(remounted.getByTestId("latest-unavailable").textContent).toBe("false");
+    await act(async () => {
+      newLatest.resolve(page(queries[3]!, WALLET_A, [priced(transfer(queries[3]!, WALLET_A, "latest", "60"))], null));
+    });
+    await flushMountedRecovery();
+    expect(pullOutcome).toBe("pending");
+    expect(queries).toHaveLength(5);
+    await act(async () => {
+      followupLatest.resolve(page(queries[4]!, WALLET_A, [priced(transfer(queries[4]!, WALLET_A, "latest", "60"))], null));
+      await pull;
+    });
+    await flushMountedRecovery();
+    expect(pullOutcome).toBe("resolved");
+    expect(queries).toHaveLength(5);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(new URLSearchParams(queries[4]).get("to")!);
+    expect(remounted.getByTestId("ids").textContent).toBe("latest");
+    expect(remounted.getByTestId("latest-unavailable").textContent).toBe("false");
+  });
+
+  test.each([
+    ["failure", "success"], ["timeout", "success"],
+    ["failure", "failure"], ["timeout", "failure"],
+  ] as const)("reruns from an older pull's committed baseline after %s, with a %s rerun", async (failure, outcome) => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const pull = deferred<ActivityResponse>();
+    const afterAction = deferred<ActivityResponse>();
+    const rerun = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (queries.length === 2) return pull.promise;
+      if (queries.length === 3) return afterAction.promise;
+      if (queries.length === 4) return rerun.promise;
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const pullRead = refreshLatestActivity({
+      queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity,
+      isCurrent: () => true, onPrefetchKey: () => {},
+    });
+    await act(async () => { jest.advanceTimersByTime(2_000); });
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    expect(queries).toHaveLength(3);
+    await act(async () => {
+      pull.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "pulled", "40"))], null));
+      expect(await pullRead).toBe("advanced");
+    });
+    await flushMountedRecovery();
+    const pullEnd = new URLSearchParams(queries[1]).get("to")!;
+    await act(async () => {
+      if (failure === "failure") afterAction.reject(new Error("Latest unavailable"));
+      else await advanceFirstPageRetry(45_000);
+    });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(4);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(pullEnd);
+    expect(view.getByTestId("ids").textContent).toBe("pulled");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    const finalEnd = new URLSearchParams(queries[3]).get("to")!;
+    expect(Date.parse(finalEnd)).toBeGreaterThan(Date.parse(pullEnd));
+    await act(async () => {
+      if (outcome === "success") rerun.resolve(page(queries[3]!, WALLET_A, [priced(transfer(queries[3]!, WALLET_A, "latest", "60"))], null));
+      else rerun.reject(new Error("Current latest unavailable"));
+    });
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(outcome === "success" ? finalEnd : pullEnd);
+    expect(view.getByTestId("ids").textContent).toBe(outcome === "success" ? "latest" : "pulled");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe(String(outcome === "failure"));
+    if (failure === "timeout") {
+      await act(async () => { afterAction.resolve(page(queries[2]!, WALLET_A, [], null)); });
+      await flushMountedRecovery();
+      expect(view.getByTestId("latest-unavailable").textContent).toBe(String(outcome === "failure"));
+    }
+  });
+
+  test("a cancelled epoch cannot publish a latest failure after the owner boundary is cleared and remounted", async () => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    let signal: AbortSignal | undefined;
+    const fetchActivity: FetchActivity = async (query, readSignal) => {
+      queries.push(query);
+      if (queries.length === 2) { signal = readSignal; return latest.promise; }
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "healthy-a", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const originalEnd = queryClient.getQueryData<string>(windowKey)!;
+    const pending = refreshActivityThroughController({
+      queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity,
+      isCurrent: () => true, onPrefetchKey: () => {},
+    }).then(() => "resolved", () => "rejected");
+    const otherOwner = session("subject-b", WALLET_B);
+    const fetchOther: FetchActivity = async (query) => page(query, WALLET_B, [], null);
+    view.rerender(<HookHarness owner={otherOwner} fetchActivity={fetchOther} />);
+    clearOwnerQueryBoundary(queryClient, undefined, activityOwnerKey(otherOwner));
+    view.rerender(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    expect(signal?.aborted).toBe(true);
+    await flushMountedRecovery();
+    expect(await pending).toBe("rejected");
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(originalEnd);
+    expect(view.getByTestId("ids").textContent).toBe("healthy-a");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    await act(async () => { latest.reject(new Error("Cancelled latest unavailable")); });
+    await flushMountedRecovery();
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+  });
+
+  test("a controller pull rejects on timeout while retaining the current rows", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const latest = deferred<ActivityResponse>();
+    let reads = 0;
+    const fetchActivity: FetchActivity = async (query) => {
+      if (++reads === 2) return latest.promise;
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const pending = refreshActivityThroughController({
+      queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity,
+      isCurrent: () => true, onPrefetchKey: () => {},
+    }).then(() => "resolved", () => "rejected");
+    await act(async () => { await advanceFirstPageRetry(45_000); });
+    await flushMountedRecovery();
+    expect(await pending).toBe("rejected");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("true");
+    latest.resolve(page("to=2026-09-28T12%3A00%3A00.000Z", WALLET_A, [], null));
+  });
+
+  test.each(["non-transient", "transient", "partial"] as const)("retains loaded rows after a %s latest read and retries the new window", async (failure) => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const ownerKey = activityOwnerKey(owner);
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const queries: string[] = [];
+    let fail = true;
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (queries.length > 1 && fail) {
+        if (failure === "partial") return partialPage(query, WALLET_A, [cardPurchase]);
+        throw failure === "transient" ? new ResourceFailure("network") : new Error("Latest unavailable");
+      }
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, queries.length === 1 ? "kept" : "latest", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    const windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    const pending = invalidateAfterAction(queryClient, ownerKey);
+    await flushMountedRecovery();
+    if (failure !== "non-transient") {
+      for (const delay of activityFirstPageRetryDelaysMs) {
+        await act(async () => { await advanceFirstPageRetry(delay); });
+      }
+    }
+    await pending;
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("true");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
     expect(view.getByTestId("card-ids").textContent).toBe("");
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
+    const attemptedEnd = new URLSearchParams(queries[1]).get("to")!;
+    expect(queryClient.getQueryCache().find({ queryKey: ownerQueryKey(ownerKey, "activity", attemptedEnd, "USD", "all"), exact: true })).toBeUndefined();
+    fail = false;
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData(windowKey)).not.toBe(windowEnd);
+    expect(view.getByTestId("ids").textContent).toBe("latest");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(new URLSearchParams(queries.at(-1)).get("to")).not.toBe(windowEnd);
+  });
+
+  test("advances only after a healthy latest read while keeping rows ready in flight", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      return queries.length === 1 ? page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null) : latest.promise;
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    const pending = invalidateAfterAction(queryClient, ownerKey);
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    await act(async () => {
+      latest.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "latest", "40"))], null));
+      await pending;
+    });
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(new URLSearchParams(queries[1]).get("to")!);
+    expect(view.getByTestId("ids").textContent).toBe("latest");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(queries).toHaveLength(2);
+  });
+
+  test("reports transfers loading for a hook mounted during an in-flight latest-window read", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      return queries.length === 1 ? page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null) : latest.promise;
+    };
+    const current = renderHook(() => useActivity(owner, fetchActivity));
+    await flushMountedRecovery();
+    expect(current.result.current.status).toBe("ready");
+    expect(current.result.current.refreshing).toBe(false);
+    expect(transfersReadiness(current.result.current)).toBe("ready");
+    await act(async () => { await invalidateAfterAction(queryClient, activityOwnerKey(owner)); });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(2);
+    const mounted = renderHook(() => useActivity(owner, fetchActivity));
+    expect(current.result.current.refreshing).toBe(true);
+    expect(mounted.result.current.status).toBe("ready");
+    expect(mounted.result.current.refreshing).toBe(true);
+    expect(transfersReadiness(mounted.result.current)).toBe("loading");
+    await act(async () => {
+      latest.resolve(page(queries[1]!, WALLET_A, [
+        priced(transfer(queries[1]!, WALLET_A, "new", "40")),
+        priced(transfer(queries[1]!, WALLET_A, "kept", "30")),
+      ], null));
+      await latest.promise;
+    });
+    await flushMountedRecovery();
+    expect(current.result.current.refreshing).toBe(false);
+    expect(mounted.result.current.refreshing).toBe(false);
+    expect(transfersReadiness(mounted.result.current)).toBe("ready");
+    expect(queries).toHaveLength(2);
+  });
+
+  test("reruns a superseded after-action read from the window committed by an earlier pull-to-refresh", async () => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const pull = deferred<ActivityResponse>();
+    const afterAction = deferred<ActivityResponse>();
+    const rerun = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (queries.length === 2) return pull.promise;
+      if (queries.length === 3) return afterAction.promise;
+      if (queries.length === 4) return rerun.promise;
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const pullRead = refreshLatestActivity({
+      queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity,
+      isCurrent: () => true, onPrefetchKey: () => {},
+    });
+    await act(async () => { jest.advanceTimersByTime(2_000); });
+    const actionCutoff = Date.now();
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    expect(queries).toHaveLength(3);
+    await act(async () => {
+      pull.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "pulled", "40"))], null));
+      expect(await pullRead).toBe("advanced");
+    });
+    await flushMountedRecovery();
+    const pullEnd = new URLSearchParams(queries[1]).get("to")!;
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(pullEnd);
+    expect(Date.parse(pullEnd)).toBeLessThan(actionCutoff);
+    await act(async () => {
+      afterAction.resolve(page(queries[2]!, WALLET_A, [priced(transfer(queries[2]!, WALLET_A, "first-action-read", "50"))], null));
+    });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(4);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(pullEnd);
+    expect(view.getByTestId("ids").textContent).toBe("pulled");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    const finalEnd = new URLSearchParams(queries[3]).get("to")!;
+    expect(Date.parse(finalEnd)).toBeGreaterThan(actionCutoff);
+    await act(async () => {
+      rerun.resolve(page(queries[3]!, WALLET_A, [priced(transfer(queries[3]!, WALLET_A, "latest", "60"))], null));
+    });
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(finalEnd);
+    expect(view.getByTestId("ids").textContent).toBe("latest");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+  });
+
+  test("times out a hung latest read, allows a later action, and ignores the original late response", async () => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const hung = deferred<ActivityResponse>();
+    const recovered = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    let hungSignal: AbortSignal | undefined;
+    const fetchActivity: FetchActivity = async (query, signal) => {
+      queries.push(query);
+      if (queries.length === 2) { hungSignal = signal; return hung.promise; }
+      if (queries.length === 3) return recovered.promise;
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    const prefetchKey = ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD", "all");
+    await act(async () => { await advanceFirstPageRetry(activityLatestReadTimeoutMs - 1); });
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(hungSignal?.aborted).toBe(false);
+    await act(async () => { await advanceFirstPageRetry(1); });
+    await flushMountedRecovery();
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("true");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
+    expect(hungSignal?.aborted).toBe(true);
+    expect(queryClient.getQueryCache().find({ queryKey: prefetchKey, exact: true })).toBeUndefined();
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    expect(queries).toHaveLength(3);
+    await act(async () => {
+      recovered.resolve(page(queries[2]!, WALLET_A, [priced(transfer(queries[2]!, WALLET_A, "latest", "40"))], null));
+    });
+    await flushMountedRecovery();
+    const advancedEnd = queryClient.getQueryData<string>(windowKey)!;
+    expect(advancedEnd).toBe(new URLSearchParams(queries[2]).get("to")!);
+    expect(advancedEnd).not.toBe(windowEnd);
+    expect(view.getByTestId("ids").textContent).toBe("latest");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(jest.getTimerCount()).toBe(0);
+    await act(async () => {
+      hung.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "late-original", "50"))], null));
+    });
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(advancedEnd);
+    expect(view.getByTestId("ids").textContent).toBe("latest");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  test("a new session object for the same owner does not abandon an in-flight latest read", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    let signal: AbortSignal | undefined;
+    const fetchActivity: FetchActivity = async (query, readSignal) => {
+      queries.push(query);
+      if (queries.length === 2) { signal = readSignal; return latest.promise; }
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const pending = invalidateAfterAction(queryClient, ownerKey);
+    await flushMountedRecovery();
+    view.rerender(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    await act(async () => {
+      latest.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "latest", "40"))], null));
+      await pending;
+    });
+    await flushMountedRecovery();
+    expect(signal?.aborted).toBe(false);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(new URLSearchParams(queries[1]).get("to")!);
+    expect(view.getByTestId("ids").textContent).toBe("latest");
+  });
+
+
+  test.each(["owner-change", "sign-out", "unmount"] as const)("cancels the old owner's prefetch and advances without a view on %s", async (change) => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    let signal: AbortSignal | undefined;
+    const fetchActivity: FetchActivity = async (query, readSignal) => {
+      queries.push(query);
+      if (queries.length === 2) { signal = readSignal; return latest.promise; }
+      const wallet = queries.length === 1 ? WALLET_A : WALLET_B;
+      return page(query, wallet, [priced(transfer(query, wallet, queries.length === 1 ? "old-owner" : "new-owner", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    const pending = invalidateAfterAction(queryClient, ownerKey);
+    await flushMountedRecovery();
+    if (change === "unmount") view.unmount();
+    else view.rerender(<HookHarness owner={change === "sign-out" ? null : session("subject-b", WALLET_B)} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    await act(async () => {
+      latest.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "late-old-owner", "40"))], null));
+      await pending;
+    });
+    await flushMountedRecovery();
+    expect(signal?.aborted).toBe(true);
+    expect(queryClient.getQueryData<string>(windowKey)).not.toBe(windowEnd);
+    expect(queryClient.getQueryCache().find({ queryKey: ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD", "all"), exact: true })).toBeUndefined();
+    if (change === "owner-change") {
+      expect(view.getByTestId("ids").textContent).toBe("new-owner");
+      expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    } else if (change === "sign-out") expect(view.getByTestId("status").textContent).toBe("unavailable");
+  });
+
+  test.each(["sign-out", "owner-switch"] as const)("clears a latest failure across a same-minute %s and return", async (change) => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    let fail = false;
+    const fetchActivity: FetchActivity = async (query) => {
+      if (fail) throw new Error("Latest unavailable");
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "healthy-a", "30"))], null);
+    };
+    const fetchOther: FetchActivity = async (query) => page(query, WALLET_B, [priced(transfer(query, WALLET_B, "healthy-b", "30"))], null);
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const failedWindow = queryClient.getQueryData<string>(windowKey)!;
+    fail = true;
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    await flushMountedRecovery();
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("true");
+    fail = false;
+    view.rerender(<HookHarness owner={change === "sign-out" ? null : session("subject-b", WALLET_B)} fetchActivity={fetchOther} />);
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).not.toBe(failedWindow);
+    expect(queryClient.getQueryCache().findAll({ queryKey: ownerQueryKey(ownerKey, "activity") }).every((query) => query.state.isInvalidated)).toBe(true);
+    if (change === "sign-out") expect(view.getByTestId("status").textContent).toBe("unavailable");
+    else expect(view.getByTestId("ids").textContent).toBe("healthy-b");
+    queryClient.removeQueries({ queryKey: [ownerKey] });
+    view.rerender(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(failedWindow);
+    expect(view.getByTestId("ids").textContent).toBe("healthy-a");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+  });
+
+  test("two consumers share latest failures and a retry from either advances both with one read", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(activityOwnerKey(owner), activityWindowScope);
+    const queries: string[] = [];
+    let fail = false;
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (fail) throw new Error("Latest unavailable");
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, queries.length === 1 ? "kept" : "latest", "30"))], null);
+    };
+    const view = render(
+      <>
+        <HookHarness owner={owner} fetchActivity={fetchActivity} testId="first-" />
+        <HookHarness owner={owner} fetchActivity={fetchActivity} testId="second-" />
+      </>,
+    );
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(1);
+    const windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    fail = true;
+    await act(async () => { await invalidateAfterAction(queryClient, activityOwnerKey(owner)); });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(2);
+    for (const testId of ["first-", "second-"]) {
+      expect(view.getByTestId(`${testId}status`).textContent).toBe("ready");
+      expect(view.getByTestId(`${testId}ids`).textContent).toBe("kept");
+      expect(view.getByTestId(`${testId}latest-unavailable`).textContent).toBe("true");
+    }
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
+    fail = false;
+    fireEvent.click(view.getByTestId("second-refetch"));
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(3);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(new URLSearchParams(queries[2]).get("to")!);
+    for (const testId of ["first-", "second-"]) {
+      expect(view.getByTestId(`${testId}ids`).textContent).toBe("latest");
+      expect(view.getByTestId(`${testId}latest-unavailable`).textContent).toBe("false");
+    }
+  });
+
+  test.each([true, false])("a remounted consumer retains the latest failure only with a survivor: %s", async (survivor) => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    let fail = false;
+    const fetchActivity: FetchActivity = async (query) => {
+      if (fail) throw new Error("Latest unavailable");
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const first = render(<HookHarness owner={owner} fetchActivity={fetchActivity} testId="first-" />);
+    if (survivor) render(<HookHarness owner={owner} fetchActivity={fetchActivity} testId="second-" />);
+    await flushMountedRecovery();
+    fail = true;
+    await act(async () => { await invalidateAfterAction(getHomeQueryClient(), activityOwnerKey(owner)); });
+    await flushMountedRecovery();
+    expect(first.getByTestId("first-latest-unavailable").textContent).toBe("true");
+    fail = false;
+    first.unmount();
+    const remounted = render(<HookHarness owner={owner} fetchActivity={fetchActivity} testId="remounted-" />);
+    await flushMountedRecovery();
+    expect(remounted.getByTestId("remounted-status").textContent).toBe("ready");
+    expect(remounted.getByTestId("remounted-ids").textContent).toBe("kept");
+    expect(remounted.getByTestId("remounted-latest-unavailable").textContent).toBe(String(survivor));
+    if (survivor) expect(remounted.getByTestId("second-latest-unavailable").textContent).toBe("true");
+  });
+
+  test("a latest read survives the first observer unmounting and advances the survivor", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(activityOwnerKey(owner), activityWindowScope);
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    let signal: AbortSignal | undefined;
+    const fetchActivity: FetchActivity = async (query, readSignal) => {
+      queries.push(query);
+      if (queries.length === 2) { signal = readSignal; return latest.promise; }
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const first = render(<HookHarness owner={owner} fetchActivity={fetchActivity} testId="first-" />);
+    const second = render(<HookHarness owner={owner} fetchActivity={fetchActivity} testId="second-" />);
+    await flushMountedRecovery();
+    const windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    await act(async () => { await invalidateAfterAction(queryClient, activityOwnerKey(owner)); });
+    await flushMountedRecovery();
+    first.unmount();
+    expect(signal?.aborted).toBe(false);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
+    await act(async () => {
+      latest.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "latest", "40"))], null));
+    });
+    await flushMountedRecovery();
+    expect(signal?.aborted).toBe(false);
+    expect(queries).toHaveLength(2);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(new URLSearchParams(queries[1]).get("to")!);
+    expect(second.getByTestId("second-ids").textContent).toBe("latest");
+    expect(second.getByTestId("second-latest-unavailable").textContent).toBe("false");
+  });
+
+  test("the last observer unmounting mid-read directly advances and removes a nonlive prefetch", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const ownerKey = activityOwnerKey(owner);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    let signal: AbortSignal | undefined;
+    const fetchActivity: FetchActivity = async (query, readSignal) => {
+      queries.push(query);
+      if (queries.length === 2) { signal = readSignal; return latest.promise; }
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "kept", "30"))], null);
+    };
+    const first = render(<HookHarness owner={owner} fetchActivity={fetchActivity} testId="first-" />);
+    const second = render(<HookHarness owner={owner} fetchActivity={fetchActivity} testId="second-" />);
+    await flushMountedRecovery();
+    const windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    await flushMountedRecovery();
+    const prefetchKey = ownerQueryKey(ownerKey, "activity", new URLSearchParams(queries[1]).get("to")!, "USD", "all");
+    expect(queryClient.getQueryCache().find({ queryKey: prefetchKey, exact: true })).toBeDefined();
+    first.unmount();
+    expect(signal?.aborted).toBe(false);
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
+    second.unmount();
+    const advancedEnd = queryClient.getQueryData<string>(windowKey)!;
+    expect(advancedEnd).not.toBe(windowEnd);
+    expect(advancedEnd).not.toBe(prefetchKey[2]);
+    expect(signal?.aborted).toBe(true);
+    expect(queryClient.getQueryCache().find({ queryKey: prefetchKey, exact: true })).toBeUndefined();
+    await act(async () => { latest.resolve(page(queries[1]!, WALLET_A, [], null)); });
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(advancedEnd);
+  });
+
+  test.each(["success", "failure"] as const)("a currency change during a latest read waits for the new currency: %s", async (outcome) => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const windowKey = ownerQueryKey(activityOwnerKey(owner), activityWindowScope);
+    const usdLatest = deferred<ActivityResponse>();
+    const eurLatest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    let windowEnd = "";
+    const response = (query: string, id: string) => {
+      const row = transfer(query, WALLET_A, id, "30");
+      row.valuation = { status: "unpriced", currency: new URLSearchParams(query).get("currency") as ActivityPage["currency"], reason: "unknown-token" };
+      return page(query, WALLET_A, [row], null);
+    };
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const params = new URLSearchParams(query);
+      if (windowEnd && params.get("to") !== windowEnd) {
+        return params.get("currency") === "USD" ? usdLatest.promise : eurLatest.promise;
+      }
+      return response(query, params.get("currency") === "USD" ? "usd-kept" : "eur-kept");
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    windowEnd = queryClient.getQueryData<string>(windowKey)!;
+    await act(async () => { await invalidateAfterAction(queryClient, activityOwnerKey(owner)); });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(2);
+    view.rerender(<HookHarness owner={owner} fetchActivity={fetchActivity} regionId="DE" />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("ids").textContent).toBe("eur-kept");
+    await act(async () => { usdLatest.resolve(response(queries[1]!, "usd-latest")); });
+    await flushMountedRecovery();
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(windowEnd);
+    expect(queries).toHaveLength(4);
+    expect(new URLSearchParams(queries[3]).get("currency")).toBe("EUR");
+    expect(new URLSearchParams(queries[3]).get("to")).not.toBe(windowEnd);
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    await act(async () => {
+      if (outcome === "success") eurLatest.resolve(response(queries[3]!, "eur-latest"));
+      else eurLatest.reject(new Error("EUR latest unavailable"));
+    });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(4);
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("currency").textContent).toBe("EUR");
+    expect(view.getByTestId("ids").textContent).toBe(outcome === "success" ? "eur-latest" : "eur-kept");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe(String(outcome === "failure"));
+    expect(queryClient.getQueryData<string>(windowKey)).toBe(outcome === "success" ? new URLSearchParams(queries[3]).get("to")! : windowEnd);
+  });
+
+  test("coalesces actions during an in-flight read into exactly one additional run", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      if (queries.length === 2) return latest.promise;
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, queries.length === 1 ? "kept" : "second-action", "30"))], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    const first = invalidateAfterAction(queryClient, activityOwnerKey(owner));
+    await flushMountedRecovery();
+    const second = invalidateAfterAction(queryClient, activityOwnerKey(owner));
+    const third = invalidateAfterAction(queryClient, activityOwnerKey(owner));
+    expect(queries).toHaveLength(2);
+    await act(async () => {
+      latest.resolve(page(queries[1]!, WALLET_A, [priced(transfer(queries[1]!, WALLET_A, "first-action", "30"))], null));
+      await Promise.all([first, second, third]);
+    });
+    await flushMountedRecovery();
+    expect(queries).toHaveLength(3);
+    expect(view.getByTestId("ids").textContent).toBe("second-action");
+    expect(new URLSearchParams(queries[2]).get("to")).not.toBe(new URLSearchParams(queries[1]).get("to"));
+  });
+
+  test("a window or currency change hides a scoped latest failure", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const ownerKey = activityOwnerKey(owner);
+    let fail = false;
+    const fetchActivity: FetchActivity = async (query) => {
+      if (fail) throw new Error("Latest unavailable");
+      const row = priced(transfer(query, WALLET_A, "kept", "30"));
+      row.valuation = { status: "unpriced", currency: new URLSearchParams(query).get("currency") as ActivityPage["currency"], reason: "unknown-token" };
+      return page(query, WALLET_A, [row], null);
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    fail = true;
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    await flushMountedRecovery();
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("true");
+    fail = false;
+    view.rerender(<HookHarness owner={owner} fetchActivity={fetchActivity} regionId="DE" />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+    fail = true;
+    await act(async () => { await invalidateAfterAction(queryClient, ownerKey); });
+    await flushMountedRecovery();
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("true");
+    fail = false;
+    await act(async () => {
+      const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+      queryClient.setQueryData(windowKey, nextActivityWindowEnd(queryClient.getQueryData<string>(windowKey)));
+    });
+    await flushMountedRecovery();
+    await flushMountedRecovery();
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+  });
+});
+
+describe("latest activity currency round trips", () => {
+  test.each([0, 2, 4, 8])("a pull skipped by a currency round trip reruns before it resolves (gap %i)", async (gap) => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:10.000Z") });
+    const owner = session(`currency-round-trip-${gap}`, WALLET_A);
+    const queryClient = getHomeQueryClient();
+    const ownerKey = activityOwnerKey(owner);
+    const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
+    const queries: string[] = [];
+    const latest = deferred<ActivityResponse>();
+    let originalEnd = "";
+    const response = (query: string, id: string) => {
+      const row = transfer(query, WALLET_A, id, "30");
+      row.valuation = { status: "unpriced", currency: new URLSearchParams(query).get("currency") as ActivityPage["currency"], reason: "unknown-token" };
+      return page(query, WALLET_A, [row], null);
+    };
+    const fetchActivity: FetchActivity = (query) => {
+      queries.push(query);
+      if (queries.length === 2) return latest.promise;
+      return Promise.resolve(response(query, originalEnd && new URLSearchParams(query).get("to") !== originalEnd ? "latest" : "kept"));
+    };
+    const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+    await flushMountedRecovery();
+    originalEnd = queryClient.getQueryData<string>(windowKey)!;
+    let outcome = "pending";
+    const pull = refreshActivityThroughController({
+      queryClient, ownerKey, session: owner, regionId: "GLOBAL", fetchActivity, isCurrent: () => true, onPrefetchKey: () => {},
+    }).then(() => { outcome = "success"; }, () => { outcome = "failure"; });
+    view.rerender(<HookHarness owner={owner} fetchActivity={fetchActivity} regionId="DE" />);
+    await flushMountedRecovery();
+    await act(async () => {
+      latest.resolve(response(queries[1]!, "latest"));
+      for (let index = 0; index < gap; index += 1) await Promise.resolve();
+      view.rerender(<HookHarness owner={owner} fetchActivity={fetchActivity} regionId="GLOBAL" />);
+    });
+    await flushMountedRecovery();
+    await act(async () => { await pull; });
+    await flushMountedRecovery();
+    expect(outcome).toBe("success");
+    expect(queryClient.getQueryData<string>(windowKey)).not.toBe(originalEnd);
+    expect(view.getByTestId("ids").textContent).toBe("latest");
+    expect(view.getByTestId("latest-unavailable").textContent).toBe("false");
+  });
+});
+
+describe("latest activity concurrent windows", () => {
+  test.each(["never-mounted", "unmounted"] as const)("controller refresh uses fallback prefetch ownership with a %s view", async (viewState) => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const prefetchKeys: unknown[] = [];
+    let reads = 0;
+    const fetchActivity: FetchActivity = async (query) => {
+      reads++;
+      return page(query, WALLET_A, [priced(transfer(query, WALLET_A, "latest", "40"))], null);
+    };
+    if (viewState === "unmounted") {
+      const view = render(<HookHarness owner={owner} fetchActivity={fetchActivity} />);
+      await flushMountedRecovery();
+      view.unmount();
+    }
+    await refreshActivityThroughController({
+      ...scope, session: owner, regionId: "GLOBAL", fetchActivity, isCurrent: () => true,
+      onPrefetchKey: (key) => { prefetchKeys.push(key); },
+    });
+    expect(reads).toBe(1);
+    const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
+    expect(nextEnd).not.toBe(scope.windowEnd);
+    expect(prefetchKeys).toEqual([ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"), null]);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.transfers[0]?.logId).toBe("latest");
+  });
+
+  test("controller fallback preserves isCurrent and skips when no current rows or view exist", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    let reads = 0;
+    const prefetchKeys: unknown[] = [];
+    const input = {
+      ...scope, session: owner, regionId: "GLOBAL" as const,
+      fetchActivity: async () => { reads++; throw new Error("Unexpected activity read"); },
+      onPrefetchKey: (key: unknown) => { prefetchKeys.push(key); },
+    };
+    await refreshActivityThroughController({ ...input, isCurrent: () => false });
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+    scope.queryClient.removeQueries({ queryKey: ownerQueryKey(scope.ownerKey, "activity") });
+    await refreshActivityThroughController({ ...input, isCurrent: () => true });
+    expect(reads).toBe(0);
+    expect(prefetchKeys).toEqual([]);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+  });
+
+  test("same-millisecond refreshes retain the newly live query on window mismatch", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const latest = deferred<ActivityResponse>();
+    const queries: string[] = [];
+    const input = { ...scope, session: owner, regionId: "GLOBAL" as const,
+      fetchActivity: async (query: string) => { queries.push(query); return latest.promise; },
+      isCurrent: () => true, onPrefetchKey: () => {} };
+    const first = refreshLatestActivity(input);
+    const second = refreshLatestActivity(input);
+    expect(queries).toHaveLength(1);
+    latest.resolve(page(queries[0]!, WALLET_A, [priced(transfer(queries[0]!, WALLET_A, "latest", "30"))], null));
+    expect(await Promise.all([first, second])).toEqual(["advanced", "superseded"]);
+    const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
+    expect(nextEnd).not.toBe(scope.windowEnd);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.transfers[0]?.logId).toBe("latest");
+  });
+
+  test("a failed refresh does not cancel or remove a next key that became live", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const latest = deferred<ActivityResponse>();
+    let query = "";
+    const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
+      fetchActivity: async (request) => { query = request; return latest.promise; },
+      isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+    const nextEnd = new URLSearchParams(query).get("to")!;
+    const nextKey = ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all");
+    scope.queryClient.setQueryData(nextKey, { pages: [page(query, WALLET_A, [priced(transfer(query, WALLET_A, "live", "30"))], null)], pageParams: [null] });
+    scope.queryClient.setQueryData(scope.windowKey, nextEnd);
+    latest.reject(new Error("Read failed"));
+    expect(await pending).toBeInstanceOf(Error);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(nextKey)?.pages[0]?.transfers[0]?.logId).toBe("live");
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(nextEnd);
   });
 });
 
 describe("first-page onchain recovery", () => {
+  test("initial failure, automatic retries and UI retry send the identical window, currency and null cursor", async () => {
+    jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:00.000Z") });
+    notifyManager.setScheduler((callback) => callback());
+    const queries: string[] = [];
+    let healthy = false;
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={async (query) => {
+      queries.push(query);
+      if (!healthy) throw new ResourceFailure("http", "unavailable", 502);
+      return page(query, WALLET_A, [], null);
+    }} />);
+    await flushRecovery();
+    await advanceFirstPageRetry(500);
+    await advanceFirstPageRetry(1500);
+    await flushRecovery();
+    expect(view.getByTestId("status").textContent).toBe("error");
+    expect(queries).toHaveLength(3);
+    healthy = true;
+    await act(async () => { jest.advanceTimersByTime(30_000); fireEvent.click(view.getByText("retry first load")); await flushRecovery(); });
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(queries).toHaveLength(4);
+    expect(new Set(queries).size).toBe(1);
+    expect([...new URLSearchParams(queries[0]).entries()]).toEqual([
+      ["to", "2026-09-28T12:00:00.000Z"], ["history", "all"], ["currency", "USD"],
+    ]);
+  });
   test("retries transient first-page failures after 500 ms and recovers without a partial warning", async () => {
     jest.useFakeTimers({ now: Date.parse("2026-09-28T12:00:00.000Z") });
     const owner = session("subject-a", WALLET_A);
@@ -1078,7 +2149,7 @@ describe("first-page onchain recovery", () => {
     expect(calls).toHaveLength(2);
     expect(calls[1]! - calls[0]!).toBeGreaterThanOrEqual(500);
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
-    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"));
+    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"));
     expect(next?.pages[0]?.transfers[0]?.logId).toBe("recovered");
     expect(next?.pages[0]?.onchainStatus).toBeUndefined();
   });
@@ -1114,7 +2185,7 @@ describe("first-page onchain recovery", () => {
     await pending;
     expect(calls).toBe(2);
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBeUndefined();
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.onchainStatus).toBeUndefined();
   });
 
   test("after two retries a partial first page remains available when there is no healthy history", async () => {
@@ -1130,7 +2201,7 @@ describe("first-page onchain recovery", () => {
     await pending;
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
     expect(calls).toBe(3);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBe("unavailable");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.onchainStatus).toBe("unavailable");
   });
 
   test.each(["parse", "http-400", "session", "access"] as const)("does not retry a %s first-page failure", async (failure) => {
@@ -1155,16 +2226,27 @@ describe("first-page onchain recovery", () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
+    scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+      ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_cached" }] } }],
+    });
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const prefetchedKeys: QueryKey[] = [];
     let calls = 0;
     const pending = refreshLatestActivity({ ...scope, session: owner, regionId: "GLOBAL",
-      fetchActivity: async (query) => { calls++; return partialPage(query, WALLET_A); },
-      isCurrent: () => true, onPrefetchKey: () => {} }).catch((error: unknown) => error);
+      fetchActivity: async (query) => { calls++; return partialPage(query, WALLET_A, [cardPurchase]); },
+      isCurrent: () => true, onPrefetchKey: (key) => { if (key) prefetchedKeys.push(key); } }).catch((error: unknown) => error);
     await flushRecovery();
     for (const delay of activityFirstPageRetryDelaysMs) await advanceFirstPageRetry(delay);
     expect((await pending as Error).message).toBe("Activity onchain history is unavailable.");
     expect(calls).toBe(3);
     expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD"))?.pages[0]?.onchainStatus).toBeUndefined();
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toBe(current);
+    expect(current.pages[0]?.cards?.rows.map((row) => row.id)).toEqual(["ipi_cached"]);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+    expect(prefetchedKeys).toHaveLength(1);
+    expect(scope.queryClient.getQueryState(prefetchedKeys[0]!)).toBeUndefined();
   });
 
   test("abort during the retry delay stops further first-page requests", async () => {
@@ -1184,11 +2266,12 @@ describe("first-page onchain recovery", () => {
     expect(signal?.aborted).toBe(true);
     expect(calls).toBe(1);
   });
+
   test("healthy history stays intact after exhausted transient background failures", async () => {
     jest.useFakeTimers();
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
-    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD");
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
     const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
     current.pages[0]!.transfers = [transfer(`to=${encodeURIComponent(scope.windowEnd)}&currency=USD`, WALLET_A, "kept", "30")];
     let calls = 0;
@@ -1210,7 +2293,7 @@ describe("first-page onchain recovery", () => {
       fetchActivity: async (query) => page(query, WALLET_A, [transfer(query, WALLET_A, "recovered", "30")], null),
       isCurrent: () => true, onPrefetchKey: () => {} });
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
-    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"));
+    const next = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"));
     expect(next?.pages[0]?.transfers[0]?.logId).toBe("recovered");
     expect(next?.pages[0]?.onchainStatus).toBeUndefined();
   });
@@ -1229,7 +2312,7 @@ describe("first-page onchain recovery", () => {
     await pending;
     const nextEnd = scope.queryClient.getQueryData<string>(scope.windowKey)!;
     expect(calls).toBe(3);
-    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD"))?.pages[0]?.onchainStatus).toBe("unavailable");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(ownerQueryKey(scope.ownerKey, "activity", nextEnd, "USD", "all"))?.pages[0]?.onchainStatus).toBe("unavailable");
   });
 
   test("a cursor-page failure never uses the first-page retry budget", async () => {
@@ -1237,7 +2320,7 @@ describe("first-page onchain recovery", () => {
     const owner = session("subject-a", WALLET_A);
     const scope = recoveryWindow(owner);
     const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
-    scope.queryClient.setQueryData(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD"), {
+    scope.queryClient.setQueryData(ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all"), {
       pages: [page(query, WALLET_A, [transfer(query, WALLET_A, "newer", "30")], "cursor-1"),
         page(query, WALLET_A, [transfer(query, WALLET_A, "older", "20")], null)],
       pageParams: [null, "cursor-1"],
@@ -1253,5 +2336,257 @@ describe("first-page onchain recovery", () => {
     expect(await pending).toBeInstanceOf(ResourceFailure);
     expect(cursors(queries)).toEqual([null, "cursor-1"]);
     expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+  });
+});
+
+describe("mounted same-window card retention", () => {
+  test("a fresh partial replaces cached card statuses and drops absent rows without renewing stale timing", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
+    const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
+    const cachedCards = { status: "ready" as const, rows: [
+      { ...cardPurchase, status: "pending" as const }, { ...cardPurchase, id: "ipi_absent" },
+    ] };
+    scope.queryClient.setQueryData(currentKey, {
+      pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null), cards: cachedCards }],
+      pageParams: [null],
+    } satisfies InfiniteData<ActivityPage>);
+    const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      return partialPage(request, WALLET_A, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    expect(view.getByTestId("card-ids").textContent).toBe(`${cardPurchase.id},ipi_absent`);
+    expect(view.getByTestId("card-statuses").textContent).toBe("pending,completed");
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(view.getByTestId("card-statuses").textContent).toBe("completed");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+    expect(scope.queryClient.getQueryData<string>(scope.windowKey)).toBe(scope.windowEnd);
+    expect(current.pages[0]!.cards).toEqual(cachedCards);
+  });
+
+  test("a partial before the final transient failure still replaces same-window cards", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
+    const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
+    scope.queryClient.setQueryData(currentKey, {
+      pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null),
+        cards: { status: "ready", rows: [{ ...cardPurchase, status: "pending" }] } }],
+      pageParams: [null],
+    } satisfies InfiniteData<ActivityPage>);
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      if (calls === 1) return partialPage(request, WALLET_A, [cardPurchase]);
+      throw new ResourceFailure("network");
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(view.getByTestId("card-statuses").textContent).toBe("completed");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+  });
+
+  test("a card-only write after the partial is not overwritten when later retries reject", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
+    const query = `to=${encodeURIComponent(scope.windowEnd)}&currency=USD`;
+    scope.queryClient.setQueryData(currentKey, {
+      pages: [{ ...page(query, WALLET_A, [transfer(query, WALLET_A, "kept", "30")], null),
+        cards: { status: "ready", rows: [{ ...cardPurchase, status: "pending" }] } }],
+      pageParams: [null],
+    } satisfies InfiniteData<ActivityPage>);
+    const secondAttempt = deferred<unknown>();
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      if (calls === 1) return partialPage(request, WALLET_A, [cardPurchase]);
+      if (calls === 2) return secondAttempt.promise;
+      throw new ResourceFailure("network");
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    await act(async () => { await advanceFirstPageRetry(activityFirstPageRetryDelaysMs[0]); });
+    expect(calls).toBe(2);
+    const state = scope.queryClient.getQueryState(currentKey)!;
+    const newerCard = { ...cardPurchase, id: "ipi_newer" };
+    await act(async () => {
+      scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+        ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [newerCard] } }, ...old.pages.slice(1)],
+      }, { updatedAt: state.dataUpdatedAt });
+    });
+    const newer = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const newerState = scope.queryClient.getQueryState(currentKey)!;
+    expect(newerState.dataUpdatedAt).toBe(state.dataUpdatedAt);
+    expect(newerState.dataUpdateCount).toBe(state.dataUpdateCount + 1);
+    await act(async () => {
+      secondAttempt.reject(new ResourceFailure("network"));
+      await flushRecovery();
+    });
+    await act(async () => { await advanceFirstPageRetry(activityFirstPageRetryDelaysMs[1]); });
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("card-ids").textContent).toBe(newerCard.id);
+    expect(view.getByTestId("ids").textContent).toBe("kept");
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toBe(newer);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(newerState.dataUpdatedAt);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdateCount).toBe(newerState.dataUpdateCount);
+  });
+
+  test("a cold start partial before exhausted transient failures still fails", async () => {
+    jest.useFakeTimers();
+    getHomeQueryClient().clear();
+    let calls = 0;
+    const view = render(<HookHarness owner={session("subject-a", WALLET_A)} fetchActivity={async (request) => {
+      calls++;
+      if (calls === 1) return partialPage(request, WALLET_A, [cardPurchase]);
+      throw new ResourceFailure("network");
+    }} />);
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(view.getByTestId("status").textContent).toBe("error");
+    expect(calls).toBe(3);
+  });
+
+  test("canceling during a partial retry delay leaves same-window cards unchanged", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
+    scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+      ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_cached" }] } }],
+    });
+    const current = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const updatedAt = scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt;
+    let calls = 0;
+    let signal: AbortSignal | undefined;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request, currentSignal) => {
+      calls++;
+      signal = currentSignal;
+      return partialPage(request, WALLET_A, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    expect(calls).toBe(1);
+    await act(async () => { await scope.queryClient.cancelQueries({ queryKey: currentKey, exact: true }); });
+    await act(async () => { await advanceFirstPageRetry(2_000); });
+    await flushMountedRecovery();
+    expect(signal?.aborted).toBe(true);
+    expect(calls).toBe(1);
+    expect(view.getByTestId("card-ids").textContent).toBe("ipi_cached");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toEqual(current);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(updatedAt);
+  });
+
+  test("a card-only write during the final attempt is not overwritten even with the same updatedAt", async () => {
+    jest.useFakeTimers();
+    const owner = session("subject-a", WALLET_A);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
+    const finalPage = deferred<unknown>();
+    const queries: string[] = [];
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      queries.push(request);
+      return queries.length === 3 ? finalPage.promise : partialPage(request, WALLET_A, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    expect(queries).toHaveLength(3);
+    const state = scope.queryClient.getQueryState(currentKey)!;
+    const newerCard = { ...cardPurchase, id: "ipi_newer" };
+    await act(async () => {
+      scope.queryClient.setQueryData<InfiniteData<ActivityPage>>(currentKey, (old) => old && {
+        ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [newerCard] } }, ...old.pages.slice(1)],
+      }, { updatedAt: state.dataUpdatedAt });
+    });
+    const newer = scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)!;
+    const newerState = scope.queryClient.getQueryState(currentKey)!;
+    expect(newerState.dataUpdatedAt).toBe(state.dataUpdatedAt);
+    expect(newerState.dataUpdateCount).toBe(state.dataUpdateCount + 1);
+    await act(async () => {
+      finalPage.resolve(partialPage(queries[2]!, WALLET_A, [cardPurchase]));
+      await flushRecovery();
+    });
+    await flushMountedRecovery();
+    expect(view.getByTestId("card-ids").textContent).toBe(newerCard.id);
+    expect(view.getByTestId("onchain-status").textContent).toBe("healthy");
+    expect(view.getByTestId("status").textContent).toBe("ready");
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)).toBe(newer);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdatedAt).toBe(newerState.dataUpdatedAt);
+    expect(scope.queryClient.getQueryState(currentKey)!.dataUpdateCount).toBe(newerState.dataUpdateCount);
+  });
+
+  test("owner B's partial updates only owner B's same-window cache", async () => {
+    jest.useFakeTimers();
+    const otherScope = recoveryWindow(session("subject-a", WALLET_A));
+    const otherKey = ownerQueryKey(otherScope.ownerKey, "activity", otherScope.windowEnd, "USD", "all");
+    otherScope.queryClient.setQueryData<InfiniteData<ActivityPage>>(otherKey, (old) => old && {
+      ...old, pages: [{ ...old.pages[0]!, cards: { status: "ready", rows: [{ ...cardPurchase, id: "ipi_ownerA" }] } }],
+    });
+    const other = otherScope.queryClient.getQueryData<InfiniteData<ActivityPage>>(otherKey)!;
+    const otherState = otherScope.queryClient.getQueryState(otherKey)!;
+    const owner = session("subject-b", WALLET_B);
+    const scope = recoveryWindow(owner);
+    const currentKey = ownerQueryKey(scope.ownerKey, "activity", scope.windowEnd, "USD", "all");
+    let calls = 0;
+    const view = render(<HookHarness owner={owner} fetchActivity={async (request) => {
+      calls++;
+      return partialPage(request, WALLET_B, [cardPurchase]);
+    }} />);
+    await flushMountedRecovery();
+    fireEvent.click(view.getByText("refetch"));
+    await flushMountedRecovery();
+    for (const delay of activityFirstPageRetryDelaysMs) {
+      await act(async () => { await advanceFirstPageRetry(delay); });
+    }
+    await flushMountedRecovery();
+    expect(calls).toBe(3);
+    expect(view.getByTestId("card-ids").textContent).toBe(cardPurchase.id);
+    expect(scope.queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey)?.pages[0]?.cards?.rows).toEqual([cardPurchase]);
+    expect(otherScope.queryClient.getQueryData<InfiniteData<ActivityPage>>(otherKey)).toBe(other);
+    expect(other.pages[0]?.cards?.rows.map((row) => row.id)).toEqual(["ipi_ownerA"]);
+    expect(otherScope.queryClient.getQueryState(otherKey)!.dataUpdatedAt).toBe(otherState.dataUpdatedAt);
+    expect(otherScope.queryClient.getQueryState(otherKey)!.dataUpdateCount).toBe(otherState.dataUpdateCount);
   });
 });

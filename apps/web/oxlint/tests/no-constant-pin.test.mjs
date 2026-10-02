@@ -1,37 +1,15 @@
-import { afterAll, describe, expect, it } from "bun:test";
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
+import { describe, expect, it } from "bun:test";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
 import { noConstantPin } from "../rules/tests.mjs";
+applyRuleCheckTimeout();
 
-const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-constant-pin-"));
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-afterAll(() => rm(mirror, { recursive: true, force: true }));
+const { lint } = await createOxlintWorkspace("home-oxlint-constant-pin-", {
+  rules: ["no-constant-pin"],
+});
 
-let fixtureIndex = 0;
 async function lintTestFile(filename, code) {
-  fixtureIndex += 1;
-  const config = `.oxlintrc-${fixtureIndex}.json`;
-  await mkdir(path.dirname(path.join(mirror, filename)), { recursive: true });
-  await writeFile(path.join(mirror, filename), code);
-  await writeFile(path.join(mirror, config), JSON.stringify({
-    plugins: [], categories: { correctness: "off" },
-    jsPlugins: ["./oxlint/home-plugin.mjs"],
-    rules: { "home/no-constant-pin": "error" },
-  }));
-  const result = spawnSync(
-    path.join(appsWebDir, "node_modules", ".bin", "oxlint"),
-    ["-c", config, "--disable-nested-config", "-f", "json", filename],
-    { cwd: mirror, encoding: "utf8" },
-  );
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  return JSON.parse(result.stdout).diagnostics.filter((diagnostic) =>
-    diagnostic.code === "home(no-constant-pin)");
+  return (await lint({ fixture: { code, path: filename } })).fixture;
 }
 
 describe("no-constant-pin", () => {
@@ -42,14 +20,14 @@ describe("no-constant-pin", () => {
       expect(RETRY_DELAY_MS).toEqual(1000);
       expect(MAX_QUEUE_DEPTH).toStrictEqual(5);
     `)).toHaveLength(3);
-  });
+  }, budgetMs);
 
   it("rejects folded numeric arithmetic", async () => {
     expect(await lintTestFile("client/backoff.test.ts", `
       import { CODEX_BACKOFF_MS } from "./backoff";
       expect(CODEX_BACKOFF_MS).toBe(24 * 60 * 60 * 1_000);
     `)).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("rejects unary positive numbers and negative bigints", async () => {
     expect(await lintTestFile("client/unary.test.ts", `
@@ -57,7 +35,7 @@ describe("no-constant-pin", () => {
       expect(TUNING_LIMIT).toBe(+10);
       expect(TUNING_LIMIT).toBe(-1n);
     `)).toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("allows identity pins by name and value", async () => {
     expect(await lintTestFile("client/identity.test.ts", `
@@ -73,7 +51,7 @@ describe("no-constant-pin", () => {
       expect(EXTERNAL_ORIGIN).toBe("wss://example.com");
       expect(ASSET_ADDRESS_HEX).toBe("0x1111111111111111111111111111111111111111");
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("accepts behavior, local constants, matcher modifiers, and nonbinding subjects", async () => {
     expect(await lintTestFile("client/behavior.test.ts", `
@@ -88,15 +66,18 @@ describe("no-constant-pin", () => {
       expect(limits.TUNING_LIMIT).toBe(10);
       expect(TUNING_LIMIT).toBe([10]);
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("covers support files and skips production files", async () => {
     const pin = 'import { TUNING_LIMIT } from "./limits"; expect(TUNING_LIMIT).toBe(10);';
-    for (const filename of ["tests/helpers/limit.ts", "testing/limit.ts", "client/limit.test-harness.ts", "client/limit-smoke-fixture.ts", "client/limit.pw.ts"]) {
-      expect(await lintTestFile(filename, pin)).toHaveLength(1);
+    const filenames = ["tests/helpers/limit.ts", "testing/limit.ts", "client/limit.test-harness.ts", "client/limit-smoke-fixture.ts", "client/limit.pw.ts"];
+    const found = await lint(Object.fromEntries([...filenames, "client/retry.ts", "tests/example.stories.tsx"].map((filename) =>
+      [filename, { code: pin, path: filename }])));
+    for (const filename of filenames) {
+      expect(found[filename]).toHaveLength(1);
     }
     expect(noConstantPin.create({ filename: "tests/helpers/limit.ts" })).toHaveProperty("CallExpression");
-    expect(await lintTestFile("client/retry.ts", pin)).toHaveLength(0);
-    expect(await lintTestFile("tests/example.stories.tsx", pin)).toHaveLength(0);
-  });
+    expect(found["client/retry.ts"]).toHaveLength(0);
+    expect(found["tests/example.stories.tsx"]).toHaveLength(0);
+  }, budgetMs);
 });

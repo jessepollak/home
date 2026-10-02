@@ -4,25 +4,46 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { isPreclassifiedRootFile } from "./exploration-boundary.mjs";
+import { loadRootEntryExemptions } from "./root-entries.mjs";
+
 const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const exceptionsPath = "scripts/gates/type-assertions-exceptions.json";
 const kinds = ["assertion", "nonNull", "suppression", "genericParse"];
+export const NON_PRODUCTION_ROOT_FILES = new Set(loadRootEntryExemptions().map((entry) => entry.path));
 const directive = /@ts-(?:ignore|expect-error|nocheck)\b|\b(?:eslint|oxlint)-disable(?:-[\w-]+)?\b/u;
 const parseCache = new Map();
+const testAndStoryPatterns = [
+  /(?:^|\/)(?:tests|testing)\//u,
+  /\.(?:test|stories)\.[^/]+$/u,
+  /(?:^|\/)[^/]*(?:test-harness|smoke-fixture[^/]*)\.(?:ts|tsx)$/u,
+];
+const testAndStoryHarnessExtensions = /(?:^|\/)[^/]*(?:test-harness|smoke-fixture[^/]*)\.(?:mts|cts)$/u;
+const budgets = [
+  { reportKey: "production", label: "Production TypeScript", scope: isProductionTypeScript, exceptionsPath: "scripts/gates/type-assertions-exceptions.json" },
+  { reportKey: "testAndStory", label: "Tests and stories", scope: isTestOrStoryTypeScript, exceptionsPath: "scripts/gates/type-assertions-test-exceptions.json" },
+];
 
 export function isProductionTypeScript(file) {
   if (!/^apps\/web\//u.test(file) || !/\.(?:ts|tsx|mts|cts)$/u.test(file)) return false;
   const local = file.slice("apps/web/".length);
-  if (/(?:^|\/)(?:tests|testing|explorations)\//u.test(local) || /\.(?:test|stories)\.[^/]+$/u.test(local)
-    || /(?:^|\/)[^/]*(?:test-harness|smoke-fixture[^/]*)\.(?:ts|tsx)$/u.test(local)) return false;
+  if (/(?:^|\/)explorations\//u.test(local) || testAndStoryPatterns.some((pattern) => pattern.test(local))) return false;
   return /^(?:app|client|components|config|lib|server|shared|types)\//u.test(local)
-    || /^(?:instrumentation[^/]*\.ts|proxy\.ts|next\.config\.ts)$/u.test(local);
+    || (!local.includes("/") && !NON_PRODUCTION_ROOT_FILES.has(local) && !isPreclassifiedRootFile(local) && !testAndStoryHarnessExtensions.test(local));
 }
 
-export function repositoryFiles() {
+export function isTestOrStoryTypeScript(file) {
+  if (isProductionTypeScript(file)) return false;
+  if (!/^apps\/web\//u.test(file) || !/\.(?:ts|tsx|mts|cts)$/u.test(file)) return false;
+  const local = file.slice("apps/web/".length);
+  return testAndStoryPatterns.some((pattern) => pattern.test(local)) || testAndStoryHarnessExtensions.test(local)
+    || (!local.includes("/") && isPreclassifiedRootFile(local));
+}
+
+export function repositoryFiles(scope = isProductionTypeScript) {
   return execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root })
-    .toString().split("\0").filter((file) => isProductionTypeScript(file) && existsSync(path.join(root, file)))
+    .toString().split("\0").filter((file) => scope(file) && existsSync(path.join(root, file)))
     .sort().map((file) => ({ path: file, content: readFileSync(path.join(root, file), "utf8") }));
 }
 
@@ -85,7 +106,7 @@ function cachedCounts(file, content) {
 }
 
 function runGit(args, { cwd = root } = {}) {
-  return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+  return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
 }
 
 function canResolve(args, cwd, gitRunner) {
@@ -140,15 +161,17 @@ function worktreeBlobHash(file, cwd, gitRunner) {
   }
 }
 
-export function changedProductionTypeScript({ base, cwd = root, gitRunner = runGit } = {}) {
-  const tracked = String(gitRunner(["diff", "--no-ext-diff", "--name-status", "-M", base, "--", "apps/web"], { cwd })).split("\n");
+export function changedScopedTypeScript({ base, scope = isProductionTypeScript, cwd = root, gitRunner = runGit } = {}) {
+  const tracked = String(gitRunner(["diff", "--no-ext-diff", "--name-status", "-z", "-M", base, "--", "apps/web"], { cwd })).split("\0");
   const changed = new Map();
   const deleted = new Map();
-  for (const line of tracked) {
-    if (!line) continue;
-    const [status, source, destination] = line.split("\t");
+  for (let index = 0; index < tracked.length;) {
+    const status = tracked[index++];
+    if (!status) continue;
+    const source = tracked[index++];
+    const destination = /^[RC]/u.test(status) ? tracked[index++] : undefined;
     if (status === "D") {
-      if (isProductionTypeScript(source)) {
+      if (scope(source)) {
         const hash = baseBlobHash({ base, file: source, cwd, gitRunner });
         if (hash) deleted.set(hash, [...(deleted.get(hash) ?? []), source]);
       }
@@ -156,12 +179,12 @@ export function changedProductionTypeScript({ base, cwd = root, gitRunner = runG
     }
     if (!/^[MATR]/u.test(status)) continue;
     const file = status.startsWith("R") ? destination : source;
-    if (!isProductionTypeScript(file)) continue;
-    const from = status.startsWith("R") && isProductionTypeScript(source) ? source : file;
+    if (!scope(file)) continue;
+    const from = status.startsWith("R") && scope(source) ? source : file;
     changed.set(file, { path: file, basePath: from });
   }
   const untracked = String(gitRunner(["ls-files", "--others", "--exclude-standard", "-z", "--", "apps/web"], { cwd })).split("\0");
-  for (const file of untracked) if (isProductionTypeScript(file)) changed.set(file, { path: file, basePath: file });
+  for (const file of untracked) if (scope(file)) changed.set(file, { path: file, basePath: file });
   return [...changed.values()].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0).map((entry) => {
     const content = readFileSync(path.join(cwd, entry.path), "utf8");
     const atBase = canResolve(["cat-file", "-e", `${base}:${entry.basePath}`], cwd, gitRunner);
@@ -174,30 +197,37 @@ export function changedProductionTypeScript({ base, cwd = root, gitRunner = runG
   });
 }
 
-function validException(entry) {
-  return isProductionTypeScript(entry?.path) && kinds.includes(entry?.kind)
+export function changedProductionTypeScript({ base, cwd = root, gitRunner = runGit } = {}) {
+  return changedScopedTypeScript({ base, scope: isProductionTypeScript, cwd, gitRunner });
+}
+
+function validException(entry, scope) {
+  return scope(entry?.path) && kinds.includes(entry?.kind)
     && Number.isSafeInteger(entry?.count) && entry.count > 0
     && typeof entry?.reason === "string" && Boolean(entry.reason.trim());
 }
 
-function exceptionCount(exceptions, file, kind) {
-  return exceptions.filter((entry) => validException(entry) && entry.path === file && entry.kind === kind)
+function exceptionCount(exceptions, file, kind, scope) {
+  return exceptions.filter((entry) => validException(entry, scope) && entry.path === file && entry.kind === kind)
     .reduce((total, entry) => total + entry.count, 0);
 }
 
-export function evaluateAssertionDelta({ changed, exceptions, baseExceptions }) {
+export function evaluateAssertionDelta({ changed, exceptions, baseExceptions, scope = isProductionTypeScript }) {
   const increases = [];
   const notes = [];
   const invalid = [];
-  for (const entry of exceptions) if (!validException(entry)) {
+  for (const entry of exceptions) if (!validException(entry, scope)) {
     invalid.push(`${entry?.path ?? "(missing path)"}: invalid ${entry?.kind ?? "(missing kind)"} exception (positive count and reason required)`);
   }
   for (const { path: file, content, basePath, baseContent } of changed) {
+    if (!scope(file)) continue;
     const actual = cachedCounts(file, content);
     const before = baseContent === undefined ? null : cachedCounts(file, baseContent);
     for (const kind of kinds) {
       const baseCount = before?.[kind] ?? 0;
-      const granted = Math.max(0, exceptionCount(exceptions, file, kind) - exceptionCount(baseExceptions, basePath, kind));
+      const inherited = exceptionCount(baseExceptions, basePath, kind, scope)
+        + (basePath === file ? 0 : exceptionCount(baseExceptions, file, kind, scope));
+      const granted = Math.max(0, exceptionCount(exceptions, file, kind, scope) - inherited);
       const allowed = baseCount + granted;
       if (actual[kind] > allowed) increases.push(`${file}: ${kind} ${actual[kind]} > ${allowed}; narrow the new use with a runtime guard or add a reviewed exception with a reason`);
       if (granted > Math.max(0, actual[kind] - baseCount)) notes.push(`${file}: ${kind} exception allows ${granted} but this change adds ${Math.max(0, actual[kind] - baseCount)}; remove or narrow it`);
@@ -215,15 +245,25 @@ function readExceptions(content) {
   }
 }
 
-export function assertionExceptions({ revision, cwd = root, gitRunner = runGit } = {}) {
+export function assertionExceptions({ revision, path: exceptionsFile = exceptionsPath, cwd = root, gitRunner = runGit } = {}) {
   try {
     const content = revision === undefined
-      ? readFileSync(path.join(cwd, exceptionsPath), "utf8")
-      : String(gitRunner(["show", `${revision}:${exceptionsPath}`], { cwd }));
+      ? readFileSync(path.join(cwd, exceptionsFile), "utf8")
+      : String(gitRunner(["show", `${revision}:${exceptionsFile}`], { cwd }));
     return readExceptions(content);
   } catch {
     return null;
   }
+}
+
+function baseAssertionExceptions({ revision, file, cwd, gitRunner }) {
+  try {
+    if (!String(gitRunner(["ls-tree", "-z", "--name-only", revision, "--", file], { cwd }))) return { exceptions: [] };
+  } catch {
+    return { invalid: true };
+  }
+  const exceptions = assertionExceptions({ revision, path: file, cwd, gitRunner });
+  return exceptions === null ? { invalid: true } : { exceptions };
 }
 
 function inventory(files, exceptions) {
@@ -238,11 +278,16 @@ function inventory(files, exceptions) {
 export function assertionDebtReport({ cwd = root, gitRunner = runGit } = {}) {
   const ref = resolveBaseRevision({ cwd, gitRunner });
   const base = mergeBaseRevision({ revision: ref, cwd, gitRunner });
-  const changed = changedProductionTypeScript({ base, cwd, gitRunner });
-  const current = assertionExceptions({ cwd, gitRunner });
-  const result = evaluateAssertionDelta({ changed, exceptions: current ?? [], baseExceptions: assertionExceptions({ revision: base, cwd, gitRunner }) ?? [] });
-  if (current === null) result.invalid.push(`${exceptionsPath}: invalid exceptions file (missing, unparsable, or exceptions must be an array)`);
-  return { ref, base, result };
+  const results = budgets.map((budget) => {
+    const changed = changedScopedTypeScript({ base, scope: budget.scope, cwd, gitRunner });
+    const current = assertionExceptions({ path: budget.exceptionsPath, cwd, gitRunner });
+    const atBase = baseAssertionExceptions({ revision: base, file: budget.exceptionsPath, cwd, gitRunner });
+    const result = evaluateAssertionDelta({ changed, exceptions: current ?? [], baseExceptions: atBase.exceptions ?? [], scope: budget.scope });
+    if (current === null) result.invalid.push(`${budget.exceptionsPath}: invalid exceptions file (missing, unparsable, or exceptions must be an array)`);
+    if (atBase.invalid) result.invalid.push(`${budget.exceptionsPath} at ${base}: invalid base exceptions file (unreadable, unparsable, or exceptions must be an array)`);
+    return { budget, result };
+  });
+  return { ref, base, results, result: results[0].result };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
@@ -250,19 +295,25 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     console.error("usage: node scripts/gates/type-assertions.mjs [--report]");
     process.exitCode = 1;
   } else if (process.argv[2] === "--report") {
-    const exceptions = assertionExceptions();
-    if (exceptions === null) {
-      console.error(`${exceptionsPath}: invalid exceptions file (missing, unparsable, or exceptions must be an array)`);
+    const current = budgets.map((budget) => ({ budget, exceptions: assertionExceptions({ path: budget.exceptionsPath }) }));
+    const unreadable = current.filter(({ exceptions }) => exceptions === null);
+    if (unreadable.length) {
+      for (const { budget } of unreadable) console.error(`${budget.exceptionsPath}: invalid exceptions file (missing, unparsable, or exceptions must be an array)`);
       process.exitCode = 1;
-    } else console.log(JSON.stringify(inventory(repositoryFiles(), exceptions), null, 2));
+    } else console.log(JSON.stringify(Object.fromEntries(current.map(({ budget, exceptions }) => [budget.reportKey, inventory(repositoryFiles(budget.scope), exceptions)])), null, 2));
   } else {
     try {
-      const { ref, base, result } = assertionDebtReport();
+      const { ref, base, results } = assertionDebtReport();
       console.log(`## Type-assertion gate (base ${base === ref ? ref : `${ref} at ${base.slice(0, 12)}`})`);
-      for (const note of result.notes) console.log(`- ${note}`);
-      for (const finding of [...result.increases, ...result.invalid].sort()) console.error(finding);
-      if (result.increases.length || result.invalid.length) process.exitCode = 1;
-      else console.log("No production TypeScript file increased its assertion debt.");
+      for (const { budget, result } of results) {
+        if (result.notes.length) {
+          console.log(`### ${budget.label}`);
+          for (const note of result.notes) console.log(`- ${note}`);
+        }
+        for (const finding of [...result.increases, ...result.invalid]) console.error(finding);
+      }
+      if (results.some(({ result }) => result.increases.length || result.invalid.length)) process.exitCode = 1;
+      else console.log("No TypeScript file increased its assertion debt.");
     } catch (error) {
       console.error(error.message);
       process.exitCode = 1;

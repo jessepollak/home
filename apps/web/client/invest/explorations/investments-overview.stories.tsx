@@ -90,15 +90,14 @@ async function heights(canvasElement: HTMLElement) {
   for (const button of screen(canvasElement).queryAllByRole("button", { name: /^(Try again|Buy|Sell)$/ })) await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 }
 async function revealNextPage(region: HTMLElement, visible: number, total: number) {
-  await expect(within(region).getAllByRole("listitem")).toHaveLength(visible);
-  const status = within(region).getByRole("status");
-  await expect(status).toHaveTextContent(`Showing ${visible} of ${total} investments`);
-  const sentinel = status.nextElementSibling;
-  if (!(sentinel instanceof HTMLElement)) throw new Error("Missing pagination sentinel");
-  await waitFor(async () => {
-    sentinel.scrollIntoView({ block: "center", behavior: "instant" });
-    await expect(within(region).getAllByRole("listitem")).toHaveLength(Math.min(visible + 20, total));
-  }, { timeout: 2_000 });
+  const items = () => within(region).getAllByRole("listitem");
+  await expect(items()).toHaveLength(visible);
+  await expect(within(region).getByRole("status")).toHaveTextContent(`Showing ${visible} of ${total} investments`);
+  const last = items()[visible - 1];
+  if (!last) throw new Error(`Missing investment row ${visible} of ${total}`);
+  last.scrollIntoView({ block: "center", behavior: "instant" });
+  // oxlint-disable-next-line home/no-real-waits -- Polls the observable row count after an IntersectionObserver page reveal; the 2 s cap is below callback delivery on a loaded CI runner, so the bound is 5 s.
+  await waitFor(() => expect(items()).toHaveLength(Math.min(visible + 20, total)), { timeout: 5_000 });
 }
 async function assertSnapshot(canvasElement: HTMLElement, snapshot: BalancesSnapshot) {
   const canvas = screen(canvasElement);

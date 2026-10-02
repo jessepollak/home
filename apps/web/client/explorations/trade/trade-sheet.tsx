@@ -195,7 +195,7 @@ export function TradeSheet({ open, side, initialState, available, reducedMotion,
     close();
     const spend = quoteSpendLabel(quote);
     if (result.status === "confirmed") {
-      const received = side === "sell" ? formatFiatAmount(quote.result.confirmedReceive.replace(/ USDC$/, "").replaceAll(",", ""), "USD") : quote.result.confirmedReceive;
+      const received = side === "sell" ? formatFiatAmount(quote.result.confirmedReceive.replace(/ USDC$/, "").replaceAll(",", ""), "USD", { currencyNative: true }) : quote.result.confirmedReceive;
       add({ message: side === "buy" ? `Bought ${received}` : quote.all ? `Sold all your Bitcoin for ${received}` : `Sold ${spend} for ${received}`, tone: "success", role: "status" });
     } else if (result.status === "failed") {
       add({ message: side === "buy" ? `Trade failed. Your ${spend} is still in Cash.` : `Trade failed. Your ${spend} is still in your investments.`, tone: "error", role: "alert", duration: 10_000 });
@@ -219,7 +219,7 @@ export function TradeSheet({ open, side, initialState, available, reducedMotion,
           <TradeStepTransition stepKey={step.name === "amount" ? "amount" : "review"} direction={direction} reducedMotion={reducedMotion ? true : undefined}>
             {step.name === "amount" ? (
               <>
-                <MoneyAmountDisplay amount={amount} maxDecimals={side === "buy" ? 6 : 8} onAmountChange={changeAmount} overAvailable={tooMuch} onSubmit={canContinue ? () => void prepare() : undefined} availableLabel={side === "buy" ? `${formatFiatAmount(limit, "USD")} available` : `${balance} cbBTC available`} availableAmount={limit} chipSet="max" assetId={`fixture-${asset.toLowerCase()}`} assetLabel={asset} assetControl="header" unit={unit} nativeSymbol={asset} />
+                <MoneyAmountDisplay amount={amount} maxDecimals={side === "buy" ? 6 : 8} onAmountChange={changeAmount} overAvailable={tooMuch} onSubmit={canContinue ? () => void prepare() : undefined} availableLabel={side === "buy" ? `${formatFiatAmount(limit, "USD", { currencyNative: true })} available` : `${balance} cbBTC available`} availableAmount={limit} chipSet="max" assetId={`fixture-${asset.toLowerCase()}`} assetLabel={asset} assetControl="header" unit={unit} nativeSymbol={asset} />
                 {step.error ? <p role="alert" className="min-w-0 break-words text-center text-sm text-foreground">{errorCopy[step.error]}</p> : null}
               </>
             ) : quote ? (

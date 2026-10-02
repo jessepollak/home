@@ -69,6 +69,15 @@ describe("Home interaction recorder", () => {
     expect(value.frames.size).toBe(0);
     expect(value.draws).toBe(1);
   });
+  test("a history navigation measures from the supplied traversal start", () => {
+    const value = fixture();
+    value.at(40);
+    value.recorder.beginNavigation({ from: "/cash", to: "/home", cache: "first-visit", trigger: "history", startedAt: 10 });
+    value.recorder.commitNavigation("/home");
+    value.at(58); value.frame(); value.idle();
+    expect(value.sent).toEqual([{ version: 1, kind: "home-navigation", route: "/home",
+      from: "/cash", trigger: "history", cache: "first-visit", device: "mobile-low", engine: "webkit", durationMs: 50, cachePersistMs: 0 }]);
+  });
   test("superseded and hidden navigations are dropped", () => {
     const value = fixture();
     value.recorder.beginNavigation(navigation);

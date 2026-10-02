@@ -2,7 +2,7 @@ import "server-only";
 
 import { isRegionId, type RegionId } from "@/config/regions";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
-import { writeObservabilityEvent } from "@/server/observability/log";
+import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import { privateError, privateJson } from "@/server/http/private-response";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
@@ -92,10 +92,7 @@ function emitFailure(
   log: (event: ObservabilityEvent) => unknown,
   event: ObservabilityEvent,
 ): void {
-  try {
-    log(event);
-  } catch { // oxlint-disable-line home/no-silent-catch -- the balances error-path log sink is isolated so observability cannot change the error response
-  }
+  observeSafely(() => log(event));
 }
 
 function fireAndForgetSubscription(run: () => Promise<void> | undefined): void {

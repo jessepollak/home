@@ -1,3 +1,4 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { Plus } from "lucide-react";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
@@ -510,7 +511,7 @@ export const IndexedActionContext: Story = {
         createdAt: "2026-09-21T12:00:00.000Z",
       },
       status: "pending",
-      transactionHash: indexedDepositTransfer.transactionHash,
+      transactionHash: parseHash32(indexedDepositTransfer.transactionHash)!,
       createdAt: "2026-09-21T12:00:00.000Z",
       updatedAt: "2026-09-21T12:01:00.000Z",
     }],

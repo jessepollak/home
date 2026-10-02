@@ -1,59 +1,216 @@
-
+import * as z from "zod/mini";
+import { parseAddress, parseHash32 } from "@/shared/chain/hex";
+import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
+import { getBorrowMarketRef } from "@/shared/borrowing/config";
 import {
-  getDirectPortfolioAssets,
-  portfolioVaults,
-  PORTFOLIO_USDC_ASSET_KEY,
-} from "@/config/portfolio-assets";
-import { getBorrowMarketRef, type BorrowAssetRef } from "@/shared/borrowing/config";
+  expectedRegistryHoldings,
+  registryAssetKeys,
+  registryExpectationMismatch,
+  registryHoldingsMatchExpectations,
+} from "./registry-expectations";
+import { isRegionId, presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
 import {
-  presentationRegions,
-  type FiatCurrencyCode,
-  type RegionId,
-} from "@/config/regions";
-import {
-  BALANCES_CHAIN_ID,
-  BALANCES_VERSION,
-  catalogHoldingId,
-  erc20AssetKey,
-  nativeAssetKey,
-  walletHoldingId,
-  type BalancesSession,
-  type BalancesBorrow,
-  type BalancesSnapshot,
-  type BalancesTotal,
-  type BalancesTotals,
-  type BorrowCollateralHolding,
-  type BorrowDebtLine,
-  type BorrowMarketKey,
-  type BorrowPosition,
-  type ExactDecimal,
-  type Holding,
-  type HoldingBalance,
-  type HoldingCashValue,
-  type HoldingValue,
-  type HoldingValueReference,
+  BALANCES_CHAIN_ID, BALANCES_VERSION, catalogHoldingId, erc20AssetKey, nativeAssetKey, walletHoldingId,
+  type AssetKey, type BalancesAddress, type BalancesSession, type BorrowMarketKey, type Erc20AssetKey,
 } from "./types";
 
-export type { BalancesSnapshot } from "./types";
+/** @public version token for the balances route contract inventory */
+export { BALANCES_VERSION } from "./types";
 
-const addressPattern = /^0x[0-9a-fA-F]{40}$/;
-const lowercaseAddressPattern = /^0x[0-9a-f]{40}$/;
-const blockHashPattern = /^0x[0-9a-fA-F]{64}$/;
+const assetKeyPattern = /^eip155:8453\/erc20:0x[0-9a-f]{40}$/;
 const decimalIntegerPattern = /^(?:0|[1-9]\d*)$/;
-const valueUnpricedReasons = new Set([
-  "price-unavailable",
-  "price-stale",
-  "fx-unavailable",
-  "below-market-gate",
-  "no-quote-currency",
-  "price-paused",
-  "asset-removed",
+const currencies = new Set<string>(Object.values(presentationRegions).flatMap((region) =>
+  region.currency.code === null ? [] : [region.currency.code]));
+
+const addressSchema = z.custom<BalancesAddress>((value) => parseAddress(value) !== null)
+  .check(z.overwrite((value) => parseAddress(value) ?? value));
+const blockHashSchema = z.custom<`0x${string}`>((value) => parseHash32(value) !== null)
+  .check(z.overwrite((value) => parseHash32(value) ?? value));
+const assetKeySchema = z.custom<AssetKey>((value) => typeof value === "string" &&
+  (value === nativeAssetKey() || assetKeyPattern.test(value)));
+const erc20KeySchema = z.custom<Erc20AssetKey>((value) => typeof value === "string" && assetKeyPattern.test(value));
+const marketKeySchema = z.custom<BorrowMarketKey>((value) => typeof value === "string" &&
+  parseHash32(value) !== null && getBorrowMarketRef(value) !== null)
+  .check(z.overwrite((value) => parseHash32(value) ?? value));
+const regionSchema = z.custom<RegionId>((value) => isRegionId(value));
+const currencySchema = z.custom<FiatCurrencyCode>((value) => typeof value === "string" && currencies.has(value));
+const integerSchema = z.string().check(z.regex(decimalIntegerPattern));
+const boundedTextSchema = z.string().check(z.refine((text) => text.trim() === text && text.length > 0 && text.length <= 64));
+const decimalsSchema = z.number().check(z.refine((n) => Number.isSafeInteger(n) && n >= 0 && n <= 255));
+const scaleSchema = z.number().check(z.refine((n) => Number.isSafeInteger(n) && n >= 0 && n <= 100));
+const isoSchema = z.string().check(z.refine((text) => {
+  const date = new Date(text);
+  return !Number.isNaN(date.getTime()) && date.toISOString() === text;
+}));
+const imageSchema = z.string().check(z.refine((text) => {
+  if (text.length > 2_048) return false;
+  try {
+    const url = new URL(text);
+    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
+  } catch {
+    return false;
+  }
+}));
+const nullableCurrencySchema = z.nullable(currencySchema);
+const cashCurrencySchema = z.prefault(nullableCurrencySchema, null);
+
+const decimalSchema = z.object({ atoms: integerSchema, scale: scaleSchema });
+const balanceSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ready"), baseUnits: integerSchema }),
+  z.object({ status: z.literal("unavailable"), baseUnits: z.null() }),
 ]);
-const cashValueUnpricedReasons = new Set([
-  "price-unavailable",
-  "price-stale",
-  "fx-unavailable",
+const readyBalanceSchema = z.object({ status: z.literal("ready"), baseUnits: integerSchema });
+const referenceSchema = z.object({ kind: z.literal("tokenized-equity"), session: z.enum(["open", "closed"]) });
+const valueSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("priced"), currency: currencySchema, amount: decimalSchema, asOf: isoSchema, reference: z.optional(referenceSchema) }),
+  z.object({ status: z.literal("unpriced"), reason: z.enum([
+    "price-unavailable", "price-stale", "fx-unavailable", "below-market-gate",
+    "no-quote-currency", "price-paused", "asset-removed",
+  ]) }),
+  z.object({ status: z.literal("unavailable") }),
 ]);
+const cashValueSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("priced"), currency: currencySchema, amount: decimalSchema }),
+  z.object({ status: z.literal("unpriced"), reason: z.enum(["price-unavailable", "price-stale", "fx-unavailable"]) }),
+  z.object({ status: z.literal("unavailable") }),
+]);
+const unitValueSchema = z.object({ currency: currencySchema, amount: decimalSchema });
+
+function withoutInapplicableCollateral(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const holding: Record<string, unknown> = { ...raw };
+  if (holding.source !== "borrow" && "collateral" in holding) delete holding.collateral;
+  return holding;
+}
+
+const holdingSchema = z.object({
+  key: assetKeySchema, id: z.string(), kind: z.enum(["native", "erc20", "vault-share"]),
+  source: z.enum(["registry", "catalog", "wallet", "borrow"]), name: boundedTextSchema, symbol: boundedTextSchema,
+  decimals: decimalsSchema, contractAddress: z.nullable(addressSchema), cashCurrency: cashCurrencySchema,
+  imageUrl: z.optional(imageSchema),
+  underlying: z.optional(z.object({ key: erc20KeySchema, symbol: z.literal("USDC"), decimals: z.literal(6) })),
+  balance: balanceSchema, underlyingBalance: z.optional(balanceSchema), value: valueSchema,
+  withdrawableBalance: z.optional(balanceSchema),
+  unitValue: z.optional(unitValueSchema), cashValue: z.optional(cashValueSchema),
+  collateral: z.optional(z.object({ marketId: marketKeySchema })),
+}).check(z.refine((h) => {
+  if (!validValue(h.value, h.balance) || !validUnitValue(h.unitValue, h.value, h.kind)) return false;
+  if (h.source === "registry") {
+    const expected = expectedRegistryHoldings().get(h.id);
+    if (!expected || registryExpectationMismatch(h, expected) ||
+      (h.imageUrl !== undefined && (expected.kind !== "erc20" || expected.cashCurrency !== null))) return false;
+    if (expected.kind === "vault-share") {
+      if (h.underlying?.key !== PORTFOLIO_USDC_ASSET_KEY || !h.underlyingBalance ||
+        (h.balance.status === "unavailable" && h.underlyingBalance.status !== "unavailable")) return false;
+      if (h.withdrawableBalance !== undefined &&
+        ((h.balance.status === "unavailable" && h.withdrawableBalance.status !== "unavailable") ||
+          (h.withdrawableBalance.status === "ready" && h.underlyingBalance.status === "ready" &&
+            BigInt(h.withdrawableBalance.baseUnits) > BigInt(h.underlyingBalance.baseUnits)))) return false;
+    } else if (h.underlying !== undefined || h.underlyingBalance !== undefined || h.withdrawableBalance !== undefined) return false;
+    if (expected.cashCurrency) {
+      if (!h.cashValue || !validCashValue(h.cashValue, h.balance, expected.cashCurrency)) return false;
+    } else if (h.cashValue !== undefined) return false;
+    return true;
+  }
+  return h.source !== "borrow" && h.kind === "erc20" && h.contractAddress !== null &&
+    h.id === (h.source === "catalog" ? catalogHoldingId(h.contractAddress) : walletHoldingId(h.contractAddress)) &&
+    h.key === erc20AssetKey(h.contractAddress) &&
+    !registryAssetKeys().has(h.key) &&
+    h.cashCurrency === null && h.underlying === undefined && h.underlyingBalance === undefined && h.withdrawableBalance === undefined &&
+    h.cashValue === undefined && h.balance.status === "ready" && h.balance.baseUnits !== "0";
+}));
+const collateralSchema = z.object({
+  key: assetKeySchema, id: z.string(), kind: z.literal("erc20"), source: z.literal("borrow"),
+  name: boundedTextSchema, symbol: boundedTextSchema, decimals: decimalsSchema,
+  contractAddress: z.nullable(addressSchema), cashCurrency: cashCurrencySchema,
+  balance: readyBalanceSchema, value: valueSchema, unitValue: z.optional(unitValueSchema),
+  collateral: z.object({ marketId: marketKeySchema }),
+  underlying: z.optional(z.object({ key: erc20KeySchema, symbol: z.literal("USDC"), decimals: z.literal(6) })),
+  underlyingBalance: z.optional(balanceSchema), cashValue: z.optional(cashValueSchema), imageUrl: z.optional(imageSchema),
+}).check(z.refine((h) => h.cashCurrency === null && h.underlying === undefined &&
+  h.underlyingBalance === undefined && h.cashValue === undefined && h.imageUrl === undefined &&
+  validValue(h.value, h.balance) && validUnitValue(h.unitValue, h.value, h.kind)));
+const debtSchema = z.object({
+  sign: z.literal(-1), marketId: marketKeySchema,
+  asset: z.object({ key: erc20KeySchema, name: boundedTextSchema, symbol: boundedTextSchema, decimals: decimalsSchema }),
+  balance: readyBalanceSchema, value: valueSchema,
+}).check(z.refine((d) => validValue(d.value, d.balance)));
+const positionSchema = z.object({
+  marketId: marketKeySchema, collateral: collateralSchema, debt: debtSchema, borrowAprWad: integerSchema,
+}).check(z.refine((p) => {
+  const market = getBorrowMarketRef(p.marketId);
+  if (!market || p.marketId !== market.marketId.toLowerCase()) return false;
+  const collateral = market.collateralToken;
+  const debt = market.loanToken;
+  const collateralAddress = parseAddress(collateral.address);
+  return p.collateral.key === erc20AssetKey(collateral.address) &&
+    p.collateral.id === `borrow-collateral:${p.marketId}` &&
+    collateralAddress !== null && p.collateral.contractAddress === collateralAddress &&
+    p.collateral.decimals === collateral.decimals && p.collateral.collateral.marketId === p.marketId &&
+    p.debt.marketId === p.marketId &&
+    p.debt.asset.key === erc20AssetKey(debt.address) && p.debt.asset.decimals === debt.decimals &&
+    (p.collateral.balance.baseUnits !== "0" || p.debt.balance.baseUnits !== "0");
+}));
+const borrowSchema = z.object({ coverage: z.enum(["complete", "partial"]), positions: z.array(positionSchema) })
+  .check(z.refine((borrow) => new Set(borrow.positions.map((p) => p.marketId)).size === borrow.positions.length));
+const totalSchema = z.object({
+  status: z.enum(["complete", "partial", "unavailable", "no-quote-currency"]),
+  value: z.nullable(decimalSchema), currency: nullableCurrencySchema,
+}).check(z.refine((total) =>
+  total.status === "complete" || total.status === "partial"
+    ? total.value !== null && total.currency !== null
+    : total.value === null && (total.status !== "no-quote-currency" || total.currency === null)));
+const netSchema = z.object({
+  status: totalSchema.shape.status, value: totalSchema.shape.value, currency: totalSchema.shape.currency,
+  negative: z.boolean(),
+}).check(z.refine((net) =>
+  (net.status === "complete" || net.status === "partial"
+    ? net.value !== null && net.currency !== null
+    : net.value === null && (net.status !== "no-quote-currency" || net.currency === null)) &&
+  (net.value !== null || !net.negative)));
+const totalsSchema = z.object({ cash: totalSchema, investments: totalSchema, borrow: totalSchema, net: netSchema });
+const coverageSchema = z.object({ registry: z.enum(["complete", "partial"]), catalog: z.enum(["complete", "incomplete", "unavailable"]) });
+
+const balancesSnapshotSchema = z.object({
+  version: z.literal(BALANCES_VERSION),
+  owner: z.object({ address: addressSchema, chainId: z.literal(BALANCES_CHAIN_ID) }),
+  region: regionSchema, quoteCurrency: nullableCurrencySchema,
+  block: z.object({ number: integerSchema, hash: blockHashSchema, timestamp: integerSchema }),
+  fetchedAt: isoSchema, holdings: z.array(z.pipe(z.transform(withoutInapplicableCollateral), holdingSchema)), coverage: coverageSchema,
+  total: totalSchema, borrow: borrowSchema, totals: totalsSchema, stale: z.optional(z.literal(true)),
+}).check(z.refine((snapshot) => {
+  const keys = new Set<string>();
+  const ids = new Set<string>();
+  for (const holding of snapshot.holdings) {
+    if (keys.has(holding.key) || ids.has(holding.id)) return false;
+    keys.add(holding.key);
+    ids.add(holding.id);
+  }
+  if (!registryHoldingsMatchExpectations(snapshot.holdings)) return false;
+  if ((snapshot.coverage.registry === "partial") !== snapshot.holdings.some((h) =>
+    h.source === "registry" && h.balance.status === "unavailable")) return false;
+  if (snapshot.borrow.coverage === "partial" &&
+    (snapshot.totals.borrow.status === "complete" || snapshot.totals.net.status === "complete")) return false;
+  if (snapshot.totals.net.status === "complete" &&
+    [snapshot.totals.cash, snapshot.totals.investments, snapshot.totals.borrow].some((t) => t.status !== "complete")) return false;
+  return true;
+}, "coverage or totals"));
+
+export type ExactDecimal = z.output<typeof decimalSchema>;
+export type HoldingBalance = z.output<typeof balanceSchema>;
+export type HoldingValue = z.output<typeof valueSchema>;
+export type HoldingCashValue = z.output<typeof cashValueSchema>;
+export type Holding = z.output<typeof holdingSchema>;
+export type BorrowCollateralHolding = z.output<typeof collateralSchema>;
+/** @public debt line response type for balance consumers */
+export type BorrowDebtLine = z.output<typeof debtSchema>;
+export type BorrowPosition = z.output<typeof positionSchema>;
+export type BalancesBorrow = z.output<typeof borrowSchema>;
+export type BalancesCoverage = z.output<typeof coverageSchema>;
+export type BalancesTotal = z.output<typeof totalSchema>;
+export type BalancesNetTotal = z.output<typeof netSchema>;
+export type BalancesTotals = z.output<typeof totalsSchema>;
+export type BalancesSnapshot = z.output<typeof balancesSnapshotSchema>;
 
 export class BalancesResponseError extends Error {
   constructor(message = "The balances response is invalid.") {
@@ -62,547 +219,47 @@ export class BalancesResponseError extends Error {
   }
 }
 
-type RegistryExpectation = {
-  id: string;
-  key: string;
-  kind: Holding["kind"];
-  name: string;
-  symbol: string;
-  decimals: number;
-  contractAddress: string | null;
-  cashCurrency: FiatCurrencyCode | null;
-};
-
-let registryExpectations: Map<string, RegistryExpectation> | null = null;
-
-export function expectedRegistryHoldings(): ReadonlyMap<string, RegistryExpectation> {
-  if (registryExpectations) return registryExpectations;
-  const expectations = new Map<string, RegistryExpectation>();
-  for (const asset of getDirectPortfolioAssets()) {
-    expectations.set(asset.id, {
-      id: asset.id,
-      key: asset.kind === "native" ? nativeAssetKey() : erc20AssetKey(asset.contractAddress!),
-      kind: asset.kind,
-      name: asset.name,
-      symbol: asset.symbol,
-      decimals: asset.decimals,
-      contractAddress: asset.contractAddress ? asset.contractAddress.toLowerCase() : null,
-      cashCurrency: asset.cashCurrency,
-    });
-  }
-  for (const vault of portfolioVaults) {
-    expectations.set(vault.id, {
-      id: vault.id,
-      key: erc20AssetKey(vault.address),
-      kind: "vault-share",
-      name: vault.name,
-      symbol: vault.symbol,
-      decimals: vault.decimals,
-      contractAddress: vault.address.toLowerCase(),
-      cashCurrency: null,
-    });
-  }
-  registryExpectations = expectations;
-  return expectations;
+function validValue(value: HoldingValue, balance: HoldingBalance): boolean {
+  return balance.status === "unavailable" ? value.status === "unavailable" : value.status !== "unavailable";
+}
+function validCashValue(value: HoldingCashValue, balance: HoldingBalance, currency: FiatCurrencyCode): boolean {
+  return balance.status === "unavailable" ? value.status === "unavailable" :
+    value.status === "priced" ? value.currency === currency : value.status === "unpriced";
+}
+function validUnitValue(unit: z.output<typeof unitValueSchema> | undefined, value: HoldingValue, kind: string): boolean {
+  return unit === undefined || (kind !== "vault-share" && value.status === "priced" &&
+    unit.currency === value.currency && unit.amount.atoms !== "0");
 }
 
 export function parseBalancesSnapshot(
-  value: unknown,
-  session: BalancesSession,
-  expectedRegion: RegionId,
+  value: unknown, session: BalancesSession, expectedRegion: RegionId,
 ): BalancesSnapshot {
-  if (!isRecord(value)) fail("not an object");
   const expectedCurrency = presentationRegions[expectedRegion].currency.code;
-
-  if (value.version !== BALANCES_VERSION) fail("version");
-  if (
-    !isRecord(value.owner) ||
-    typeof value.owner.address !== "string" ||
-    !addressPattern.test(value.owner.address) ||
-    value.owner.address.toLowerCase() !== session.smartAccountAddress.toLowerCase() ||
-    value.owner.chainId !== BALANCES_CHAIN_ID ||
-    session.chainId !== BALANCES_CHAIN_ID
-  ) {
-    fail("owner");
+  const sessionAddress = parseAddress(session.smartAccountAddress);
+  const contextualSchema = balancesSnapshotSchema
+    .check(z.refine((snapshot) => snapshot.owner.address === sessionAddress && sessionAddress !== null &&
+      session.chainId === BALANCES_CHAIN_ID && snapshot.region === expectedRegion &&
+      snapshot.quoteCurrency === expectedCurrency, "owner or region"))
+    .check(z.refine((snapshot) => {
+      const validTotal = (total: BalancesTotal) => total.currency === expectedCurrency &&
+        (expectedCurrency === null ? total.status === "no-quote-currency" : total.status !== "no-quote-currency");
+      if (!validTotal(snapshot.total) || ![
+        snapshot.totals.cash, snapshot.totals.investments, snapshot.totals.borrow, snapshot.totals.net,
+      ].every(validTotal)) return false;
+      const validPriced = (value: HoldingValue) => value.status === "priced"
+        ? expectedCurrency !== null && value.currency === expectedCurrency
+        : value.status === "unpriced"
+          ? (expectedCurrency === null) === (value.reason === "no-quote-currency")
+          : true;
+      return snapshot.holdings.every((h) => validPriced(h.value) &&
+        (h.unitValue === undefined || (h.value.status === "priced" && h.unitValue.currency === h.value.currency))) &&
+        snapshot.borrow.positions.every((p) => validPriced(p.collateral.value) && validPriced(p.debt.value));
+    }, "valuation currency"));
+  const result = contextualSchema.safeParse(value);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    const detail = issue && issue.path.length > 0 ? issue.path.join(".") : issue?.message ?? "schema";
+    throw new BalancesResponseError(`The balances response is invalid (${detail}).`);
   }
-  if (value.region !== expectedRegion) fail("region");
-  if (value.quoteCurrency !== expectedCurrency) fail("quoteCurrency");
-  if (
-    !isRecord(value.block) ||
-    !readInteger(value.block.number) ||
-    typeof value.block.hash !== "string" ||
-    !blockHashPattern.test(value.block.hash) ||
-    !readInteger(value.block.timestamp)
-  ) {
-    fail("block");
-  }
-  if (!readIso(value.fetchedAt)) fail("fetchedAt");
-  if (!Array.isArray(value.holdings)) fail("holdings");
-
-  const quoteCurrency = expectedCurrency as FiatCurrencyCode | null;
-  const registry = expectedRegistryHoldings();
-  const registryKeys = new Set([...registry.values()].map(({ key }) => key));
-  const seenKeys = new Set<string>();
-  const seenIds = new Set<string>();
-  const seenRegistryIds = new Set<string>();
-  const holdings: Holding[] = [];
-
-  for (const raw of value.holdings) {
-    const holding = validateHolding(raw, quoteCurrency, registry, registryKeys);
-    if (seenKeys.has(holding.key) || seenIds.has(holding.id)) fail("duplicate holding");
-    seenKeys.add(holding.key);
-    seenIds.add(holding.id);
-    if (holding.source === "registry") seenRegistryIds.add(holding.id);
-    holdings.push(holding);
-  }
-  for (const id of registry.keys()) {
-    if (!seenRegistryIds.has(id)) fail(`registry holding missing: ${id}`);
-  }
-
-  if (
-    !isRecord(value.coverage) ||
-    !["complete", "partial"].includes(String(value.coverage.registry)) ||
-    !["complete", "incomplete", "unavailable"].includes(String(value.coverage.catalog))
-  ) {
-    fail("coverage");
-  }
-  const registryUnavailable = holdings.some(
-    (holding) => holding.source === "registry" && holding.balance.status === "unavailable",
-  );
-  if ((value.coverage.registry === "partial") !== registryUnavailable) fail("coverage.registry");
-
-  const total = validateTotal(value.total, quoteCurrency, "total");
-  const borrow = validateBorrow(value.borrow, quoteCurrency);
-  const totals = validateTotals(value.totals, quoteCurrency, borrow);
-  if (value.stale !== undefined && value.stale !== true) fail("stale flag");
-
-  return {
-    version: BALANCES_VERSION,
-    owner: { address: value.owner.address as `0x${string}`, chainId: BALANCES_CHAIN_ID },
-    region: expectedRegion,
-    quoteCurrency,
-    block: {
-      number: value.block.number,
-      hash: value.block.hash as `0x${string}`,
-      timestamp: value.block.timestamp,
-    },
-    fetchedAt: value.fetchedAt,
-    holdings,
-    coverage: {
-      registry: value.coverage.registry as BalancesSnapshot["coverage"]["registry"],
-      catalog: value.coverage.catalog as BalancesSnapshot["coverage"]["catalog"],
-    },
-    total,
-    borrow,
-    totals,
-    ...(value.stale === true ? { stale: true as const } : {}),
-  };
-}
-
-function validateTotal(
-  raw: unknown,
-  quoteCurrency: FiatCurrencyCode | null,
-  label: string,
-): BalancesTotal {
-  if (!isRecord(raw)) fail(label);
-  switch (raw.status) {
-    case "complete":
-    case "partial":
-      if (!validateDecimal(raw.value) || raw.currency !== quoteCurrency || quoteCurrency === null) {
-        fail(`${label} value`);
-      }
-      break;
-    case "unavailable":
-      if (raw.value !== null || raw.currency !== quoteCurrency) fail(`${label} unavailable`);
-      break;
-    case "no-quote-currency":
-      if (raw.value !== null || raw.currency !== null || quoteCurrency !== null) {
-        fail(`${label} no-quote-currency`);
-      }
-      break;
-    default:
-      fail(`${label} status`);
-  }
-  if (quoteCurrency === null && raw.status !== "no-quote-currency") fail(`${label} status vs currency`);
-  return {
-    status: raw.status,
-    value: raw.value as ExactDecimal | null,
-    currency: raw.currency as FiatCurrencyCode | null,
-  };
-}
-
-function validateTotals(
-  raw: unknown,
-  quoteCurrency: FiatCurrencyCode | null,
-  borrow: BalancesBorrow,
-): BalancesTotals {
-  if (!isRecord(raw)) fail("totals");
-  const cash = validateTotal(raw.cash, quoteCurrency, "totals.cash");
-  const investments = validateTotal(raw.investments, quoteCurrency, "totals.investments");
-  const debt = validateTotal(raw.borrow, quoteCurrency, "totals.borrow");
-  const net = validateTotal(raw.net, quoteCurrency, "totals.net");
-  if (!isRecord(raw.net) || typeof raw.net.negative !== "boolean") fail("totals.net sign");
-  const negative = raw.net.negative;
-  if (net.value === null && negative) fail("totals.net sign without value");
-  if (borrow.coverage === "partial" && (debt.status === "complete" || net.status === "complete")) {
-    fail("totals complete with partial borrow");
-  }
-  if (net.status === "complete" && [cash, investments, debt].some((entry) => entry.status !== "complete")) {
-    fail("totals.net complete with incomplete component");
-  }
-  return { cash, investments, borrow: debt, net: { ...net, negative } };
-}
-
-function validateBorrow(raw: unknown, quoteCurrency: FiatCurrencyCode | null): BalancesBorrow {
-  if (!isRecord(raw) || (raw.coverage !== "complete" && raw.coverage !== "partial") || !Array.isArray(raw.positions)) {
-    fail("borrow");
-  }
-  const seen = new Set<string>();
-  const positions = raw.positions.map((entry): BorrowPosition => {
-    if (!isRecord(entry) || typeof entry.marketId !== "string") fail("borrow position");
-    const market = getBorrowMarketRef(entry.marketId);
-    const marketId = entry.marketId as BorrowMarketKey;
-    if (!market || marketId !== market.marketId.toLowerCase() || seen.has(marketId)) fail("borrow market");
-    seen.add(marketId);
-    if (!readInteger(entry.borrowAprWad)) fail("borrow apr");
-    const collateral = validateCollateral(entry.collateral, market.collateralToken, marketId, quoteCurrency);
-    const debt = validateDebt(entry.debt, market.loanToken, marketId, quoteCurrency);
-    if (collateral.balance.baseUnits === "0" && debt.balance.baseUnits === "0") fail("empty borrow position");
-    return { marketId, collateral, debt, borrowAprWad: entry.borrowAprWad };
-  });
-  return { coverage: raw.coverage, positions };
-}
-
-function validateCollateral(
-  raw: unknown,
-  asset: BorrowAssetRef,
-  marketId: BorrowMarketKey,
-  quoteCurrency: FiatCurrencyCode | null,
-): BorrowCollateralHolding {
-  if (!isRecord(raw)) fail("borrow collateral");
-  const key = erc20AssetKey(asset.address);
-  const balance = validateBalance(raw.balance);
-  if (
-    raw.source !== "borrow" ||
-    raw.kind !== "erc20" ||
-    raw.key !== key ||
-    raw.id !== `borrow-collateral:${marketId}` ||
-    normalizeNullableAddress(raw.contractAddress) !== asset.address.toLowerCase() ||
-    raw.decimals !== asset.decimals ||
-    !readBoundedText(raw.name) ||
-    !readBoundedText(raw.symbol) ||
-    (raw.cashCurrency ?? null) !== null ||
-    !isRecord(raw.collateral) ||
-    raw.collateral.marketId !== marketId ||
-    raw.underlying !== undefined ||
-    raw.underlyingBalance !== undefined ||
-    raw.cashValue !== undefined ||
-    raw.imageUrl !== undefined ||
-    balance.status !== "ready"
-  ) {
-    fail("borrow collateral holding");
-  }
-  const value = validateValue(raw.value, balance, quoteCurrency);
-  const unitValue = validateUnitValue(raw.unitValue, value, "erc20");
-  return {
-    key,
-    id: raw.id,
-    kind: "erc20",
-    source: "borrow",
-    name: raw.name,
-    symbol: raw.symbol,
-    decimals: asset.decimals,
-    contractAddress: asset.address.toLowerCase() as `0x${string}`,
-    cashCurrency: null,
-    balance,
-    value,
-    ...(unitValue ? { unitValue } : {}),
-    collateral: { marketId },
-  };
-}
-
-function validateDebt(
-  raw: unknown,
-  asset: BorrowAssetRef,
-  marketId: BorrowMarketKey,
-  quoteCurrency: FiatCurrencyCode | null,
-): BorrowDebtLine {
-  if (!isRecord(raw) || !isRecord(raw.asset)) fail("borrow debt");
-  const key = erc20AssetKey(asset.address);
-  const balance = validateBalance(raw.balance);
-  if (
-    raw.sign !== -1 ||
-    raw.marketId !== marketId ||
-    raw.asset.key !== key ||
-    raw.asset.decimals !== asset.decimals ||
-    !readBoundedText(raw.asset.name) ||
-    !readBoundedText(raw.asset.symbol) ||
-    balance.status !== "ready"
-  ) {
-    fail("borrow debt line");
-  }
-  return {
-    sign: -1,
-    marketId,
-    asset: { key, name: raw.asset.name, symbol: raw.asset.symbol, decimals: asset.decimals },
-    balance,
-    value: validateValue(raw.value, balance, quoteCurrency),
-  };
-}
-
-function validateHolding(
-  raw: unknown,
-  quoteCurrency: FiatCurrencyCode | null,
-  registry: ReadonlyMap<string, RegistryExpectation>,
-  registryKeys: ReadonlySet<string>,
-): Holding {
-  if (!isRecord(raw)) fail("holding shape");
-  if (raw.source !== "registry" && raw.source !== "catalog" && raw.source !== "wallet") {
-    fail("holding source");
-  }
-  if (typeof raw.id !== "string" || typeof raw.key !== "string") fail("holding identity");
-  if (!readBoundedText(raw.name) || !readBoundedText(raw.symbol)) fail("holding name");
-  if (!readDecimals(raw.decimals)) fail("holding decimals");
-  const balance = validateBalance(raw.balance);
-  const value = validateValue(raw.value, balance, quoteCurrency);
-  const unitValue = validateUnitValue(raw.unitValue, value, raw.kind);
-
-  if (raw.source === "registry") {
-    const expected = registry.get(raw.id);
-    if (
-      !expected ||
-      raw.key !== expected.key ||
-      raw.kind !== expected.kind ||
-      raw.name !== expected.name ||
-      raw.symbol !== expected.symbol ||
-      raw.decimals !== expected.decimals ||
-      normalizeNullableAddress(raw.contractAddress) !== expected.contractAddress ||
-      (raw.cashCurrency ?? null) !== expected.cashCurrency ||
-      (raw.imageUrl !== undefined && !validateHttpsImage(raw.imageUrl)) ||
-      (raw.imageUrl !== undefined && (expected.kind !== "erc20" || expected.cashCurrency !== null))
-    ) {
-      fail(`registry holding mismatch: ${raw.id}`);
-    }
-    const holding: Holding = {
-      key: expected.key as Holding["key"],
-      id: expected.id,
-      kind: expected.kind,
-      source: "registry",
-      name: expected.name,
-      symbol: expected.symbol,
-      decimals: expected.decimals,
-      contractAddress: expected.contractAddress as Holding["contractAddress"],
-      cashCurrency: expected.cashCurrency,
-      ...(raw.imageUrl !== undefined ? { imageUrl: raw.imageUrl as string } : {}),
-      balance,
-      value,
-      ...(unitValue ? { unitValue } : {}),
-    };
-    if (expected.kind === "vault-share") {
-      if (
-        !isRecord(raw.underlying) ||
-        raw.underlying.key !== PORTFOLIO_USDC_ASSET_KEY ||
-        raw.underlying.symbol !== "USDC" ||
-        raw.underlying.decimals !== 6
-      ) {
-        fail("vault underlying");
-      }
-      const underlyingBalance = validateBalance(raw.underlyingBalance);
-      if (balance.status === "unavailable" && underlyingBalance.status !== "unavailable") {
-        fail("vault underlying balance without shares");
-      }
-      holding.underlying = { key: PORTFOLIO_USDC_ASSET_KEY, symbol: "USDC", decimals: 6 };
-      holding.underlyingBalance = underlyingBalance;
-    } else if (raw.underlying !== undefined || raw.underlyingBalance !== undefined) {
-      fail("underlying on non-vault");
-    }
-    if (expected.cashCurrency) {
-      holding.cashValue = validateCashValue(raw.cashValue, balance, expected.cashCurrency);
-    } else if (raw.cashValue !== undefined) {
-      fail("cashValue on non-cash");
-    }
-    return holding;
-  }
-
-  const contractAddress = typeof raw.contractAddress === "string" ? raw.contractAddress : "";
-  const expectedId = raw.source === "catalog"
-    ? catalogHoldingId(contractAddress)
-    : walletHoldingId(contractAddress);
-  if (
-    !lowercaseAddressPattern.test(contractAddress) ||
-    raw.kind !== "erc20" ||
-    raw.id !== expectedId ||
-    raw.key !== erc20AssetKey(contractAddress) ||
-    registryKeys.has(raw.key) ||
-    (raw.cashCurrency ?? null) !== null ||
-    raw.underlying !== undefined ||
-    raw.underlyingBalance !== undefined ||
-    raw.cashValue !== undefined ||
-    balance.status !== "ready" ||
-    balance.baseUnits === "0" ||
-    (raw.imageUrl !== undefined && !validateHttpsImage(raw.imageUrl))
-  ) {
-    fail(`${raw.source} holding`);
-  }
-  return {
-    key: raw.key as Holding["key"],
-    id: raw.id,
-    kind: "erc20",
-    source: raw.source,
-    name: raw.name as string,
-    symbol: raw.symbol as string,
-    decimals: raw.decimals as number,
-    contractAddress: contractAddress as `0x${string}`,
-    cashCurrency: null,
-    ...(raw.imageUrl !== undefined ? { imageUrl: raw.imageUrl as string } : {}),
-    balance,
-    value,
-    ...(unitValue ? { unitValue } : {}),
-  };
-}
-
-function validateUnitValue(raw: unknown, value: HoldingValue, kind: unknown): Holding["unitValue"] {
-  if (raw === undefined) return undefined;
-  if (
-    value.status !== "priced" ||
-    kind === "vault-share" ||
-    !isRecord(raw) ||
-    raw.currency !== value.currency ||
-    !validateDecimal(raw.amount) ||
-    raw.amount.atoms === "0"
-  ) {
-    fail("unitValue");
-  }
-  return { currency: value.currency, amount: raw.amount };
-}
-
-function validateBalance(raw: unknown): HoldingBalance {
-  if (!isRecord(raw)) fail("balance");
-  if (raw.status === "ready" && readInteger(raw.baseUnits)) {
-    return { status: "ready", baseUnits: raw.baseUnits };
-  }
-  if (raw.status === "unavailable" && raw.baseUnits === null) {
-    return { status: "unavailable", baseUnits: null };
-  }
-  fail("balance status");
-}
-
-function validateValue(
-  raw: unknown,
-  balance: HoldingBalance,
-  quoteCurrency: FiatCurrencyCode | null,
-): HoldingValue {
-  if (!isRecord(raw)) fail("value");
-  if (balance.status === "unavailable") {
-    if (raw.status !== "unavailable") fail("value must be unavailable");
-    return { status: "unavailable" };
-  }
-  if (raw.status === "priced") {
-    if (
-      quoteCurrency === null ||
-      raw.currency !== quoteCurrency ||
-      !validateDecimal(raw.amount) ||
-      !readIso(raw.asOf) ||
-      !(raw.reference === undefined || isValueReference(raw.reference))
-    ) {
-      fail("priced value");
-    }
-    return {
-      status: "priced",
-      currency: quoteCurrency,
-      amount: raw.amount as ExactDecimal,
-      asOf: raw.asOf,
-      ...(isValueReference(raw.reference) ? { reference: { kind: "tokenized-equity" as const, session: raw.reference.session } } : {}),
-    };
-  }
-  if (raw.status === "unpriced") {
-    if (!valueUnpricedReasons.has(String(raw.reason))) fail("unpriced reason");
-    if ((quoteCurrency === null) !== (raw.reason === "no-quote-currency")) fail("unpriced vs currency");
-    return { status: "unpriced", reason: raw.reason as Extract<HoldingValue, { status: "unpriced" }>["reason"] };
-  }
-  fail("value status");
-}
-
-function isValueReference(value: unknown): value is HoldingValueReference {
-  return isRecord(value) && value.kind === "tokenized-equity" &&
-    (value.session === "open" || value.session === "closed");
-}
-
-function validateCashValue(
-  raw: unknown,
-  balance: HoldingBalance,
-  cashCurrency: FiatCurrencyCode,
-): HoldingCashValue {
-  if (!isRecord(raw)) fail("cashValue");
-  if (balance.status === "unavailable") {
-    if (raw.status !== "unavailable") fail("cashValue must be unavailable");
-    return { status: "unavailable" };
-  }
-  if (raw.status === "priced") {
-    if (raw.currency !== cashCurrency || !validateDecimal(raw.amount)) fail("priced cashValue");
-    return { status: "priced", currency: cashCurrency, amount: raw.amount as ExactDecimal };
-  }
-  if (raw.status === "unpriced") {
-    if (!cashValueUnpricedReasons.has(String(raw.reason))) fail("cashValue reason");
-    return { status: "unpriced", reason: raw.reason as Extract<HoldingCashValue, { status: "unpriced" }>["reason"] };
-  }
-  fail("cashValue status");
-}
-
-function validateDecimal(value: unknown): value is ExactDecimal {
-  return (
-    isRecord(value) &&
-    readInteger(value.atoms) &&
-    typeof value.scale === "number" &&
-    Number.isSafeInteger(value.scale) &&
-    value.scale >= 0 &&
-    value.scale <= 100
-  );
-}
-
-function validateHttpsImage(value: unknown): boolean {
-  if (typeof value !== "string" || value.length > 2_048) return false;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && !url.username && !url.password && !url.hash;
-  } catch {
-    return false;
-  }
-}
-
-function normalizeNullableAddress(value: unknown): string | null | undefined {
-  if (value === null) return null;
-  if (typeof value === "string" && addressPattern.test(value)) return value.toLowerCase();
-  return undefined;
-}
-
-function readBoundedText(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.trim() === value &&
-    value.length > 0 &&
-    value.length <= 64
-  );
-}
-
-function readDecimals(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 255;
-}
-
-function readInteger(value: unknown): value is string {
-  return typeof value === "string" && decimalIntegerPattern.test(value);
-}
-
-function readIso(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const date = new Date(value);
-  return !Number.isNaN(date.getTime()) && date.toISOString() === value;
-}
-
-function fail(detail: string): never {
-  throw new BalancesResponseError(`The balances response is invalid (${detail}).`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return result.data;
 }

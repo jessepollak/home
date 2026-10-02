@@ -8,6 +8,8 @@ type Manifest = Parameters<typeof inventoryRouteContracts>[0]["manifest"];
 const roots: string[] = [];
 const route = "items/route.ts";
 const contract = "shared/items/contract.ts";
+const appRoute = "app/report/route.ts";
+const documentExemption = { kind: "document", reason: "This report is downloaded as a document and is never parsed by a Home client." };
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), "home-route-contracts-"));
@@ -22,11 +24,27 @@ function fixture() {
   write("client/items.ts", 'import { parseItem } from "@/shared/items/contract"; export const loadItem = () => fetch("/api/items").then(parseItem);');
   const manifest: Manifest = {
     routes: { [route]: { contracts: [contract] } },
+    appRoutes: {},
     baseline: { routesWithoutVersionedParser: {}, unversionedContracts: [], parserlessContracts: [], handlerUnlinked: {}, clientUnlinked: {} },
   };
   const violations = () => inventoryRouteContracts({ root, manifest });
   const codes = () => violations().map(({ code, path }) => ({ code, path }));
   return { root, write, manifest, violations, codes };
+}
+
+function mixedMethodFixture() {
+  const result = fixture();
+  const legacyContract = "shared/items/legacy-contract.ts";
+  result.write(legacyContract, "export function parseLegacyItem(value: unknown) { return value; }");
+  result.write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseLegacyItem } from "@/shared/items/legacy-contract"; export const GET = () => parseItem({ version: 1 }); export const POST = () => parseLegacyItem({});');
+  result.write("client/items.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseLegacyItem } from "@/shared/items/legacy-contract"; export const loadItem = () => fetch("/api/items").then(parseItem); export const createItem = () => fetch("/api/items", { method: "POST" }).then(parseLegacyItem);');
+  const methods: Record<"GET" | "POST", { contracts: string[]; allowance?: { kind: string; reason: string } }> = {
+    GET: { contracts: [contract] },
+    POST: { contracts: [legacyContract] },
+  };
+  result.manifest.routes[route] = { contracts: [contract, legacyContract], methods };
+  result.manifest.baseline.unversionedContracts.push(legacyContract);
+  return { ...result, methods };
 }
 
 afterEach(() => {
@@ -37,10 +55,208 @@ test("accepts a mapped versioned, parsed contract with both sides linked", () =>
   expect(fixture().violations()).toEqual([]);
 });
 
+test("requires per-method classification for a route exporting GET and POST", () => {
+  const { write, codes } = fixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; export const GET = () => parseItem({ version: 1 }); export const POST = () => parseItem({ version: 1 });');
+  expect(codes()).toEqual([{ code: "method-unclassified", path: route }]);
+});
+
+for (const classified of [false, true]) {
+  test(`${classified ? "accepts classified" : "requires per-method classification for"} destructured GET and POST exports`, () => {
+    const { write, manifest, codes } = fixture();
+    write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; export const { GET, POST } = { GET: () => parseItem({ version: 1 }), POST: () => parseItem({ version: 1 }) };');
+    if (classified) {
+      const entry = manifest.routes[route];
+      if (!entry) throw new Error("Fixture item route is missing");
+      entry.methods = {
+        GET: { contracts: [contract] },
+        POST: { contracts: [contract] },
+      };
+    }
+    expect(codes()).toEqual(classified ? [] : [{ code: "method-unclassified", path: route }]);
+  });
+}
+
+test("requires per-method classification for star-re-exported GET and POST handlers", () => {
+  const { write, manifest, codes } = fixture();
+  write(`app/api/${route}`, 'export * from "./handler";');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; export const GET = () => parseItem({ version: 1 }); export const POST = () => parseItem({ version: 1 });');
+  expect(codes()).toEqual([{ code: "method-unclassified", path: route }]);
+  const entry = manifest.routes[route];
+  if (!entry) throw new Error("Fixture item route is missing");
+  entry.methods = {
+    GET: { contracts: [contract] },
+    POST: { contracts: [contract] },
+  };
+  expect(codes()).toEqual([]);
+});
+
+test("requires an allowance for an unversioned POST contract despite a versioned GET contract", () => {
+  const { methods, codes } = mixedMethodFixture();
+  expect(codes()).toEqual([{ code: "method-unversioned", path: route }]);
+  methods.POST.allowance = {
+    kind: "unversioned-compatibility",
+    reason: "POST preserves the legacy unversioned response while existing clients migrate.",
+  };
+  expect(codes()).toEqual([]);
+});
+
+test("requires an allowance for a method binding both versioned and unversioned contracts", () => {
+  const { methods, codes } = mixedMethodFixture();
+  methods.GET.contracts = [contract, ...methods.POST.contracts];
+  methods.POST.allowance = {
+    kind: "unversioned-compatibility",
+    reason: "POST preserves the legacy unversioned response while existing clients migrate.",
+  };
+  expect(codes()).toEqual([{ code: "method-unversioned", path: route }]);
+  methods.GET.allowance = {
+    kind: "unversioned-compatibility",
+    reason: "GET preserves the legacy unversioned response while existing clients migrate.",
+  };
+  expect(codes()).toEqual([]);
+});
+
+for (const [name, allowance] of [
+  ["unknown kind", { kind: "internal", reason: "POST preserves the legacy unversioned response while existing clients migrate." }],
+  ["short trimmed reason", { kind: "unversioned-compatibility", reason: "    Too short    " }],
+] as const) {
+  test(`rejects a method allowance with ${name}`, () => {
+    const { methods, codes } = mixedMethodFixture();
+    methods.POST.allowance = allowance;
+    expect(codes()).toEqual([
+      { code: "method-allowance-invalid", path: route },
+      { code: "method-unversioned", path: route },
+    ]);
+  });
+}
+
+test("rejects a method classification the route does not export", () => {
+  const { manifest, codes } = fixture();
+  const entry = manifest.routes[route];
+  if (!entry) throw new Error("Fixture item route is missing");
+  entry.methods = {
+    GET: { contracts: [contract] },
+    POST: { contracts: [contract] },
+  };
+  expect(codes()).toEqual([{ code: "method-unknown", path: route }]);
+});
+
 test("rejects a newly added unmapped route", () => {
   const { write, codes } = fixture();
   write("app/api/extra/route.ts", "export const GET = () => new Response(null);");
   expect(codes()).toContainEqual({ code: "route-unclassified", path: "extra/route.ts" });
+});
+
+test("rejects an unlisted api handler in a dot-directory", () => {
+  const { write, codes } = fixture();
+  write("app/api/.hidden/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([{ code: "route-unclassified", path: ".hidden/route.ts" }]);
+});
+
+for (const path of ["app/route.ts", ...["ts", "tsx", "js", "jsx"].map((extension) => `app/report/route.${extension}`)]) {
+  test(`rejects an unlisted non-api handler at ${path}`, () => {
+    const { write, codes } = fixture();
+    write(path, "export const GET = () => new Response(null);");
+    expect(codes()).toEqual([{ code: "route-unclassified", path }]);
+  });
+}
+
+test("rejects an unlisted non-api handler in a dot-directory", () => {
+  const { write, codes } = fixture();
+  const path = "app/.well-known/home-auth/route.ts";
+  write(path, "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([{ code: "route-unclassified", path }]);
+});
+
+test("ignores handlers inside a Next.js private folder", () => {
+  const { write, codes } = fixture();
+  write("app/_lib/route.ts", "export const GET = () => new Response(null);");
+  write("app/api/_lib/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([]);
+});
+
+test("ignores handlers below a nested private folder", () => {
+  const { write, codes } = fixture();
+  write("app/api/items/_private/nested/route.ts", "export const GET = () => new Response(null);");
+  write("app/_private/nested/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([]);
+});
+
+test("still inventories a folder whose name only contains an underscore", () => {
+  const { write, codes } = fixture();
+  write("app/api/item_library/route.ts", "export const GET = () => new Response(null);");
+  write("app/item_library/route.ts", "export const GET = () => new Response(null);");
+  expect(codes()).toEqual([
+    { code: "route-unclassified", path: "app/item_library/route.ts" },
+    { code: "route-unclassified", path: "item_library/route.ts" },
+  ]);
+});
+
+test("a private-folder path in the manifest is not a route", () => {
+  const { write, manifest, codes } = fixture();
+  write("app/_lib/route.ts", "export const GET = () => new Response(null);");
+  manifest.appRoutes["app/_lib/route.ts"] = { exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-unknown", path: "app/_lib/route.ts" }]);
+});
+
+test("accepts a reviewed document exemption for a non-api handler in a dot-directory", () => {
+  const { write, manifest, violations } = fixture();
+  const path = "app/.well-known/home-auth/route.ts";
+  write(path, "export const GET = () => new Response(null);");
+  manifest.appRoutes[path] = { exempt: documentExemption };
+  expect(violations()).toEqual([]);
+});
+
+test("accepts a reviewed document exemption for a non-api handler", () => {
+  const { write, manifest, violations } = fixture();
+  write(appRoute, "export const GET = () => new Response(null);");
+  manifest.appRoutes[appRoute] = { exempt: documentExemption };
+  expect(violations()).toEqual([]);
+});
+
+test("rejects contracts on non-api handlers even with a reviewed exemption", () => {
+  const { write, manifest, codes } = fixture();
+  write(appRoute, "export const GET = () => new Response(null);");
+  manifest.appRoutes[appRoute] = { contracts: [contract], exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-contract-unsupported", path: appRoute }]);
+  manifest.appRoutes[appRoute]!.contracts = [];
+  expect(codes()).toEqual([{ code: "route-contract-unsupported", path: appRoute }]);
+});
+
+for (const [name, entry] of [
+  ["empty entry", {}],
+  ["unrecognized kind", { exempt: { ...documentExemption, kind: "internal" } }],
+  ["short trimmed reason", { exempt: { kind: "document", reason: "    Too short    " } }],
+] as const) {
+  test(`rejects a non-api exemption with ${name}`, () => {
+    const { write, manifest, codes } = fixture();
+    write(appRoute, "export const GET = () => new Response(null);");
+    manifest.appRoutes[appRoute] = entry;
+    expect(codes()).toEqual([{ code: "exempt-invalid", path: appRoute }]);
+  });
+}
+
+test("rejects a manifest app route without a handler", () => {
+  const { manifest, codes } = fixture();
+  manifest.appRoutes[appRoute] = { exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-unknown", path: appRoute }]);
+});
+
+test("requires app route keys to be sorted", () => {
+  const { write, manifest, codes } = fixture();
+  const alpha = "app/alpha/route.ts";
+  for (const path of [appRoute, alpha]) {
+    write(path, "export const GET = () => new Response(null);");
+    manifest.appRoutes[path] = { exempt: documentExemption };
+  }
+  expect(codes()).toEqual([{ code: "manifest-unsorted", path: "appRoutes" }]);
+});
+
+test("rejects an api handler listed in appRoutes", () => {
+  const { manifest, codes } = fixture();
+  const path = `app/api/${route}`;
+  manifest.appRoutes[path] = { exempt: documentExemption };
+  expect(codes()).toEqual([{ code: "route-unknown", path }]);
 });
 
 test("inventories non-typescript route handlers", () => {

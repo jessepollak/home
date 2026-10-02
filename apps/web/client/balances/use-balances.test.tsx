@@ -1,19 +1,24 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, spyOn, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { timeoutManager } from "@tanstack/react-query";
 import {
+  clearOwnerQueryBoundary,
   getHomeQueryClient,
   ownerQueryKey,
   shouldPersistOwnerQuery,
 } from "@/client/query/query-client";
-import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, priced } from "@/shared/balances/fixtures";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { invalidateAfterAction, type BalanceActionMarker } from "@/client/query/after-action";
+import { balancesSnapshotFixture, borrowPosition, buildBalancesSnapshotFixture, FIXTURE_FETCHED_AT, priced } from "@/shared/balances/fixtures";
 import { presentBalances } from "@/shared/balances/present";
 import type { FetchBalances } from "@/shared/balances/types";
 import type { RegionId } from "@/config/regions";
 import {
   nextStaleRefetchDelay,
   useBalances,
+  useBalancesData,
   type RecoverableBalancesState,
 } from "./use-balances";
 
@@ -23,7 +28,24 @@ const session = {
   chainId: 8453 as const,
 };
 const NOW = Date.parse("2026-09-28T12:00:00.000Z");
+const ACTION_AT = Date.parse(FIXTURE_FETCHED_AT) + 1;
+const freshBalancesSnapshotFixture = { ...balancesSnapshotFixture, fetchedAt: new Date(ACTION_AT + 1).toISOString() };
 beforeEach(() => setSystemTime(new Date(NOW)));
+
+function ActionStaleHarness({ fetchBalances, onState, owner = session, dataOnly = false, held = false, region = "US" }: {
+  fetchBalances: FetchBalances;
+  onState: (state: { status: string; actionStale?: true; refreshError?: true; retry: () => Promise<void> }) => void;
+  owner?: typeof session;
+  dataOnly?: boolean;
+  held?: boolean;
+  region?: RegionId;
+}) {
+  const recoverable = useBalances(owner, region, fetchBalances, { enabled: !dataOnly, held, paintCachedWhileHeld: held });
+  const data = useBalancesData(owner, region, fetchBalances, { enabled: dataOnly, held });
+  const state = dataOnly ? data : recoverable;
+  onState(state);
+  return <output aria-label={region}>{state.status}:{state.actionStale === true ? "action-stale" : "current"}</output>;
+}
 
 function Harness({ fetchBalances }: { fetchBalances: FetchBalances }) {
   const state = useBalances(session, "US", fetchBalances);
@@ -98,6 +120,225 @@ afterEach(() => {
 });
 
 describe("useBalances", () => {
+  for (const dataOnly of [false, true]) {
+    test(`post-action failed refresh retains the snapshot with an action marker, then clears on successful retry (dataOnly=${dataOnly})`, async () => {
+      const key = ownerQueryKey(dataOwnerKey(session), "balances", "US");
+      getHomeQueryClient().setQueryData(key, balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+      let fail = true;
+      let state!: Parameters<Parameters<typeof ActionStaleHarness>[0]["onState"]>[0];
+      const view = render(<ActionStaleHarness dataOnly={dataOnly} onState={(value) => { state = value; }} fetchBalances={async () => {
+        if (fail) throw new Error("refresh unavailable");
+        return freshBalancesSnapshotFixture;
+      }} />);
+      expect(state.actionStale).toBeUndefined();
+      await act(async () => { await invalidateAfterAction(getHomeQueryClient(), dataOwnerKey(session), NOW); });
+      await waitFor(() => expect(state.refreshError).toBe(true));
+      expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+      expect(state.actionStale).toBe(true);
+      fail = false;
+      setSystemTime(new Date(NOW + 100));
+      await act(async () => { await state.retry(); });
+      await waitFor(() => expect(state.actionStale).toBeUndefined());
+      expect(view.getByRole("status").textContent).toBe("ready:current");
+    });
+  }
+
+  for (const dataOnly of [false, true]) {
+    test(`a fresh US read does not clear a failed GB region's action qualification (dataOnly=${dataOnly})`, async () => {
+      const client = getHomeQueryClient();
+      const owner = dataOwnerKey(session);
+      const markerKey = ownerQueryKey(owner, "balances-action");
+      client.setQueryData(ownerQueryKey(owner, "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+      client.setQueryData(ownerQueryKey(owner, "balances", "GB"), buildBalancesSnapshotFixture({ region: "GB" }), { updatedAt: NOW - 1000 });
+      let finish!: (snapshot: typeof balancesSnapshotFixture) => void;
+      const deferred = new Promise<typeof balancesSnapshotFixture>((resolve) => { finish = resolve; });
+      const fetchBalances: FetchBalances = async (region) => {
+        if (region === "GB") throw new Error("GB refresh unavailable");
+        return deferred;
+      };
+      let us!: Parameters<Parameters<typeof ActionStaleHarness>[0]["onState"]>[0];
+      let gb!: Parameters<Parameters<typeof ActionStaleHarness>[0]["onState"]>[0];
+      const view = render(<>
+        <ActionStaleHarness dataOnly={dataOnly} onState={(state) => { us = state; }} fetchBalances={fetchBalances} />
+        <ActionStaleHarness dataOnly={dataOnly} region="GB" onState={(state) => { gb = state; }} fetchBalances={fetchBalances} />
+      </>);
+      let invalidation!: Promise<void>;
+      act(() => { invalidation = invalidateAfterAction(client, owner, NOW); });
+      await waitFor(() => expect(gb.refreshError).toBe(true));
+      expect(us.actionStale).toBe(true);
+      expect(gb.actionStale).toBe(true);
+      setSystemTime(new Date(NOW + 100));
+      await act(async () => { finish(freshBalancesSnapshotFixture); await invalidation; });
+      await waitFor(() => expect(us.actionStale).toBeUndefined());
+      expect(gb.actionStale).toBe(true);
+      expect(gb.refreshError).toBe(true);
+      expect(view.getByLabelText("US").textContent).toBe("ready:current");
+      expect(view.getByLabelText("GB").textContent).toBe("ready:action-stale");
+      expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: ACTION_AT, fresh: { US: true } });
+    });
+
+    test(`a cached success at the action boundary is not proof of freshness (dataOnly=${dataOnly})`, async () => {
+      const client = getHomeQueryClient();
+      const owner = dataOwnerKey(session);
+      const markerKey = ownerQueryKey(owner, "balances-action");
+      const queryKey = ownerQueryKey(owner, "balances", "US");
+      client.setQueryData(queryKey, balancesSnapshotFixture, { updatedAt: NOW });
+      let snapshot = { ...balancesSnapshotFixture, fetchedAt: new Date(ACTION_AT).toISOString() };
+      let state!: Parameters<Parameters<typeof ActionStaleHarness>[0]["onState"]>[0];
+      render(<ActionStaleHarness dataOnly={dataOnly} onState={(value) => { state = value; }} fetchBalances={async () => snapshot} />);
+      await act(async () => { await invalidateAfterAction(client, owner, NOW); });
+      expect(client.getQueryState(queryKey)?.status).toBe("success");
+      expect(client.getQueryState(queryKey)?.dataUpdatedAt).toBe(NOW);
+      expect(state.actionStale).toBe(true);
+      expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: ACTION_AT, fresh: {} });
+      snapshot = freshBalancesSnapshotFixture;
+      setSystemTime(new Date(NOW + 100));
+      await act(async () => { await state.retry(); });
+      await waitFor(() => expect(state.actionStale).toBeUndefined());
+      expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: ACTION_AT, fresh: { US: true } });
+    });
+  }
+
+  for (const existingMarker of [false, true]) {
+    test(`the action marker survives scheduled GC while refreshes fail (existingMarker=${existingMarker})`, async () => {
+      const client = getHomeQueryClient();
+      const defaults = client.getDefaultOptions();
+      client.setDefaultOptions({ ...defaults, queries: { ...defaults.queries, gcTime: 300_000 } });
+      const scheduledGc = new Map<ReturnType<typeof timeoutManager.setTimeout>, () => void>();
+      const setTimer = timeoutManager.setTimeout.bind(timeoutManager);
+      const clearTimer = timeoutManager.clearTimeout.bind(timeoutManager);
+      const setTimerSpy = spyOn(timeoutManager, "setTimeout").mockImplementation((callback, delay) => {
+        const timer = setTimer(callback, delay);
+        if (delay === 300_000) scheduledGc.set(timer, () => callback(undefined));
+        return timer;
+      });
+      const clearTimerSpy = spyOn(timeoutManager, "clearTimeout").mockImplementation((timer) => {
+        if (timer !== undefined) scheduledGc.delete(timer);
+        clearTimer(timer);
+      });
+      try {
+        const owner = dataOwnerKey(session);
+        const markerKey = ownerQueryKey(owner, "balances-action");
+        client.setQueryData(ownerQueryKey(owner, "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+        if (existingMarker) client.setQueryData<BalanceActionMarker>(markerKey, { at: ACTION_AT - 500, fresh: {} });
+        let state!: Parameters<Parameters<typeof ActionStaleHarness>[0]["onState"]>[0];
+        const view = render(<ActionStaleHarness onState={(value) => { state = value; }} fetchBalances={async () => { throw new Error("refresh unavailable"); }} />);
+        await act(async () => { await invalidateAfterAction(client, owner, NOW); });
+        await waitFor(() => expect(state.refreshError).toBe(true));
+        expect(scheduledGc.size).toBeGreaterThan(0);
+        setSystemTime(new Date(NOW + 300_001));
+        act(() => { for (const callback of [...scheduledGc.values()]) callback(); });
+        expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: ACTION_AT, fresh: {} });
+        expect(state.refreshError).toBe(true);
+        expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+        act(() => { clearOwnerQueryBoundary(client, undefined, "another-owner"); });
+        expect(client.getQueryData(markerKey)).toBeUndefined();
+      } finally {
+        client.clear();
+        client.setDefaultOptions(defaults);
+        setTimerSpy.mockRestore();
+        clearTimerSpy.mockRestore();
+      }
+    });
+  }
+
+  for (const dataOnly of [false, true]) {
+    test(`a stale successful fallback keeps the action marker until a fresh read, then routine stale reads stay unmarked (dataOnly=${dataOnly})`, async () => {
+      const client = getHomeQueryClient();
+      const owner = dataOwnerKey(session);
+      const markerKey = ownerQueryKey(owner, "balances-action");
+      client.setQueryData(ownerQueryKey(owner, "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+      let stale = true;
+      let reads = 0;
+      let state!: Parameters<Parameters<typeof ActionStaleHarness>[0]["onState"]>[0];
+      const view = render(<ActionStaleHarness dataOnly={dataOnly} onState={(value) => { state = value; }} fetchBalances={async () => {
+        reads += 1;
+        return stale ? { ...freshBalancesSnapshotFixture, stale: true } : freshBalancesSnapshotFixture;
+      }} />);
+      setSystemTime(new Date(NOW + 100));
+      await act(async () => { await invalidateAfterAction(client, owner, NOW); });
+      await waitFor(() => expect(reads).toBe(1));
+      expect(state.actionStale).toBe(true);
+      expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: ACTION_AT, fresh: {} });
+      expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+      stale = false;
+      await act(async () => { await state.retry(); });
+      await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: ACTION_AT, fresh: { US: true } }));
+      expect(state.actionStale).toBeUndefined();
+      stale = true;
+      await act(async () => { await state.retry(); });
+      expect(reads).toBe(3);
+      expect(state.actionStale).toBeUndefined();
+      expect(view.getByRole("status").textContent).toBe("ready:current");
+    });
+  }
+
+  test("a late inactive balances response started before the action cannot clear its marker", async () => {
+    const client = getHomeQueryClient();
+    const owner = dataOwnerKey(session);
+    const queryKey = ownerQueryKey(owner, "balances", "US");
+    const markerKey = ownerQueryKey(owner, "balances-action");
+    client.setQueryData(queryKey, balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+    const view = render(<ActionStaleHarness held onState={() => {}} fetchBalances={async () => { throw new Error("held snapshot must not fetch"); }} />);
+    let finish!: (snapshot: typeof balancesSnapshotFixture) => void;
+    const deferred = new Promise<typeof balancesSnapshotFixture>((resolve) => { finish = resolve; });
+    let readSignal!: AbortSignal;
+    const read = client.fetchQuery({ queryKey, staleTime: 0, queryFn: ({ signal }) => {
+      readSignal = signal;
+      return deferred;
+    } });
+    expect(client.getQueryState(queryKey)?.fetchStatus).toBe("fetching");
+    await act(async () => { await invalidateAfterAction(client, owner, NOW); });
+    expect(readSignal.aborted).toBe(true);
+    expect(await read).toEqual(balancesSnapshotFixture);
+    expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+    setSystemTime(new Date(NOW + 100));
+    await act(async () => { finish(balancesSnapshotFixture); await deferred; });
+    expect(client.getQueryState(queryKey)?.dataUpdatedAt).toBe(NOW - 1000);
+    expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: ACTION_AT, fresh: {} });
+    expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+  });
+
+  test("a routine failed refresh without an action marker stays ready without actionStale", async () => {
+    getHomeQueryClient().setQueryData(ownerQueryKey(dataOwnerKey(session), "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+    let state!: Parameters<Parameters<typeof ActionStaleHarness>[0]["onState"]>[0];
+    render(<ActionStaleHarness onState={(value) => { state = value; }} fetchBalances={async () => { throw new Error("routine failure"); }} />);
+    await act(async () => { await state.retry(); });
+    await waitFor(() => expect(state.refreshError).toBe(true));
+    expect(state.status).toBe("ready");
+    expect(state.actionStale).toBeUndefined();
+  });
+
+  test("held snapshots react to an owner marker and another owner does not inherit it", async () => {
+    const ownerB = { ...session, subject: "subject-b" };
+    const client = getHomeQueryClient();
+    client.setQueryData(ownerQueryKey(dataOwnerKey(session), "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+    client.setQueryData(ownerQueryKey(dataOwnerKey(ownerB), "balances", "US"), { ...balancesSnapshotFixture, owner: { ...balancesSnapshotFixture.owner, subject: "subject-b" } }, { updatedAt: NOW - 1000 });
+    const fetchBalances = async () => { throw new Error("held snapshots must not fetch"); };
+    const onState = () => {};
+    const view = render(<ActionStaleHarness held onState={onState} fetchBalances={fetchBalances} />);
+    act(() => { client.setQueryData<BalanceActionMarker>(ownerQueryKey(dataOwnerKey(session), "balances-action"), { at: ACTION_AT, fresh: {} }); });
+    expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+    view.rerender(<ActionStaleHarness held owner={ownerB} onState={onState} fetchBalances={fetchBalances} />);
+    expect(view.getByRole("status").textContent).toBe("ready:current");
+  });
+
+  test("a successful fetchQuery refresh keeps actionStale for an unchanged snapshot and clears it for a newer snapshot", async () => {
+    const client = getHomeQueryClient();
+    const queryKey = ownerQueryKey(dataOwnerKey(session), "balances", "US");
+    client.setQueryData(queryKey, balancesSnapshotFixture, { updatedAt: NOW - 1000 });
+    client.setQueryData<BalanceActionMarker>(ownerQueryKey(dataOwnerKey(session), "balances-action"), { at: ACTION_AT, fresh: {} });
+    const view = render(<ActionStaleHarness dataOnly onState={() => {}} fetchBalances={async () => balancesSnapshotFixture} />);
+    expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+    setSystemTime(new Date(NOW + 100));
+    await act(async () => { await client.fetchQuery({ queryKey, staleTime: 0, queryFn: async () => balancesSnapshotFixture }); });
+    expect(view.getByRole("status").textContent).toBe("ready:action-stale");
+    expect(client.getQueryData<BalanceActionMarker>(ownerQueryKey(dataOwnerKey(session), "balances-action"))).toEqual({ at: ACTION_AT, fresh: {} });
+    await act(async () => { await client.fetchQuery({ queryKey, staleTime: 0, queryFn: async () => freshBalancesSnapshotFixture }); });
+    await waitFor(() => expect(view.getByRole("status").textContent).toBe("ready:current"));
+    expect(client.getQueryData<BalanceActionMarker>(ownerQueryKey(dataOwnerKey(session), "balances-action"))).toEqual({ at: ACTION_AT, fresh: { US: true } });
+  });
+
   test("a money-action invalidation keeps the Borrow position during refetch and shows the new position afterward", async () => {
     const position = borrowPosition({
       collateralBaseUnits: "100000", collateralValue: priced("USD", "5000"),
@@ -119,7 +360,7 @@ describe("useBalances", () => {
     const view = render(<BorrowHarness fetchBalances={fetchBalances} />);
     await waitFor(() => expect(view.getByRole("status").textContent).toBe("ready:settled:$30.01"));
 
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     act(() => { void getHomeQueryClient().invalidateQueries({ queryKey: ownerQueryKey(ownerKey, "balances") }); });
     await waitFor(() => expect(calls).toBe(2));
     expect(view.getByRole("status").textContent).toBe("ready:revalidating:$30.01");
@@ -128,7 +369,7 @@ describe("useBalances", () => {
   });
 
   test("cached balances remain ready while a provisional refresh is pending", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     const key = ownerQueryKey(ownerKey, "balances", "US");
     getHomeQueryClient().setQueryData(key, balancesSnapshotFixture, {
       updatedAt: NOW - 60_000,
@@ -143,7 +384,7 @@ describe("useBalances", () => {
   });
 
   test("held balances paint exact-key cached data only when opted in, without a read", () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
     let reads = 0;
     const fetchBalances: FetchBalances = async () => {
@@ -159,7 +400,7 @@ describe("useBalances", () => {
   });
 
   test("held balances never paint another region's or owner's cached snapshot", () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "DE"), buildBalancesSnapshotFixture({ region: "DE" }));
     getHomeQueryClient().setQueryData(ownerQueryKey("different-owner", "balances", "US"), balancesSnapshotFixture);
     let reads = 0;
@@ -172,7 +413,7 @@ describe("useBalances", () => {
   });
 
   test("release to the same region keeps cached data visible during one background fetch", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, { updatedAt: NOW - 60_000 });
     let reads = 0;
     let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
@@ -192,7 +433,7 @@ describe("useBalances", () => {
   });
 
   test("release to a different region does not use the held region as placeholder", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
     let reads = 0;
     let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
@@ -209,7 +450,7 @@ describe("useBalances", () => {
     await waitFor(() => expect(view.getByRole("status").textContent).toContain("ready:DE:"));
   });
   test("keeps visible region balances during an ordinary country switch", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture);
     let finishRead!: (snapshot: typeof balancesSnapshotFixture) => void;
     const pendingRead = new Promise<typeof balancesSnapshotFixture>((resolve) => { finishRead = resolve; });
@@ -227,7 +468,7 @@ describe("useBalances", () => {
   });
 
   test("a cached provisional failure stays ready without an error before verification refetches", async () => {
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), balancesSnapshotFixture, {
       updatedAt: NOW - 60_000,
     });
@@ -325,7 +566,7 @@ describe("useBalances", () => {
     render(<Harness fetchBalances={async () => balancesSnapshotFixture} />);
     await waitFor(() => expect(document.body.textContent).toBe("US:3"));
 
-    const ownerKey = `${session.subject}\u0000${session.smartAccountAddress}\u00008453`;
+    const ownerKey = dataOwnerKey(session);
     const query = getHomeQueryClient().getQueryCache().find({
       queryKey: ownerQueryKey(ownerKey, "balances", "US"),
     });
@@ -408,4 +649,30 @@ describe("useBalances", () => {
     render(<Harness fetchBalances={async () => mismatched} />);
     await waitFor(() => expect(document.body.textContent).toBe("error"));
   });
+});
+
+test("failed refresh status updates preserve the stale snapshot until data changes", async () => {
+  let calls = 0;
+  let rejectPending: (error: Error) => void = () => {};
+  const fetchBalances = () => ++calls === 1 ? Promise.resolve(balancesSnapshotFixture)
+    : calls === 2 ? Promise.reject(new Error("first failure"))
+    : new Promise<never>((_resolve, reject) => { rejectPending = reject; });
+  let current: RecoverableBalancesState;
+  render(<IdentityHarness fetchBalances={fetchBalances} revision={0} onState={(state) => { current = state; }} />);
+  await waitFor(() => expect(current.status).toBe("ready"));
+  await act(async () => { await current.retry(); });
+  await waitFor(() => expect(current.refreshError).toBe(true));
+  const stale = current!.snapshot;
+  expect(stale?.stale).toBe(true);
+  act(() => { void current.retry(); });
+  await waitFor(() => expect(current.revalidating).toBe(true));
+  expect(current!.snapshot).toBe(stale);
+  await act(async () => { rejectPending(new Error("second failure")); });
+  await waitFor(() => expect(current.revalidating).not.toBe(true));
+  expect(current!.snapshot).toBe(stale);
+  const ownerKey = dataOwnerKey(session);
+  act(() => { getHomeQueryClient().setQueryData(ownerQueryKey(ownerKey, "balances", "US"), { ...balancesSnapshotFixture, fetchedAt: "2026-09-28T12:01:00.000Z" }); });
+  await waitFor(() => expect(current.snapshot?.fetchedAt).toBe("2026-09-28T12:01:00.000Z"));
+  expect(current!.snapshot).not.toBe(stale);
+  expect(current!.refreshError).not.toBe(true);
 });

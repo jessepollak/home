@@ -53,6 +53,16 @@ function pendingSavings(operation: "deposit" | "withdraw") {
 }
 
 describe("pending action response parser", () => {
+  test("resumes a card allowance without a money amount and rejects missing metadata", () => {
+    const pending = pendingSavings("deposit");
+    const metadata = { product: "card", operation: "revoke-allowance", provider: "bridge", mode: "sandbox",
+      token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+      allowanceBaseUnits: "0", previousAllowanceBaseUnits: "25000000", maximumBaseUnits: null, source: { blockNumber: "100" } };
+    const card = { ...pending, kind: "card-allowance", summary: { ...pending.summary, amounts: [], metadata } };
+    expect(parsePendingActionResponse(card, ID, session)).toMatchObject({ kind: "card-allowance", amounts: [], metadata });
+    expect(parsePendingActionResponse({ ...card, summary: { ...card.summary, metadata: undefined } }, ID, session)).toBeNull();
+    expect(parsePendingActionResponse({ ...card, kind: "send" }, ID, session)).toBeNull();
+  });
   test("preserves optional cash-out deposit payee hash on reload", () => {
     const value = pendingSavings("deposit");
     const metadata = {
@@ -120,6 +130,16 @@ describe("pending action response parser", () => {
     expect(parsePendingActionResponse(value, ID, session)?.metadata).toMatchObject({
       product: "savings", exchangeConstraint: "deposit-preview-no-minimum-shares",
     });
+  });
+  test("restores legacy borrow metadata without a risk flag", () => {
+    const value = pendingSavings("withdraw");
+    const metadata = { product: "borrow", operation: "withdraw-collateral", marketId: `0x${"1".repeat(64)}`,
+      loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "eth", symbol: "ETH" },
+      projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
+      source: { blockNumber: "1", blockHash: `0x${"2".repeat(64)}`, blockTimestamp: "1789214400" } };
+    const legacy = { ...value, kind: "withdraw-collateral", summary: { ...value.summary, metadata } };
+    expect(parsePendingActionResponse(legacy, ID, session)?.metadata).toMatchObject({ product: "borrow", operation: "withdraw-collateral", marketId: metadata.marketId });
+    expect(parsePendingActionResponse(legacy, ID, session)?.metadata).not.toHaveProperty("riskIncreased");
   });
 
   test("drops malformed savings metadata instead of restoring untrusted review facts", () => {

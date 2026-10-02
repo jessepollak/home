@@ -1,16 +1,22 @@
 import { investAssets } from "./invest-assets";
 import type { FiatCurrencyCode } from "./regions";
+import { BASE_CHAIN_ID, BASE_ETH, BASE_MORPHO_USDC_VAULTS } from "@/shared/assets/base";
 import {
-  BASE_CHAIN_ID,
-  BASE_ETH,
-  BASE_MORPHO_USDC_VAULTS,
-  BASE_USDC,
-} from "@/shared/assets/base";
+  approvedCashCurrencies,
+  approvedCashRecordForCurrency,
+  CURRENCY_REGISTRY,
+  currencyRecordById,
+  recordsWithPreservedHoldings,
+} from "@/shared/currencies/registry";
+import type { CurrencyRepresentation } from "@/shared/currencies/types";
 
 export const PORTFOLIO_NATIVE_ASSET_KEY = `eip155:${BASE_CHAIN_ID}/native` as const;
-export const PORTFOLIO_USDC_ADDRESS = BASE_USDC.address;
+const usdcRecord = currencyRecordById("base:usdc");
+if (!usdcRecord) throw new Error("The supported portfolio inventory has no USDC record.");
+const usdcRecordId = usdcRecord.id;
+export const PORTFOLIO_USDC_ADDRESS = usdcRecord.contractAddress;
 export const PORTFOLIO_USDC_ASSET_KEY =
-  `eip155:${BASE_CHAIN_ID}/erc20:${BASE_USDC.address.toLowerCase()}` as const;
+  `eip155:${BASE_CHAIN_ID}/erc20:${PORTFOLIO_USDC_ADDRESS.toLowerCase()}` as const;
 
 export type PortfolioAddress = `0x${string}`;
 export type PortfolioAssetKey =
@@ -28,16 +34,34 @@ export type DirectPortfolioAsset = {
   cashCurrency: FiatCurrencyCode | null;
 };
 
-export const canonicalUsdcAsset = {
-  id: "usdc",
-  assetKey: PORTFOLIO_USDC_ASSET_KEY,
-  name: "US dollar",
-  symbol: "USDC",
-  decimals: BASE_USDC.decimals,
-  kind: "erc20",
-  contractAddress: PORTFOLIO_USDC_ADDRESS,
-  cashCurrency: "USD",
-} as const satisfies DirectPortfolioAsset;
+export type PortfolioErc20Asset = DirectPortfolioAsset & { kind: "erc20"; contractAddress: PortfolioAddress };
+
+export type PortfolioCashAsset = PortfolioErc20Asset & { cashCurrency: FiatCurrencyCode };
+
+function assetIdFor(record: CurrencyRepresentation): string {
+  return record.id.replace(/^base:/, "");
+}
+
+function currencyPortfolioAsset(record: CurrencyRepresentation, cashCurrency: FiatCurrencyCode | null): PortfolioErc20Asset {
+  return {
+    id: assetIdFor(record),
+    assetKey: assetKeyForErc20(record.contractAddress),
+    name: record.name,
+    symbol: record.symbol,
+    decimals: record.decimals,
+    kind: "erc20",
+    contractAddress: record.contractAddress,
+    cashCurrency,
+  };
+}
+
+function localCashPortfolioAsset(record: CurrencyRepresentation): PortfolioCashAsset {
+  return { ...currencyPortfolioAsset(record, record.displayCurrency), cashCurrency: record.displayCurrency };
+}
+
+export const canonicalUsdcAsset: PortfolioErc20Asset = currencyPortfolioAsset(
+  usdcRecord, usdcRecord.cash.state === "approved" && usdcRecord.lifecycle === "active" ? usdcRecord.displayCurrency : null,
+);
 
 export const nativeEthAsset = {
   id: "eth",
@@ -64,40 +88,30 @@ export const investPortfolioAssets = investAssets.map((asset) => {
   } satisfies DirectPortfolioAsset;
 });
 
-export const verifiedLocalCashAssets = {
-  EUR: {
-    id: "eurc",
-    assetKey:
-      "eip155:8453/erc20:0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
-    name: "Euro",
-    symbol: "EURC",
-    decimals: 6,
-    kind: "erc20",
-    contractAddress: "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42",
-    cashCurrency: "EUR",
-  },
-  IDR: {
-    id: "idrx",
-    assetKey:
-      "eip155:8453/erc20:0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
-    name: "Rupiah",
-    symbol: "IDRX",
-    decimals: 2,
-    kind: "erc20",
-    contractAddress: "0x18bc5bcc660cf2b9ce3cd51a404afe1a0cbd3c22",
-    cashCurrency: "IDR",
-  },
-} as const satisfies Partial<Record<FiatCurrencyCode, DirectPortfolioAsset>>;
+export const verifiedLocalCashAssets: Partial<Record<FiatCurrencyCode, PortfolioCashAsset>> = Object.fromEntries(
+  approvedCashCurrencies()
+    .filter((record) => record.id !== usdcRecordId)
+    .map((record) => [record.displayCurrency, localCashPortfolioAsset(record)]),
+);
 
-const verifiedCashCurrencyByContract = new Map<string, FiatCurrencyCode>([
-  [canonicalUsdcAsset.contractAddress.toLowerCase(), canonicalUsdcAsset.cashCurrency],
-  ...Object.values(verifiedLocalCashAssets).map(
-    (asset) => [asset.contractAddress.toLowerCase(), asset.cashCurrency] as const,
-  ),
-]);
+export function verifiedLocalCashAsset(currency: FiatCurrencyCode): PortfolioCashAsset | null {
+  const record = approvedCashRecordForCurrency(currency);
+  return record && record.id !== usdcRecordId ? verifiedLocalCashAssets[currency] ?? null : null;
+}
 
-export function verifiedCashCurrency(contractAddress: string | null | undefined): FiatCurrencyCode | null {
-  return contractAddress ? verifiedCashCurrencyByContract.get(contractAddress.toLowerCase()) ?? null : null;
+/** @public Registry projection seam exercised by currency registry tests. */
+export function currencyPortfolioAssets(records: readonly CurrencyRepresentation[] = CURRENCY_REGISTRY): PortfolioErc20Asset[] {
+  const usdc = records.find((record) => record.id === usdcRecordId);
+  if (!usdc) throw new Error("The supported portfolio inventory has no USDC record.");
+  return [
+    currencyPortfolioAsset(usdc, usdc.cash.state === "approved" && usdc.lifecycle === "active" ? usdc.displayCurrency : null),
+    ...approvedCashCurrencies(records)
+      .filter((record) => record.id !== usdcRecordId)
+      .map((record) => localCashPortfolioAsset(record)),
+    ...recordsWithPreservedHoldings(records)
+      .filter((record) => record.id !== usdcRecordId)
+      .map((record) => currencyPortfolioAsset(record, null)),
+  ];
 }
 
 export const portfolioVaults = BASE_MORPHO_USDC_VAULTS;
@@ -111,14 +125,20 @@ export function getDirectPortfolioAssets(): DirectPortfolioAsset[] {
     nativeEthAsset,
     canonicalUsdcAsset,
     ...investPortfolioAssets,
-    ...Object.values(verifiedLocalCashAssets),
+    ...currencyPortfolioAssets().filter((asset) => asset.assetKey !== canonicalUsdcAsset.assetKey),
   ];
-  assertUniqueAssetKeys(assets.map(({ assetKey }) => assetKey));
+  assertUniquePortfolioAssets(assets);
   return assets;
 }
 
-function assertUniqueAssetKeys(keys: readonly string[]): void {
-  if (new Set(keys).size !== keys.length) {
-    throw new Error("The supported portfolio inventory contains a duplicate asset.");
+export function assertUniquePortfolioAssets(assets: readonly { id: string; assetKey: string }[]): void {
+  const keys = new Set<string>();
+  const ids = new Set<string>();
+  for (const asset of assets) {
+    if (keys.has(asset.assetKey) || ids.has(asset.id)) {
+      throw new Error("The supported portfolio inventory contains a duplicate asset.");
+    }
+    keys.add(asset.assetKey);
+    ids.add(asset.id);
   }
 }

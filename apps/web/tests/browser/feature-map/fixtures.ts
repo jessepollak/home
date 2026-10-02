@@ -10,6 +10,7 @@ import { preparedSendFixtureAction } from "../fixtures/api";
 import { COUNTRY_PREFERENCE_VERSION } from "../../../shared/account/contracts/country-preference";
 import { cashoutFixtureAction, cashoutFixtureProgress, cashoutFixtureWithdraw } from "./cashout-fixture";
 import { conversionFixtureAction } from "./conversion-fixture";
+import { savingsPrepareFixture } from "./savings-fixture";
 import {
   actionsBody,
   basenameProfileBody,
@@ -22,6 +23,7 @@ import {
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
 import type { ActivityOrdersResponse } from "../../../shared/activity/contract-orders";
+import { FUNDING_ORDER_RESOLUTION_VERSION, type ResolveFundingOrderResponse } from "../../../shared/funding/contracts/order-resolution";
 import { assetResolutionFixture, nonTrendingAddress, searchFixture } from "./search-fixtures";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "../../../shared/money-actions/network-fee";
 
@@ -54,6 +56,16 @@ export function activityOrdersFixture(): ActivityOrdersResponse {
       status: "waiting-provider", state: "awaiting-buyer", decimals: 6, amountAtomic: "50000000", filledAtomic: "0",
       returnedAtomic: "0", remainingAtomic: "50000000", withdrawable: true, settledAt: null, createdAt, updatedAt },
   ] };
+}
+
+export function fundingOrderResolutionFixture(id: string): ResolveFundingOrderResponse {
+  return {
+    version: FUNDING_ORDER_RESOLUTION_VERSION,
+    order: {
+      id, providerId: "coinbase", region: "US", state: "cancelled", fiatAmount: "30.00",
+      providerStatus: null, instructions: null,
+    },
+  };
 }
 
 export function tradePrepareFixture(direction: TradeDirection, asset: "bitcoin" | "degen" = "bitcoin", fullSell = false) {
@@ -132,10 +144,11 @@ export function priceHistoryFixture(assetId: string, now = new Date(FIXED_NOW)):
   };
 }
 
-export function fixtureRoutes() {
+export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "savings-deposit" | "savings-withdraw" } = {}) {
   const balances = balancesSnapshot("US", { stocks: true });
   const borrowOverview = borrowOverviewBody();
-  const prepared = preparedSendFixtureAction(recentRecipient);
+  const prepared = prepare === "send" ? preparedSendFixtureAction(recentRecipient)
+    : savingsPrepareFixture({ operation: prepare === "savings-deposit" ? "deposit" : "withdraw" });
   const assetIds = new Set([
     ...cashConversionCurrencies.filter((currency) => currency.code !== "USD").map((currency) => currency.tradeAssetId),
     ...[...cryptoAssets, ...memeAssets].map((asset) => asset.id),
@@ -187,6 +200,7 @@ export function fixtureRoutes() {
     ["**/api/savings/vaults", savingsVaultsBody(new Date(FIXED_NOW).toISOString(), new Date(FIXED_NOW).toISOString())],
     ["**/api/borrow", borrowOverview],
     ["**/api/cards", cardsBody()],
+    ["**/api/cards/spending", { version: 1, status: "available", setEnabled: true, spender: "0x2222222222222222222222222222222222222222", walletBaseUnits: "100000000", allowanceBaseUnits: "25000000", availableBaseUnits: "25000000", retired: [], blockNumber: "1", fetchedAt: new Date(FIXED_NOW).toISOString() }],
     ...borrowOverview.opportunities.flatMap((entry) => entry.availability.status === "available"
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
       : []),

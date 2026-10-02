@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const TEST_SECONDS = 5;
 export const FILE_SECONDS = 30;
 export const ALLOWLIST_PATH = "scripts/gates/test-runtime-allowlist.json";
-const emptyAllowlist = () => ({ tests: [], files: [] });
+const emptyAllowlist = () => ({ tests: [], files: [], testFiles: [] });
 const order = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 
 function decodeXml(value) {
@@ -52,6 +52,7 @@ export function parseJunit(xml) {
   const stack = [];
   const tests = new Map();
   const files = new Map();
+  const fileTestcases = new Map();
   let position = 0;
   let rootClosed = false;
   let declaredTests;
@@ -118,6 +119,7 @@ export function parseJunit(xml) {
       const id = JSON.stringify([file, test]);
       tests.set(id, { file, test, seconds: Math.max(time, tests.get(id)?.seconds ?? 0) });
       files.set(file, (files.get(file) ?? 0) + time);
+      fileTestcases.set(file, (fileTestcases.get(file) ?? 0) + 1);
     }
     if (!selfClosing) stack.push({ name, attrs });
     else if (name === "testsuites" && stack.length === 0) rootClosed = true;
@@ -129,7 +131,7 @@ export function parseJunit(xml) {
   }
   return {
     tests: [...tests.values()].sort((a, b) => order(a.file, b.file) || order(a.test, b.test)),
-    files: [...files].map(([file, time]) => ({ file, seconds: time })).sort((a, b) => order(a.file, b.file)),
+    files: [...files].map(([file, time]) => ({ file, seconds: time, testcases: fileTestcases.get(file) ?? 0 })).sort((a, b) => order(a.file, b.file)),
     testcaseCount,
   };
 }
@@ -142,11 +144,14 @@ export function mergeJunitReports(reports) {
       const id = JSON.stringify([entry.file, entry.test]);
       tests.set(id, { ...entry, seconds: Math.max(entry.seconds, tests.get(id)?.seconds ?? 0) });
     }
-    for (const entry of report.files) files.set(entry.file, (files.get(entry.file) ?? 0) + entry.seconds);
+    for (const entry of report.files) {
+      const current = files.get(entry.file) ?? { seconds: 0, testcases: 0 };
+      files.set(entry.file, { seconds: current.seconds + entry.seconds, testcases: current.testcases + (entry.testcases ?? 0) });
+    }
   }
   return {
     tests: [...tests.values()].sort((a, b) => order(a.file, b.file) || order(a.test, b.test)),
-    files: [...files].map(([file, time]) => ({ file, seconds: time })).sort((a, b) => order(a.file, b.file)),
+    files: [...files].map(([file, value]) => ({ file, seconds: value.seconds, testcases: value.testcases })).sort((a, b) => order(a.file, b.file)),
     testcaseCount: reports.reduce((sum, report) => sum + report.testcaseCount, 0),
   };
 }
@@ -154,14 +159,14 @@ export function mergeJunitReports(reports) {
 export function validateAllowlist(value) {
   const findings = [];
   if (!value || typeof value !== "object" || Array.isArray(value)
-    || Object.keys(value).sort().join(",") !== "files,tests"
-    || !Array.isArray(value.tests) || !Array.isArray(value.files)) {
-    return { allowlist: emptyAllowlist(), findings: ["Allowlist must have exactly the arrays tests and files."] };
+    || Object.keys(value).sort().join(",") !== "files,testFiles,tests"
+    || !Array.isArray(value.tests) || !Array.isArray(value.files) || !Array.isArray(value.testFiles)) {
+    return { allowlist: emptyAllowlist(), findings: ["Allowlist must have exactly the arrays tests, files, and testFiles."] };
   }
   const allowlist = emptyAllowlist();
-  for (const kind of ["tests", "files"]) {
+  for (const kind of ["tests", "files", "testFiles"]) {
     const fields = kind === "tests" ? "file,maxSeconds,reason,test" : "file,maxSeconds,reason";
-    const defaultSeconds = kind === "tests" ? TEST_SECONDS : FILE_SECONDS;
+    const defaultSeconds = kind === "files" ? FILE_SECONDS : TEST_SECONDS;
     let previous;
     for (const entry of value[kind]) {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)
@@ -188,12 +193,13 @@ export function buildRuntimeReport(timings, current, base) {
   const old = base === undefined ? null : validateAllowlist(base);
   const findings = [...checked.findings];
   const notes = old?.findings.length ? [`Base allowlist unavailable or invalid: ${old.findings.join(" ")}`] : [];
-  const previousAllowlist = old && !old.findings.length ? old.allowlist : null;
+  const previousAllowlist = old && !old.findings.length && !checked.findings.length ? old.allowlist : null;
   const measuredTests = timings?.tests ?? [];
   const measuredFiles = timings?.files ?? [];
+  const testFileEntries = new Map(checked.allowlist.testFiles.map((entry) => [entry.file, entry]));
   if (!measuredTests.length) findings.push("JUnit XML has zero testcases.");
-  for (const kind of ["tests", "files"]) {
-    const measurements = kind === "tests" ? measuredTests : measuredFiles;
+  for (const kind of ["tests", "files", "testFiles"]) {
+    const measurements = kind === "files" ? measuredFiles : measuredTests;
     const defaultSeconds = kind === "tests" ? TEST_SECONDS : FILE_SECONDS;
     const key = (item) => JSON.stringify(kind === "tests" ? [item.file, item.test] : [item.file]);
     const label = (item) => kind === "tests" ? `${item.file} > ${item.test}` : item.file;
@@ -213,9 +219,12 @@ export function buildRuntimeReport(timings, current, base) {
         if (!allowed.has(key(entry))) notes.push(`Removed ${kind} allowlist entry: ${label(entry)} (${entry.maxSeconds} s).`);
       }
     }
+    if (kind === "testFiles") continue;
     for (const item of measurements) {
       const entry = allowed.get(key(item));
-      const limit = entry?.maxSeconds ?? defaultSeconds;
+      const testFileEntry = testFileEntries.get(item.file);
+      const fileBudget = testFileEntry && testFileEntry.maxSeconds * (kind === "files" ? (item.testcases ?? 0) : 1);
+      const limit = entry?.maxSeconds ?? fileBudget ?? defaultSeconds;
       if (item.seconds > limit) findings.push(`${kind === "tests" ? "Test" : "File"} ${label(item)}: ${item.seconds.toFixed(3)} s exceeds ${limit} s.`);
       else if (entry && item.seconds <= defaultSeconds) notes.push(`Removable ${kind} allowlist entry: ${label(item)} (${item.seconds.toFixed(3)} s ≤ ${defaultSeconds} s).`);
     }
@@ -242,6 +251,10 @@ function git(args) {
   return result.stdout.trim();
 }
 
+function cwdRelativeAllowlistPath(allowlistPath) {
+  return relative(process.cwd(), join(realpathSync(dirname(allowlistPath)), basename(allowlistPath)));
+}
+
 export function readBaseAllowlist(baseRef = "main", allowlistPath = ALLOWLIST_PATH, gitRunner = git) {
   const notes = [];
   if (baseRef.startsWith("-")) throw new Error(`Invalid base ref: ${baseRef}`);
@@ -257,7 +270,7 @@ export function readBaseAllowlist(baseRef = "main", allowlistPath = ALLOWLIST_PA
     }
   }
   if (!gitRunner(["ls-tree", "--name-only", base, "--", allowlistPath])) return { allowlist: emptyAllowlist(), notes };
-  return { allowlist: JSON.parse(gitRunner(["show", `${base}:${allowlistPath}`])), notes };
+  return { allowlist: JSON.parse(gitRunner(["show", `${base}:./${allowlistPath}`])), notes };
 }
 
 export function run(argv = process.argv.slice(2), env = process.env) {
@@ -283,7 +296,7 @@ export function run(argv = process.argv.slice(2), env = process.env) {
   catch (error) { findings.push(`Allowlist unavailable or invalid: ${error.message}`); }
   let base;
   try {
-    const result = readBaseAllowlist(env.BASE_REF || "main");
+    const result = readBaseAllowlist(env.BASE_REF || "main", cwdRelativeAllowlistPath(options["--allowlist"]));
     base = result.allowlist;
     notes.push(...result.notes);
   } catch (error) { notes.push(`Base allowlist unavailable or invalid: ${error.message}`); }

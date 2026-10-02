@@ -1,11 +1,15 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { validPrepared } from "@/shared/actions/contracts/prepare";
+import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, hashTypedData, parseAbiParameters } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, getAddress, hashTypedData, parseAbiParameters } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
 import { BaseRpcError } from "@/server/chain/rpc";
+import { resolveConvertPair } from "@/shared/currencies/convert";
+import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
+import { CONVERT_PROVIDER } from "@/shared/currencies/types";
 import { resolveTradeAsset } from "@/shared/trading/assets";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import type { Address, Hex } from "@/shared/trading/server-types";
@@ -116,6 +120,7 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
   referenceLiquid?: boolean;
   illiquid?: boolean;
   buyBlocked?: boolean;
+  convertPair?: typeof resolveConvertPair;
   identityCode?: string;
   identityDecimals?: unknown;
   pairCheck?: "pair" | "not-pair" | "check-failed";
@@ -130,7 +135,7 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
 } = {}) {
   const request = new Request("https://home.test/api/actions/prepare");
   const assetId = options.assetId ?? "cbbtc";
-  const resolved = resolveTradeAsset(assetId);
+  const resolved = resolveTradeAsset(assetId, { convertPair: options.convertPair });
   if (!resolved || resolved.status !== "tradeable") throw new Error("Invalid test asset");
   const token = resolved.address;
   const fromAmount = options.amountBaseUnits === "all" ? options.latestBalance ?? BigInt(2_000_000) : BigInt(options.amountBaseUnits ?? "1000000");
@@ -143,6 +148,7 @@ async function prepared(direction: "buy" | "sell", provider: "base-account" | "c
     now: () => NOW,
     resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: options.signerAddress ?? OWNER, ownerIndex: 0, deployed: true }),
     buyBlocked: () => options.buyBlocked ?? false,
+    convertPair: options.convertPair,
     resolveFeePolicy: async () => policy,
     feeStrategy: options.feeStrategy,
     createSwapsClient: () => ({ getPrice: async (priceRequest) => {
@@ -231,6 +237,7 @@ describe("trade preparation", () => {
       });
       if (pairCheck === "not-pair") {
         expect((await attempt).draft.metadata).toMatchObject({ assetId });
+        expect((await attempt).draft.metadata).not.toHaveProperty("currencyRecordId");
         expect(identityReads).toBe(1);
         expect(quotes).toBe(1);
       } else {
@@ -241,6 +248,40 @@ describe("trade preparation", () => {
       }
       expect(pairReads).toBe(1);
     }
+  });
+
+  test("registry cash pairs require both directions for preparation", async () => {
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
+    if (!record) throw new Error("Missing EURC currency record.");
+    const assetId = `base:${record.contractAddress.toLowerCase()}`;
+    for (const direction of ["sell", "buy"] as const) {
+      const pair = { id: `eurc-${direction}`, from: direction === "sell" ? record.id : "base:usdc",
+        to: direction === "sell" ? "base:usdc" : record.id, provider: CONVERT_PROVIDER,
+        regions: "all" as const, status: "verified" as const, verifiedAt: NOW.toISOString().slice(0, 10), evidence: "test fixture" };
+      const convertPair: typeof resolveConvertPair = (input) => resolveConvertPair({ ...input, now: NOW }, { pairs: [pair] });
+      await expect(prepareTradeAction({ session: sessions(), request: new Request("https://home.test/api/actions/prepare"),
+        params: { version: 3, assetId, direction, amountBaseUnits: "1000000" } }, {
+        resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: OWNER, ownerIndex: 0, deployed: true }),
+        convertPair,
+      })).rejects.toMatchObject({ reason: "invalid-request" });
+    }
+    const sell = { id: "eurc-sell", from: record.id, to: "base:usdc", provider: CONVERT_PROVIDER,
+      regions: "all" as const, status: "verified" as const, verifiedAt: NOW.toISOString().slice(0, 10), evidence: "test fixture" };
+    const buy = { ...sell, id: "eurc-buy", from: sell.to, to: sell.from };
+    const both: typeof resolveConvertPair = (input) => resolveConvertPair(input, { pairs: [sell, buy] });
+    let quotes = 0;
+    for (const direction of ["sell", "buy"] as const) {
+      expect((await prepared(direction, "cdp-embedded", false, undefined,
+        { assetId, convertPair: both, onQuote: () => { quotes++; } })).draft.metadata)
+        .toMatchObject({ assetId, direction, currencyRecordId: record.id });
+    }
+    expect(quotes).toBe(2);
+    const noPair: typeof resolveConvertPair = (input) => resolveConvertPair(input, { pairs: [] });
+    await expect(prepareTradeAction({ session: sessions(), request: new Request("https://home.test/api/actions/prepare"),
+      params: { version: 3, assetId, direction: "sell", amountBaseUnits: "1000000" } }, {
+      resolveSigner: async () => ({ smartAccount: OWNER, signerAddress: OWNER, ownerIndex: 0, deployed: true }),
+      convertPair: noPair,
+    })).rejects.toMatchObject({ reason: "invalid-request" });
   });
 
   test.each(["buy", "sell"] as const)("reviews %s with exact spend, estimated receive and expiry", async (direction) => {
@@ -432,11 +473,11 @@ describe("trade preparation", () => {
     setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
     const draft = structuredClone(preparedTrade.draft);
     if (draft.metadata?.product !== "trade" || draft.signing?.signer !== "cdp-embedded") throw new Error("missing trade facts");
-    draft.metadata.fromAsset.address = draft.metadata.fromAsset.address.toUpperCase().replace("0X", "0x") as Address;
-    draft.signing.evmAccount = draft.signing.evmAccount.toUpperCase().replace("0X", "0x") as Address;
+    Object.assign(draft.metadata.fromAsset, { address: getAddress(draft.metadata.fromAsset.address) });
+    Object.assign(draft.signing, { evmAccount: getAddress(draft.signing.evmAccount) });
     const result = await issueMoneyAction(sessions(), draft, { pending: { ...preparedTrade.pending, swapCallIndex: 1 } });
-    expect(result.metadata?.product === "trade" && result.metadata.fromAsset.address).toBe(BASE_USDC_ADDRESS.toLowerCase() as Address);
-    expect(result.signing?.signer === "cdp-embedded" && result.signing.evmAccount).toBe(OWNER);
+    expect(result.metadata?.product === "trade" && result.metadata.fromAsset.address).toBe(parseAddress(BASE_USDC_ADDRESS)!);
+    expect(result.signing?.signer === "cdp-embedded" && result.signing.evmAccount).toBe(parseAddress(OWNER)!);
     if (draft.metadata.product !== "trade") throw new Error("missing trade metadata");
     draft.metadata.minimumToAmountBaseUnits = "1001";
     await expect(issueMoneyAction(sessions(), draft, { pending: { ...preparedTrade.pending, swapCallIndex: 1 } })).rejects.toMatchObject({ reason: "invalid-draft" });
@@ -676,7 +717,7 @@ describe("generic token trade preparation", () => {
     const swapCallIndex = direction === "buy" ? 2 : 1;
     const action = await issueMoneyAction(sessions(), trade.draft, { pending: { ...trade.pending, swapCallIndex } });
     expect(action.metadata?.product === "trade" && action.metadata.fromAsset.address)
-      .toBe(direction === "buy" ? BASE_USDC_ADDRESS.toLowerCase() as Address : address);
+      .toBe(direction === "buy" ? requireAddress(BASE_USDC_ADDRESS) : requireAddress(address));
     expect(action.metadata?.product === "trade" && action.metadata.operatorFee?.recipient).toBe(recipient);
   });
   test("pins a full sell to the exact chain balance; a rebasing drop refuses review", async () => {

@@ -12,7 +12,7 @@ import {
   resolveBaseRpcUrl,
   type BaseRpcCall,
 } from "@/server/chain/rpc";
-import { writeObservabilityEvent } from "@/server/observability/log";
+import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
 import type { HoldingBalance } from "@/shared/balances/types";
 import {
@@ -213,11 +213,26 @@ async function readOnce(
       ],
     };
   });
-  const confirmationIndex = conversionCalls.length;
+  const withdrawalCalls: BaseRpcCall[] = positiveVaults.map((entry) => ({
+    method: "eth_call",
+    params: [
+      {
+        to: entry.contractAddress,
+        data: encodeFunctionData({
+          abi: vaultAbi,
+          functionName: "maxWithdraw",
+          args: [owner],
+        }),
+      },
+      blockTag,
+    ],
+  }));
+  const confirmationIndex = conversionCalls.length + withdrawalCalls.length;
   const confirmationBatch = await readConfirmationBatch(
     rpc,
     [
       ...conversionCalls,
+      ...withdrawalCalls,
       {
         method: "eth_getBlockByNumber",
         params: [blockTag, false],
@@ -239,12 +254,15 @@ async function readOnce(
   }
 
   const underlying = new Map<string, HoldingBalance>();
+  const withdrawable = new Map<string, HoldingBalance>();
   vaults.forEach((entry) => {
     const balance = balances.get(entry.id);
     if (balance?.status !== "ready") {
       underlying.set(entry.id, unavailable());
+      withdrawable.set(entry.id, unavailable());
     } else if (balance.baseUnits === "0") {
       underlying.set(entry.id, ready(BigInt(0)));
+      withdrawable.set(entry.id, ready(BigInt(0)));
     }
   });
   positiveVaults.forEach((entry, index) => {
@@ -253,13 +271,23 @@ async function readOnce(
       entry.id,
       value === null ? unavailable() : ready(value),
     );
+    const maxWithdraw = tryWord(confirmationBatch[conversionCalls.length + index]);
+    withdrawable.set(
+      entry.id,
+      value === null || maxWithdraw === null
+        ? unavailable()
+        : ready(maxWithdraw < value ? maxWithdraw : value),
+    );
   });
 
   const registryHoldings = registry.map((entry): ReadHolding => ({
     ...entry,
     balance: balances.get(entry.id) ?? unavailable(),
     ...(entry.kind === "vault-share"
-      ? { underlyingBalance: underlying.get(entry.id) ?? unavailable() }
+      ? {
+          underlyingBalance: underlying.get(entry.id) ?? unavailable(),
+          withdrawableBalance: withdrawable.get(entry.id) ?? unavailable(),
+        }
       : {}),
   }));
   const registryUnavailable = registryHoldings.some(
@@ -409,17 +437,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function emitHostedGuard(
   log: (event: ObservabilityEvent) => unknown,
 ): void {
-  try {
-    log({
-      kind: "portfolio-balance-source",
-      route: "/api/balances",
-      source: "configured-base-rpc",
-      stage: "inventory",
-      outcome: "unavailable",
-      reason: "not-configured",
-    });
-  } catch { // oxlint-disable-line home/no-silent-catch -- the hosted-guard log sink is isolated so observability cannot change the read result
-  }
+  observeSafely(() => log({
+    kind: "portfolio-balance-source",
+    route: "/api/balances",
+    source: "configured-base-rpc",
+    stage: "inventory",
+    outcome: "unavailable",
+    reason: "not-configured",
+  }));
 }
 
 async function withDeadline<T>(

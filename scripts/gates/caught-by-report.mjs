@@ -7,18 +7,22 @@ import {
   commitLogFormat,
   fixScope,
   parseCommitLog,
+  pullRequestNumber,
 } from "./caught-by.mjs";
+import { prBodyDetectors } from "./caught-by-pr-body.mjs";
 
-// The report reads the same scoped fix subjects and Caught-by trailers the
-// provenance gate enforces, then ranks the detectors and lists the fixes a
-// home/* lint rule could have caught. It is a report, not a gate: every path
-// exits 0 so a broken corpus can never fail a build.
+// The report reads scoped fix commits' Caught-by trailers, recovering missing
+// detectors from visible PR-body lines for title-only squashes. It ranks the
+// detectors and lists fixes a home/* lint rule could have caught. It is a
+// report, not a gate: every path exits 0 so a broken corpus cannot fail a build.
 
 export const detectorOrder = ["lint", "bot", "review", "browser", "production", "mixed", "unknown"];
 // review, bot, and production fixes are the rule-first triage queue.
 export const ruleCandidateDetectors = ["review", "bot", "production"];
 export const defaultSince = "30.days";
 export const maxReportCharacters = 60_000;
+export const pullRequestLookupBudgetMs = 180_000;
+export const pullRequestLookupTimeoutMs = 15_000;
 const maxCandidateRows = 50;
 const maxCandidateFiles = 10;
 const truncationNotice = "\n\n_Report truncated at 60,000 characters._";
@@ -80,20 +84,45 @@ export function collectFixCommits({ cwd = process.cwd(), range = null, since = d
   return parseCommitLog(git(args, cwd));
 }
 
-export function summarizeFixCommits(commits, { isPrePolicy = () => false } = {}) {
+export function githubPullRequestBody(number, { cwd, runner = spawnSync, timeout = pullRequestLookupTimeoutMs }) {
+  try {
+    const result = runner("gh", ["pr", "view", String(number), "--json", "body", "--jq", ".body"], {
+      cwd, encoding: "utf8", timeout,
+    });
+    return result.status === 0 && typeof result.stdout === "string"
+      ? result.stdout.replace(/\r?\n$/, "")
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function summarizeFixCommits(commits, { isPrePolicy = () => false, pullRequestBody = () => null } = {}) {
   const fixes = commits.flatMap((commit) => {
     const scope = fixScope(commit.subject);
     if (scope === null) return [];
+    const prePolicy = isPrePolicy(commit.sha);
     // Squash-merged fix PRs aggregate their inner commits' trailers into one
-    // body: identical values dedupe, several distinct values are mixed, and no
-    // value is unknown.
-    const values = caughtByDetectors(commit.body);
+    // body: identical values dedupe, several distinct values are mixed.
+    let values = caughtByDetectors(commit.body);
+    let detectorSource = values.length > 0 ? "trailer" : "none";
+    const number = pullRequestNumber(commit.subject);
+    if (values.length === 0 && !prePolicy && number !== null) {
+      const body = pullRequestBody(number);
+      if (body === null) {
+        detectorSource = "pr-body-unavailable";
+      } else if (typeof body === "string") {
+        values = prBodyDetectors(body);
+        if (values.length > 0) detectorSource = "pr-body";
+      }
+    }
     return [{
       sha: commit.sha,
       subject: commit.subject,
       scope,
       detector: values.length === 1 ? values[0] : values.length > 1 ? "mixed" : "unknown",
-      prePolicy: isPrePolicy(commit.sha),
+      detectorSource,
+      prePolicy,
     }];
   });
   const counted = fixes.filter((fix) => !fix.prePolicy);
@@ -119,11 +148,22 @@ function changedFiles(sha, cwd) {
   return output === "" ? [] : output.split("\n").filter(Boolean);
 }
 
-export function collectReport({ cwd = process.cwd(), range = null, since = defaultSince, policyStart = caughtByPolicyStart } = {}) {
+export function collectReport({ cwd = process.cwd(), range = null, since = defaultSince, policyStart = caughtByPolicyStart, pullRequestBody, runner, now = Date.now, lookupBudgetMs = pullRequestLookupBudgetMs } = {}) {
+  const deadline = now() + lookupBudgetMs;
   const commits = collectFixCommits({ cwd, range, since });
   const resolvedPolicyStart = commitExists(policyStart, cwd) ? policyStart : null;
+  const bodies = new Map();
+  const lookup = pullRequestBody ?? ((number) => {
+    if (bodies.has(number)) return bodies.get(number);
+    const remaining = deadline - now();
+    if (remaining <= 0) return null;
+    const body = githubPullRequestBody(number, { cwd, runner, timeout: Math.min(pullRequestLookupTimeoutMs, remaining) });
+    bodies.set(number, body);
+    return body;
+  });
   const summary = summarizeFixCommits(commits, {
     isPrePolicy: (sha) => resolvedPolicyStart !== null && !isAncestor(resolvedPolicyStart, sha, cwd),
+    pullRequestBody: lookup,
   });
   const candidates = summary.fixes
     .filter((fix) => !fix.prePolicy && ruleCandidateDetectors.includes(fix.detector))
@@ -134,6 +174,8 @@ export function collectReport({ cwd = process.cwd(), range = null, since = defau
     total: summary.fixes.length,
     prePolicyTotal: summary.fixes.filter((fix) => fix.prePolicy).length,
     policyStart: resolvedPolicyStart,
+    prBodyRecovered: summary.fixes.filter((fix) => !fix.prePolicy && fix.detectorSource === "pr-body").length,
+    prBodyUnavailable: summary.fixes.filter((fix) => !fix.prePolicy && fix.detectorSource === "pr-body-unavailable").length,
     detectors: summary.detectors,
     scopes: summary.scopes,
     candidates,
@@ -163,6 +205,11 @@ export function renderMarkdown(report) {
   lines.push("", report.range ? `Range: \`${report.range}\`` : `Since: \`${report.since}\``);
   if (report.policyStart !== null) {
     lines.push("", `Trailer policy started at \`${report.policyStart.slice(0, 8)}\` (#709, 2026-09-21). Pre-policy fix commits in this range: ${report.prePolicyTotal} of ${report.total} — excluded from shares.`);
+  }
+  const recovered = report.prBodyRecovered ?? 0;
+  const unavailable = report.prBodyUnavailable ?? 0;
+  if (recovered > 0 || unavailable > 0) {
+    lines.push("", `Detectors recovered from pull request bodies: ${recovered}. Pull request body lookups unavailable: ${unavailable} — counted as unknown.`);
   }
   lines.push("", "## Detectors", "", "| Detector | Fixes | Share |", "| --- | ---: | ---: |");
   for (const row of report.detectors) {

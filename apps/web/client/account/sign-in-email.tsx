@@ -52,7 +52,8 @@ export function SignInEmail({
           className="w-full"
           size="touch"
           type="submit"
-          disabled={isSendingCode || baseAccountPending}
+          loading={isSendingCode}
+          disabled={baseAccountPending}
         >
           {isSendingCode ? "Sending code…" : "Continue with email"}
         </Button>
@@ -64,8 +65,7 @@ export function SignInEmail({
               size="touch"
               variant="secondary"
               onClick={onBaseAccountSignIn}
-              aria-busy={baseAccountPending || undefined}
-              aria-disabled={baseAccountPending || undefined}
+              loading={baseAccountPending}
             >
               <BaseAccountButtonContent phase={baseAccountPhase} />
             </Button>

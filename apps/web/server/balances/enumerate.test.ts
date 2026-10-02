@@ -59,6 +59,16 @@ describe("balances enumeration in-flight dedupe", () => {
     expect(calls).toBe(2);
   });
 
+  test("keeps an unavailable enumeration when its log throws", async () => {
+    let attempts = 0;
+    const enumerate = createBalancesEnumerator({
+      listBalances: async () => { throw new CdpTokenBalancesError("not-configured", "missing credentials"); },
+      log: () => { attempts += 1; throw new Error("sink failed"); },
+    });
+    await expect(enumerate(owner)).resolves.toMatchObject({ status: "unavailable", rows: [], pagesRead: 0 });
+    expect(attempts).toBe(1);
+  });
+
   test("maps unavailable and incomplete results without caching either", async () => {
     const events: unknown[] = [];
     let unavailable = true;

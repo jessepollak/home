@@ -22,6 +22,18 @@ describe("Storybook unexpected-request guard", () => {
     }
   });
 
+  test("allows GET and HEAD for exactly the Vite mocker entry", () => {
+    const entry = `${ORIGIN}/vite-inject-mocker-entry.js`;
+    expect(isStorybookRuntimeRequest(new Request(entry), ORIGIN)).toBeTrue();
+    expect(isStorybookRuntimeRequest(new Request(entry, { method: "HEAD" }), ORIGIN)).toBeTrue();
+    expect(() => rejectUnexpectedStoryRequest(new Request(entry), ORIGIN)).not.toThrow();
+    expect(isStorybookRuntimeRequest(new Request(entry, { method: "POST" }), ORIGIN)).toBeFalse();
+    expect(isStorybookRuntimeRequest(new Request("https://provider.example.invalid/vite-inject-mocker-entry.js"), ORIGIN)).toBeFalse();
+    for (const path of ["/vite-inject-mocker-entry.js.map", "/vite-inject-mocker-entry.jsx", "/nested/vite-inject-mocker-entry.js"]) {
+      expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}${path}`), ORIGIN)).toThrow("[Storybook request guard]");
+    }
+  });
+
   test("fails visibly for unexpected component, API, and external requests", () => {
     for (const request of [
       new Request(`${ORIGIN}/api/balances`),

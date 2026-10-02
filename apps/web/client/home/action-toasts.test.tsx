@@ -2,6 +2,8 @@ import "../account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import type { RegionId } from "@/config/regions";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { announceActionFailure } from "./action-toast-events";
@@ -34,6 +36,7 @@ const row = {
   status: "pending",
   createdAt: "2026-09-12T12:00:00.000Z",
   confirmedAt: "2026-09-12T12:01:00.000Z",
+  owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
 };
 
 const progress = {
@@ -65,28 +68,57 @@ const withdrawal = {
   },
 };
 
+const parseRows = (rows: unknown[], parseSession: VerifiedAccountSession = session) => parseRecentActionsPayload({ actions: rows.map((value) => {
+  const item = value as typeof row;
+  const metadata = "metadata" in item.summary ? item.summary.metadata as Record<string, unknown> : null;
+  if (metadata?.product === "borrow") return { ...item, summary: { ...item.summary, metadata: {
+    marketId: `0x${"a".repeat(64)}`, loanAsset: { id: "usdc", symbol: "USDC" },
+    collateralAsset: { id: "eth", symbol: "ETH" },
+    source: { blockNumber: "1", blockHash: `0x${"b".repeat(64)}`, blockTimestamp: "1" }, ...metadata,
+  } } };
+  if (metadata?.product === "cashout") return { ...item, summary: { ...item.summary, metadata: {
+    providerId: "peer", providerName: "Peer", environment: "sandbox", platform: "cashapp", platformLabel: "Cash App",
+    currency: "USD", approximateFiatAmount: "20", minConversionRate: "1",
+    intentAmountRange: { min: "1", max: "1" }, estimateAsOf: "2026-09-12T12:01:00.000Z", escrow: "escrow", ...metadata,
+  } } };
+  return item;
+}) }, parseSession);
+
 afterEach(() => {
   toast.close();
   cleanup();
   getHomeQueryClient().clear();
 });
 
-function mount(initial: unknown[] = []) {
+function mount(initial: unknown[] = [], regionId: RegionId = "US") {
   const key = ownerQueryKey(activityOwnerKey(session), "actions");
   const view = render(
-    <ActionToasts
+    <ActionToasts regionId={regionId}
       session={session}
       fetchOperations={async () => ({ actions: initial })}
       dismissAfterMs={0}
     />,
   );
   const update = (actions: unknown[]) => {
-    void act(() => getHomeQueryClient().setQueryData(key, { actions }));
+    void act(() => getHomeQueryClient().setQueryData(key, parseRows(actions)));
   };
   return { key, view, update };
 }
 
 describe("action toast owner fence", () => {
+  test("describes a card allowance without inventing a sent amount", async () => {
+    const change = { ...row, kind: "card-allowance", summary: { ...row.summary, amounts: [],
+      metadata: { product: "card", operation: "revoke-allowance", provider: "bridge", mode: "production",
+        token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+        allowanceBaseUnits: "0", previousAllowanceBaseUnits: "25000000", maximumBaseUnits: null, source: { blockNumber: "100" } } } };
+    const { key, view, update } = mount();
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([change]);
+    await waitFor(() => expect(view.getByText("Removing card spending permission")).toBeTruthy());
+    update([{ ...change, status: "confirmed" }]);
+    await waitFor(() => expect(view.getByText("Card spending permission removed")).toBeTruthy());
+    expect(view.queryByText(/\$25\.00/)).toBeNull();
+  });
   test("shows new pending and confirmed send once after the first snapshot", async () => {
     const next = { ...row, id: "22222222-2222-4222-8222-222222222222" };
     const { key, view, update } = mount([row]);
@@ -96,6 +128,100 @@ describe("action toast owner fence", () => {
     await waitFor(() => expect(view.getAllByText("Sending $1.00 to 0x2222…222222")).toHaveLength(1));
     update([row, { ...next, status: "confirmed" }]);
     await waitFor(() => expect(view.getAllByText("Sent $1.00 to 0x2222…222222")).toHaveLength(1));
+  });
+
+  test("formats a signed-in user's USD action in their presentation region", async () => {
+    const { key, view, update } = mount([], "BR");
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([row]);
+    await waitFor(() => expect(view.getByText(/Sending .*1,00 to 0x2222…222222/)).toBeTruthy());
+    expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull();
+  });
+
+  test("closes an active amount toast on a presentation-region switch without replaying its action", async () => {
+    const { key, view, update } = mount();
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([row]);
+    await waitFor(() => expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy());
+    view.rerender(
+      <ActionToasts regionId="BR" session={session} fetchOperations={async () => ({ actions: [row] })} dismissAfterMs={0} />,
+    );
+    await waitFor(() => expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull());
+    expect(view.queryByText(/Sending .*1,00 to 0x2222…222222/)).toBeNull();
+    update([row]);
+    expect(view.queryByText(/Sending .*1,00 to 0x2222…222222/)).toBeNull();
+    update([{ ...row, status: "confirmed" }]);
+    await waitFor(() => expect(view.getByText(/Sent .*1,00 to 0x2222…222222/)).toBeTruthy());
+    expect(view.queryByText("Sent $1.00 to 0x2222…222222")).toBeNull();
+  });
+
+  test("keeps a failure alert beside a stale amount toast when the presentation region changes", async () => {
+    const { key, view, update } = mount();
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([row]);
+    await waitFor(() => expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy());
+    act(() => announceActionFailure("send", "Wallet unavailable"));
+    expect(view.getByRole("alert").textContent).toContain("Send failed: Wallet unavailable");
+    expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy();
+    view.rerender(
+      <ActionToasts regionId="BR" session={session} fetchOperations={async () => ({ actions: [row] })} dismissAfterMs={0} />,
+    );
+    await waitFor(() => expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull());
+    expect(view.getByRole("alert").textContent).toContain("Send failed: Wallet unavailable");
+    update([row]);
+    expect(view.queryByText(/Sending .*1,00 to 0x2222…222222/)).toBeNull();
+    update([{ ...row, status: "confirmed" }]);
+    await waitFor(() => expect(view.getByText(/Sent .*1,00 to 0x2222…222222/)).toBeTruthy());
+    expect(view.getByRole("alert").textContent).toContain("Send failed: Wallet unavailable");
+  });
+
+  test("preserves token-amount toasts that do not depend on the presentation region", async () => {
+    const token = {
+      ...row, id: "33333333-3333-4333-8333-333333333333",
+      summary: { ...row.summary, amounts: [{ ...row.summary.amounts[0], symbol: "DEGEN", decimals: 18, amountBaseUnits: "1000000000000000000" }] },
+    };
+    const { key, view, update } = mount();
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([row, token]);
+    await waitFor(() => expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy());
+    expect(view.getByText("Sending 1.00 DEGEN to 0x2222…222222")).toBeTruthy();
+    view.rerender(
+      <ActionToasts regionId="BR" session={session} fetchOperations={async () => ({ actions: [row, token] })} dismissAfterMs={0} />,
+    );
+    await waitFor(() => expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull());
+    expect(view.getByText("Sending 1.00 DEGEN to 0x2222…222222")).toBeTruthy();
+  });
+
+  test("leaves an active amount toast alone when the presentation region is unchanged", async () => {
+    const { key, view, update } = mount();
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([row]);
+    await waitFor(() => expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy());
+    view.rerender(
+      <ActionToasts regionId="US" session={session} fetchOperations={async () => ({ actions: [row] })} dismissAfterMs={0} />,
+    );
+    expect(view.getAllByText("Sending $1.00 to 0x2222…222222")).toHaveLength(1);
+    update([row]);
+    expect(view.getAllByText("Sending $1.00 to 0x2222…222222")).toHaveLength(1);
+  });
+
+  test("keeps the owner fence and fresh status transitions when owner and region change together", async () => {
+    const { key, view, update } = mount();
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
+    update([row]);
+    await waitFor(() => expect(view.getByText("Sending $1.00 to 0x2222…222222")).toBeTruthy());
+    view.rerender(
+      <ActionToasts regionId="BR" session={otherSession} fetchOperations={async () => ({ actions: [] })} dismissAfterMs={0} />,
+    );
+    await waitFor(() => expect(view.queryByText("Sending $1.00 to 0x2222…222222")).toBeNull());
+    const otherKey = ownerQueryKey(activityOwnerKey(otherSession), "actions");
+    await waitFor(() => expect(getHomeQueryClient().getQueryData(otherKey)).toBeTruthy());
+    const otherRow = { ...row, owner: { ...row.owner, subject: otherSession.user.subject } };
+    void act(() => getHomeQueryClient().setQueryData(otherKey, parseRows([otherRow], otherSession)));
+    await waitFor(() => expect(view.getByText(/Sending .*1,00 to 0x2222…222222/)).toBeTruthy());
+    void act(() => getHomeQueryClient().setQueryData(otherKey, parseRows([{ ...otherRow, status: "confirmed" }], otherSession)));
+    await waitFor(() => expect(view.getByText(/Sent .*1,00 to 0x2222…222222/)).toBeTruthy());
+    expect(view.queryByText("Sent $1.00 to 0x2222…222222")).toBeNull();
   });
 
   test("does not narrate a repay cap as actually repaid", async () => {
@@ -213,7 +339,7 @@ describe("action toast owner fence", () => {
     act(() => announceActionFailure("send", "Wallet unavailable"));
     expect((await view.findByRole("alert")).textContent).toContain("Send failed: Wallet unavailable");
     view.rerender(
-      <ActionToasts
+      <ActionToasts regionId="US"
         session={otherSession}
         fetchOperations={async () => ({ actions: [] })}
         dismissAfterMs={0}

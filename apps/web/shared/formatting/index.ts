@@ -5,6 +5,7 @@ export {
 } from "./presentation-fiat";
 
 export {
+  formatBasisPoints,
   formatChartPrice,
   formatExactPresentationCashAmount,
   formatExactPresentationTokenAmount,
@@ -22,6 +23,7 @@ export {
   formatTrimmedChartPrice,
   formatUnsignedTokenAmount,
   formatUsdStablecoinAmount,
+  formatWadFeePercent,
   formatWadPercent,
   joinAmountAndSymbol,
   moneyChangeTone,

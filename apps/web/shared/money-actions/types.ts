@@ -4,6 +4,7 @@ import type { CashoutQuote } from "@/shared/funding/cash-out-quote";
 
 export const ACTION_KINDS = [
   "send",
+  "card-allowance",
   "cash-out",
   "cash-out-withdraw",
   "savings-deposit",
@@ -31,6 +32,8 @@ export type MoneyActionCall = {
   };
 };
 
+export const MAX_MONEY_ACTION_AMOUNT_DECIMALS = 255;
+
 export type MoneyActionAmount = {
   assetId: string;
   symbol: string;
@@ -52,6 +55,7 @@ export type BorrowMoneyActionMetadata = {
     | "withdraw-collateral"
     | "close-position";
   marketId: `0x${string}`;
+  riskIncreased: boolean;
   loanAsset: { id: string; symbol: string };
   collateralAsset: { id: string; symbol: string };
   projectedHealthFactorWad: string | null;
@@ -115,7 +119,21 @@ export type SavingsMoneyActionMetadata = {
   };
 };
 
+export type CardAllowanceMoneyActionMetadata = {
+  product: "card";
+  operation: "set-allowance" | "revoke-allowance";
+  provider: "bridge";
+  mode: "sandbox" | "production";
+  token: `0x${string}`;
+  spender: `0x${string}`;
+  allowanceBaseUnits: string;
+  previousAllowanceBaseUnits: string;
+  maximumBaseUnits: string | null;
+  source: { blockNumber: string };
+};
+
 export type MoneyActionMetadata =
+  | CardAllowanceMoneyActionMetadata
   | BorrowMoneyActionMetadata
   | CashoutMoneyActionMetadata
   | SavingsMoneyActionMetadata

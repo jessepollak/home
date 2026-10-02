@@ -13,8 +13,11 @@ import {
 } from "@/components/signed-balance-bar";
 import type { HomeMoneySummary as HomeMoneySummaryModel, MoneyBreakdownItem } from "@/shared/balances/present";
 import { cn } from "@/lib/utils";
+import { formatPresentationDate } from "@/shared/formatting";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
+import { useProductOffering } from "./product-offering";
+import { borrowEntryOffered } from "@/client/borrowing/borrow-offering";
 
 export type HomeOverviewDestinations = {
   onOpenCash: () => void;
@@ -47,12 +50,17 @@ export function HomeOverview({
   useEffect(() => {
     const money = moneyRef.current;
     const main = money?.closest<HTMLElement>("[data-app-main-authenticated]");
+    const header = document.querySelector<HTMLElement>("header");
     if (!money || !main) return;
-    const updateFit = () => setStickyFits(money.scrollHeight + 48 <= main.clientHeight);
+    const updateFit = () => {
+      const stickyTop = Math.round(header?.getBoundingClientRect().height ?? 0) + 24;
+      money.style.setProperty("--home-money-sticky-top", `${stickyTop}px`);
+      setStickyFits(money.scrollHeight + 48 <= window.innerHeight - stickyTop);
+    };
     updateFit();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateFit);
     observer?.observe(money);
-    observer?.observe(main);
+    if (header) observer?.observe(header);
     window.addEventListener("resize", updateFit);
     return () => {
       observer?.disconnect();
@@ -61,11 +69,9 @@ export function HomeOverview({
   }, []);
   return (
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
-      <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-6" : ""}`}>
+      <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-(--home-money-sticky-top)" : ""}`}>
         <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
-        <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
-          {actions}
-        </div>
+        {actions ? <div className="grid grid-cols-2 gap-2" aria-label="Money actions">{actions}</div> : null}
         <HomeMoneySummary
           summary={assetBalances?.summary ?? null}
           isLoading={isLoading}
@@ -109,21 +115,13 @@ function HomeTotalBalance({
       variant="flush"
       aria-label={heroLabel}
       aria-busy={isLoading || isRevalidating || undefined}
+      data-home-cached-summary={assetBalances?.cachedAt}
     >
       <CardContent inset="hero">
         <p className="text-sm text-muted-foreground">Total balance</p>
-        {isLoading ? (
-          <div className="space-y-3 pt-1" data-shimmer="hero">
-            <Skeleton className="h-10 w-48" />
-            <Skeleton className="h-2 w-full" />
-            <div className="grid grid-cols-3 gap-x-2">
-              <Skeleton className="h-8 w-20" />
-              <Skeleton className="h-8 w-20" />
-              <Skeleton className="h-8 w-20" />
-            </div>
-            <span className="sr-only">Updating…</span>
-          </div>
-        ) : (
+        {assetBalances?.cachedAt !== undefined ? <span className="sr-only">Updating balance saved {formatPresentationDate(assetBalances.cachedAt, { style: "date-time-zone" })}.</span> : null}
+        <div className="flex min-h-10 items-center" data-shimmer={isLoading ? "hero" : undefined}>
+        {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : (
           <div
             className={cn(
               "text-4xl font-semibold tabular-nums",
@@ -135,10 +133,19 @@ function HomeTotalBalance({
               value={assetBalances?.displayTotal ?? "—"}
               align="start"
               reserveDigits={false}
+              animated={false}
             />
           </div>
         )}
-        {!isLoading && breakdown.length > 0 ? (
+        </div>
+        {isLoading ? (
+          <div className="space-y-2" aria-hidden="true">
+            <Skeleton className="h-2 w-full" />
+            <div className="grid grid-cols-3 gap-x-2">
+              <Skeleton className="h-9 w-20" /><Skeleton className="h-9 w-20" /><Skeleton className="h-9 w-20" />
+            </div>
+          </div>
+        ) : breakdown.length > 0 ? (
           <HomeBalanceBreakdown key={accountKey ?? ""} items={breakdown} />
         ) : null}
       </CardContent>
@@ -183,6 +190,8 @@ export function HomeMoneySummary({
   destinations: HomeOverviewDestinations;
   onRetryBalances?: () => void;
 }) {
+  const offering = useProductOffering();
+  const borrowSummary = (summary ?? unavailableSummary).borrow;
   return (
     <section aria-labelledby="your-money-heading" aria-busy={isLoading || undefined}>
       <Card className="gap-3">
@@ -200,17 +209,21 @@ export function HomeMoneySummary({
                 onOpen={destinations.onOpenCash}
                 onRetryBalances={onRetryBalances}
               />
-              <InvestmentsRow
-                summary={(summary ?? unavailableSummary).investments}
-                onOpen={destinations.onOpenInvestments}
-                onRetryBalances={onRetryBalances}
-              />
-              <BorrowRow
-                summary={(summary ?? unavailableSummary).borrow}
-                offerRate={borrowOfferRate}
-                onOpen={destinations.onOpenBorrow}
-                onRetryBalances={onRetryBalances}
-              />
+              {(offering.products.invest === "on" || (summary ?? unavailableSummary).investments.ownedCount > 0 || (summary ?? unavailableSummary).investments.status !== "complete") ? (
+                <InvestmentsRow
+                  summary={(summary ?? unavailableSummary).investments}
+                  onOpen={destinations.onOpenInvestments}
+                  onRetryBalances={onRetryBalances}
+                />
+              ) : null}
+              {(borrowEntryOffered(offering) || borrowSummary.kind !== "none" || borrowSummary.hasCollateral) ? (
+                <BorrowRow
+                  summary={borrowSummary}
+                  offerRate={borrowOfferRate}
+                  onOpen={destinations.onOpenBorrow}
+                  onRetryBalances={onRetryBalances}
+                />
+              ) : null}
             </ul>
           )}
         </CardContent>
@@ -236,6 +249,7 @@ function CashRow({
       iconTone="mark"
       label="Cash"
       context={rate ?? undefined}
+      reserveContext
       value={summaryValue(summary.value)}
       valueTone={summary.status === "complete" ? "default" : "muted"}
       onActivate={onOpen}
@@ -261,6 +275,7 @@ function InvestmentsRow({
       icon={<GlyphMark size="sm"><ChartLine /></GlyphMark>}
       iconTone="mark"
       label="Investments"
+      reserveContext
       context={summary.assetCount === 0
         ? empty ? "Start investing" : undefined
         : summary.assetCount === 1
@@ -287,6 +302,7 @@ function BorrowRow({
   onOpen: () => void;
   onRetryBalances?: () => void;
 }) {
+  const offering = useProductOffering();
   const icon = <GlyphMark size="sm"><HandCoins /></GlyphMark>;
   if (summary.kind === "position") {
     return (
@@ -305,6 +321,19 @@ function BorrowRow({
       />
     );
   }
+  if (summary.kind === "none" && summary.hasCollateral && !borrowEntryOffered(offering)) {
+    return (
+      <BalanceRow
+        icon={icon}
+        iconTone="mark"
+        label="Collateral"
+        context="Manage in Borrow"
+        onActivate={onOpen}
+        activateLabel="Open Borrow"
+        chevron
+      />
+    );
+  }
   return (
     <BalanceRow
       icon={icon}
@@ -312,7 +341,8 @@ function BorrowRow({
       label="Borrow Cash"
       context={summary.kind === "none" && offerRate
         ? `Borrow at ${offerRate}`
-        : "Against your investments"}
+        : summary.kind === "unavailable" ? "Against your investments" : undefined}
+      reserveContext
       value={summary.kind === "unavailable" ? summaryValue(null) : undefined}
       valueTone="muted"
       onActivate={onOpen}
@@ -331,5 +361,5 @@ function summaryValue(value: string | null): ReactNode {
           <span className="sr-only">Unavailable</span>
         </>
       )
-    : <MoneyTicker value={value} reserveDigits={false} />;
+    : <MoneyTicker value={value} reserveDigits={false} animated={false} />;
 }

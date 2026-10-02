@@ -26,7 +26,7 @@ function show({ cash = "12340000", availability = "available", balances = "ready
   const paths: string[] = [];
   const client = {
     ...createBlockedAccountWalletClient("provider-unavailable"),
-    ...(verified ? { status: "verified" as const, verification: "server" as const, session } : {}),
+    ...(verified ? { status: "verified" as const, verification: "server" as const, ownerKey: session.user.subject, session } : {}),
     fetchBalances: async () => {
       if (balances === "loading") return new Promise<ReturnType<typeof balancesSnapshot>>(() => {});
       if (balances === "error") throw new Error("Balances unavailable");

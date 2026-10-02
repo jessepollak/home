@@ -10,6 +10,14 @@ afterEach(cleanup);
 const kinds = ["send", "cash-out", "cash-out-withdraw", "savings-deposit", "savings-withdraw", "supply-collateral", "borrow", "supply-and-borrow", "repay", "repay-all", "withdraw-collateral", "close-position"] as const;
 
 describe("truthful money result copy", () => {
+  test("card allowance results never describe a money transfer", () => {
+    expect(moneyResultCopy({ kind: "card-allowance", outcome: "success" })).toEqual({ title: "Card spending limit set" });
+    expect(moneyResultCopy({ kind: "card-allowance", cardOperation: "revoke-allowance", outcome: "success" })).toEqual({ title: "Card spending permission removed" });
+    expect(moneyResultCopy({ kind: "card-allowance", cardOperation: "revoke-allowance", outcome: "pending" })).toEqual({ title: "Removing card spending permission", description: "We'll update Activity when it's confirmed." });
+    expect(moneyResultCopy({ kind: "card-allowance", cardOperation: "revoke-allowance", outcome: "failed" })).toEqual({ title: "Card spending permission wasn't removed", description: "This spender still has permission to spend USDC from Cash." });
+    expect(moneyResultCopy({ kind: "card-allowance", cardOperation: "revoke-allowance", outcome: "unknown" })).toEqual({ title: "We can't confirm removing the card spending permission", description: "It may have gone through. Check Activity before trying again." });
+    expect(moneyResultCopy({ kind: "card-allowance", outcome: "failed" })).toEqual({ title: "Card spending change didn't go through", description: "Your card spending limit didn't change." });
+  });
   test("keeps amount and stage in send and Save titles", () => {
     expect(moneyResultCopy({ kind: "send", amount: "$25.00", outcome: "success" }).title).toBe("$25.00 sent");
     expect(moneyResultCopy({ kind: "send", amount: "$25.00", outcome: "pending" }).title).toBe("$25.00 on its way");

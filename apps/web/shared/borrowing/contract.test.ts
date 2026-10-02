@@ -1,3 +1,4 @@
+import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import { BORROW_MARKETS } from "./config";
 import { parseBorrowOverview, parseSnapshot } from "./contract";
@@ -27,10 +28,24 @@ function overview() {
 
 describe("borrow contract versions", () => {
   test("validates each detail market and owner independently", () => {
-    for (const ref of BORROW_MARKETS) expect(parseSnapshot(detail(ref), OWNER)?.market.id).toBe(ref.marketId);
+    for (const ref of BORROW_MARKETS) expect(String(parseSnapshot(detail(ref), OWNER)?.market.id)).toBe(ref.marketId);
     expect(parseSnapshot({ ...detail(), version: "2" }, OWNER)).toBeNull();
     expect(parseSnapshot({ ...detail(), walletAddress: "0x2222222222222222222222222222222222222222" }, OWNER)).toBeNull();
     expect(parseSnapshot({ ...detail(), market: { ...detail().market, lltvWad: "1" } }, OWNER)).toBeNull();
+  });
+
+  test("accepts narrowing an enabled market but rejects widening or mismatched new-risk flags", () => {
+    const enabled = BORROW_MARKETS.find((entry) => entry.availability === "enabled");
+    if (!enabled) throw new Error("Expected an enabled borrow market fixture.");
+    const reduced = { ...detail(enabled), eligibility: { mode: "reducing-only", newRisk: false, reason: null } };
+    expect(parseSnapshot(reduced, OWNER)).not.toBeNull();
+    const base = overview();
+    const narrowed = { ...base, opportunities: [{ market: reduced.market, availability: { ...base.opportunities[0].availability, mode: "reducing-only", snapshot: reduced } }] };
+    expect(parseBorrowOverview(narrowed, OWNER)).not.toBeNull();
+    expect(parseSnapshot({ ...reduced, eligibility: { ...reduced.eligibility, newRisk: true } }, OWNER)).toBeNull();
+    expect(parseBorrowOverview({ ...narrowed, opportunities: [{ ...narrowed.opportunities[0], availability: { ...narrowed.opportunities[0].availability, mode: "enabled" } }] }, OWNER)).toBeNull();
+    const restricted = BORROW_MARKETS.find((entry) => entry.availability === "reducing-only");
+    if (restricted) expect(parseSnapshot({ ...detail(restricted), eligibility: { mode: "enabled", newRisk: true, reason: null } }, OWNER)).toBeNull();
   });
 
   test("accepts v2 shared-block available snapshots and no-market null-source envelopes", () => {
@@ -50,4 +65,20 @@ describe("borrow contract versions", () => {
     expect(valid({ ...base, discovery: { ...base.discovery, sourceBlock: { ...base.discovery.sourceBlock, blockNumber: "2" } } })).toBeNull();
     expect(valid({ ...base, discovery: { ...base.discovery, sourceBlock: null } })).toBeNull();
   });
+});
+
+test("borrow sources and owner canonicalize valid wire hex and reject invalid hex", () => {
+  const owner = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const source = { ...detail().source, blockHash: `0x${"Ab".repeat(32)}` };
+  const wire = { ...detail(), walletAddress: owner, source };
+  expect(String(parseSnapshot(wire, owner)?.walletAddress)).toBe(owner.toLowerCase());
+  expect(String(parseSnapshot(wire, owner)?.source.blockHash)).toBe(`0x${"ab".repeat(32)}`);
+  expect(parseSnapshot({ ...wire, walletAddress: owner.replace("A", "a") }, owner)).toBeNull();
+  expect(parseSnapshot({ ...wire, source: { ...source, blockHash: "0xzzz" } }, owner)).toBeNull();
+  const base = overview();
+  const response = structuredClone(base);
+  Object.assign(response.owner, { address: owner });
+  Object.assign(response.opportunities[0]!.availability.snapshot, { walletAddress: owner });
+  expect(String(parseBorrowOverview(response, owner)?.owner.address)).toBe(owner.toLowerCase());
+  expect(parseBorrowOverview({ ...response, owner: { ...response.owner, address: owner.replace("A", "a") } }, owner)).toBeNull();
 });

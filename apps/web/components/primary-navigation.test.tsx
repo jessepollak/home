@@ -4,6 +4,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 const { cleanup, fireEvent, render, within } = await import("@testing-library/react");
 const { PrimaryNavigation } = await import("./primary-navigation");
+const { ProductOfferingProvider } = await import("@/client/home/product-offering");
+const { resolveProductOffering } = await import("@/shared/operator-settings/products");
 
 const storageDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
 
@@ -34,6 +36,31 @@ describe("PrimaryNavigation", () => {
     fireEvent.click(within(tabs).getByRole("button", { name: "Invest" }));
     fireEvent.click(within(rail).getByRole("button", { name: "Invest" }));
     expect(navigations).toEqual(["invest", "invest"]);
+  });
+
+  test("exit-only Invest removes both tabs and rail discovery without an empty slot", () => {
+    const view = render(<ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}>
+      <PrimaryNavigation activeNavigation="home" onNavigate={() => {}} />
+      <PrimaryNavigation layout="rail" activeNavigation="home" onNavigate={() => {}} />
+    </ProductOfferingProvider>);
+    const [tabs, rail] = view.getAllByRole("navigation", { name: "Main navigation" });
+    expect(within(tabs).queryByRole("button", { name: "Invest" })).toBeNull();
+    expect(within(rail).queryByRole("button", { name: "Invest" })).toBeNull();
+    expect(within(tabs).getAllByRole("button")).toHaveLength(1);
+    expect(within(rail).getAllByRole("button")).toHaveLength(1);
+  });
+
+  test("exit-only Invest with Card enabled retains Home and Card without Invest", () => {
+    const view = render(<ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}>
+      <PrimaryNavigation activeNavigation="card" cardsEnabled onNavigate={() => {}} />
+      <PrimaryNavigation layout="rail" activeNavigation="card" cardsEnabled onNavigate={() => {}} />
+    </ProductOfferingProvider>);
+    const [tabs, rail] = view.getAllByRole("navigation", { name: "Main navigation" });
+    for (const navigation of [tabs, rail]) {
+      expect(within(navigation).getAllByRole("button").map((button) => button.textContent)).toEqual(["Home", "Card"]);
+      expect(within(navigation).getByRole("button", { name: "Card" }).getAttribute("aria-current")).toBe("page");
+      expect(within(navigation).queryByRole("button", { name: "Invest" })).toBeNull();
+    }
   });
 
   test("Card appears between Home and Invest only when cards are enabled", () => {
@@ -115,7 +142,7 @@ describe("PrimaryNavigation", () => {
   });
 
   test("keeps Home selected in a nested panel", () => {
-    const view = render(<PrimaryNavigation activeNavigation="balances" onNavigate={() => undefined} />);
+    const view = render(<PrimaryNavigation activeNavigation="cash" onNavigate={() => undefined} />);
     expect(view.getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     expect(view.getByRole("button", { name: "Invest" }).hasAttribute("aria-current")).toBe(false);
   });
@@ -141,7 +168,7 @@ describe("PrimaryNavigation", () => {
       view.rerender(<PrimaryNavigation activeNavigation="invest" onNavigate={() => undefined} />);
       expect(reads).toBe(1);
       view.rerender(<PrimaryNavigation activeNavigation="home" onNavigate={() => undefined} />);
-      view.rerender(<PrimaryNavigation activeNavigation="balances" onNavigate={() => undefined} />);
+      view.rerender(<PrimaryNavigation activeNavigation="borrow" onNavigate={() => undefined} />);
       expect(reads).toBe(1);
     } finally {
       window.getComputedStyle = original;

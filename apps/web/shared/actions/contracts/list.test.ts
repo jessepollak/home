@@ -1,6 +1,8 @@
+import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
-import { parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
+import { parseRecentActionsPayload, parseRecentMoneyActions, readRecentActionsIncomplete, readRecentActionsTruncated } from "./list";
+import { MAX_MONEY_ACTION_AMOUNT_DECIMALS } from "@/shared/money-actions/types";
 
 const session: VerifiedAccountSession = {
   user: { subject: "subject-a" },
@@ -8,8 +10,14 @@ const session: VerifiedAccountSession = {
   accountProvider: "cdp-embedded",
 };
 const transactionHash = `0x${"a".repeat(64)}` as const;
+function smartAccountAddress(): string {
+  const account = session.smartAccount;
+  if (!account) throw new Error("test session must have a smart account");
+  return account.address;
+}
 
-function row(address = session.smartAccount!.address, status = "confirmed") {
+
+function row(address = smartAccountAddress(), status = "confirmed") {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     provider: "cdp-embedded",
@@ -29,6 +37,78 @@ function row(address = session.smartAccount!.address, status = "confirmed") {
 }
 
 describe("recent Home action activity", () => {
+  test("parses retained savings separately without adding them to Activity", () => {
+    const retained = { ...row(undefined, "unknown"), kind: "savings-deposit" };
+    const payload = { actions: [], retainedSavingsDeposits: [retained] };
+    expect(parseRecentActionsPayload(payload, session)).toMatchObject({
+      operations: [], retainedSavingsDeposits: [{ action: { id: retained.id, kind: "savings-deposit" }, status: "unknown" }],
+      retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [],
+    });
+    expect(parseRecentMoneyActions(payload, session)).toEqual([]);
+  });
+  test("retained savings require the complete owner tuple and savings-deposit kind", () => {
+    const retained = { ...row(), kind: "savings-deposit" };
+    const foreign = [
+      { ...retained, owner: { ...retained.owner, subject: "other" } },
+      { ...retained, owner: { ...retained.owner, address: "0x3333333333333333333333333333333333333333" } },
+      { ...retained, owner: { ...retained.owner, chainId: 1 } },
+      { ...retained, owner: { ...retained.owner, accountProvider: "base-account" } },
+    ];
+    const parsed = parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [...foreign, retained] }, session);
+    expect(parsed.retainedSavingsDeposits).toHaveLength(1);
+    expect(parsed.unparsedSavingsDeposits).toEqual([]);
+    expect(parsed.retainedSavingsDepositsUnavailable).toBe(false);
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [retained] }, { ...session, smartAccount: null }).retainedSavingsDeposits).toEqual([]);
+  });
+  test("retained malformed same-owner deposits become unresolved stubs", () => {
+    const malformed = { ...row(undefined, "unknown"), kind: "savings-deposit",
+      summary: { ...row().summary, amounts: [null], metadata: { product: "savings", operation: "deposit", vaultAddress: smartAccountAddress() } } };
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [malformed, { ...malformed, owner: { ...malformed.owner, subject: "other" } }] }, session))
+      .toMatchObject({ retainedSavingsDeposits: [], unparsedSavingsDeposits: [{ status: "unknown", vaultAddress: smartAccountAddress() }] });
+  });
+  test("a malformed retained element holds savings unresolved", () => {
+    const retained = { ...row(undefined, "unknown"), kind: "savings-deposit" };
+    const owner = retained.owner;
+    for (const element of [null, {}, { id: "row-without-kind" }, { kind: "send", id: "other-kind" }, [], ["savings-deposit"],
+      { kind: "savings-deposit", status: "unknown" },
+      { kind: "savings-deposit", owner: { ...owner, subject: undefined } },
+      { kind: "savings-deposit", owner: { ...owner, address: "not-an-address" } }]) {
+      const parsed = parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: [retained, element] }, session);
+      expect(parsed.retainedSavingsDeposits).toHaveLength(1);
+      expect(parsed.retainedSavingsDepositsUnavailable).toBe(true);
+    }
+  });
+  test("retained ids already in recent operations are skipped, including malformed copies", () => {
+    const retained = { ...row(), kind: "savings-deposit" };
+    const parsed = parseRecentActionsPayload({ actions: [retained], retainedSavingsDeposits: [retained, { ...retained, summary: null }] }, session);
+    expect(parsed.operations).toHaveLength(1);
+    expect(parsed.retainedSavingsDeposits).toEqual([]);
+    expect(parsed.unparsedSavingsDeposits).toEqual([]);
+  });
+  test("omitted or undefined retained fields default empty and only a true unavailable flag is accepted", () => {
+    for (const payload of [{ actions: [] }, { actions: [], retainedSavingsDeposits: undefined }]) {
+      expect(parseRecentActionsPayload(payload, session)).toEqual({
+        operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
+      });
+    }
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDepositsUnavailable: true }, session).retainedSavingsDepositsUnavailable).toBe(true);
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDepositsUnavailable: "true" }, session).retainedSavingsDepositsUnavailable).toBe(false);
+  });
+  test.each([null, {}, "invalid"])("a present non-array retained field %j holds savings unresolved", (field) => {
+    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: field }, session)).toEqual({
+      operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: true, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
+    });
+  });
+  test("retains a card allowance with zero amount entries but rejects mismatched or malformed metadata", () => {
+    const metadata = { product: "card", operation: "set-allowance", provider: "bridge", mode: "production",
+      token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
+      allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "0", maximumBaseUnits: "100000000", source: { blockNumber: "100" } };
+    const card = { ...row(), kind: "card-allowance", summary: { ...row().summary, title: "Set card spending limit", amounts: [], metadata } };
+    expect(parseRecentMoneyActions({ actions: [card] }, session)[0]?.action).toMatchObject({ kind: "card-allowance", amounts: [], metadata });
+    expect(parseRecentMoneyActions({ actions: [{ ...card, summary: { ...card.summary, amounts: row().summary.amounts } }] }, session)).toEqual([]);
+    expect(parseRecentMoneyActions({ actions: [{ ...card, kind: "send" }] }, session)).toEqual([]);
+    expect(parseRecentMoneyActions({ actions: [{ ...card, summary: { ...card.summary, metadata: { ...metadata, spender: "not-an-address" } } }] }, session)).toEqual([]);
+  });
   test("rejects invalid top-level responses without hiding malformed individual records", () => {
     for (const value of [null, [], {}, { actions: null }, { actions: {} }]) {
       expect(() => parseRecentMoneyActions(value, session)).toThrow("Recent actions response is invalid.");
@@ -40,7 +120,22 @@ describe("recent Home action activity", () => {
   test("accepts only the full verified owner tuple", () => {
     expect(parseRecentMoneyActions({ actions: [row()] }, session)).toHaveLength(1);
     expect(parseRecentMoneyActions({ actions: [row("0x3333333333333333333333333333333333333333")] }, session)).toEqual([]);
+    expect(parseRecentMoneyActions({ actions: [{ ...row(), owner: { ...row().owner, chainId: 1 } }, row()] }, session)).toHaveLength(1);
+    expect(parseRecentMoneyActions({ actions: [{ ...row(), owner: { ...row().owner, chainId: undefined } }] }, session)).toEqual([]);
   });
+  test("rejects malformed amounts and warnings without dropping other valid rows", () => {
+    const valid = row();
+    const badAmount = { ...valid, summary: { ...valid.summary, amounts: [{ ...valid.summary.amounts[0], amountBaseUnits: "not-a-number" }] } };
+    const badWarnings = { ...valid, summary: { ...valid.summary, warnings: ["ok", null, 7] } };
+    expect(parseRecentMoneyActions({ actions: [badAmount, badWarnings, valid] }, session)).toHaveLength(1);
+  });
+  test("keeps issued amounts across the full decimal range and drops only amounts beyond it", () => {
+    const valid = row();
+    const withDecimals = (decimals: unknown) => ({ ...valid, kind: "trade", summary: { ...valid.summary, amounts: [{ ...valid.summary.amounts[0], decimals }] } });
+    expect(parseRecentMoneyActions({ actions: [withDecimals(21), withDecimals(36), withDecimals(MAX_MONEY_ACTION_AMOUNT_DECIMALS)] }, session)).toHaveLength(3);
+    expect(parseRecentMoneyActions({ actions: [withDecimals(MAX_MONEY_ACTION_AMOUNT_DECIMALS + 1), withDecimals(20.5), withDecimals(-1)] }, session)).toEqual([]);
+  });
+
 
   test("drops rows whose amount members are not atomic amounts", () => {
     const amount = row().summary.amounts[0];
@@ -147,6 +242,15 @@ describe("recent Home action activity", () => {
     expect(parseRecentMoneyActions({ actions: [legacy] }, session)[0]?.action.metadata)
       .toMatchObject({ product: "savings", exchangeConstraint: "deposit-preview-no-minimum-shares" });
   });
+  test("preserves legacy borrow Activity metadata without a risk flag", () => {
+    const metadata = { product: "borrow", operation: "withdraw-collateral", marketId: `0x${"1".repeat(64)}`,
+      loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "eth", symbol: "ETH" },
+      projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
+      source: { blockNumber: "1", blockHash: `0x${"2".repeat(64)}`, blockTimestamp: "1789214400" } };
+    const legacy = { ...row(), kind: "withdraw-collateral", summary: { ...row().summary, metadata } };
+    expect(parseRecentMoneyActions({ actions: [legacy] }, session)[0]?.action.metadata).toMatchObject({ product: "borrow", operation: "withdraw-collateral", marketId: metadata.marketId });
+    expect(parseRecentMoneyActions({ actions: [legacy] }, session)[0]?.action.metadata).not.toHaveProperty("riskIncreased");
+  });
 
   test("keeps pending rows without transaction hashes and rejects non-derived statuses", () => {
     const pending = { ...row(undefined, "pending"), transactionHash: undefined };
@@ -191,6 +295,10 @@ describe("recent Home action activity", () => {
     expect(readRecentActionsIncomplete({ actions: [twentyDecimals] }, session)).toBe(false);
     const twentyOneDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 21, amountBaseUnits: "1", direction: "spend" }] } };
     expect(readRecentActionsIncomplete({ actions: [twentyOneDecimals] }, session)).toBe(true);
+    const maxDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: MAX_MONEY_ACTION_AMOUNT_DECIMALS, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [maxDecimals] }, session)).toBe(true);
+    const beyondBoundDecimals = { ...row(), kind: "cash-out", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: MAX_MONEY_ACTION_AMOUNT_DECIMALS + 1, amountBaseUnits: "1", direction: "spend" }] } };
+    expect(readRecentActionsIncomplete({ actions: [beyondBoundDecimals] }, session)).toBe(true);
     const withdrawMetadata = { product: "cashout", operation: "withdraw", providerId: "peer", providerName: "Peer", environment: "sandbox", platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "1", minConversionRate: "1", intentAmountRange: { min: "1", max: "2" }, estimateAsOf: "2026-09-14T12:00:00.000Z", escrow: "0x777777779d229cdF3110e9de47943791c26300Ef", depositId: "escrow-1" };
     const withdrawMissingMetadata = { ...row(), kind: "cash-out-withdraw", summary: { ...row().summary, amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1", direction: "receive" }] } };
     expect(readRecentActionsIncomplete({ actions: [withdrawMissingMetadata] }, session)).toBe(true);
@@ -230,4 +338,26 @@ describe("recent Home action activity", () => {
     for (const value of [{ actions: [] }, { actions: [], truncated: false }, { actions: [], truncated: "true" }, null, "truncated"])
       expect(readRecentActionsTruncated(value)).toBe(false);
   });
+});
+
+test("recent action hash fields canonicalize mixed-case and reject malformed wire values", () => {
+  const checksum = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const input = { ...row(checksum), providerHandle: `0x${"Ab".repeat(32)}`, transactionHash: `0x${"Cd".repeat(32)}` };
+  const parsed = parseRecentMoneyActions({ actions: [input] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } });
+  expect(String(parsed[0]?.transactionHash)).toBe(`0x${"cd".repeat(32)}`);
+  expect(String(parsed[0]?.userOperationHash)).toBe(`0x${"ab".repeat(32)}`);
+  expect(parseRecentMoneyActions({ actions: [{ ...input, owner: { ...input.owner, address: checksum.replace("A", "a") } }] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } })).toEqual([]);
+  expect(parseRecentMoneyActions({ actions: [{ ...input, transactionHash: "0xno" }] }, { ...session, smartAccount: { address: checksum, chainId: 8453 } })[0]?.transactionHash).toBeUndefined();
+});
+
+test("borrow action metadata carries canonical market and source hashes only", () => {
+  const metadata = { product: "borrow", operation: "borrow", marketId: `0x${"Ab".repeat(32)}`,
+    loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "asset", symbol: "ASSET" },
+    source: { blockNumber: "1", blockHash: `0x${"Cd".repeat(32)}`, blockTimestamp: "1" } };
+  const withMetadata = (value: unknown) => ({ ...row(), summary: { ...row().summary, metadata: value } });
+  const parsed = parseRecentMoneyActions({ actions: [withMetadata(metadata)] }, session)[0]?.action.metadata;
+  expect(parsed?.product === "borrow" ? String(parsed.marketId) : null).toBe(`0x${"ab".repeat(32)}`);
+  expect(parsed?.product === "borrow" ? String(parsed.source.blockHash) : null).toBe(`0x${"cd".repeat(32)}`);
+  const invalid = parseRecentMoneyActions({ actions: [withMetadata({ ...metadata, source: { ...metadata.source, blockHash: "0x1234" } })] }, session)[0]?.action.metadata;
+  expect(invalid).toBeUndefined();
 });

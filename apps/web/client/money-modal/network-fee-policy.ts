@@ -2,7 +2,8 @@
 
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { networkFeePolicyScope } from "@/client/query/after-action";
-import { ownerQueryKey, useHomeQuery } from "@/client/query/query-client";
+import { useHomeQuery } from "@/client/query/query-client";
+import { ownerQuery } from "@/client/query/query-options";
 import { parseNetworkFeePolicyResponse } from "@/shared/actions/contracts/network-fee";
 
 export function useNetworkFeeReserve(ownerKey: string | null, fetchAccountResource: AccountWalletClient["fetchAccountResource"] | undefined, open: boolean): { reserve: string | null | undefined; failed: boolean; retry: () => void } {
@@ -19,10 +20,10 @@ type NetworkFeeReserveState = {
 
 export function useNetworkFeeReserveState(ownerKey: string | null, fetchAccountResource: AccountWalletClient["fetchAccountResource"] | undefined, open: boolean): NetworkFeeReserveState {
   const available = Boolean(ownerKey && fetchAccountResource);
-  const query = useHomeQuery({
-    queryKey: ownerKey ? ownerQueryKey(ownerKey, networkFeePolicyScope) : ["unauthenticated", "network-fee-policy-disabled"],
+  const query = useHomeQuery(ownerQuery<string | null>({
+    owner: ownerKey,
+    scope: networkFeePolicyScope,
     enabled: available && open,
-    staleTime: 0,
     retry: 2,
     retryDelay: 100,
     queryFn: async ({ signal }) => {
@@ -31,7 +32,7 @@ export function useNetworkFeeReserveState(ownerKey: string | null, fetchAccountR
       if (!response) throw new Error("The network fee policy is invalid.");
       return response.usdcReserveBaseUnits;
     },
-  });
+  }));
   const refetch = query.refetch;
   const retry = () => { void refetch({ cancelRefetch: false }); };
   if (!available) return { reserve: null, failed: false, retrying: false, retry };

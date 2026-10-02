@@ -1,3 +1,5 @@
+import { readJson } from "@/shared/http/read-json";
+
 export type BasenameProfile = {
   name: string | null;
   avatarUrl: string | null;
@@ -53,7 +55,7 @@ export async function fetchBasenameProfile(
       signal,
     });
     if (!response.ok) return null;
-    return parseBasenameProfile(await response.json());
+    return parseBasenameProfile(await readJson(response));
   } catch {
     return null;
   }

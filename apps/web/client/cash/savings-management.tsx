@@ -2,14 +2,17 @@
 
 import { useCallback, type RefObject, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import { MoneyModalActions, MoneyModalBody, MoneyModalHeader } from "@/client/money-modal";
+import { MoneyModalActions, MoneyModalBody, MoneyModalHeader, moneySheetIntent } from "@/client/money-modal";
 import { getSavingsRateState } from "@/client/savings/portfolio-summary";
 import { ManagementFacts } from "@/components/management-facts";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
+import type { RegionId } from "@/config/regions";
 import type { BalancesSnapshot } from "@/shared/balances/types";
-import { formatPresentationDate, formatPresentationPercentage, formatUsdStablecoinAmount } from "@/shared/formatting";
+import { formatPresentationDate, formatPresentationPercentage, formatUsdStablecoinAmount, formatWadFeePercent } from "@/shared/formatting";
+import type { ProductOffering } from "@/shared/operator-settings/products";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
+import { depositOffered } from "./save-offering";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 
 export type SavingsManagementAction = { enabled: boolean; reason: string | null };
@@ -30,35 +33,26 @@ export type SavingsManagement = {
   liquidityNote: string | null;
 };
 
-export function savingsRateLabel(candidate: MorphoVaultCandidate | null, metadata: MorphoVaultsResult | null, nowMs: number): string {
+export function savingsRateLabel(candidate: MorphoVaultCandidate | null, metadata: MorphoVaultsResult | null, nowMs: number, regionId: RegionId): string {
   if (!candidate || !metadata) return "Rate unavailable";
   const rate = getSavingsRateState(candidate, {
     metadataFetchedAt: metadata.source.fetchedAt,
     metadataStale: metadata.stale,
     nowMs,
   });
-  return rate.status !== "unavailable" ? `${formatPresentationPercentage(rate.value)} APY` : "Rate unavailable";
+  return rate.status !== "unavailable" ? `${formatPresentationPercentage(rate.value, regionId)} APY` : "Rate unavailable";
 }
 
-export function formatWadPercent(value: string): string {
-  const wad = BigInt(value);
-  const scaled = wad * BigInt(100_000_000) / BigInt("1000000000000000000");
-  const whole = scaled / BigInt(1_000_000);
-  const fraction = (scaled % BigInt(1_000_000))
-    .toString()
-    .padStart(6, "0")
-    .replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}%` : `${whole}%`;
-}
-
-export function savingsManagement({ address, snapshot, metadata, nowMs, actionsAvailable, usdcBaseUnits, usdcUnavailable }: {
+export function savingsManagement({ address, snapshot, metadata, nowMs, regionId, actionsAvailable, usdcBaseUnits, usdcUnavailable, offering }: {
   address: string;
   snapshot: BalancesSnapshot | null;
   metadata: MorphoVaultsResult | null;
   nowMs: number;
+  regionId: RegionId;
   actionsAvailable: boolean;
   usdcBaseUnits: string | null;
   usdcUnavailable: boolean;
+  offering: ProductOffering;
 }): SavingsManagement {
   const normalized = address.toLowerCase();
   const holding = snapshot?.holdings.find((entry) => entry.kind === "vault-share" && entry.contractAddress?.toLowerCase() === normalized);
@@ -71,7 +65,9 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, actionsA
   const depositReason = !actionsAvailable ? "Verify a Base smart account to deposit."
     : usdcUnavailable ? "Couldn't check your Cash balance."
       : metadata === null ? "Rates are unavailable. Try again."
-        : depositCandidate === null ? "Deposits are paused for this vault." : null;
+        : depositCandidate === null ? "Deposits are paused for this vault."
+          : !depositOffered(offering, depositCandidate) ? offering.source === "unavailable" ? "Couldn't check whether this vault is offered." : "This is no longer offered."
+            : null;
   const withdrawReason = !actionsAvailable ? "Verify a Base smart account to withdraw."
     : savedBaseUnits === null ? "Couldn't check this balance."
       : BigInt(savedBaseUnits) === BigInt(0) ? "Nothing saved to withdraw."
@@ -82,7 +78,7 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, actionsA
     savedBaseUnits,
     absent,
     unreadable,
-    rateLabel: savingsRateLabel(depositCandidate, metadata, nowMs),
+    rateLabel: savingsRateLabel(depositCandidate, metadata, nowMs, regionId),
     depositCandidate,
     withdrawCandidate,
     deposit: { enabled: depositReason === null, reason: depositReason },
@@ -91,14 +87,14 @@ export function savingsManagement({ address, snapshot, metadata, nowMs, actionsA
     details: [
       ["Vault", `${normalized.slice(0, 6)}…${normalized.slice(-4)}`],
       ...(candidate?.chainId === 8453 ? [["Network", "Base"] as [string, string]] : []),
-      ...(typeof candidate?.feeRate === "number" ? [["Performance fee", formatWadPercent(BigInt(Math.round(candidate.feeRate * 1e18)).toString())] as [string, string]] : []),
+      ...(typeof candidate?.feeRate === "number" ? [["Performance fee", candidate.feeRate >= 0 ? formatWadFeePercent(BigInt(Math.round(candidate.feeRate * 1e18)), regionId) : "—"] as [string, string]] : []),
       ...(candidate?.stateAsOf ? [["Rate checked", formatPresentationDate(candidate.stateAsOf, { style: "date-time-zone" })] as [string, string]] : []),
     ],
     liquidityNote: candidate?.liquidityRaw === "0" ? "No liquidity available to withdraw right now." : null,
   };
 }
 
-export function SavingsManagementSheet({ management, titleId, detailsId, detailsOpen, onDetailsOpenChange, initialFocusRef, restoreAction, onDeposit, onWithdraw }: {
+export function SavingsManagementSheet({ management, titleId, detailsId, detailsOpen, onDetailsOpenChange, initialFocusRef, restoreAction, onDeposit, onWithdraw, onActionIntent }: {
   management: SavingsManagement;
   titleId: string;
   detailsId: string;
@@ -108,9 +104,11 @@ export function SavingsManagementSheet({ management, titleId, detailsId, details
   restoreAction: "deposit" | "withdraw" | null;
   onDeposit: () => void;
   onWithdraw: () => void;
+  onActionIntent?: () => void;
 }): ReactNode {
   const reason = management.deposit.reason ?? management.withdraw.reason;
   const restoreActionEnabled = restoreAction === "deposit" ? management.deposit.enabled : restoreAction === "withdraw" ? management.withdraw.enabled : false;
+  const actionIntent = onActionIntent ? moneySheetIntent(onActionIntent) : {};
   const attachInitialFocus = useCallback((node: HTMLElement | null) => {
     initialFocusRef.current = node;
   }, [initialFocusRef]);
@@ -134,8 +132,8 @@ export function SavingsManagementSheet({ management, titleId, detailsId, details
     <MoneyModalActions>
       {reason ? <p className="text-sm text-muted-foreground">{reason}</p> : null}
       <div className="grid grid-cols-2 gap-2">
-        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="default" ref={restoreActionEnabled && restoreAction === "deposit" ? attachInitialFocus : undefined} disabled={!management.deposit.enabled} onClick={onDeposit}>Deposit more</Button>
-        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="secondary" ref={restoreActionEnabled && restoreAction === "withdraw" ? attachInitialFocus : undefined} disabled={!management.withdraw.enabled} onClick={onWithdraw}>Withdraw</Button>
+        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="default" ref={restoreActionEnabled && restoreAction === "deposit" ? attachInitialFocus : undefined} disabled={!management.deposit.enabled} {...actionIntent} onClick={onDeposit}>Deposit more</Button>
+        <Button className="h-auto min-h-11 w-full whitespace-normal" variant="secondary" ref={restoreActionEnabled && restoreAction === "withdraw" ? attachInitialFocus : undefined} disabled={!management.withdraw.enabled} {...actionIntent} onClick={onWithdraw}>Withdraw</Button>
       </div>
     </MoneyModalActions>
   </>;

@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient, type AccountWalletClient } from "@/client/account/cdp-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { BorrowOverview } from "./borrow-overview";
 import { summarizeBorrowOverview } from "./borrow-overview-model";
@@ -325,6 +326,7 @@ function BorrowStorySurface({
         product: "borrow",
         operation: input.operation,
         marketId: input.marketId,
+        riskIncreased: input.operation === "borrow" || input.operation === "supply-and-borrow" || input.operation === "withdraw-collateral" && BigInt(snapshot.position.debtAssetsRaw) > BigInt(0),
         loanAsset: { id: snapshot.market.loanToken.id, symbol: snapshot.market.loanToken.symbol },
         collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol },
         projectedHealthFactorWad: healthFactorWad(capacity, postDebt)?.toString() ?? null,
@@ -537,6 +539,24 @@ function unverifiedOverview(): BorrowOverviewResponse {
     })),
   };
 }
+function exitOnlyOverview(withPosition: boolean): BorrowOverviewResponse {
+  const base = withPosition ? borrowStoryOverview() : borrowOverviewBody({ openMarketId: null });
+  const opportunities = base.opportunities.map((entry) => {
+    if (entry.availability.status !== "available") return entry;
+    return {
+      market: entry.market,
+      availability: {
+        status: "available" as const,
+        mode: "reducing-only" as const,
+        reason: null,
+        source: entry.availability.source,
+        snapshot: { ...entry.availability.snapshot, eligibility: { mode: "reducing-only" as const, newRisk: false, reason: "New borrowing is paused. You can still repay or add collateral." } },
+      },
+    };
+  });
+  return { ...base, opportunities };
+}
+
 export const MultipleLoans: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
@@ -553,7 +573,7 @@ export const MultipleLoans: Story = {
 export const NotHeldBuy: Story = {
   args: { fixture: borrowOverviewBody({ openMarketId: null, notHeldMarketIds: markets.map((market) => market.marketId) }) },
   decorators: [(StoryComponent) => <AccountWalletClientProvider client={{
-    ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", session: borrowStorySession,
+    ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", isSignedIn: true, ownerKey: dataOwnerKey(borrowStorySession), session: borrowStorySession,
     fetchBalances: async (region) => balancesSnapshot(region),
     fetchAccountResource: async (path) => path.startsWith("/api/trades?assetId=") ? tradeAvailabilityBody(decodeURIComponent(path.slice("/api/trades?assetId=".length))) : { version: 1, usdcReserveBaseUnits: "20000" },
   }}><StoryComponent /></AccountWalletClientProvider>],
@@ -588,6 +608,25 @@ export const ReducingOnly: Story = {
     const dialog = within(await screen.findByRole("dialog", { name: "Bitcoin" }));
     await expect(dialog.getByRole("button", { name: "Add collateral" })).toBeEnabled();
     await expect(within(canvasElement).getByText("Healthy · Paused")).toBeVisible();
+  },
+};
+export const ExitOnlyNoPosition: Story = {
+  args: { fixture: exitOnlyOverview(false) },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement);
+    await expect(screen.getByText("New borrowing is paused")).toBeVisible();
+    await expect(screen.queryByRole("heading", { name: "Borrow against your crypto" })).not.toBeInTheDocument();
+    await expect(screen.queryByRole("button", { name: "See supported assets" })).not.toBeInTheDocument();
+    await expect(screen.queryByRole("region", { name: "Assets you can borrow against" })).not.toBeInTheDocument();
+  },
+};
+export const ExitOnlyWithLoans: Story = {
+  args: { fixture: exitOnlyOverview(true) },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement);
+    await expect(screen.getByText("New borrowing is paused")).toBeVisible();
+    await expect(screen.getByRole("region", { name: "Open loans" })).toBeVisible();
+    await expect(screen.queryByRole("region", { name: "Assets you can borrow against" })).not.toBeInTheDocument();
   },
 };
 export const ZeroDebtCollateral: Story = { args: { fixture: only(markets[1]!.marketId) } };

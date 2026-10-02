@@ -38,7 +38,7 @@ export default async function globalSetup(config: FullConfig) {
     const page = await context.newPage();
     const routesAdminSmokeFirstVisits = [
       "/admin", "/admin/customers", "/admin/support", "/admin/growth", "/admin/money",
-      "/admin/settings", "/admin/audit", "/admin/nope", "/admin/customers/x/y",
+      "/admin/settings", "/admin/settings/funding", "/admin/audit", "/admin/nope", "/admin/customers/x/y",
     ];
     const visit = async (path: string) => {
       try {

@@ -6,6 +6,7 @@ import type { FundingQuote } from "./contracts/quotes";
 
 export type FundingDirection = "onramp" | "offramp";
 export type FundingPaymentMethod = { id: string; label: string };
+export const FUNDING_PAYMENT_METHOD_ID_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/;
 
 export type FundingCustomerManifest = {
   handoffOrigins: ReadonlyArray<string>;
@@ -53,11 +54,13 @@ export type FundingProviderManifest = {
       onramp?: {
         paymentMethods: ReadonlyArray<FundingPaymentMethod>;
         env: ReadonlyArray<string>;
+        legacyOfferedEnv?: string;
         minimumFiatAmount?: string;
       };
       offramp?: {
         paymentMethods: ReadonlyArray<FundingPaymentMethod>;
         env: ReadonlyArray<string>;
+        legacyOfferedEnv?: string;
         confirmedBy: string;
       };
     };
@@ -312,6 +315,35 @@ export type Instruction =
       amount: string;
       currency: string;
     };
+
+export function isFundingInstruction(value: unknown): value is Instruction {
+  if (!isRecord(value)) return false;
+  const instruction = value;
+  switch (instruction.kind) {
+    case "redirect":
+      return typeof instruction.url === "string";
+    case "embed":
+      return typeof instruction.url === "string" && instruction.presentation === "apple-pay" &&
+        typeof instruction.amount === "string" && typeof instruction.currency === "string";
+    case "bank-transfer":
+      return typeof instruction.rail === "string" && typeof instruction.accountNumber === "string" &&
+        typeof instruction.amount === "string" && typeof instruction.currency === "string" &&
+        ["accountName", "bank", "alias", "reference"].every((key) => !Object.hasOwn(instruction, key) || typeof instruction[key] === "string");
+    case "qr":
+      return (instruction.scheme === "pix" || instruction.scheme === "qris" ||
+        instruction.scheme === "promptpay" || instruction.scheme === "other") &&
+        typeof instruction.payload === "string" && typeof instruction.amount === "string" && typeof instruction.currency === "string";
+    case "payment-key":
+      return typeof instruction.scheme === "string" && typeof instruction.key === "string" &&
+        typeof instruction.amount === "string" && typeof instruction.currency === "string";
+    default:
+      return false;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export type ReportedState =
   | "awaiting-payment"

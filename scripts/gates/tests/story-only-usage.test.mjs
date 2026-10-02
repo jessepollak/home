@@ -71,3 +71,18 @@ test("relative/index exports and logical attribute expressions resolve", () => {
   ]);
   assert.ok(results.some((item) => item.kind === "variant" && item.name === "tone=proposal"));
 });
+
+test("type-only imports register as uses but never as runtime JSX or variant calls", () => {
+  const story = (declaration) => file("components/ui/button.stories.tsx", `${declaration}\nfunction variants() { return null }\nvoid variants({ variant: "proposal" })`);
+  for (const declaration of [
+    '/** @import { buttonVariants as variants } from "./button" */',
+    'import type { buttonVariants as variants } from "./button"; void (0 as unknown as typeof variants)',
+    'import { type buttonVariants as variants } from "./button"; void (0 as unknown as typeof variants)',
+  ]) {
+    const results = evaluateStoryOnlyUsage([component, story(declaration)]);
+    assert.ok(!results.some((item) => item.kind === "variant" && item.name === "variant=proposal"), declaration);
+    assert.ok(results.some((item) => item.kind === "export" && item.name === "buttonVariants" && item.usedBy.includes("components/ui/button.stories.tsx")), declaration);
+  }
+  const runtime = evaluateStoryOnlyUsage([component, story('import { buttonVariants as variants } from "./button"; void variants({ variant: "proposal" })')]);
+  assert.ok(runtime.some((item) => item.kind === "variant" && item.name === "variant=proposal"));
+});

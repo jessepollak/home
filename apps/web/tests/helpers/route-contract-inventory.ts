@@ -2,9 +2,12 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 
-type RouteEntry = { contracts?: string[]; exempt?: { kind: string; reason: string }; client?: string };
+type MethodEntry = { contracts?: string[]; allowance?: { kind: string; reason: string } };
+type RouteEntry = { contracts?: string[]; exempt?: { kind: string; reason: string }; client?: string; methods?: Record<string, MethodEntry> };
+type AppRouteEntry = { exempt?: { kind: string; reason: string }; contracts?: string[] };
 type Manifest = {
   routes: Record<string, RouteEntry>;
+  appRoutes: Record<string, AppRouteEntry>;
   baseline: {
     routesWithoutVersionedParser: Record<string, string[]>;
     unversionedContracts: string[];
@@ -20,6 +23,10 @@ const parserPattern = /^(parse|read|assert)[A-Z]/;
 const contractPattern = /(?:^|\/)[^/]*contract[^/]*\.ts$|\/contracts\/[^/]+\.ts$/;
 const testPattern = /(?:\.test|\.spec)\.(?:ts|tsx|js|jsx)$/;
 const clientDependencyPattern = /^(?:client|components|shared)\//;
+const privateFolderPattern = /(?:^|\/)_[^/]*(?=\/)/;
+const exemptionKinds = ["webhook", "machine", "redirect", "status", "document"];
+const httpMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const allowanceKinds = ["unversioned-compatibility"];
 
 type ExportedValue = { callable: boolean; version: boolean };
 type ExportLink = { name: string; original: string; specifier?: string };
@@ -144,7 +151,10 @@ function inspect(source: string, path: string) {
           for (const name of bindingNames(declaration.name)) shadowedNames.add(name);
           continue;
         }
-        if (!ts.isIdentifier(declaration.name)) continue;
+        if (!ts.isIdentifier(declaration.name)) {
+          if (exported(node)) for (const name of bindingNames(declaration.name)) directExports.add(name);
+          continue;
+        }
         const isConst = (node.declarationList.flags & ts.NodeFlags.Const) === ts.NodeFlags.Const;
         if (declaration.initializer && isConst) {
           variableInitializers.set(declaration.name.text, declaration.initializer);
@@ -263,8 +273,12 @@ function routePriority(a: string, b: string): number {
 export function inventoryRouteContracts({ root, manifest }: { root: string; manifest: Manifest }): Violation[] {
   const violations: Violation[] = [];
   const report = (code: string, path: string, detail: string) => violations.push({ code, path, detail });
-  const files = (pattern: string) => [...new Bun.Glob(pattern).scanSync({ cwd: root })].sort();
-  const routes = new Set(["ts", "tsx", "js", "jsx"].flatMap((extension) => files(`app/api/**/route.${extension}`)).map((path) => path.slice("app/api/".length)));
+  const files = (pattern: string, dot = false) => [...new Bun.Glob(pattern).scanSync({ cwd: root, dot })].sort();
+  const routeFiles = (directory: string) =>
+    ["ts", "tsx", "js", "jsx"].flatMap((extension) => files(`${directory}/**/route.${extension}`, true))
+      .filter((path) => !privateFolderPattern.test(path));
+  const routes = new Set(routeFiles("app/api").map((path) => path.slice("app/api/".length)));
+  const appRoutes = new Set(routeFiles("app").filter((path) => !path.startsWith("app/api/")));
   const contracts = new Set(files("shared/**/*.ts").filter((path) => !testPattern.test(path) && contractPattern.test(path)));
   const clientFiles = ["client", "components", "app"].flatMap((directory) =>
     files(`${directory}/**/*.{ts,tsx,js,jsx}`).filter((path) =>
@@ -516,6 +530,22 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
       }
     }
   }
+  for (const path of appRoutes) {
+    if (!(path in manifest.appRoutes)) report("route-unclassified", path, "Route is not in the manifest's appRoutes section");
+  }
+  const manifestAppRoutes = Object.keys(manifest.appRoutes);
+  if (manifestAppRoutes.join("\0") !== [...manifestAppRoutes].sort().join("\0")) {
+    report("manifest-unsorted", "appRoutes", "App routes must be sorted");
+  }
+  for (const [path, entry] of Object.entries(manifest.appRoutes)) {
+    if (!appRoutes.has(path)) report("route-unknown", path, "Manifest app route does not exist");
+    if (Object.hasOwn(entry, "contracts")) {
+      report("route-contract-unsupported", path, "Handlers outside app/api must carry an exemption; declare shared contracts on an app/api route");
+    }
+    if (!entry.exempt || !exemptionKinds.includes(entry.exempt.kind) || typeof entry.exempt.reason !== "string" || entry.exempt.reason.trim().length < 30) {
+      report("exempt-invalid", path, "Exemption needs a recognized kind and a specific reason");
+    }
+  }
   for (const path of routes) {
     if (!(path in manifest.routes)) report("route-unclassified", path, "Route is not in the manifest");
   }
@@ -538,6 +568,9 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
     if (!routes.has(path) || entry?.exempt || (Array.isArray(entry?.contracts) && entry.contracts.every(versionedParser))) {
       report("baseline-stale", path, "Route was removed, exempted, or now declares a versioned parser");
     }
+    if (entry && Object.hasOwn(entry, "methods")) {
+      report("baseline-stale", path, "Per-method contracts replace the route-level weak contract tolerance");
+    }
     for (const contract of tolerated) {
       if (!routes.has(path) || !entry?.contracts?.includes(contract) || !contracts.has(contract) || versionedParser(contract)) {
         report("baseline-stale", path, `Weak contract tolerance no longer applies: ${contract}`);
@@ -548,17 +581,53 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
     if (!routes.has(path)) report("route-unknown", path, "Manifest route does not exist");
     const hasContracts = Object.hasOwn(entry, "contracts");
     const hasExempt = Object.hasOwn(entry, "exempt");
+    const hasMethods = Object.hasOwn(entry, "methods");
+    const methods = entry.methods;
+    const validMethodMap = methods !== null && typeof methods === "object" && !Array.isArray(methods);
+    if (hasMethods && (hasExempt || !validMethodMap)) {
+      report("method-map-invalid", path, "Methods must be an object on a non-exempt route");
+    }
+    if (routes.has(path) && !hasExempt) {
+      const exportedMethods = new Set([...exportedValues(`app/api/${path}`).keys()].filter((name) => httpMethods.includes(name)));
+      if (!hasMethods && exportedMethods.size > 1) {
+        report("method-unclassified", path, "Routes exporting multiple HTTP methods must classify every method");
+      } else if (hasMethods && validMethodMap) {
+        for (const method of exportedMethods) {
+          if (!Object.hasOwn(methods, method)) report("method-unclassified", path, `Exported method has no classification: ${method}`);
+        }
+        const boundContracts = new Set<string>();
+        for (const [method, classification] of Object.entries(methods)) {
+          if (!exportedMethods.has(method)) report("method-unknown", path, `Route does not export method: ${method}`);
+          const methodContracts = Array.isArray(classification?.contracts) ? classification.contracts : [];
+          for (const contract of methodContracts) {
+            boundContracts.add(contract);
+            if (!entry.contracts?.includes(contract)) report("method-contract-undeclared", path, `${method} binds an undeclared contract: ${contract}`);
+          }
+          const allowance = classification?.allowance;
+          const validAllowance = !!allowance && allowanceKinds.includes(allowance.kind) && typeof allowance.reason === "string" && allowance.reason.trim().length >= 30;
+          if (classification && Object.hasOwn(classification, "allowance") && !validAllowance) {
+            report("method-allowance-invalid", path, `${method} allowance needs a recognized kind and a specific reason`);
+          }
+          if ((methodContracts.length === 0 || !methodContracts.every(versionedParser)) && !validAllowance) {
+            report("method-unversioned", path, `${method} has no versioned parser or valid allowance`);
+          }
+        }
+        for (const contract of Array.isArray(entry.contracts) ? entry.contracts : []) {
+          if (!boundContracts.has(contract)) report("method-contract-unbound", path, `Declared contract is not bound to any method: ${contract}`);
+        }
+      }
+    }
     if ((hasExempt && Object.hasOwn(baseline.routesWithoutVersionedParser, path)) || hasContracts === hasExempt || (hasContracts && (!Array.isArray(entry.contracts) || entry.contracts.length === 0))) {
       report("route-double", path, "Route must have exactly one nonempty contract list or exemption and cannot be both exempt and baselined");
     }
-    if (hasExempt && (!entry.exempt || !["webhook", "machine", "redirect", "status"].includes(entry.exempt.kind) || typeof entry.exempt.reason !== "string" || entry.exempt.reason.trim().length < 30)) {
+    if (hasExempt && (!entry.exempt || !exemptionKinds.includes(entry.exempt.kind) || typeof entry.exempt.reason !== "string" || entry.exempt.reason.trim().length < 30)) {
       report("exempt-invalid", path, "Exemption needs a recognized kind and a specific reason");
     }
     if (!Array.isArray(entry.contracts) || !routes.has(path)) continue;
     const toleratedWeak = baseline.routesWithoutVersionedParser[path];
-    if (!toleratedWeak && !entry.contracts.every(versionedParser)) {
+    if (!hasMethods && !toleratedWeak && !entry.contracts.every(versionedParser)) {
       report("route-unversioned-parser", path, "No declared contract has both a version token and an exported parser");
-    } else if (toleratedWeak) {
+    } else if (!hasMethods && toleratedWeak) {
       for (const contract of entry.contracts) {
         if (contracts.has(contract) && !versionedParser(contract) && !toleratedWeak.includes(contract)) {
           report("route-unversioned-parser", path, `Declared contract lacks a version token and exported parser: ${contract}`);

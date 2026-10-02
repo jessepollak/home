@@ -7,6 +7,8 @@ import { CashExperience } from "@/client/cash/cash-experience";
 import { buildBalancesSnapshotFixture, priced, pricedCash, ready } from "@/shared/balances/fixtures";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { dataOwnerKey } from "@/client/account/owner-keys";
+import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type {
   OperationResult,
   PreparedMoneyAction,
@@ -184,6 +186,7 @@ const executeMoneyAction = async (
   action: PreparedMoneyAction,
 ): Promise<OperationResult> => {
   journey.dispatched.push(action);
+  await getHomeQueryClient().invalidateQueries({ queryKey: ownerQueryKey(dataOwnerKey(session), "actions") });
   return { id: action.id, status: "submitted" };
 };
 
@@ -197,7 +200,15 @@ function SavingsJourneySurface() {
           session={session} snapshot={snapshot} balanceStatus="ready"
           onRetryBalances={() => undefined} onAddMoney={() => undefined} now={fixedNow}
           prepareMoneyAction={prepareMoneyAction}
-          fetchAccountResource={async () => ({ actions: [{ id: "storybook-journey-savings-deposit", status: "confirmed", owner: preparedAction(spark, "25000000").owner }] })}
+          fetchAccountResource={async () => {
+            const action = preparedAction(spark, "25000000");
+            return { actions: journey.dispatched.length === 0 ? [] : [{
+              id: action.id, owner: action.owner, provider: "cdp-embedded",
+              kind: action.kind, status: "confirmed",
+              createdAt: action.createdAt, confirmedAt: action.createdAt,
+              summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
+            }] };
+          }}
           executeMoneyAction={executeMoneyAction}
           onAddMoneyIntent={() => undefined}
         />

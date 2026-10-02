@@ -3,6 +3,7 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { CircleAlert, CreditCard, Eye, Lock } from "lucide-react";
 import { useAccountWallet } from "@/client/account/cdp-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import { useHomeToast } from "@/client/home/use-home-toast";
@@ -21,6 +22,8 @@ import { Switch } from "@/components/ui/switch";
 import type { CardsResponse } from "@/shared/cards/contract";
 import { CardDetailsReveal, stripePublishableKey } from "./card-reveal";
 import { CardRefreshError, useCards, type CardCommands } from "./use-cards";
+import { CardSpending, cardSpendingData, type CardSpendingCommands, type CardSpendingData } from "./card-spending";
+import { useCardSpending } from "./use-card-spending";
 
 type IssuedCard = CardsResponse["cards"][number];
 type Pending = "enroll" | "issue" | "lock" | null;
@@ -40,6 +43,9 @@ export type CardScreenProps = {
   onOpenVerification: (url: string) => void;
   reveal?: CardReveal;
   ownerBoundary?: string | null;
+  spending?: CardSpendingData;
+  spendingCommands?: CardSpendingCommands;
+  onSpendingRetry?: () => void;
 };
 
 function CardArt({ last4, locked, position }: { last4: string; locked: boolean; position?: number }) {
@@ -163,6 +169,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
   reveal?: CardReveal;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsOpener, setDetailsOpener] = useState<HTMLElement | null>(null);
   const [revealed, setRevealed] = useState(false);
   const locked = card.status !== "active";
   const titleId = useId();
@@ -180,7 +187,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
       {showHold ? <HoldAlert description="New purchases are declined." /> : null}
       {canReveal ? (
         <Button size="touch" variant="outline" className="w-full" aria-label={single ? undefined : `Card details${detailsSuffix}`}
-          onClick={() => { setRevealed(true); setDetailsOpen(true); }}>
+          onClick={(event) => { setDetailsOpener(event.currentTarget); setRevealed(true); setDetailsOpen(true); }}>
           <Eye data-icon="inline-start" aria-hidden="true" />Card details
         </Button>
       ) : null}
@@ -193,7 +200,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
         </Card>
       </section>
       {reveal && canReveal ? (
-        <MoneyModal open={detailsOpen} labelledBy={titleId} onCancel={() => setDetailsOpen(false)} onClose={() => setRevealed(false)}>
+        <MoneyModal open={detailsOpen} opener={detailsOpener} labelledBy={titleId} onCancel={() => setDetailsOpen(false)} onClose={() => setRevealed(false)}>
           <MoneyModalStep step="details">
             <MoneyModalHeader title={`Card details${detailsSuffix}`} titleId={titleId} closeLabel="Close card details" />
             <MoneyModalBody className="gap-3 pt-4">
@@ -206,7 +213,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
   );
 }
 
-export function CardScreen({ cards, commands, onRetry, onOpenVerification, reveal, ownerBoundary = null }: CardScreenProps) {
+export function CardScreen({ cards, commands, onRetry, onOpenVerification, reveal, ownerBoundary = null, spending, spendingCommands, onSpendingRetry }: CardScreenProps) {
   const [session, setSession] = useState({ boundary: ownerBoundary, generation: 0 });
   if (session.boundary !== ownerBoundary) setSession({ boundary: ownerBoundary, generation: session.generation + 1 });
   const { generation } = session;
@@ -242,20 +249,27 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
   }, "Couldn't start verification. Try again.");
   const issue = (failure: string) => void run("issue", commands.issue, failure);
 
+  const state = cards.status === "ready" ? cards.response.state : null;
+  const issued = state === "active" || state === "frozen" || state === "restricted";
+  const live = cards.status === "ready" ? cards.response.cards.filter((item) => item.status !== "canceled").reverse() : [];
+  const spendingSection = <CardSpending key={generation} spending={spending ?? { status: "loading" }}
+    visible={Boolean(spending) && state !== null && state !== "unavailable"} variant={issued && live.length > 0 ? "full" : "revoke-only"}
+    canSet={state === "active" || state === "frozen"} commands={spendingCommands} onRefresh={onSpendingRetry} />;
+
   if (cards.status === "loading") {
     return (
-      <section className="space-y-4" aria-busy="true" aria-label="Loading card">
-        <Card variant="flush"><CardContent inset="hero"><ShimmerRows variant="hero" /></CardContent></Card>
-        <ShimmerRows count={2} />
-      </section>
+      <div className="space-y-4">
+        <section className="space-y-4" aria-busy="true" aria-label="Loading card">
+          <Card variant="flush"><CardContent inset="hero"><ShimmerRows variant="hero" /></CardContent></Card>
+          <ShimmerRows count={2} />
+        </section>
+        {spendingSection}
+      </div>
     );
   }
   if (cards.status === "failed" || cards.response.state === "unavailable") {
-    return <LoadErrorCard title="Card is unavailable right now" onRetry={onRetry} />;
+    return <div className="space-y-4"><LoadErrorCard title="Card is unavailable right now" onRetry={onRetry} />{spendingSection}</div>;
   }
-  const { state } = cards.response;
-  const issued = state === "active" || state === "frozen" || state === "restricted";
-  const live = cards.response.cards.filter((item) => item.status !== "canceled").reverse();
   const single = live.length === 1;
   const sharesLast4 = (last4: string) => live.filter((item) => item.last4 === last4).length > 1;
   return (
@@ -304,6 +318,7 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
           }, locked ? "Couldn't lock your card. Try again." : "Couldn't unlock your card. Try again.")}
         />
       )) : null}
+      {spendingSection}
       {(state === "active" || state === "frozen") && !live.length ? (
         <LoadErrorCard title="Card is unavailable right now" onRetry={onRetry} />
       ) : null}
@@ -321,6 +336,7 @@ export function AuthenticatedCardExperience() {
   const verified = account.status === "verified" && account.verification === "server" && Boolean(account.session?.smartAccount);
   const ownerKey = verified ? account.ownerKey : null;
   const { query, refresh, commands } = useCards({ ownerKey, fetchAccountResource: account.fetchAccountResource });
+  const spending = useCardSpending({ ownerKey: verified && account.session?.smartAccount ? dataOwnerKey(account.session) : null, fetchAccountResource: account.fetchAccountResource });
   const publishableKey = stripePublishableKey();
   const cards = cardScreenData(query);
   return (
@@ -331,6 +347,9 @@ export function AuthenticatedCardExperience() {
       onOpenVerification={(url) => window.location.assign(url)}
       ownerBoundary={ownerKey}
       reveal={publishableKey ? { publishableKey, revealKey: commands.revealKey } : undefined}
+      spending={cardSpendingData(spending.query)}
+      onSpendingRetry={() => void spending.refresh()}
+      spendingCommands={{ prepare: (params) => account.prepareMoneyAction("card-allowance", params), execute: account.executeMoneyAction, fetchOperations: account.fetchOperations }}
     />
   );
 }

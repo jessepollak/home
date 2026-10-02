@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { assertionDebtReport, assertionExceptions, changedProductionTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
+import { evaluateBoundaryExemptions, existingBoundaryPaths, isPreclassifiedRootFile, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
+import { NON_PRODUCTION_ROOT_FILES, assertionDebtReport, assertionExceptions, changedProductionTypeScript, changedScopedTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, isTestOrStoryTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
+import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
 const file = "apps/web/shared/ratchet-fixture.ts";
 const original = "export const value = input as string;";
@@ -56,8 +60,107 @@ test("counts comments even in TSX and at EOF but not directive-looking text", ()
 });
 
 test("scope follows the production TypeScript override", () => {
-  for (const file of ["apps/web/app/page.tsx", "apps/web/server/index.mts", "apps/web/shared/a.cts", "apps/web/instrumentation.node.ts", "apps/web/proxy.ts", "apps/web/next.config.ts"]) assert.equal(isProductionTypeScript(file), true, file);
-  for (const file of ["apps/web/app/a.test.ts", "apps/web/components/a.stories.tsx", "apps/web/server/tests/a.ts", "apps/web/client/testing/a.ts", "apps/web/shared/explorations/a.ts", "apps/web/client/account/dom-test-harness.ts", "apps/web/client/smoke-fixture-provider.tsx", "apps/web/oxlint/rules/a.ts", "apps/web/scripts/a.ts", "apps/web/stories/a.tsx", "apps/web/app/a.js"]) assert.equal(isProductionTypeScript(file), false, file);
+  for (const file of ["apps/web/app/page.tsx", "apps/web/server/index.mts", "apps/web/shared/a.cts", "apps/web/instrumentation.node.ts", "apps/web/proxy.ts", "apps/web/next.config.ts", "apps/web/middleware.ts"]) assert.equal(isProductionTypeScript(file), true, file);
+  for (const file of ["apps/web/app/a.test.ts", "apps/web/components/a.stories.tsx", "apps/web/server/tests/a.ts", "apps/web/client/testing/a.ts", "apps/web/shared/explorations/a.ts", "apps/web/client/account/dom-test-harness.ts", "apps/web/client/smoke-fixture-provider.tsx", "apps/web/oxlint/rules/a.ts", "apps/web/scripts/a.ts", "apps/web/stories/a.tsx", "apps/web/app/a.js", "apps/web/playwright.config.ts"]) assert.equal(isProductionTypeScript(file), false, file);
+});
+
+function classifyRootFile(file) {
+  const source = `apps/web/${file}`;
+  const exempt = NON_PRODUCTION_ROOT_FILES.has(file);
+  const testOrStory = isTestOrStoryTypeScript(source) || isPreclassifiedRootFile(file);
+  const production = isProductionTypeScript(source);
+  assert.equal(Number(exempt) + Number(testOrStory) + Number(production), 1,
+    `${source}: a root-level JS-family entry point must be production TypeScript, test/story, or a reasoned non-production entry in scripts/gates/exploration-boundary-exemptions.json`);
+  if (exempt) {
+    assert.equal(production, false, source);
+    assert.equal(isTestOrStoryTypeScript(source), false, source);
+    assert.equal(isPreclassifiedRootFile(file), false, source);
+    return "exempt";
+  }
+  if (testOrStory) {
+    assert.equal(production, false, source);
+    return "test/story";
+  }
+  assert.equal(production, true, source);
+  return "production";
+}
+
+test("every root-level JS-family entry point has exactly one reasoned classification", () => {
+  const root = fileURLToPath(new URL("../../..", import.meta.url));
+  const paths = existingBoundaryPaths(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root, env: gitFixtureEnv() })
+    .toString().split("\0").filter(Boolean).map((entry) => path.join(root, entry)))
+    .map((entry) => path.relative(path.join(root, "apps/web"), entry).split(path.sep).join("/"));
+  const rootFiles = rootSourceFiles(paths);
+  const exemptions = JSON.parse(readFileSync(new URL("../exploration-boundary-exemptions.json", import.meta.url), "utf8"));
+  const boundary = evaluateBoundaryExemptions({ directories: topLevelSourceDirectories(paths), rootFiles, exemptions });
+  assert.deepEqual(boundary.invalid, []);
+  assert.deepEqual(boundary.stale, []);
+  assert.deepEqual([...NON_PRODUCTION_ROOT_FILES].sort(), boundary.exemptRootFiles);
+  assert.ok(rootFiles.length > 0, "root-entry classification must not be vacuous");
+  for (const file of rootFiles) classifyRootFile(file);
+});
+
+test("new root TypeScript is production while test/story/harness and JS probes retain their classification", () => {
+  for (const extension of ["ts", "tsx", "mts", "cts"]) assert.equal(classifyRootFile(`middleware.${extension}`), "production");
+  for (const file of ["foo.test.ts", "foo.stories.tsx", "foo-test-harness.mts", "foo-test-harness.d.ts", "foo-test-harness.helpers.ts", "foo-test-harness.d.mts", "smoke-fixture-provider.mts"]) assert.equal(classifyRootFile(file), "test/story");
+  assert.equal(isProductionTypeScript("apps/web/middleware.js"), false);
+  assert.throws(() => classifyRootFile("middleware.js"), /a root-level JS-family entry point must be production TypeScript, test\/story, or a reasoned non-production entry/u);
+});
+
+test("test and story scope follows the shared exclusion patterns without overlapping production", () => {
+  const included = [
+    "apps/web/app/a.test.ts", "apps/web/components/a.stories.tsx", "apps/web/server/tests/a.ts",
+    "apps/web/client/testing/a.ts", "apps/web/client/account/dom-test-harness.ts",
+    "apps/web/client/smoke-fixture-provider.tsx", "apps/web/stories/journeys/a.stories.tsx",
+    "apps/web/client/account/a.test.helpers.ts", "apps/web/server/tests/a.mts", "apps/web/server/tests/a.cts",
+    "apps/web/scripts/a.test.ts", "apps/web/oxlint/tests/a.ts", "apps/web/.storybook/a.stories.tsx",
+    "apps/web/shared/explorations/a.test.ts", "apps/web/shared/explorations/a.stories.tsx",
+    "apps/web/scripts/probe-test-harness.mts", "apps/web/shared/explorations/smoke-fixture-probe.cts",
+    "apps/web/.storybook/foo-test-harness.cts",
+  ];
+  const excluded = [
+    "apps/web/app/page.tsx", "apps/web/server/index.mts", "apps/web/shared/a.cts",
+    "apps/web/instrumentation.node.ts", "apps/web/proxy.ts", "apps/web/next.config.ts",
+    "apps/web/app/a.js", "apps/web/app/a.test.js", "apps/web/app/a.test.mjs", "apps/web/app/a.test.cjs",
+    "apps/web/shared/explorations/a.ts", "apps/web/oxlint/rules/a.ts", "apps/web/stories/a.tsx",
+    "apps/web/playwright.config.ts", "apps/web/.storybook/main.ts", "apps/web/scripts/a.ts",
+    "scripts/gates/tests/a.ts",
+    "apps/web/client/foo-test-harness.mts",
+  ];
+  for (const file of included) assert.equal(isTestOrStoryTypeScript(file), true, file);
+  for (const file of excluded) assert.equal(isTestOrStoryTypeScript(file), false, file);
+  assert.equal(isProductionTypeScript("apps/web/client/foo-test-harness.mts"), true);
+  for (const file of [...included, ...excluded]) assert.equal(isProductionTypeScript(file) && isTestOrStoryTypeScript(file), false, file);
+});
+
+test("test assertion and non-null increases fail only in the test budget", () => {
+  const testFile = "apps/web/client/example.test.ts";
+  for (const [kind, content] of [
+    ["assertion", "const seeded = value as unknown;"],
+    ["nonNull", "const seeded = value!;"],
+  ]) {
+    const changed = [change(content, "const seeded = value;", testFile)];
+    assert.deepEqual(evaluateAssertionDelta({ changed, exceptions: [], baseExceptions: [], scope: isTestOrStoryTypeScript }), {
+      ...clean,
+      increases: [`${testFile}: ${kind} 1 > 0; narrow the new use with a runtime guard or add a reviewed exception with a reason`],
+    });
+    assert.deepEqual(evaluate(changed), clean);
+  }
+});
+
+test("reviewed exceptions are valid only in their own scope", () => {
+  const testFile = "apps/web/client/example.test.ts";
+  const testException = { ...exception, path: testFile };
+  const changed = [change("const seeded = value as unknown;", "const seeded = value;", testFile)];
+  assert.deepEqual(evaluateAssertionDelta({ changed, exceptions: [testException], baseExceptions: [], scope: isTestOrStoryTypeScript }), clean);
+  assert.deepEqual(evaluate(changed, [testException]), {
+    ...clean,
+    invalid: [`${testFile}: invalid assertion exception (positive count and reason required)`],
+  });
+  assert.deepEqual(evaluateAssertionDelta({ changed: [], exceptions: [exception], baseExceptions: [], scope: isTestOrStoryTypeScript }), {
+    ...clean,
+    invalid: [`${file}: invalid assertion exception (positive count and reason required)`],
+  });
 });
 
 test("unchanged counts and identical content are clean", () => {
@@ -104,12 +207,31 @@ test("a transferred exception does not grant new debt for a renamed path", () =>
   ]);
 });
 
+test("a renamed destination's inherited exception grants no new debt", () => {
+  const renamed = "apps/web/client/renamed.ts";
+  const added = [change(original + "\nconst cast = input as unknown;", original, renamed, file)];
+  const destinationException = { ...exception, path: renamed };
+  for (const baseExceptions of [[destinationException], [exception, destinationException]]) {
+    const inherited = baseExceptions.reduce((total, entry) => total + entry.count, 0);
+    assert.deepEqual(evaluate(added, [{ ...destinationException, count: inherited }], baseExceptions), {
+      ...clean,
+      increases: [`${renamed}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`],
+    });
+    assert.deepEqual(evaluate(added, [{ ...destinationException, count: inherited + 1 }], baseExceptions), clean);
+    assert.deepEqual(evaluate(added, [{ ...destinationException, count: inherited + 2 }], baseExceptions), {
+      ...clean,
+      notes: [`${renamed}: assertion exception allows 2 but this change adds 1; remove or narrow it`],
+    });
+  }
+});
+
 test("reviewed exceptions cover only newly granted debt", () => {
   const added = [change(original + "\nconst cast = input as unknown;")];
   assert.deepEqual(evaluate(added, [exception]), clean);
   assert.deepEqual(evaluate(added, [exception], [exception]).increases, [
     `${file}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
   ]);
+  assert.deepEqual(evaluate(added, [{ ...exception, count: 2 }], [exception]), clean);
 });
 
 test("oversized and unused exceptions are non-failing notes", () => {
@@ -160,7 +282,10 @@ test("the changed set follows renames, additions, moves, and untracked files", (
   const movedContent = "const moved = value as string;";
   const blob = "b".repeat(40);
   const runner = (args) => {
-    if (args[0] === "diff") return `M\t${kept}\nD\t${movedFrom}\nR100\t${source}\t${renamed}\nM\tapps/web/client/account/basename-profile.test.ts\n`;
+    if (args[0] === "diff") {
+      assert.ok(args.includes("-z"));
+      return `C100\0${source}\0apps/web/client/account/copied.ts\0M\0${kept}\0D\0${movedFrom}\0R100\0${source}\0${renamed}\0M\0apps/web/client/account/basename-profile.test.ts\0`;
+    }
     if (args[0] === "ls-files") return `${moved}\0${added}\0apps/web/client/account/native-base-bridge.test.tsx\0`;
     if (args[0] === "rev-parse") return String(args.at(-1)) === `origin/main:${movedFrom}` ? blob : "";
     if (args[0] === "hash-object") return [kept, moved, added].includes(String(args.at(-1))) ? blob : "";
@@ -186,7 +311,10 @@ test("a production path that comes from an excluded source starts from zero", ()
   const target = "apps/web/client/account/cdp-sdk-provider.tsx";
   const blob = "c".repeat(40);
   const runner = (args) => {
-    if (args[0] === "diff") return `D\t${excluded}\n`;
+    if (args[0] === "diff") {
+      assert.ok(args.includes("-z"));
+      return `D\0${excluded}\0`;
+    }
     if (args[0] === "ls-files") return `${target}\0`;
     if (args[0] === "rev-parse") return String(args.at(-1)) === `origin/main:${excluded}` ? blob : "";
     if (args[0] === "hash-object") return String(args.at(-1)) === target ? blob : "";
@@ -195,6 +323,7 @@ test("a production path that comes from an excluded source starts from zero", ()
   };
   const changed = changedProductionTypeScript({ base: "origin/main", cwd: root, gitRunner: runner });
   assert.deepEqual(changed.map(({ path, basePath, baseContent }) => [path, basePath, baseContent === undefined ? null : baseContent]), [[target, target, null]]);
+});
 
 test("a rewritten rename keeps its source's counts", () => {
   const root = fileURLToPath(new URL("../../..", import.meta.url));
@@ -202,7 +331,10 @@ test("a rewritten rename keeps its source's counts", () => {
   const destination = "apps/web/client/account/native-base-bridge.tsx";
   const baseContent = "const kept = value as string;";
   const runner = (args) => {
-    if (args[0] === "diff") return `R51\t${source}\t${destination}\n`;
+    if (args[0] === "diff") {
+      assert.ok(args.includes("-z"));
+      return `R51\0${source}\0${destination}\0`;
+    }
     if (args[0] === "ls-files") return "";
     if (args[0] === "cat-file") return "present";
     if (args[0] === "show") return baseContent;
@@ -211,6 +343,183 @@ test("a rewritten rename keeps its source's counts", () => {
   const changed = changedProductionTypeScript({ base: "origin/main", cwd: root, gitRunner: runner });
   assert.deepEqual(changed.map(({ path, basePath, baseContent: content }) => [path, basePath, content]), [[destination, source, baseContent]]);
 });
+
+test("real git includes non-ASCII production additions and rename destinations", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const env = gitFixtureEnv();
+  const gitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const git = (...args) => gitRunner(args);
+  const source = "apps/web/shared/source.ts";
+  const added = "apps/web/shared/café.ts";
+  const renamed = "apps/web/shared/renommé.ts";
+  git("init", "--template=");
+  git("config", "core.quotePath", "true");
+  mkdirSync(path.join(cwd, "apps/web/shared"), { recursive: true });
+  writeFileSync(path.join(cwd, source), original);
+  git("add", "--", source);
+  git("-c", "user.name=Gate Test", "-c", "user.email=gate-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "test fixture");
+  renameSync(path.join(cwd, source), path.join(cwd, renamed));
+  writeFileSync(path.join(cwd, added), "const added = input as number;");
+  git("add", "--", "apps/web");
+  const changed = changedProductionTypeScript({ base: "HEAD", cwd, gitRunner });
+  assert.deepEqual(changed, [
+    { path: added, basePath: added, content: "const added = input as number;", baseContent: undefined },
+    { path: renamed, basePath: source, content: original, baseContent: original },
+  ]);
+  assert.deepEqual(evaluate(changed), {
+    ...clean,
+    increases: [`${added}: assertion 1 > 0; narrow the new use with a runtime guard or add a reviewed exception with a reason`],
+  });
+});
+
+test("real git compares changed test TypeScript only in its own scope", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-tests-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const env = gitFixtureEnv();
+  const gitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const git = (...args) => gitRunner(args);
+  const testFile = "apps/web/client/example.test.ts";
+  const baseContent = "const seeded = value;";
+  const content = "const seeded = value as unknown;";
+  git("init", "--template=");
+  mkdirSync(path.join(cwd, "apps/web/client"), { recursive: true });
+  writeFileSync(path.join(cwd, testFile), baseContent);
+  git("add", "--", testFile);
+  git("-c", "user.name=Gate Test", "-c", "user.email=gate-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "test fixture");
+  writeFileSync(path.join(cwd, testFile), content);
+  const changed = changedScopedTypeScript({ base: "HEAD", scope: isTestOrStoryTypeScript, cwd, gitRunner });
+  assert.deepEqual(changed, [{ path: testFile, basePath: testFile, content, baseContent }]);
+  assert.deepEqual(evaluateAssertionDelta({ changed, exceptions: [], baseExceptions: [], scope: isTestOrStoryTypeScript }), {
+    ...clean,
+    increases: [`${testFile}: assertion 1 > 0; narrow the new use with a runtime guard or add a reviewed exception with a reason`],
+  });
+  assert.deepEqual(changedScopedTypeScript({ base: "HEAD", cwd, gitRunner }), []);
+  assert.deepEqual(changedProductionTypeScript({ base: "HEAD", cwd, gitRunner }), []);
+});
+
+test("real git debt report enforces test and story increases with rename and exception inheritance", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-report-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const env = gitFixtureEnv();
+  const realGitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const git = (...args) => realGitRunner(args);
+  const testFile = "apps/web/client/example.test.ts";
+  const storyFile = "apps/web/stories/journeys/example.stories.tsx";
+  const source = "apps/web/client/renamed-source.test.ts";
+  const target = "apps/web/client/renamed-target.test.ts";
+  const inheritedFile = "apps/web/client/inherited.test.ts";
+  const productionExceptions = "scripts/gates/type-assertions-exceptions.json";
+  const testExceptions = "scripts/gates/type-assertions-test-exceptions.json";
+  git("init", "--template=");
+  for (const directory of ["apps/web/client", "apps/web/stories/journeys", "scripts/gates"]) mkdirSync(path.join(cwd, directory), { recursive: true });
+  writeFileSync(path.join(cwd, testFile), "const value = input as string;");
+  writeFileSync(path.join(cwd, storyFile), "const story = input as string;");
+  writeFileSync(path.join(cwd, source), "const kept = input as string;");
+  writeFileSync(path.join(cwd, inheritedFile), "const value = input as string;");
+  writeFileSync(path.join(cwd, productionExceptions), JSON.stringify({ exceptions: [] }));
+  writeFileSync(path.join(cwd, testExceptions), JSON.stringify({ exceptions: [{ path: inheritedFile, kind: "assertion", count: 1, reason: "Reviewed fixture boundary" }] }));
+  git("add", ".");
+  git("-c", "user.name=Gate Test", "-c", "user.email=gate-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "test fixture");
+  const fixtureCommit = String(git("rev-parse", "HEAD")).trim();
+  const baseRef = process.env.BASE_REF;
+  const baseIsSha = /^[0-9a-f]{40}$/iu.test(baseRef ?? "");
+  git("update-ref", "refs/remotes/origin/main", fixtureCommit);
+  if (baseRef && !baseIsSha) git("update-ref", `refs/remotes/origin/${baseRef}`, fixtureCommit);
+  const gitRunner = (args, options) => {
+    if (args[0] === "rev-parse" && args[1] === "--verify") return fixtureCommit;
+    return realGitRunner(baseIsSha ? args.map((arg) => arg.replace(baseRef, fixtureCommit)) : args, options);
+  };
+  writeFileSync(path.join(cwd, testFile), "const value = input as string;\nconst cast = input as unknown;\nconst forced = input!;\n// eslint-disable-next-line x\nparseJsonColumn<Row>(source);");
+  writeFileSync(path.join(cwd, storyFile), "const story = input as string;\nconst cast = input as unknown;");
+  git("mv", source, target);
+  writeFileSync(path.join(cwd, inheritedFile), "const value = input as string;\nconst cast = input as unknown;");
+  const { base, results } = assertionDebtReport({ cwd, gitRunner });
+  assert.equal(base, fixtureCommit);
+  assert.deepEqual(results[0].result, clean);
+  assert.deepEqual(results[1].result, {
+    ...clean,
+    increases: [
+      `${testFile}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+      `${testFile}: genericParse 1 > 0; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+      `${testFile}: nonNull 1 > 0; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+      `${testFile}: suppression 1 > 0; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+      `${inheritedFile}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+      `${storyFile}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`,
+    ].sort(),
+  });
+});
+
+test("real git reads base exceptions padded beyond 1 MiB without re-granting inherited debt", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-large-base-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const env = gitFixtureEnv();
+  const realGitRunner = (args, options = {}) => execFileSync("git", args, { cwd: options.cwd ?? cwd, env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 32 * 1024 * 1024 });
+  const git = (...args) => realGitRunner(args);
+  const testFile = "apps/web/client/inherited.test.ts";
+  const productionExceptions = "scripts/gates/type-assertions-exceptions.json";
+  const testExceptions = "scripts/gates/type-assertions-test-exceptions.json";
+  const paddedExceptions = JSON.stringify({ exceptions: [{ ...exception, path: testFile }] }) + "\n".repeat(1024 * 1024);
+  assert.ok(Buffer.byteLength(paddedExceptions) > 1024 * 1024);
+  git("init", "--template=");
+  for (const directory of ["apps/web/client", "scripts/gates"]) mkdirSync(path.join(cwd, directory), { recursive: true });
+  writeFileSync(path.join(cwd, testFile), original);
+  writeFileSync(path.join(cwd, productionExceptions), JSON.stringify({ exceptions: [] }));
+  writeFileSync(path.join(cwd, testExceptions), paddedExceptions);
+  git("add", ".");
+  git("-c", "user.name=Gate Test", "-c", "user.email=gate-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "test fixture");
+  const fixtureCommit = String(git("rev-parse", "HEAD")).trim();
+  const baseRef = process.env.BASE_REF;
+  const baseIsSha = /^[0-9a-f]{40}$/iu.test(baseRef ?? "");
+  git("update-ref", "refs/remotes/origin/main", fixtureCommit);
+  if (baseRef && !baseIsSha) git("update-ref", `refs/remotes/origin/${baseRef}`, fixtureCommit);
+  const gitRunner = (args, options) => {
+    if (args[0] === "rev-parse" && args[1] === "--verify") return fixtureCommit;
+    return realGitRunner(baseIsSha ? args.map((arg) => arg.replace(baseRef, fixtureCommit)) : args, options);
+  };
+  writeFileSync(path.join(cwd, testFile), original + "\nconst cast = input as unknown;");
+  const expected = [clean, {
+    ...clean,
+    increases: [`${testFile}: assertion 2 > 1; narrow the new use with a runtime guard or add a reviewed exception with a reason`],
+  }];
+  const { base, results } = assertionDebtReport({ cwd, gitRunner });
+  assert.equal(base, fixtureCommit);
+  assert.deepEqual(results.map(({ result }) => result), expected);
+  const defaultRunnerResults = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e",
+    `import { assertionDebtReport } from ${JSON.stringify(new URL("../type-assertions.mjs", import.meta.url).href)}; console.log(JSON.stringify(assertionDebtReport({ cwd: process.cwd() }).results.map(({ result }) => result)));`,
+  ], { cwd, env: { ...env, BASE_REF: fixtureCommit }, encoding: "utf8" }));
+  assert.deepEqual(defaultRunnerResults, expected);
+});
+
+test("real git fails closed when the base tree lists an exceptions file with a missing blob", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-missing-blob-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const env = gitFixtureEnv();
+  const git = (...args) => execFileSync("git", args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+  const testFile = "apps/web/client/inherited.test.ts";
+  const productionExceptions = "scripts/gates/type-assertions-exceptions.json";
+  const testExceptions = "scripts/gates/type-assertions-test-exceptions.json";
+  git("init", "--template=");
+  git("config", "gc.auto", "0");
+  for (const directory of ["apps/web/client", "scripts/gates"]) mkdirSync(path.join(cwd, directory), { recursive: true });
+  writeFileSync(path.join(cwd, testFile), original);
+  writeFileSync(path.join(cwd, productionExceptions), JSON.stringify({ exceptions: [] }));
+  writeFileSync(path.join(cwd, testExceptions), JSON.stringify({ exceptions: [{ ...exception, path: testFile }] }));
+  git("add", ".");
+  git("-c", "user.name=Gate Test", "-c", "user.email=gate-test@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "test fixture");
+  const fixtureCommit = String(git("rev-parse", "HEAD")).trim();
+  const exceptionsBlob = String(git("rev-parse", `HEAD:${testExceptions}`)).trim();
+  rmSync(path.join(cwd, ".git/objects", exceptionsBlob.slice(0, 2), exceptionsBlob.slice(2)));
+  writeFileSync(path.join(cwd, testFile), original + "\nconst cast = input as unknown;");
+  assert.equal(String(git("ls-tree", "-z", "--name-only", fixtureCommit, "--", testExceptions)), `${testExceptions}\0`);
+  assert.throws(() => git("cat-file", "-e", `${fixtureCommit}:${testExceptions}`), (error) => error.status === 1);
+  assert.throws(() => git("show", `${fixtureCommit}:${testExceptions}`), (error) => error.status === 128);
+  const { base, results } = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e",
+    `import { assertionDebtReport } from ${JSON.stringify(new URL("../type-assertions.mjs", import.meta.url).href)}; console.log(JSON.stringify(assertionDebtReport({ cwd: process.cwd() })));`,
+  ], { cwd, env: { ...env, BASE_REF: fixtureCommit }, encoding: "utf8" }));
+  assert.equal(base, fixtureCommit);
+  assert.deepEqual(results[0].result, clean);
+  assert.deepEqual(results[1].result.invalid, [`${testExceptions} at ${fixtureCommit}: invalid base exceptions file (unreadable, unparsable, or exceptions must be an array)`]);
 });
 
 test("base resolution verifies commits and fetches unresolved branches", () => {
@@ -234,23 +543,107 @@ test("base resolution verifies commits and fetches unresolved branches", () => {
   assert.throws(() => mergeBaseRevision({ revision: "origin/topic", gitRunner: () => { throw new Error("unavailable"); } }), /could not determine the merge base of origin\/topic and HEAD/u);
 });
 
-test("production TypeScript does not add assertion debt relative to the base revision", () => {
-  const { result } = assertionDebtReport();
-  assert.deepEqual(result.increases, []);
-  assert.deepEqual(result.invalid, []);
+test("each budget reads its own exceptions and fails closed on an unreadable head file", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-exceptions-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const productionPath = "scripts/gates/type-assertions-exceptions.json";
+  const testPath = "scripts/gates/type-assertions-test-exceptions.json";
+  const testException = { ...exception, path: "apps/web/client/example.test.ts" };
+  mkdirSync(path.join(cwd, "scripts/gates"), { recursive: true });
+  writeFileSync(path.join(cwd, productionPath), JSON.stringify({ exceptions: [exception] }));
+  writeFileSync(path.join(cwd, testPath), JSON.stringify({ exceptions: [testException] }));
+  const calls = [];
+  const gitRunner = (args) => {
+    calls.push(args);
+    if (args[0] === "merge-base") return "abc1234";
+    if (args[0] === "rev-parse") return "resolved";
+    if (args[0] === "diff" || args[0] === "ls-files") return "";
+    if (args[0] === "ls-tree" && args.at(-1) === productionPath) return `${productionPath}\0`;
+    if (args[0] === "ls-tree" && args.at(-1) === testPath) return "";
+    if (args[0] === "show" && args[1] === `abc1234:${productionPath}`) return JSON.stringify({ exceptions: [exception] });
+    if (args[0] === "show" && args[1] === `abc1234:${testPath}`) throw new Error("test exceptions not present at base");
+    throw new Error(`unexpected git call: ${args.join(" ")}`);
+  };
+  assert.deepEqual(assertionExceptions({ cwd, gitRunner }), [exception]);
+  assert.deepEqual(assertionExceptions({ path: testPath, cwd, gitRunner }), [testException]);
+  assert.equal(assertionExceptions({ revision: "abc1234", path: testPath, cwd, gitRunner }), null);
+  calls.length = 0;
+  const { results } = assertionDebtReport({ cwd, gitRunner });
+  assert.deepEqual(results.map(({ result }) => result), [clean, clean]);
+  for (const exceptionsPath of [productionPath, testPath]) assert.ok(calls.some((args) => JSON.stringify(args) === JSON.stringify(["ls-tree", "-z", "--name-only", "abc1234", "--", exceptionsPath])));
+  assert.ok(calls.some(([command, revisionPath]) => command === "show" && revisionPath === `abc1234:${productionPath}`));
+  assert.ok(!calls.some(([command, revisionPath]) => command === "show" && revisionPath === `abc1234:${testPath}`));
+  for (const content of [undefined, "not JSON", '{"exceptions": {}}']) {
+    if (content === undefined) rmSync(path.join(cwd, testPath));
+    else writeFileSync(path.join(cwd, testPath), content);
+    assert.equal(assertionExceptions({ path: testPath, cwd, gitRunner }), null);
+    const { results } = assertionDebtReport({ cwd, gitRunner });
+    assert.deepEqual(results[0].result, clean);
+    assert.deepEqual(results[1].result, {
+      ...clean,
+      invalid: [`${testPath}: invalid exceptions file (missing, unparsable, or exceptions must be an array)`],
+    });
+  }
+});
+
+test("existing unreadable or malformed base exceptions fail closed while absent files grant nothing", (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "type-assertions-invalid-base-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const exceptionsPaths = ["scripts/gates/type-assertions-exceptions.json", "scripts/gates/type-assertions-test-exceptions.json"];
+  mkdirSync(path.join(cwd, "scripts/gates"), { recursive: true });
+  for (const file of exceptionsPaths) writeFileSync(path.join(cwd, file), JSON.stringify({ exceptions: [] }));
+  for (const state of ["unreadable", "not JSON", '{"exceptions": {}}', "absent", "tree-unreadable"]) {
+    const gitRunner = (args) => {
+      if (args[0] === "merge-base") return "abc1234";
+      if (args[0] === "rev-parse") return "resolved";
+      if (args[0] === "diff" || args[0] === "ls-files") return "";
+      if (args[0] === "ls-tree" && exceptionsPaths.includes(args.at(-1))) {
+        assert.deepEqual(args.slice(0, -1), ["ls-tree", "-z", "--name-only", "abc1234", "--"]);
+        if (state === "tree-unreadable") throw new Error("base tree cannot be read");
+        return state === "absent" ? "" : `${args.at(-1)}\0`;
+      }
+      if (args[0] === "show" && exceptionsPaths.some((file) => args[1] === `abc1234:${file}`)) {
+        if (state === "unreadable" || state === "absent") throw new Error("exceptions cannot be read");
+        return state;
+      }
+      throw new Error(`unexpected git call: ${args.join(" ")}`);
+    };
+    const { results } = assertionDebtReport({ cwd, gitRunner });
+    assert.deepEqual(results.map(({ result }) => result), exceptionsPaths.map((file) => ({
+      ...clean,
+      invalid: state === "absent" ? [] : [`${file} at abc1234: invalid base exceptions file (unreadable, unparsable, or exceptions must be an array)`],
+    })), state);
+  }
+});
+
+test("neither TypeScript budget adds assertion debt relative to the base revision", () => {
+  const { result, results } = assertionDebtReport();
+  assert.equal(result, results[0].result);
+  assert.deepEqual(results.map(({ budget }) => budget.reportKey), ["production", "testAndStory"]);
+  for (const { budget, result } of results) {
+    assert.deepEqual(result.increases, [], budget.label);
+    assert.deepEqual(result.invalid, [], budget.label);
+  }
 });
 
 test("the report command prints the current debt inventory as JSON", () => {
   const root = fileURLToPath(new URL("../../..", import.meta.url));
   const report = JSON.parse(execFileSync("node", ["scripts/gates/type-assertions.mjs", "--report"], { cwd: root, encoding: "utf8" }));
-  const declared = JSON.parse(readFileSync(new URL("../type-assertions-exceptions.json", import.meta.url), "utf8")).exceptions;
-  assert.deepEqual(report.exceptions, declared);
-  assert.ok(Object.keys(report.files).length > 0);
-  for (const [path, counts] of Object.entries(report.files)) {
-    assert.ok(isProductionTypeScript(path), path);
-    for (const [kind, count] of Object.entries(counts)) {
-      assert.ok(["assertion", "nonNull", "suppression", "genericParse"].includes(kind), `${path}: ${kind}`);
-      assert.ok(Number.isSafeInteger(count) && count > 0, `${path}: ${kind} ${count}`);
+  assert.deepEqual(Object.keys(report), ["production", "testAndStory"]);
+  for (const [key, scope, exceptionsFile] of [
+    ["production", isProductionTypeScript, "type-assertions-exceptions.json"],
+    ["testAndStory", isTestOrStoryTypeScript, "type-assertions-test-exceptions.json"],
+  ]) {
+    const declared = JSON.parse(readFileSync(new URL(`../${exceptionsFile}`, import.meta.url), "utf8")).exceptions;
+    assert.deepEqual(report[key].exceptions, declared);
+    assert.ok(Object.keys(report[key].files).length > 0, key);
+    for (const [path, counts] of Object.entries(report[key].files)) {
+      assert.ok(scope(path), path);
+      assert.ok(Object.keys(counts).length > 0, path);
+      for (const [kind, count] of Object.entries(counts)) {
+        assert.ok(["assertion", "nonNull", "suppression", "genericParse"].includes(kind), `${path}: ${kind}`);
+        assert.ok(Number.isSafeInteger(count) && count > 0, `${path}: ${kind} ${count}`);
+      }
     }
   }
 });

@@ -7,6 +7,7 @@ import {
   encodeTransferCursor,
 } from "./base-erc20-transfers";
 import { ChainDataError } from "./errors";
+import { BASE_TRANSFER_SCAN_WINDOW_MS } from "./base-transfer-window";
 import type { BaseErc20Asset, CdpSqlTransport } from "./types";
 
 const WALLET = "0x1111111111111111111111111111111111111111";
@@ -68,7 +69,6 @@ describe("Base ERC20 transfer query", () => {
 
     expect(sql).toContain("FROM base.events");
     expect(sql).toContain("GROUP BY log_id, address");
-    expect(sql).toContain("sum(toInt8(action)) AS net_action");
     expect(sql).toContain("any(toString(parameters['from'])) AS from_address");
     expect(sql).toContain("any(toString(parameters['to'])) AS to_address");
     expect(sql).toContain("any(toString(parameters['value'])) AS amount_base_units");
@@ -158,7 +158,7 @@ describe("Base ERC20 transfer query", () => {
         assets,
         NOW,
       ),
-    ).toThrow("31 days");
+    ).toThrow("seven days");
     expect(() =>
       buildBaseErc20TransferQuery(
         input({ to: "2026-09-08T00:00:00Z" }),
@@ -186,13 +186,12 @@ describe("Base ERC20 transfer query", () => {
       to: "2026-09-07T12:00:00.000Z",
       limit: 25,
     } as const;
-    const { sql } = buildBaseErc20TransferQuery(request, productionAssets, NOW);
+    const { sql } = buildBaseErc20TransferQuery({ ...request, from: new Date(NOW.getTime() - BASE_TRANSFER_SCAN_WINDOW_MS).toISOString() }, productionAssets, NOW);
 
     expect(productionAssets.length).toBeGreaterThan(20);
     expect(sql.length).toBeLessThanOrEqual(10_000);
     expect(sql).not.toContain("address IN (");
     expect(sql).not.toContain("lower(toString(address))");
-    expect(sql).toContain("sum(toInt8(action)) AS net_action");
     expect(sql).toContain("WHERE net_action > 0");
     expect(sql).not.toMatch(/\bHAVING\b/);
     expect(sql).not.toMatch(/GROUP BY log_id[\s\S]*LIMIT 10000/);
@@ -205,7 +204,7 @@ describe("Base ERC20 transfer query", () => {
     });
     const page = await history.listTransfers(request);
     expect(page.transfers).toEqual([]);
-    expect(page.nextCursor).toBeNull();
+    expect(page.nextCursor).not.toBeNull();
   });
 });
 
@@ -653,4 +652,157 @@ describe("Base ERC20 transfer adapter", () => {
       code: "invalid-response",
     });
   });
+});
+
+
+describe("bounded transfer time pagination", () => {
+  const start = "2026-08-07T12:00:00.000Z";
+  const request = () => input({ from: start, includeUnknownAssets: true, assetIds: [], limit: 1 });
+
+  function scan(sql: string) {
+    const times = [...sql.matchAll(/block_timestamp (?:>=|<) parseDateTime64BestEffort\('([^']+)'\)/g)].map((match) => match[1] ?? "");
+    expect(times).toHaveLength(2);
+    const from = times[0];
+    const to = times[1];
+    if (!from || !to) throw new Error("Missing scan bounds.");
+    expect(Date.parse(to) - Date.parse(from)).toBeLessThanOrEqual(BASE_TRANSFER_SCAN_WINDOW_MS);
+    return { from, to };
+  }
+
+  test("the SQL builder rejects an oversized scan even with a one-row limit", () => {
+    expect(() => buildBaseErc20TransferQuery(request(), assets, NOW)).toThrow("seven days");
+  });
+
+  test("quiet wallets traverse adjacent empty chunks to the full history boundary with one query per page", async () => {
+    const bounds: { from: string; to: string }[] = [];
+    const history = createBaseErc20TransferHistory({ assets, now: () => NOW, transport: {
+      async run({ sql }) { bounds.push(scan(sql)); return transportFor([]).run({ sql }); },
+    } });
+    let cursor: string | null = null;
+    const seen = new Set<string>();
+    do {
+      const before = bounds.length;
+      const page = await history.listTransfers({ ...request(), cursor });
+      expect(bounds.length).toBe(before + 1);
+      expect(page.transfers).toEqual([]);
+      cursor = page.nextCursor;
+      if (cursor) { expect(seen.has(cursor)).toBe(false); seen.add(cursor); }
+      expect(bounds.length).toBeLessThanOrEqual(Math.ceil((NOW.getTime() - Date.parse(start)) / BASE_TRANSFER_SCAN_WINDOW_MS));
+    } while (cursor);
+    expect(bounds[0]?.to).toBe(NOW.toISOString());
+    expect(bounds.at(-1)?.from).toBe(start);
+    for (let i = 1; i < bounds.length; i++) expect(bounds[i]?.to).toBe(bounds[i - 1]?.from);
+  });
+
+  test("row pagination stays in its chunk and resets the row cursor when crossing a time boundary", async () => {
+    const reads: { sql: string; from: string; to: string }[] = [];
+    const newest = row({ block_number: "300", log_index: "3", log_id: "newest" });
+    const second = row({ block_number: "299", log_index: "2", log_id: "second" });
+    const olderTime = new Date(NOW.getTime() - BASE_TRANSFER_SCAN_WINDOW_MS - 1000).toISOString();
+    const older = row({ block_number: "200", log_index: "1", log_id: "older", source_timestamp: olderTime });
+    const history = createBaseErc20TransferHistory({ assets, now: () => NOW, transport: {
+      async run({ sql }) {
+        reads.push({ sql, ...scan(sql) });
+        const result = reads.length === 1 ? [newest, second] : reads.length === 2 ? [second] : reads.length === 3 ? [older] : [];
+        return transportFor(result).run({ sql });
+      },
+    } });
+    const ids: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await history.listTransfers({ ...request(), cursor });
+      ids.push(...page.transfers.map((transfer) => transfer.logId));
+      cursor = page.nextCursor;
+      expect(reads.length).toBeLessThan(10);
+    } while (cursor);
+    expect(ids).toEqual(["newest", "second", "older"]);
+    expect(reads[1]?.from).toBe(reads[0]?.from);
+    expect(reads[1]?.sql).toContain("block_number_numeric < toUInt64('300')");
+    expect(reads[2]?.to).toBe(reads[1]?.from);
+    expect(reads[2]?.sql).not.toContain("block_number_numeric < toUInt64");
+  });
+
+  test("window cursors reject owner, time, token-scope and malformed-position changes before a provider call", async () => {
+    let calls = 0;
+    const history = createBaseErc20TransferHistory({ assets, now: () => NOW, transport: {
+      async run({ sql }) { calls++; return transportFor([]).run({ sql }); },
+    } });
+    const page = await history.listTransfers(request());
+    const cursor = page.nextCursor;
+    if (cursor === null) throw new Error("Missing window continuation.");
+    for (const change of [
+      { verifiedWalletAddress: OTHER }, { from: "2026-08-08T12:00:00.000Z" },
+      { to: "2026-09-07T11:00:00.000Z" }, { includeUnknownAssets: false, assetIds: ["verified-usdc"] },
+    ]) {
+      await expect(history.listTransfers({ ...request(), ...change, cursor })).rejects.toMatchObject({ code: "invalid-input" });
+    }
+    const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    for (const change of [{ scanTo: start }, { scanTo: "2026-09-06T12:00:00.000Z" }, { rowCursor: "invalid" }, { legacyCursor: "invalid" }, { scanVersion: 2 }]) {
+      const invalid = Buffer.from(JSON.stringify({ ...value, ...change })).toString("base64url");
+      await expect(history.listTransfers({ ...request(), cursor: invalid })).rejects.toMatchObject({ code: "invalid-input" });
+    }
+    expect(calls).toBe(1);
+  });
+
+
+  test("legacy row cursors remain an ordering ceiling across empty newer chunks during deployment skew", async () => {
+    const legacy = encodeTransferCursor({ blockNumber: "100", logIndex: "1", transactionHash: TX_A, tokenAddress: TOKEN, logId: "previous" });
+    const queries: string[] = [];
+    const history = createBaseErc20TransferHistory({ assets, now: () => NOW, transport: {
+      async run({ sql }) { queries.push(sql); return transportFor([]).run({ sql }); },
+    } });
+    let cursor: string | null = legacy;
+    do {
+      const page = await history.listTransfers({ ...request(), cursor });
+      cursor = page.nextCursor;
+      expect(queries.length).toBeLessThan(10);
+    } while (cursor);
+    expect(queries.length).toBeGreaterThan(1);
+    for (const sql of queries) expect(sql).toContain("block_number_numeric < toUInt64('100')");
+  });
+
+  test("an older-chunk rejection remains a failure and retries the same bounded query", async () => {
+    const queries: string[] = [];
+    const history = createBaseErc20TransferHistory({ assets, now: () => NOW, transport: {
+      async run({ sql }) {
+        queries.push(sql);
+        if (queries.length === 2) throw new ChainDataError("upstream-error", "Unavailable.", { status: 400 });
+        return transportFor([]).run({ sql });
+      },
+    } });
+    const first = await history.listTransfers(request());
+    await expect(history.listTransfers({ ...request(), cursor: first.nextCursor })).rejects.toMatchObject({ code: "upstream-error" });
+    const retried = await history.listTransfers({ ...request(), cursor: first.nextCursor });
+    expect(queries[2]).toBe(queries[1]);
+    expect(retried.nextCursor).not.toBe(first.nextCursor);
+  });
+});
+
+
+test("a quiet wallet automatically reaches a transfer older than thirty days without widening SQL scans", async () => {
+  const olderAt = "2026-07-20T12:00:00.000Z";
+  let calls = 0;
+  const history = createBaseErc20TransferHistory({ assets, now: () => NOW, transport: {
+    async run({ sql }) {
+      calls++;
+      const times = [...sql.matchAll(/block_timestamp (?:>=|<) parseDateTime64BestEffort\('([^']+)'\)/g)].map((match) => Date.parse(match[1] ?? ""));
+      const from = times[0];
+    const to = times[1];
+    if (from === undefined || to === undefined) throw new Error("Missing scan bounds.");
+      expect(to - from).toBeLessThanOrEqual(BASE_TRANSFER_SCAN_WINDOW_MS);
+      return transportFor(Date.parse(olderAt) >= from && Date.parse(olderAt) < to
+        ? [row({ source_timestamp: olderAt })] : []).run({ sql });
+    },
+  } });
+  const request = input({ from: "2023-01-01T00:00:00.000Z", includeUnknownAssets: true, assetIds: [] });
+  let cursor: string | null = null;
+  let found = false;
+  do {
+    const page = await history.listTransfers({ ...request, cursor });
+    found = page.transfers.some((transfer) => transfer.blockTimestamp === olderAt);
+    cursor = page.nextCursor;
+    expect(calls).toBeLessThan(10);
+  } while (!found && cursor);
+  expect(found).toBe(true);
+  expect(calls).toBeGreaterThan(4);
 });

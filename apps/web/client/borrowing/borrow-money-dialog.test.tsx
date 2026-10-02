@@ -11,6 +11,7 @@ import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 import { formatExactPresentationTokenAmount } from "@/shared/formatting";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
@@ -27,11 +28,14 @@ const action: PreparedMoneyAction = {
   owner: { subject: session.user.subject, address: session.smartAccount!.address, chainId: 8453, accountProvider: session.accountProvider },
   kind: "borrow", title: "Borrow USDC", calls: [], warnings: [],
   amounts: [{ assetId: snapshot.market.loanToken.id, symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "receive" }],
-  metadata: { product: "borrow", operation: "borrow", marketId: snapshot.market.id, loanAsset: { id: snapshot.market.loanToken.id, symbol: "USDC" }, collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: snapshot.source.blockHash, blockTimestamp: "1788897600" } },
+  metadata: { product: "borrow", operation: "borrow", marketId: snapshot.market.id, riskIncreased: true, loanAsset: { id: snapshot.market.loanToken.id, symbol: "USDC" }, collateralAsset: { id: snapshot.market.collateralToken.id, symbol: snapshot.market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: snapshot.source.blockHash, blockTimestamp: "1788897600" } },
   createdAt: "2026-09-25T12:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z",
 };
 const key = ownerQueryKey(dataOwnerKey(session), "actions");
-const row = { id: action.id, owner: action.owner, status: "pending" };
+const row = { id: action.id, owner: action.owner, status: "pending", kind: action.kind,
+  createdAt: action.createdAt, confirmedAt: action.createdAt,
+  summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata } };
+const parsed = (rows: unknown[]) => parseRecentActionsPayload({ actions: rows }, session);
 
 function mount({ prepare = async () => action, execute = async () => ({ id: action.id, status: "submitted" as const }), fetch = async () => ({ actions: [] }), close = () => {}, openPanel = () => {}, marketSnapshot = snapshot, operation = "borrow", regionId = "US" }: {
   regionId?: RegionId;
@@ -202,6 +206,18 @@ describe("Borrow action result", () => {
     expect(label.textContent).toContain(snapshot.market.collateralToken.symbol);
     expect(label.textContent).not.toContain("$");
   });
+  test("explains a withdrawn Borrow offer during preparation and confirmation", async () => {
+    const body = mount({ prepare: async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect((await dialog.findByRole("alert")).textContent).toContain("This is no longer offered.");
+    cleanup();
+    const later = mount({ execute: async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; } });
+    const reviewStep = await review(later);
+    fireEvent.click(reviewStep.confirm);
+    expect((await reviewStep.dialog.findByRole("alert")).textContent).toContain("This is no longer offered.");
+  });
   test("submitting keeps the focused marked button busy and ignores a second press", async () => {
     let finish!: (value: { id: string; status: "submitted" }) => void;
     let calls = 0;
@@ -220,6 +236,78 @@ describe("Borrow action result", () => {
     expect(await dialog.findByText("Borrowing 1 USDC")).toBeTruthy();
   });
 
+  test("preparing keeps the amount step with a busy Continue until the review is ready", async () => {
+    let finish!: (value: PreparedMoneyAction) => void;
+    let calls = 0;
+    const body = mount({ prepare: async () => { calls++; return new Promise((resolve) => { finish = resolve; }); } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    const continueButton = dialog.getByRole("button", { name: "Continue" });
+    fireEvent.click(continueButton);
+    expect(dialog.getByRole("heading", { name: "Borrow" })).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Continue" })).toBe(continueButton);
+    expect(continueButton.getAttribute("aria-busy")).toBe("true");
+    expect(dialog.getByRole("textbox", { name: "Amount" })).toBeTruthy();
+    expect(dialog.queryByText(/Preparing/)).toBeNull();
+    expect(dialog.queryByRole("heading", { name: "Confirm" })).toBeNull();
+    expect(dialog.getByRole("button", { name: "Close Borrow action" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(continueButton);
+    fireEvent.keyDown(dialog.getByRole("textbox", { name: "Amount" }), { key: "Enter" });
+    expect(calls).toBe(1);
+    await act(async () => finish(action));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(dialog.getByRole("heading", { name: "Confirm" })).toBeTruthy();
+  });
+
+  test("preparing keeps focus on a read-only amount with Max disabled and ignores edits", async () => {
+    let finish!: (value: PreparedMoneyAction) => void;
+    const intents: unknown[] = [];
+    const body = mount({ prepare: async (_kind, params) => { intents.push(params); return new Promise((resolve) => { finish = resolve; }); } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    const input = dialog.getByRole("textbox", { name: "Amount" }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1" } });
+    act(() => { input.focus(); });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(dialog.getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBe("true");
+    expect(input.readOnly).toBe(true);
+    expect(input.disabled).toBe(false);
+    expect(input.getAttribute("aria-readonly")).toBe("true");
+    expect(document.activeElement).toBe(input);
+    expect((dialog.getByRole("button", { name: "Max" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "2" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Max" }));
+    expect(input.value).toBe("1");
+    await act(async () => finish(action));
+    expect(await dialog.findByRole("button", { name: "Confirm action" })).toBeTruthy();
+    expect(dialog.getAllByText("1 USDC").length).toBeGreaterThan(0);
+    expect(intents).toHaveLength(1);
+  });
+
+  test("an owner change during prepare drops the old review", async () => {
+    let finish!: (value: PreparedMoneyAction) => void;
+    const other: VerifiedAccountSession = { ...session, user: { ...session.user, subject: "other-subject" }, smartAccount: { ...session.smartAccount!, address: "0x2222222222222222222222222222222222222222" } };
+    const flow = (owner: VerifiedAccountSession) => <BorrowMoneyDialog session={owner} snapshot={snapshot} operation="borrow" regionId="US" fetchAccountResource={async () => ({ version: 1, usdcReserveBaseUnits: null })} prepareMoneyAction={async () => new Promise((resolve) => { finish = resolve; })} executeMoneyAction={async () => ({ id: action.id, status: "submitted" })} onClose={() => {}} />;
+    const { rerender } = render(flow(session));
+    const dialog = within(await within(document.body).findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    rerender(flow(other));
+    await act(async () => finish(action));
+    expect(dialog.queryByRole("button", { name: "Confirm action" })).toBeNull();
+    expect(dialog.queryByRole("alert")).toBeNull();
+    expect(dialog.getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
+  });
+
+  test("a failed prepare returns the error on the amount step", async () => {
+    const body = mount({ prepare: async () => { throw new Error("boom"); } });
+    const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
+    fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Continue" }));
+    expect(await dialog.findByRole("alert")).toBeTruthy();
+    expect(dialog.getByRole("button", { name: "Continue" }).getAttribute("aria-busy")).toBeNull();
+    expect(dialog.getByRole("textbox", { name: "Amount" })).toBeTruthy();
+  });
+
   test("submitted is pending with two real stages; another owner cannot confirm it, but its own confirmed row can", async () => {
     const body = mount();
     const { dialog, confirm } = await review(body);
@@ -232,12 +320,27 @@ describe("Borrow action result", () => {
     expect(dialog.getByRole("button", { name: "View in Activity" })).toBeTruthy();
     expect(dialog.queryByRole("button", { name: "Back" })).toBeNull();
     expect(dialog.getByRole("button", { name: "Close Borrow action" }).hasAttribute("disabled")).toBe(false);
-    await act(async () => { getHomeQueryClient().setQueryData(key, { actions: [{ ...row, owner: { ...row.owner, subject: "another" }, status: "confirmed" }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(key, parsed([{ ...row, owner: { ...row.owner, subject: "another" }, status: "confirmed" }])); });
     expect(dialog.getByText("Borrowing 1 USDC")).toBeTruthy();
-    await act(async () => { getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "confirmed" }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "confirmed" }])); });
     expect(await dialog.findByText("Borrowed 1 USDC")).toBeTruthy();
     expect(dialog.queryByText("Confirming on Base")).toBeNull();
     expect(dialog.getByRole("button", { name: "Done" })).toBeTruthy();
+  });
+
+  test("submission invalidates the overview and every market detail for only this owner", async () => {
+    const client = getHomeQueryClient();
+    const owner = dataOwnerKey(session);
+    const overviewKey = ownerQueryKey(owner, "borrow", "overview");
+    const marketKeys = [ownerQueryKey(owner, "borrow-market", snapshot.market.id), ownerQueryKey(owner, "borrow-market", "other-market")];
+    const foreignKey = ownerQueryKey("other-owner", "borrow-market", snapshot.market.id);
+    for (const queryKey of [overviewKey, ...marketKeys, foreignKey]) client.setQueryData(queryKey, snapshot);
+    const body = mount();
+    const { dialog, confirm } = await review(body);
+    fireEvent.click(confirm);
+    await dialog.findByText("Borrowing 1 USDC");
+    for (const queryKey of [overviewKey, ...marketKeys]) expect(client.getQueryState(queryKey)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(foreignKey)?.isInvalidated).toBe(false);
   });
 
   test("failed row permits a fresh review while preserving the entered amount", async () => {
@@ -246,7 +349,7 @@ describe("Borrow action result", () => {
     const { dialog, confirm } = await review(body);
     fireEvent.click(confirm);
     await dialog.findByText("Borrowing 1 USDC");
-    await act(async () => { getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "failed" }] }); });
+    await act(async () => { getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "failed" }])); });
     expect(await dialog.findByText("Borrow didn't go through")).toBeTruthy();
     expect(dialog.getByText("Your Borrow position didn't change.")).toBeTruthy();
     fireEvent.click(dialog.getByRole("button", { name: "Try again" }));

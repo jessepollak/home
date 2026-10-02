@@ -13,16 +13,19 @@ import {
   opensSoftKeyboard,
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSheetOpener, type DeferredSheetHandoff } from "@/client/money-modal/deferred-sheet";
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode, type RefObject } from "react";
 
+const isSizeArray: (value: readonly ResizeObserverSize[] | ResizeObserverSize | undefined) => value is readonly ResizeObserverSize[] = Array.isArray;
+
 const MoneyModalPendingContext = createContext({ pending: false, register: (_id: symbol, _pending: boolean) => {} });
 const MoneyModalStepContext = createContext<((report: StepReport) => void) | null>(null);
 const MoneyModalExitContext = createContext<() => void>(() => {});
-let handoffReturnFocus: HTMLElement | null = null;
-const MoneyModalHandoffContext = createContext(false);
+type MoneyModalHandoffScope = { carry: DeferredSheetHandoff; role: "shell" } | { carry: DeferredSheetHandoff; role: "loaded"; initial: boolean };
+const MoneyModalHandoffContext = createContext<MoneyModalHandoffScope | null>(null);
 /** @public shared money-flow step contract (#1058) */
 export const MONEY_MODAL_STEP_DURATION_MS = 180;
 /** @public shared money-flow step contract (#1058) */
@@ -43,12 +46,59 @@ function stepFocusTarget(report: StepReport, allowAmountInput: boolean) {
   return report.element;
 }
 
-function MoneyModalStepHost({ children }: { children: ReactNode }) {
+const UNSETTLED_POPUP_STATES = ["data-starting-style", "data-ending-style", "data-swiping", "data-nested-drawer-open"];
+
+type HeightTrack = { animation?: Animation; last: number; maxHeight: string };
+
+function prefersReducedMotion() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+function popupSettled(popup: HTMLElement) {
+  if (!popup.hasAttribute("data-open") || UNSETTLED_POPUP_STATES.some((name) => popup.hasAttribute(name))) return false;
+  return !(popup.getAnimations?.() ?? []).some((animation) => "transitionProperty" in animation);
+}
+
+function cancelAnimation(animation: Animation | undefined) {
+  if (!animation) return;
+  animation.onfinish = null;
+  animation.oncancel = null;
+  void animation.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling a step or height animation rejects finished; the host retargets from the measured state
+  animation.cancel();
+}
+
+function keyboardOpen(popup: HTMLElement) {
+  return (Number.parseFloat(getComputedStyle(popup).getPropertyValue("--sheet-keyboard-inset")) || 0) > 0;
+}
+
+function acceptsHandoffHeight(popup: HTMLElement) {
+  return popup.hasAttribute("data-open") && !popup.hasAttribute("data-ending-style") && !keyboardOpen(popup);
+}
+
+function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number, measuredHeight?: number) {
+  cancelAnimation(track.animation);
+  track.animation = undefined;
+  const to = measuredHeight ?? popup.offsetHeight;
+  track.last = to;
+  if (from <= 0 || Math.abs(to - from) < 1 || typeof popup.animate !== "function" || prefersReducedMotion()) return;
+  const animation = popup.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING });
+  track.animation = animation;
+  animation.onfinish = () => {
+    track.animation = undefined;
+    if (popupSettled(popup)) easePopupHeight(popup, track, to);
+    else track.last = popup.offsetHeight;
+  };
+  animation.oncancel = () => {
+    if (track.animation === animation) track.animation = undefined;
+  };
+}
+
+function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carriedHeight: () => number; releaseHeight: (popup: HTMLElement | null, measured: number) => void; children: ReactNode }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const previous = useRef<StepReport | null>(null);
-  const lastHeight = useRef(0);
+  const height = useRef<HeightTrack>({ last: 0, maxHeight: "" });
   const lastFocused = useRef<HTMLElement | null>(null);
-  const running = useRef<{ step?: Animation; height?: Animation }>({});
+  const stepAnimationRef = useRef<Animation | undefined>(undefined);
   const { pending } = useContext(MoneyModalPendingContext);
 
   const recoverFocus = useCallback(() => {
@@ -68,30 +118,32 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
   }, [pending, recoverFocus]);
 
   const stopAnimations = useCallback(() => {
-    const animations = running.current;
-    running.current = {};
-    if (animations.step) {
-      animations.step.onfinish = null;
-      animations.step.oncancel = null;
-      void animations.step.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the step animation rejects finished; focus recovery is handled separately
-      animations.step.cancel();
-    }
-    if (animations.height) {
-      animations.height.onfinish = null;
-      animations.height.oncancel = null;
-      void animations.height.finished.catch(() => {}); // oxlint-disable-line home/no-silent-catch -- cancelling the height animation rejects finished; layout cleanup continues independently
-      animations.height.cancel();
-    }
-    hostRef.current?.style.removeProperty("overflow");
+    cancelAnimation(stepAnimationRef.current);
+    stepAnimationRef.current = undefined;
+    cancelAnimation(height.current.animation);
+    height.current.animation = undefined;
   }, []);
 
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
-      if (!running.current.height) lastHeight.current = host.offsetHeight;
+    const popup = host.closest<HTMLElement>("[data-slot=drawer-popup]");
+    const track = height.current;
+    const observer = !popup || typeof ResizeObserver === "undefined" ? null : new ResizeObserver((entries) => {
+      if (track.animation) return;
+      const box = entries[0]?.borderBoxSize;
+      const measuredHeight = (isSizeArray(box) ? box[0] : box)?.blockSize ?? popup.offsetHeight;
+      if (!previous.current || track.last === 0) {
+        track.last = measuredHeight;
+        return;
+      }
+      const maxHeight = getComputedStyle(popup).maxHeight;
+      const clampChanged = track.maxHeight !== "" && maxHeight !== track.maxHeight;
+      track.maxHeight = maxHeight;
+      if (clampChanged || !popupSettled(popup)) track.last = measuredHeight;
+      else easePopupHeight(popup, track, track.last, measuredHeight);
     });
-    observer?.observe(host);
+    if (popup) observer?.observe(popup);
     const onFocusIn = (event: FocusEvent) => {
       if (event.target instanceof HTMLElement) lastFocused.current = event.target;
     };
@@ -100,29 +152,35 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
       observer?.disconnect();
       host.removeEventListener("focusin", onFocusIn);
       stopAnimations();
+      releaseHeight(popup, track.last);
+      previous.current = null;
     };
-  }, [stopAnimations]);
+  }, [releaseHeight, stopAnimations]);
 
   const report = useCallback((next: StepReport) => {
     const host = hostRef.current ?? next.element.parentElement;
     if (!host) return;
+    const popup = host.closest<HTMLElement>("[data-slot=drawer-popup]");
+    const track = height.current;
     const prior = previous.current;
     previous.current = next;
     if (!prior) {
+      const from = carriedHeight();
       stepFocusTarget(next, true).focus({ preventScroll: true });
+      if (popup && from > 0 && acceptsHandoffHeight(popup)) easePopupHeight(popup, track, from);
       return;
     }
     if (prior.step === next.step) {
+      if (popup && track.animation) easePopupHeight(popup, track, popup.offsetHeight);
       recoverFocus();
       return;
     }
-    const startHeight = running.current.height ? host.offsetHeight : lastHeight.current;
+    const from = popup && track.animation ? popup.offsetHeight : track.last;
     stopAnimations();
     stepFocusTarget(next, true).focus({ preventScroll: true });
-    const endHeight = host.offsetHeight;
-    lastHeight.current = endHeight;
+    if (popup) easePopupHeight(popup, track, from);
     if (typeof next.element.animate !== "function") return;
-    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const reduced = prefersReducedMotion();
     const direction = next.depth > prior.depth ? 1 : next.depth < prior.depth ? -1 : 0;
     const x = direction * (getComputedStyle(host).direction === "rtl" ? -16 : 16);
     const stepAnimation = next.element.animate(
@@ -132,28 +190,13 @@ function MoneyModalStepHost({ children }: { children: ReactNode }) {
       ],
       { duration: reduced ? 120 : MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING },
     );
-    running.current.step = stepAnimation;
+    stepAnimationRef.current = stepAnimation;
     const finishStep = () => {
-      if (running.current.step === stepAnimation) running.current.step = undefined;
+      if (stepAnimationRef.current === stepAnimation) stepAnimationRef.current = undefined;
     };
     stepAnimation.onfinish = finishStep;
     stepAnimation.oncancel = finishStep;
-    if (reduced || startHeight <= 0 || Math.abs(endHeight - startHeight) < 1 || typeof host.animate !== "function") return;
-    host.style.setProperty("overflow", "hidden");
-    const heightAnimation = host.animate(
-      [{ height: `${startHeight}px` }, { height: `${endHeight}px` }],
-      { duration: MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING },
-    );
-    running.current.height = heightAnimation;
-    const finishHeight = () => {
-      if (running.current.height !== heightAnimation) return;
-      running.current.height = undefined;
-      host.style.removeProperty("overflow");
-      lastHeight.current = host.offsetHeight;
-    };
-    heightAnimation.onfinish = finishHeight;
-    heightAnimation.oncancel = finishHeight;
-  }, [recoverFocus, stopAnimations]);
+  }, [carriedHeight, recoverFocus, stopAnimations]);
 
   return <MoneyModalStepContext value={report}><div ref={hostRef} data-slot="money-modal-steps" className="flex min-h-0 flex-1 flex-col">{children}</div></MoneyModalStepContext>;
 }
@@ -182,41 +225,45 @@ function ignoreDesktopSwipe(event: PointerEvent<HTMLDivElement>) {
   event.currentTarget.toggleAttribute("data-base-ui-swipe-ignore", window.matchMedia?.(desktopDialogQuery).matches ?? false);
 }
 
-export function AppDrawer({ open, labelledBy, describedBy, immediate = false, variant = "default", initialFocusRef, onCancel, onClose, children }: {
+export function AppDrawer({ open, opener, focusOnClose, labelledBy, describedBy, immediate = false, variant = "default", initialFocusRef, onCancel, onClose, onOpened, children }: {
   open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; variant?: "default" | "money";
-  initialFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
-  onClose?: () => void; children: ReactNode;
+  opener?: HTMLElement | null; focusOnClose?: () => boolean; initialFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
+  onClose?: () => void; onOpened?: () => void; children: ReactNode;
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
   const lastOutsideFocusRef = useRef<HTMLElement | null>(null);
-  const openRef = useRef(open);
+  const hasReturnFocusSourceRef = useRef(false);
+  const openRef = useRef(false);
+  const sheetOpener = useSheetOpener();
   const handoff = useContext(MoneyModalHandoffContext);
-  const handoffOnMountRef = useRef(handoff);
+  const receivedCarryRef = useRef(handoff?.role === "loaded" && handoff.initial && open ? handoff.carry : null);
+  const shellCarry = handoff?.role === "shell" ? handoff.carry : null;
+  const carriedHeightRef = useRef(0);
+  const carriedHeight = useCallback(() => carriedHeightRef.current, []);
+  const releaseHeight = useCallback((popup: HTMLElement | null, measured: number) => {
+    if (shellCarry) shellCarry.carryHeight(popup && acceptsHandoffHeight(popup) ? measured || popup.offsetHeight : 0);
+  }, [shellCarry]);
 
   useLayoutEffect(() => {
+    if (open && !openRef.current) {
+      hasReturnFocusSourceRef.current = opener !== undefined || sheetOpener !== null;
+      lastOutsideFocusRef.current = opener === undefined ? sheetOpener?.current ?? null : opener;
+    }
     openRef.current = open;
-  }, [open]);
+    if (!open) carriedHeightRef.current = 0;
+  }, [open, sheetOpener, opener]);
 
   useLayoutEffect(() => {
-    if (handoffOnMountRef.current) lastOutsideFocusRef.current ??= handoffReturnFocus;
-    handoffReturnFocus = null;
+    const received = receivedCarryRef.current?.take();
+    receivedCarryRef.current = null;
+    if (received) {
+      if (!hasReturnFocusSourceRef.current) lastOutsideFocusRef.current = received.returnFocus;
+      if (received.height > 0) carriedHeightRef.current = received.height;
+    }
     return () => {
-      if (openRef.current) handoffReturnFocus = lastOutsideFocusRef.current;
+      if (openRef.current) shellCarry?.carryReturnFocus(lastOutsideFocusRef.current);
     };
-  }, []);
-
-  useEffect(() => {
-    if (open) return;
-    const rememberOutsideFocus = (target: EventTarget | null) => {
-      if (target instanceof HTMLButtonElement && !target.closest("[data-money-sheet]")) {
-        lastOutsideFocusRef.current = target;
-      }
-    };
-    rememberOutsideFocus(document.activeElement);
-    const onFocusIn = (event: FocusEvent) => rememberOutsideFocus(event.target);
-    document.addEventListener("focusin", onFocusIn);
-    return () => document.removeEventListener("focusin", onFocusIn);
-  }, [open]);
+  }, [shellCarry]);
 
   useLayoutEffect(() => {
     const popup = popupRef.current;
@@ -233,7 +280,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
     <Drawer open={open} modal keyboardAware swipeDirection="down" onOpenChange={(nextOpen, eventDetails) => {
       if (nextOpen) return;
       if (onCancel() === false) eventDetails.cancel();
-    }} onOpenChangeComplete={(nextOpen) => { if (!nextOpen) onClose?.(); }}>
+    }} onOpenChangeComplete={(nextOpen) => { if (nextOpen) onOpened?.(); else onClose?.(); }}>
       <DrawerContent
         ref={popupRef}
         variant={variant}
@@ -241,6 +288,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
         aria-describedby={describedBy}
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-money-amount-input]:not(:disabled)") ?? popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
         finalFocus={() => {
+          if (focusOnClose?.() === false) return false;
           const target = lastOutsideFocusRef.current;
           if (openRef.current || opensSoftKeyboard(target)) return false;
           return target?.isConnected && target.getClientRects().length > 0 && !target.matches(":disabled") && !target.closest("[hidden], [inert]") ? target : true;
@@ -251,16 +299,18 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
         className="max-h-[min(88svh,calc(100dvh_-_var(--sheet-keyboard-top,0px)_-_var(--sheet-keyboard-inset,0px)_-_2rem))] sm:mx-auto sm:max-w-md"
       >
         <DrawerSwipeHandle data-money-sheet-grabber="" className={variant === "money" ? "lg:hidden" : undefined} />
-        <MoneyModalStepHost>{children}</MoneyModalStepHost>
+        <MoneyModalHandoffContext value={null}>
+          <MoneyModalStepHost carriedHeight={carriedHeight} releaseHeight={releaseHeight}>{children}</MoneyModalStepHost>
+        </MoneyModalHandoffContext>
       </DrawerContent>
     </Drawer>
     </MoneyModalExitContext>
   );
 }
 
-export function MoneyModal({ open, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, children }: {
-  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; pending?: boolean;
-  onCancel: () => boolean | void; onClose: () => void; children: ReactNode;
+export function MoneyModal({ open, opener, focusOnClose, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, onOpened, children }: {
+  open: boolean; opener?: HTMLElement | null; focusOnClose?: () => boolean; labelledBy: string; describedBy?: string; immediate?: boolean; pending?: boolean;
+  onCancel: () => boolean | void; onClose: () => void; onOpened?: () => void; children: ReactNode;
 }) {
   const [registrants, setRegistrants] = useState<Set<symbol>>(() => new Set());
   const register = useCallback((id: symbol, active: boolean) => {
@@ -275,7 +325,7 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, p
   const effectivePending = pending || registrants.size > 0;
   const handoff = useContext(MoneyModalHandoffContext);
   const pendingValue = useMemo(() => ({ pending: effectivePending, register }), [effectivePending, register]);
-  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || handoff} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose}>{children}</AppDrawer></MoneyModalPendingContext>;
+  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} opener={opener} focusOnClose={focusOnClose} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || (handoff?.role === "loaded" && handoff.initial)} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose} onOpened={onOpened}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 /** @public shared money-flow step contract (#1058) */
@@ -379,26 +429,28 @@ export function moneySheetLoading({ title, titleId, closeLabel, onCancel, onClos
   return {
     onCancel,
     onClosed,
-    renderLoaded: (sheet: ReactNode) => <MoneyModalHandoff>{sheet}</MoneyModalHandoff>,
-    render: ({ open, failed, retry, onCancel: cancel, onClosed: closed }: {
-      open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void;
-    }) => <MoneyModalLoadingSheet open={open} title={title} titleId={titleId} closeLabel={closeLabel} failed={failed} retry={retry} onCancel={cancel} onClosed={closed} placeholder={placeholder} />,
+    renderLoaded: (sheet: ReactNode, handoff: DeferredSheetHandoff) => <MoneyModalHandoff carry={handoff}>{sheet}</MoneyModalHandoff>,
+    render: ({ open, failed, retry, onCancel: cancel, onClosed: closed, onEntered, handoff }: {
+      open: boolean; failed: boolean; retry: () => void; onCancel: () => void; onClosed: () => void; onEntered: () => void; handoff: DeferredSheetHandoff;
+    }) => <MoneyModalLoadingSheet open={open} title={title} titleId={titleId} closeLabel={closeLabel} failed={failed} retry={retry} onCancel={cancel} onClosed={closed} onEntered={onEntered} placeholder={placeholder} handoff={handoff} />,
   };
 }
 
-function MoneyModalHandoff({ children }: { children: ReactNode }) {
+function MoneyModalHandoff({ carry, children }: { carry: DeferredSheetHandoff; children: ReactNode }) {
   const [initial, setInitial] = useState(true);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setInitial(false));
     return () => window.cancelAnimationFrame(frame);
   }, []);
-  return <MoneyModalHandoffContext value={initial}>{children}</MoneyModalHandoffContext>;
+  const scope = useMemo<MoneyModalHandoffScope>(() => ({ carry, role: "loaded", initial }), [carry, initial]);
+  return <MoneyModalHandoffContext value={scope}>{children}</MoneyModalHandoffContext>;
 }
 
-function MoneyModalLoadingSheet({ open, title, titleId, closeLabel, failed, retry, onCancel, onClosed, placeholder }: {
+function MoneyModalLoadingSheet({ open, title, titleId, closeLabel, failed, retry, onCancel, onClosed, onEntered, placeholder, handoff }: {
   open: boolean; title: string; titleId?: string; closeLabel: string; failed: boolean; retry: () => void;
-  onCancel: () => void; onClosed: () => void; placeholder?: ReactNode;
+  onCancel: () => void; onClosed: () => void; onEntered: () => void; placeholder?: ReactNode; handoff: DeferredSheetHandoff;
 }) {
+  const scope = useMemo<MoneyModalHandoffScope>(() => ({ carry: handoff, role: "shell" }), [handoff]);
   const generatedId = useId();
   const id = titleId ?? generatedId;
   const [entered, setEntered] = useState(false);
@@ -415,7 +467,7 @@ function MoneyModalLoadingSheet({ open, title, titleId, closeLabel, failed, retr
   useEffect(() => {
     if (closedBeforeEntering) onClosedRef.current();
   }, [closedBeforeEntering]);
-  return <MoneyModal open={open && entered} labelledBy={id} onCancel={onCancel} onClose={onClosed}>
+  return <MoneyModalHandoffContext value={scope}><MoneyModal open={open && entered} labelledBy={id} onCancel={onCancel} onClose={onClosed} onOpened={onEntered}>
     <MoneyModalStepLoading step="loading" title={title} titleId={id} closeLabel={closeLabel} failed={failed} onRetry={retry} placeholder={placeholder} />
-  </MoneyModal>;
+  </MoneyModal></MoneyModalHandoffContext>;
 }

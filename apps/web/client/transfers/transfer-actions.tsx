@@ -11,7 +11,7 @@ import {
   useAccountWallet,
   type AccountWalletClient,
 } from "@/client/account/cdp-client";
-import { uiBoundary } from "@/client/account/owner-keys";
+import { dataOwnerKey, uiBoundary } from "@/client/account/owner-keys";
 import {
   commitClientUrl,
   commitFlowUrl,
@@ -28,15 +28,17 @@ import type { TransferAssetAvailability } from "@/shared/transfers/types";
 import type { RegionId } from "@/config/regions";
 
 const SendSheet = deferSheet(() => import("./send-dialog").then((module) => module.SendDialog),
-  (props) => moneySheetLoading({ title: "Send", titleId: "send-title", closeLabel: "Close send dialog", onCancel: props.onClose, onClosed: props.onClosed }));
+  (props) => moneySheetLoading({ title: props.sendOffered ? "Send" : "Cash out", titleId: "send-title", closeLabel: props.sendOffered ? "Close send dialog" : "Close cash-out dialog", onCancel: props.onClose, onClosed: props.onClosed }));
 
 export type TransferActionsProps = {
+  sendOffered?: boolean;
   initialOpen?: boolean;
   initialActionId?: string | null;
   availableAssets?: readonly TransferAssetAvailability[];
   assetMarkResolution?: AssetMarkResolution;
   regionId?: RegionId;
   regionReady?: boolean;
+  showTrigger?: boolean;
 };
 
 type TransferWallet = Pick<
@@ -58,21 +60,24 @@ export function TransferActions(props: TransferActionsProps) {
 
 export function TransferActionsForWallet({
   wallet,
+  sendOffered = true,
   initialOpen = false,
   initialActionId = null,
   availableAssets,
   assetMarkResolution,
   regionId = "US",
   regionReady = true,
+  showTrigger = true,
 }: TransferActionsProps & { wallet: TransferWallet }) {
   const routing = useOptionalHomeShellRouting();
   const [sendOpen, setSendOpen] = useState(false);
+  const [sendOpener, setSendOpener] = useState<HTMLElement | null>(null);
   const [modalOwner, setModalOwner] = useState<string | null>(null);
   const { markOpenedInApp, takeOpenedInApp } = useFlowModal();
   const boundary = uiBoundary(wallet);
-  const verifiedAddress = isServerVerified(wallet)
-    ? wallet.session.smartAccount?.address ?? null
-    : null;
+  const session = isServerVerified(wallet) ? wallet.session : null;
+  const queryOwnerKey = session?.smartAccount ? dataOwnerKey(session) : null;
+  const verifiedAddress = session?.smartAccount?.address ?? null;
   const routeOpen = routing ? routing.state.flow === "send" : initialOpen;
   const visibleSend = modalOwner === boundary && (routing ? routeOpen : sendOpen);
   const dropPrivate = modalOwner !== null && modalOwner !== boundary;
@@ -87,17 +92,19 @@ export function TransferActionsForWallet({
     const frame = window.requestAnimationFrame(() => {
       setModalOwner(boundary);
       setSendOpen(true);
+      if (!routing) setSendOpener(null);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [boundary, routeOpen]);
+  }, [boundary, routeOpen, routing]);
 
-  const openSend = () => {
+  const openSend = (event: React.MouseEvent<HTMLButtonElement>) => {
     if (!boundary) return;
+    setSendOpener(event.currentTarget);
     void SendSheet.preload();
     setModalOwner(boundary);
     setSendOpen(true);
     const pushed = routing
-      ? routing.setFlow("send")
+      ? routing.setFlow("send", { opener: event.currentTarget })
       : commitFlowUrl(flowHref(window.location.pathname, "send"));
     if (pushed) markOpenedInApp();
   };
@@ -113,20 +120,20 @@ export function TransferActionsForWallet({
   };
   const finishClose = () => {
     setSendOpen(false);
-    setModalOwner(null);
+    if (!routeOpen) setModalOwner(null);
   };
   const showReview = useCallback((actionId: string) => {
-    if (routing) routing.setFlow("send", { actionId, mode: "replace" });
+    if (routing) routing.setFlow("send", { actionId, mode: "replace", opener: routing.flowOpener ?? null });
     else commitClientUrl(flowHref(window.location.pathname, "send", actionId), "replace");
   }, [routing]);
   const showFirstStep = useCallback(() => {
-    if (routing) routing.setFlow("send", { mode: "replace" });
+    if (routing) routing.setFlow("send", { mode: "replace", opener: routing.flowOpener ?? null });
     else commitClientUrl(flowHref(window.location.pathname, "send"), "replace");
   }, [routing]);
 
   return (
     <>
-      <Button
+      {showTrigger ? <Button
         data-action-trigger=""
         variant="outline"
         size="touch"
@@ -134,13 +141,15 @@ export function TransferActionsForWallet({
         {...moneySheetIntent(SendSheet.preload)}
         onClick={openSend}
       >
-        Send
-      </Button>
+        {sendOffered ? "Send" : "Cash out"}
+      </Button> : null}
 
       <SendSheet
         key={regionId}
         open={visibleSend}
+        opener={routing ? routing.flowOpener ?? null : sendOpener}
         address={verifiedAddress}
+        sendOffered={sendOffered}
         immediate={dropPrivate}
         availableAssets={availableAssets}
         assetMarkResolution={assetMarkResolution}
@@ -150,7 +159,7 @@ export function TransferActionsForWallet({
         regionReady={regionReady}
         resumeMoneyAction={wallet.resumeMoneyAction}
         executeMoneyAction={wallet.executeMoneyAction}
-        ownerBoundary={boundary}
+        queryOwnerKey={queryOwnerKey}
         resumeActionId={initialActionId}
         onReview={showReview}
         onInvalidResume={showFirstStep}

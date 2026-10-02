@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
+import type { BalancesSnapshot } from "@/shared/balances/types";
 import {
   balancesSnapshotFixture,
   FIXTURE_FETCHED_AT,
@@ -109,7 +110,7 @@ describe("balances snapshot", () => {
         chainId: 8453,
       },
       "US",
-    )).toEqual(snapshot);
+    ) as BalancesSnapshot).toEqual(snapshot);
   });
 
   test.each([

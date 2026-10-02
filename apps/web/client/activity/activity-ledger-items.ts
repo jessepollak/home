@@ -1,3 +1,4 @@
+import { formatUnits } from "viem";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import { getDirectPortfolioAssets, assetKeyForErc20 } from "@/config/portfolio-assets";
 import type { RegionId } from "@/config/regions";
@@ -52,7 +53,7 @@ function detailAsset(mark: { assetKey: string; name: string; symbol: string; ima
   };
 }
 
-type Options = { regionId?: RegionId; timeZone?: string; now?: number };
+type Options = { regionId: RegionId; timeZone?: string; now?: number };
 
 function transactionFor(hash: string | undefined): Transaction | undefined {
   if (!hash) return undefined;
@@ -129,6 +130,7 @@ function orderedAmounts(amounts: readonly MoneyActionAmount[]): MoneyActionAmoun
 function kindLabel(kind: ActionKind): string {
   switch (kind) {
     case "send": return "Send";
+    case "card-allowance": return "Card spending limit";
     case "cash-out": return "Cash out";
     case "cash-out-withdraw": return "Withdraw cash-out";
     case "trade": return "Trade";
@@ -143,6 +145,11 @@ function kindLabel(kind: ActionKind): string {
 
 function operationTitle(operation: RecentMoneyActionOperation): string {
   const metadata = operation.action.metadata;
+  if (operation.action.kind === "card-allowance" && metadata?.product === "card") {
+    if (operation.status === "confirmed") return metadata.operation === "set-allowance" ? "Card spending limit set" : "Card spending permission removed";
+    if (operation.status === "pending") return metadata.operation === "set-allowance" ? "Setting card spending limit" : "Removing card spending permission";
+    return metadata.operation === "set-allowance" ? "Set card spending limit" : "Remove card spending permission";
+  }
   if (operation.action.kind !== "trade" || metadata?.product !== "trade") return operation.action.title;
   const conversion = cashConversionPair(metadata);
   if (conversion) {
@@ -208,7 +215,7 @@ function actionDetailValue(
   amount: MoneyActionAmount,
   matched: readonly ActivityTransfer[],
   confirmed: boolean,
-  regionId?: RegionId,
+  regionId: RegionId,
 ): string | undefined {
   if (matched.length === 0) return confirmed ? "Unknown" : undefined;
   const priced = matched.flatMap((transfer) => transfer.valuation.status === "priced" ? [transfer.valuation] : []);
@@ -232,7 +239,10 @@ function actionItem(operation: RecentMoneyActionOperation, transfers: readonly A
   const metadata = operation.action.metadata;
   const facts: ActivityLedgerFact[] = [];
   const title = operationTitle(operation);
-  if (metadata?.product === "trade") {
+  if (metadata?.product === "card") {
+    facts.push({ label: "Card program spender", value: metadata.spender, kind: "address" });
+    facts.push({ label: "Spending limit", value: metadata.operation === "revoke-allowance" ? "Removed" : `${formatUnits(BigInt(metadata.allowanceBaseUnits), 6)} USDC` });
+  } else if (metadata?.product === "trade") {
     const traded = metadata.direction === "buy" ? metadata.toAsset : metadata.fromAsset;
     facts.push({ label: `${traded.symbol} contract`, value: traded.address, kind: "address" });
   } else if (metadata?.product === "borrow") {
@@ -331,6 +341,7 @@ function cashoutItem(
 ): ActivityLedgerItem {
   const base = actionItem(operation, [], options);
   const view = presentCashout(operation, withdraw, options);
+  const prospective = view.stage === "waiting" || view.stage === "paying";
   const money = (atoms: string) => cashoutMoney(atoms, view.decimals, options.regionId);
   const status = cashoutStatus[view.stage];
   const title = `Cash out to ${view.app}`;
@@ -341,10 +352,10 @@ function cashoutItem(
   if (view.metadata) {
     facts.push(
       { label: "Payout handle", value: view.metadata.canonicalHandle },
-      { label: "You receive", value: formatCashoutReceive(reviewedQuote(view.metadata).receive, view.metadata.platformLabel) },
+      { label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(reviewedQuote(view.metadata).receive, view.metadata.platformLabel) },
     );
   }
-  if (view.stage === "waiting" || view.stage === "paying") {
+  if (prospective) {
     const arrival = view.metadata ? reviewedQuote(view.metadata).arrival
       : cashoutQuoteFromLegacy({ approximateFiatAmount: "0", currency: "USD", etaSeconds: operation.cashout?.etaSeconds }).arrival;
     facts.push({ label: "Arrives", value: formatCashoutArrival(arrival) });
@@ -419,6 +430,8 @@ function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActi
   const action = cashoutOrderAction(order, withdraw);
   const returning = withdraw !== undefined && withdraw.status !== "failed" &&
     ["waiting-provider", "waiting-chain", "reversed", "ambiguous"].includes(order.status);
+  const prospective = order.status === "waiting-provider" && !returning &&
+    ["submitted", "awaiting-buyer", "matched", "delivering"].includes(order.state);
   const money = (atoms: string) => cashoutMoney(atoms, order.decimals, options.regionId);
   const title = `Cash out to ${order.platformLabel}`;
   const step = returning || order.status === "waiting-chain" ? "Returning to your balance"
@@ -430,9 +443,8 @@ function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActi
   const metadata = reviewed?.action.metadata;
   if (reviewed?.action.kind === "cash-out" && metadata?.product === "cashout" && metadata.operation === "deposit") {
     const quote = reviewedQuote(metadata);
-    facts.push({ label: "You receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) });
-    if (order.status === "waiting-provider" && !returning &&
-      ["submitted", "awaiting-buyer", "matched", "delivering"].includes(order.state)) {
+    facts.push({ label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) });
+    if (prospective) {
       facts.push({ label: "Arrives", value: formatCashoutArrival(quote.arrival) });
     }
   }

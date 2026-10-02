@@ -383,7 +383,7 @@ function CardHero({ availableCents, locked, loading }: {
               <>
                 <p className="text-sm text-muted-foreground">Available to spend</p>
                 <div className="text-4xl font-semibold tabular-nums">
-                  <MoneyTicker value={formatFiatAmount(BigInt(availableCents), 2, "USD")} align="start" reserveDigits={false} />
+                  <MoneyTicker value={formatFiatAmount(BigInt(availableCents), 2, "USD", { currencyNative: true })} align="start" reserveDigits={false} />
                 </div>
               </>
             )}
@@ -437,8 +437,8 @@ function YourCardSection({
               <LockRow locked={locked} disabled={outage} onChange={setLocked} />
               <BalanceRow
                 icon={<GlyphMark size="sm"><Banknote /></GlyphMark>} iconTone="mark"
-                label="Spends from Cash" context={`${formatFiatAmount(BigInt(pendingCents), 2, "USD")} pending`}
-                value={formatFiatAmount(BigInt(spendableCents), 2, "USD")}
+                label="Spends from Cash" context={`${formatFiatAmount(BigInt(pendingCents), 2, "USD", { currencyNative: true })} pending`}
+                value={formatFiatAmount(BigInt(spendableCents), 2, "USD", { currencyNative: true })}
                 onActivate={actions.onOpenCash} activateLabel="Open Cash"
               />
               {variant === "wallet-eligible" ? (
@@ -467,8 +467,8 @@ function CardSettingsScreen({ variant, outage, pendingCents, spendableCents, set
         <div className="px-4"><HomeSectionHeading id="card-spending-title">Spending</HomeSectionHeading></div>
         <Card variant="flush"><CardContent inset="list"><ul className="list-none p-0">
           <BalanceRow icon={<GlyphMark size="sm"><Banknote /></GlyphMark>} iconTone="mark"
-            label="Spends from Cash" context={`${formatFiatAmount(BigInt(pendingCents), 2, "USD")} pending`}
-            value={formatFiatAmount(BigInt(spendableCents), 2, "USD")}
+            label="Spends from Cash" context={`${formatFiatAmount(BigInt(pendingCents), 2, "USD", { currencyNative: true })} pending`}
+            value={formatFiatAmount(BigInt(spendableCents), 2, "USD", { currencyNative: true })}
             onActivate={actions.onOpenCash} activateLabel="Open Cash" />
         </ul></CardContent></Card>
       </section>

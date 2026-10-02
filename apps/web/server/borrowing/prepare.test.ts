@@ -1,14 +1,18 @@
+import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import { BORROW_HEALTH_FLOOR_WAD, BORROW_MARKETS, type BorrowMarketRef } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
-import type { BorrowActionIntent } from "@/shared/borrowing/types";
+import { increasesBorrowRisk, type BorrowActionIntent } from "@/shared/borrowing/types";
 import { approveCall, borrowCall, repayCall, repaySharesCall, supplyCollateralCall, withdrawCollateralCall } from "./abi";
 import { availableBorrowAssets, borrowCapacityAssets, minimumCollateralForHealthFactor, policyMaximumDebtAssets } from "./math";
 import { BorrowPreparationError, prepareBorrowAction } from "./prepare";
 import type { BorrowRpcReader } from "./rpc";
+import { createConfirmActionHandler } from "@/server/actions/handler";
+import type { ActionRow } from "@/server/actions/store";
+import { readJson } from "@/tests/helpers/read-json";
 
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
-const BLOCK_HASH = `0x${"ab".repeat(32)}` as const;
+const BLOCK_HASH = parseHash32(`0x${"ab".repeat(32)}`)!;
 const prices = [
   "843242900000000000000000000000000000000",
   "1504740000000000000000000000000000000",
@@ -78,6 +82,13 @@ describe("Borrow action preparation across verified markets", () => {
       expect(result.fullySimulated).toBe(true);
     }
   });
+  test("records whether collateral withdrawal increases risk from pre-action debt", async () => {
+    const market = BORROW_MARKETS[0];
+    const risky = await prepare(market, "withdraw-collateral");
+    const riskFree = await prepare(market, "withdraw-collateral", snapshot(market, { zeroDebt: true }));
+    expect(risky.result.draft.metadata).toMatchObject({ product: "borrow", riskIncreased: true });
+    expect(riskFree.result.draft.metadata).toMatchObject({ product: "borrow", riskIncreased: false });
+  });
 
   test("supply-and-borrow approves the exact collateral amount only when allowance is not exact", async () => {
     const market = BORROW_MARKETS[0];
@@ -110,6 +121,44 @@ describe("Borrow action preparation across verified markets", () => {
     }
     expect((await prepare(market, "withdraw-collateral", snapshot(market, { zeroDebt: true }))).result.fullySimulated).toBe(true);
   });
+
+  test.each([...operations.map((operation) => [operation, false] as const), ["withdraw-collateral", true] as const])(
+    "prepare and confirm agree on reducing-only admission for %s (zero debt: %s)", async (operation, zeroDebt) => {
+      const enabled = BORROW_MARKETS[0];
+      const market = { ...enabled, availability: "reducing-only" as const };
+      const state = snapshot(market, { zeroDebt });
+      const debt = BigInt(state.position.debtAssetsRaw);
+      const allowed = !increasesBorrowRisk(operation, debt);
+      if (allowed) expect((await prepare(market, operation, state)).result.fullySimulated).toBe(true);
+      else await expect(prepare(market, operation, state)).rejects.toMatchObject({ code: "unsupported-market" });
+
+      const { result } = await prepare(enabled, operation, state);
+      const { calls, kind, ...summary } = result.draft;
+      const id = "11111111-1111-4111-8111-111111111111";
+      const draft: ActionRow = {
+        id, owner_key: JSON.stringify(["owner-a", OWNER, 8453, "cdp-embedded"]), account_address: OWNER, provider: "cdp-embedded",
+        kind, summary, pending: { calls }, created_at: "2026-09-24T02:49:17.000Z", confirmed_at: null,
+        provider_handle: null, transaction_hash: null, handle_recorded_at: null, declined_reported_at: null,
+        dispatch_attempt: 0, outcome: null, outcome_source: null, settled_at: null, outcome_recorded_at: null,
+      };
+      let confirms = 0;
+      const handler = createConfirmActionHandler({
+        authorize: async () => Response.json({ user: { subject: "owner-a" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+        now: () => new Date("2026-09-24T02:49:17.000Z"), borrowMarket: () => market, readBorrowDebt: async () => debt,
+        recordConfirmed: async () => undefined,
+        store: { get: async () => draft, confirm: async () => {
+          confirms++;
+          return { ...draft, confirmed_at: "2026-09-24T02:49:17.000Z" };
+        } },
+      });
+      const response = await handler(new Request(`https://home.test/api/actions/${id}/confirm`, {
+        method: "POST", headers: { "X-Home-Account-Provider": "cdp-embedded" }, body: "{}",
+      }), { params: Promise.resolve({ id }) });
+      expect(response.status).toBe(allowed ? 200 : 410);
+      expect(confirms).toBe(allowed ? 1 : 0);
+      expect(await readJson(response)).toMatchObject(allowed ? { calls } : { error: { code: "ACTION_EXPIRED" } });
+    },
+  );
 
   test.each([...BORROW_MARKETS])("rejects $collateralToken.symbol borrow above the 1.25 health floor", async (market) => {
     const minimum = minimumCollateralForHealthFactor(debt + BigInt("1000000"), BigInt(prices[market.rank - 1]), market.lltvWad, BORROW_HEALTH_FLOOR_WAD);

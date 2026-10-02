@@ -1,8 +1,11 @@
 import "server-only";
 
+import { ACTIVITY_HISTORY_START } from "@/shared/activity/types";
+
 import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { parseCdpSqlResponseEnvelope } from "./cdp-sql-client";
 import { ChainDataError } from "./errors";
+import { BASE_TRANSFER_SCAN_WINDOW_MS, nextTransferScanCursor, transferScanBounds, transferScanPosition } from "./base-transfer-window";
 import {
   BASE_MAINNET_CHAIN_ID,
   type BaseErc20Asset,
@@ -23,7 +26,6 @@ const DECIMAL_INTEGER_PATTERN = /^(0|[1-9][0-9]*)$/;
 const MAX_PAGE_SIZE = 200;
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_ASSETS_PER_QUERY = 20;
-const MAX_TIME_RANGE_MS = 31 * 24 * 60 * 60 * 1000;
 const MAX_CACHE_AGE_MS = 15 * 60 * 1000;
 const DEFAULT_STALE_AFTER_MS = 60 * 1000;
 const TRANSFER_SIGNATURE = "Transfer(address,address,uint256)";
@@ -75,6 +77,9 @@ export function buildBaseErc20TransferQuery(
   now = new Date(),
 ): { sql: string; request: ValidatedRequest } {
   const request = validateRequest(input, assets, now);
+  if (Date.parse(request.to) - Date.parse(request.from) > BASE_TRANSFER_SCAN_WINDOW_MS) {
+    throw new ChainDataError("invalid-input", "SQL transfer scans cannot exceed seven days.");
+  }
   const wallet = sqlString(request.walletAddress);
   const assetClause = request.includeUnknownAssets
     ? ""
@@ -108,7 +113,11 @@ FROM (
     any(toString(parameters['from'])) AS from_address,
     any(toString(parameters['to'])) AS to_address,
     any(toString(parameters['value'])) AS amount_base_units,
-    sum(toInt8(action)) AS net_action
+    sum(toInt8(CASE toString(action)
+      WHEN 'added' THEN '1'
+      WHEN 'removed' THEN '-1'
+      ELSE toString(action)
+    END)) AS net_action
   FROM base.events
   WHERE event_signature = '${TRANSFER_SIGNATURE}'${assetClause}
     AND block_timestamp >= parseDateTime64BestEffort(${sqlString(request.from)})
@@ -138,10 +147,12 @@ export function createBaseErc20TransferHistory({
       input: ListBaseErc20TransfersInput,
     ): Promise<BaseErc20TransferPage> {
       const fetchedAt = now();
+      const scope = validateRequest({ ...input, cursor: null }, allowlist, fetchedAt);
+      const position = transferScanPosition(scope, input.cursor ?? null);
+      if (position.legacyCursor !== null) decodeTransferCursor(position.legacyCursor);
+      const bounds = transferScanBounds(scope, position);
       const { sql, request } = buildBaseErc20TransferQuery(
-        input,
-        allowlist,
-        fetchedAt,
+        { ...input, ...bounds, cursor: position.rowCursor ?? position.legacyCursor }, allowlist, fetchedAt,
       );
       const response = await transport.run({
         sql,
@@ -169,7 +180,7 @@ export function createBaseErc20TransferHistory({
         return transfer ? [transfer] : [];
       });
       const lastSourceRow = pageRows.at(-1);
-      const nextCursor =
+      const rowCursor =
         parsedRows.length > request.limit && lastSourceRow
           ? encodeTransferCursor(cursorFromRow(lastSourceRow))
           : null;
@@ -180,7 +191,7 @@ export function createBaseErc20TransferHistory({
 
       return {
         transfers,
-        nextCursor,
+        nextCursor: nextTransferScanCursor(scope, bounds, rowCursor, position.legacyCursor),
         droppedRowCount: pageRows.length - transfers.length,
         source: {
           provider: "cdp-sql",
@@ -266,8 +277,8 @@ function validateRequest(
   if (fromDate >= toDate) {
     throw new ChainDataError("invalid-input", "The history start must be before its end.");
   }
-  if (toDate.getTime() - fromDate.getTime() > MAX_TIME_RANGE_MS) {
-    throw new ChainDataError("invalid-input", "History windows cannot exceed 31 days.");
+  if (fromDate.getTime() < Date.parse(ACTIVITY_HISTORY_START)) {
+    throw new ChainDataError("invalid-input", "History starts before supported Base history.");
   }
   if (toDate.getTime() > now.getTime() + 5 * 60 * 1000) {
     throw new ChainDataError("invalid-input", "History end cannot be in the future.");

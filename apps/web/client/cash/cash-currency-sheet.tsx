@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Search, X } from "lucide-react";
 import { useQueries } from "@tanstack/react-query";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
@@ -11,12 +12,14 @@ import { BalanceRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import { formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
-import { cashConversionCurrency, cashConversionDestinations, cashConversionTrade, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
+import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrency, cashConversionDestinations, cashConversionTrade, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import type { TradeDirection, TradeToken } from "@/shared/trading/contract";
 import { cashHoldings } from "./cash-overview";
 
@@ -28,6 +31,29 @@ function deferredStepLoading({ title, titleId, closeLabel, depth, onBack }: { ti
   return ({ failed, retry }: { failed: boolean; retry: () => void }) => <MoneyModalStepLoading step="amount" depth={depth} title={title} titleId={titleId}
     onBack={onBack} closeLabel={closeLabel} failed={failed} onRetry={retry} />;
 }
+function matchesCurrency(currency: CashConversionCurrency, query: string) {
+  const needle = query.trim().toLocaleLowerCase("en-US");
+  return !needle || [currency.name, currency.code, currency.symbol].some((field) => field.toLocaleLowerCase("en-US").includes(needle));
+}
+function CurrencySearch({ query, onQueryChange }: { query: string; onQueryChange: (query: string) => void }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return <form role="search" onSubmit={(event) => { event.preventDefault(); inputRef.current?.blur(); }}>
+    <InputGroup className="h-11">
+      <InputGroupAddon align="inline-start">
+        <Search aria-hidden="true" className="size-4" />
+      </InputGroupAddon>
+      <InputGroupInput ref={inputRef} type="text" inputMode="search" variant="touch" className="h-11 min-w-0" aria-label="Search currencies" placeholder="Search currencies"
+        value={query} onChange={(event) => onQueryChange(event.target.value)}
+        onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); inputRef.current?.blur(); } }}
+        autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} enterKeyHint="search" />
+      {query ? <InputGroupAddon align="inline-end" className="p-0">
+        <Button type="button" variant="ghost" size="icon-lg" className="size-11" aria-label="Clear search" onClick={() => { onQueryChange(""); inputRef.current?.focus(); }}>
+          <X aria-hidden="true" className="size-4" />
+        </Button>
+      </InputGroupAddon> : null}
+    </InputGroup>
+  </form>;
+}
 type Entry = { kind: "convert" | "currency"; source: CashConversionCurrencyCode };
 type TradeSelection = { currency: CashConversionCurrency; token: TradeToken; direction: TradeDirection; balanceBaseUnits: string | null };
 type Props = {
@@ -37,9 +63,6 @@ type Props = {
   snapshot: BalancesSnapshot;
   best: MorphoVaultCandidate | null;
   balanceStale: boolean;
-  depositEntryBlocked?: boolean;
-  historyBlocked: boolean;
-  onSaveEntry: () => void;
   fetchAccountResource: AccountWalletClient["fetchAccountResource"];
   prepareMoneyAction: AccountWalletClient["prepareMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
@@ -51,7 +74,7 @@ type Props = {
 
 type Step = "currency" | "destination" | "trade" | "save";
 
-export function CashCurrencySheet({ open, entry, session, snapshot, best, balanceStale, depositEntryBlocked = false, historyBlocked, onSaveEntry, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onCancel, onClosed, onAddMoney, onConfirmed }: Props) {
+export function CashCurrencySheet({ open, entry, session, snapshot, best, balanceStale, fetchAccountResource, prepareMoneyAction, executeMoneyAction, onCancel, onClosed, onAddMoney, onConfirmed }: Props) {
   const [step, setStep] = useState<Step>(entry.kind === "currency" ? "currency" : "destination");
   const [selected, setSelected] = useState<CashConversionCurrency | null>(null);
   const [trade, setTrade] = useState<TradeSelection | null>(null);
@@ -59,19 +82,23 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
   const [draft, setDraft] = useState("");
   const [resume, setResume] = useState<{ amount: string; amountBaseUnits: string; prepared: PreparedMoneyAction } | null>(null);
   const [resetKey, setResetKey] = useState(0);
+  const [search, setSearch] = useState("");
+  const [queryScope, setQueryScope] = useState(`${open}:${step}`);
+  if (queryScope !== `${open}:${step}`) { setQueryScope(`${open}:${step}`); setSearch(""); }
   const unresolved = useRef(false);
   const addMoneyAfterClose = useRef(false);
   const source = cashConversionCurrency(entry.source);
   const destinations = useMemo(() => cashConversionDestinations(source.code), [source.code]);
+  const matches = destinations.filter((currency) => matchesCurrency(currency, search));
   const queries = useQueries({ queries: destinations.map((currency) => ({
     ...tradeAvailabilityOptions(session, currency.code === "USD" ? source.tradeAssetId : currency.tradeAssetId, fetchAccountResource),
-    enabled: open && Boolean(session.smartAccount),
+    enabled: open && Boolean(session.smartAccount) && currency.convertOffered,
   })) }, browserHomeQueryClient());
   const sourceHolding = snapshot.holdings.find((holding) => holding.id === source.portfolioAssetId);
   const sourceBalance = sourceHolding?.balance.status === "ready" ? sourceHolding.balance.baseUnits : null;
   const usdcBalance = snapshot.holdings.find((holding) => holding.id === "usdc")?.balance;
   const usdcBaseUnits = !balanceStale && usdcBalance?.status === "ready" ? usdcBalance.baseUnits : null;
-  const canSave = source.code === "USD" && best !== null && usdcBaseUnits !== null && !depositEntryBlocked;
+  const canSave = source.code === "USD" && best !== null && usdcBaseUnits !== null;
   const row = cashHoldings(snapshot).find((item) => item.currency === source.code && item.holding);
   const depth = entry.kind === "currency" ? 1 : 0;
 
@@ -136,30 +163,43 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
         </div>
       </MoneyModalBody>
       <MoneyModalActions><div className={canSave ? "grid grid-cols-2 gap-2" : ""}>
-        <Button className="min-h-11 w-full" onPointerDown={() => void TradeStep.preload()} onClick={convert}>Convert</Button>
-        {canSave ? <Button variant="secondary" className="min-h-11 w-full" onPointerDown={() => void SavingsStep.preload()} onClick={() => { onSaveEntry(); setSaveCandidate(best); setStep("save"); void SavingsStep.preload(); }}>Save</Button> : null}
+        {source.convertOffered ? <Button className="min-h-11 w-full" onPointerDown={() => void TradeStep.preload()} onClick={convert}>Convert</Button>
+          : <p className="text-center text-sm text-muted-foreground">{CASH_CONVERSION_UNAVAILABLE_REASON}</p>}
+        {canSave ? <Button variant="secondary" className="min-h-11 w-full" onPointerDown={() => void SavingsStep.preload()} onClick={() => { setSaveCandidate(best); setStep("save"); void SavingsStep.preload(); }}>Save</Button> : null}
       </div></MoneyModalActions>
     </MoneyModalStep> : null}
     {step === "destination" ? <MoneyModalStep step="destination" depth={depth}>
       <MoneyModalHeader title="Convert to" titleId={titleId} closeLabel="Close conversion" onBack={entry.kind === "currency" ? () => setStep("currency") : undefined} />
       <MoneyModalBody hasFooter={sourceBalance === "0" && !balanceStale} className="gap-3 pt-4">
-        {sourceBalance === "0" && !balanceStale ? <p>{source.code === "USD" ? "No US dollars to convert." : `No ${source.name} balance to convert.`}</p> : <Card variant="flush"><CardContent inset="list"><ul className="list-none p-0">
+        {sourceBalance === "0" && !balanceStale ? <p>{source.code === "USD" ? "No US dollars to convert." : `No ${source.name} balance to convert.`}</p> : <>
+          {destinations.length > 1 ? <CurrencySearch query={search} onQueryChange={setSearch} /> : null}
+          {search.trim() ? <span className="sr-only" role="status" aria-live="polite">{matches.length > 0 ? `${matches.length} results` : "No results"}</span> : null}
+          {matches.length === 0 ? <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No currencies found</EmptyTitle>
+              <EmptyDescription>No currencies found for “{search.trim()}”.</EmptyDescription>
+            </EmptyHeader>
+          </Empty> : <Card variant="flush" className="shrink-0"><CardContent inset="list"><ul className="list-none p-0">
           {destinations.map((currency, index) => {
             const query = queries.at(index);
-            if (!query) return null;
+            if (!query || !matches.includes(currency)) return null;
+            const icon = <CurrencyMark size="sm" currency={currency.code} symbol={currency.symbol} />;
+            if (!currency.convertOffered) return <BalanceRow key={currency.code} icon={icon} iconTone="mark" label={currency.name} context={CASH_CONVERSION_UNAVAILABLE_REASON} contextLines={2}
+              chevron={false} />;
             const state = query.data;
             const trade = cashConversionTrade(source.code, currency.code);
             const supported = state?.status === "available" && !!trade && state.token.assetId === trade.assetId && state.token.address.toLowerCase() === (trade.direction === "buy" ? currency.address : source.address).toLowerCase() && state.token.decimals === (trade.direction === "buy" ? currency.decimals : source.decimals);
             const unavailable = state?.status === "unavailable" || (state?.status === "available" && (!supported || (trade?.direction === "buy" && state.buy === "blocked")));
-            return <BalanceRow key={currency.code} icon={<CurrencyMark size="sm" currency={currency.code} symbol={currency.symbol} />} iconTone="mark"
+            return <BalanceRow key={currency.code} icon={icon} iconTone="mark"
               label={currency.name} context={query.isError ? "Couldn't check availability" : unavailable ? "Conversion unavailable" : !state ? "Checking availability…" : currency.code}
               value={selected?.code === currency.code ? "Selected" : undefined}
               onActivate={sourceBalance !== null && supported && !query.isError && (trade?.direction !== "buy" || state.buy === "available") ? () => pick(currency) : undefined}
               activateLabel={`Convert to ${currency.name}`} chevron={Boolean(sourceBalance !== null && supported && !query.isError && (trade?.direction !== "buy" || state.buy === "available"))} />;
           })}
         </ul></CardContent></Card>}
+        </>}
         {balanceStale ? <p className="text-sm text-muted-foreground">Balance may be out of date.</p> : null}
-        {queries.some((query) => query.isError) ? <Button variant="secondary" className="min-h-11" onClick={() => { for (const query of queries) if (query.isError) void query.refetch(); }}>Try again</Button> : null}
+        {destinations.some((currency, index) => currency.convertOffered && queries[index]?.isError) ? <Button variant="secondary" className="min-h-11" onClick={() => { for (const [index, currency] of destinations.entries()) if (currency.convertOffered && queries[index]?.isError) void queries[index].refetch(); }}>Try again</Button> : null}
         {sourceBalance === null ? <p className="text-sm text-muted-foreground">Balance unavailable. Try again shortly.</p> : null}
       </MoneyModalBody>
       {sourceBalance === "0" && !balanceStale ? <MoneyModalActions><Button className="min-h-11 w-full" onClick={() => { addMoneyAfterClose.current = true; onCancel(); }}>Add money</Button></MoneyModalActions> : null}
@@ -174,7 +214,7 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
       onConfirmed={async () => { setResume(null); await onConfirmed(); }}
       fallback={deferredStepLoading({ title: `Convert to ${selected.name}`, titleId: "trade-action-title", closeLabel: "Close conversion", depth: depth + 1, onBack: backFromTrade })} />
       : step === "trade" && selected && !trade && selectedQuery?.isPending && !selectedQuery.isError ? <MoneyModalStepLoading key={resetKey} step="amount" depth={depth + 1} title={`Convert to ${selected.name}`} titleId="trade-action-title"
-        onBack={backFromTrade} closeLabel="Close conversion" failed={false} onRetry={() => { for (const query of queries) if (query.isError) void query.refetch(); }} />
+        onBack={backFromTrade} closeLabel="Close conversion" failed={false} onRetry={() => { for (const [index, currency] of destinations.entries()) if (currency.convertOffered && queries[index]?.isError) void queries[index].refetch(); }} />
       : step === "trade" ? <MoneyModalStep key={resetKey} step="trade-unavailable" depth={depth + 1}>
         <MoneyModalHeader title="Conversion unavailable" titleId="trade-action-title" onBack={backFromTrade} closeLabel="Close conversion" />
         <MoneyModalBody hasFooter={Boolean(selectedQuery?.isError)}><p>Can&apos;t convert this currency right now. Try again later.</p></MoneyModalBody>
@@ -182,7 +222,6 @@ export function CashCurrencySheet({ open, entry, session, snapshot, best, balanc
       </MoneyModalStep> : null}
     {step === "save" && saveCandidate ? <SavingsStep key={`${resetKey}:${saveCandidate.vaultAddress}`} depth={1} onBack={() => setStep("currency")} onDone={onCancel} mode="deposit" session={session} candidate={saveCandidate}
       availableLabel={usdcBaseUnits !== null ? `${formatUsdStablecoinAmount(usdcBaseUnits)} available` : undefined} availableBaseUnits={usdcBaseUnits} availableStale={balanceStale}
-      historyBlocked={historyBlocked}
       fetchAccountResource={fetchAccountResource} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction}
       fallback={deferredStepLoading({ title: "Deposit", titleId: "savings-action-title", closeLabel: "Close deposit", depth: 1, onBack: () => setStep("currency") })} /> : null}
   </MoneyModal>;

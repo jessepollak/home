@@ -1,37 +1,24 @@
-import { afterAll, describe, expect, it } from "bun:test";
-import { cp, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { applyRuleCheckTimeout } from "./rule-check-timeout.mjs";
+import { describe, expect, it } from "bun:test";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { budgetMs, createOxlintWorkspace } from "./helpers/oxlint-workspace.mjs";
+applyRuleCheckTimeout();
 
-const appsWebDir = fileURLToPath(new URL("../..", import.meta.url));
-const mirror = await mkdtemp(path.join(tmpdir(), "home-oxlint-no-deferred-effect-setstate-"));
-await cp(path.join(appsWebDir, "oxlint"), path.join(mirror, "oxlint"), { recursive: true });
-await symlink(path.join(appsWebDir, "node_modules"), path.join(mirror, "node_modules"), "dir");
-afterAll(() => rm(mirror, { recursive: true, force: true }));
+const { directory: mirror, lintWithConfig } = await createOxlintWorkspace("home-oxlint-no-deferred-effect-setstate-");
+await writeFile(path.join(mirror, ".oxlintrc.json"), JSON.stringify({
+  plugins: [],
+  categories: { correctness: "off" },
+  env: { browser: true, node: true, es2024: true },
+  jsPlugins: ["./oxlint/home-plugin.mjs"],
+  rules: { "home/no-deferred-effect-setstate": "error" },
+}));
 
 let fixtureIndex = 0;
 async function lint(code) {
   fixtureIndex += 1;
   const fixture = `fixture-${fixtureIndex}.tsx`;
-  const config = `.oxlintrc-${fixtureIndex}.json`;
-  await writeFile(path.join(mirror, fixture), code);
-  await writeFile(path.join(mirror, config), JSON.stringify({
-    plugins: [],
-    categories: { correctness: "off" },
-    env: { browser: true, node: true, es2024: true },
-    jsPlugins: ["./oxlint/home-plugin.mjs"],
-    rules: { "home/no-deferred-effect-setstate": "error" },
-  }));
-  const result = spawnSync(
-    path.join(appsWebDir, "node_modules", ".bin", "oxlint"),
-    ["-c", config, "--disable-nested-config", "-f", "json", fixture],
-    { cwd: mirror, encoding: "utf8" },
-  );
-  expect(result.signal).toBeNull();
-  expect([0, 1]).toContain(result.status);
-  return JSON.parse(result.stdout).diagnostics.filter((diagnostic) =>
+  return (await lintWithConfig({ fixture: { code, path: fixture } }, { config: ".oxlintrc.json" })).fixture.filter((diagnostic) =>
     diagnostic.code === "home(no-deferred-effect-setstate)");
 }
 
@@ -46,7 +33,7 @@ describe("no-deferred-effect-setstate", () => {
       });
       React.useInsertionEffect(() => queueMicrotask(function () { setTheme('dark'); }));
     `)).toHaveLength(4);
-  });
+  }, budgetMs);
 
   it("rejects Promise.resolve(...).then setter callbacks with or without a resolve argument", async () => {
     expect(await lint(`
@@ -54,7 +41,7 @@ describe("no-deferred-effect-setstate", () => {
       useEffect(() => { Promise.resolve().then(() => setLoaded(true)); });
       React.useLayoutEffect(() => Promise.resolve(value).then(() => setData(value)));
     `)).toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("rejects same-scope queueMicrotask aliases and parent-scope aliases", async () => {
     expect(await lint(`
@@ -67,7 +54,7 @@ describe("no-deferred-effect-setstate", () => {
         });
       }
     `)).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("rejects same-scope Promise.resolve promise aliases", async () => {
     expect(await lint(`
@@ -77,7 +64,7 @@ describe("no-deferred-effect-setstate", () => {
         ready.then(() => setReady(true));
       });
     `)).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("rejects immutable Promise.resolve scheduler aliases", async () => {
     expect(await lint(`
@@ -87,7 +74,7 @@ describe("no-deferred-effect-setstate", () => {
         useEffect(() => { schedule().then(() => commit(true)); }, []);
       }
     `)).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("rejects callbacks bound by identifier as const functions or function declarations", async () => {
     expect(await lint(`
@@ -99,7 +86,7 @@ describe("no-deferred-effect-setstate", () => {
         Promise.resolve().then(finish);
       });
     `)).toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("resolves function declarations in enclosing scopes and reports an actionable recovery", async () => {
     const diagnostics = await lint(`
@@ -111,7 +98,8 @@ describe("no-deferred-effect-setstate", () => {
     `);
     expect(diagnostics).toHaveLength(1);
     expect(diagnostics[0].message).toContain("useSyncExternalStore clock");
-  });
+    expect(diagnostics[0].message).toContain("useSyncExternalStore(subscribe, () => true, () => false)");
+  }, budgetMs);
 
   it("recognizes a useState or useReducer second-element setter without the set[A-Z] prefix", async () => {
     expect(await lint(`
@@ -124,7 +112,7 @@ describe("no-deferred-effect-setstate", () => {
         });
       }
     `)).toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("rejects immutable aliases of state tuple setters and locally bound set[A-Z] names", async () => {
     expect(await lint(`
@@ -138,7 +126,7 @@ describe("no-deferred-effect-setstate", () => {
         }, []);
       }
     `)).toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("rejects directly bound state setters as deferred callbacks", async () => {
     expect(await lint(`
@@ -151,7 +139,7 @@ describe("no-deferred-effect-setstate", () => {
         });
       }
     `)).toHaveLength(2);
-  });
+  }, budgetMs);
 
   it("accepts directly bound non-setter callbacks in deferred callbacks", async () => {
     expect(await lint(`
@@ -163,7 +151,7 @@ describe("no-deferred-effect-setstate", () => {
         });
       }
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("accepts animation-frame measurement setters and real-deadline timers", async () => {
     expect(await lint(`
@@ -173,7 +161,7 @@ describe("no-deferred-effect-setstate", () => {
         setTimeout(() => setExpired(true), deadline - Date.now());
       });
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("accepts microtasks without setter calls and deferred event-handler transitions", async () => {
     expect(await lint(`
@@ -184,14 +172,14 @@ describe("no-deferred-effect-setstate", () => {
         Promise.resolve().then(() => setSaved(true));
       }
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("allows global timer functions inside deferred callbacks without a setter", async () => {
     expect(await lint(`
       useEffect(() => { queueMicrotask(() => setTimeout(tick, 5)); }, []);
       useEffect(() => { queueMicrotask(() => setInterval(tick, 5)); }, []);
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("allows timer and global host function aliases inside deferred callbacks", async () => {
     expect(await lint(`
@@ -206,7 +194,7 @@ describe("no-deferred-effect-setstate", () => {
         queueMicrotask(() => setFrame(tick));
       }, []);
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 
   it("still rejects an alias of a real setter inside deferred callbacks", async () => {
     expect(await lint(`
@@ -215,7 +203,7 @@ describe("no-deferred-effect-setstate", () => {
         useEffect(() => { queueMicrotask(() => commit(true)); }, []);
       }
     `)).toHaveLength(1);
-  });
+  }, budgetMs);
 
   it("resolves aliases by lexical binding without treating a shadowed name as the global microtask", async () => {
     expect(await lint(`
@@ -223,5 +211,5 @@ describe("no-deferred-effect-setstate", () => {
         useEffect(() => queueMicrotask(() => setReady(true)));
       }
     `)).toHaveLength(0);
-  });
+  }, budgetMs);
 });

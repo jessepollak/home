@@ -30,6 +30,7 @@ type Client = { unsafe(text: string, values?: unknown[]): Promise<ArrayLike<unkn
 let admin: Client;
 let sql: SqlExecutor;
 let store: ActionsStore;
+let pinnedInstant: Date;
 const address = "0x1111111111111111111111111111111111111111" as const;
 const hash = `0x${"ab".repeat(32)}` as const;
 const userOpHash = `0x${"cd".repeat(32)}` as const;
@@ -52,7 +53,7 @@ async function prepared(provider: "cdp-embedded" | "base-account" = "cdp-embedde
   const id = randomUUID();
   const actionOwner = owner(provider);
   await store.insert({ id, owner: actionOwner, kind: "send", summary: { title: "Send", amounts: [], warnings: [], expiresAt: "2099-01-01T00:00:00.000Z" },
-    pending: { calls: [{ to: address, data: "0x", value: "0" }] }, createdAt: new Date().toISOString() });
+    pending: { calls: [{ to: address, data: "0x", value: "0" }] }, createdAt: pinnedInstant.toISOString() });
   await store.confirm(actionOwner, id);
   return id;
 }
@@ -61,7 +62,7 @@ function handlers(provider: "cdp-embedded" | "base-account" = "cdp-embedded", op
   resolveHandle?: () => Promise<HandleResolution>;
 } = {}) {
   const deps = { authorize: provider === "base-account" ? baseAuthorize : authorize, store,
-    now: () => new Date(Date.now() + 60_000), ...options };
+    now: () => new Date(pinnedInstant.getTime() + 60_000), ...options };
   return {
     handle: createHandleActionHandler(deps), decline: createDeclineActionHandler(deps), retry: createRetryActionHandler(deps),
     get: createGetActionHandler(deps), list: createListActionsHandler(deps),
@@ -92,6 +93,7 @@ describePostgres("write-once action outcomes with real handlers", () => {
   beforeEach(async () => {
     const clock = await sql.query<{ instant: Date }>("SELECT now() AS instant");
     setSystemTime(clock.rows[0]!.instant);
+    pinnedInstant = clock.rows[0]!.instant;
     await sql.query("TRUNCATE actions CASCADE");
   });
   afterEach(() => setSystemTime());

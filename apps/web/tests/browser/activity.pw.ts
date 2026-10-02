@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
+import { requestBackgroundRevalidation } from "./fixtures/background-revalidation";
 import { sessionBody } from "./fixtures/bodies";
 import { cashoutFixtureAction, cashoutFixtureProgress } from "./feature-map/cashout-fixture";
 import { FIXED_NOW } from "./fixtures/fixed-time";
+import { expectNavigation } from "./fixtures/navigation-budget";
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   test(`Activity anchors older rows at ${viewport.width}x${viewport.height}`, async ({ page }) => {
@@ -129,12 +131,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(activitySection.getByRole("heading", { name: "Recent" })).toBeVisible();
     await expect(cashout).toHaveCount(1);
     await expect(activitySection.getByRole("list", { name: "Pending" }).locator("li").filter({ hasText: "Cash out to Zelle" })).toHaveCount(1);
-    await container.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await pageTwoObserved;
     await expect(rowAt(12)).toBeVisible();
     const position = () => rowAt(12).evaluate((element) => ({
       top: element.getBoundingClientRect().top,
-      scrollTop: element.closest("[data-app-main-authenticated]")!.scrollTop,
+      scrollTop: window.scrollY,
     }));
     const before = await position();
     expect(before.scrollTop).toBeGreaterThan(0);
@@ -149,11 +151,11 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(rowAt(16)).toHaveCount(1);
     await expect.poll(async () => Math.abs((await position()).top - before.top)).toBeLessThanOrEqual(1);
 
-    await container.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await sparsePageServed;
-    await container.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await expect(rowAt(22)).toHaveCount(1);
-    await container.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
     await expect(activitySection.getByRole("status", { name: "" }).filter({ hasText: "End of activity" })).toBeVisible();
     await expect(rowAt(24)).toHaveCount(1);
     await expect(retry).toHaveCount(0);
@@ -161,7 +163,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       elements.map((element) => element.getAttribute("datetime")));
     expect(olderTimes.indexOf(timestamp(20))).toBeGreaterThanOrEqual(0);
     expect(olderTimes.indexOf(timestamp(20))).toBeLessThan(olderTimes.indexOf(timestamp(22)));
-    await container.evaluate((element) => { element.scrollTop = 0; });
+    await page.evaluate(() => window.scrollTo(0, 0));
     await expect(cashout).toHaveCount(1);
     await expect(pending).toHaveCount(1);
     const newerTimes = await rows.locator("time[datetime]").evaluateAll((elements) =>
@@ -249,21 +251,20 @@ test("Activity preserves the visible row through an insertion, reorder, and size
   const main = page.locator("main[data-app-main-authenticated]");
   const section = main.locator('section[aria-label="Activity"]').last();
   const snapshot = () => main.evaluate((host) => {
-    const top = host.getBoundingClientRect().top;
+    const top = 0;
     const row = [...host.querySelectorAll<HTMLElement>('section[aria-label="Activity"] ul > li[data-index]')]
       .find((node) => node.getBoundingClientRect().bottom > top)!;
     return { time: row.querySelector("time")?.dateTime, top: row.getBoundingClientRect().top - top, rowIndex: row.dataset.index };
   });
   await page.goto("/activity");
   await expect(section.locator('ul > li[aria-posinset="1"]')).toBeVisible();
-  await main.evaluate((host) => { host.scrollTop = 360; });
+  await page.evaluate(() => window.scrollTo(0, 360));
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const before = await snapshot();
   expect(before.top).toBeLessThan(0);
   prepend = true;
   await page.clock.fastForward(11_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-  await expect.poll(() => reads).toBeGreaterThan(1);
+  await requestBackgroundRevalidation(page, () => reads, 1);
   await expect(section.locator('ul > li[aria-posinset="1"]')).toHaveAttribute("aria-setsize", "25");
   await expect.poll(async () => Math.abs((await snapshot()).top - before.top)).toBeLessThanOrEqual(1);
   const afterInsert = await snapshot();
@@ -271,9 +272,9 @@ test("Activity preserves the visible row through an insertion, reorder, and size
   expect(Math.abs(afterInsert.top - before.top)).toBeLessThanOrEqual(1);
   promote = true;
   await page.clock.fastForward(16_000);
-  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
-  await expect.poll(() => reads).toBeGreaterThan(2);
-  await expect.poll(async () => (await snapshot()).rowIndex).toBe("7");
+  await requestBackgroundRevalidation(page, () => reads, 2);
+  await expect(section.locator('ul > li[aria-posinset="2"] time')).toHaveAttribute("datetime", new Date(now - 90_000).toISOString());
+  await expect.poll(async () => (await snapshot()).rowIndex).toBe(String(Number(afterInsert.rowIndex) + 1));
   await expect.poll(async () => Math.abs((await snapshot()).top - before.top)).toBeLessThanOrEqual(1);
   const afterReorder = await snapshot();
   expect(afterReorder.time).toBe(before.time);
@@ -337,10 +338,7 @@ test("Activity keeps the visible Recent row fixed when a pending action settles"
   await page.goto("/activity");
   await expect(section.getByRole("heading", { name: "Pending" })).toBeVisible();
   await expect(section.getByRole("list", { name: "Recent" })).toBeVisible();
-  await recent.evaluate((list) => {
-    const host = list.closest<HTMLElement>("[data-app-main-authenticated]")!;
-    host.scrollTop = list.getBoundingClientRect().top - host.getBoundingClientRect().top + host.scrollTop + 180;
-  });
+  await recent.evaluate((list) => window.scrollTo(0, list.getBoundingClientRect().top + window.scrollY + 180));
   await expect(anchored).toBeVisible();
   await expect(anchored).toHaveAttribute("aria-posinset", "7");
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -418,17 +416,17 @@ test("mobile Activity keeps 300 paginated rows bounded and restores keyboard foc
   expect(await rows.count()).toBeLessThan(60);
   for (let index = 1; index < 12; index++) {
     await expect.poll(async () => {
-      await main.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       return reads.size;
     }, { timeout: 7_000 }).toBeGreaterThan(index);
     expect(await rows.count()).toBeLessThan(70);
   }
-  await main.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect(section.getByText("End of activity")).toBeVisible();
   await expect(rows.first()).toHaveAttribute("aria-setsize", "300");
   expect(await rows.count()).toBeLessThan(70);
   expect(Object.fromEntries(reads)).toEqual(Object.fromEntries(Array.from({ length: 12 }, (_, index) => [index, 1])));
-  await main.evaluate((node) => { node.scrollTop = 0; });
+  await page.evaluate(() => window.scrollTo(0, 0));
   const opener = section.locator('ul > li[aria-posinset="1"] button');
   await expect(opener).toBeVisible();
   await opener.focus();
@@ -436,47 +434,46 @@ test("mobile Activity keeps 300 paginated rows bounded and restores keyboard foc
   expect(await page.evaluate(() => Number(document.activeElement?.closest("li")?.getAttribute("aria-posinset")))).toBe(26);
   await page.keyboard.press("Shift+Tab");
   expect(await page.evaluate(() => Number(document.activeElement?.closest("li")?.getAttribute("aria-posinset")))).toBe(25);
-  await main.evaluate((node) => { node.scrollTop = 0; });
+  await page.evaluate(() => window.scrollTo(0, 0));
   await opener.click();
   const dialog = page.getByRole("dialog", { name: "Received" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Close Received details" }).focus();
-  await main.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect(section.locator('ul > li[aria-posinset="1"]')).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close Received details" }).click();
   await expect(opener).toBeFocused();
 
   const home = page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: "Home" });
   await home.click();
-  const homeRows = main.locator('[data-shell-panel]:not([hidden]) [data-activity-feed] ul > li[aria-posinset]');
+  const homeRows = main.locator('[data-activity-feed] ul > li[aria-posinset]');
   await expect(homeRows.first()).toBeVisible();
   await page.addStyleTag({ content: '[data-activity-feed] ul > li[data-index="0"] { min-height: 180px; }' });
   await expect.poll(() => homeRows.first().evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThan(170);
-  await main.evaluate((node) => { node.scrollTop = 8000; });
+  await page.evaluate(() => window.scrollTo(0, 8000));
   const visibleHomeRow = () => main.evaluate((host) => {
-    const top = host.getBoundingClientRect().top;
-    const row = [...host.querySelectorAll<HTMLElement>('[data-shell-panel]:not([hidden]) [data-activity-feed] ul > li[aria-posinset]')]
+    const top = 0;
+    const row = [...host.querySelectorAll<HTMLElement>('[data-activity-feed] ul > li[aria-posinset]')]
       .find((node) => node.getBoundingClientRect().bottom > top);
     return row ? { index: Number(row.dataset.index), top: row.getBoundingClientRect().top - top,
-      bottom: row.getBoundingClientRect().bottom - top, scrollTop: host.scrollTop, height: host.clientHeight } : null;
+      bottom: row.getBoundingClientRect().bottom - top, scrollTop: window.scrollY, height: window.innerHeight } : null;
   });
   await expect.poll(async () => (await visibleHomeRow())?.index ?? 0).toBeGreaterThan(60);
   const beforeHome = (await visibleHomeRow())!;
   await page.goBack();
-  await expect(page).toHaveURL(/\/activity$/);
-  await expect(main.locator('[data-shell-panel][hidden] [data-activity-feed] ul > li[aria-posinset]')).toHaveCount(0);
+  await expectNavigation(page, /\/activity$/);
   await expect(rows.first()).toBeVisible();
   await expect.poll(async () => {
-    await main.evaluate((node) => { node.scrollTop = 2200; });
+    await page.evaluate(() => window.scrollTo(0, 2200));
     return rows.first().getAttribute("aria-posinset");
   }).not.toBe("1");
   await page.goForward();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(homeRows.first()).toBeVisible();
   await expect.poll(async () => (await visibleHomeRow())?.index ?? 0).toBeGreaterThan(60);
+  await expect.poll(async () => Math.abs(((await visibleHomeRow())?.index ?? Number.POSITIVE_INFINITY) - beforeHome.index)).toBeLessThanOrEqual(1);
   const visible = (await visibleHomeRow())!;
   expect(Math.abs(visible.scrollTop - beforeHome.scrollTop)).toBeLessThanOrEqual(64);
-  expect(Math.abs(visible.index - beforeHome.index)).toBeLessThanOrEqual(1);
   expect(visible.top).toBeLessThan(visible.height);
   expect(visible.bottom).toBeGreaterThan(0);
 });

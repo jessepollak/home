@@ -12,6 +12,12 @@ export function parseAddress(value: unknown): Address | null {
     : null;
 }
 
+export function requireAddress(value: unknown): Address {
+  const address = parseAddress(value);
+  if (!address) throw new Error("not a valid address");
+  return address;
+}
+
 export function parseHash32(value: unknown): Hash32 | null {
   return typeof value === "string" && isHash(value)
     ? value.toLowerCase() as Hash32

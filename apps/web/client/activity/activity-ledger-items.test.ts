@@ -1,5 +1,5 @@
 import "@/client/account/dom-test-harness";
-
+import { parseAddress, parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
@@ -11,8 +11,8 @@ import { isActivityLedgerGroup } from "./activity-ledger";
 
 const WALLET = "0x1111111111111111111111111111111111111111" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
-const TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
-const HASH = `0x${"a".repeat(64)}` as const;
+const TOKEN = parseAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")!;
+const HASH = parseHash32(`0x${"a".repeat(64)}`)!;
 const TIME = "2026-09-15T12:00:00.000Z";
 
 function transfer(direction: ActivityTransfer["direction"] = "incoming", priced = false): ActivityTransfer {
@@ -132,6 +132,26 @@ describe("presentActivityLedgerEntries", () => {
 });
 
 describe("presentActivityLedgerItems", () => {
+  test.each([
+    ["set-allowance", "confirmed", "Card spending limit set"],
+    ["revoke-allowance", "confirmed", "Card spending permission removed"],
+    ["revoke-allowance", "pending", "Removing card spending permission"],
+    ["revoke-allowance", "failed", "Remove card spending permission"],
+    ["set-allowance", "pending", "Setting card spending limit"],
+  ] as const)("shows %s %s without a money amount", (operation, status, title) => {
+    const snapshot = action(status);
+    snapshot.action.kind = "card-allowance";
+    snapshot.action.amounts = [];
+    snapshot.action.metadata = { product: "card", operation, provider: "bridge", mode: "production",
+      token: TOKEN, spender: OTHER, allowanceBaseUnits: operation === "set-allowance" ? "25000000" : "0",
+      previousAllowanceBaseUnits: "5000000", maximumBaseUnits: operation === "set-allowance" ? "100000000" : null,
+      source: { blockNumber: "100" } };
+    const [item] = present([fromAction(snapshot)]);
+    expect(item).toMatchObject({ family: "home-action", title, amount: "", direction: "none",
+      detail: { operation: "Card spending limit", facts: [{ label: "Card program spender", value: OTHER },
+        { label: "Spending limit", value: operation === "set-allowance" ? "25 USDC" : "Removed" }] } });
+    expect(item?.detailAmount).toBeUndefined();
+  });
   test("retains source order, canonical identities, and maps all action statuses", () => {
     for (const [source, expected] of [
       ["pending", "waiting-chain"], ["unknown", "ambiguous"],
@@ -243,6 +263,62 @@ describe("presentActivityLedgerItems", () => {
     const facts = item?.detail.family === "home-action" ? item.detail.facts ?? [] : [];
     expect(facts).toContainEqual({ label: "You receive", value: "≈ £37.06 to Monzo" });
     expect(facts).toContainEqual({ label: "Arrives", value: "Arrival time varies" });
+  });
+
+  describe("cash-out reviewed receive labels", () => {
+    const progress: NonNullable<RecentMoneyActionOperation["cashout"]> = {
+      version: 1, providerId: "peer", region: "US", depositId: "deposit-1", state: "awaiting-buyer",
+      platform: "cashapp", platformLabel: "Cash App", amountAtomic: "50000000", filledAtomic: "0",
+      returnedAtomic: "0", remainingAtomic: "50000000", withdrawable: true, withdrawing: false,
+      etaSeconds: 600, settledAt: null, updatedAt: TIME,
+    };
+    const cashout: RecentMoneyActionOperation = {
+      ...action("confirmed"),
+      action: {
+        ...action("confirmed").action, kind: "cash-out",
+        amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000", direction: "spend" }],
+        metadata: {
+          product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer",
+          environment: "production", platform: "cashapp", platformLabel: "Cash App", currency: "USD",
+          canonicalHandle: "alice", approximateFiatAmount: "50.00", minConversionRate: "1",
+          intentAmountRange: { min: "50000000", max: "50000000" }, estimateAsOf: TIME,
+          escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+          quote: {
+            fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+            receive: { amount: "50.00", currency: "USD", approximate: true },
+            arrival: { source: "declared", kind: "within", seconds: 600 },
+          },
+        },
+      },
+      cashout: progress,
+    };
+
+    test.each([
+      ["returned", "returned", "0", "50000000", "refunded", [{ label: "Returned", value: "$50" }]],
+      ["paid", "delivered", "50000000", "0", "confirmed", []],
+      ["partially paid then returned", "delivered", "25000000", "25000000", "refunded", [
+        { label: "Paid", value: "$25" }, { label: "Returned", value: "$25" },
+      ]],
+    ] as const)("shows quoted receive for %s cash-outs", (_scenario, state, filledAtomic, returnedAtomic, status, expectedFacts) => {
+      const [item] = present([fromAction({
+        ...cashout,
+        cashout: { ...progress, state, filledAtomic, returnedAtomic, remainingAtomic: "0", withdrawable: false, settledAt: TIME },
+      })]);
+      expect(item).toMatchObject({ family: "home-action", status });
+      const facts = item?.detail.family === "home-action" ? item.detail.facts ?? [] : [];
+      expect(facts).toContainEqual({ label: "Quoted receive", value: "≈ $50.00 to Cash App" });
+      for (const fact of expectedFacts) expect(facts).toContainEqual(fact);
+      expect(facts.some(({ label }) => label === "You receive" || label === "Arrives")).toBe(false);
+    });
+
+    test.each(["awaiting-buyer", "matched", "delivering"] as const)("keeps prospective receive and arrival for %s cash-outs", (state) => {
+      const [item] = present([fromAction({ ...cashout, cashout: { ...progress, state } })]);
+      expect(item).toMatchObject({ family: "home-action", status: "waiting-provider" });
+      const facts = item?.detail.family === "home-action" ? item.detail.facts ?? [] : [];
+      expect(facts).toContainEqual({ label: "You receive", value: "≈ $50.00 to Cash App" });
+      expect(facts).toContainEqual({ label: "Arrives", value: "Usually within 10 minutes" });
+      expect(facts.some(({ label }) => label === "Quoted receive")).toBe(false);
+    });
   });
 
   test("formats primary and secondary action amounts without leaking source internals", () => {
@@ -414,7 +490,7 @@ describe("presentActivityLedgerItems", () => {
     const borrow = action("confirmed");
     borrow.action.kind = "borrow";
     borrow.action.metadata = {
-      product: "borrow", operation: "supply-and-borrow", marketId: `0x${"1".repeat(64)}`,
+      product: "borrow", operation: "supply-and-borrow", marketId: `0x${"1".repeat(64)}`, riskIncreased: true,
       loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "cbbtc", symbol: "cbBTC" },
       projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
       source: { blockNumber: "1", blockHash: `0x${"2".repeat(64)}`, blockTimestamp: TIME },

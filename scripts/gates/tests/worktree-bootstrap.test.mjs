@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -16,6 +16,13 @@ import {
   inspectPath,
   installDependencies,
 } from "../../worktree/bootstrap.mjs";
+import {
+  assertPinnedBrowserReady,
+  browserBinaryIsExecutable,
+  nativeBrowserBinary,
+  pinnedBrowserUnavailableMessage,
+  repairPinnedBrowser,
+} from "../../verify/pinned-agent-browser.mjs";
 
 const BOOTSTRAP_HINT = "bun run worktree:bootstrap";
 
@@ -49,6 +56,98 @@ function scriptedGit(responses) {
     return { status: 0, stdout: value };
   };
 }
+
+test("nativeBrowserBinary resolves only supported native platforms and architectures", (t) => {
+  const root = scratch(t);
+  assert.equal(nativeBrowserBinary(root, "linux", "x64"), join(root, "node_modules/agent-browser/bin/agent-browser-linux-x64"));
+  assert.equal(nativeBrowserBinary(root, "darwin", "arm64"), join(root, "node_modules/agent-browser/bin/agent-browser-darwin-arm64"));
+  assert.equal(nativeBrowserBinary(root, "win32", "x64"), undefined);
+  assert.equal(nativeBrowserBinary(root, "linux", "unknown"), undefined);
+});
+
+test("repairPinnedBrowser restores the executable bit without changing the binary and is idempotent", (t) => {
+  const root = scratch(t);
+  const binary = nativeBrowserBinary(root, "linux", "x64");
+  mkdirSync(dirname(binary), { recursive: true });
+  writeFileSync(binary, "binary-bytes", { mode: 0o644 });
+  assert.equal(browserBinaryIsExecutable(binary), false);
+
+  assert.deepEqual(repairPinnedBrowser(root, { platform: "linux", arch: "x64" }), { state: "repaired", binary });
+  assert.ok(statSync(binary).mode & 0o111);
+  assert.equal(browserBinaryIsExecutable(binary), true);
+  assert.equal(readFileSync(binary, "utf8"), "binary-bytes");
+  assert.deepEqual(repairPinnedBrowser(root, { platform: "linux", arch: "x64" }), { state: "ready", binary });
+});
+
+test("repairPinnedBrowser reports an absent native binary", (t) => {
+  const root = scratch(t);
+  assert.deepEqual(repairPinnedBrowser(root, { platform: "linux", arch: "x64" }), { state: "absent" });
+});
+
+test("repairPinnedBrowser rejects a directory and names a working reinstall command", (t) => {
+  const root = scratch(t);
+  const binary = nativeBrowserBinary(root, "linux", "x64");
+  mkdirSync(binary, { recursive: true });
+  assert.throws(() => repairPinnedBrowser(root, { platform: "linux", arch: "x64" }), (error) => {
+    assert.match(error.message, /not a regular executable file/);
+    assert.ok(error.message.includes("rm -rf node_modules/agent-browser && bun install --frozen-lockfile"));
+    return true;
+  });
+});
+
+test("assertPinnedBrowserReady returns undefined without an installed package manifest", (t) => {
+  const root = scratch(t);
+  assert.equal(assertPinnedBrowserReady(root, { platform: "linux", arch: "x64" }), undefined);
+});
+
+test("pinnedBrowserUnavailableMessage names bootstrap for non-executable native binaries and missing shims", (t) => {
+  const root = scratch(t);
+  const native = nativeBrowserBinary(root, "linux", "x64");
+  const nativeMessage = pinnedBrowserUnavailableMessage({ binary: native, native });
+  assert.match(nativeMessage, /not executable/);
+  assert.ok(nativeMessage.includes(BOOTSTRAP_HINT));
+  const shimMessage = pinnedBrowserUnavailableMessage({ binary: join(root, "node_modules/.bin/agent-browser"), native });
+  assert.match(shimMessage, /missing/);
+  assert.ok(shimMessage.includes(BOOTSTRAP_HINT));
+});
+
+test("bootstrap repairs a non-executable pinned browser in an installed dependency tree", (t) => {
+  const root = scratch(t);
+  const binary = nativeBrowserBinary(root);
+  if (binary === undefined) {
+    t.skip("no native browser binary for this platform and architecture");
+    return;
+  }
+  installedApp(root);
+  mkdirSync(dirname(binary), { recursive: true });
+  writeFileSync(join(root, "node_modules/agent-browser/package.json"), JSON.stringify({ version: "0.38.1" }));
+  writeFileSync(binary, "binary-bytes", { mode: 0o644 });
+  const lines = [];
+  const result = bootstrap(root, {
+    git: scriptedGit({}),
+    run: () => ({ status: 0 }),
+    log: (line) => lines.push(line),
+  });
+  assert.ok(statSync(binary).mode & 0o111);
+  assert.ok(lines.some((line) => line.includes("restored the executable bit")));
+  assert.equal(result.browser.state, "repaired");
+});
+
+test("bootstrap rejects an installed pinned browser without a native binary", (t) => {
+  const root = scratch(t);
+  if (nativeBrowserBinary(root) === undefined) {
+    t.skip("no native browser binary for this platform and architecture");
+    return;
+  }
+  installedApp(root);
+  mkdirSync(join(root, "node_modules/agent-browser"), { recursive: true });
+  writeFileSync(join(root, "node_modules/agent-browser/package.json"), JSON.stringify({ version: "0.38.1" }));
+  assert.throws(() => bootstrap(root, { git: scriptedGit({}), run: () => ({ status: 0 }), log: () => {} }), (error) => {
+    assert.match(error.message, /missing or not executable/);
+    assert.ok(error.message.includes("rm -rf node_modules/agent-browser && bun install --frozen-lockfile"));
+    return true;
+  });
+});
 
 test("inspectPath distinguishes a directory, file, missing path and symlink", (t) => {
   const root = scratch(t);
@@ -109,7 +208,7 @@ test("an app tree missing a required package is incomplete", (t) => {
 
   const next = join(root, "apps/web/node_modules/next");
   mkdirSync(next, { recursive: true });
-  writeFileSync(join(next, "package.json"), "{}");
+  writeFileSync(join(next, "package.json"), JSON.stringify({ version: "16.1.0" }));
   assert.deepEqual(dependencyProblems(root), []);
 
   rmSync(join(root, "apps/web/node_modules/react"), { recursive: true, force: true });
@@ -143,7 +242,7 @@ test("a root-declared package never resolves from the app tree", (t) => {
   writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { "agent-browser": ["agent-browser@0.38.1"] } }));
   const appCopy = join(root, "apps/web/node_modules/agent-browser");
   mkdirSync(appCopy, { recursive: true });
-  writeFileSync(join(appCopy, "package.json"), "{}");
+  writeFileSync(join(appCopy, "package.json"), JSON.stringify({ version: "0.38.1" }));
   assert.deepEqual(
     dependencyProblems(root).map((problem) => problem.relative),
     ["node_modules/agent-browser"],
@@ -151,14 +250,14 @@ test("a root-declared package never resolves from the app tree", (t) => {
 
   const rootCopy = join(root, "node_modules/agent-browser");
   mkdirSync(rootCopy, { recursive: true });
-  writeFileSync(join(rootCopy, "package.json"), "{}");
+  writeFileSync(join(rootCopy, "package.json"), JSON.stringify({ version: "0.38.1" }));
   assert.deepEqual(dependencyProblems(root), []);
 });
 
 test("an app-declared package resolves from the hoisted root tree", (t) => {
   const root = scratch(t);
   mkdirSync(join(root, "node_modules/next"), { recursive: true });
-  writeFileSync(join(root, "node_modules/next/package.json"), "{}");
+  writeFileSync(join(root, "node_modules/next/package.json"), JSON.stringify({ version: "16.1.0" }));
   mkdirSync(join(root, "apps/web/node_modules"), { recursive: true });
   writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "1" } }));
   writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { next: ["next@16.1.0"] } }));
@@ -319,13 +418,56 @@ test("a lockfile that resolves none of the declared dependencies cannot verify v
   assert.deepEqual(dependencyProblems(root), []);
 });
 
-test("an installed package with no version is unknown, not stale", (t) => {
+test("an installed package whose version cannot be read is unverifiable", (t) => {
   const root = scratch(t);
   installedApp(root);
   writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "16.1.0" } }));
   writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { next: ["next@16.1.0"] } }));
   assert.deepEqual(dependencyProblems(root), []);
-  writeFileSync(join(root, "apps/web/node_modules/next/package.json"), "{}");
+  const manifest = join(root, "apps/web/node_modules/next/package.json");
+  const unverifiable = {
+    absolute: join(root, "apps/web/node_modules/next"),
+    relative: "apps/web/node_modules/next",
+    state: "unverifiable",
+  };
+  for (const content of ["{}", '{"version": 16}', '{"version": "16.1.0"', ""]) {
+    writeFileSync(manifest, content);
+    const problems = dependencyProblems(root);
+    assert.deepEqual(problems, [unverifiable], `manifest: ${content}`);
+    assert.equal(describeProblem(problems[0]), "unverifiable (its installed package.json has no readable version)");
+  }
+  writeFileSync(manifest, JSON.stringify({ version: "16.1.0" }));
+  assert.deepEqual(dependencyProblems(root), []);
+});
+
+test("an unverifiable package triggers an install and is refused if it stays unreadable", (t) => {
+  const root = scratch(t);
+  installedApp(root);
+  writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "16.1.0" } }));
+  writeFileSync(join(root, "bun.lock"), JSON.stringify({ packages: { next: ["next@16.1.0"] } }));
+  const manifest = join(root, "apps/web/node_modules/next/package.json");
+  writeFileSync(manifest, "{}");
+  let installs = 0;
+  const repair = () => {
+    installs++;
+    setAppVersion(root, "next", "16.1.0");
+    return { status: 0 };
+  };
+  assert.equal(installDependencies(root, repair).state, "installed");
+  assert.equal(installs, 1);
+
+  writeFileSync(manifest, "{}");
+  const noop = () => ({ status: 0 });
+  assert.throws(() => installDependencies(root, noop), /apps\/web\/node_modules\/next is still not ready/);
+});
+
+test("a package the lockfile does not record needs no readable version", (t) => {
+  const root = scratch(t);
+  installedApp(root);
+  writeFileSync(join(root, "apps/web/package.json"), JSON.stringify({ dependencies: { next: "16.1.0", oxlint: "1" } }));
+  const oxlint = join(root, "apps/web/node_modules/oxlint");
+  mkdirSync(oxlint, { recursive: true });
+  writeFileSync(join(oxlint, "package.json"), "{}");
   assert.deepEqual(dependencyProblems(root), []);
 });
 test("installDependencies unlinks stale trees then installs and verifies a real tree", (t) => {

@@ -1,5 +1,6 @@
 import "@/client/account/dom-test-harness";
 
+import { useLayoutEffect } from "react";
 import { afterEach, describe, expect, test } from "bun:test";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { anonymousCountryPreferenceKey, legacyCountryPreferenceKey } from "@/config/country-preference";
@@ -156,30 +157,36 @@ describe("useHomeRegion", () => {
     }
   }
 
-  test("late browser hydration cannot replace a held choice after the account read", async () => {
+  test("browser hydration cannot replace a held choice after the account read", async () => {
     window.localStorage.setItem(anonymousCountryPreferenceKey, "MX");
-    const request = window.requestAnimationFrame;
-    const cancel = window.cancelAnimationFrame;
-    const frames = new Map<number, FrameRequestCallback>();
-    let frameId = 0;
-    window.requestAnimationFrame = (callback) => { frames.set(++frameId, callback); return frameId; };
-    window.cancelAnimationFrame = (id) => { frames.delete(id); };
-    try {
-      const calls: Array<[CountryCode, boolean]> = [];
-      const writer = async (id: CountryCode, adopt: boolean) => { calls.push([id, adopt]); return id; };
-      const view = render(<Region detectedCountry="BR" accountSettling accountPreferencePending writeAccountPreference={writer} />);
-      fireEvent.click(view.getByRole("button", { name: "Choose GB" }));
-      view.rerender(<Region detectedCountry="BR" accountIdentity="account-a" accountOwner="owner-a" accountPreferencePending signedIn writeAccountPreference={writer} />);
-      expect(view.getByRole("status").textContent).toBe("pending:GB");
-      view.rerender(<Region detectedCountry="BR" accountIdentity="account-a" accountOwner="owner-a" signedIn accountReady writeAccountPreference={writer} />);
-      await waitFor(() => expect(calls).toEqual([["GB", false]]));
-      expect(frames.size).toBeGreaterThan(0);
-      act(() => { for (const callback of frames.values()) callback(0); frames.clear(); });
-      expect(view.getByRole("status").textContent).toBe("GB:explicit");
-    } finally {
-      window.requestAnimationFrame = request;
-      window.cancelAnimationFrame = cancel;
+    const calls: Array<[CountryCode, boolean]> = [];
+    const writer = async (id: CountryCode, adopt: boolean) => { calls.push([id, adopt]); return id; };
+    const view = render(<Region detectedCountry="BR" accountSettling accountPreferencePending writeAccountPreference={writer} />);
+    fireEvent.click(view.getByRole("button", { name: "Choose GB" }));
+    view.rerender(<Region detectedCountry="BR" accountIdentity="account-a" accountOwner="owner-a" accountPreferencePending signedIn writeAccountPreference={writer} />);
+    expect(view.getByRole("status").textContent).toBe("pending:GB");
+    view.rerender(<Region detectedCountry="BR" accountIdentity="account-a" accountOwner="owner-a" signedIn accountReady writeAccountPreference={writer} />);
+    await waitFor(() => expect(calls).toEqual([["GB", false]]));
+    expect(view.getByRole("status").textContent).toBe("GB:explicit");
+  });
+
+  test("the saved device country is ready before the first paint opportunity", () => {
+    window.localStorage.setItem(anonymousCountryPreferenceKey, "GB");
+    const paints: string[] = [];
+    function PaintProbe() {
+      useLayoutEffect(() => {
+        window.requestAnimationFrame(() => { paints.push(document.querySelector("output")?.textContent ?? ""); });
+      }, []);
+      return <Region detectedCountry="BR" />;
     }
+    const original = window.requestAnimationFrame;
+    const frames: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length; };
+    try {
+      render(<PaintProbe />);
+      act(() => { for (const frame of frames) frame(0); });
+      expect(paints).toEqual(["GB:persisted"]);
+    } finally { window.requestAnimationFrame = original; }
   });
 
   test("real account-status wiring routes signed-out selection to browser without account request", async () => {

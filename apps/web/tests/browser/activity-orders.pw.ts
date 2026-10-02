@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { cashoutFixtureAction } from "./feature-map/cashout-fixture";
-import { activityOrdersFixture } from "./feature-map/fixtures";
+import { activityOrdersFixture, fundingOrderResolutionFixture } from "./feature-map/fixtures";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
@@ -20,7 +20,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       await page.route("**/api/funding/orders/fixture-funding-ambiguous/resolve", (route) => {
         if (route.request().method() !== "POST") return route.fallback();
         expect(route.request().postDataJSON()).toEqual({ version: 1 });
-        return json(route, { version: 1 });
+        return json(route, fundingOrderResolutionFixture("fixture-funding-ambiguous"));
       });
       await page.goto(path);
       const activity = page.locator("[data-app-main-authenticated]").getByRole("region", { name: "Activity" }).last();

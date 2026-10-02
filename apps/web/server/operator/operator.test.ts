@@ -1,5 +1,7 @@
 import { readJson } from "@/tests/helpers/read-json";
+import { parseAddress } from "@/shared/chain/hex";
 import { describe, expect, setSystemTime, test } from "bun:test";
+import { NextRequest } from "next/server";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { signedValue } from "@/server/auth/native-base-session";
 import { parseOperatorErrorResponse, parseOperatorSessionResponse } from "@/shared/operator/contract";
@@ -98,6 +100,26 @@ test("admin API accepts an unambiguous native session cookie without a provider 
   }
 });
 
+test("operator authorization rebuilds a Next route request without losing auth headers or consuming its body", async () => {
+  const request = new NextRequest("https://home.test/api/admin/settings?domain=fees", {
+    method: "POST",
+    headers: { cookie: "home-session=invalid", authorization: "Bearer token", "x-request-id": "one" },
+    body: "payload",
+  });
+  const authorize = async (input: Request) => {
+    expect(input.url).toBe(request.url);
+    expect(input.method).toBe("POST");
+    expect(input.headers.get("cookie")).toBe("home-session=invalid");
+    expect(input.headers.get("authorization")).toBe("Bearer token");
+    expect(input.headers.get("x-request-id")).toBe("one");
+    expect(input.headers.get("x-home-account-provider")).toBe("base-account");
+    return session(X);
+  };
+  const response = await createOperatorApiHandler(true, authorize, () => readOperatorConfig({ HOME_OPERATOR_ADDRESSES: X }))(request);
+  expect(response.status).toBe(200);
+  expect(await request.text()).toBe("payload");
+});
+
 test("admin API status, contract and private headers across both endpoints", async () => {
   const request = new Request("https://home.test/api/admin/session");
   const unavailable = Response.json({ error: { code: "AUTH_UNAVAILABLE" } }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
@@ -118,7 +140,7 @@ test("admin API status, contract and private headers across both endpoints", asy
     expect(response.headers.get("cache-control")).toContain("no-store");
     const body = await readJson(response);
     expect(body).toEqual(item.body);
-    if (item.status === 200) expect(parseOperatorSessionResponse(body)?.operator.address).toBe(X);
+    if (item.status === 200) expect(parseOperatorSessionResponse(body)?.operator.address).toBe(parseAddress(X)!);
     if (item.status === 401 || item.status === 403 || item.status === 404) {
       expect(item.body.error?.code).toBe(parseOperatorErrorResponse(body)?.error.code);
     }

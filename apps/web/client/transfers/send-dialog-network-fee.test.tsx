@@ -13,7 +13,7 @@ const asset = getTransferAsset("usdc")!;
 afterEach(cleanup);
 
 function renderSend(prepareMoneyAction: Parameters<typeof SendDialog>[0]["prepareMoneyAction"]) {
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-test"
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-test"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? { version: 1, usdcReserveBaseUnits: "20000" } : { version: 1, recipients: [] }}
     prepareMoneyAction={prepareMoneyAction}
@@ -31,7 +31,7 @@ test("send Max holds back the USDC reserve without changing available balance", 
 });
 
 test("send Max stays disabled while the USDC fee reserve is loading", async () => {
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-pending"
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-pending"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? new Promise<never>(() => {}) : { version: 1, recipients: [] }}
     prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
@@ -43,7 +43,7 @@ test("send Max stays disabled while the USDC fee reserve is loading", async () =
 test("send waits for the USDC fee ceiling before Continue or Enter", async () => {
   let resolveReserve!: (value: unknown) => void;
   const reserveResponse = new Promise<unknown>((resolve) => { resolveReserve = resolve; });
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-ceiling-pending"
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-ceiling-pending"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => path === "/api/actions/network-fee" ? reserveResponse : { version: 1, recipients: [] }}
     prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
@@ -61,26 +61,27 @@ test("send waits for the USDC fee ceiling before Continue or Enter", async () =>
 });
 
 test("send explains a failed USDC fee lookup and recovers on Retry", async () => {
-  let requests = 0;
-  render(<SendDialog open immediate address={address} ownerBoundary="fee-retry-send"
+  let failLookup = true;
+  const feeLookupWait = { timeout: 5000 };
+  render(<SendDialog open immediate address={address} queryOwnerKey="fee-retry-send"
     availableAssets={[{ ...asset, balanceBaseUnits: "1000000", balanceLabel: "$1.00" }]}
     fetchAccountResource={async (path) => {
       if (path !== "/api/actions/network-fee") return { version: 1, recipients: [] };
-      requests++;
-      if (requests <= 3) throw new Error("network unavailable");
+      if (failLookup) throw new Error("network unavailable");
       return { version: 1, usdcReserveBaseUnits: "20000" };
     }}
     prepareMoneyAction={async () => { throw new Error("unexpected prepare"); }}
     resumeMoneyAction={async () => { throw new Error("unexpected resume"); }}
     executeMoneyAction={async (action) => ({ id: action.id, status: "submitted" })} onClose={() => {}} />);
   fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
-  const alert = await page().findByRole("alert");
+  const alert = await page().findByRole("alert", {}, feeLookupWait);
   expect(alert.textContent).toContain("Couldn't check the network fee.");
   expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  // Recovery starts only once the settled failure is observable, so extra or reordered lookups cannot consume a failure budget.
+  failLookup = false;
   fireEvent.click(page().getByRole("button", { name: "Retry" }));
-  await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true));
-  await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));
-  expect(requests).toBe(4);
+  await waitFor(() => expect(page().queryByRole("alert") === null).toBe(true), feeLookupWait);
+  await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false), feeLookupWait);
 });
 
 test("send explains and blocks an amount above the fee-adjusted balance", async () => {
@@ -99,6 +100,17 @@ test("send explains and blocks an amount above the fee-adjusted balance", async 
   await waitFor(() => expect(page().getByLabelText("To")).toBeTruthy());
 });
 
+test("send explains an offer withdrawn during preparation", async () => {
+  renderSend(async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; });
+  fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
+  await waitFor(() => expect((page().getByRole<HTMLButtonElement>("button", { name: "Continue" })).disabled).toBe(false));
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText: async () => recipient } });
+  fireEvent.click(page().getByRole("button", { name: "Paste address" }));
+  await waitFor(() => expect((page().getByRole<HTMLButtonElement>("button", { name: "Continue" })).disabled).toBe(false));
+  fireEvent.click(page().getByRole("button", { name: "Continue" }));
+  expect((await page().findByRole("alert")).textContent).toBe("This is no longer offered.");
+});
 test("send shows the exact unfunded prepare message", async () => {
   renderSend(async () => { throw Object.assign(new Error("unfunded"), { status: 409, code: "NETWORK_FEE_UNFUNDED", serverMessage: "Add USDC to cover the network fee." }); });
   fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
@@ -111,7 +123,7 @@ test("send shows the exact unfunded prepare message", async () => {
   expect((await page().findByRole("alert")).textContent).toBe("Add USDC to cover the network fee.");
 });
 
-test("send shows the unavailable prepare message instead of an invalid recipient", async () => {
+test("send shows the unavailable prepare message for a valid recipient", async () => {
   renderSend(async () => { throw Object.assign(new Error("unavailable"), { status: 502, code: "NETWORK_FEE_UNAVAILABLE", serverMessage: "The network fee could not be checked. Try again." }); });
   fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "0.5" } });
   await waitFor(() => expect((page().getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false));

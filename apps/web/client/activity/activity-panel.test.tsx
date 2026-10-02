@@ -6,11 +6,13 @@ import { defaultScheduler, dehydrate, focusManager, notifyManager } from "@tanst
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { holdClock, pinClock } from "@/tests/helpers/pin-clock";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseRecentActionsPayload } from "@/shared/actions/contracts/list";
 import {
   ACTIVITY_CONTRACT_VERSION,
   type ActivityResponse,
 } from "@/shared/activity/contract";
 import type { FetchActivity } from "./types";
+import type { RetrySchedule } from "./use-activity";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import(
@@ -26,11 +28,13 @@ function ActivityPanel({
   fetchActivity,
   fetchOperations = noOperations,
   density = "page",
+  scheduleContinuationRetry,
 }: {
   session: VerifiedAccountSession | null;
   fetchActivity: FetchActivity;
   fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
   density?: "page" | "feed";
+  scheduleContinuationRetry?: RetrySchedule;
 }) {
   return (
     <ConnectedActivityPanel
@@ -39,6 +43,7 @@ function ActivityPanel({
       fetchActivity={fetchActivity}
       fetchOperations={fetchOperations}
       regionId="US"
+      scheduleContinuationRetry={scheduleContinuationRetry}
     />
   );
 }
@@ -233,6 +238,25 @@ function requestedCursors(queries: readonly string[]): (string | null)[] {
   return queries.map((query) => new URLSearchParams(query).get("cursor"));
 }
 
+function queuedContinuationRetry() {
+  const delays: number[] = [];
+  const queued: (() => void)[] = [];
+  const schedule = (run: () => void, delayMs: number) => {
+    delays.push(delayMs);
+    queued.push(run);
+    return () => {
+      const index = queued.indexOf(run);
+      if (index >= 0) queued.splice(index, 1);
+    };
+  };
+  const runNext = async () => {
+    const run = queued.shift();
+    if (!run) throw new Error("no continuation retry is scheduled");
+    await act(async () => { run(); });
+  };
+  return { delays, queued, runNext, schedule };
+}
+
 async function waitForSentinel() {
   await waitFor(() =>
     expect(ControlledIntersectionObserver.instances).toHaveLength(1),
@@ -422,10 +446,10 @@ describe("ConnectedActivityPanel", () => {
     expect(calls).toBe(2);
   });
 
-  test("restored action rows older than the tolerance still report a sustained failure", async () => {
+  test("cached action rows older than the tolerance still report a sustained failure", async () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
-    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], { actions: [actionFor(owner, "Restored send")] }, {
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], parseRecentActionsPayload({ actions: [actionFor(owner, "Restored send")] }, owner), {
       updatedAt: NOW - 10 * 60_000,
     });
     let calls = 0;
@@ -442,13 +466,13 @@ describe("ConnectedActivityPanel", () => {
     const owner = session("subject-a", WALLET_A);
     const ownerKey = dataOwnerKey(owner);
     const source = createHomeQueryClient();
-    const activityKey = [ownerKey, "activity", new Date(NOW).toISOString(), "USD"];
+    const activityKey = [ownerKey, "activity", new Date(NOW).toISOString(), "USD", "all"];
     const actionsKey = [ownerKey, "actions"];
     source.setQueryData(activityKey, { pages: [{ transfers: [{}] }], pageParams: [null] });
     source.setQueryData(actionsKey, { actions: [null] });
     const queries = dehydrate(source).queries;
     window.localStorage.setItem(`${ownerQueryCachePrefix}${encodeURIComponent(ownerKey)}`, JSON.stringify({
-      timestamp: NOW, buster: "home-query-v3", clientState: { mutations: [], queries },
+      timestamp: NOW, buster: "home-query-v4", clientState: { mutations: [], queries },
     }));
     expect(restoreOwnerQueries(getHomeQueryClient(), window.localStorage, ownerKey)).toBe(false);
     expect(getHomeQueryClient().getQueryData(activityKey)).toBeUndefined();
@@ -463,7 +487,18 @@ describe("ConnectedActivityPanel", () => {
     expect(actionsCalls).toBeGreaterThan(0);
   });
 
-  test("a malformed actions value restored from an earlier cache recovers instead of crashing", async () => {
+  test("a malformed cached actions value never masks a failed actions read", async () => {
+    const owner = session("subject-a", WALLET_A);
+    const { activityOwnerKey } = await import("./use-activity");
+    getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: NOW - 60_000 });
+    const view = render(<ActivityPanel session={owner}
+      fetchActivity={async (query) => pageFor(query, WALLET_A, { empty: true })}
+      fetchOperations={async () => { throw actionFailure(401); }} />);
+    await waitFor(() => expect(view.getByText(/Recorded Home actions are unavailable/)).toBeTruthy());
+    expect(view.queryByText("No activity yet")).toBeNull();
+  });
+
+  test("a malformed actions value already in memory recovers instead of crashing", async () => {
     const owner = session("subject-a", WALLET_A);
     const { activityOwnerKey } = await import("./use-activity");
     getHomeQueryClient().setQueryData([activityOwnerKey(owner), "actions"], {}, { updatedAt: NOW - 60_000 });
@@ -492,7 +527,7 @@ describe("ConnectedActivityPanel", () => {
     expect(view.queryByText("Owner A action")).toBeNull();
   });
 
-  test("initial load stays pending until both sources settle", () => {
+  test.each(["actions", "orders"] as const)("initial load waits for %s before revealing rows", (source) => {
     const activityPage = pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A);
     const view = render(
       <ActivityPanelView
@@ -507,12 +542,39 @@ describe("ConnectedActivityPanel", () => {
           setSentinelVisible: () => {},
           retryLoadMore: () => {},
         }}
-        actionsStatus="loading"
+        actionsStatus={source === "actions" ? "loading" : "ready"}
+        ordersStatus={source === "orders" ? "loading" : "ready"}
       />,
     );
 
     expect(view.getByText("Loading recent activity…")).toBeTruthy();
     expect(view.queryByRole("button", { description: /transaction details/ })).toBeNull();
+  });
+
+  test("cached Home reserves Activity without a shimmer or premature empty state", () => {
+    const activity = { status: "loading" as const, page: null, loadingMore: false as const, loadMoreError: false as const, continuing: false as const, retry: () => {}, refresh: () => {}, setSentinelVisible: () => {}, retryLoadMore: () => {} };
+    const view = render(<ActivityPanelView quietLoading density="feed" activity={activity} actionsStatus="loading" />);
+    expect(view.getByText("Loading recent activity…")).toBeTruthy();
+    expect(view.container.querySelector("section")?.getAttribute("aria-busy")).toBe("true");
+    expect(view.container.querySelector('[data-shimmer]')).toBeNull();
+    expect(view.queryByText("No activity yet")).toBeNull();
+    view.rerender(<ActivityPanelView density="feed" activity={activity} actionsStatus="loading" />);
+    expect(view.container.querySelector('[data-shimmer]')).not.toBeNull();
+  });
+
+  test("settled rows stay mounted while another source refreshes", () => {
+    const activity = {
+      status: "ready" as const, page: pageFor("to=2026-09-13T12%3A00%3A00.000Z", WALLET_A),
+      loadingMore: false, loadMoreError: false, continuing: false,
+      retry: () => {}, refresh: () => {}, setSentinelVisible: () => {}, retryLoadMore: () => {},
+    };
+    const view = render(<ActivityPanelView activity={activity} />);
+    const row = view.container.querySelector("li");
+    expect(row).not.toBeNull();
+    view.rerender(<ActivityPanelView activity={activity} actionsStatus="loading" />);
+    expect(view.queryByText("Loading recent activity…")).toBeNull();
+    expect(view.container.querySelector("li")).toBe(row);
+    expect(view.container.querySelector("section")?.getAttribute("aria-busy")).toBe("true");
   });
 
   test("keeps the pagination window stable while deduplicating overlap", async () => {
@@ -713,6 +775,29 @@ describe("ConnectedActivityPanel", () => {
     expect(view.queryByText("No transfer history was inferred from this error.")).toBeNull();
   });
 
+  test("an empty recent time chunk continues to older activity before showing an empty history", async () => {
+    installControlledObserver();
+    const queries: string[] = [];
+    const fetchActivity: FetchActivity = async (query) => {
+      queries.push(query);
+      const page = pageFor(query, WALLET_A, queries.length < 6
+        ? { empty: true, nextCursor: `chunk-${queries.length}` }
+        : { id: "older-event", blockNumber: "10" });
+      return { ...page, window: { from: "2023-01-01T00:00:00.000Z", to: page.window.to },
+        transfers: page.transfers.map((transfer) => ({ ...transfer, blockTimestamp: new Date(NOW - 40 * 86_400_000).toISOString() })) };
+    };
+    const view = render(<ActivityPanel session={session("subject-a", WALLET_A)} fetchActivity={fetchActivity} />);
+    const observer = await waitForSentinel();
+    expect(view.queryByText("End of activity")).toBeNull();
+    act(() => observer.intersect());
+    await waitFor(() => expect(queries).toHaveLength(6), waitedFor);
+    await waitFor(() => expect(view.getByText("End of activity")).toBeTruthy(), waitedFor);
+    expect(new URLSearchParams(queries[1]).get("cursor")).toBe("chunk-1");
+    expect(new URLSearchParams(queries[2]).get("cursor")).toBe("chunk-2");
+    for (const query of queries) expect(new URLSearchParams(query).get("history")).toBe("all");
+    expect(view.queryByText("Loading older activity")).toBeNull();
+  });
+
   test("continues automatically through advancing empty pages without manual controls", async () => {
     installControlledObserver();
     const pendingEmpty = deferred<unknown>();
@@ -774,10 +859,12 @@ describe("ConnectedActivityPanel", () => {
 
   test("keeps rows and the list node while retrying the exact cursor after automatic retries fail", async () => {
     installControlledObserver();
+    const retries = queuedContinuationRetry();
     const queries: string[] = [];
     const view = render(
       <ActivityPanel
         session={session("subject-a", WALLET_A)}
+        scheduleContinuationRetry={retries.schedule}
         fetchActivity={async (query) => {
           queries.push(query);
           if (queries.length === 1) {
@@ -805,9 +892,14 @@ describe("ConnectedActivityPanel", () => {
 
     const observer = await waitForSentinel();
     act(() => observer.intersect());
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
     const retry = await waitFor(() =>
       view.getByRole("button", { name: "Try again" }), waitedFor,
     );
+    expect(retries.delays).toEqual([1_000, 3_000]);
     const list = view.getByRole("list");
     expect(view.getByText("More activity could not be loaded. Your current results are unchanged.")).toBeTruthy();
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
@@ -878,10 +970,12 @@ describe("ConnectedActivityPanel", () => {
 
   test("rejects a repeated cursor without a request storm and offers only Retry", async () => {
     installControlledObserver();
+    const retries = queuedContinuationRetry();
     const queries: string[] = [];
     const view = render(
       <ActivityPanel
         session={session("subject-a", WALLET_A)}
+        scheduleContinuationRetry={retries.schedule}
         fetchActivity={async (query) => {
           queries.push(query);
           if (queries.length === 1) {
@@ -902,9 +996,48 @@ describe("ConnectedActivityPanel", () => {
 
     const observer = await waitForSentinel();
     act(() => observer.intersect());
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    await retries.runNext();
     await waitFor(() => expect(view.getByRole("button", { name: "Try again" })).toBeTruthy(), waitedFor);
+    expect(retries.delays).toEqual([1_000, 3_000]);
     expect(requestedCursors(queries)).toEqual([null, "cursor-1", "cursor-1", "cursor-1"]);
     expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
     expect(view.queryByText("End of activity")).toBeNull();
+  });
+
+  test("cancels the scheduled continuation retry when the sentinel leaves the viewport", async () => {
+    installControlledObserver();
+    const retries = queuedContinuationRetry();
+    const queries: string[] = [];
+    const view = render(
+      <ActivityPanel
+        session={session("subject-a", WALLET_A)}
+        scheduleContinuationRetry={retries.schedule}
+        fetchActivity={async (query) => {
+          queries.push(query);
+          if (queries.length === 1) {
+            return pageFor(query, WALLET_A, {
+              id: "event-1",
+              blockNumber: "20",
+              nextCursor: "cursor-1",
+            });
+          }
+          throw new Error("later page unavailable");
+        }}
+      />,
+    );
+
+    const observer = await waitForSentinel();
+    act(() => observer.intersect());
+    await waitFor(() => expect(retries.queued).toHaveLength(1), waitedFor);
+    expect(retries.delays).toEqual([1_000]);
+
+    act(() => observer.leave());
+    await waitFor(() => expect(retries.queued).toHaveLength(0));
+    expect(requestedCursors(queries)).toEqual([null, "cursor-1"]);
+    expect(view.getAllByRole("button", { description: /transaction details/ })).toHaveLength(1);
+    expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });

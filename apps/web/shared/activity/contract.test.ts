@@ -1,3 +1,4 @@
+import { getAddress } from "viem";
 import { describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -528,4 +529,25 @@ describe("activity valuation parser", () => {
     const page = parseActivityPage(volatilePage(pegValuation), session, TO);
     expect(page.transfers[0]!.valuation.status).toBe("unpriced");
   });
+});
+
+test("activity normalizes checksummed sender and mixed-case hash, rejecting bad wire hex", () => {
+  const page = validPage();
+  const sender = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const first = { ...page.transfers[0]!, fromAddress: sender, blockHash: `0x${"Ab".repeat(32)}` };
+  const valid = { ...page, transfers: [first, page.transfers[1]!] };
+  const parsed = parseActivityPage(valid, session, TO);
+  expect(String(parsed.transfers[0]?.fromAddress)).toBe(sender.toLowerCase());
+  expect(String(parsed.transfers[0]?.blockHash)).toBe(`0x${"ab".repeat(32)}`);
+  expect(() => parseActivityPage({ ...valid, transfers: [{ ...first, fromAddress: sender.replace("A", "a") }] }, session, TO)).toThrow(ActivityResponseError);
+  expect(() => parseActivityPage({ ...valid, transfers: [{ ...first, blockHash: "0xzz" }] }, session, TO)).toThrow(ActivityResponseError);
+});
+
+
+test("full-history pages accept older transfers but reject an unsupported lower history bound", () => {
+  const original = validPage();
+  const old = { ...original, window: { ...original.window, from: "2023-01-01T00:00:00.000Z" },
+    transfers: original.transfers.map((transfer) => ({ ...transfer, blockTimestamp: "2026-07-01T12:00:00.000Z" })) };
+  expect(parseActivityPage(old, session, TO).transfers[0]?.blockTimestamp).toBe("2026-07-01T12:00:00.000Z");
+  expect(() => parseActivityPage({ ...old, window: { ...old.window, from: "2022-12-31T23:59:59.000Z" } }, session, TO)).toThrow(ActivityResponseError);
 });

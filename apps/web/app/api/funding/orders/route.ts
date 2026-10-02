@@ -4,8 +4,6 @@ import {
   handleFundingOrderPost,
 } from "./handler";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const postDependencies = {
   authorize: authorizeFundingSession,

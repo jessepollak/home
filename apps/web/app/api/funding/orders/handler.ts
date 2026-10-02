@@ -1,6 +1,8 @@
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   authorizeFundingRequest,
+  fundingError,
+  fundingJson,
   fundingRequestOrigin,
   type FundingSessionAuthorizer,
 } from "@/server/funding/core/auth";
@@ -12,7 +14,9 @@ import {
   FUNDING_ORDER_RESOLUTION_VERSION,
   parseResolveFundingOrderRequest,
 } from "@/shared/funding/contracts/order-resolution";
+import { assertFundingOpenOrderResponse, FUNDING_OPEN_ORDER_VERSION, parseFundingOpenOrderQuery } from "@/shared/funding/contracts/open-order";
 import { emitUnknownFundingOrderRouteFailure } from "./event";
+import { readJson } from "@/shared/http/read-json";
 
 type FundingOrderPostDependencies = {
   authorize: FundingSessionAuthorizer;
@@ -29,6 +33,9 @@ type FundingOpenOrderGetDependencies = {
   getOpenOrder: (
     session: VerifiedAccountSession,
     region: string,
+    providerId?: string,
+    paymentMethod?: string,
+    assetId?: string,
   ) => Promise<unknown>;
 };
 
@@ -60,7 +67,7 @@ export async function handleFundingOrderPost(
   }
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readJson(request);
   } catch {
     return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
   }
@@ -75,7 +82,7 @@ export async function handleFundingOrderPost(
     }, 201);
   } catch (error) {
     if (error instanceof FundingCoreError) {
-      return privateError(error.code, "The funding order could not be created.", error.status);
+      return fundingError(error.code, error.publicMessage ?? "The funding order could not be created.", error.status);
     }
     emitUnknownFundingOrderRouteFailure({
       route: "/api/funding/orders",
@@ -96,12 +103,21 @@ export async function handleFundingOpenOrderGet(
   const startedAt = Date.now();
   const authorized = await authorizeFundingRequest(request, dependencies.authorize);
   if ("response" in authorized) return authorized.response;
-  const region = new URL(request.url).searchParams.get("region");
-  if (!region) return privateError("INVALID_REGION", "Choose a country first.", 400);
+  const parsed = parseFundingOpenOrderQuery(new URL(request.url).searchParams);
+  if (!parsed.ok) {
+    if (parsed.reason === "region") return fundingError("INVALID_REGION", "Choose a country first.", 400);
+    if (parsed.reason === "provider") return fundingError("INVALID_ORDER_REQUEST", "Choose a valid funding provider.", 400);
+    if (parsed.reason === "asset") return fundingError("INVALID_ORDER_REQUEST", "Choose a valid funding asset.", 400);
+    return fundingError("INVALID_ORDER_REQUEST", "Choose a valid payment method.", 400);
+  }
+  const { query } = parsed;
   try {
-    return privateJson({
-      order: await dependencies.getOpenOrder(authorized.session, region),
-    });
+    const response = {
+      version: FUNDING_OPEN_ORDER_VERSION,
+      order: await dependencies.getOpenOrder(authorized.session, query.region, query.providerId, query.paymentMethod, query.assetId),
+    };
+    assertFundingOpenOrderResponse(response, query.region);
+    return fundingJson(response);
   } catch {
     emitUnknownFundingOrderRouteFailure({
       route: "/api/funding/orders",
@@ -156,7 +172,7 @@ export async function handleFundingOrderResolutionPost(
   }
   let body: unknown;
   try {
-    body = await request.json();
+    body = await readJson(request);
   } catch {
     return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
   }

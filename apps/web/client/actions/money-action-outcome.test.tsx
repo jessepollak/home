@@ -2,8 +2,11 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { dataOwnerKey } from "@/client/account/owner-keys";
+import type { BalanceActionMarker } from "@/client/query/after-action";
 import { clearOwnerQueryBoundary, getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
+import { parseRecentActionsPayload, type RecentActionsPayload } from "@/shared/actions/contracts/list";
+import { refetchIntervalFor } from "@/tests/helpers/query-interval";
 
 const { act, cleanup, renderHook, waitFor } = await import("@testing-library/react");
 const { moneyResultOutcome, useMoneyActionOutcome } = await import("./money-action-outcome");
@@ -13,7 +16,14 @@ const action: PreparedMoneyAction = {
   owner: { subject: "subject", address: "0x1111111111111111111111111111111111111111", chainId: 8453, accountProvider: "cdp-embedded" },
   createdAt: "2026-09-23T00:00:00.000Z", expiresAt: "2099-09-23T00:00:00.000Z",
 };
-const row = { id: action.id, status: "pending", owner: action.owner };
+const row = { id: action.id, status: "pending", owner: action.owner, kind: action.kind,
+  createdAt: action.createdAt, confirmedAt: action.createdAt,
+  summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt } };
+const parsed = (rows: unknown[]) => parseRecentActionsPayload({ actions: rows }, {
+  user: { subject: action.owner.subject },
+  smartAccount: { address: action.owner.address, chainId: action.owner.chainId },
+  accountProvider: action.owner.accountProvider,
+});
 const ownerKey = dataOwnerKey({ subject: action.owner.subject, smartAccountAddress: action.owner.address, chainId: action.owner.chainId, accountProvider: action.owner.accountProvider });
 const key = ownerQueryKey(ownerKey, "actions");
 const observationKey = ownerQueryKey(ownerKey, "action-result-observation", action.id);
@@ -52,18 +62,35 @@ test("matches both action id and the complete owner tuple, then adopts terminal 
   const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations }));
   await waitFor(() => expect(getHomeQueryClient().getQueryData(key)).toBeTruthy());
   expect(result.current).toEqual({ outcome: "pending" });
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [...(getHomeQueryClient().getQueryData(key) as { actions: unknown[] }).actions, row] }));
-  await waitFor(() => expect(result.current.row).toMatchObject(row));
+  void act(() => getHomeQueryClient().setQueryData(key, {
+    ...parsed([row]),
+    operations: [...getHomeQueryClient().getQueryData<RecentActionsPayload>(key)!.operations, ...parsed([row]).operations],
+  }));
+  await waitFor(() => expect(result.current.row).toMatchObject({ id: row.id, status: row.status, owner: row.owner }));
   expect(result.current.outcome).toBe("pending");
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "confirmed" }] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "confirmed" }])));
   await waitFor(() => expect(result.current.outcome).toBe("success"));
+});
+
+test.each(["confirmed", "failed"] as const)("a retained-only savings deposit resolves as %s and stops polling", async (status) => {
+  const deposit = { ...action, kind: "savings-deposit" as const };
+  const payload = (status: string) => ({ actions: [], retainedSavingsDeposits: [{ ...row, kind: deposit.kind, status }] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action: deposit, submission: "submitted", fetchOperations: async () => payload("unknown") }));
+  await waitFor(() => expect(result.current.row?.status).toBe("unknown"));
+  expect(refetchIntervalFor(key)).toBe(5_000);
+  const session = { user: { subject: action.owner.subject }, smartAccount: { address: action.owner.address, chainId: action.owner.chainId }, accountProvider: action.owner.accountProvider };
+  void act(() => getHomeQueryClient().setQueryData(key, parseRecentActionsPayload(payload(status), session)));
+  await waitFor(() => expect(result.current.outcome).toBe(status === "confirmed" ? "success" : "failed"));
+  expect(result.current.row).toMatchObject({ id: deposit.id, status });
+  expect(getHomeQueryClient().getQueryData<RecentActionsPayload>(key)?.operations).toEqual([]);
+  expect(refetchIntervalFor(key)).toBe(false);
 });
 
 test("ambiguous submission stays unknown until the same owner's row is terminal", async () => {
   const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "ambiguous", fetchOperations: async () => ({ actions: [row] }) }));
   await waitFor(() => expect(result.current.row?.status).toBe("pending"));
   expect(result.current.outcome).toBe("unknown");
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "failed" }] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "failed" }])));
   await waitFor(() => expect(result.current.outcome).toBe("failed"));
 });
 
@@ -77,13 +104,13 @@ test("typed pre-dispatch failure does not query actions", () => {
 test("a present correction wins, but a later list without the row retains the latest observation", async () => {
   const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [row] }) }));
   await waitFor(() => expect(result.current.outcome).toBe("pending"));
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "confirmed" }] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "confirmed" }])));
   await waitFor(() => expect(result.current.outcome).toBe("success"));
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([])));
   expect(result.current).toMatchObject({ outcome: "success", row: { status: "confirmed" } });
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [row] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([row])));
   await waitFor(() => expect(result.current.outcome).toBe("pending"));
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([])));
   expect(result.current).toMatchObject({ outcome: "pending", row: { status: "pending" } });
 });
 
@@ -113,7 +140,7 @@ test("a confirmed observation survives remount and an omitted row", async () => 
   await waitFor(() => expect(first.result.current.outcome).toBe("success"));
   await waitFor(() => expect(getHomeQueryClient().getQueryData(observationKey)).toMatchObject({ status: "confirmed" }));
   first.unmount();
-  getHomeQueryClient().setQueryData(key, { actions: [] });
+  getHomeQueryClient().setQueryData(key, parsed([]));
   const second = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations }));
   expect(second.result.current.outcome).toBe("success");
 });
@@ -140,12 +167,12 @@ test("another action id on the same owner cannot inherit the confirmed row", asy
 test("clearing the current owner's cache removes the retained result", async () => {
   const hook = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [{ ...row, status: "confirmed" }] }) }));
   await waitFor(() => expect(hook.result.current.outcome).toBe("success"));
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([])));
   expect(hook.result.current.outcome).toBe("success");
   void act(() => clearOwnerQueryBoundary(getHomeQueryClient()));
   expect(getHomeQueryClient().getQueryData(observationKey)).toBeUndefined();
   hook.unmount();
-  getHomeQueryClient().setQueryData(key, { actions: [] });
+  getHomeQueryClient().setQueryData(key, parsed([]));
   const reopened = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [] }) }));
   expect(reopened.result.current.outcome).toBe("pending");
 });
@@ -172,21 +199,110 @@ test("an invalidated slow response is cancelled and cannot replace the newer con
   expect(cancelled).toBe(true);
   await act(async () => { resolveOld?.({ actions: [row] }); });
   expect(result.current.outcome).toBe("success");
-  expect(getHomeQueryClient().getQueryData(key)).toMatchObject({ actions: [{ status: "confirmed" }] });
+  expect(getHomeQueryClient().getQueryData(key)).toMatchObject({ operations: [{ status: "confirmed" }], unparsedSavingsDeposits: [] });
 });
 
 test("polling stops on reconciled success even when the row disappears", async () => {
   const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [row] }) }));
   await waitFor(() => expect(result.current.row?.status).toBe("pending"));
-  const query = getHomeQueryClient().getQueryCache().find({ queryKey: key })!;
-  const interval = (query.options as typeof query.options & { refetchInterval?: (value: typeof query) => number | false }).refetchInterval;
-  expect(typeof interval).toBe("function");
-  if (typeof interval !== "function") throw new Error("polling callback missing");
-  expect(interval(query)).toBe(5_000);
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [{ ...row, status: "confirmed" }] }));
+  expect(refetchIntervalFor(key)).toBe(5_000);
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([{ ...row, status: "confirmed" }])));
   await waitFor(() => expect(result.current.outcome).toBe("success"));
-  void act(() => getHomeQueryClient().setQueryData(key, { actions: [] }));
+  void act(() => getHomeQueryClient().setQueryData(key, parsed([])));
   expect(result.current.outcome).toBe("success");
-  expect(interval(query)).toBe(false);
+  expect(refetchIntervalFor(key)).toBe(false);
+});
+
+test("an ambiguous submission qualifies the owner's balances once until a fresh read succeeds", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  let status: "pending" | "confirmed" = "pending";
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "ambiguous", fetchOperations: async () => ({ actions: [{ ...row, status }] }) }));
+  await waitFor(() => expect(client.getQueryData(markerKey)).toBeDefined());
+  expect(result.current.outcome).toBe("unknown");
+  const marker = client.getQueryData<BalanceActionMarker>(markerKey);
+  status = "confirmed";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual(marker);
+});
+
+test("a failed submission does not qualify balances", () => {
+  const client = getHomeQueryClient();
+  renderHook(() => useMoneyActionOutcome({ action, submission: "failed", fetchOperations: async () => ({ actions: [] }) }));
+  expect(client.getQueryData(ownerQueryKey(ownerKey, "balances-action"))).toBeUndefined();
+});
+
+test("a confirmed result without a marker creates the qualification", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  const balancesKey = ownerQueryKey(ownerKey, "balances", "US");
+  client.setQueryData(balancesKey, { version: 5, holdings: [] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [{ ...row, status: "confirmed" }] }) }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
+  expect(client.getQueryState(balancesKey)?.isInvalidated).toBe(true);
+});
+
+test("an ambiguous submission qualifies only the action owner's balances", async () => {
+  const client = getHomeQueryClient();
+  const otherMarker = ownerQueryKey("other-owner", "balances-action");
+  client.setQueryData(otherMarker, { at: 1, fresh: {} });
+  renderHook(() => useMoneyActionOutcome({ action, submission: "ambiguous", fetchOperations: async () => ({ actions: [] }) }));
+  await waitFor(() => expect(client.getQueryData(ownerQueryKey(ownerKey, "balances-action"))).toBeDefined());
+  expect(client.getQueryData<BalanceActionMarker>(otherMarker)).toEqual({ at: 1, fresh: {} });
+});
+
+test("a settlement after a region recovered re-qualifies that region", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  let status: "pending" | "confirmed" = "pending";
+  const fetchOperations = async () => ({ actions: [{ ...row, status }] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "ambiguous", fetchOperations }));
+  await waitFor(() => expect(client.getQueryData(markerKey)).toBeDefined());
+  const marked = client.getQueryData<BalanceActionMarker>(markerKey)!;
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: marked.at, fresh: { US: true } });
+  status = "confirmed";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
+});
+
+test("a settlement re-qualifies once while the same settlement is observed again", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [{ ...row, status: "confirmed" }] }) }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  const marked = client.getQueryData<BalanceActionMarker>(markerKey)!;
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: marked.at, fresh: { US: true } });
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: marked.at, fresh: { US: true } }));
+});
+
+test("a confirmed result observed on mount re-qualifies balances", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: 1, fresh: { US: true } });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations: async () => ({ actions: [{ ...row, status: "confirmed" }] }) }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
+});
+
+test("a status regression and re-confirmation re-qualifies balances", async () => {
+  const client = getHomeQueryClient();
+  const markerKey = ownerQueryKey(ownerKey, "balances-action");
+  let status: "pending" | "confirmed" = "confirmed";
+  const fetchOperations = async () => ({ actions: [{ ...row, status }] });
+  const { result } = renderHook(() => useMoneyActionOutcome({ action, submission: "submitted", fetchOperations }));
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  const marked = client.getQueryData<BalanceActionMarker>(markerKey)!;
+  client.setQueryData<BalanceActionMarker>(markerKey, { at: marked.at, fresh: { US: true } });
+  status = "pending";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(result.current.row?.status).toBe("pending"));
+  expect(client.getQueryData<BalanceActionMarker>(markerKey)).toEqual({ at: marked.at, fresh: { US: true } });
+  status = "confirmed";
+  await act(async () => { await client.invalidateQueries({ queryKey: key }); });
+  await waitFor(() => expect(result.current.outcome).toBe("success"));
+  await waitFor(() => expect(client.getQueryData<BalanceActionMarker>(markerKey)).toMatchObject({ fresh: {} }));
 });
 

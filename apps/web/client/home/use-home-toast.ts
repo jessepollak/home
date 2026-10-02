@@ -38,5 +38,5 @@ export function useHomeToast(ownerBoundary: string | null) {
     });
   }, []);
 
-  return { add, closeAll: toast.close };
+  return { add, close: toast.close, closeAll: toast.close };
 }
