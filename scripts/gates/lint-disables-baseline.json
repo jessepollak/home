@@ -190,6 +190,13 @@
   },
   "exceptions": [
     {
+      "path": "apps/web/client/invest/explorations/investments-overview.stories.tsx",
+      "rule": "home/no-real-waits",
+      "count": 1,
+      "issue": "#1744",
+      "reason": "Exploration story polls the observable rendered-row count after an IntersectionObserver page reveal; 2 s is below callback delivery on a loaded shared runner, so the bounded wait is 5 s."
+    },
+    {
       "path": "apps/web/components/ui/field.tsx",
       "rule": "jsx-a11y/label-has-associated-control",
       "count": 1,

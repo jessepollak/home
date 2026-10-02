@@ -96,7 +96,8 @@ async function revealNextPage(region: HTMLElement, visible: number, total: numbe
   const last = items()[visible - 1];
   if (!last) throw new Error(`Missing investment row ${visible} of ${total}`);
   last.scrollIntoView({ block: "center", behavior: "instant" });
-  await waitFor(() => expect(items()).toHaveLength(Math.min(visible + 20, total)), { timeout: 2_000 });
+  // oxlint-disable-next-line home/no-real-waits -- Polls the observable row count after an IntersectionObserver page reveal; the 2 s cap is below callback delivery on a loaded CI runner, so the bound is 5 s.
+  await waitFor(() => expect(items()).toHaveLength(Math.min(visible + 20, total)), { timeout: 5_000 });
 }
 async function assertSnapshot(canvasElement: HTMLElement, snapshot: BalancesSnapshot) {
   const canvas = screen(canvasElement);
