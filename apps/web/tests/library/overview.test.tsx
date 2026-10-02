@@ -57,6 +57,7 @@ describe("library overview specimens", () => {
       expect(card(id).getByRole("button", { name })).not.toBeNull();
     }
     expect(card("ui-combobox").getByRole("combobox", { name: "Currency" }).getAttribute("aria-expanded")).toBe("false");
+    expect(card("ui-combobox").getByRole("button", { name: "Show currencies" }).getAttribute("aria-expanded")).toBe("false");
     expect(card("ui-select").getByRole("combobox", { name: "Asset" }).getAttribute("aria-expanded")).toBe("false");
     const toggle = card("ui-switch").getByRole("switch", { name: "Show small balances" });
     const checked = toggle.getAttribute("aria-checked");
@@ -78,6 +79,35 @@ describe("library overview specimens", () => {
     fireEvent.click(within(view.container.querySelector<HTMLElement>("[data-library-overview]")!).getByRole("button", { name: /^Motion/ }));
     expect(surface()).toBe("Motion foundations");
     await act(async () => {});
+  });
+
+  test("two consecutive pulls each complete and release the refresh action", async () => {
+    const Specimen = specimens["ui-pull-to-refresh"].Render;
+    const view = render(<Specimen />);
+    const status = view.getByRole("status");
+    const action = view.getByRole("button", { name: "Refresh activity" });
+    const phase = () => view.container.querySelector("[data-refresh-phase]")?.getAttribute("data-refresh-phase");
+    for (const label of ["Refreshed once", "Refreshed 2 times"]) {
+      for (const [type, y] of [["touchstart", 10], ["touchmove", 600], ["touchend", 600]] as const) {
+        const touch = { identifier: 1, clientX: 10, clientY: y };
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, {
+          touches: { value: type === "touchend" ? [] : [touch] },
+          changedTouches: { value: [touch] },
+        });
+        void act(() => status.dispatchEvent(event));
+      }
+      expect(action.getAttribute("aria-busy")).toBe("true");
+      expect(phase()).toBe("refreshing");
+      await act(async () => {});
+      expect(status.textContent).toBe(label);
+      expect(action.getAttribute("aria-busy")).toBe("false");
+      expect(phase()).toBe("settling");
+      const transition = new Event("transitionend", { bubbles: true });
+      Object.defineProperty(transition, "propertyName", { value: "transform" });
+      void act(() => status.parentElement!.dispatchEvent(transition));
+      expect(phase()).toBe("idle");
+    }
   });
 
   test("each card name opens its own component sheet", async () => {

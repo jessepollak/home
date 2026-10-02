@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger } from "@/components/ui/combobox";
 import { CoverageStatusPreview } from "@/components/ui/coverage-status-preview";
 import { CoverageTable, type CoverageTableRow } from "@/components/ui/coverage-table";
 import { DataTable } from "@/components/ui/data-table";
@@ -183,10 +183,23 @@ function PullToRefreshSpecimen() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const [refreshes, setRefreshes] = useState(0);
-  const refresh = () => setRefreshes((count) => count + 1);
-  const { phase, indicatorRef, actionRef } = usePullToRefresh({ scrollRef, contentRef, enabled: true, refreshing: false, onRefresh: refresh });
-  return <div ref={scrollRef} aria-label="Activity" className="relative h-36 w-64 overflow-y-auto overscroll-contain rounded-lg bg-muted">
-    <PullToRefreshAction label="Refresh activity" refreshing={false} onRefresh={refresh} actionRef={actionRef} />
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = () => setRefreshing(true);
+  useEffect(() => {
+    if (!refreshing) return;
+    let cancelled = false;
+    const settle = async () => {
+      await Promise.resolve();
+      if (cancelled) return;
+      setRefreshes((count) => count + 1);
+      setRefreshing(false);
+    };
+    void settle();
+    return () => { cancelled = true; };
+  }, [refreshing]);
+  const { phase, indicatorRef, actionRef } = usePullToRefresh({ scrollRef, contentRef, enabled: true, refreshing, onRefresh: refresh });
+  return <div ref={scrollRef} aria-label="Activity" data-refresh-phase={phase} className="relative h-36 w-64 overflow-y-auto overscroll-contain rounded-lg bg-muted">
+    <PullToRefreshAction label="Refresh activity" refreshing={refreshing} onRefresh={refresh} actionRef={actionRef} />
     <PullToRefreshIndicator phase={phase} indicatorRef={indicatorRef} />
     <div ref={contentRef}>
       <p className="px-4 py-3 text-sm text-muted-foreground" role="status">
@@ -267,7 +280,11 @@ export const specimens: Record<string, Specimen> = {
   },
   "ui-combobox": {
     Render: () => <Combobox items={currencies} defaultValue={currencies[0]} aria-label="Currency">
-      <ComboboxInput aria-label="Currency" placeholder="Search currencies" className="w-60" />
+      <ComboboxInput aria-label="Currency" placeholder="Search currencies" className="w-60" showTrigger={false}>
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton size="icon-xs" variant="ghost" render={<ComboboxTrigger aria-label="Show currencies" />} />
+        </InputGroupAddon>
+      </ComboboxInput>
       <ComboboxContent>
         <ComboboxEmpty>No currencies found.</ComboboxEmpty>
         <ComboboxList>

@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { readReviewBuild, type ReviewBuild, type StoryIndexEntry } from "./explorations/board/review-build";
 import { LibraryView } from "./explorations/library/library";
+import { specimens } from "./explorations/library/overview/specimens";
 
 const build = readReviewBuild(import.meta.env);
 const INITIAL_MODULE_TIMEOUT = 20_000;
@@ -180,6 +181,24 @@ export const Overview: Story = {
     await expect(search(canvasElement).has("component")).toBe(false);
     await userEvent.click(within(canvas.getByRole("region", { name: "All components" })).getByRole("button", { name: /^Color/ }));
     await expect(await canvas.findByRole("main", { name: "Color foundations" })).toBeVisible();
+  },
+};
+
+const ownedStoryMetas = import.meta.glob(
+  "../../components/ui/*.stories.tsx", { eager: true, import: "default" },
+) as unknown as Record<string, { id: string; title: string }>;
+const fullOverviewIndex = indexOf(Object.entries(ownedStoryMetas).map(([path, meta]) =>
+  story(`${meta.id}--default`, meta.title, "Default", `./components/ui/${path.split("/").at(-1)}`)));
+
+export const OverviewGrid: Story = {
+  args: { build: fixtureBuild, storyIndex: fullOverviewIndex, frameSource: "blank" },
+  parameters: { a11y: { test: "error", context: "[data-library-overview]" } },
+  beforeEach: Overview.beforeEach,
+  play: async ({ canvasElement }) => {
+    const surface = await within(canvasElement).findByRole("main", { name: "Library overview" });
+    await expect([...surface.querySelectorAll("[data-library-specimen]")].map((card) => card.getAttribute("data-library-specimen")).sort())
+      .toEqual(Object.keys(specimens).sort());
+    await expect(within(surface).queryByText(/^Couldn't render/)).not.toBeInTheDocument();
   },
 };
 
