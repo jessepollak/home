@@ -319,6 +319,123 @@ describe("no-silent-catch", () => {
     expect(results.fixture1).toHaveLength(0);
   }, budgetMs);
 
+  it("accepts recovery-named calls bound to imports, hook results, promise executors, globals, and members", async () => {
+    const results = await lint({
+      fixture1: `
+      import { useReducer, useState } from "react";
+      import { resetCache as clearCache } from "@/client/cache";
+      export async function Panel() {
+        const [, setError] = useState("");
+        const [, dispatch] = useReducer(reducer, initial);
+        const reset = useReset();
+        const { invalidate } = await loadClient();
+        try { run(); } catch { setError("failed"); }
+        try { run(); } catch { (dispatch as (action: unknown) => void)({ type: "failed" }); }
+        try { run(); } catch { reset(); }
+        try { run(); } catch { invalidate(); }
+        try { run(); } catch { clearCache(); }
+        run().catch(() => { setError("failed"); });
+      }
+      const settled = new Promise((resolve, reject) => {
+        try { resolve(run()); } catch (error) { reject(error); }
+      });
+      try { run(); } catch { clearTimeout(timer); }
+      try { run(); } catch { controller.abort(); }
+      try { run(); } catch { pending.delete(key); }
+      function clearState() { setStatus("idle"); }
+      try { run(); } catch { clearState(); }
+      const wrapped = new Promise(((resolve, reject) => {
+        try { resolve(run()); } catch (error) { reject(error); }
+      }) as (resolve: (value: unknown) => void, reject: (error: unknown) => void) => void);
+      const resetState = (() => { throw new Error("failed"); }) as () => never;
+      try { run(); } catch { resetState(); }
+    `,
+      fixture2: `
+      type Promise = unknown;
+      const typed = new Promise((resolve, reject) => {
+        try { resolve(run()); } catch (error) { reject(error); }
+      });
+      function scheduled<clearTimeout>() {
+        try { run(); } catch { clearTimeout(timer); }
+      }
+      function fail(code: string): never;
+      function fail(code: number): never;
+      function fail(code: string | number): never { throw new Error(String(code)); }
+      try { run(); } catch { fail("E1"); }
+      type recover = () => never;
+      function recover(): never { throw new Error("failed"); }
+      try { run(); } catch { recover(); }
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects recovery-named calls bound to parameters, local no-ops, and non-call bindings", async () => {
+    const results = await lint({
+      fixture1: `
+      import { reportClientError as setReport } from "@/client/observability/client-reporter";
+      function handle(setReport: (error: unknown) => void) {
+        try { run(); } catch (error) { (setReport as Function)(error); }
+      }
+    `,
+      fixture2: `
+      function handle(onFailure: (error: unknown) => void, reject: (error: unknown) => void) {
+        try { run(); } catch (error) { onFailure(error); }
+        try { run(); } catch (error) { reject(error); }
+        run().catch((error) => { onFailure(error); });
+      }
+    `,
+      fixture3: `
+      const setReport = (error: unknown) => {};
+      function resetState() {}
+      const clearState = () => { if (ready) return; };
+      try { run(); } catch (error) { setReport(error); }
+      try { run(); } catch { resetState(); }
+      try { run(); } catch { clearState(); }
+    `,
+      fixture4: `
+      const reset = noop;
+      let setStatus = useStatus();
+      setStatus = () => {};
+      try { run(); } catch { reset(); }
+      try { run(); } catch { setStatus("failed"); }
+      try { run(); } catch (cancelError) { cancelError(); }
+    `,
+      fixture5: `
+      var setError = useStatus();
+      var setError = createNoop();
+      try { run(); } catch (error) { setError(error); }
+      new Promise((resolve, reject, setFailure = (error: unknown) => {}) => {
+        try { resolve(run()); } catch (error) { setFailure(error); }
+      });
+      function shadowed(Promise: new (executor: (resolve: () => void, reject: (error: unknown) => void) => void) => unknown) {
+        new Promise((resolve, reject) => { try { resolve(); } catch (error) { reject(error); } });
+      }
+    `,
+      fixture6: `
+      let recover = (() => { throw new Error("failed"); }) as () => void;
+      recover = () => {};
+      try { run(); } catch { recover(); }
+      function fail(): never { throw new Error("failed"); }
+      var fallback = fail;
+      var fallback = () => {};
+      try { run(); } catch { fallback(); }
+      let fallthrough = () => { throw new Error("failed"); };
+      fallthrough = () => {};
+      try { run(); } catch { fallthrough(); }
+      declare function reset(): void;
+      try { run(); } catch { reset(); }
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(3);
+    expect(results.fixture3).toHaveLength(3);
+    expect(results.fixture4).toHaveLength(3);
+    expect(results.fixture5).toHaveLength(3);
+    expect(results.fixture6).toHaveLength(4);
+  }, budgetMs);
+
   it("rejects a local declaration shadowing an approved reporting helper", async () => {
     const results = await lint({
       fixture1: `
