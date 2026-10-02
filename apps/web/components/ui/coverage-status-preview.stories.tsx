@@ -41,7 +41,6 @@ export const HollowIndicator: Story = {
 };
 
 export const HoverOpen: Story = {
-  parameters: { library: { render: "frame" } },
   play: async ({ canvasElement }) => {
     await userEvent.hover(within(canvasElement).getByRole("button"));
     const body = within(canvasElement.ownerDocument.body);
