@@ -36,3 +36,23 @@ test("a refused cookie write or clear stays a best-effort failure", () => {
     else Reflect.deleteProperty(document, "cookie");
   }
 });
+
+test("preserving another owner cannot retain the old display cookie", () => {
+  window.history.replaceState(null, "", "/home");
+  writeHomeSummaryCookie(record);
+  clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage, "b");
+  expect(document.cookie).not.toContain(homeSummaryCookieName);
+});
+
+test("a refused cookie scope read still attempts to clear the old projection", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(document, "cookie");
+  let written = "";
+  Object.defineProperty(document, "cookie", { configurable: true, get: () => { throw new Error("denied"); }, set: (value: string) => { written = value; } });
+  try {
+    expect(clearHomeSummaryCookie("a")).toBe(true);
+    expect(written).toContain("Max-Age=0");
+  } finally {
+    if (descriptor) Object.defineProperty(document, "cookie", descriptor);
+    else Reflect.deleteProperty(document, "cookie");
+  }
+});

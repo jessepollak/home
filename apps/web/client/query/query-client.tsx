@@ -299,7 +299,7 @@ export function clearOwnerQueryBoundary(
   storage?: Storage,
   preserveOwnerKey?: string,
 ): void {
-  if (!preserveOwnerKey) clearHomeSummaryCookie();
+  clearHomeSummaryCookie(preserveOwnerKey);
   ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
   for (const listener of boundaryListeners.get(queryClient) ?? []) listener(preserveOwnerKey);
   clearBrowserIndexedOwnerCache(preserveOwnerKey);
