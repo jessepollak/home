@@ -2,7 +2,7 @@
 
 Status: design reference and candidate registry; no token routes enabled or transactions tested.
 Checked: 2026-09-07
-Related: [architecture](architecture.md), [product strategy](product-strategy.md), [currency defaults](currency-defaults.md), and [contract candidates](stablecoin-candidates.json).
+Related: [architecture](architecture.md), [product strategy](product-strategy.md), [currency registry](currency-registry.md), [currency defaults](currency-defaults.md), and [contract candidates](stablecoin-candidates.json).
 
 ## Currency is the primary UI
 
@@ -22,7 +22,7 @@ Every visitor resolves to an offered country or to the operator's default region
 
 On a signed-in shell render, the bounded account preference read settles before the independent Invest visibility and region-offer reads start together, so a cold policy refresh does not compete with that render's preference query for a connection. Signed-out renders start both policy reads immediately. A successful preference read remains bound to its session, including a known-empty choice; an unavailable or timed-out read supplies no preference seed. Policy readers retain their own caches, single-flight reads, deadlines, and fallback behavior.
 
-- **Geolocation.** The landing (`/`) and shell (`/[...shell]`) pages read Vercel's `x-vercel-ip-country` header on the server (`apps/web/server/region/request-country.ts`). A missing header, an unknown or reserved code (`XX`, `T1`), or a country not in `countryRegionIds` resolves to the default region.
+- **Geolocation.** The landing (`/`) and the `(shell)` layout read Vercel's `x-vercel-ip-country` header on the server (`apps/web/server/region/request-country.ts`). A missing header, an unknown or reserved code (`XX`, `T1`), or a country not in `countryRegionIds` resolves to the default region.
 - **Setting it.** Explicit anonymous selections use versioned `localStorage` key `home.country.v2`; legacy auto-written `home.country.v1` values still display but are never adopted into an account. Authenticated selections write to the account, not the browser. A choice made while the session restores, or while a signed-in account is not yet verified by the server, is held until server verification, then saves to the account; if the session ends signed out instead, it saves to this browser. Neither geolocation nor the default-region fallback writes browser storage.
 - **One-time adoption.** When no account preference exists, a valid explicit browser selection is offered to the server as an `onlyIfUnset` write after the account preference read settles; an existing account value wins. An unsupported value or `GLOBAL` falls through to detected country or the default region without adoption.
 - **Account boundary.** The server-rendered preference carries the account it was read for and applies only to that account's first session in the page. Signing out returns to the browser choice or detected country; any later sign-in without a reload, including by the same account, reads the preference from the server again, runs adoption once for that account, and discards any write still pending for the previous account.

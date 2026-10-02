@@ -73,7 +73,7 @@ do not silently ignore a new failure or treat this list as permission to broaden
 ## Gaps
 
 **Playwright Reach replay:** `apps/web/tests/browser/feature-map-replay.pw.ts` exercises the
-non-manual fixture Reaches for landing, sign-in, home-panel, balances, activity, save,
+non-manual fixture Reaches for landing, sign-in, home-panel, activity, save,
 invest, investments, send, account-settings, and coverage, plus save's Convert replay up to review. Manual surfaces are explicitly skipped with reasons in the test. This mostly checks entry
 steps; it does not cover borrow markets, activity pagination, invest categories or memes,
 coverage filters, or dev-ui behavior.

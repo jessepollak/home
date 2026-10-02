@@ -1,5 +1,6 @@
 import "@/client/account/dom-test-harness";
 
+import { useMemo } from "react";
 import { afterEach, expect, jest, test } from "bun:test";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
@@ -29,7 +30,7 @@ function rates(at: number, netApy: number): MorphoVaultsResult {
 }
 
 function RateLabel({ onRender }: { onRender?: (label: string | null) => void }) {
-  const label = useSavingsRateLabel("US", true, deploymentOffering);
+  const { value: label } = useSavingsRateLabel("US", true, deploymentOffering);
   onRender?.(label);
   return <output>{label}</output>;
 }
@@ -121,5 +122,24 @@ test("vault positions reuse a snapshot and invalidate when balances change", () 
   Object.defineProperty(replacement, "holdings", { configurable: true, get: () => { replacementReads++; return replacementHoldings; } });
   view.rerender(surface());
   expect(replacementReads).toBeGreaterThan(0);
+  expect(view.container.textContent).toBe("Up to 4.00% APY");
+});
+
+test("unknown owner holdings never become the advertised maximum rate", () => {
+  jest.setSystemTime(Date.parse("2025-01-01T00:00:00.000Z"));
+  const query = getHomeQueryClient();
+  const snapshot = buildBalancesSnapshotFixture();
+  const session = { user: { subject: "loading-savings" }, smartAccount: { address: snapshot.owner.address, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+  query.setQueryData(publicQueryKey("savings-vaults"), rates(Date.now(), 0.04));
+  const currentWallet: AccountWalletClient = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "restoring" as const,
+    verification: "provisional" as const, session, fetchBalances: async () => snapshot };
+  function Surface() {
+    const client = useMemo(() => currentWallet, []);
+    return <AccountWalletContext.Provider value={client}><RateLabel /></AccountWalletContext.Provider>;
+  }
+  const view = render(<Surface />);
+  expect(view.container.textContent).toBe("");
+  query.setQueryData(ownerQueryKey(dataOwnerKey(session), "balances", "US"), snapshot);
+  view.rerender(<Surface />);
   expect(view.container.textContent).toBe("Up to 4.00% APY");
 });

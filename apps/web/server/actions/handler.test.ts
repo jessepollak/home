@@ -1,14 +1,15 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { isRecord } from "@/shared/guards";
 import { afterEach, describe, expect, test } from "bun:test";
-import type { ActionRow } from "./store";
+import { setActionsStoreForTests, type ActionRow } from "./store";
 import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createHandleActionHandler, createListActionsHandler, createRetryActionHandler } from "./handler";
 import { DECLINE_ACTION_CONTRACT_VERSION } from "@/shared/actions/contracts/decline";
 import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
-import { parseRecentMoneyActions } from "@/shared/actions/contracts/list";
+import { parseRecentActionsPayload, parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
+import { createCashoutCorridorOfferingReader } from "@/server/funding/offering";
 import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { VERIFIED_SAVE_VAULTS } from "@/shared/savings/config";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
@@ -82,6 +83,173 @@ function authorize(subject = "owner-a", accountProvider: "cdp-embedded" | "base-
     accountProvider,
   });
 }
+
+describe("retained savings action reads", () => {
+  const now = () => new Date("2026-09-12T12:10:00.000Z");
+  function recordOf(value: unknown): Record<string, unknown> {
+    if (!isRecord(value)) throw new Error("expected a JSON object body");
+    return value;
+  }
+
+  const recent: ActionRow = { ...row, confirmed_at: "2026-09-12T12:00:00.000Z", outcome: "succeeded" };
+  const retained: ActionRow = { ...row, id: "22222222-2222-4222-8222-222222222222", kind: "savings-deposit",
+    confirmed_at: "2026-09-10T12:00:00.000Z", provider_handle: HASH, transaction_hash: HASH };
+  const baseStore = { list: async () => [recent], recordHandle: async () => null, recordOutcome: recorded };
+  const session = { user: { subject: "owner-a" }, smartAccount: { address: ADDRESS, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
+  test("starts recent and retained reads before either resolves", async () => {
+    const recentRead = Promise.withResolvers<ActionRow[]>();
+    const retainedRead = Promise.withResolvers<ActionRow[]>();
+    const readsStarted = Promise.withResolvers<void>();
+    const calls: string[] = [];
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore,
+        list: () => { calls.push("recent"); return recentRead.promise; },
+        listRetainedSavingsDeposits: () => {
+          calls.push("retained");
+          readsStarted.resolve();
+          return retainedRead.promise;
+        },
+      },
+    });
+    let responded = false;
+    const responseRead = handler(request("/api/actions")).then((response) => { responded = true; return response; });
+    try {
+      await readsStarted.promise;
+      expect(calls).toEqual(["recent", "retained"]);
+      expect(responded).toBe(false);
+      recentRead.resolve([recent]);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(responded).toBe(false);
+      retainedRead.resolve([{ ...retained, outcome: "reverted" }]);
+      const response = await responseRead;
+      expect(response.status).toBe(200);
+      expect(await readJson(response)).toMatchObject({ actions: [{ id: recent.id }], retainedSavingsDeposits: [{ id: retained.id }] });
+    } finally {
+      recentRead.resolve([]);
+      retainedRead.resolve([]);
+      await responseRead;
+    }
+  });
+  test.each(["before-list", "after-response"] as const)("list rejection returns 503 without an unhandled retained rejection %s", async (timing) => {
+    const recentRead = Promise.withResolvers<ActionRow[]>();
+    const retainedRead = Promise.withResolvers<ActionRow[]>();
+    const readsStarted = Promise.withResolvers<void>();
+    const events = captureObservabilityEvents();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    const handler = createListActionsHandler({ authorize: authorize(),
+      store: { ...baseStore, list: () => recentRead.promise,
+        listRetainedSavingsDeposits: () => { readsStarted.resolve(); return retainedRead.promise; },
+      },
+    });
+    const responseRead = handler(request("/api/actions"));
+    try {
+      await readsStarted.promise;
+      if (timing === "before-list") {
+        retainedRead.reject(new Error("retained offline"));
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      recentRead.reject(new Error("store offline"));
+      const response = await responseRead;
+      expect(response.status).toBe(503);
+      expect(await readJson(response)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+      if (timing === "after-response") retainedRead.reject(new Error("retained offline"));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+      expect(events("action-read")).toMatchObject([{ code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable" }]);
+    } finally {
+      recentRead.resolve([]);
+      retainedRead.resolve([]);
+      await responseRead;
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+  test.each(["succeeded", "reverted"] as const)("round-trips retained %s list-handler JSON through the client parser", async (outcome) => {
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => [{ ...retained, outcome, settled_at: blockTimestamp }] },
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const payload = parseRecentActionsPayload(await readJson(response), session);
+    expect(payload.operations.map(({ action, status }) => ({ id: action.id, status }))).toEqual([{ id: recent.id, status: "confirmed" }]);
+    expect(payload.retainedSavingsDeposits.map(({ action, status }) => ({ id: action.id, status })))
+      .toEqual([{ id: retained.id, status: outcome === "succeeded" ? "confirmed" : "failed" }]);
+    expect(payload.retainedSavingsDepositsUnavailable).toBe(false);
+  });
+  test("round-trips retained-unavailable list-handler JSON through the client parser", async () => {
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => { throw new Error("retained offline"); } },
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const payload = parseRecentActionsPayload(await readJson(response), session);
+    expect(payload.operations.map(({ action, status }) => ({ id: action.id, status }))).toEqual([{ id: recent.id, status: "confirmed" }]);
+    expect(payload.retainedSavingsDeposits).toEqual([]);
+    expect(payload.retainedSavingsDepositsUnavailable).toBe(true);
+  });
+  test("returns retained deposits separately, leaving recent actions and cash-out refresh unchanged", async () => {
+    const baseline = await readJson(await createListActionsHandler({ authorize: authorize(), store: baseStore, now, refreshCashouts: async () => [] })(request("/api/actions")));
+    let refreshedIds: string[] = [];
+    const handler = createListActionsHandler({ authorize: authorize(), now,
+      store: { ...baseStore, listRetainedSavingsDeposits: async (owner) => { expect(owner.subject).toBe("owner-a"); return [retained]; } },
+      readReceipt: async () => ({ status: "pending", transactionHash: HASH, finalizedBlockNumber: "0" }),
+      refreshCashouts: async ({ rows }) => { refreshedIds = rows.map(({ row }) => row.id); return []; },
+    });
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(body).toMatchObject({ ...recordOf(baseline), retainedSavingsDeposits: [{ id: retained.id, kind: "savings-deposit", status: "pending" }] });
+    expect(isRecord(body) && isRecord(baseline) && JSON.stringify(body.actions)).toBe(isRecord(baseline) && JSON.stringify(baseline.actions));
+    expect(isRecord(body) && body.truncated).toBe(isRecord(baseline) && baseline.truncated);
+    expect(refreshedIds).toEqual([recent.id]);
+  });
+  test("a retained read failure returns unchanged Activity rows and records an unavailable event", async () => {
+    const events = captureObservabilityEvents();
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => { throw new Error("retained offline"); } },
+    });
+    const baseline = await readJson(await createListActionsHandler({ authorize: authorize(), store: baseStore, now, refreshCashouts: async () => [] })(request("/api/actions")));
+    const response = await handler(request("/api/actions"));
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toEqual({ ...recordOf(baseline), retainedSavingsDepositsUnavailable: true });
+    expect(events("action-read")).toContainEqual(expect.objectContaining({ code: "RETAINED_SAVINGS_DEPOSITS_UNAVAILABLE", outcome: "unavailable" }));
+  });
+  test("deduplicates retained ids against recent actions and omits empty retained fields", async () => {
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => [recent] },
+    });
+    const baseline = await readJson(await createListActionsHandler({ authorize: authorize(), store: baseStore, now, refreshCashouts: async () => [] })(request("/api/actions")));
+    expect(await readJson(await handler(request("/api/actions")))).toEqual(baseline);
+    expect(isRecord(baseline) && Object.keys(baseline)).toEqual(["actions"]);
+  });
+  test.each([true, false])("settles a retained deposit once with a finalized receipt success=%s", async (success) => {
+    let writtenOutcome: string | undefined;
+    const handler = createListActionsHandler({ authorize: authorize(), now, refreshCashouts: async () => [],
+      store: { ...baseStore, listRetainedSavingsDeposits: async () => [retained],
+        recordOutcome: async (_owner, id, input) => {
+          expect(id).toBe(retained.id); writtenOutcome = input.outcome;
+          return { row: { ...retained, outcome: input.outcome, settled_at: input.settledAt }, written: true, conflict: false };
+        } },
+      readReceipt: async () => ({ status: "confirmed", transactionHash: HASH, blockNumber: "1", blockHash: HASH, blockTimestamp, finalized: true, userOperations: [operation(success)] }),
+    });
+    const body = await readJson(await handler(request("/api/actions")));
+    expect(writtenOutcome).toBe(success ? "succeeded" : "reverted");
+    expect(body).toMatchObject({ actions: [{ id: recent.id }], retainedSavingsDeposits: [{ id: retained.id, status: success ? "confirmed" : "failed", settledAt: blockTimestamp }] });
+  });
+  test("shares the five-candidate rotating reconciliation budget with recent rows", async () => {
+    const candidates = Array.from({ length: 8 }, (_, index): ActionRow => ({ ...retained, id: `candidate-${index}`, transaction_hash: null, provider_handle: `handle-${index}`, provider: "base-account" }));
+    const resolved: string[] = [];
+    const handler = createListActionsHandler({ authorize: authorize("owner-a", "base-account"), now, refreshCashouts: async () => [],
+      store: { ...baseStore, list: async () => candidates.slice(0, 4), listRetainedSavingsDeposits: async () => candidates.slice(4) },
+      resolveHandle: async (input) => { if (typeof input.provider_handle === "string") resolved.push(input.provider_handle); return { status: "pending" }; },
+    });
+    const body = await readJson(await handler(baseRequest("/api/actions")));
+    expect(new Set(resolved).size).toBe(5);
+    expect(isRecord(body) && Array.isArray(body.actions) && body.actions.length).toBe(4);
+    expect(isRecord(body) && Array.isArray(body.retainedSavingsDeposits) && body.retainedSavingsDeposits.length).toBe(4);
+  });
+});
 
 describe("card allowance confirmation", () => {
   const metadata = { product: "card" as const, operation: "set-allowance" as const, provider: "bridge" as const,
@@ -295,6 +463,23 @@ describe("actions HTTP handlers", () => {
     expect(lines.map(parseLog)).toMatchObject([{
       kind: "action-read", route: "/api/actions", code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable", provider: "cdp-embedded",
     }]);
+  });
+
+  test("list returns 503 when the default store cannot be initialized", async () => {
+    const databaseUrl = process.env.DATABASE_URL;
+    const events = captureObservabilityEvents();
+    setActionsStoreForTests(null);
+    process.env.DATABASE_URL = "";
+    try {
+      const response = await createListActionsHandler({ authorize: authorize() })(request("/api/actions"));
+      expect(response.status).toBe(503);
+      expect(await readJson(response)).toEqual({ error: { code: "ACTIONS_UNAVAILABLE", message: "Recorded actions are temporarily unavailable." } });
+      expect(events("action-read")).toMatchObject([{ code: "ACTIONS_STORE_UNAVAILABLE", outcome: "unavailable" }]);
+    } finally {
+      if (databaseUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = databaseUrl;
+      setActionsStoreForTests(null);
+    }
   });
 
   test("get returns a typed unavailable error and records a store-read event", async () => {
@@ -848,6 +1033,7 @@ describe("actions HTTP handlers", () => {
     const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
       readOffering: async () => { reads++; throw new Error("db outage"); },
       regionOffered: async () => true,
+      corridorOffered: async () => true,
       markHot: async () => {}, recordConfirmed: async () => {},
       store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
     });
@@ -961,6 +1147,7 @@ describe("actions HTTP handlers", () => {
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered: async () => true,
       readOffering: async () => resolveProductOffering({ kind: "deployment" }),
+      corridorOffered: async () => true,
       store: {
         get: async () => draft,
         confirm: async (_owner, _id, confirmedCalls) => {
@@ -1010,6 +1197,7 @@ describe("actions HTTP handlers", () => {
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered: async () => true,
+      corridorOffered: async () => true,
       store: { get: async () => draft, confirm: async (_owner, _id, calls) => ({ ...draft, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
     });
     const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
@@ -1019,14 +1207,68 @@ describe("actions HTTP handlers", () => {
     expect(parseConfirmActionErrorResponse(body)).toBeNull();
   });
 
-  test("confirm never rechecks the region for withdrawals or already-confirmed cash-outs", async () => {
+  test("confirm rechecks the corridor offering and refuses one paused after prepare", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: async (providerId, region, direction) => {
+        expect([providerId, region, direction]).toEqual(["peer", "US", "offramp"]);
+        return false;
+      },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(502);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_UNAVAILABLE", message: "This cash-out option is no longer offered." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm fails closed when the corridor settings are unavailable", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: async () => { throw new Error("settings unavailable"); },
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm bounds a stalled corridor settings read and refuses the cash-out", async () => {
+    let confirms = 0;
+    const draft = cashoutConfirmRow("cash-out");
+    const handler = createConfirmActionHandler({
+      authorize: authorize(),
+      now: () => new Date("2026-09-12T12:05:00.000Z"),
+      regionOffered: async () => true,
+      corridorOffered: createCashoutCorridorOfferingReader({ read: async () => new Promise<never>(() => {}), deadlineMs: 25 }),
+      store: { get: async () => draft, confirm: async () => { confirms += 1; return draft; } },
+    });
+    const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
+    expect(response.status).toBe(503);
+    expect(parseConfirmActionErrorResponse(await readJson(response))).toEqual({ error: { code: "CASHOUT_SETTINGS_UNAVAILABLE", message: "Cash out is unavailable right now. Try again shortly." } });
+    expect(confirms).toBe(0);
+  });
+
+  test("confirm never rechecks the region or corridor for withdrawals or already-confirmed cash-outs", async () => {
     let regionChecks = 0;
+    let corridorChecks = 0;
     const regionOffered = async () => { regionChecks += 1; return true; };
+    const corridorOffered = async () => { corridorChecks += 1; return true; };
     const withdraw = cashoutConfirmRow("cash-out-withdraw");
     const withdrawHandler = createConfirmActionHandler({
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered,
+      corridorOffered,
       store: { get: async () => withdraw, confirm: async (_owner, _id, calls) => ({ ...withdraw, confirmed_at: "2026-09-12T12:05:00.000Z", pending: { calls: calls ?? [] } }) },
     });
     expect((await withdrawHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(200);
@@ -1036,10 +1278,12 @@ describe("actions HTTP handlers", () => {
       authorize: authorize(),
       now: () => new Date("2026-09-12T12:05:00.000Z"),
       regionOffered,
+      corridorOffered,
       store: { get: async () => confirmed, confirm: async () => null },
     });
     expect((await confirmedHandler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context())).status).toBe(404);
     expect(regionChecks).toBe(0);
+    expect(corridorChecks).toBe(0);
   });
 
   test("confirm fails closed for a cash-out without persisted region metadata", async () => {

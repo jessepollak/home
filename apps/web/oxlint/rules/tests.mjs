@@ -237,42 +237,94 @@ function clockContextKind(callee, sourceCode) {
   return null;
 }
 
-function clockScope(node, sourceCode, containerOnly = false) {
+function declaredClockBinding(sourceCode, declaration, identifier) {
+  return sourceCode.getDeclaredVariables(declaration).find((variable) =>
+    variable.name === identifier.name && variable.defs.some((definition) => definition.node === declaration));
+}
+
+function clockFunction(node, sourceCode) {
+  node = unwrapBindingExpression(node);
+  if (["ArrowFunctionExpression", "FunctionExpression"].includes(node?.type)) return { callback: node, binding: null };
+  if (node?.type !== "Identifier") return null;
+  const variable = resolveVariable(sourceCode, node);
+  const definition = variable?.defs[0];
+  const declaration = definition?.node;
+  const callback = definition?.type === "FunctionName" && declaration.type === "FunctionDeclaration" ? declaration
+    : definition?.type === "Variable" && declaration.id.type === "Identifier" && declaration.parent.kind === "const"
+    ? unwrapBindingExpression(declaration.init) : null;
+  if (!["FunctionDeclaration", "ArrowFunctionExpression", "FunctionExpression"].includes(callback?.type)) return null;
+  const binding = declaredClockBinding(sourceCode, declaration, declaration.id);
+  return binding === variable ? { callback, binding } : null;
+}
+
+function clockScope(node, sourceCode, callbackCalls, containerOnly = false) {
+  const visited = new Set();
   for (let current = node.parent; current; current = current.parent) {
+    if (visited.has(current)) return { kind: "function", node: current };
+    visited.add(current);
     if (current.type === "Program") return { kind: "program", node: current };
-    if (!["ArrowFunctionExpression", "FunctionExpression"].includes(current.type)) continue;
-    let callbackNode = current;
-    while (callbackNode.parent && unwrapBindingExpression(callbackNode.parent) === current) {
-      callbackNode = callbackNode.parent;
-    }
-    const call = callbackNode.parent;
-    if (call?.type !== "CallExpression") continue;
-    const callback = [...call.arguments].reverse().map(unwrapBindingExpression).find((argument) =>
-      argument?.type === "ArrowFunctionExpression" || argument?.type === "FunctionExpression");
-    if (callback !== current) continue;
+    if (!callbackCalls.has(current)) continue;
+    const call = callbackCalls.get(current);
+    if (!call) return { kind: "function", node: current };
     const contextKind = clockContextKind(call.callee, sourceCode);
-    if (contextKind && (!containerOnly || contextKind.kind === "container")) {
-      return { ...contextKind, node: current };
-    }
+    if (!containerOnly || contextKind.kind === "container") return { ...contextKind, node: call };
+    current = call;
   }
   return { kind: "program", node: null };
 }
 
-function clockObject(node, name, sourceCode) {
+function clockContainers(node, sourceCode, callbackCalls) {
+  const containers = [];
+  const visited = new Set([node]);
+  for (;;) {
+    const container = clockScope(node, sourceCode, callbackCalls, true);
+    if (visited.has(container.node)) break;
+    visited.add(container.node);
+    containers.push(container.node);
+    if (container.kind !== "container") break;
+    node = container.node;
+  }
+  return containers;
+}
+
+function clockBinding(node, sourceCode, visited = new Set()) {
   node = unwrapBindingExpression(node);
-  return node?.type === "Identifier" && node.name === name
-    && !resolveVariable(sourceCode, node)?.defs.length
-    || node?.type === "MemberExpression" && memberName(node) === name
-    && node.object.type === "Identifier" && clockGlobals.has(node.object.name)
-    && !resolveVariable(sourceCode, node.object)?.defs.length;
+  if (node?.type === "MemberExpression") {
+    const owner = clockBinding(node.object, sourceCode, visited);
+    const property = memberName(node);
+    if (owner === "global" && ["Date", "performance"].includes(property)) return property;
+    if (property === "now" && owner === "Date") return "date";
+    if (property === "now" && owner === "performance") return "performanceNow";
+    return null;
+  }
+  if (node?.type !== "Identifier") return null;
+  const variable = resolveVariable(sourceCode, node);
+  if (!variable?.defs.length) {
+    return clockGlobals.has(node.name) ? "global" : ["Date", "performance"].includes(node.name) ? node.name : null;
+  }
+  if (visited.has(variable) || variable.references.some((reference) => reference.isWrite() && !reference.init)) return null;
+  visited.add(variable);
+  const definition = variable.defs[0];
+  const declarator = definition?.node;
+  if (definition?.type !== "Variable" || declarator.parent.kind !== "const") return null;
+  if (declarator.id.type === "Identifier") return clockBinding(declarator.init, sourceCode, visited);
+  if (declarator.id.type !== "ObjectPattern") return null;
+  const property = declarator.id.properties.find((candidate) => {
+    if (candidate.type !== "Property") return false;
+    const binding = candidate.value.type === "AssignmentPattern" ? candidate.value.left : candidate.value;
+    return binding.type === "Identifier" && binding.start === variable.identifiers[0]?.start;
+  });
+  return property ? clockBinding({ type: "MemberExpression", object: declarator.init,
+    computed: property.computed, property: property.key }, sourceCode, visited) : null;
+}
+
+function clockObject(node, name, sourceCode) {
+  return clockBinding(node, sourceCode) === name;
 }
 
 function clockProperty(node, sourceCode) {
-  node = unwrapBindingExpression(node);
-  if (node?.type !== "MemberExpression" || memberName(node) !== "now") return null;
-  if (clockObject(node.object, "Date", sourceCode)) return "date";
-  if (clockObject(node.object, "performance", sourceCode)) return "performance";
-  return null;
+  const binding = clockBinding(node, sourceCode);
+  return binding === "date" ? "date" : binding === "performanceNow" ? "performance" : null;
 }
 
 function clockImport(sourceCode, identifier, modules = testClockModules) {
@@ -310,9 +362,14 @@ function playwrightClockCall(callee) {
 }
 
 function clockOptionValue(node, key) {
-  return node?.type === "ObjectExpression" ? node.properties.find((property) =>
-    property.type === "Property" && memberName({ type: "MemberExpression",
-      computed: property.computed, property: property.key }) === key)?.value : null;
+  if (node?.type !== "ObjectExpression") return null;
+  for (const property of [...node.properties].reverse()) {
+    if (property.type !== "Property") return null;
+    const name = memberName({ type: "MemberExpression", computed: property.computed, property: property.key });
+    if (name === key) return property.kind === "init" && !property.method ? property.value : null;
+    if (name == null) return null;
+  }
+  return null;
 }
 
 function outerClockExpression(node) {
@@ -354,6 +411,8 @@ export const noRealWaits = {
     const clockReads = [];
     const pinCandidates = [];
     const subtractions = [];
+    const callbackCalls = new Map();
+    const callbackBindings = new Map();
     function pinnedPageClock(node, pageClockPinned) {
       return playwright && pageClockPinned && pageClockCallback(node);
     }
@@ -410,7 +469,7 @@ export const noRealWaits = {
       const method = memberName(callee);
       const argument = node.arguments[0];
       const record = (instant) => {
-        if (!unpinningInstant(instant)) pinCandidates.push({ argument, scope: clockScope(node, context.sourceCode) });
+        if (!unpinningInstant(instant)) pinCandidates.push({ argument, node });
       };
       const recordFakeTimers = () => {
         const now = clockOptionValue(argument, "now");
@@ -468,6 +527,17 @@ export const noRealWaits = {
       BinaryExpression(node) {
         if (node.operator === "-") subtractions.push(node);
       },
+      Identifier(node) {
+        if (node.parent?.type === "Property" && node.parent.key === node && !node.parent.computed) return;
+        if (!resolveVariable(context.sourceCode, node)?.references.some((reference) =>
+          reference.isRead() && reference.identifier.start === node.start)) return;
+        const kind = clockProperty(node, context.sourceCode);
+        if (!kind) return;
+        const outer = outerClockExpression(node);
+        const call = outer.parent?.type === "CallExpression" && outer.parent.callee === outer
+          ? outer.parent : null;
+        clockReads.push({ kind, node: call ?? node, call });
+      },
       MemberExpression(node) {
         const kind = clockProperty(node, context.sourceCode);
         if (!kind) return;
@@ -482,20 +552,28 @@ export const noRealWaits = {
         }
       },
       "Program:exit"() {
-        const pins = pinCandidates.map(({ argument, scope }) => ({ sources: pinSources(argument), scope }));
+        for (const [callback, { binding, argument }] of callbackBindings) {
+          const references = binding?.references.filter((reference) => !reference.init);
+          const selfBinding = callback.type === "FunctionExpression" && callback.id
+            ? declaredClockBinding(context.sourceCode, callback, callback.id) : null;
+          if (binding && (references.length !== 1 || references[0].identifier.start !== argument.start)
+            || selfBinding?.references.some((reference) => !reference.init)) callbackCalls.set(callback, null);
+        }
+        const pins = pinCandidates.map(({ argument, node }) => ({
+          sources: pinSources(argument), scope: clockScope(node, context.sourceCode, callbackCalls),
+        }));
         const withinPin = (read, sources) => sources.some((source) => withinArgument(read.node, source));
         const validPins = pins.filter(({ sources }) => !clockReads.some((read) => withinPin(read, sources)));
         for (const read of clockReads) {
           const pinArgumentRead = pins.some(({ sources }) => withinPin(read, sources));
-          const scope = clockScope(read.node, context.sourceCode);
+          const scope = clockScope(read.node, context.sourceCode, callbackCalls);
+          const containers = clockContainers(scope.node, context.sourceCode, callbackCalls);
           const governed = validPins.some((pin) => {
             if (pin.scope.node === scope.node) return true;
             if (pin.scope.kind !== "hook" || !clockPreHookNames.has(pin.scope.name)
               || !["test", "hook"].includes(scope.kind)) return false;
-            const container = clockScope(pin.scope.node, context.sourceCode, true).node;
-            if (pin.scope.name === "beforeEach" && ["beforeAll", "before"].includes(scope.name)
-              && clockScope(scope.node, context.sourceCode, true).node === container) return false;
-            return withinArgument(scope.node, container);
+            if (pin.scope.name === "beforeEach" && ["beforeAll", "before"].includes(scope.name)) return false;
+            return containers.includes(clockScope(pin.scope.node, context.sourceCode, callbackCalls, true).node);
           });
           if (!pinArgumentRead && read.kind === "date"
             && (playwright ? pinnedPageClock(read.node, governed) : governed)) continue;
@@ -506,6 +584,16 @@ export const noRealWaits = {
       },
       CallExpression(node) {
         const callee = node.callee;
+        if (clockContextKind(callee, context.sourceCode)) {
+          const registration = [...node.arguments].reverse().map((argument) => {
+            const resolved = clockFunction(argument, context.sourceCode);
+            return resolved ? { ...resolved, argument: unwrapBindingExpression(argument) } : null;
+          }).find(Boolean);
+          if (registration) {
+            callbackCalls.set(registration.callback, node);
+            callbackBindings.set(registration.callback, registration);
+          }
+        }
         pinnedBy(node);
         if (clockObject(callee, "Date", context.sourceCode)) clockReads.push({ kind: "date", node });
         if (callee.type === "Identifier" && callee.name === "setTimeout" && isPromiseDelay(node)) {

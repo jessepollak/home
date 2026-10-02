@@ -5,21 +5,24 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, type HomeShellRouting } from "@/client/home/panel-routing";
 import { ownerQueryKey } from "@/client/query/query-client";
-import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, setSystemTime, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { MORPHO_BLUE_ADDRESS, VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import type { BorrowMarketSnapshot, BorrowOverviewResponse } from "@/shared/borrowing/contract";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const {
   BorrowExperience,
+  useBorrowOfferRate,
   formatCash,
   openingBorrowAvailableBaseUnits,
   presentBorrowAssetMark,
   recommendedOpeningCollateralBaseUnits,
   recommendedRepayMaximumBaseUnits,
 } = await import("./borrowing-experience");
+const { AccountWalletClientProvider, createBlockedAccountWalletClient } = await import("@/client/account/cdp-client");
 const { parseClientTokenAmount, selectPrimaryBorrowAsset } = await import("./borrow-money-dialog");
 
 
@@ -121,6 +124,7 @@ afterEach(() => {
   cleanup();
   getHomeQueryClient().clear();
   jest.useRealTimers();
+  setSystemTime();
   delete animationFlag.BASE_UI_ANIMATIONS_DISABLED;
 });
 
@@ -737,4 +741,28 @@ describe("Borrow bigint helpers", () => {
   test("formats borrowed cash with the loan token symbol", () => {
     expect(formatCash("100000000", { ...BORROW_LOAN_TOKEN, id: BORROW_COLLATERAL_TOKEN.id }, "US")).toContain("USDC");
   });
+});
+
+test("failed Borrow revalidation keeps the retained APR's observation age", async () => {
+  setSystemTime(new Date("2026-10-01T08:00:00.000Z"));
+  const client = getHomeQueryClient();
+  const active = session();
+  const key = ownerQueryKey(dataOwnerKey(active), "borrow", "overview");
+  const observedAt = Date.parse("2026-10-01T07:59:59.000Z");
+  client.setQueryData(key, overview({ position: false, snapshots: [noPosition()] }), { updatedAt: observedAt });
+  const wallet: AccountWalletClient = { ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", session: active,
+    fetchAccountResource: async () => { throw new Error("offline"); } };
+  function Rate() {
+    const observation = useBorrowOfferRate({ enabled: true, regionId: "US" });
+    return <output data-observed-at={observation.updatedAt}>{observation.value}</output>;
+  }
+  const view = render(<AccountWalletClientProvider client={wallet}><Rate /></AccountWalletClientProvider>);
+  const before = view.getByRole("status").textContent;
+  expect(before).toContain("APR");
+  const query = client.getQueryCache().find({ queryKey: key, exact: true });
+  if (!query) throw new Error("Borrow query missing");
+  await act(async () => { await expect(query.fetch()).rejects.toThrow("offline"); });
+  expect(query.state.errorUpdatedAt).toBeGreaterThan(observedAt);
+  expect(view.getByRole("status").textContent).toBe(before);
+  expect(view.getByRole("status").getAttribute("data-observed-at")).toBe(String(observedAt));
 });

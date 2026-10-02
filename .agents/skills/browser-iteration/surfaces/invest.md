@@ -2,7 +2,7 @@
 - **Entry context**: invest · `/invest`, `/invest/stocks|crypto|memes`, `/invest/<assetId>` · same · session + `/api/invest/discover`, `/api/invest/search`, `/api/invest/asset`, `/api/market-prices` fixtures · Main navigation `Invest` button (primary-navigation.tsx), goto path.
 
 - **Live**: read-only
-- **Owned paths**: `apps/web/app/invest/**`, `apps/web/client/invest/**`, `apps/web/client/trading/**`, `apps/web/app/api/invest/**`, `apps/web/app/api/market-prices/**`, `apps/web/app/api/trades/**`, `apps/web/app/api/actions/trade-pending/**`, `apps/web/server/actions/kinds/trade/**`
+- **Owned paths**: `apps/web/app/(shell)/invest/**`, `apps/web/client/invest/**`, `apps/web/client/trading/**`, `apps/web/app/api/invest/**`, `apps/web/app/api/market-prices/**`, `apps/web/app/api/trades/**`, `apps/web/app/api/actions/trade-pending/**`, `apps/web/server/actions/kinds/trade/**`
 - **Confirm labels**: "Buy $<amount>", "Sell <amount> <symbol>", "Retry" (marked only while the prepared action is unexpired; `Get new quote` and the expired `Close` are never marked)
 - **Reach**:
   1. `goto "/invest/cbbtc"`

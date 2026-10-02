@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { currencyPortfolioAssets } from "@/config/portfolio-assets";
+import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
+import type { CurrencyRepresentation } from "@/shared/currencies/types";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import {
   balancesSnapshotFixture,
@@ -11,6 +13,7 @@ import {
   FIXTURE_WALLET_TOKEN,
   priced,
   ready,
+  requiredLocalCashAsset,
   unavailableBalance,
   walletHolding,
 } from "./fixtures";
@@ -93,8 +96,30 @@ describe("balance selectors", () => {
     expect(selectCash(us).map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key))
       .toEqual(["usdc", "eurc", "idrx"]);
     expect(selectCash(de).map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key))
-      .toEqual([verifiedLocalCashAssets.EUR.id, "usdc", "idrx"]);
+      .toEqual([requiredLocalCashAsset("EUR").id, "usdc", "idrx"]);
   });
+  test("places a promoted local holding before USDC without duplicating a contract", () => {
+    const firstRecord = CURRENCY_REGISTRY[0];
+    if (!firstRecord) throw new Error("Missing first currency record.");
+    const promoted: CurrencyRepresentation = {
+      ...firstRecord, id: "base:mxn", fundingId: null,
+      contractAddress: "0x9999999999999999999999999999999999999999",
+      name: "Synthetic peso", symbol: "MXNT", displayCurrency: "MXN", decimals: 18, aliases: ["MXNT"],
+    };
+    const localAsset = currencyPortfolioAssets([...CURRENCY_REGISTRY, promoted]).find((asset) => asset.id === "mxn");
+    if (!localAsset) throw new Error("Missing promoted local cash asset.");
+    const base = buildBalancesSnapshotFixture({ region: "MX", registry: { usdc: { balance: ready("1") } } });
+    const usdc = base.holdings.find((holding) => holding.id === "usdc");
+    if (!usdc) throw new Error("Missing USDC holding.");
+    const mxn = { ...usdc, id: localAsset.id, key: localAsset.assetKey, name: localAsset.name,
+      symbol: localAsset.symbol, decimals: localAsset.decimals, contractAddress: localAsset.contractAddress, cashCurrency: "MXN" as const };
+    const snapshot = { ...base, holdings: [mxn, ...base.holdings, mxn] };
+    const selected = selectCash(snapshot, { localCashAsset: (currency) => currency === "MXN" ? localAsset : null });
+    expect(selected.map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key)).toEqual(["mxn", "usdc"]);
+    const contracts = selected.flatMap((entry) => entry.kind === "holding" ? [entry.holding.contractAddress] : []);
+    expect(new Set(contracts).size).toBe(contracts.length);
+  });
+
 
   test("lists named unreadable extra cash but not zero or unnamed unreadable holdings", () => {
     const base = buildBalancesSnapshotFixture({
@@ -128,7 +153,7 @@ describe("balance selectors", () => {
   test("keeps unverified local placeholders but resolves verified local cash holdings", () => {
     const au = buildBalancesSnapshotFixture({ region: "AU", registry: { usdc: { balance: ready("1") } } });
     expect(selectCash(au).map((entry) => entry.kind)).toEqual(["unsupported", "holding"]);
-    expect(selectCash(au)[0]).toMatchObject({ currency: "AUD", symbol: "AUDD" });
+    expect(selectCash(au)[0]).toMatchObject({ currency: "AUD", symbol: "AUDD", verificationStatus: "Verification pending" });
 
     const br = buildBalancesSnapshotFixture({
       region: "BR",
@@ -144,6 +169,19 @@ describe("balance selectors", () => {
     expect(selectCash(ar)[0]).toMatchObject({ kind: "holding", holding: { id: "wars", balance: ready("0") } });
   });
 
+  test.each([
+    { region: "MX" as const, currency: "MXN", verificationStatus: "Verification pending" },
+    { region: "CA" as const, currency: "CAD", verificationStatus: "Additional verification" },
+  ])("preserves the candidate verification status for $region", ({ region, currency, verificationStatus }) => {
+    const snapshot = buildBalancesSnapshotFixture({ region });
+    expect(selectCash(snapshot)[0]).toMatchObject({
+      kind: "unsupported",
+      key: `cash:unsupported:${currency}`,
+      currency,
+      verificationStatus,
+    });
+  });
+
   test("the cash group keeps the authored regional order even when USD is larger", () => {
     const de = buildBalancesSnapshotFixture({
       region: "DE",
@@ -153,7 +191,7 @@ describe("balance selectors", () => {
       },
     });
     expect(selectMoneyGroups(de).cash.map((entry) => entry.kind === "holding" ? entry.holding.id : entry.key))
-      .toEqual([verifiedLocalCashAssets.EUR.id, "usdc"]);
+      .toEqual([requiredLocalCashAsset("EUR").id, "usdc"]);
   });
 
   test("classifies stablecoins as cash and every non-vault asset as one investments group", () => {

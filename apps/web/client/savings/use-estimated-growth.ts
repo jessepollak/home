@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useShellPanelActive } from "@/client/home/panel-shared";
+import { useEffect, useState } from "react";
 import { useReducedMotion } from "@/components/money-ticker";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
 import type { SavingsPortfolioSummary } from "./portfolio-summary";
@@ -112,8 +111,6 @@ export function useEstimatedSavingsGrowth(
   now: () => number = Date.now,
 ): bigint {
   const reducedMotion = useReducedMotion();
-  const panelActive = useShellPanelActive();
-  const previousPanelActive = useRef(panelActive);
   const [sample, setSample] = useState(() => ({
     identity: anchor.identity,
     value: anchor.authoritativeBaseUnits,
@@ -130,9 +127,7 @@ export function useEstimatedSavingsGrowth(
     : anchor.authoritativeBaseUnits;
 
   useEffect(() => {
-    const resumed = !previousPanelActive.current && panelActive;
-    previousPanelActive.current = panelActive;
-    if (reducedMotion || anchor.estimate === null || !panelActive) return;
+    if (reducedMotion || anchor.estimate === null) return;
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let active = true;
 
@@ -164,14 +159,13 @@ export function useEstimatedSavingsGrowth(
     };
 
     document.addEventListener("visibilitychange", onVisibilityChange);
-    if (resumed && !document.hidden) compute();
     schedule();
     return () => {
       active = false;
       clearSample();
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [anchor, now, reducedMotion, panelActive]);
+  }, [anchor, now, reducedMotion]);
 
   return reducedMotion ? anchor.authoritativeBaseUnits : visibleValue;
 }

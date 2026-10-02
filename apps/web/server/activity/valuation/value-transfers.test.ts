@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { activityAssets } from "@/shared/activity/types";
-import { verifiedLocalCashAssets } from "@/config/portfolio-assets";
+import { requiredLocalCashAsset } from "@/shared/balances/fixtures";
 import { computeActivityValuationAmount } from "@/shared/activity/valuation";
 import {
   historicalCloseKey,
@@ -23,7 +23,7 @@ const TEST_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 const TEST_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
 const AT = "2026-09-07T11:05:00.000Z";
 const usdc = activityAssets.find((asset) => asset.id === "usdc")!;
-const eurc = verifiedLocalCashAssets.EUR;
+const eurc = requiredLocalCashAsset("EUR");
 
 function transfer(overrides: Partial<UnvaluedActivityTransfer> = {}): UnvaluedActivityTransfer {
   const tokenAddress = overrides.tokenAddress ?? TEST_A;

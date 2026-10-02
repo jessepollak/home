@@ -542,3 +542,12 @@ test("activity normalizes checksummed sender and mixed-case hash, rejecting bad 
   expect(() => parseActivityPage({ ...valid, transfers: [{ ...first, fromAddress: sender.replace("A", "a") }] }, session, TO)).toThrow(ActivityResponseError);
   expect(() => parseActivityPage({ ...valid, transfers: [{ ...first, blockHash: "0xzz" }] }, session, TO)).toThrow(ActivityResponseError);
 });
+
+
+test("full-history pages accept older transfers but reject an unsupported lower history bound", () => {
+  const original = validPage();
+  const old = { ...original, window: { ...original.window, from: "2023-01-01T00:00:00.000Z" },
+    transfers: original.transfers.map((transfer) => ({ ...transfer, blockTimestamp: "2026-07-01T12:00:00.000Z" })) };
+  expect(parseActivityPage(old, session, TO).transfers[0]?.blockTimestamp).toBe("2026-07-01T12:00:00.000Z");
+  expect(() => parseActivityPage({ ...old, window: { ...old.window, from: "2022-12-31T23:59:59.000Z" } }, session, TO)).toThrow(ActivityResponseError);
+});

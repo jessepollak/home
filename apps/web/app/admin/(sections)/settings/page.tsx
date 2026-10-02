@@ -1,11 +1,11 @@
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import { InvestPane } from "@/client/admin/invest-pane";
 import { RegionsPane } from "@/client/admin/regions-pane";
 import { FeeSettingsForm, type FeeSettingsState } from "@/client/operator/fee-settings-form";
 import { FeeSettingsUnavailable } from "@/client/operator/fee-settings-unavailable";
-import { getSqlExecutor } from "@/server/db/sql";
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
+import { getSqlExecutor } from "@/server/db/sql";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import { readOperatorPageDecision } from "@/server/operator/page";
 import { readInvestSettingsEntry } from "@/server/operator-settings/invest";
@@ -27,6 +27,8 @@ async function readFeeSettings(): Promise<FeeSettingsState | null> {
     return null;
   }
 }
+
+export const instant = false;
 
 export default async function SettingsPage() {
   const decision = await readOperatorPageDecision();
@@ -51,10 +53,26 @@ export default async function SettingsPage() {
   const fees = await readFeeSettings();
   return (
     <OperatorSection address={address} heading="Settings">
-      <Item variant="outline" render={<Link href="/admin/settings/products" />}>
-        <ItemContent><ItemTitle>Products and markets</ItemTitle><ItemDescription>Manage which new entries are offered.</ItemDescription></ItemContent>
-        <ItemActions><ChevronRight className="size-4" aria-hidden="true" /></ItemActions>
-      </Item>
+      <ul className="grid gap-3">
+        <li>
+          <Item variant="outline" render={<Link href="/admin/settings/funding" />}>
+            <ItemContent className="min-w-0">
+              <ItemTitle>Money in and out</ItemTitle>
+              <ItemDescription>Choose which providers customers can use to add money and cash out.</ItemDescription>
+            </ItemContent>
+            <ItemActions><ChevronRight className="size-4 rtl:-scale-x-100" aria-hidden="true" /></ItemActions>
+          </Item>
+        </li>
+        <li>
+          <Item variant="outline" render={<Link href="/admin/settings/products" />}>
+            <ItemContent className="min-w-0">
+              <ItemTitle>Products and markets</ItemTitle>
+              <ItemDescription>Manage which new entries are offered.</ItemDescription>
+            </ItemContent>
+            <ItemActions><ChevronRight className="size-4 rtl:-scale-x-100" aria-hidden="true" /></ItemActions>
+          </Item>
+        </li>
+      </ul>
       {regionEntry ? <RegionsPane key={address} initialEntry={regionEntry} operator={address} /> : <OperatorEmpty>{database ? "Region settings are unavailable. Try again shortly." : "Region settings need a database. Home is offering its built-in regions."}</OperatorEmpty>}
       {investEntry ? <InvestPane key={address} initialEntry={investEntry} operator={address} /> : <OperatorEmpty>{database ? "Invest settings are unavailable. Try again shortly." : "Invest settings need a database. Home is showing its full catalog."}</OperatorEmpty>}
       {fees ? <FeeSettingsForm key={address} operator={address} initial={fees} /> : <FeeSettingsUnavailable />}

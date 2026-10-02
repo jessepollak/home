@@ -1,6 +1,6 @@
 import { readJson } from "@/tests/helpers/read-json";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
-import { parseAddress } from "@/shared/chain/hex";
+import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import { privateKeyToAccount } from "viem/accounts";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
@@ -9,6 +9,8 @@ import { makePaymasterApproval } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { stockAssets } from "@/config/invest-assets";
 import { resolveProductOffering } from "@/shared/operator-settings/products";
+import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
+import type { resolveConvertPair } from "@/shared/currencies/convert";
 import type { ActionRow } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { createConfirmActionHandler, createGetActionHandler, createGetPendingTradeHandler, createRetryActionHandler } from "./handler";
@@ -60,6 +62,14 @@ function retryRequest(): Request {
   });
 }
 
+function tradeMetadata(address: string, direction: "buy" | "sell"): TradeMoneyActionMetadata {
+  return {
+    product: "trade", direction,
+    fromAsset: { address: direction === "sell" ? address : BASE_USDC_ADDRESS },
+    toAsset: { address: direction === "buy" ? address : BASE_USDC_ADDRESS },
+  } as unknown as TradeMoneyActionMetadata;
+}
+
 const request = (signature: string, provider: "base-account" | "cdp-embedded") => new Request(`https://home.test/api/actions/${ID}/confirm`, {
   method: "POST", headers: { "X-Home-Account-Provider": provider, "Content-Type": "application/json" }, body: JSON.stringify({ signature }),
 });
@@ -94,6 +104,135 @@ describe("trade confirmation", () => {
     expect(result.status).toBe(410);
     expect((await result.json()).error.code).toBe("ACTION_EXPIRED");
     expect(confirms).toBe(0);
+  });
+
+  test.each([
+    ["buy", "base:eurc", "pair-paused"],
+    ["sell", "base:eurc", "pair-paused"],
+    ["buy", "base:eurc", "pair-withdrawn"],
+    ["sell", "base:eurc", "pair-withdrawn"],
+    ["buy", "base:wars", null],
+    ["sell", "base:wars", null],
+  ] as const)("rejects a registry currency %s for %s with %s before confirming", async (direction, recordId, reason) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === recordId);
+    if (!record) throw new Error(`Missing currency record: ${recordId}`);
+    row.summary.metadata = tradeMetadata(record.contractAddress, direction);
+    let confirms = 0;
+    let verifications = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      ...(reason ? { convertPair: () => ({ status: "unavailable" as const, reason }) } : {}),
+      verifySmartAccountSignature: async () => { verifications += 1; return true; },
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(confirms).toBe(0);
+    expect(verifications).toBe(0);
+  });
+
+  test.each([
+    ["buy", "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", "base:removed"],
+    ["sell", "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", "base:removed"],
+    ["buy", "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d", "base:eurc"],
+    ["sell", "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d", "base:eurc"],
+    ["buy", "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", null],
+    ["sell", "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d", null],
+  ] as const)("refuses a stored %s identity that no longer names the traded contract", async (direction, address, currencyRecordId) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = { ...tradeMetadata(address, direction), currencyRecordId } as unknown as TradeMoneyActionMetadata;
+    let confirms = 0;
+    let verifications = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      verifySmartAccountSignature: async () => { verifications += 1; return true; },
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(confirms).toBe(0);
+    expect(verifications).toBe(0);
+  });
+
+  test("refuses a stored registry identity with a non-string traded asset address before verifying", async () => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
+    if (!record) throw new Error("Missing currency record: base:eurc");
+    row.summary.metadata = { ...tradeMetadata(record.contractAddress, "buy"), currencyRecordId: record.id };
+    Object.assign(row.summary.metadata.toAsset, { address: 123 });
+    let confirms = 0;
+    let verifications = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      verifySmartAccountSignature: async () => { verifications += 1; return true; },
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(confirms).toBe(0);
+    expect(verifications).toBe(0);
+  });
+
+  test.each(["buy", "sell"] as const)("keeps a non-registry %s past pair admission", async (direction) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = tradeMetadata("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", direction);
+    let pairReads = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair: () => { pairReads += 1; return { status: "unavailable", reason: "pair-paused" }; },
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(400);
+    expect(await readJson(result)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(pairReads).toBe(0);
+  });
+
+  test.each(["buy", "sell"] as const)("admits a published currency %s to the fee-destination gate", async (direction) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = {
+      ...tradeMetadata("0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42", direction),
+      operatorFee: { amountBaseUnits: "10000", bps: 100, recipient: OWNER, collectedBy: "in-batch-transfer",
+        token: { address: BASE_USDC_ADDRESS, decimals: 6, assetId: "usdc", symbol: "USDC" } },
+    };
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade's fee destination is your own account. Prepare the trade again." } });
+  });
+
+  test.each([
+    [null, { address: "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42" }],
+    [{ address: BASE_USDC_ADDRESS }, null],
+    [[{ address: BASE_USDC_ADDRESS }], { address: "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42" }],
+    [{ address: 123 }, { address: "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42" }],
+    [{ address: BASE_USDC_ADDRESS }, { address: 123 }],
+  ] as const)("preserves legacy confirmation with asset references %j and %j", async (fromAsset, toAsset) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = { product: "trade", direction: "buy", fromAsset, toAsset } as unknown as TradeMoneyActionMetadata;
+    let pairReads = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair: () => { pairReads += 1; return { status: "unavailable", reason: "pair-paused" }; },
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(400);
+    expect(await readJson(result)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(pairReads).toBe(0);
   });
 
   test.each(["US", null] as const)("blocks a stock buy for %s through the real confirm handler", async (country) => {
@@ -148,13 +287,13 @@ describe("trade confirmation", () => {
     expect(body.calls).toHaveLength(3);
     expect(body.calls[0]).toEqual({
       ...feeCall,
-      to: feeCall.to.toLowerCase() as `0x${string}`,
-      approval: { ...feeCall.approval!, spender: feeCall.approval!.spender.toLowerCase() as `0x${string}` },
+      to: requireAddress(feeCall.to),
+      approval: { ...feeCall.approval!, spender: requireAddress(feeCall.approval!.spender) },
     });
     expect(body.calls[1]).toEqual({
       ...approval,
-      to: approval.to.toLowerCase() as `0x${string}`,
-      approval: { ...approval.approval, spender: approval.approval.spender.toLowerCase() as `0x${string}` },
+      to: requireAddress(approval.to),
+      approval: { ...approval.approval, spender: requireAddress(approval.approval.spender) },
     });
     expect(body.calls[2].data).toStartWith("0x1234");
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
@@ -194,7 +333,7 @@ describe("trade confirmation", () => {
     const body = parseConfirmActionResponse(await readJson(response));
     if (!body) throw new Error("Invalid trade confirmation");
     expect(body.calls).toHaveLength(4);
-    expect(body.calls[1]).toEqual({ ...transfer, to: transfer.to.toLowerCase() as `0x${string}` });
+    expect(body.calls[1]).toEqual({ ...transfer, to: requireAddress(transfer.to) });
     expect(body.calls[3].data).toStartWith(swap.data);
     expect(body.calls[3].data.length).toBeGreaterThan(swap.data.length);
     if (provider === "base-account") expect(body.batchGasLimit).toBeDefined();
@@ -218,7 +357,7 @@ describe("trade confirmation", () => {
     expect(body.calls).toHaveLength(4);
     expect(body.calls[2].data).toStartWith(swap.data);
     expect(body.calls[2].data.length).toBeGreaterThan(swap.data.length);
-    expect(body.calls[3]).toEqual({ ...transfer, to: transfer.to.toLowerCase() as `0x${string}` });
+    expect(body.calls[3]).toEqual({ ...transfer, to: requireAddress(transfer.to) });
     if (provider === "base-account") expect(body.batchGasLimit).toBeUndefined();
   });
   test("confirms a second trade while an earlier dispatched trade has no outcome", async () => {
@@ -287,11 +426,12 @@ describe("confirmed trade replay", () => {
     change?.(row);
     return row;
   }
-  function replayHandler(row: ActionRow, provider: "base-account" | "cdp-embedded" = "cdp-embedded") {
+  function replayHandler(row: ActionRow, provider: "base-account" | "cdp-embedded" = "cdp-embedded", convertPair?: typeof resolveConvertPair) {
     const effects = { confirms: 0, verifications: 0, recorded: 0, estimates: 0 };
     const handler = createConfirmActionHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider }),
       now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair,
       verifySmartAccountSignature: async () => { effects.verifications += 1; return true; },
       estimateBaseBatch: async () => { effects.estimates += 1; return BigInt(100_000); },
       markHot: async () => {}, recordConfirmed: async () => { effects.recorded += 1; },
@@ -327,6 +467,45 @@ describe("confirmed trade replay", () => {
     })));
     expect(Boolean(body.batchGasLimit)).toBe(provider === "base-account");
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: provider === "base-account" ? 1 : 0 });
+  });
+
+  test.each(["buy", "sell"] as const)("replays a committed currency %s after its registry record is removed", async (direction) => {
+    const row = confirmedRow((value) => {
+      value.summary.metadata = {
+        ...value.summary.metadata,
+        ...tradeMetadata("0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42", direction),
+        currencyRecordId: "base:removed",
+      };
+    });
+    let pairReads = 0;
+    const { effects, confirm } = replayHandler(row, "cdp-embedded", () => {
+      pairReads += 1;
+      return { status: "unavailable", reason: "asset-unknown" };
+    });
+    const response = await confirm("cdp-embedded");
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toMatchObject({ calls: finalized });
+    expect(pairReads).toBe(0);
+    expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
+  });
+
+  test.each(["buy", "sell"] as const)("replays a committed currency %s after pair admission is paused", async (direction) => {
+    const row = confirmedRow((value) => {
+      value.summary.metadata = {
+        ...value.summary.metadata,
+        ...tradeMetadata("0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42", direction),
+      };
+    });
+    let pairReads = 0;
+    const { effects, confirm } = replayHandler(row, "cdp-embedded", () => {
+      pairReads += 1;
+      return { status: "unavailable", reason: "pair-paused" };
+    });
+    const response = await confirm("cdp-embedded");
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toMatchObject({ calls: finalized });
+    expect(pairReads).toBe(0);
+    expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
   });
 
   test.each([

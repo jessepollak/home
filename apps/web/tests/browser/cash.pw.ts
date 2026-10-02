@@ -2,9 +2,10 @@ import { expect, test, type Route } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
-import { buildBalancesSnapshotFixture, ready, priced, pricedCash } from "../../shared/balances/fixtures";
+import { expectNavigation } from "./fixtures/navigation-budget";
+import { buildBalancesSnapshotFixture, ready, priced, pricedCash, requiredLocalCashAsset } from "../../shared/balances/fixtures";
 import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "../../shared/trading/cash-conversion";
-import { canonicalUsdcAsset, verifiedLocalCashAssets } from "../../config/portfolio-assets";
+import { canonicalUsdcAsset } from "../../config/portfolio-assets";
 import { preparedConversionFixture } from "./feature-map/conversion-fixture";
 import { deferred } from "../helpers/async";
 
@@ -66,16 +67,16 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
   await expect(activity).not.toHaveAttribute("aria-busy", "true");
   await expect(rows.first()).toBeVisible();
   await cashRow.click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(balance).toContainText(/\$[\d,.]+/);
   await back.click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(rows.first()).toBeVisible();
 
   await main.hover();
   await page.mouse.wheel(0, 60);
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-  const offset = await main.evaluate((element) => element.scrollTop);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const offset = await page.evaluate(() => window.scrollY);
   let release!: () => void;
   const deferred = new Promise<void>((resolve) => { release = resolve; });
   const holdApi = async (route: Route) => {
@@ -86,17 +87,17 @@ test("warm Cash and Home paint with deferred API reads and restore Home scroll",
   await page.route("**/api/**", holdApi);
   try {
     const expectHomeRestored = async () => {
-      await expect(page).toHaveURL(/\/home$/);
+      await expectNavigation(page, /\/home$/);
       await expect(money).toBeVisible();
       await expect(activity).not.toHaveAttribute("aria-busy", "true");
       await expect(rows.first()).toBeVisible();
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeGreaterThanOrEqual(offset - 2);
-      await expect.poll(() => main.evaluate((element) => element.scrollTop))
+      await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeLessThanOrEqual(offset + 2);
     };
     const expectCashPainted = async () => {
-      await expect(page).toHaveURL(/\/cash$/);
+      await expectNavigation(page, /\/cash$/);
       await expect(cash).toBeVisible();
       await expect(balance).toContainText(/\$[\d,.]+/);
       await expect(balance).not.toHaveAttribute("aria-busy", "true");
@@ -122,12 +123,13 @@ test("Cash routes from Home through Savings and restores focus on Back", async (
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.goto("/home");
+  await page.waitForFunction(() => performance.getEntriesByName("session:verified", "mark").length > 0);
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(page.getByRole("region", { name: "Cash" })).toBeVisible();
   const savings = page.getByRole("region", { name: "Savings" }).getByRole("button", { name: /^US dollar/ });
   await savings.click();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(page.getByRole("region", { name: "Savings", exact: true })).toBeVisible();
   const opener = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });
   await expect(opener).toHaveAccessibleDescription("Manage Gauntlet USDC Prime");
@@ -135,16 +137,16 @@ test("Cash routes from Home through Savings and restores focus on Back", async (
   const tray = page.getByRole("dialog", { name: "Gauntlet USDC Prime" });
   await expect(tray).toBeVisible();
   await tray.getByRole("button", { name: "Deposit more" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings\?flow=save-deposit$/);
+  await expectNavigation(page, /\/cash\/savings\?flow=save-deposit$/);
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
   await page.getByRole("button", { name: "Close deposit dialog" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(opener).toBeFocused();
   await page.getByRole("button", { name: "Back" }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(savings).toBeFocused();
   await page.getByRole("button", { name: "Back" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
 });
 
 for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] as const) {
@@ -170,7 +172,8 @@ for (const [mode, title] of [["deposit", "Deposit"], ["withdraw", "Withdraw"]] a
       await expect(page.getByRole("dialog")).toHaveCount(1);
       await dialog.getByRole("button", { name: `Close ${mode} dialog` }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(page).toHaveURL(/\/cash\/savings$/);
+      await expectNavigation(page, /\/cash\/savings$/);
+      await expect(page.locator("[data-shell-back] button:not(:disabled)")).toBeFocused();
     } finally {
       chunk.resolve();
       await page.unroute("**/_next/static/chunks/*savings*.js", holdChunk);
@@ -227,11 +230,11 @@ test("Savings amount Back restores the selected management action after routed h
   for (const [action, title, flow] of [["Withdraw", "Withdraw", "save-withdraw"], ["Deposit more", "Deposit", "save-deposit"]] as const) {
     const selected = tray.getByRole("button", { name: action });
     await selected.click();
-    await expect(page).toHaveURL(new RegExp(`/cash/savings\\?flow=${flow}$`));
+    await expectNavigation(page, new RegExp(`/cash/savings\\?flow=${flow}$`));
     const amount = page.getByRole("dialog", { name: title });
     await expect(amount.getByRole("textbox", { name: "Amount" })).toBeVisible();
     await amount.getByRole("button", { name: "Back" }).click();
-    await expect(page).toHaveURL(/\/cash\/savings$/);
+    await expectNavigation(page, /\/cash\/savings$/);
     await expect(tray).toBeVisible();
     await expect(selected).toBeFocused();
   }
@@ -248,21 +251,21 @@ test("Savings Account settings Done restores Savings scroll and account focus", 
   const savings = page.getByRole("region", { name: "Savings", exact: true });
   await expect(savings).toBeVisible();
   await expect(page.getByRole("region", { name: "Your savings" })).toBeVisible();
-  const main = page.locator("main[data-app-main-authenticated]");
-  await expect.poll(() => main.evaluate((element) => element.scrollHeight - element.clientHeight)).toBeGreaterThan(40);
-  await main.evaluate((element) => element.scrollTo({ top: 40, behavior: "auto" }));
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThanOrEqual(38);
-  const offset = await main.evaluate((element) => element.scrollTop);
+  const scrollTop = () => page.evaluate(() => window.scrollY);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)).toBeGreaterThan(40);
+  await page.evaluate(() => window.scrollTo({ top: 40, behavior: "auto" }));
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(38);
+  const offset = await scrollTop();
   const account = page.getByRole("banner").getByRole("button", { name: "Account" });
   await account.click();
-  await expect(page).toHaveURL(/\/cash\/savings\?account=settings$/);
+  await expectNavigation(page, /\/cash\/savings\?account=settings$/);
   await expect(page.getByRole("region", { name: "Account settings" })).toBeFocused();
   await page.getByRole("button", { name: "Done" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(savings).toBeVisible();
   await expect(account).toBeFocused();
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeGreaterThanOrEqual(offset - 2);
-  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(offset + 2);
+  await expect.poll(scrollTop).toBeGreaterThanOrEqual(offset - 2);
+  await expect.poll(scrollTop).toBeLessThanOrEqual(offset + 2);
 });
 
 test("Cash Add money closes to Cash and one browser Back returns Home", async ({ page }) => {
@@ -271,16 +274,16 @@ test("Cash Add money closes to Cash and one browser Back returns Home", async ({
   await installApiFixtures(page);
   await page.goto("/home");
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   const addMoney = page.getByRole("region", { name: "Cash" }).getByRole("button", { name: "Add money" });
   await addMoney.click();
-  await expect(page).toHaveURL(/\/cash\?flow=add-money$/);
+  await expectNavigation(page, /\/cash\?flow=add-money$/);
   await expect(page.getByRole("dialog", { name: "Add money" })).toBeVisible();
   await page.getByRole("button", { name: "Close add money" }).click();
-  await expect(page).toHaveURL(/\/cash$/);
+  await expectNavigation(page, /\/cash$/);
   await expect(addMoney).toBeFocused();
   await page.goBack();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
 });
 
 test("Home activity Add money returns focus to its empty-state button", async ({ page }) => {
@@ -305,9 +308,9 @@ test("Home activity Add money returns focus to its empty-state button", async ({
   await expect(activity.getByText("No activity yet")).toBeVisible();
   const addMoney = activity.getByRole("button", { name: "Add money" });
   await addMoney.click();
-  await expect(page).toHaveURL(/\/home\?flow=add-money$/);
+  await expectNavigation(page, /\/home\?flow=add-money$/);
   await page.getByRole("button", { name: "Close add money" }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  await expectNavigation(page, /\/home$/);
   await expect(addMoney).toBeFocused();
 });
 
@@ -319,19 +322,19 @@ test("legacy Save redirects to Savings with the Deposit sheet and refresh preser
   );
   await page.goto("/save?flow=save-deposit&untrusted=private");
   expect((await legacyResponse).headers().location).toBe("/cash/savings?flow=save-deposit");
-  await expect(page).toHaveURL(/\/cash\/savings\?flow=save-deposit$/);
+  await expectNavigation(page, /\/cash\/savings\?flow=save-deposit$/);
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
   await page.getByRole("button", { name: "Close deposit dialog" }).click();
   await page.reload();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await expect(page.getByRole("region", { name: "Savings", exact: true })).toBeVisible();
   const held = page.getByRole("region", { name: "Your savings" }).getByRole("button", { name: /^Gauntlet USDC Prime/ });
   await expect(held).toHaveAccessibleDescription("Manage Gauntlet USDC Prime");
   await held.click();
   await page.getByRole("dialog", { name: "Gauntlet USDC Prime" }).getByRole("button", { name: "Deposit more" }).click();
-  await expect(page).toHaveURL(/\/cash\/savings\?flow=save-deposit$/);
+  await expectNavigation(page, /\/cash\/savings\?flow=save-deposit$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\/cash\/savings$/);
+  await expectNavigation(page, /\/cash\/savings$/);
   await page.goForward();
   await expect(page.getByRole("dialog", { name: "Deposit" })).toBeVisible();
   await page.reload();
@@ -343,12 +346,12 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await seedSignedInSession(page);
     await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
-      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
-      [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
-      [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
-      [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-      [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-      [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+      [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+      [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000") },
+      [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+      [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+      [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
     } }) });
     const unavailableIds = new Set(cashConversionCurrencies.filter((currency) => !currency.convertOffered).map((currency) => currency.tradeAssetId));
     const tradeRequests: string[] = [];
@@ -449,12 +452,12 @@ test("Cash Convert keeps the last currency reachable above a simulated mobile ke
   await page.setViewportSize({ width: 390, height: viewportHeight });
   await seedSignedInSession(page);
   await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
-    [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
-    [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
-    [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
-    [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-    [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-    [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+    [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+    [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+    [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000") },
+    [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+    [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+    [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
   } }) });
   await page.goto("/home");
   await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();

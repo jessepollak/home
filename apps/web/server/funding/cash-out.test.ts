@@ -204,6 +204,30 @@ describe("Peer cash-out action preparation", () => {
     }
   });
 
+  test("a saved pause blocks preparation before any provider call, and settings failure fails closed", async () => {
+    installClients();
+    let storeCalls = 0;
+    const dependencies = { env: { PEER_OFFRAMP_ENABLED: "1" },
+      store: { ...clearStore, list: async () => { storeCalls++; return []; } },
+      readAllowance: async () => BigInt(0) };
+    await expect(prepareCashoutAction(session, input(), undefined, {
+      ...dependencies, readOffering: async () => ({ source: "saved", isSelected: () => false, isOffered: () => false }),
+    })).rejects.toMatchObject({ code: "unavailable", message: "This cash-out option is no longer offered." });
+    await expect(prepareCashoutAction(session, input(), undefined, {
+      ...dependencies, readOffering: async () => { throw new Error("settings unavailable"); },
+    })).rejects.toMatchObject({ code: "unavailable" });
+    expect(storeCalls).toBe(0);
+  });
+
+  test("a saved selection can offer Peer with the legacy switch unset", async () => {
+    installClients();
+    const prepared = await prepareCashoutAction(session, input(), undefined, {
+      env: {}, store: clearStore, readAllowance: async () => BigInt(0),
+      readOffering: async () => ({ source: "saved", isSelected: () => true, isOffered: (providerId, region, direction) => providerId === "peer" && region === "US" && direction === "offramp" }),
+    });
+    expect(prepared.kind).toBe("cash-out");
+  });
+
   test("requires the exact enablement value for direct preparation", async () => {
     for (const disabled of [undefined, "0", "false"]) {
       await expect(prepareCashoutAction(session, input(), undefined, { env: { PEER_OFFRAMP_ENABLED: disabled } })).rejects.toMatchObject({ code: "unavailable" });

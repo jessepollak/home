@@ -10,7 +10,7 @@ function reviewRow(page: Page, dialog: Locator, label: string) {
 }
 
 for (const operation of ["deposit", "withdraw"] as const) {
-  test(`savings ${operation} shows the verified prepared review`, async ({ page }) => {
+  test(`savings ${operation} shows the verified prepared review`, { tag: operation === "deposit" ? "@smoke" : [] }, async ({ page }) => {
     await seedSignedInSession(page);
     await installApiFixtures(page);
     await page.goto(`/cash/savings?flow=save-${operation}`);

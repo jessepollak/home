@@ -2,6 +2,20 @@ import { describe, expect, test } from "bun:test";
 import { normalizeObservabilityEvent } from "./schema";
 
 describe("observability schema", () => {
+  test("bounds request diagnostics and rejects private or non-boolean diagnostic fields", () => {
+    const input: Parameters<typeof normalizeObservabilityEvent>[0] = { kind: "activity-read", route: "/api/activity", outcome: "succeeded",
+      reason: "primary-source", source: "cdp-sql", durationMs: 1, sourceDurationMs: 1, sourceAttemptCount: 1,
+      pageCount: 1, rowCount: 0, valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
+    };
+    Object.assign(input, {
+      cdpCorrelationId: "private-owner", requestKey: "private-owner", requestPage: "private-cursor", windowEndAgeSeconds: Infinity, windowEndAlignment: "private-timestamp",
+      sourceCached: "private-payload", sourceStale: 1, sqlRejectionReason: "private-body", sql: "private-query",
+    });
+    const event = normalizeObservabilityEvent(input);
+    expect(event).toMatchObject({ sqlRejectionReason: "unknown" });
+    for (const field of ["cdpCorrelationId", "requestKey", "requestPage", "windowEndAgeSeconds", "windowEndAlignment", "sourceCached", "sourceStale", "sql"]) expect(event).not.toHaveProperty(field);
+    expect(JSON.stringify(event)).not.toContain("private-");
+  });
   test("activity source diagnostics use a closed code and valid HTTP status", () => {
     const event = {
       kind: "activity-read" as const, route: "/api/activity" as const,
@@ -557,4 +571,11 @@ describe("observability schema", () => {
       provider: "fixture",
     });
   });
+});
+
+test("retains the provider-issued correlation ID at the closed logging boundary", () => {
+  const event = normalizeObservabilityEvent({ kind: "activity-read", route: "/api/activity", outcome: "failed",
+    reason: "primary-source", source: "cdp-sql", valuation: { priced: 0, unknownToken: 0, noRecentClose: 0, quoteUnavailable: 0, fxUnavailable: 0 },
+    durationMs: 10, sourceDurationMs: 10, sourceAttemptCount: 1, pageCount: 0, rowCount: 0, cdpCorrelationId: "41deb8d59a9dc9a7-IAD" });
+  expect(event).toHaveProperty("cdpCorrelationId", "41deb8d59a9dc9a7-IAD");
 });

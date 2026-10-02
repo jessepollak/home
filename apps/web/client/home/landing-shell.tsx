@@ -11,7 +11,7 @@ import {
   parseShellLocation,
   readShellAccountParam,
 } from "@/config/shell-location";
-import { markHomePerformance, startHomePerformance } from "@/client/observability/perf-marks";
+import { markHomePerformance, markHomeStartupOutcome, startHomePerformance } from "@/client/observability/perf-marks";
 import { readHomeInboundPanelState } from "./panel-routing";
 import { ShellHeader, SignedOutLanding } from "./shell-chrome";
 import { useHomeRegion } from "./use-home-region";
@@ -59,6 +59,12 @@ export function LandingShell({
     const frame = window.requestAnimationFrame(() => markHomePerformance("shell:paint"));
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    if (account.status === "unavailable") markHomeStartupOutcome("unavailable");
+    else if (isSignedOut) markHomeStartupOutcome("signed-out");
+    else if (isVerified) markHomePerformance("session:verified");
+  }, [account.status, isSignedOut, isVerified]);
 
   useEffect(() => {
     const onPopState = () => {
@@ -134,7 +140,7 @@ export function LandingShell({
       <AccountSignInSheet
         open={isAccountOpen}
         onClose={closeAccount}
-        onVerified={() => router.replace("/home")}
+        onVerified={() => window.location.replace("/home")}
       />
     </div>
   );

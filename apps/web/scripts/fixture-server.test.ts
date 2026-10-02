@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 // oxlint-disable-next-line home/no-source-reads -- Tests read only their own system-temp state and log files.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -21,6 +21,11 @@ const groups: number[] = [];
 const directories: string[] = [];
 const locks: string[] = [];
 const SERVER = 'require("node:http").createServer((_, res) => res.end("fixture")).listen(Number(process.env.HOME_FIXTURE_PORT), "127.0.0.1", () => console.log("listening"));';
+
+// Each case spawns fixture-server processes and waits on their readiness, which a loaded
+// shared runner can stretch past Bun's 5 s default; the file carries its own per-case budget
+// so the file-order check does not kill a case that passes in isolation.
+setDefaultTimeout(20_000);
 
 function exited(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();

@@ -1,10 +1,20 @@
+import * as z from "zod/mini";
+
 export const INVITE_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
 export const INVITE_CODE_LENGTH = 10;
 export const INVITE_LINK_CONTRACT_VERSION = 1 as const;
 
+const inviteCodeSchema = z.string().check(
+  z.length(INVITE_CODE_LENGTH),
+  z.refine((value) => [...value].every((character) => INVITE_CODE_ALPHABET.includes(character))),
+);
+const inviteLinkResponseSchema = z.strictObject({
+  version: z.literal(INVITE_LINK_CONTRACT_VERSION),
+  code: inviteCodeSchema,
+});
+
 export function isInviteCode(value: unknown): value is string {
-  return typeof value === "string" && value.length === INVITE_CODE_LENGTH &&
-    [...value].every((character) => INVITE_CODE_ALPHABET.includes(character));
+  return inviteCodeSchema.safeParse(value).success;
 }
 
 /** @public constructs the Account invitation URL path in the follow-up UI delivery */
@@ -12,12 +22,10 @@ export function invitePath(code: string): string {
   return `/invite/${code}`;
 }
 
-export type InviteLinkResponse = { version: typeof INVITE_LINK_CONTRACT_VERSION; code: string };
+export type InviteLinkResponse = z.output<typeof inviteLinkResponseSchema>;
 
 /** @public consumed by the Account invite-link client in the follow-up UI delivery */
 export function parseInviteLinkResponse(value: unknown): InviteLinkResponse | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  return response.version === INVITE_LINK_CONTRACT_VERSION && isInviteCode(response.code)
-    ? { version: INVITE_LINK_CONTRACT_VERSION, code: response.code } : null;
+  const result = inviteLinkResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

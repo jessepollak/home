@@ -8,6 +8,7 @@ import { useReactiveExpiry } from "@/client/actions/expiry";
 import { useMoneyActionOutcome } from "@/client/actions/money-action-outcome";
 import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { savingsJourneyOwnerKey } from "@/client/account/owner-keys";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "@/client/home/panel-routing";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -42,10 +43,9 @@ import {
 import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 import { readSavingsPreparedReview, type SavingsPreparedReview } from "@/shared/savings/review";
 import type { MorphoVaultCandidate } from "@/shared/savings/types";
-import { verifiedCashCurrency } from "@/config/portfolio-assets";
+import { cashCurrencyForContract } from "@/shared/currencies/registry";
 import { StatusMessage } from "./savings-status-message";
 import { useSavingsDialogFixture } from "./savings-dialog-fixture";
-import { savingsDialogOwnerIdentity } from "./savings-owner-identity";
 import type { SavingsActionMode, SavingsJourneyEntry } from "./savings-actions";
 
 type DialogStep = "amount" | "confirm" | "pending" | "error" | "result";
@@ -61,7 +61,6 @@ export type SavingsJourneyStepProps = {
   candidate: MorphoVaultCandidate;
   availableLabel?: string;
   destinationLabel?: string;
-  historyBlocked?: boolean;
   availableBaseUnits?: string | null;
   availableStale?: boolean;
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
@@ -84,7 +83,6 @@ export function SavingsJourneyStep({
   candidate,
   availableLabel,
   destinationLabel,
-  historyBlocked = false,
   availableBaseUnits,
   availableStale = false,
   fetchAccountResource,
@@ -117,7 +115,7 @@ export function SavingsJourneyStep({
   const preparation = useRef(0);
   useLayoutEffect(() => () => { preparation.current += 1; }, []);
   const confirmingGeneration = useRef<number | null>(null);
-  const ownerIdentity = savingsDialogOwnerIdentity(session);
+  const ownerIdentity = savingsJourneyOwnerKey(session);
   const currentPreparationIdentity = useRef(ownerIdentity);
   const preparedReview = preparedAction
     ? readSavingsPreparedReview(preparedAction)
@@ -143,8 +141,8 @@ export function SavingsJourneyStep({
   const amountExceedsAvailable = amountExceedsKnownAvailable(amount, knownAvailable);
   const overAvailable = assetRouteConfigured && amountExceedsAvailable;
   const canContinue = assetRouteConfigured && isPositiveDecimalAmount(amount) && !amountExceedsAvailable;
-  const unit = useMoneyAmountUnit(assetRouteConfigured && activeCandidate ? verifiedCashCurrency(activeCandidate.asset.address) : null);
-  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsDialogOwnerIdentity(session) : null, fetchAccountResource, open && mode !== null);
+  const unit = useMoneyAmountUnit(assetRouteConfigured && activeCandidate ? cashCurrencyForContract(activeCandidate.asset.address) : null);
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(session.smartAccount ? savingsJourneyOwnerKey(session) : null, fetchAccountResource, open && mode !== null);
   const title = step === "amount" ? mode === "deposit" ? "Deposit" : "Withdraw" : step === "result" ? (mode === "deposit" ? "Deposit" : "Withdraw") : "Confirm";
   useMoneyModalPending(step === "pending" || preparing);
   const baseDepth = depth ?? 1;
@@ -212,7 +210,6 @@ export function SavingsJourneyStep({
     if (!mode || !candidate || preparing) return;
     const generation = ++preparation.current;
     try {
-      if (historyBlocked) return;
       if (!assetRouteConfigured) {
         throw new SavingsActionClientError(
           `${assetLabel} is available for presentation review only. Savings actions remain ${candidate.asset.symbol}-only.`,
@@ -268,7 +265,6 @@ export function SavingsJourneyStep({
   async function confirm() {
     if (!mode || !candidate || !preparedAction || !preparedReview || step !== "confirm") return;
     if (confirmingGeneration.current === preparation.current) return;
-    if (historyBlocked) return;
     if (preparedReview.operation !== mode || preparedReview.vaultAddress.toLowerCase() !== candidate.vaultAddress.toLowerCase()) return;
     if (recheckExpired()) {
       setError(`This ${mode} expired. Go back and continue again.`);
@@ -381,7 +377,7 @@ export function SavingsJourneyStep({
             ) : null}
             {assetRouteConfigured && nothingAvailable ? (
               <StatusMessage>
-                {mode === "withdraw" ? "Nothing saved to withdraw." : `No ${assetLabel} available to deposit.`}
+                {mode === "withdraw" ? "Nothing available to withdraw right now." : `No ${assetLabel} available to deposit.`}
               </StatusMessage>
             ) : null}
             {!assetRouteConfigured ? (
@@ -417,7 +413,7 @@ export function SavingsJourneyStep({
     </MoneyModalBody>
 
     {step === "amount" ? (
-      <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinue || historyBlocked} primaryLoading={preparing} onPrimary={() => void continueFromAmount()} />
+      <MoneyModalFooter primaryLabel="Continue" primaryDisabled={!canContinue} primaryLoading={preparing} onPrimary={() => void continueFromAmount()} />
     ) : null}
 
     {(step === "confirm" || step === "pending") && preparedAction ? (
@@ -425,7 +421,7 @@ export function SavingsJourneyStep({
         actionExpired={actionExpired}
         submitting={step === "pending"}
         primaryLabel={attemptedAction ? "Retry" : `${mode === "deposit" ? "Deposit" : "Withdraw"} ${confirmAmount}`}
-        primaryDisabled={!preparedReview || historyBlocked || (actionExpired && !attemptedAction)}
+        primaryDisabled={!preparedReview || (actionExpired && !attemptedAction)}
         onPrimary={() => void confirm()}
         secondaryLabel="Back"
         onSecondary={goBack}

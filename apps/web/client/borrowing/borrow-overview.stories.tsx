@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient, type AccountWalletClient } from "@/client/account/cdp-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { BorrowOverview } from "./borrow-overview";
 import { summarizeBorrowOverview } from "./borrow-overview-model";
@@ -572,7 +573,7 @@ export const MultipleLoans: Story = {
 export const NotHeldBuy: Story = {
   args: { fixture: borrowOverviewBody({ openMarketId: null, notHeldMarketIds: markets.map((market) => market.marketId) }) },
   decorators: [(StoryComponent) => <AccountWalletClientProvider client={{
-    ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", session: borrowStorySession,
+    ...createBlockedAccountWalletClient("provider-unavailable"), status: "verified", verification: "server", isSignedIn: true, ownerKey: dataOwnerKey(borrowStorySession), session: borrowStorySession,
     fetchBalances: async (region) => balancesSnapshot(region),
     fetchAccountResource: async (path) => path.startsWith("/api/trades?assetId=") ? tradeAvailabilityBody(decodeURIComponent(path.slice("/api/trades?assetId=".length))) : { version: 1, usdcReserveBaseUnits: "20000" },
   }}><StoryComponent /></AccountWalletClientProvider>],

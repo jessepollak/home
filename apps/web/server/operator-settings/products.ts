@@ -10,17 +10,13 @@ const PRODUCT_SETTINGS_PAGE_READ_DEADLINE_MS = 5_000;
 export type ProductSettingsEntry = SettingsResponse & { settings: SettingsResponse["settings"] & { value: ProductSettings } };
 
 function withDeadline<T>(work: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
-  const controller = new AbortController();
-  let deadline: ReturnType<typeof setTimeout>;
-  return Promise.race([
-    work(controller.signal),
-    new Promise<never>((_resolve, reject) => {
-      deadline = setTimeout(() => {
-        controller.abort(new Error("Product settings read timed out"));
-        reject(new Error("Product settings read timed out"));
-      }, ms);
-    }),
-  ]).finally(() => clearTimeout(deadline));
+  const signal = AbortSignal.timeout(ms);
+  let onAbort = () => {};
+  const expired = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new Error("Product settings read timed out"));
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return Promise.race([work(signal), expired]).finally(() => signal.removeEventListener("abort", onAbort));
 }
 
 export async function readProductSettingsEntryForPage(

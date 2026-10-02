@@ -30,6 +30,7 @@ const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];
 
 export function ActivityPanelView({
+  quietLoading = false,
   activity,
   operations = EMPTY_OPERATIONS,
   orders = EMPTY_ORDERS,
@@ -53,12 +54,15 @@ export function ActivityPanelView({
   fetchOperations,
   onViewActivity,
   onDetailsChange,
+  initialDetailItem = null,
+  onDetailsSelectionChange,
   onDetailsOpenChange,
   canOpenAsset,
   onOpenAsset,
   restoreDetailsRequest = 0,
   suspendDetailsRequest = 0,
 }: {
+  quietLoading?: boolean;
   activity: UseActivityResult;
   operations?: readonly RecentMoneyActionOperation[];
   orders?: readonly ActivityOrder[];
@@ -82,15 +86,23 @@ export function ActivityPanelView({
   fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
   onViewActivity?: (close: () => void) => void;
   onDetailsChange?: (open: boolean) => void;
+  initialDetailItem?: ActivityLedgerItem | null;
+  onDetailsSelectionChange?: (item: ActivityLedgerItem | null) => void;
   onDetailsOpenChange?: (open: boolean) => void;
   canOpenAsset?: (assetKey: string) => boolean;
   onOpenAsset?: (assetKey: string) => boolean;
   restoreDetailsRequest?: number;
   suspendDetailsRequest?: number;
 }) {
-  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [selection, setSelection] = useState<{ key: string; last: ActivityLedgerItem } | null>(() => initialDetailItem
+    ? { key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem } : null);
+  const [detailsOpen, setDetailsOpen] = useState(initialDetailItem !== null);
   const [immediateClose, setImmediateClose] = useState(false);
+  if (initialDetailItem && !selection && !detailsOpen && activity.status === "ready") {
+    setSelection({ key: `${initialDetailItem.family}:${initialDetailItem.id}`, last: initialDetailItem });
+    setDetailsOpen(true);
+  }
   useEffect(() => {
     onDetailsOpenChange?.(detailsOpen);
     return () => { onDetailsOpenChange?.(false); };
@@ -124,9 +136,10 @@ export function ActivityPanelView({
     setImmediateClose(false);
     detailOpenerRef.current = opener;
     onDetailsChangeRef.current?.(true);
+    onDetailsSelectionChange?.(item);
     setSelection({ key: `${item.family}:${item.id}`, last: item });
     setDetailsOpen(true);
-  }, []);
+  }, [onDetailsSelectionChange]);
   const [detailsStatus, setDetailsStatus] = useState(activity.status);
   if (detailsStatus !== activity.status) {
     setDetailsStatus(activity.status);
@@ -199,7 +212,8 @@ export function ActivityPanelView({
   const plain = density === "feed";
   const onchainUnavailable = activity.status === "ready" && activity.page.onchainStatus === "unavailable";
   const latestUnavailable = activity.status === "ready" && activity.latestUnavailable === true;
-  const sourcesPending = activity.status === "loading" || actionsStatus === "loading";
+  const sourcesPending = activity.status === "loading" || actionsStatus === "loading" || ordersStatus === "loading";
+  if (!revealed && !sourcesPending) setRevealed(true);
   const retryFailedSources = () => {
     if (activity.status === "error" || onchainUnavailable || latestUnavailable) activity.retry();
     if (actionsStatus === "error") retryActions?.();
@@ -219,10 +233,10 @@ export function ActivityPanelView({
     );
   }
 
-  if (sourcesPending || ordersStatus === "loading" && !hasRows) {
+  if (sourcesPending && (!revealed || !hasRows)) {
     return (
       <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy sources={sources} sectionRef={sectionRef}>
-        <ShimmerRows count={plain ? 3 : 4} />
+        <ShimmerRows count={plain ? 3 : 4} variant={quietLoading ? "reserved" : "rows"} />
         <span className="sr-only">Loading recent activity…</span>
       </ActivitySurface>
     );
@@ -260,7 +274,7 @@ export function ActivityPanelView({
   ) : null;
   return (
     <>
-      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} rows={hasRows} sources={sources} sectionRef={sectionRef}>
+      <ActivitySurface heading={heading} labelledBy={labelledBy} label={labelled} plain={plain} busy={sourcesPending} rows={hasRows} sources={sources} sectionRef={sectionRef}>
         {cardUnavailable ? <p role="status" className="text-sm text-muted-foreground">Card purchases may be out of date.</p> : null}
         {inlineStatus && (activity.status === "error" || onchainUnavailable) ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -325,6 +339,7 @@ export function ActivityPanelView({
           setPendingReturn(false);
           setDetailsOpen(false);
           onDetailsChange?.(false);
+          onDetailsSelectionChange?.(null);
         }}
         onClosed={() => {
           if (pendingReturn || detailsOpen) return;
@@ -430,14 +445,12 @@ function ActivityContinuation({
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || typeof IntersectionObserver === "undefined") return;
-    const closestRoot = sentinel.closest("[data-app-main-authenticated]");
-    const root = closestRoot instanceof HTMLElement ? closestRoot : null;
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[entries.length - 1];
         if (entry) setSentinelVisible(entry.isIntersecting);
       },
-      { root, rootMargin: "0px 0px 240px 0px" },
+      { rootMargin: "0px 0px 240px 0px" },
     );
     observer.observe(sentinel);
     return () => {

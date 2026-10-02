@@ -14,7 +14,7 @@ import {
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const exemptionsUrl = new URL("../exploration-boundary-exemptions.json", import.meta.url);
 const clean = { requiredFence: [], requiredRootFence: [], exempt: [], exemptRootFiles: [], preclassifiedRootFiles: [], stale: [], invalid: [] };
-const cleanBoundary = { owners: 1, severities: ["deny"], missingRules: [], missing: [], unexpected: [], missingExclusions: [], unexpectedExclusions: [], missingIgnores: [], unexpectedIgnores: [] };
+const cleanBoundary = { owners: 1, severities: ["deny"], missingRules: [], unenforcedRules: [], missing: [], unexpected: [], missingExclusions: [], unexpectedExclusions: [], missingIgnores: [], unexpectedIgnores: [] };
 const cleanInventory = { unparsed: [], staleExceptions: [], invalidExceptions: [] };
 const missingBoundary = {
   ...cleanBoundary, owners: 0, severities: [], missingRules: [...BOUNDARY_RULES].sort(), missing: expectedBoundaryFiles().sort(), missingExclusions: [...BOUNDARY_EXCLUDED_FILES].sort(),
@@ -256,13 +256,28 @@ test("non-array ignore patterns fail closed with every canonical ignore missing"
 test("disabled boundary rules remain visible in severities", () => {
   for (const severity of ["off", "allow"]) {
     assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ rules: { [BOUNDARY_RULE]: severity } })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS }),
-      { ...cleanBoundary, severities: [severity], missingRules: BOUNDARY_RULES.filter((rule) => rule !== BOUNDARY_RULE).sort() });
+      { ...cleanBoundary, severities: [severity], unenforcedRules: [BOUNDARY_RULE], missingRules: BOUNDARY_RULES.filter((rule) => rule !== BOUNDARY_RULE).sort() });
+  }
+});
+
+test("every boundary rule must keep an enforcing severity", () => {
+  for (const rule of BOUNDARY_RULES) {
+    for (const severity of ["off", "allow", 0, ["off"], "unknown"]) {
+      const rules = Object.fromEntries(BOUNDARY_RULES.map((name) => [name, name === rule ? severity : "deny"]));
+      const result = evaluateBoundaryConfig({ overrides: [boundaryOverride({ rules })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS });
+      assert.deepEqual(result.unenforcedRules, [rule]);
+      assert.deepEqual(result.missingRules, []);
+    }
+  }
+  for (const severity of ["error", "warn", 1, 2, ["error", {}]]) {
+    const rules = Object.fromEntries(BOUNDARY_RULES.map((name) => [name, severity]));
+    assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ rules })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS }).unenforcedRules, []);
   }
 });
 
 test("a second masking override reports both owners and sorted severities", () => {
   const overrides = [boundaryOverride(), boundaryOverride({ rules: { [BOUNDARY_RULE]: "allow" } })];
-  assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }), { ...cleanBoundary, owners: 2, severities: ["allow", "deny"] });
+  assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }), { ...cleanBoundary, owners: 2, severities: ["allow", "deny"], unenforcedRules: [BOUNDARY_RULE] });
 });
 
 test("canonical files split across two overrides still report two owners", () => {

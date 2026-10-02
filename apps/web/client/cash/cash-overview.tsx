@@ -39,7 +39,7 @@ import {
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { RegionId } from "@/config/regions";
 import type { PendingCashoutEstimate } from "@/shared/balances/pending-cashout";
-import { cashConversionCurrencies, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
+import { cashConversionCurrencies, cashConversionDestinations, type CashConversionCurrency, type CashConversionCurrencyCode } from "@/shared/trading/cash-conversion";
 import {
   formatPresentationFiat,
   formatPresentationPercentage,
@@ -62,6 +62,7 @@ export type CashOverviewProps = {
   snapshot: BalancesSnapshot | null;
   pendingCashout?: PendingCashoutEstimate;
   balanceStatus?: "ready" | "loading" | "failed";
+  balanceActionStale?: boolean;
   metadata: MorphoVaultsResult | null;
   vaultStatus?: "ready" | "loading" | "failed";
   nowMs: number;
@@ -88,7 +89,6 @@ export type SavingsDetailProps = Omit<
   pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
   pendingActionsLoading?: boolean;
   pendingActionsError?: boolean;
-  depositEntryBlocked?: boolean;
   onRetryActions?: () => void;
   depositFailed?: boolean;
   onStartSaving: () => void;
@@ -411,6 +411,7 @@ export function CashOverview({
   snapshot,
   pendingCashout = null,
   balanceStatus = "ready",
+  balanceActionStale = false,
   metadata,
   vaultStatus = "ready",
   nowMs,
@@ -439,6 +440,7 @@ export function CashOverview({
     : null, [activeSnapshot]);
   const rows = useMemo(() => activeSnapshot ? cashHoldings(activeSnapshot) : [], [activeSnapshot]);
   const conversionsByCode = useMemo(() => new Map<string, CashConversionCurrency>(cashConversionCurrencies.map((currency) => [currency.code, currency])), []);
+  const convertible = useMemo(() => cashConversionDestinations("USD").some((currency) => currency.convertOffered), []);
   const { holdings, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
@@ -595,12 +597,12 @@ export function CashOverview({
           Try again
         </Button>
       ) : null) : (
-        <div className="grid grid-cols-2 gap-2">
+        <div className={onConvert && convertible ? "grid grid-cols-2 gap-2" : "grid gap-2"}>
           <Button size="lg" className="h-11 w-full" {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})} onClick={onAddMoney}>
             <Plus aria-hidden="true" />
             Add money
           </Button>
-          {onConvert ? <Button size="lg" variant="outline" className="h-11 w-full" disabled={loading || !actionsAvailable}
+          {onConvert && convertible ? <Button size="lg" variant="outline" className="h-11 w-full" disabled={loading || !actionsAvailable}
             {...(onConvertIntent ? moneySheetIntent(onConvertIntent) : {})} onClick={(event) => onConvert(event.currentTarget)}>
             <ArrowLeftRight aria-hidden="true" />
             Convert
@@ -722,9 +724,9 @@ export function CashOverview({
                           )
                         ) : undefined
                       }
-                      valueTone={partial ? "muted" : "default"}
+                      valueTone={balanceActionStale || partial ? "muted" : "default"}
                       valueContext={
-                        partial && total > BigInt(0) ? "Partial" : undefined
+                        balanceActionStale ? "May be out of date" : partial && total > BigInt(0) ? "Partial" : undefined
                       }
                       onActivate={onOpenSavings}
                       activateLabel="Open savings"
@@ -758,11 +760,11 @@ export function SavingsDetail({
   growthAuthority = null,
   actionsAvailable = true,
   balanceStale = false,
+  balanceActionStale = false,
   summary = null,
   pendingDeposits = [],
   pendingActionsLoading = false,
   pendingActionsError = false,
-  depositEntryBlocked = false,
   onRetryActions,
   depositFailed = false,
 }: SavingsDetailProps) {
@@ -824,8 +826,8 @@ export function SavingsDetail({
     balanceStatus === "failed" ||
     activeSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       .status !== "ready" ||
-    vaultStatus !== "ready" ||
-    depositEntryBlocked;
+    vaultStatus !== "ready";
+  const showActionStale = balanceActionStale && !balanceFailed && balanceStatus === "ready" && activeSnapshot !== null && (!partial || total > BigInt(0));
   const startSavingRef = useRef<HTMLButtonElement>(null);
   const recovery = (
     <Empty>
@@ -864,12 +866,13 @@ export function SavingsDetail({
             ) : (
               <div
                 aria-describedby={
-                  partial && !balanceFailed
-                    ? "savings-balance-partial"
-                    : undefined
+                  [
+                    partial && !balanceFailed ? "savings-balance-partial" : null,
+                    showActionStale ? "savings-balance-stale" : null,
+                  ].filter(Boolean).join(" ") || undefined
                 }
                 className={`text-4xl font-semibold tabular-nums ${
-                  partial || balanceFailed ? "text-muted-foreground" : ""
+                  partial || balanceFailed || showActionStale ? "text-muted-foreground" : ""
                 }`}
               >
                 {balanceFailed || (partial && total === BigInt(0)) ? (
@@ -880,7 +883,7 @@ export function SavingsDetail({
                     reserveDigits={false}
                     value={
                       pendingEmpty ? formatUsdStablecoinAmount(pendingTotal.toString())
-                      : partial || growth === BigInt(0)
+                      : partial || balanceActionStale || growth === BigInt(0)
                         ? formatUsdStablecoinAmount(total.toString())
                         : formatPresentationFiat(
                             { atoms: (total + growth).toString(), scale: 6 },
@@ -894,6 +897,7 @@ export function SavingsDetail({
               </div>
             )}
             {pendingEmpty ? <p className="text-sm text-muted-foreground">Pending</p> : null}
+            {showActionStale ? <p id="savings-balance-stale" className="text-sm text-muted-foreground">Balance may be out of date</p> : null}
             {partial && !balanceFailed ? (
               <p
                 id="savings-balance-partial"
@@ -902,7 +906,7 @@ export function SavingsDetail({
                 Some savings are unavailable
               </p>
             ) : null}
-            {!balanceFailed && vaultStatus === "ready" && total > BigInt(0) ? (
+            {!balanceFailed && !balanceActionStale && vaultStatus === "ready" && total > BigInt(0) ? (
               earningApy ? (
                 <p className="text-sm text-market-gain">Earning {earningApy}</p>
               ) : (
@@ -928,6 +932,7 @@ export function SavingsDetail({
           ) : null}
         </CardContent>
       </Card> : null}
+      {depositFailed && verifiedEmpty ? <Alert variant="destructive" role="alert"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>Your deposit didn&apos;t go through. Try again.</AlertDescription></Alert> : null}
       {pendingActionsLoading && verifiedEmpty && !pendingEmpty ? (
         <Card aria-busy="true"><CardContent><Skeleton className="h-24 w-full" /><span className="sr-only">Loading savings</span></CardContent></Card>
       ) : actionHistoryUnresolved ? (
@@ -951,7 +956,6 @@ export function SavingsDetail({
         </Empty>
       ) : firstUse ? (
         <>
-          {depositFailed ? <Alert variant="destructive" role="alert"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>Your deposit didn&apos;t go through. Try again.</AlertDescription></Alert> : null}
           <FeatureIntro
             size="compact"
             illustration="savings"
@@ -1025,7 +1029,7 @@ export function SavingsDetail({
       ) : null}
       {!balanceFailed &&
       vaultStatus !== "failed" &&
-      !verifiedEmpty &&
+      (!verifiedEmpty || pendingEmpty) &&
       ((vaultStatus === "loading" && entryOffered) || other.length) ? (
         <section
           aria-labelledby="more-savings-heading"

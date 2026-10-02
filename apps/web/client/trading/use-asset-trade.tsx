@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { isServerVerified, useOptionalAccountWallet, type AccountWalletClient } from "@/client/account/cdp-client";
+import { uiBoundary } from "@/client/account/owner-keys";
 import { useBalances } from "@/client/balances";
 import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet";
@@ -26,12 +27,20 @@ type Options = { session?: VerifiedAccountSession | null; regionId?: RegionId; o
 export function useAssetTrade(candidates: readonly TradeCandidate[], { session: expectedSession, regionId, onFallbackFocus }: Options = {}) {
   const account = useOptionalAccountWallet();
   const investOffered = useProductOffering().products.invest === "on";
-  const verified = account && isServerVerified(account) ? account.session : null;
+  const walletOwner = account ? uiBoundary(account) : null;
+  const verified = walletOwner !== null && account && isServerVerified(account) ? account.session : null;
+  const [mountedOwner, setMountedOwner] = useState(walletOwner);
+  const [direction, setDirection] = useState<TradeDirection | null>(null);
   const [mounted, setMounted] = useState<{ owner: string; assetId: string; assetName: string; token: TradeToken; direction: TradeDirection } | null>(null);
-  const keepMountedSession = expectedSession === null && !!verified?.smartAccount && mounted?.owner === `${verified.user.subject}:${verified.smartAccount.address}`;
+  if (mountedOwner !== walletOwner) {
+    setMountedOwner(walletOwner);
+    setMounted(null);
+    setDirection(null);
+  }
+  const keepMountedSession = expectedSession === null && !!verified?.smartAccount && mounted?.owner === walletOwner;
   const session = expectedSession === undefined || (verified?.user.subject === expectedSession?.user.subject && verified?.smartAccount?.address === expectedSession?.smartAccount?.address) || keepMountedSession
     ? verified : null;
-  const owner = session?.smartAccount ? `${session.user.subject}:${session.smartAccount.address}` : null;
+  const owner = session?.smartAccount ? walletOwner : null;
   const region = usePresentationRegionId(regionId);
   const activeCandidates = mounted && mounted.owner === owner && !candidates.some((entry) => entry.assetId === mounted.assetId)
     ? [...candidates, { assetId: mounted.assetId, assetName: mounted.assetName }] : candidates;
@@ -54,9 +63,12 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
         : cash === "0" ? "zero" : "ready";
     return [assetId, state] as const;
   }));
-  const [direction, setDirection] = useState<TradeDirection | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
   const closing = useRef(false);
+  useEffect(() => {
+    closing.current = false;
+    opener.current = null;
+  }, [walletOwner]);
   useIdlePreload(TradeMoneySheet.preload, candidates.some(({ assetId }) => eligible(assetId, "buy") !== null || eligible(assetId, "sell") !== null));
   function eligible(assetId: string, mode: TradeDirection) {
     const candidate = candidates.find((entry) => entry.assetId === assetId);

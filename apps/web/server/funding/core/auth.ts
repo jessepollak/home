@@ -1,11 +1,13 @@
 import "server-only";
 
+import { fundingErrorBody, type FundingErrorCode } from "@/shared/funding/contracts/errors";
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   authorizeSession,
   type SessionAuthorizer,
 } from "@/server/auth/authorize";
-import { privateError, withPrivateHeaders } from "@/server/http/private-response";
+import { privateError, privateJson, withPrivateHeaders } from "@/server/http/private-response";
 
 export type FundingSessionAuthorizer = SessionAuthorizer;
 
@@ -27,6 +29,18 @@ export async function authorizeFundingRequest(
     } as const;
   }
   return { session: result } as const;
+}
+
+export function fundingJson(body: unknown, status = 200): Response {
+  return privateJson(body, status);
+}
+
+export function fundingError(
+  code: FundingErrorCode,
+  message: string,
+  status: number,
+): Response {
+  return privateJson(fundingErrorBody(code, message), status);
 }
 
 export function fundingRequestOrigin(request: Request): string {

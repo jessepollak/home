@@ -2,7 +2,7 @@
 - **Entry context**: borrowing · `/borrow`, `/borrow/<marketId>` · same · session + borrow market fixtures · Home `Your money` Borrow Cash row (home-overview.tsx), goto path.
 
 - **Live**: confirm
-- **Owned paths**: `apps/web/app/borrow/**`, `apps/web/client/borrowing/**`, `apps/web/app/api/borrow/**`, `apps/web/server/borrowing/**`, `apps/web/server/morpho-markets/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
+- **Owned paths**: `apps/web/app/(shell)/borrow/**`, `apps/web/client/borrowing/**`, `apps/web/app/api/borrow/**`, `apps/web/server/borrowing/**`, `apps/web/server/morpho-markets/**`, `apps/web/server/actions/**`, `apps/web/server/money-actions/**`
 - **Confirm labels**: "Confirm action", "Retry"
 - **Reach**: Seed the signed-in state and Borrow fixtures, go to `/borrow`, then select a loan row under `Open loans` (for example, `Manage Staked ETH loan`) or a held asset under `Assets you can borrow against`. With a complete zero-position overview (for example, a session route overriding `**/api/borrow` with `borrowOverviewBody({ openMarketId: null, notHeldMarketIds: [VERIFIED_MORPHO_MARKETS[0].marketId] })`), the intro's `Choose an asset` or `See supported assets` opens the asset picker sheet; a held row there opens its management sheet. `/borrow/<marketId>` remains the direct Borrow action entry.
 - **Reach (live)**:

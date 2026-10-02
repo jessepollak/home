@@ -49,6 +49,23 @@ At Admin → Settings → Products and markets, a saved settings row wins over d
 | Ripio per-country callback URLs and secrets | Each Ripio country dashboard and Vercel environment | [Ripio provider](../apps/web/server/funding/providers/ripio/README.md#confirm-against-your-api) |
 | Peer or other provider enablement | Provider dashboard and Vercel environment | [Peer provider](../apps/web/server/funding/providers/peer/README.md#implementation-and-enablement-gates), [Coinbase provider](../apps/web/server/funding/providers/coinbase/README.md#operator-actions) |
 
+## Money in and out
+
+**Admin → Settings → Money in and out** (`/admin/settings/funding`) chooses which funding corridors are offered, per provider, region, and direction. Credentials stay in the environment and only make a corridor *connected*; the page shows each credential as set or unset, never its value. A corridor is offered only when it is connected and switched on.
+
+- **Until the first save**, Home uses deployment values: every connected corridor is offered, and Peer follows `PEER_OFFRAMP_ENABLED=1`. Nothing is written until you save.
+- **After the first save**, the saved settings win. `PEER_OFFRAMP_ENABLED` is ignored, and a corridor added by a later upstream update starts off.
+- **Pausing** stops new entries within seconds: listing for new customers, quotes, order creation, starting provider verification, and new cash-outs. A cash-out prepared before the pause is refused when the customer confirms it. A paused corridor stays visible to a customer who already has an open or ambiguous order there, so that order can still be finished and followed. Status refresh, webhooks, ambiguous-order resolution, withdrawal, and recovery never read the setting, so open orders keep reconciling.
+- **Turning a corridor on** takes a review of its credential status, the evidence note of every provider binding that switch covers (all of them when a provider offers several, or `none recorded`), and what customers will see, then a confirmation.
+- **If the settings can't be read**, new money in and out fails closed; exits keep working.
+- Every save that changes settings is recorded in the admin audit log with its before and after values, readable by an administrator at `GET /api/admin/audit`. A save based on a stale revision is rejected.
+
+### Roll back
+
+1. **Undo a setting:** find the `settings.update` entry for `funding` in the audit log and set the corridors in Money in and out back to its `before` value. The first save's `before` is empty rather than the deployment values; there, use its `after` value, which was pre-filled from the deployment values, and reverse only the corridors you changed. Saving can't return the domain to deployment values.
+2. **Before rolling the app back to a release without this page**, make the environment match the console. Older releases decide from the environment alone, so a corridor paused only in the console reopens. For Peer, unset `PEER_OFFRAMP_ENABLED`. For a credential-backed provider, the old release can pause a corridor only by removing its credentials, and that also stops status refresh and webhooks for its open orders. Remove credentials only after that provider's open orders have settled; otherwise keep them set, accept that the corridor reopens, or don't roll back. A corridor that is on only in the console stays off after the rollback until its environment is set. The providers and open-order reads interoperate across this release boundary in both directions: an older server still answers them with the contract versions this release's client accepts, and an older client ignores the added response field.
+3. Rolling forward again restores the saved settings unchanged.
+
 ## Environment variables
 
 The root [`.env.example`](../.env.example) is the complete list of names and their comments; this table indexes the variables that gate core capabilities. A capability stays disabled or inert until its variables are set.
@@ -62,7 +79,8 @@ The root [`.env.example`](../.env.example) is the complete list of names and the
 | `CDP_SQL_AUTH_MODE`, `CDP_SQL_CLIENT_API_KEY` (optional; only to use a dedicated SQL client key instead of the CDP server key) | Vercel environment; local `.env.local` | [CDP SQL](cdp-sql.md#authentication-decision) |
 | `CODEX_API_KEY` (server-only; required for token prices, balance valuations, Invest discovery, and historical Activity valuations) | Vercel environment; local `.env.local` | [Codex prices](codex-prices.md#server-setup), [Activity valuation](activity-valuation.md) |
 | `FUNDING_QUOTE_SECRET` (at least 32 characters; required for any funding binding) | Vercel environment; local `.env.local` | [`.env.example`](../.env.example) |
-| Provider credentials, for example `IDRX_*`, `RIPIO_*_<country>`, `PEER_OFFRAMP_ENABLED` (each binding stays inert until its manifest variables are set) | Vercel environment | [Provider registrations](#provider-registrations) |
+| Provider credentials, for example `IDRX_*`, `RIPIO_*_<country>` (a binding is *connected* once its manifest variables are set; whether it is *offered* is chosen in [Money in and out](#money-in-and-out)) | Vercel environment | [Provider registrations](#provider-registrations) |
+| `PEER_OFFRAMP_ENABLED` (legacy; read only until Money in and out is first saved, then shown as "set but ignored") | Vercel environment | [Money in and out](#money-in-and-out) |
 | `DATABASE_URL` | Vercel environment; local `.env.local` | [Vercel deploy](vercel-deploy.md#environment) |
 | `HOME_WEBHOOK_ORIGIN` (optional origin override) | Vercel environment | [Vercel deploy](vercel-deploy.md#cdp-balance-activity-webhook) |
 | `BASE_RPC_URL`, `ETHEREUM_RPC_URL` | Vercel environment; local `.env.local` | [Vercel deploy](vercel-deploy.md#environment) |

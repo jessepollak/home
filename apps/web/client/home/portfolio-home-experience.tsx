@@ -1,13 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
-
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { VaultPositionsProvider } from "@/client/balances/vault-positions";
 import { useBalances } from "@/client/balances";
 import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
+import { countryPreferenceOwnerKey, dataOwnerKey } from "@/client/account/owner-keys";
+import type { HomeSummaryRecord } from "@/shared/balances/home-summary";
+import { useHomeSummary } from "./use-home-summary";
 import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import { presentHomeBalances } from "@/shared/balances/present";
 import { selectOwnedInvestment } from "@/shared/balances/owned-investments";
@@ -19,23 +20,26 @@ import { InvestmentsExperience } from "@/client/investments/investments-experien
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
-import type { ShellLocation } from "@/config/shell-location";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
 import { ProductOfferingProvider } from "./product-offering";
 import { resolveProductOffering, type ProductOffering } from "@/shared/operator-settings/products";
+import { useRouteShellLocation } from "./shell-page-context";
 import { deriveAssetMarkResolution, deriveSendAvailability } from "./send-availability";
 import { useShowSmallBalances } from "./use-show-small-balances";
 import { isRegionAccountSignedIn, useHomeRegion } from "./use-home-region";
 
-const LazyCardExperience = dynamic(() => import("@/client/cards/card-experience").then((module) => module.AuthenticatedCardExperience));
-
 const preferenceReadRetryDelays = [500, 1500] as const;
+
+function RoutedInvestExperience(props: Omit<ComponentProps<typeof PricedInvestExperienceWithDiscover>, "initialView">) {
+  const location = useRouteShellLocation();
+  return <PricedInvestExperienceWithDiscover {...props} initialView={investViewFromLocation(location)} />;
+}
 
 export function PortfolioHomeExperience({
   detectedCountry,
-  initialLocation,
-  initialSearch,
+  children,
+  initialHomeSummary = null,
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
   investVisibility,
@@ -44,8 +48,8 @@ export function PortfolioHomeExperience({
 }: {
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
-  initialLocation: ShellLocation;
-  initialSearch?: string;
+  children?: ReactNode;
+  initialHomeSummary?: HomeSummaryRecord | null;
   accountPreference: CountryPreferenceSeed | null;
   investVisibility?: InvestSettings;
   productOffering?: ProductOffering;
@@ -59,9 +63,7 @@ export function PortfolioHomeExperience({
   const accountReady = account.status === "verified" && account.verification === "server";
   const provisionalPreference = account.status === "validating" && account.verification === "provisional" &&
     Boolean(account.session?.smartAccount);
-  const livePreferenceIdentity = (accountReady || provisionalPreference) && account.ownerKey && account.session
-    ? `${account.ownerKey}\u0000${account.session.accountProvider}\u0000${account.session.user.subject}`
-    : null;
+  const livePreferenceIdentity = accountReady || provisionalPreference ? countryPreferenceOwnerKey(account) : null;
   const preferenceIdentity = accountReady ? livePreferenceIdentity : null;
   const readOwner = account.status === "signed-out" ? null : account.ownerKey;
   const seedApplies = accountPreference !== null && account.status !== "signed-out" && (!account.session ||
@@ -142,10 +144,6 @@ export function PortfolioHomeExperience({
     writeAccountPreference,
     offer: regionOffer,
   });
-  const initialInvestView = useMemo(
-    () => investViewFromLocation(initialLocation),
-    [initialLocation],
-  );
   const session = account.verification && account.session?.smartAccount
     ? {
         subject: account.session.user.subject,
@@ -166,14 +164,15 @@ export function PortfolioHomeExperience({
     (deviceCountryReady && fetchedPreference?.status !== "settled") || provisionalPreferenceReady;
   const suppressBalances = (account.verification === "server" && !regionReady) ||
     (provisionalBalances && !provisionalRegionReady);
+  const paintCachedWhileHeld = (hasSeed && seedPreference !== null && presentedRegionId(seedPreference, regionOffer) === region.regionId) ||
+    (fetchedPreference?.status === "settled" && fetchedPreference.regionId !== null &&
+      presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit";
   const balances = useBalances(session, region.regionId, account.fetchBalances, {
     enabled: (account.verification === "server" && regionReady) ||
       (provisionalBalances && provisionalRegionReady),
     provisional: provisionalBalances,
     held: suppressBalances,
-    paintCachedWhileHeld: (hasSeed && seedPreference !== null && presentedRegionId(seedPreference, regionOffer) === region.regionId) ||
-      (fetchedPreference?.status === "settled" && fetchedPreference.regionId !== null &&
-        presentedRegionId(fetchedPreference.regionId, regionOffer) === region.regionId) || region.resolutionSource === "explicit",
+    paintCachedWhileHeld,
   });
   const pendingCashout = usePendingCashoutEscrow(accountReady ? account.session : null, balances.snapshot,
     (signal) => account.fetchAccountResource(recentActionsPath, { signal }));
@@ -193,8 +192,11 @@ export function PortfolioHomeExperience({
         : { status: balanceStatus === "unavailable" ? "unavailable" : "loading", snapshot: null, error: null },
     { pendingCashout },
   ), [balanceStatus, snapshot, pendingCashout]);
+  const cachedHomeBalances = useHomeSummary({ initialSummary: initialHomeSummary, owner: session ? dataOwnerKey(session) : null,
+    region: region.regionId, enabled: !suppressBalances || paintCachedWhileHeld,
+    presentation: homeBalances, updatedAt: balances.observation.dataUpdatedAt, pending: pendingCashout?.state === "loading" });
   const assetBalances = useMemo(() => revalidating
-    ? { ...homeBalances, revalidating } : homeBalances, [homeBalances, revalidating]);
+    ? { ...cachedHomeBalances, revalidating } : cachedHomeBalances, [cachedHomeBalances, revalidating]);
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
     [balances.snapshot],
@@ -214,36 +216,23 @@ export function PortfolioHomeExperience({
     <DashboardShell
       region={region}
       regionReady={regionReady}
-      initialPanel={initialLocation.panel}
-      initialLocation={initialLocation}
+      initialRateLabels={initialHomeSummary && initialHomeSummary.owner === (session ? dataOwnerKey(session) : null) && initialHomeSummary.region === region.regionId ? initialHomeSummary.rates : undefined}
       cardsEnabled={cardsEnabled}
-      cardContent={cardsEnabled ? <LazyCardExperience /> : undefined}
-      investContent={
-        <PricedInvestExperienceWithDiscover
-          discover={discover}
-          initialView={initialInvestView}
-          investVisibility={investVisibility}
-        />
-      }
+      investContent={<RoutedInvestExperience discover={discover} investVisibility={investVisibility} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       investmentsContent={(props) => <InvestmentsExperience {...props} balances={balances} discover={discover} />}
-      applyInboundUrlIntent
-      initialSearch={initialSearch}
-      balancesRevalidating={balances.revalidating === true}
       interruption={interruptionStatus.interruption}
       interruptionAnnouncement={interruptionStatus.announcement}
       onRetryInterruption={interruptionStatus.retry}
       assetBalances={assetBalances}
-      balancesState={balances}
-      pendingCashout={pendingCashout}
       sendAvailability={sendAvailability}
       canOpenAssetDetail={canOpenAssetDetail}
       assetMarkResolution={assetMarkResolution}
       showSmallBalances={showSmallBalances}
       onShowSmallBalancesChange={setShowSmallBalances}
-    />
+    >{children}</DashboardShell>
     </ProductOfferingProvider>
     </VaultPositionsProvider>
   );

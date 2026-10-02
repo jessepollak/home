@@ -21,16 +21,16 @@ import {
 import { useAuthenticatedTransport } from "./cdp-authenticated-transport";
 import { useMoneyActionExecution } from "./cdp-money-action-execution";
 import { BaseAccountLoginError, baseLoginFailureFromConnector, clearCdpRenderHint, writeAccountProviderHint, writeCdpRestoreMarker } from "./cdp-wallet-provider-capabilities";
-import { dataOwnerKey, ownerSessionBoundary } from "./owner-keys";
+import { dataOwnerKey, nativeBaseOwnerKey, ownerSessionBoundary } from "./owner-keys";
 import { useOwnerGenerationFence } from "./owner-generation-fence";
 import { finishHomeAuthRestore, sendHomeAuthSignOut } from "@/client/observability/auth-performance";
-import { nativeOwnerKey } from "./native-base-session-client";
+import { takeNativeRestoreValidation } from "./native-base-session-client";
 import { ACCOUNT_RESTORE_STAGE_TIMEOUT_MS, AccountRestoreStageTimeoutError, runAccountRestoreStage } from "./restore-stage";
 import { readEmailRequestAnsweredHint, useEmailRequestFlow, type SignInEmailFollowUp } from "./email-request-flow";
 
 function renderSeedSdkOwnerKey(seed: AccountRenderSeed): string {
   return seed.source === "home-session"
-    ? nativeOwnerKey(seed.session)
+    ? nativeBaseOwnerKey(seed.session)
     : seed.session.user.subject;
 }
 const subscribeToClientMount = () => () => {};
@@ -316,10 +316,14 @@ export function AccountWalletSessionOwner({
     try {
       const token = await runAccountRestoreStage("token", controller.signal, () => getAccessToken(), restoreStageTimeoutMs);
       fence.assertCurrent(generation);
-      const verified = await runAccountRestoreStage("validation", controller.signal, (signal) => validateAccountSession(token, signal, sessionFetch, {
-        accountProvider: providerRef.current,
-        authentication,
-      }), restoreStageTimeoutMs);
+      const verified = await runAccountRestoreStage("validation", controller.signal, async (signal) => {
+        const restored = authentication === "native-base" && providerRef.current !== "cdp-embedded"
+          ? takeNativeRestoreValidation(provisionalSession, ownerKey, signal) : null;
+        return restored ?? validateAccountSession(token, signal, sessionFetch, {
+          accountProvider: providerRef.current,
+          authentication,
+        });
+      }, restoreStageTimeoutMs);
       fence.assertCurrent(generation);
       if (verified.accountProvider === "base-account") {
         validationProvider = "base-account";
@@ -379,7 +383,7 @@ export function AccountWalletSessionOwner({
         ? "Checking your account took too long."
         : error instanceof Error ? error.message : "Account verification is unavailable.");
     }
-  }, [authentication, baseAccountEnabled, baseAccountRestorer, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, restoreStageTimeoutMs, sessionFetch, signOutLostIdentity]);
+  }, [authentication, baseAccountEnabled, baseAccountRestorer, disconnectBase, fence, getAccessToken, isInitialized, isSignedIn, onBaseInvalidated, ownerKey, provisionalSession, restoreStageTimeoutMs, sessionFetch, signOutLostIdentity]);
 
   const validateRef = useRef(validate);
   useLayoutEffect(() => { validateRef.current = validate; }, [validate]);

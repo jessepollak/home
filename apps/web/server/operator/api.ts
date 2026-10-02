@@ -19,7 +19,7 @@ export async function authorizeOperatorRequest(
   if (nativeCookie.present && !headers.has(ACCOUNT_PROVIDER_HEADER)) {
     headers.set(ACCOUNT_PROVIDER_HEADER, "base-account");
   }
-  const verified = await authorize(new Request(request, { headers }));
+  const verified = await authorize(new Request(request.url, { method: request.method, headers }));
   if (verified instanceof Response) {
     if (verified.status === 503) return verified;
     return privateJson({ error: { code: "UNAUTHENTICATED" } }, 401);

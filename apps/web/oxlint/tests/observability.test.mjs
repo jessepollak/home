@@ -741,6 +741,316 @@ describe("no-silent-catch", () => {
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
   }, budgetMs);
 
+  it("rejects unreachable reports after divergent loops and accepts first-iteration reports", async () => {
+    const results = await lint({
+      fixture1: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) { while (true) {} reportClientError(error); }
+        try { run(); } catch (error) { for (;;) {} reportClientError(error); }
+        try { run(); } catch (error) { for (; true; ) {} reportClientError(error); }
+      }
+    `,
+      fixture2: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) { do { reportClientError(error); } while (true); }
+        try { run(); } catch (error) { while (true) { reportClientError(error); } }
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(3);
+    for (const diagnostic of results.fixture1) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects divergent finalizers and arms that cannot reach reporting finalizers", async () => {
+    const results = await lint({
+      fixture1: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { do {} while (true); reportClientError(error); }
+        }
+        try { run(); } catch (error) {
+          try { while (true) {} } finally { reportClientError(error); }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } catch { for (;;) {} } finally { reportClientError(error); }
+        }
+      }
+    `,
+      fixture2: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { do { reportClientError(error); } while (true); }
+        }
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(4);
+    for (const diagnostic of results.fixture1) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects divergent observeSafely finalizers before telemetry", async () => {
+    const results = await lint({
+      fixture1: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      function handle() {
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { do {} while (true); await emitServerEvent("x", {}); } });
+        }
+      }
+    `,
+      fixture2: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      function handle() {
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { do { await emitServerEvent("x", {}); } while (true); } });
+        }
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(1);
+    for (const diagnostic of results.fixture1) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects retained fallbacks behind divergent catches but preserves finite-loop fallbacks", async () => {
+    const results = await lint({
+      fixture1: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      async function read() {
+        let status = "ready";
+        try { status = await load(); } catch (error) { while (true) {} reportClientError(error); }
+        consume(status);
+      }
+    `,
+      fixture2: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      async function read() {
+        let status = "ready";
+        await load().then((value) => { status = value; }).catch((error) => { while (true) {} reportClientError(error); });
+        consume(status);
+      }
+    `,
+      fixture3: `
+      async function read() {
+        let status = "ready";
+        try { status = await load(); } catch { while (condition) {} }
+        consume(status);
+        await load().then((value) => { status = value; }).catch(() => { while (condition) {} });
+        consume(status);
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture1[0].message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture2[0].message).toBe(messages.silent);
+    expect(results.fixture3).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects divergent arms before direct and nested throwing finalizers", async () => {
+    const results = await lint({
+      fixture1: `
+      function handle() {
+        try { run(); } catch (error) {
+          try { while (true) {} } finally { throw error; }
+        }
+        try { run(); } catch (error) {
+          try { risky(); } finally {
+            try { while (true) {} } finally { throw error; }
+          }
+        }
+      }
+    `,
+      fixture2: `
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally { throw error; }
+        }
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(2);
+    for (const diagnostic of results.fixture1) expect(diagnostic.message).toBe(messages.silent);
+    expect(results.fixture2).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects divergent finalizers even after every arm has already reported", async () => {
+    const diagnostics = (await lint({ fixture1: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { reportClientError(error); } catch { reportClientError(error); } finally { while (true) {} }
+        }
+      }
+    ` }, { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toBe(messages.silent);
+  }, budgetMs);
+
+  it("rejects returns, throws, and retained fallbacks blocked by divergent finalizers", async () => {
+    const results = await lint({
+      fixture1: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) {
+          try { return null; } catch { return null; } finally { do {} while (true); reportClientError(error); }
+        }
+      }
+    `,
+      fixture2: `
+      async function read() {
+        let status = "ready";
+        try { status = await load(); } catch (error) {
+          try { throw error; } finally { while (true) {} }
+        }
+        consume(status);
+      }
+    `,
+      fixture3: `
+      function handle() {
+        try { run(); } catch (error) {
+          try { risky(); } finally {
+            try { throw error; } catch { throw error; } finally { while (true) {} }
+          }
+        }
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    for (const diagnostics of Object.values(results)) {
+      expect(diagnostics).toHaveLength(1);
+      expect(diagnostics[0].message).toBe(messages.silent);
+    }
+  }, budgetMs);
+
+  it("rejects 18 nested divergent finalizers within the lint budget", async () => {
+    let nested = "while (true) {}";
+    for (let depth = 0; depth < 18; depth += 1) {
+      nested = `try { risky(); } finally { ${nested} }`;
+    }
+    const diagnostics = (await lint({ fixture1: `
+      function handle() {
+        try { run(); } catch (error) {
+          try { ${nested} } finally { throw error; }
+        }
+      }
+    ` }, { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toBe(messages.silent);
+  }, budgetMs);
+
+  it("rejects a same-file helper with 24 nested divergent finalizers within the lint budget", async () => {
+    let nested = "while (true) {}";
+    for (let depth = 0; depth < 24; depth += 1) {
+      nested = `try { risky(); } finally { ${nested} }`;
+    }
+    const started = performance.now();
+    const diagnostics = (await lint({ fixture1: `
+      function finishFailure() {
+        try { ${nested} } finally { throw new Error("cleanup failed"); }
+      }
+      try { run(); } catch (error) { finishFailure(); }
+    ` }, { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toBe(messages.silent);
+    expect(performance.now() - started).toBeLessThan(budgetMs);
+  }, budgetMs);
+
+  it("rejects a 30-helper branching DAG across 24 catches within the lint budget", async () => {
+    const helpers = Array.from({ length: 30 }, (_, index) =>
+      `function h${index}() { ${index < 28 ? `h${index + 1}(); h${index + 2}();` : ""} }`).join("\n");
+    const catches = Array.from({ length: 24 }, () =>
+      "try { run(); } catch (error) { h0(); }").join("\n");
+    const started = performance.now();
+    const diagnostics = (await lint({ fixture1: `${helpers}\n${catches}` },
+      { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(24);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(performance.now() - started).toBeLessThan(budgetMs);
+  }, budgetMs);
+
+  it("accepts throwing finalizers over a cyclic 38-helper graph across 24 catches within the lint budget", async () => {
+    const helpers = Array.from({ length: 38 }, (_, index) =>
+      `function h${index}() { ${index < 36 ? `h${index + 1}(); h${index + 2}();` : "h0();"} }`).join("\n");
+    const catches = Array.from({ length: 24 }, () =>
+      "try { run(); } catch (error) { try { h0(); } finally { throw error; } }").join("\n");
+    const started = performance.now();
+    const diagnostics = (await lint({ fixture1: `${helpers}\n${catches}` },
+      { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(0);
+    expect(performance.now() - started).toBeLessThan(budgetMs);
+  }, budgetMs);
+
+  it("rejects divergent arms over a cyclic 38-helper graph across 24 catches within the lint budget", async () => {
+    const helpers = Array.from({ length: 38 }, (_, index) =>
+      `function h${index}() { ${index < 36 ? `h${index + 1}(); h${index + 2}();` : "h0();"} }`).join("\n");
+    const catches = Array.from({ length: 24 }, () =>
+      "try { run(); } catch (error) { try { h0(); while (true) {} } finally { throw error; } }").join("\n");
+    const started = performance.now();
+    const diagnostics = (await lint({ fixture1: `${helpers}\n${catches}` },
+      { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(24);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    expect(performance.now() - started).toBeLessThan(budgetMs);
+  }, budgetMs);
+
+  it("accepts 1,200 nested throwing finalizers within the lint budget", async () => {
+    let nested = "risky();";
+    for (let depth = 0; depth < 1_200; depth += 1) {
+      nested = `try { ${nested} } finally { throw error; }`;
+    }
+    const started = performance.now();
+    const diagnostics = (await lint({ fixture1:
+      `try { run(); } catch (error) { ${nested} }` },
+      { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(0);
+    expect(performance.now() - started).toBeLessThan(budgetMs);
+  }, budgetMs);
+
+  it("rejects mutually recursive helpers with a throwing alternative at either entry point", async () => {
+    const diagnostics = (await lint({ fixture1: `
+      function a() { if (flag) b(); else throw error; }
+      function b() { a(); }
+      try { run(); } catch (error) { a(); }
+      try { run(); } catch (error) { b(); }
+      try { run(); } catch (error) { a(); b(); }
+    ` }, { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(3);
+    for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+  }, budgetMs);
+
+  it("rejects returned telemetry blocked by a divergent finalizer", async () => {
+    const diagnostics = (await lint({ fixture1: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      function handle() {
+        try { run(); } catch (error) {
+          observeSafely(() => { try { return emitServerEvent("x", {}); } finally { while (true) {} } });
+        }
+      }
+    ` }, { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(1);
+    expect(diagnostics[0].message).toBe(messages.silent);
+  }, budgetMs);
+
+  it("preserves finite and jump-bearing loop dispositions", async () => {
+    const diagnostics = (await lint({ fixture1: `
+      import { reportClientError } from "@/client/observability/client-reporter";
+      function handle() {
+        try { run(); } catch (error) { do { if (flag) break; } while (true); reportClientError(error); }
+        try { run(); } catch (error) { while (condition) {} reportClientError(error); }
+        try { run(); } catch (error) {
+          try { risky(); } finally { do { reportClientError(error); } while (false); }
+        }
+      }
+    ` }, { rule: "no-silent-catch", options })).fixture1;
+    expect(diagnostics).toHaveLength(0);
+  }, budgetMs);
+
   it("accepts a nested finalizer that reports on every path", async () => {
     expect((await lint({ fixture1: `
       import { observeSafely, emitServerEvent } from "@/server/observability/log";
@@ -947,6 +1257,24 @@ describe("no-silent-catch", () => {
     for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
     expect(results.fixture2).toHaveLength(0);
   }, budgetMs);
+  for (const [name, loop] of [
+    ["for-of", "for (using resource of resources)"],
+    ["for-await-of", "for await (using resource of resources)"],
+    ["for", "for (using resource = acquire();;)"],
+  ]) {
+    it(`rejects returned telemetry exiting a ${name} resource scope`, async () => {
+      const results = await lint({
+        fixture1: `
+        import { observeSafely } from "@/server/observability/log";
+        function report(sink: (error: unknown) => Promise<unknown>) {
+          observeSafely(async () => { ${loop} { return sink(error); } });
+        }
+        try { run(); } catch (error) { report(sink); }
+      `,
+      }, { rule: "no-silent-catch", options: options });
+      expect(results.fixture1).toHaveLength(1);
+    }, budgetMs);
+  }
 
   it("rejects discarded telemetry sink calls inside observeSafely callbacks", async () => {
     const results = await lint({
@@ -1324,12 +1652,149 @@ describe("no-silent-catch", () => {
       run()["catch"](() => []);
       run()["then"](ok, () => { setError("failed"); });
       run().then(ok, namedHandler);
-      let status = "ready";
-      run().catch(() => { status = "failed"; });
-      consume(status);
     `,
     }, { rule: "no-silent-catch", options: options });
     expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects outer recovery assignments read before promise settlement", async () => {
+    const promises = [
+      'run().catch(() => { status = "failed"; })',
+      'run().then(ok, () => { status = "failed"; })',
+    ];
+    const found = await lint(Object.fromEntries(promises.map((promise, index) => [
+      `fixture${index}`,
+      { path: `fixture${index}.test.ts`, code: `
+        let status = "ready";
+        ${promise};
+        consume(status);
+      ` },
+    ])), { rule: "no-silent-catch", options: options });
+    for (const index of promises.keys()) {
+      expect(found[`fixture${index}`]).toHaveLength(1);
+      expect(found[`fixture${index}`][0].message).toBe(messages.silent);
+    }
+  }, budgetMs);
+
+  it("accepts outer recovery assignments read after an awaited rejection handler", async () => {
+    const promises = [
+      'run().catch(() => { status = "failed"; })',
+      'run().then(ok, () => { status = "failed"; })',
+      '(run().catch(() => { status = "failed"; }) as Promise<void>).then(ok)',
+    ];
+    const found = await lint(Object.fromEntries(promises.map((promise, index) => [
+      `fixture${index}`,
+      { path: `fixture${index}.test.ts`, code: `
+        async function read() {
+          let status = "ready";
+          await ${promise};
+          consume(status);
+        }
+      ` },
+    ])), { rule: "no-silent-catch", options: options });
+    for (const index of promises.keys()) expect(found[`fixture${index}`]).toHaveLength(0);
+  }, budgetMs);
+
+  it("accepts outer recovery assignments read by chained continuations", async () => {
+    const chains = [
+      '.then(() => consume(status))',
+      '.finally(() => consume(status))',
+      '.then((() => consume(status)) as () => void)',
+      '["then"](() => consume(status))',
+    ];
+    const found = await lint(Object.fromEntries(chains.map((chain, index) => [
+      `fixture${index}`,
+      { path: `fixture${index}.test.ts`, code: `
+        function read() {
+          let status = "ready";
+          return run().catch(() => { status = "failed"; })${chain};
+        }
+      ` },
+    ])), { rule: "no-silent-catch", options: options });
+    for (const index of chains.keys()) expect(found[`fixture${index}`]).toHaveLength(0);
+  }, budgetMs);
+
+  it("does not let a continuation or an await sequence unrelated outer reads", async () => {
+    const results = await lint({
+      fixture1: `
+      let status = "ready";
+      run().catch(() => { status = "failed"; }).then(() => work());
+      consume(status);
+      let outside = "ready";
+      async function read() {
+        await run().catch(() => { outside = "failed"; });
+      }
+      consume(outside);
+      let returned = "ready";
+      function start() { return run().catch(() => { returned = "failed"; }); }
+      consume(returned);
+      let rejected = "ready";
+      run().catch(() => { rejected = "failed"; }).then(ok, () => consume(rejected));
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(4);
+  }, budgetMs);
+
+  it("accepts outer recovery assignments read by a closure created after the chain", async () => {
+    const results = await lint({
+      fixture1: `
+      function subscribe() {
+        let settled = false;
+        run().catch(() => { settled = true; });
+        return () => { if (!settled) cleanup(); };
+      }
+      function nestedDeclaration() {
+        let settled = false;
+        run().catch(() => { settled = true; });
+        return () => {
+          function stop() { pending.forEach((item) => { if (!settled) item.cancel(); }); }
+          stop();
+        };
+      }
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects closures inside the chain statement, outside the calling function, or hoisted", async () => {
+    const results = await lint({
+      fixture1: `
+      let early = "ready";
+      schedule(run().catch(() => { early = "failed"; }), () => consume(early));
+      let outer = "ready";
+      function start() { run().catch(() => { outer = "failed"; }); }
+      const read = () => consume(outer);
+      function hoisted() {
+        read();
+        let status = "ready";
+        run().catch(() => { status = "failed"; });
+        function read() { consume(status); }
+      }
+      function nestedHoisted() {
+        let status = "ready";
+        read();
+        run().catch(() => { status = "failed"; });
+        function read() { (() => consume(status))(); }
+      }
+    `,
+    }, { rule: "no-silent-catch", options: options });
+    expect(results.fixture1).toHaveLength(4);
+  }, budgetMs);
+
+  it("requires promise settlement before accepting retained fallback reads", async () => {
+    const found = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      let details = fallback;
+      load().then((value) => { details = value; }).catch(() => {});
+      consume(details);
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+      let details = fallback;
+      load().then((value) => { details = value; }).catch(() => {}).finally(() => consume(details));
+    ` },
+    }, { rule: "no-silent-catch", options: options });
+    expect(found.fixture1).toHaveLength(1);
+    expect(found.fixture2).toHaveLength(0);
   }, budgetMs);
 
   it("exempts iterator and stream cancellation cleanup", async () => {

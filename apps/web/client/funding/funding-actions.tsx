@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import type { RegionId } from "@/config/regions";
 import {
@@ -34,6 +34,7 @@ export type FundingActionsProps = {
   regionId?: RegionId;
   regionReady?: boolean;
   onClosed?: () => void;
+  showTrigger?: boolean;
 };
 
 export function FundingActions(props: FundingActionsProps) {
@@ -49,10 +50,12 @@ export function FundingActionsForWallet({
   regionId = "GLOBAL",
   regionReady = true,
   onClosed,
+  showTrigger = true,
 }: FundingActionsProps & {
   wallet: Parameters<typeof FundingExperienceForWallet>[0]["wallet"];
 }) {
   const pathname = usePathname();
+  const triggerRef = useRef<HTMLAnchorElement>(null);
   const routing = useOptionalHomeShellRouting();
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const [userOpen, setUserOpen] = useState(false);
@@ -118,7 +121,14 @@ export function FundingActionsForWallet({
       navigateToRedirect={(url) => window.location.assign(url)}
       open={open}
       onClose={close}
-      onClosed={onClosed}
+      onClosed={() => {
+        const before = document.activeElement;
+        onClosed?.();
+        const trigger = triggerRef.current;
+        if (before === document.activeElement && trigger?.isConnected) {
+          trigger.focus({ preventScroll: true });
+        }
+      }}
       returnedFromProvider={returnedFromProvider}
       returnedFromVerification={returnedFromVerification}
       initialStep={requestedFlow === "receive" ? "receive" : "method"}
@@ -130,10 +140,14 @@ export function FundingActionsForWallet({
 
   return (
     <>
-      <Button
-        size="touch"
+      {showTrigger ? <a
+        ref={triggerRef}
+        className={buttonVariants({ size: "touch" })}
+        href={flowHref(pathname, "add-money", null, new URLSearchParams())}
         {...intent}
-        onClick={() => {
+        onClick={(event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
           void preloadAddMoneySheet();
           setDismissed(false);
           setUserOpen(true);
@@ -142,7 +156,7 @@ export function FundingActionsForWallet({
       >
         <Plus className="size-4" aria-hidden="true" />
         Add money
-      </Button>
+      </a> : null}
       {mounted ? modal : null}
     </>
   );

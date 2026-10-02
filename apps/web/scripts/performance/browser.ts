@@ -1,11 +1,12 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "../../tests/browser/fixtures/api";
 import { cpuThrottle, type GateId } from "./config";
+import { installPerformanceFixtures } from "./fixtures";
 
 export type CpuRate = { requested: number; applied: number };
-export type Session = { page: Page; context: BrowserContext; cdp: CDPSession; cpu: CpuRate };
+export type Session = { page: Page; context: BrowserContext; cdp: CDPSession; cpu: CpuRate; fixtures?: Awaited<ReturnType<typeof installApiFixtures>> };
 
 export async function setCpuRate(session: Session, rate: number) {
   if (!Number.isFinite(rate) || rate < 1) throw new Error(`Invalid CPU throttle rate ${rate}`);
@@ -13,7 +14,7 @@ export async function setCpuRate(session: Session, rate: number) {
   session.cpu.applied = rate;
 }
 
-export async function openSession(browser: Browser, seed: GateId | null, cpuRate = cpuThrottle): Promise<Session> {
+export async function openSession(browser: Browser, seed: GateId | null, cpuRate = cpuThrottle, options?: { seedBalancesPaintRatio?: number }): Promise<Session> {
   if (!Number.isFinite(cpuRate) || cpuRate < 1) throw new Error(`Invalid CPU throttle rate ${cpuRate}`);
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   try {
@@ -24,8 +25,9 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
     await setCpuRate(session, cpuRate);
     await seedSignedInSession(page);
     // The harness measures the real page clock; navigation and modal gates install their own Playwright clock.
-    await installApiFixtures(page, { clock: "system" });
-    await page.addInitScript((gate) => {
+    session.fixtures = await installApiFixtures(page, { clock: "system" });
+    await installPerformanceFixtures(page);
+    await page.addInitScript(({ gate, seedBalancesPaintRatio }) => {
       const w = window as typeof window & { __perfHistory?: number; __perfLeakCycle?: () => void; __perfLeaks?: Element[] };
       w.__perfHistory = 0;
       for (const name of ["pushState", "replaceState"] as const) {
@@ -36,6 +38,26 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
           if (gate === "warm-requests" && window.location.pathname !== "/home") void fetch("/api/perf-seed");
           return result;
         }) as History[typeof name];
+      }
+      if (gate === "balances-painted" && seedBalancesPaintRatio !== undefined) {
+        const original = performance.mark.bind(performance);
+        let requested = false;
+        let recorded: PerformanceMark | undefined;
+        performance.mark = (name, options) => {
+          if (name !== "balances:painted") return original(name, options);
+          if (!requested) {
+            requested = true;
+            const deadline = performance.now() + 15_000;
+            const record = () => {
+              const shellStart = performance.getEntriesByName("shell:paint", "mark")[0]?.startTime;
+              if (shellStart !== undefined) recorded = original(name, { ...options, startTime: 2 * seedBalancesPaintRatio * shellStart });
+              else if (performance.now() < deadline) setTimeout(record, 20);
+            };
+            record();
+          }
+          // Construction preserves the return type without recording an unscaled entry.
+          return recorded ?? new PerformanceMark(name, options);
+        };
       }
       if (gate === "history-writes") document.addEventListener("scroll", () => {
         for (let i = 0; i < 6; i++) history.replaceState(history.state, "", location.href);
@@ -77,7 +99,7 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
         });
         observer.observe(document, { subtree: true, childList: true });
       }
-    }, seed);
+    }, { gate: seed, seedBalancesPaintRatio: options?.seedBalancesPaintRatio });
     if (seed === "initial-js") {
       const noise = Array.from({ length: 75_000 }, (_, i) => {
         const value = (i * 2654435761 ^ (i * i * 1597334677)) >>> 0;
@@ -96,8 +118,8 @@ export async function openSession(browser: Browser, seed: GateId | null, cpuRate
   } catch (error) { await context.close(); throw error; }
 }
 
-export async function withSession<T>(browser: Browser, seed: GateId | null, run: (session: Session) => Promise<T>, trace?: { dir: string; name: string }, cpuRate = cpuThrottle): Promise<T> {
-  const session = await openSession(browser, seed, cpuRate);
+export async function withSession<T>(browser: Browser, seed: GateId | null, run: (session: Session) => Promise<T>, trace?: { dir: string; name: string }, cpuRate = cpuThrottle, options?: { seedBalancesPaintRatio?: number }): Promise<T> {
+  const session = await openSession(browser, seed, cpuRate, options);
   try {
     if (trace) {
       await mkdir(trace.dir, { recursive: true });
@@ -117,21 +139,39 @@ export async function withSession<T>(browser: Browser, seed: GateId | null, run:
 }
 
 export async function inlineFixtureMark(page: Page) {
-  const svg = await readFile(new URL("../../public/asset-marks/usdc.svg", import.meta.url));
-  const inline = `data:image/svg+xml;base64,${svg.toString("base64")}`;
-  await page.addInitScript((dataUrl) => {
+  // Route interception disables Chromium's HTTP cache for the measured page, so a
+  // remounted fixture image always starts a request even when the response is cacheable.
+  // Inline the fixed assets so the warm-request gate measures navigation, not fixture images.
+  const directories = ["asset-marks", "currency-flags"] as const;
+  const marks = Object.fromEntries((await Promise.all(directories.map(async (directory) => {
+    const root = join(__dirname, "../../public", directory);
+    return Promise.all((await readdir(root)).filter((name) => name.endsWith(".svg")).map(async (name) => {
+      const svg = await readFile(join(root, name));
+      return [`/${directory}/${name}`, `data:image/svg+xml;base64,${svg.toString("base64")}`] as const;
+    }));
+  }))).flat());
+  const external = `data:image/svg+xml;base64,${Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>').toString("base64")}`;
+  await page.addInitScript(({ marks, external }) => {
+    const inline = (value: string) => {
+      try {
+        const url = new URL(value, location.href);
+        if (url.hostname === "images.example.test" && url.protocol === "https:") return external;
+        if (url.origin === location.origin) return marks[url.pathname] ?? value;
+      } catch { /* Leave malformed image URLs unchanged. */ }
+      return value;
+    };
     const original = Element.prototype.setAttribute;
     Element.prototype.setAttribute = function (name, value) {
-      return original.call(this, name, this instanceof HTMLImageElement && name === "src" && value.endsWith("/asset-marks/usdc.svg") ? dataUrl : value);
+      return original.call(this, name, this instanceof HTMLImageElement && name === "src" ? inline(value) : value);
     };
     const descriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src")!;
     Object.defineProperty(HTMLImageElement.prototype, "src", {
       ...descriptor,
       set(this: HTMLImageElement, value: string) {
-        descriptor.set!.call(this, value.endsWith("/asset-marks/usdc.svg") ? dataUrl : value);
+        descriptor.set!.call(this, inline(value));
       },
     });
-  }, inline);
+  }, { marks, external });
 }
 
 export async function launch() { return chromium.launch({ headless: true, channel: "chromium" }); }

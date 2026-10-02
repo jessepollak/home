@@ -265,6 +265,62 @@ describe("presentActivityLedgerItems", () => {
     expect(facts).toContainEqual({ label: "Arrives", value: "Arrival time varies" });
   });
 
+  describe("cash-out reviewed receive labels", () => {
+    const progress: NonNullable<RecentMoneyActionOperation["cashout"]> = {
+      version: 1, providerId: "peer", region: "US", depositId: "deposit-1", state: "awaiting-buyer",
+      platform: "cashapp", platformLabel: "Cash App", amountAtomic: "50000000", filledAtomic: "0",
+      returnedAtomic: "0", remainingAtomic: "50000000", withdrawable: true, withdrawing: false,
+      etaSeconds: 600, settledAt: null, updatedAt: TIME,
+    };
+    const cashout: RecentMoneyActionOperation = {
+      ...action("confirmed"),
+      action: {
+        ...action("confirmed").action, kind: "cash-out",
+        amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000", direction: "spend" }],
+        metadata: {
+          product: "cashout", operation: "deposit", providerId: "peer", providerName: "Peer",
+          environment: "production", platform: "cashapp", platformLabel: "Cash App", currency: "USD",
+          canonicalHandle: "alice", approximateFiatAmount: "50.00", minConversionRate: "1",
+          intentAmountRange: { min: "50000000", max: "50000000" }, estimateAsOf: TIME,
+          escrow: "0x777777779d229cdF3110e9de47943791c26300Ef",
+          quote: {
+            fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null }, rate: null,
+            receive: { amount: "50.00", currency: "USD", approximate: true },
+            arrival: { source: "declared", kind: "within", seconds: 600 },
+          },
+        },
+      },
+      cashout: progress,
+    };
+
+    test.each([
+      ["returned", "returned", "0", "50000000", "refunded", [{ label: "Returned", value: "$50" }]],
+      ["paid", "delivered", "50000000", "0", "confirmed", []],
+      ["partially paid then returned", "delivered", "25000000", "25000000", "refunded", [
+        { label: "Paid", value: "$25" }, { label: "Returned", value: "$25" },
+      ]],
+    ] as const)("shows quoted receive for %s cash-outs", (_scenario, state, filledAtomic, returnedAtomic, status, expectedFacts) => {
+      const [item] = present([fromAction({
+        ...cashout,
+        cashout: { ...progress, state, filledAtomic, returnedAtomic, remainingAtomic: "0", withdrawable: false, settledAt: TIME },
+      })]);
+      expect(item).toMatchObject({ family: "home-action", status });
+      const facts = item?.detail.family === "home-action" ? item.detail.facts ?? [] : [];
+      expect(facts).toContainEqual({ label: "Quoted receive", value: "≈ $50.00 to Cash App" });
+      for (const fact of expectedFacts) expect(facts).toContainEqual(fact);
+      expect(facts.some(({ label }) => label === "You receive" || label === "Arrives")).toBe(false);
+    });
+
+    test.each(["awaiting-buyer", "matched", "delivering"] as const)("keeps prospective receive and arrival for %s cash-outs", (state) => {
+      const [item] = present([fromAction({ ...cashout, cashout: { ...progress, state } })]);
+      expect(item).toMatchObject({ family: "home-action", status: "waiting-provider" });
+      const facts = item?.detail.family === "home-action" ? item.detail.facts ?? [] : [];
+      expect(facts).toContainEqual({ label: "You receive", value: "≈ $50.00 to Cash App" });
+      expect(facts).toContainEqual({ label: "Arrives", value: "Usually within 10 minutes" });
+      expect(facts.some(({ label }) => label === "Quoted receive")).toBe(false);
+    });
+  });
+
   test("formats primary and secondary action amounts without leaking source internals", () => {
     const [item] = present([fromAction(action("unknown")), fromTransfer(transfer())]);
     expect(item).toMatchObject({ title: "Send USDC", amount: "−~$1.23", detailAmount: "−~1.23 USDC", direction: "out", detail: { operation: "Send", facts: [{ label: "You receive", value: "0.50 USDC" }] } });

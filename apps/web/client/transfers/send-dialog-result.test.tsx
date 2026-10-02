@@ -37,7 +37,7 @@ const parsed = (rows: unknown[]) => parseRecentActionsPayload({ actions: rows },
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 test("paused send review still loads and explains an offer withdrawn at confirm", async () => {
-  render(<SendDialog open immediate sendOffered={false} address={ACCOUNT} ownerBoundary="offer-withdrawn" resumeActionId={ID} availableAssets={[balance]}
+  render(<SendDialog open immediate sendOffered={false} address={ACCOUNT} queryOwnerKey="offer-withdrawn" resumeActionId={ID} availableAssets={[balance]}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; }}
     onClose={() => {}} />);
@@ -49,7 +49,7 @@ test("submitted stays in the dialog, ignores a different owner, and adopts the m
   let closeCount = 0;
   function Routed() {
     const [actionId, setActionId] = useState<string | null>(ID);
-    return <SendDialog open immediate address={ACCOUNT} ownerBoundary="result-submitted" resumeActionId={actionId}
+    return <SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-submitted" resumeActionId={actionId}
       availableAssets={[balance]} prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
       executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
       fetchAccountResource={async (url) => {
@@ -73,7 +73,7 @@ test("submitted stays in the dialog, ignores a different owner, and adopts the m
 
 test("submitted result becomes success for a matching confirmed row", async () => {
   let closes = 0;
-  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="result-success" resumeActionId={ID}
+  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-success" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [actionRow("confirmed")] } : { version: 1, recipients: [] }}
@@ -88,7 +88,7 @@ test("submitted result becomes success for a matching confirmed row", async () =
 test("repeated confirmation observations do not repeat the submission side effect", async () => {
   let submitted = 0;
   const key = ownerQueryKey(dataOwnerKey({ subject: action.owner.subject, smartAccountAddress: action.owner.address, chainId: action.owner.chainId, accountProvider: action.owner.accountProvider }), "actions");
-  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="result-repeat" resumeActionId={ID}
+  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-repeat" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [actionRow("confirmed")] } : { version: 1, recipients: [] }}
@@ -104,7 +104,7 @@ test("repeated confirmation observations do not repeat the submission side effec
 
 test("matching failed row offers Try again with the previous amount and clears review", async () => {
   let cleared = 0;
-  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="result-failed" resumeActionId={ID} availableAssets={[balance]}
+  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-failed" resumeActionId={ID} availableAssets={[balance]}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => ({ id: ID, status: "submitted" })}
     fetchAccountResource={async (url) => url === "/api/actions" ? { actions: [actionRow("failed")] } : { version: 1, recipients: [] }}
@@ -123,7 +123,7 @@ test("ambiguous result clears the route and opens Activity after closing, withou
     state: { flow: "send", panel: "home" },
     openPanel: (panel: string) => { events.push(`panel:${panel}`); },
   } as HomeShellRouting;
-  render(<HomeShellRoutingProvider value={routing}><SendDialog open immediate address={ACCOUNT} ownerBoundary="result-unknown" resumeActionId={ID}
+  render(<HomeShellRoutingProvider value={routing}><SendDialog open immediate address={ACCOUNT} queryOwnerKey="result-unknown" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={async () => { throw new TransferExecutionError("submission-unknown"); }}
     onSubmitted={() => events.push("clear-id")} onClose={() => events.push("close")} /></HomeShellRoutingProvider>);
@@ -140,7 +140,7 @@ test("ambiguous result clears the route and opens Activity after closing, withou
 test("double activation of Send confirm dispatches one execute", async () => {
   let finish!: (value: { id: string; status: "submitted" }) => void;
   const executions: string[] = [];
-  render(<SendDialog open immediate address={ACCOUNT} ownerBoundary="double-send" resumeActionId={ID}
+  render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey="double-send" resumeActionId={ID}
     prepareMoneyAction={async () => action} resumeMoneyAction={async () => action}
     executeMoneyAction={(prepared) => {
       executions.push(prepared.id);

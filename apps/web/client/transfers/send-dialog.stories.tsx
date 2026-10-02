@@ -20,7 +20,7 @@ const meta = {
   component: SendDialog,
   parameters: { layout: "fullscreen" },
   args: {
-    open: true, immediate: true, address: action.owner.address, ownerBoundary: "send-story", resumeActionId: action.id,
+    open: true, immediate: true, address: action.owner.address, queryOwnerKey: "send-story", resumeActionId: action.id,
     prepareMoneyAction: async () => action, resumeMoneyAction: async () => action,
     fetchAccountResource: async (url: string) => url === "/api/actions" ? { actions: [] } : { version: 1, recipients: [] },
     executeMoneyAction: async (): Promise<OperationResult> => ({ id: action.id, status: "submitted" as const }), onClose: () => {},
@@ -108,7 +108,7 @@ const depositAction: PreparedMoneyAction = {
 
 export const DepositReview: Story = {
   args: {
-    ownerBoundary: "deposit-story", resumeActionId: depositAction.id,
+    queryOwnerKey: "deposit-story", resumeActionId: depositAction.id,
     prepareMoneyAction: async () => depositAction, resumeMoneyAction: async () => depositAction,
   },
   play: async ({ canvasElement }) => {
@@ -123,7 +123,7 @@ export const DepositReview: Story = {
 
 export const WithdrawalPending: Story = {
   args: {
-    ownerBoundary: "withdraw-story", resumeActionId: withdrawAction.id,
+    queryOwnerKey: "withdraw-story", resumeActionId: withdrawAction.id,
     prepareMoneyAction: async () => withdrawAction, resumeMoneyAction: async () => withdrawAction,
     executeMoneyAction: async (): Promise<OperationResult> => ({ id: withdrawAction.id, status: "submitted" as const }),
   },

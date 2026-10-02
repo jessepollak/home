@@ -1,6 +1,7 @@
 import "server-only";
 
-import type { FundingDirection, FundingProvider, FundingWebhookManifest } from "@/shared/funding/provider-contract";
+import { FUNDING_PAYMENT_METHOD_ID_PATTERN, type FundingDirection, type FundingProvider, type FundingWebhookManifest } from "@/shared/funding/provider-contract";
+import { FUNDING_PROVIDER_ID_PATTERN } from "@/shared/operator-settings/contract";
 import { normalizeFundingOrigins, FundingProviderConfigurationError } from "../core/provider-context";
 
 export function validateFundingProviders(providers: ReadonlyArray<FundingProvider>): void {
@@ -9,7 +10,7 @@ export function validateFundingProviders(providers: ReadonlyArray<FundingProvide
   for (const provider of providers) {
     const { manifest } = provider;
     if (!manifest.onramp && !manifest.offramp) fail(`${manifest.id} must declare at least one direction.`);
-    if (!manifest.id || ids.has(manifest.id)) fail(`Funding provider id ${manifest.id || "<empty>"} is invalid or duplicated.`);
+    if (!FUNDING_PROVIDER_ID_PATTERN.test(manifest.id) || ids.has(manifest.id)) fail(`Funding provider id ${manifest.id || "<empty>"} is invalid or duplicated.`);
     ids.add(manifest.id);
     if (manifest.onramp) {
       validateModeEnvironment(manifest.id, "onramp", manifest.onramp.modeEnv, manifest.onramp.sandbox === true, modeEnvironments);
@@ -40,10 +41,14 @@ export function validateFundingProviders(providers: ReadonlyArray<FundingProvide
         }
         const methods = new Set<string>();
         for (const method of directional.paymentMethods) {
-          if (!method.id || methods.has(method.id)) fail(`${manifest.id} ${direction} payment method ids must be unique per binding.`);
+          if (!FUNDING_PAYMENT_METHOD_ID_PATTERN.test(method.id) || methods.has(method.id)) fail(`${manifest.id} ${direction} payment method ids must be valid and unique per binding.`);
           methods.add(method.id);
         }
         const env = new Set<string>();
+        const legacyOfferedEnv = directional.legacyOfferedEnv;
+        if (legacyOfferedEnv !== undefined && (typeof legacyOfferedEnv !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(legacyOfferedEnv) || directional.env.includes(legacyOfferedEnv))) {
+          fail(`${manifest.id} ${direction} legacy offering environment name is invalid or also required as a credential.`);
+        }
         for (const name of directional.env) {
           if (!/^[A-Z][A-Z0-9_]*$/.test(name) || env.has(name)) fail(`${manifest.id} ${direction} binding environment names are invalid or duplicated.`);
           env.add(name);

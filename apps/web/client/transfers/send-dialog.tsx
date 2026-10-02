@@ -25,13 +25,12 @@ import { atomicToDecimal } from "@/shared/formatting/atomic";
 import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { presentationRegions, type RegionId } from "@/config/regions";
-import { readProviderBindings, type FundingOfframpBinding } from "@/shared/funding/contracts/providers";
+import type { FundingOfframpBinding } from "@/shared/funding/contracts/providers";
+import { fundingProvidersQuery } from "@/client/funding/funding-queries";
+import { browserHomeQueryClient, ownerQueryKey, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
+import { recentTransferRecipientsQuery, transferRecipientNameQuery } from "./send-queries";
 import { canonicalizeCashPayee, cashPayeeLabels } from "@/shared/funding/cash-payee";
-import {
-  readRecentTransferRecipientsResponse,
-  readTransferRecipientNameResponse,
-  type RecentTransferRecipient,
-} from "@/shared/transfers/contracts/recipients";
+import type { RecentTransferRecipient } from "@/shared/transfers/contracts/recipients";
 import { normalizeTransferRecipientName } from "@/shared/transfers/recipient-name";
 import {
   MoneyAmountDisplay,
@@ -93,7 +92,7 @@ export function SendDialog({
   fetchAccountResource,
   resumeMoneyAction,
   executeMoneyAction,
-  ownerBoundary,
+  queryOwnerKey,
   regionId = "US",
   regionReady = true,
   immediate = false,
@@ -113,7 +112,7 @@ export function SendDialog({
   fetchAccountResource?: AccountWalletClient["fetchAccountResource"];
   resumeMoneyAction: AccountWalletClient["resumeMoneyAction"];
   executeMoneyAction: AccountWalletClient["executeMoneyAction"];
-  ownerBoundary: string | null;
+  queryOwnerKey: string | null;
   regionId?: RegionId;
   regionReady?: boolean;
   resumeActionId?: string | null;
@@ -127,17 +126,9 @@ export function SendDialog({
   const offeredAssets = useMemo(() => sendOffered ? availableAssets : availableAssets?.filter((asset) => asset.id === "usdc"), [availableAssets, sendOffered]);
   const [assetId, setAssetId] = useState<string | null>(() => offeredAssets?.[0]?.id ?? null);
   const [recipient, setRecipient] = useState("");
-  const [resolution, setResolution] = useState<{ name: string; address: `0x${string}` | null } | null>(null);
-  const [recentRecipientState, setRecentRecipientState] = useState<{
-    ownerBoundary: string;
-    recipients: ReadonlyArray<RecentTransferRecipient>;
-  } | null>(null);
   const [amount, setAmount] = useState("");
   const [request, setRequest] = useState<TransferRequest | null>(null);
   const [cashout, setCashout] = useState<CashoutRequest | null>(null);
-  const [offramps, setOfframps] = useState<ReadonlyArray<FundingOfframpBinding> | null>([]);
-  const [providersLoadedFor, setProvidersLoadedFor] = useState<string | null>(null);
-  const [providerRetry, setProviderRetry] = useState(0);
   const [selectedOfframp, setSelectedOfframp] = useState<FundingOfframpBinding | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState<FundingOfframpBinding["paymentMethods"][number] | null>(null);
   const [payoutHandle, setPayoutHandle] = useState("");
@@ -150,12 +141,13 @@ export function SendDialog({
   const [submittedAt, setSubmittedAt] = useState<string | undefined>();
   const submittingRef = useRef(false);
   const prepareTokenRef = useRef(0);
-  const prepareBoundaryRef = useRef({ open, ownerBoundary });
+  const prepareBoundaryRef = useRef({ open, queryOwnerKey });
   const handleInputRef = useRef<HTMLInputElement>(null);
   const focusHandleRef = useRef(false);
   const routing = useOptionalHomeShellRouting();
   const [error, setError] = useState<string | null>(null);
   const resumedActionRef = useRef<string | null>(null);
+  const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const cashoutExpiry = useReactiveExpiry(cashout?.operation === "deposit" ? action?.expiresAt ?? null : null);
   const quoteExpired = cashout?.operation === "deposit" && action !== null && (cashoutExpiry.expired || serverExpiredId === action.id);
   const selectedStillAvailable = !assetId || offeredAssets?.some((asset) => asset.id === assetId) !== false;
@@ -165,12 +157,12 @@ export function SendDialog({
     setPreparing(false);
   }
   useLayoutEffect(() => {
-    if (prepareBoundaryRef.current.open === open && prepareBoundaryRef.current.ownerBoundary === ownerBoundary) return;
-    prepareBoundaryRef.current = { open, ownerBoundary };
+    if (prepareBoundaryRef.current.open === open && prepareBoundaryRef.current.queryOwnerKey === queryOwnerKey) return;
+    prepareBoundaryRef.current = { open, queryOwnerKey };
     invalidatePrepare();
-  }, [open, ownerBoundary]);
+  }, [open, queryOwnerKey]);
   function isCurrentPrepare(token: number, startedOwner: string | null) {
-    return token === prepareTokenRef.current && prepareBoundaryRef.current.open && prepareBoundaryRef.current.ownerBoundary === startedOwner;
+    return token === prepareTokenRef.current && prepareBoundaryRef.current.open && prepareBoundaryRef.current.queryOwnerKey === startedOwner;
   }
   function changeAmount(value: string) {
     invalidatePrepare();
@@ -200,10 +192,13 @@ export function SendDialog({
   const trimmedRecipient = recipient.trim();
   const typedAddress = isTransferRecipient(trimmedRecipient) ? normalizeTransferRecipient(trimmedRecipient) : null;
   const typedName = typedAddress === null ? normalizeTransferRecipientName(trimmedRecipient) : null;
-  const settledResolution = typedName !== null && resolution?.name === typedName ? resolution : null;
-  const resolvedRecipient = settledResolution?.address ?? null;
-  const resolving = typedName !== null && settledResolution === null;
-  const unresolved = settledResolution !== null && settledResolution.address === null;
+  const readOwnerKey = open ? queryOwnerKey : null;
+  const nameQuery = useHomeQuery(transferRecipientNameQuery(readOwnerKey, typedName, sendOffered && open && step === "destination" && Boolean(fetchAccountResource), fetchAccountResource));
+  const namePending = nameQuery.isPending || nameQuery.isFetching;
+  const nameSettled = typedName !== null && !namePending && (nameQuery.isSuccess || nameQuery.isError);
+  const resolvedRecipient = !namePending && nameQuery.isSuccess && nameQuery.data?.name === typedName ? nameQuery.data.address : null;
+  const resolving = typedName !== null && !nameSettled;
+  const unresolved = nameSettled && resolvedRecipient === null;
   const recipientName = typedName !== null && resolvedRecipient !== null ? typedName : undefined;
   const effectiveRecipient = typedAddress ?? resolvedRecipient;
   const recipientHint = typedAddress !== null || typedName !== null || trimmedRecipient.length === 0
@@ -212,79 +207,30 @@ export function SendDialog({
   const selectedAsset = activeAssetId ? getTransferAsset(activeAssetId) : null;
   const selectedAvailability = offeredAssets?.find((asset) => asset.id === activeAssetId);
   const unit = useMoneyAmountUnit(selectedAsset?.cashCurrency, selectedAvailability?.price ?? null);
-  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(ownerBoundary, fetchAccountResource, open);
+  const { reserve, failed: reserveFailed, retry: retryReserve } = useNetworkFeeReserve(queryOwnerKey, fetchAccountResource, open);
   const sendCeiling = selectedAvailability ? atomicToDecimal(maxAmountAfterNetworkFee(selectedAvailability.balanceBaseUnits, selectedAsset?.symbol ?? "", reserve) ?? "0", selectedAvailability.decimals) : null;
   const ceilingSettled = selectedAsset?.symbol.toUpperCase() !== "USDC" || reserve !== undefined;
   const overAvailable = ceilingSettled && amountExceedsCeiling(amount, sendCeiling);
   const canContinueAmount = Boolean(selectedAsset) && ceilingSettled && isPositiveDecimalAmount(amount) && !overAvailable;
   const continueFromAmount = () => { setError(null); setStep("destination"); };
-  const resourceBoundary = `${ownerBoundary ?? ""}:${regionId}`;
-  const recentRecipients = ownerBoundary && recentRecipientState?.ownerBoundary === ownerBoundary
-    ? recentRecipientState.recipients
-    : [];
-  const providersLoaded = regionReady && providersLoadedFor === resourceBoundary;
-  const eligibleOfframps = (providersLoaded ? offramps ?? [] : []).filter((binding) => selectedAsset?.symbol === "USDC" && binding.assetId === "base:usdc");
+  const recentRecipientsQuery = useHomeQuery(recentTransferRecipientsQuery(readOwnerKey, open && sendOffered, fetchAccountResource));
+  const recentRecipients = recentRecipientsQuery.isError ? [] : recentRecipientsQuery.data ?? [];
+  const offrampQuery = useHomeQuery({
+    ...fundingProvidersQuery(readOwnerKey, regionId, "offramp", fetchAccountResource),
+    enabled: open && regionReady && Boolean(fetchAccountResource),
+  });
+  const offramps = offrampQuery.isError ? null : offrampQuery.data ?? null;
+  const providersLoaded = regionReady && (offrampQuery.data !== undefined || offrampQuery.isFetched);
+  const eligibleOfframps = (providersLoaded ? offramps ?? [] : []).filter((binding): binding is FundingOfframpBinding => selectedAsset?.symbol === "USDC" && binding.direction === "offramp" && binding.assetId === "base:usdc");
   const assetOptions = useMemo(() => offeredAssets?.map((asset) => ({
     id: asset.id, label: asset.symbol, description: asset.name, currency: asset.cashCurrency,
     mark: presentPortfolioAssetMark({ assetKey: asset.assetKey, name: asset.name, symbol: asset.symbol, currency: asset.cashCurrency }, assetMarkResolution),
   })) ?? [], [assetMarkResolution, offeredAssets]);
 
   useEffect(() => {
-    if (!sendOffered || !open || step !== "destination" || !fetchAccountResource || typedName === null) return;
-    const requestedName = typedName;
-    let cancelled = false;
-    void fetchAccountResource(`/api/transfers/recipient-name?name=${encodeURIComponent(requestedName)}`)
-      .then((value) => {
-        if (cancelled) return;
-        const resolved = readTransferRecipientNameResponse(value);
-        setResolution({
-          name: requestedName,
-          address: resolved && resolved.name === requestedName ? resolved.address : null,
-        });
-      })
-      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed recipient-name lookup falls back to an unresolved address unless this request was cancelled
-        if (!cancelled) setResolution({ name: requestedName, address: null });
-      });
-    return () => { cancelled = true; };
-  }, [fetchAccountResource, open, sendOffered, step, typedName]);
-
-  useEffect(() => {
-    if (!sendOffered || !open || !ownerBoundary || !fetchAccountResource) return;
-    if (recentRecipientState?.ownerBoundary === ownerBoundary) return;
-    const requestedOwnerBoundary = ownerBoundary;
-    let cancelled = false;
-    void fetchAccountResource("/api/transfers/recent-recipients")
-      .then((value) => {
-        if (!cancelled) {
-          setRecentRecipientState({
-            ownerBoundary: requestedOwnerBoundary,
-            recipients: readRecentTransferRecipientsResponse(value),
-          });
-        }
-      })
-      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed recent-recipient lookup falls back to an empty list unless the request was cancelled
-        if (!cancelled) {
-          setRecentRecipientState({ ownerBoundary: requestedOwnerBoundary, recipients: [] });
-        }
-      });
-    return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, recentRecipientState, sendOffered]);
-
-  useEffect(() => {
-    if (!open || !ownerBoundary || !fetchAccountResource || !regionReady) return;
-    let cancelled = false;
-    const requestedBoundary = resourceBoundary;
-    void fetchAccountResource(`/api/funding/providers?region=${encodeURIComponent(regionId)}&direction=offramp`)
-      .then((value) => { if (!cancelled) setOfframps(readProviderBindings(value).filter((binding): binding is FundingOfframpBinding => binding.direction === "offramp")); })
-      .catch(() => { if (!cancelled) setOfframps(null); }) // oxlint-disable-line home/no-silent-catch -- a failed provider read clears the list; finally marks this request loaded
-      .finally(() => { if (!cancelled) setProvidersLoadedFor(requestedBoundary); });
-    return () => { cancelled = true; };
-  }, [fetchAccountResource, open, ownerBoundary, regionId, regionReady, resourceBoundary, providerRetry]);
-
-  useEffect(() => {
-    if (!open || !ownerBoundary || !regionReady || !resumeActionId || resumedActionRef.current === resumeActionId) return;
+    if (!open || !queryOwnerKey || !regionReady || !resumeActionId || resumedActionRef.current === resumeActionId) return;
     resumedActionRef.current = resumeActionId;
-    const startedOwner = ownerBoundary;
+    const startedOwner = queryOwnerKey;
     const token = ++prepareTokenRef.current;
     let cancelled = false;
     let settled = false;
@@ -338,12 +284,11 @@ export function SendDialog({
       if (!settled) setPreparing(false);
       if (!settled && resumedActionRef.current === resumeActionId) resumedActionRef.current = null;
     };
-  }, [onInvalidResume, open, ownerBoundary, regionReady, resumeActionId, resumeMoneyAction]);
+  }, [onInvalidResume, open, queryOwnerKey, regionReady, resumeActionId, resumeMoneyAction]);
 
   function reset() {
     prepareTokenRef.current += 1;
     setAssetId(offeredAssets?.[0]?.id ?? null); setRecipient(""); changeAmount("");
-    setResolution(null);
     setSubmission(null); setSubmittedAt(undefined); submittingRef.current = false; setRequest(null); setCashout(null); setSelectedOfframp(null); setSelectedPlatform(null); setPayoutHandle("");
     setAction(null); setStep("amount"); setPreparing(false); setError(null); setQuoteNotice(null); setServerExpiredId(null);
   }
@@ -356,7 +301,7 @@ export function SendDialog({
     setPreparing(false); setQuoteNotice(null);
     const binding = selectedOfframp?.providerId === cashout?.providerId && selectedOfframp?.region === regionId && selectedOfframp?.assetId === "base:usdc" && selectedOfframp?.currency === cashout?.currency &&
       selectedPlatform?.platform === cashout?.platform ? selectedOfframp :
-      (providersLoaded ? offramps : null)?.find((item) => item.providerId === cashout?.providerId && item.region === regionId && item.assetId === "base:usdc" && item.currency === cashout?.currency &&
+      (providersLoaded ? offramps : null)?.find((item): item is FundingOfframpBinding => item.direction === "offramp" && item.providerId === cashout?.providerId && item.region === regionId && item.assetId === "base:usdc" && item.currency === cashout?.currency &&
         item.paymentMethods.some((method) => method.platform === cashout?.platform));
     const method = binding?.paymentMethods.find((item) => item.platform === cashout?.platform);
     setCashout(null);
@@ -392,7 +337,7 @@ export function SendDialog({
   async function prepareSend() {
     if (!sendOffered || preparing) return;
     const token = ++prepareTokenRef.current;
-    const startedOwner = ownerBoundary;
+    const startedOwner = queryOwnerKey;
     try {
       if (!address || !selectedAsset || !activeAssetId || !effectiveRecipient) throw new TransferExecutionError("unavailable");
       const next: TransferRequest = {
@@ -415,7 +360,7 @@ export function SendDialog({
   async function prepareCashout() {
     if (!regionReady || preparing) return;
     const token = ++prepareTokenRef.current;
-    const startedOwner = ownerBoundary;
+    const startedOwner = queryOwnerKey;
     try {
       if (!selectedAsset || !selectedOfframp || !selectedPlatform) throw new Error("invalid");
       const canonicalHandle = canonicalizeCashPayee(selectedPlatform.platform, payoutHandle);
@@ -456,7 +401,7 @@ export function SendDialog({
     if (!regionReady || preparing || cashout?.operation !== "deposit" || !cashout.canonicalHandle || !cashout.quote) return;
     const previous = { ...cashout, canonicalHandle: cashout.canonicalHandle, quote: cashout.quote };
     const token = ++prepareTokenRef.current;
-    const startedOwner = ownerBoundary;
+    const startedOwner = queryOwnerKey;
     setPreparing(true); setError(null); setQuoteNotice(null);
     try {
       const next = await prepareCashoutReview({ ...previous, payoutHandle: previous.canonicalHandle });
@@ -491,7 +436,7 @@ export function SendDialog({
         setSubmission("failed"); setStep("result");
         return;
       }
-      if (request) setRecentRecipientState(null);
+      if (request && queryOwnerKey) void queryClient.invalidateQueries({ queryKey: ownerQueryKey(queryOwnerKey, "transfers-recent-recipients") });
       onSubmitted?.();
       setSubmittedAt(new Date().toISOString());
       setSubmission("submitted"); setStep("result");
@@ -578,7 +523,7 @@ export function SendDialog({
             {eligibleOfframps.length > 0 ? <CashoutItem binding={eligibleOfframps[0]!} sendOffered={sendOffered} disabled={preparing} onSelect={() => chooseCashout(eligibleOfframps[0]!)} /> : null}
             {providersLoaded && offramps === null ? <>
               <StatusMessage>Cash out is unavailable right now.</StatusMessage>
-              <Button variant="ghost" size="sm" disabled={preparing} onClick={() => setProviderRetry((count) => count + 1)}>Try again</Button>
+              <Button variant="ghost" size="sm" disabled={preparing} onClick={() => void offrampQuery.refetch()}>Try again</Button>
             </> : null}
             {providersLoaded && offramps !== null && (offramps.length === 0 || (!sendOffered && eligibleOfframps.length === 0)) ? <StatusMessage>Cash out isn&apos;t available in {presentationRegions[regionId].countryName} yet.</StatusMessage> : null}
           </div>

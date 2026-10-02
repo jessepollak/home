@@ -3,6 +3,7 @@ import "server-only";
 import {
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_WINDOW_DAYS,
+  ACTIVITY_HISTORY_START,
   activityAssets,
   type ActivityPage,
   type ActivityTransferValuation,
@@ -76,7 +77,9 @@ export function createActivityReader(
     signal?: AbortSignal,
   ): Promise<ActivityPage> {
     const to = new Date(request.to);
-    const from = new Date(to.getTime() - windowMs).toISOString();
+    const from = request.history === "all"
+      ? ACTIVITY_HISTORY_START
+      : new Date(to.getTime() - windowMs).toISOString();
     const page = await listTransfers({
       verifiedWalletAddress: account.address,
       assetIds: [],

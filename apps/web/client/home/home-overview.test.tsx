@@ -176,6 +176,7 @@ describe("Home balance allocation", () => {
 
   test("keeps money and Activity mounted while tall money scrolls instead of sticking", () => {
     const OriginalObserver = globalThis.ResizeObserver;
+    const innerHeightDescriptor = Object.getOwnPropertyDescriptor(window, "innerHeight");
     let measure = () => {};
     globalThis.ResizeObserver = class {
       constructor(callback: ResizeObserverCallback) { measure = () => callback([], this); }
@@ -186,10 +187,9 @@ describe("Home balance allocation", () => {
     try {
       const view = render(<main data-app-main-authenticated>{overview(initial, "account-a", <section aria-label="Activity">Transactions</section>)}</main>);
       const activity = view.getByRole("region", { name: "Activity" });
-      const main = view.container.querySelector("main")!;
       const money = view.container.querySelector<HTMLElement>("[data-sticky-fit]")!;
       let contentHeight = 520;
-      Object.defineProperty(main, "clientHeight", { get: () => 600 });
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
       Object.defineProperty(money, "scrollHeight", { get: () => contentHeight });
       act(measure);
       expect(money.dataset.stickyFit).toBe("true");
@@ -202,6 +202,7 @@ describe("Home balance allocation", () => {
       expect(money.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(within(view.container).getByRole("heading", { name: "Your money" })).toBeTruthy();
     } finally {
+      if (innerHeightDescriptor) Object.defineProperty(window, "innerHeight", innerHeightDescriptor);
       globalThis.ResizeObserver = OriginalObserver;
     }
   });

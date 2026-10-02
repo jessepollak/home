@@ -171,7 +171,7 @@ function activityQueryOptions(input: {
   return ownerInfiniteQuery<ActivityPage, string | null>({
     owner: session ? ownerKey : null,
     scope: "activity",
-    key: [windowEnd, currency],
+    key: [windowEnd, currency, "all"],
     initialPageParam: null,
     retry: false,
     refetchOnWindowFocus: true,
@@ -181,6 +181,7 @@ function activityQueryOptions(input: {
       const requestedCurrency = queryKey[3] as typeof currency;
       const queryString = new URLSearchParams({
         to: requestedWindow,
+        history: "all",
         ...(pageParam ? { cursor: pageParam } : {}),
         currency: requestedCurrency,
       }).toString();
@@ -250,13 +251,13 @@ export async function refreshLatestActivity(input: {
   const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
   const windowEnd = queryClient.getQueryData<string>(windowKey) ?? initialActivityWindowEnd();
   const currency = presentationMoneyMetadata(regionId).currency;
-  const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, currency);
+  const currentKey = ownerQueryKey(ownerKey, "activity", windowEnd, currency, "all");
   const current = queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey);
   const currentPages = current?.pages ?? [];
   if (!currentPages.length && queryClient.getQueryCache().findAll({ queryKey: currentKey, exact: true, type: "active" }).length === 0) return "skipped";
   const boundary = currentPages.length ? mergeActivityPages(currentPages).transfers.at(-1) : undefined;
   const nextEnd = nextActivityWindowEnd(windowEnd);
-  const nextKey = ownerQueryKey(ownerKey, "activity", nextEnd, currency);
+  const nextKey = ownerQueryKey(ownerKey, "activity", nextEnd, currency, "all");
   const options = activityQueryOptions({ session, ownerKey, windowEnd: nextEnd, currency, fetchActivity, queryClient, previousPages: currentPages });
   onPrefetchKey(nextKey);
   try {
@@ -567,7 +568,7 @@ export function useActivity(
   }));
   const windowEnd = windowQuery.data ?? "";
   const activityQueryKey = useMemo(() => ownerKey
-    ? ownerQueryKey(ownerKey, "activity", windowEnd, currency)
+    ? ownerQueryKey(ownerKey, "activity", windowEnd, currency, "all")
     : ["unauthenticated", "activity-disabled"], [ownerKey, windowEnd, currency]);
 
   const query = useHomeInfiniteQuery(activityQueryOptions({

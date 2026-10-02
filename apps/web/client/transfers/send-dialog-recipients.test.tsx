@@ -1,10 +1,14 @@
 import "@/client/account/dom-test-harness";
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
+import { deferred } from "@/tests/helpers/async";
 import { page } from "@/tests/helpers/dom";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { encodeUsdcTransfer, getTransferAsset } from "@/shared/transfers/transfer-helpers";
 import { formatAddress } from "@/shared/formatting";
+import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
+import { createOwnerQueryPersister, dehydrateOwnerQueries, getHomeQueryClient, ownerQueryKey, ownerQueryMeta, restoreOwnerQueries } from "@/client/query/query-client";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { SendDialog } = await import("./send-dialog");
@@ -14,6 +18,12 @@ const RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
 const OTHER = "0x2222222222222222222222222222222222222222" as const;
 const USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
+const availableAssets = [{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }];
+const offrampRecipientBinding = {
+  direction: "offramp", providerId: "peer", displayName: "Peer", region: "US", assetId: "base:usdc",
+  assetSymbol: "USDC", assetDecimals: 6, currency: "USD", quotes: false, kyc: null,
+  paymentMethods: [{ id: "cashapp", label: "Cash App", platform: "cashapp", handleHint: "Cashtag", minimumAmountAtomic: "10000", maximumAmountAtomic: null, estimateSemantics: "approximate", etaSemantics: "historical-not-guaranteed", corridorConfirmedBy: "pending" }],
+};
 
 afterEach(() => {
   cleanup();
@@ -70,13 +80,13 @@ function renderDialog({
       open
       immediate
       address={ACCOUNT}
-      ownerBoundary="owner-recipients"
+      queryOwnerKey="owner-recipients"
       regionId="US"
-      availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      availableAssets={availableAssets}
       fetchAccountResource={async (url) => {
         requested.push(url);
         if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
-        if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
+        if (url.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
         if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: recent };
         const name = new URL(url, "https://home.test").searchParams.get("name") ?? "";
         const gate = gates.get(name);
@@ -133,6 +143,15 @@ function continueButton(): HTMLButtonElement {
 function resolvedAddressControl(): Element | null {
   const controls = document.querySelectorAll(`button[aria-label="Show full address ${formatAddress(RECIPIENT)}"]`);
   return controls[controls.length - 1] ?? null;
+}
+
+function readDialog(queryOwnerKey: string, open: boolean, fetchAccountResource: AccountWalletClient["fetchAccountResource"]) {
+  return <SendDialog open={open} immediate address={ACCOUNT} queryOwnerKey={queryOwnerKey} regionId="US"
+    availableAssets={availableAssets}
+    fetchAccountResource={fetchAccountResource}
+    prepareMoneyAction={async () => preparedAction(RECIPIENT)}
+    resumeMoneyAction={async () => preparedAction(RECIPIENT)}
+    executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />;
 }
 
 describe("SendDialog recipient names", () => {
@@ -255,7 +274,7 @@ describe("SendDialog recipient names", () => {
     const requested: string[] = [];
     const fetchAccountResource = async (url: string) => {
       requested.push(url);
-      if (url.startsWith("/api/funding/providers")) return { version: 2, direction: "offramp", providers: [] };
+      if (url.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
       if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [{ address: RECIPIENT, name: "example.base.eth" }] };
       return {};
     };
@@ -264,9 +283,9 @@ describe("SendDialog recipient names", () => {
         open={open}
         immediate
         address={ACCOUNT}
-        ownerBoundary="owner-reopen"
+        queryOwnerKey="owner-reopen"
         regionId="US"
-        availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+        availableAssets={availableAssets}
         fetchAccountResource={fetchAccountResource}
         prepareMoneyAction={async (_kind, params) => preparedAction((params as { recipient: `0x${string}` }).recipient)}
         resumeMoneyAction={async () => preparedAction(RECIPIENT)}
@@ -298,5 +317,207 @@ describe("SendDialog recipient names", () => {
     await act(async () => { fireEvent.click(sendButton); });
 
     await waitFor(() => expect(recentCount()).toBe(2));
+  });
+
+  test("passes an AbortSignal to every dialog read", async () => {
+    const reads: Array<{ url: string; signal: AbortSignal | undefined }> = [];
+    render(readDialog("owner-read-signals", true, async (url, options) => {
+      reads.push({ url, signal: options?.signal });
+      if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+      if (url.startsWith("/api/funding/providers")) return { providers: [] };
+      if (url === "/api/transfers/recent-recipients") return { recipients: [] };
+      return { version: 1, name: "example.base.eth", address: RECIPIENT };
+    }));
+    await openDestinationStep();
+    await pasteRecipient("example.base.eth");
+    await waitFor(() => expect(resolvedAddressControl()).toBeTruthy());
+    for (const prefix of ["/api/transfers/recipient-name", "/api/transfers/recent-recipients", "/api/funding/providers"]) {
+      const matching = reads.filter(({ url }) => url.startsWith(prefix));
+      expect(matching.length).toBeGreaterThan(0);
+      expect(matching.every(({ signal }) => signal instanceof AbortSignal)).toBe(true);
+    }
+  });
+
+  test("does not show an old owner's recipient-name response after switching owners", async () => {
+    const first = deferred();
+    const second = deferred();
+    let currentOwner = "owner-reads-a";
+    const nameOwners: string[] = [];
+    const fetchResource: AccountWalletClient["fetchAccountResource"] = async (url) => {
+      if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+      if (url.startsWith("/api/funding/providers")) return { providers: [] };
+      if (url === "/api/transfers/recent-recipients") return { recipients: [] };
+      nameOwners.push(currentOwner);
+      return currentOwner === "owner-reads-a" ? first.promise : second.promise;
+    };
+    const view = render(readDialog(currentOwner, true, fetchResource));
+    await openDestinationStep();
+    await pasteRecipient("example.base.eth");
+    await waitFor(() => expect(nameOwners).toEqual(["owner-reads-a"]));
+    currentOwner = "owner-reads-b";
+    view.rerender(readDialog(currentOwner, true, fetchResource));
+    await waitFor(() => expect(nameOwners).toEqual(["owner-reads-a", "owner-reads-b"]));
+    await act(async () => { first.resolve({ version: 1, name: "example.base.eth", address: RECIPIENT }); await first.promise; });
+    expect(resolvedAddressControl()).toBeNull();
+    expect(continueButton().disabled).toBe(true);
+    await act(async () => { second.resolve({ version: 1, name: "example.base.eth", address: OTHER }); await second.promise; });
+    await waitFor(() => expect(continueButton().disabled).toBe(false));
+    expect(resolvedAddressControl()).toBeNull();
+    expect(document.body.textContent).toContain(formatAddress(OTHER));
+  });
+
+  test("revalidates a cached name resolution after the dialog is closed", async () => {
+    const revalidation = deferred();
+    let nameReads = 0;
+    const fetchResource: AccountWalletClient["fetchAccountResource"] = async (url) => {
+      if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+      if (url.startsWith("/api/funding/providers")) return { providers: [] };
+      if (url === "/api/transfers/recent-recipients") return { recipients: [] };
+      nameReads += 1;
+      return nameReads === 1 ? { version: 1, name: "example.base.eth", address: RECIPIENT } : revalidation.promise;
+    };
+    const view = render(readDialog("owner-read-revalidate", true, fetchResource));
+    await openDestinationStep();
+    await pasteRecipient("example.base.eth");
+    await waitFor(() => expect(resolvedAddressControl()).toBeTruthy());
+    expect(nameReads).toBe(1);
+
+    view.rerender(readDialog("owner-read-revalidate", false, fetchResource));
+    view.rerender(readDialog("owner-read-revalidate", true, fetchResource));
+    if (document.querySelector("#send-recipient") === null) await openDestinationStep();
+    await pasteRecipient("example.base.eth");
+
+    await waitFor(() => expect(nameReads).toBe(2));
+    expect(resolvedAddressControl()).toBeNull();
+    expect(continueButton().disabled).toBe(true);
+    await act(async () => { revalidation.resolve({ version: 1, name: "example.base.eth", address: RECIPIENT }); await revalidation.promise; });
+    await waitFor(() => expect(resolvedAddressControl()).toBeTruthy());
+    expect(continueButton().disabled).toBe(false);
+    expect(nameReads).toBe(2);
+  });
+
+  test("aborts a held provider read on close and starts a fresh read on reopen", async () => {
+    const first = deferred();
+    const second = deferred();
+    const signals: AbortSignal[] = [];
+    const fetchResource: AccountWalletClient["fetchAccountResource"] = async (url, options) => {
+      if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+      if (url === "/api/transfers/recent-recipients") return { recipients: [] };
+      if (url.startsWith("/api/funding/providers")) {
+        if (options?.signal) signals.push(options.signal);
+        return signals.length === 1 ? first.promise : second.promise;
+      }
+      throw new Error("unexpected read");
+    };
+    const view = render(readDialog("owner-read-close-a", true, fetchResource));
+    await openDestinationStep();
+    await waitFor(() => expect(signals).toHaveLength(1));
+    view.rerender(readDialog("owner-read-close-a", false, fetchResource));
+    await waitFor(() => expect(signals[0]?.aborted).toBe(true));
+    await act(async () => { first.resolve({ providers: [{ ...offrampRecipientBinding }] }); await first.promise; });
+    expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
+    expect(page().queryByText(/Resolves to/)).toBeNull();
+    view.rerender(readDialog("owner-read-close-a", true, fetchResource));
+    await waitFor(() => expect(signals).toHaveLength(2));
+    view.unmount();
+    expect(signals[1]?.aborted).toBe(true);
+    second.resolve({ providers: [] });
+  });
+
+  test("withdraws cached provider rows after a failed refresh and restores them on retry", async () => {
+    let count = 0;
+    const owner = "owner-read-stale";
+    render(readDialog(owner, true, async (url) => {
+      if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+      if (url === "/api/transfers/recent-recipients") return { recipients: [] };
+      if (url.startsWith("/api/funding/providers")) {
+        count += 1;
+        if (count === 2) throw new Error("offline");
+        return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [offrampRecipientBinding] };
+      }
+      throw new Error("unexpected read");
+    }));
+    await openDestinationStep();
+    expect(await page().findByRole("button", { name: /Send to Cash App/ })).toBeTruthy();
+    await act(async () => { void getHomeQueryClient().invalidateQueries({ queryKey: ownerQueryKey(owner, "funding-providers", "US", "offramp") }); });
+    await waitFor(() => expect(count).toBe(2));
+    expect(await page().findByText("Cash out is unavailable right now.")).toBeTruthy();
+    expect(page().queryByRole("button", { name: /Send to Cash App/ })).toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Try again" }));
+    expect(await page().findByRole("button", { name: /Send to Cash App/ })).toBeTruthy();
+    expect(page().queryByText("Cash out is unavailable right now.")).toBeNull();
+  });
+
+  test("shows a restored provider list without refetching it after a reload", async () => {
+    const restoredAt = Date.parse("2026-09-28T12:00:00.000Z");
+    setSystemTime(new Date(restoredAt));
+    try {
+      const owner = "owner-restored-providers";
+      const client = getHomeQueryClient();
+      const key = ownerQueryKey(owner, "funding-providers", "US", "offramp");
+      client.setQueryDefaults(key, { meta: ownerQueryMeta(owner) });
+      client.setQueryData(key, [offrampRecipientBinding], { updatedAt: restoredAt });
+      const persister = createOwnerQueryPersister(window.localStorage, owner);
+      if (!persister) throw new Error("the owner query persister is unavailable");
+      persister.persistClient({ timestamp: restoredAt, buster: "home-query-v4", clientState: dehydrateOwnerQueries(client, owner, restoredAt) });
+      void persister.flush();
+      client.clear();
+      expect(restoreOwnerQueries(client, window.localStorage, owner, restoredAt)).toBe(true);
+
+      const requested: string[] = [];
+      render(readDialog(owner, true, async (url) => {
+        requested.push(url);
+        if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+        if (url.startsWith("/api/funding/providers")) return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
+        if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: [] };
+        throw new Error("unexpected read");
+      }));
+      await openDestinationStep();
+
+      expect(await page().findByRole("button", { name: /Send to Cash App/ })).toBeTruthy();
+      expect(requested.filter((url) => url.startsWith("/api/funding/providers"))).toHaveLength(0);
+      expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("treats a malformed provider envelope as unavailable rather than an empty corridor", async () => {
+    render(readDialog("owner-read-malformed-provider", true, async (url) => {
+      if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+      if (url === "/api/transfers/recent-recipients") return { recipients: [] };
+      return {};
+    }));
+    await openDestinationStep();
+    expect(await page().findByText("Cash out is unavailable right now.")).toBeTruthy();
+    expect(page().getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(page().queryByText(/Cash out isn't available in/)).toBeNull();
+  });
+
+  test("ignores missing recent-recipient arrays without crashing", async () => {
+    for (const [index, response] of [{}, { version: 1 }, { version: 99, recipients: [{ address: RECIPIENT, name: null }] }].entries()) {
+      const view = render(readDialog(`owner-read-malformed-recent-${index}`, true, async (url) => {
+        if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+        if (url.startsWith("/api/funding/providers")) return { providers: [] };
+        return response;
+      }));
+      await openDestinationStep();
+      await waitFor(() => expect(getHomeQueryClient().getQueryState(ownerQueryKey(`owner-read-malformed-recent-${index}`, "transfers-recent-recipients"))?.status).toBe("error"));
+      expect(page().queryByText("Recent recipients")).toBeNull();
+      expect(page().getByLabelText("To")).toBeTruthy();
+      view.unmount();
+    }
+  });
+
+  test("keeps Continue disabled and shows unresolved for a malformed name response", async () => {
+    render(readDialog("owner-read-malformed-name", true, async (url) => {
+      if (url === "/api/actions/network-fee") return { version: 1, usdcReserveBaseUnits: "20000" };
+      if (url.startsWith("/api/funding/providers")) return { providers: [] };
+      return {};
+    }));
+    await openDestinationStep();
+    await pasteRecipient("example.base.eth");
+    expect(await page().findByText("We couldn't resolve example.base.eth. Check the name and try again.")).toBeTruthy();
+    expect(continueButton().disabled).toBe(true);
   });
 });

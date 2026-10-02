@@ -53,7 +53,8 @@ Columns:
 | --- | --- | --- | --- | --- | --- | --- |
 | CurrencyMarkSlot | yes | `12:59` (#683) | yes | none | `components/currency-mark.tsx` | P0 |
 | MoneyTicker | yes | `12:2` (#683) | yes | `@number-flow/react` | `components/money-ticker.tsx` | P0 |
-| ShellHeader, TabBar/TabItem, SectionHeader, MoreRow, MoneyBreakdownItem, MoneyGroupHeader | yes | #683 families; review current behavior in component stories | yes | Button, Item | see [Home section primitives](../../design-system/primitives/) | P0 |
+| ShellHeader, TabBar/TabItem, SectionHeader, MoreRow, MoneyBreakdownItem | yes | #683 families; review current behavior in component stories | yes | Button, Item | see [Home section primitives](../../design-system/primitives/) | P0 |
+| MoneyGroupHeader | no — the Balances surface was removed in #1137 | `12:39` (#683), historical | no | none | no production owner | P2 |
 | SignedBalanceBar, ActivityLoader | yes (mapped in #789) | #683; run 12 makes `SignedBalanceBar` the set `293:5935` with `items=borrow+cash+investments` (`91:927`, mapped), `cash+investments` and `cash`, so states never detach it | yes | none | `components/signed-balance-bar.tsx`, `components/activity-loader.tsx` | P1 |
 | ShimmerRow | yes (`ShimmerRows`) | Historical row had a centred 40px shimmer circle and two Skeleton lines. #687 audited every production loading consumer and found no mark-less or single-line row, so code keeps `rows` plus a `hero` variant. Review the current shapes in Storybook. | yes | Item + Skeleton | `client/home/panel-shared.tsx` | P0 |
 | TradeActions | yes | `274:5577` (run 11): Buy (default) + Sell (secondary, Jesse's decision), touch, 34px home-indicator inset; pinned to the bottom of asset detail | yes | Button | `client/trading/trade-actions.tsx` (`layout="sticky"`) | P1 |

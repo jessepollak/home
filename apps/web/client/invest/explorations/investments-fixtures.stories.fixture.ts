@@ -1,5 +1,6 @@
 import { BASE_CHAIN_ID, cryptoAssets, stockAssets, type InvestAsset } from "@/config/invest-assets";
 import { createBlockedAccountWalletClient } from "@/client/account/cdp-client";
+import { dataOwnerKey } from "@/client/account/owner-keys";
 import { resolveTradeAsset } from "@/shared/trading/assets";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -130,6 +131,8 @@ export function createInvestmentsStoryWalletClient(snapshot: BalancesSnapshot | 
     ...createBlockedAccountWalletClient("provider-unavailable"),
     status: "verified" as const,
     verification: "server" as const,
+    isSignedIn: true,
+    ownerKey: dataOwnerKey(storySession),
     session: storySession,
     fetchBalances: () => snapshot ? Promise.resolve(snapshot) : new Promise<BalancesSnapshot>(() => {}),
     fetchAccountResource: async (path: string) => path.startsWith("/api/trades?assetId=")

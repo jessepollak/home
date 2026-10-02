@@ -121,11 +121,9 @@ export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!sentinel.current || visibleCount >= rows.length || typeof IntersectionObserver === "undefined") return;
-    const rootElement = sentinel.current.closest("[data-app-main-authenticated]");
-    const root = rootElement instanceof HTMLElement ? rootElement : null;
     const observer = new IntersectionObserver(([entry]) => {
       if (entry?.isIntersecting) onVisibleCountChange(Math.min(visibleCount + 20, rows.length));
-    }, { root, rootMargin: "0px 0px 100% 0px" });
+    }, { root: null, rootMargin: "0px 0px 100% 0px" });
     observer.observe(sentinel.current);
     return () => observer.disconnect();
   }, [visibleCount, rows.length, onVisibleCountChange]);

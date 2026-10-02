@@ -12,8 +12,8 @@ import type { ObservabilityEvent } from "@/server/observability/schema";
 import {
   CLIENT_ERROR_MAX_BODY_BYTES,
   createClientErrorHandler,
-  parseClientErrorReport,
 } from "@/server/observability/client-errors";
+import { parseClientErrorReport } from "@/shared/observability/client-error.contract";
 
 const endpoint = "https://home.example/api/client-errors";
 const safeHeaders = {
