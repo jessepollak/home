@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
+import { registryHoldingsMatchExpectations } from "@/shared/balances/registry-expectations";
 import type { RegionId } from "@/config/regions";
 import {
   BALANCES_CHAIN_ID,
@@ -70,6 +71,7 @@ type Dependencies = {
   borrowRetryMs?: number;
   log?: (event: ObservabilityEvent) => unknown;
   schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
+  registryHoldingsMatch?: typeof registryHoldingsMatchExpectations;
 };
 
 type ObservedResult = {
@@ -97,6 +99,7 @@ export function createBalancesService(dependencies: Dependencies = {}) {
   const backstopMs = dependencies.backstopMs ?? BALANCES_BACKSTOP_MS;
   const borrowRetryMs = dependencies.borrowRetryMs ?? BALANCES_BORROW_RETRY_MS;
   const log = dependencies.log ?? writeObservabilityEvent;
+  const registryHoldingsMatch = dependencies.registryHoldingsMatch ?? registryHoldingsMatchExpectations;
   const schedule = dependencies.schedule ?? ((task) => {
     void (typeof task === "function" ? task() : task);
   });
@@ -132,16 +135,9 @@ export function createBalancesService(dependencies: Dependencies = {}) {
       current.getTime() - Date.parse(row.observedAt) > backstopMs;
     const degraded = row !== null && needsFullObservation(readFromRow(row), current, borrowRetryMs);
     const required = signaled || expired || degraded;
-    let registryCompatible = true;
-    if (row) {
-      const registryIds = new Set((await readUniverse()).entries.map((entry) => entry.id));
-      const registryHoldings = row.holdings.filter((holding) => holding.source === "registry");
-      registryCompatible = registryHoldings.length === registryIds.size &&
-        new Set(registryHoldings.map((holding) => holding.id)).size === registryIds.size &&
-        registryHoldings.every((holding) => registryIds.has(holding.id));
-    }
+    const registryChanged = row !== null && !hot && !registryHoldingsMatch(row.holdings);
 
-    if (row && !hot && registryCompatible) {
+    if (row && !hot && !registryChanged) {
       if (required) scheduleRevalidation(owner, row, "background-full");
       else if (row.enumerationCursor) scheduleRevalidation(owner, row, "background-resume");
       return {
@@ -158,17 +154,18 @@ export function createBalancesService(dependencies: Dependencies = {}) {
         ? await observeRegistryOnly(owner, row!, durationMs)
         : await observeFull(owner, row, durationMs);
       const winner = await persistObserved(owner, observed, durationMs);
+      const currentWinner = winner && registryHoldingsMatch(winner.holdings) ? winner : null;
       const refresh = registryOnly &&
         (signaled || expired || needsFullObservation(observed, current, borrowRetryMs));
       if (refresh) scheduleRevalidation(owner, row!, "background-full");
       return {
-        read: winner && registryCompatible ? winner : observed,
+        read: currentWinner ?? observed,
         stale: refresh,
         outcome: registryOnly ? "registry-only" : "full",
         durationMs,
       };
     } catch (error) {
-      if (!row || !registryCompatible) throw error;
+      if (!row || registryChanged || !registryHoldingsMatch(row.holdings)) throw error;
       if (required) scheduleRevalidation(owner, row, "background-full");
       return {
         read: readFromRow(row),
@@ -287,14 +284,13 @@ export function createBalancesService(dependencies: Dependencies = {}) {
     const borrow = await readBorrow(owner, registryRead.block);
     const withEnrichment = await timeStage(nowMs, durationMs, "resolve", () =>
       resolveBalances(registryRead, unavailableEnumeration()));
-    const registryHoldings = withEnrichment.holdings.filter((holding) => holding.source === "registry");
-    const registryKeys = new Set(registryHoldings.map((holding) => holding.key));
+    const registryKeys = new Set(withEnrichment.holdings.filter((holding) => holding.source === "registry").map((holding) => holding.key));
     return {
       ...withEnrichment,
       borrow: carryForwardBorrow(borrow, row.borrow, registryRead.block.number),
       observedAt: row.observedAt,
       holdings: [
-        ...registryHoldings,
+        ...withEnrichment.holdings.filter((holding) => holding.source === "registry"),
         ...row.holdings.filter((holding) => holding.source !== "registry" && !registryKeys.has(holding.key)),
       ],
       coverage: {

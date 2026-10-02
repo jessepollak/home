@@ -4,7 +4,9 @@ import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { randomUUID } from "node:crypto";
 import { encodeFunctionData, erc20Abi } from "viem";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
-import { resolveTradeAsset } from "@/shared/trading/assets";
+import { convertDirectionAdmitted, resolveTradeAsset } from "@/shared/trading/assets";
+import { resolveConvertPair } from "@/shared/currencies/convert";
+import { currencyRecordForContract } from "@/shared/currencies/registry";
 import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { feePolicyForTaker, resolveOperatorFeePolicy } from "@/server/fees/policy";
@@ -32,6 +34,7 @@ type TradePreparationDependencies = {
   now?: () => Date;
   requestKey?: () => string;
   buyBlocked?: typeof tradeBuyBlocked;
+  convertPair?: typeof resolveConvertPair;
   resolveFeePolicy?: typeof resolveOperatorFeePolicy;
   feeStrategy?: TradeFeeStrategy;
 };
@@ -46,8 +49,13 @@ export async function prepareTradeAction(
   const taker = session.smartAccount.address;
   const signer = await (deps.resolveSigner ?? createTradeSignerResolver({ getValidator: getCdpAccessTokenValidator }))(request, session, signal);
   if (signer.smartAccount.toLowerCase() !== taker.toLowerCase() || signer.ownerIndex !== 0) throw new TradePreparationError("signer-unsupported");
-  const resolved = resolveTradeAsset(parsed.assetId);
+  const pairDeps = { convertPair: deps.convertPair };
+  const resolved = resolveTradeAsset(parsed.assetId, pairDeps);
   if (!resolved || resolved.status !== "tradeable") throw new TradePreparationError("invalid-request");
+  const currencyRecord = currencyRecordForContract(resolved.address);
+  if (currencyRecord && !convertDirectionAdmitted(currencyRecord.id, parsed.direction, pairDeps)) {
+    throw new TradePreparationError(parsed.direction === "buy" ? "buy-unavailable" : "invalid-request");
+  }
   if (parsed.direction === "buy" && (deps.buyBlocked ?? tradeBuyBlocked)(resolved.assetId)) throw new TradePreparationError("buy-unavailable");
   const rpc = deps.rpc ?? baseRpc;
   const read = (method: string, params: readonly unknown[]) => rpc(method, params, { signal });
@@ -168,6 +176,7 @@ export async function prepareTradeAction(
     fromAsset, toAsset, fromAmountBaseUnits: reviewed.fromAmount.toString(), expectedToAmountBaseUnits: reviewed.toAmount.toString(),
     minimumToAmountBaseUnits: reviewed.minToAmount.toString(), slippageBps: TRADE_SLIPPAGE_BPS, fees,
     ...(collection.record ? { operatorFee: collection.record } : {}),
+    ...(currencyRecord ? { currencyRecordId: currencyRecord.id } : {}),
     approval: needsApproval ? "permit2-exact" : "existing-permit2-allowance",
     quoteBlockNumber: reviewed.blockNumber.toString(), quotedAt: now.toISOString(), permitDeadline: reviewed.permit.deadline.toString(),
     executionDeadline: reviewed.executionDeadline.toString(),

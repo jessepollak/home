@@ -1,7 +1,13 @@
 import * as z from "zod/mini";
-import { parseAddress, parseHash32, type Address } from "@/shared/chain/hex";
-import { getDirectPortfolioAssets, portfolioVaults, PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
+import { parseAddress, parseHash32 } from "@/shared/chain/hex";
+import { PORTFOLIO_USDC_ASSET_KEY } from "@/config/portfolio-assets";
 import { getBorrowMarketRef } from "@/shared/borrowing/config";
+import {
+  expectedRegistryHoldings,
+  registryAssetKeys,
+  registryExpectationMismatch,
+  registryHoldingsMatchExpectations,
+} from "./registry-expectations";
 import { isRegionId, presentationRegions, type FiatCurrencyCode, type RegionId } from "@/config/regions";
 import {
   BALANCES_CHAIN_ID, BALANCES_VERSION, catalogHoldingId, erc20AssetKey, nativeAssetKey, walletHoldingId,
@@ -90,10 +96,7 @@ const holdingSchema = z.object({
   if (!validValue(h.value, h.balance) || !validUnitValue(h.unitValue, h.value, h.kind)) return false;
   if (h.source === "registry") {
     const expected = expectedRegistryHoldings().get(h.id);
-    if (!expected || h.key !== expected.key || h.kind !== expected.kind || h.name !== expected.name ||
-      h.symbol !== expected.symbol || h.decimals !== expected.decimals ||
-      h.contractAddress !== expected.contractAddress ||
-      h.cashCurrency !== expected.cashCurrency ||
+    if (!expected || registryExpectationMismatch(h, expected) ||
       (h.imageUrl !== undefined && (expected.kind !== "erc20" || expected.cashCurrency !== null))) return false;
     if (expected.kind === "vault-share") {
       if (h.underlying?.key !== PORTFOLIO_USDC_ASSET_KEY || !h.underlyingBalance ||
@@ -178,8 +181,7 @@ const balancesSnapshotSchema = z.object({
     keys.add(holding.key);
     ids.add(holding.id);
   }
-  if ([...expectedRegistryHoldings().keys()].some((id) =>
-    !snapshot.holdings.some((h) => h.source === "registry" && h.id === id))) return false;
+  if (!registryHoldingsMatchExpectations(snapshot.holdings)) return false;
   if ((snapshot.coverage.registry === "partial") !== snapshot.holdings.some((h) =>
     h.source === "registry" && h.balance.status === "unavailable")) return false;
   if (snapshot.borrow.coverage === "partial" &&
@@ -210,47 +212,6 @@ export class BalancesResponseError extends Error {
     super(message);
     this.name = "BalancesResponseError";
   }
-}
-
-type RegistryExpectation = {
-  id: string;
-  key: string;
-  kind: Holding["kind"];
-  name: string;
-  symbol: string;
-  decimals: number;
-  contractAddress: Address | null;
-  cashCurrency: FiatCurrencyCode | null;
-};
-let registryExpectations: Map<string, RegistryExpectation> | null = null;
-let registryKeys: ReadonlySet<string> | null = null;
-
-function registryAssetKeys(): ReadonlySet<string> {
-  registryKeys ??= new Set([...expectedRegistryHoldings().values()].map((holding) => holding.key));
-  return registryKeys;
-}
-
-export function expectedRegistryHoldings(): ReadonlyMap<string, RegistryExpectation> {
-  if (registryExpectations) return registryExpectations;
-  const expectations = new Map<string, RegistryExpectation>();
-  for (const asset of getDirectPortfolioAssets()) {
-    const key = asset.kind === "native" ? nativeAssetKey() :
-      asset.contractAddress ? erc20AssetKey(asset.contractAddress) : null;
-    if (!key) throw new Error("Registry ERC-20 asset requires a contract address.");
-    expectations.set(asset.id, {
-      id: asset.id, key, kind: asset.kind, name: asset.name, symbol: asset.symbol, decimals: asset.decimals,
-      contractAddress: parseAddress(asset.contractAddress),
-      cashCurrency: asset.cashCurrency,
-    });
-  }
-  for (const vault of portfolioVaults) {
-    expectations.set(vault.id, {
-      id: vault.id, key: erc20AssetKey(vault.address), kind: "vault-share", name: vault.name,
-      symbol: vault.symbol, decimals: vault.decimals, contractAddress: parseAddress(vault.address), cashCurrency: null,
-    });
-  }
-  registryExpectations = expectations;
-  return expectations;
 }
 
 function validValue(value: HoldingValue, balance: HoldingBalance): boolean {

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { currencyPortfolioAssets } from "@/config/portfolio-assets";
+import { CURRENCY_REGISTRY } from "@/shared/currencies/registry";
 import {
   encodeErc20Transfer,
   encodeUsdcTransfer,
   getTransferAsset,
+  isTransferAssetAllowed,
   formatSendConfirmAmount,
   formatTransferAmount,
   normalizeTransferRecipient,
@@ -14,6 +17,17 @@ import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-a
 
 const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
 const CHECKSUMMED_RECIPIENT = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9" as const;
+
+test("Send catalog admits approved currencies and excludes a send-deferred record", () => {
+  for (const id of ["usdc", "eurc", "idrx"]) expect(getTransferAsset(id)).not.toBeNull();
+  const approved = CURRENCY_REGISTRY[0];
+  if (!approved) throw new Error("Missing approved currency record.");
+  const deferred = { ...approved, send: { state: "deferred" as const, reason: "exit pending", reference: "test" } };
+  const asset = currencyPortfolioAssets([deferred])[0];
+  if (!asset) throw new Error("Missing projected currency asset.");
+  expect(isTransferAssetAllowed(asset, approved)).toBe(true);
+  expect(isTransferAssetAllowed(asset, deferred)).toBe(false);
+});
 
 describe("transfer amount helpers", () => {
   test("parses human amounts into exact integer base units without floating point", () => {

@@ -8,8 +8,8 @@ import { dataOwnerKey } from "@/client/account/owner-keys";
 import { HomeShellRoutingProvider, readHomeInboundPanelState, type HomeInboundPanelState, type HomeShellRouting } from "@/client/home/panel-routing";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
-import { canonicalUsdcAsset, verifiedLocalCashAssets } from "@/config/portfolio-assets";
-import { buildBalancesSnapshotFixture, priced, pricedCash, ready, unavailableBalance } from "@/shared/balances/fixtures";
+import { canonicalUsdcAsset } from "@/config/portfolio-assets";
+import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset, unavailableBalance } from "@/shared/balances/fixtures";
 import { parseAddress } from "@/shared/chain/hex";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
@@ -267,12 +267,12 @@ describe("Cash L2", () => {
   test("held verified cash currencies render their own balances, including wBRL as Brazilian real", async () => {
     cached();
     const snapshot = buildBalancesSnapshotFixture({ registry: {
-      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash(canonicalUsdcAsset.cashCurrency, "23400") },
-      [verifiedLocalCashAssets.EUR.id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash(verifiedLocalCashAssets.EUR.cashCurrency, "1500") },
-      [verifiedLocalCashAssets.IDR.id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash(verifiedLocalCashAssets.IDR.cashCurrency, "190000000") },
-      [verifiedLocalCashAssets.ARS.id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash(verifiedLocalCashAssets.ARS.cashCurrency, "12345") },
-      [verifiedLocalCashAssets.BRL.id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash(verifiedLocalCashAssets.BRL.cashCurrency, "2345") },
-      [verifiedLocalCashAssets.COP.id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash(verifiedLocalCashAssets.COP.cashCurrency, "123456") },
+      [canonicalUsdcAsset.id]: { balance: ready("234000000"), value: priced("USD", "23400"), cashValue: pricedCash("USD", "23400") },
+      [requiredLocalCashAsset("EUR").id]: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+      [requiredLocalCashAsset("IDR").id]: { balance: ready("190000000"), value: priced("USD", "11700"), cashValue: pricedCash("IDR", "190000000") },
+      [requiredLocalCashAsset("ARS").id]: { balance: ready("123450000000000000000"), value: priced("USD", "12000"), cashValue: pricedCash("ARS", "12345") },
+      [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
+      [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
     } });
     render(<Surface view="cash" snapshot={snapshot} />);
     const currencies = within(await page().findByRole("region", { name: "Currencies" }));
@@ -282,7 +282,7 @@ describe("Cash L2", () => {
       expect(row.textContent).toContain(amount);
     }
     const real = currencies.getByRole("button", { name: /^Brazilian real/ });
-    expect(real.textContent).toContain(verifiedLocalCashAssets.BRL.symbol);
+    expect(real.textContent).toContain(requiredLocalCashAsset("BRL").symbol);
     expect(currencies.queryByText("Unsupported", { exact: true })).toBeNull();
   });
   test("shows priced pending escrow below the wallet-only Cash balance", () => {

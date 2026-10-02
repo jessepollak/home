@@ -9,9 +9,11 @@ import {
   erc20AssetKey,
   nativeAssetKey,
 } from "@/shared/balances/types";
+import { assertUniqueRegistryInventory } from "@/shared/balances/registry-expectations";
 import type { BalancesUniverse, UniverseEntry } from "./types";
 
 export function registryEntries(): UniverseEntry[] {
+  assertUniqueRegistryInventory();
   const direct = getDirectPortfolioAssets();
   const cash = direct.filter((asset) => asset.cashCurrency !== null);
   const native = direct.filter((asset) => asset.kind === "native");

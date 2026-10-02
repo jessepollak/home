@@ -37,7 +37,7 @@ import {
   useHomeQueryClient,
 } from "@/client/query/query-client";
 import type { RegionId } from "@/config/regions";
-import { verifiedCashCurrency } from "@/config/portfolio-assets";
+import { cashCurrencyForContract } from "@/shared/currencies/registry";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { BorrowAssetRef, BorrowMarketId } from "@/shared/borrowing/config";
 import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
@@ -122,7 +122,7 @@ export function BorrowMoneyFlow({
   const initialAmount = fixedMaximumOperation && maximumRepayBaseUnits && maximumRepayBaseUnits !== "0"
     ? decimalFromBaseUnits(maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ?? ""
     : "";
-  const loanCurrency = verifiedCashCurrency(snapshot.market.loanToken.address);
+  const loanCurrency = cashCurrencyForContract(snapshot.market.loanToken.address);
   const oraclePrice = snapshot.state.oraclePriceRaw;
   const oracleScale = 36 + snapshot.market.loanToken.decimals - snapshot.market.collateralToken.decimals;
   const collateralPrice: MoneyAssetPrice | null = primaryAsset.id === snapshot.market.collateralToken.id && loanCurrency && oraclePrice !== "0"
@@ -130,7 +130,7 @@ export function BorrowMoneyFlow({
       ? { atoms: oraclePrice, scale: oracleScale }
       : { atoms: (BigInt(oraclePrice) * BigInt(10) ** BigInt(-oracleScale)).toString(), scale: 0 } }
     : null;
-  const primaryUnit = useMoneyAmountUnit(verifiedCashCurrency(primaryAsset.address), collateralPrice, regionId);
+  const primaryUnit = useMoneyAmountUnit(cashCurrencyForContract(primaryAsset.address), collateralPrice, regionId);
   const primaryAssetMark = presentBorrowAssetMark(primaryAsset, assetMarkResolution);
   const prepareGeneration = useRef(0);
   function changeAmount(value: string) {
