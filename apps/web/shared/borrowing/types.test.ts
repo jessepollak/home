@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DEFAULT_BORROW_MARKET } from "./config";
 import {
   actionKindForBorrowOperation,
+  increasesBorrowRisk,
   parseBorrowActionIntent,
   type BorrowOperation,
 } from "./types";
@@ -19,6 +20,15 @@ describe("borrow operation contract", () => {
     ["close-position", "repay"],
   ] as const)("maps %s to durable %s actions", (operation, kind) => {
     expect(actionKindForBorrowOperation(operation)).toBe(kind);
+  });
+
+  test.each([
+    ["supply-collateral", false, false], ["borrow", true, true], ["supply-and-borrow", true, true],
+    ["repay", false, false], ["repay-all", false, false],
+    ["withdraw-collateral", false, true], ["close-position", false, false],
+  ] as const)("shares prepare/confirm risk classification for %s with zero and outstanding debt", (operation, zeroDebtRisk, outstandingDebtRisk) => {
+    expect(increasesBorrowRisk(operation, BigInt(0))).toBe(zeroDebtRisk);
+    expect(increasesBorrowRisk(operation, BigInt(1))).toBe(outstandingDebtRisk);
   });
 
   test.each([
