@@ -298,7 +298,7 @@ async function summary() {
   }))).flat();
   const parsed = await Promise.all(files.map(async (file) => { try { const value: unknown = JSON.parse(await readFile(file, "utf8")); return validResult(value) ? value : file; } catch { return file; } }));
   const invalid = parsed.filter((item): item is string => typeof item === "string");
-  console.log(summarize(parsed.filter((item): item is Result => typeof item !== "string"), flags.has("markdown")));
+  console.log(summarize(parsed.filter((item): item is Result => typeof item !== "string"), flags.has("markdown"), flags.has("include-partial")));
   if (invalid.length) { console.error(`Not a device-profile result: ${invalid.join(", ")}`); process.exitCode = 1; }
 }
 if (command === "serve") await startProxy(proxyOptions(flags));
