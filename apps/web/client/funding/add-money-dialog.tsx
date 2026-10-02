@@ -25,6 +25,7 @@ import {
   type RegionId,
 } from "@/config/regions";
 import { formatAddress } from "@/shared/formatting";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
 import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
@@ -90,10 +91,7 @@ export function AddMoneyDialog({
   onStartNewOrder: () => void;
   startNewAllowed: boolean;
   initialCustomer?: FundingProviderCustomerSummary | null;
-  fetchAccountResource: (
-    path: string,
-    options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal },
-  ) => Promise<unknown>;
+  fetchAccountResource: AccountWalletClient["fetchAccountResource"];
   queryOwnerKey?: string | null;
   onSelectBinding: (binding: FundingBinding) => void;
   onOpenRedirect: (url: string) => void;

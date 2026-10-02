@@ -8,8 +8,8 @@ import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import { parseBorrowOverview, parseSnapshot } from "@/shared/borrowing/contract";
 import { parseAddress } from "@/shared/chain/hex";
 import { isFundingOrderSummary } from "@/shared/funding/contracts/order";
-import { readFundingProviderCustomers } from "@/shared/funding/contracts/provider-customers";
-import { readProviderBindings } from "@/shared/funding/contracts/providers";
+import { isFundingBindingListFor } from "@/shared/funding/contracts/providers";
+import { isFundingCustomerListFor } from "@/shared/funding/contracts/provider-customers";
 import { isRecord } from "@/shared/guards";
 import { parseStockTradeEligibilityResponse } from "@/shared/trading/contract-stock-eligibility";
 import { parseTradeAvailabilityResponse } from "@/shared/trading/contract";
@@ -113,10 +113,9 @@ export function trustRestoredBorrowMarket(data: unknown, entry: RestoredQueryEnt
 }
 
 export function trustRestoredFundingOpenOrder(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
-  if (!isRecord(data)) return null;
-  if (data.order === null) return { data };
-  if (!isRecord(data.order) || !isTrustedFundingOrderSummary(data.order)) return null;
-  const { region } = data.order;
+  if (data === null) return { data };
+  if (!isFundingOrderSummary(data) || !isTrustedFundingOrderSummary(data)) return null;
+  const { region } = data;
   return region === undefined || region === entry.queryKey[2] ? { data } : null;
 }
 
@@ -141,20 +140,15 @@ export function trustRestoredFundingOrder(data: unknown, entry: RestoredQueryEnt
 
 export function trustRestoredFundingProviderCustomers(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const region = entry.queryKey[2];
-  if (!isRecord(data) || !Array.isArray(data.customers) || typeof region !== "string") return null;
-  const customers = readFundingProviderCustomers(data);
-  return customers.length === data.customers.length && customers.every((customer) => customer.region === region)
-    ? { data }
-    : null;
+  if (typeof region !== "string" || !isFundingCustomerListFor(data, region)) return null;
+  return { data };
 }
 
 export function trustRestoredFundingProviders(data: unknown, entry: RestoredQueryEntry): TrustedRestoredData | null {
   const region = entry.queryKey[2];
-  if (!isRecord(data) || !Array.isArray(data.providers) || typeof region !== "string") return null;
-  const providers = readProviderBindings(data);
-  return providers.length === data.providers.length && providers.every((provider) => provider.region === region)
-    ? { data }
-    : null;
+  const direction = entry.queryKey[3];
+  if (typeof region !== "string" || (direction !== "onramp" && direction !== "offramp")) return null;
+  return isFundingBindingListFor(data, direction, region) ? { data } : null;
 }
 
 export function trustRestoredStockTradeEligibility(data: unknown): TrustedRestoredData | null {

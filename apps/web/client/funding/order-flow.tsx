@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupOption } from "@/components/ui/radio-group";
 import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
-import { isTerminalFundingOrderState as terminal, shouldPollFundingOrder } from "./order-polling";
+import { isTerminalFundingOrderState as terminal } from "./order-polling";
+import { fundingOrderKey, fundingOrderQuery } from "./funding-queries";
 import {
   formatFiatAmount,
   formatPresentationDate,
@@ -29,14 +30,11 @@ import {
 import {
   browserHomeQueryClient,
   ownerQueryKey,
-  disabledQueryKey,
-  ownerQueryMeta,
-  publicQueryKey,
   useHomeMutation,
   useHomeQuery,
   useHomeQueryClient,
 } from "@/client/query/query-client";
-import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
+import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { mutationOptions } from "@tanstack/react-query";
 import { ownerMutation } from "@/client/query/mutation-options";
@@ -56,10 +54,7 @@ import {
   readResolveFundingOrderResponse,
 } from "@/shared/funding/contracts/order-resolution";
 
-type AccountFetch = (
-  path: string,
-  options?: { method?: "GET" | "POST"; body?: unknown; signal?: AbortSignal },
-) => Promise<unknown>;
+type AccountFetch = AccountWalletClient["fetchAccountResource"];
 
 export type { FundingBinding } from "@/shared/funding/contracts/providers";
 export type { FundingOrderSummary } from "@/shared/funding/contracts/order";
@@ -155,35 +150,7 @@ export function FundingOrderFlow({
       return next;
     },
   }));
-  const orderQueryKey = order
-    ? queryOwnerKey
-      ? ownerQueryKey(queryOwnerKey, "funding-order", order.id)
-      : publicQueryKey("funding-order-isolated", order.id)
-    : disabledQueryKey("funding-order");
-  const orderQuery = useHomeQuery({
-    queryKey: orderQueryKey,
-    enabled: shouldPollFundingOrder(order),
-    initialData: order ?? undefined,
-    initialDataUpdatedAt: () => Date.now(),
-    staleTime: 4_000,
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchInterval: (query) => {
-      const current = query.state.data as FundingOrderSummary | undefined;
-      return shouldPollFundingOrder(current) ? 4_000 : false;
-    },
-    meta: queryOwnerKey ? ownerQueryMeta(queryOwnerKey, "owner") : undefined,
-    queryFn: async ({ signal }) => {
-      if (!order) throw new Error("Funding order is unavailable.");
-      const next = readFundingOrder(
-        await fetchAccountResource(`/api/funding/orders/${order.id}`, {
-          signal,
-        }),
-      );
-      if (!next) throw new Error("Funding order response is invalid.");
-      return next;
-    },
-  });
+  const orderQuery = useHomeQuery(fundingOrderQuery(queryOwnerKey ?? null, order, fetchAccountResource));
   const currentOrder = orderQuery.data ?? order;
   const observedOrderStateRef = useRef<{ id: string; state: string } | null>(null);
   const polledOrderId = orderQuery.data?.id;
@@ -244,7 +211,7 @@ export function FundingOrderFlow({
       const resolved = await resolveMutation.mutateAsync(currentOrder.id);
       setClearedOrderId(resolved.order.id);
       setOrder(resolved.order);
-      queryClient.setQueryData(orderQueryKey, resolved.order);
+      queryClient.setQueryData(fundingOrderKey(queryOwnerKey ?? null, order), resolved.order);
     } catch (resolveFailure) {
       setResolutionError(resolveAmbiguousErrorCopy(resolveFailure));
     } finally {
@@ -266,7 +233,7 @@ export function FundingOrderFlow({
       ) {
         queryClient.setQueryData(
           ownerQueryKey(queryOwnerKey, "funding-open-order", binding.region),
-          { version: FUNDING_OPEN_ORDER_VERSION, order: next },
+          next,
         );
       }
     } catch (orderError) {

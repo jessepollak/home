@@ -47,6 +47,11 @@ const balanceOwnerKey = dataOwnerKey({
 });
 const validEligibility = { version: 1, buy: "eligible", sell: "eligible" } as const;
 const restrictedEligibility = { version: 1, buy: "restricted", sell: "eligible" } as const;
+const restoredOnrampBinding = {
+  providerId: "coinbase", displayName: "Coinbase", region: "AR", assetId: "base:usdc",
+  assetSymbol: "USDC", assetDecimals: 6, currency: "USD", direction: "onramp" as const,
+  paymentMethods: [{ id: "bank-transfer", label: "Bank transfer" }], quotes: true, customerSetup: null,
+};
 
 describe("owner query cache boundary", () => {
   test("maps restore provenance without retaining the owner key", () => {
@@ -357,6 +362,27 @@ describe("owner query cache boundary", () => {
     expect(await reloaded.fetchQuery(orders)).toEqual([]);
     expect(actionReads).toBe(2);
     expect(orderReads).toBe(2);
+  });
+
+  test("rejects the previous cache buster and restores the current shape", () => {
+    const owner = balanceOwnerKey;
+    const storage = memoryStorage();
+    const client = createHomeQueryClient();
+    const key = ownerQueryKey(owner, "funding-providers", "AR", "onramp");
+    client.setQueryDefaults(key, { meta: ownerQueryMeta(owner) });
+    client.setQueryData(key, [restoredOnrampBinding]);
+    const state = dehydrateOwnerQueries(client, owner);
+    const persister = createOwnerQueryPersister(storage, owner);
+    if (!persister) throw new Error("the owner query persister is unavailable");
+    persister.persistClient({ timestamp: NOW, buster: "home-query-v3", clientState: state });
+    void persister.flush();
+    expect(restoreOwnerQueries(createHomeQueryClient(), storage, owner)).toBe(false);
+    expect(storage.getItem(`${ownerQueryCachePrefix}${encodeURIComponent(owner)}`)).toBeNull();
+    persister.persistClient({ timestamp: NOW, buster: "home-query-v4", clientState: state });
+    void persister.flush();
+    const restored = createHomeQueryClient();
+    expect(restoreOwnerQueries(restored, storage, owner)).toBe(true);
+    expect(restored.getQueryData<readonly unknown[]>(key)).toEqual([restoredOnrampBinding]);
   });
 
   test("persister restores synchronously and dehydration rejects non-owner keys", async () => {

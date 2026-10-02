@@ -27,6 +27,8 @@ import { priceHistory } from "./price-history";
 import { savingsVaults } from "./savings-vaults";
 import { stockTradeEligibility } from "./stock-trade-eligibility";
 import { tradeAvailability } from "./trade-availability";
+import { transfersRecentRecipients } from "./transfers-recent-recipients";
+import { transfersRecipientName } from "./transfers-recipient-name";
 
 export const queryScopes = {
   "action-result-observation": actionResultObservation,
@@ -58,4 +60,6 @@ export const queryScopes = {
   "savings-vaults": savingsVaults,
   "stock-trade-eligibility": stockTradeEligibility,
   "trade-availability": tradeAvailability,
+  "transfers-recent-recipients": transfersRecentRecipients,
+  "transfers-recipient-name": transfersRecipientName,
 } as const;
