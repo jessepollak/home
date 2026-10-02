@@ -18,12 +18,15 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/shared/",
 ] as const;
 
+const STORYBOOK_RUNTIME_EXACT_PATHS = ["/vite-inject-mocker-entry.js"] as const;
+
 export function isStorybookRuntimeRequest(request: Request, storybookOrigin: string): boolean {
   const url = new URL(request.url);
   if (url.origin !== storybookOrigin) return false;
   if (request.method !== "GET" && request.method !== "HEAD") return false;
 
-  return STORYBOOK_RUNTIME_PATHS.some((path) => url.pathname.startsWith(path));
+  return STORYBOOK_RUNTIME_EXACT_PATHS.some((path) => url.pathname === path) ||
+    STORYBOOK_RUNTIME_PATHS.some((path) => url.pathname.startsWith(path));
 }
 
 const VERCEL_TOOLBAR_HOSTS = ["vercel.live", "vercel.com", "pusher.com"] as const;
