@@ -1,8 +1,12 @@
-import { test, expect } from "bun:test";
+import { test, expect, setSystemTime } from "bun:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { activityPage, syntheticActivity } from "./synthetic-activity";
+import { activityPage, fixtureSyntheticActivity, syntheticActivity } from "./synthetic-activity";
 import { parseHistoryResponse, MARKET_PRICE_RANGES } from "../../shared/invest/contracts/market-price-history";
+import { parseSession } from "../../shared/account/contracts/session";
+import { isVerifiedActivitySession, parseActivityPage } from "../../shared/activity/contract";
+import { sessionBody } from "../../tests/browser/fixtures/bodies";
+import { FIXED_NOW } from "../../tests/browser/fixtures/fixed-time";
 import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, probeProxy, proxyOptions } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
 import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, detailTarget, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, runPartial, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, waitForQuietFeed, androidFamily, androidView, type Result, type Run, type TraceEvent } from "./model";
@@ -32,6 +36,26 @@ test("synthetic generator keeps 25-transfer pagination and original deterministi
   expect(second.transfers[0]?.id).toBe(data.transfers[25]?.id);
   expect(first.nextCursor).toBe("page-1");
   expect(() => activityPage(data, "page-99", to)).toThrow("Unexpected cursor");
+});
+
+test.each([-86_400_000 * 40, 0, 86_400_000 * 40])("fixture synthetic activity parses every page in the pinned clock window when the host clock is offset by %pms", (offset) => {
+  setSystemTime(new Date(FIXED_NOW + offset));
+  let data: ReturnType<typeof syntheticActivity>;
+  try { data = fixtureSyntheticActivity(300); } finally { setSystemTime(); }
+  const to = new Date(FIXED_NOW).toISOString();
+  const session = parseSession(sessionBody);
+  expect(isVerifiedActivitySession(session)).toBe(true);
+  if (!isVerifiedActivitySession(session)) throw new Error("Expected a verified fixture session");
+  const transferIds: string[] = [];
+  let cursor: string | null = "initial";
+  while (cursor !== null) {
+    const body = activityPage(data, cursor, to);
+    const page = parseActivityPage(body, session, to);
+    transferIds.push(...page.transfers.map((transfer) => transfer.id));
+    cursor = page.nextCursor;
+  }
+  expect(transferIds).toHaveLength(270);
+  expect(transferIds).toEqual(data.transfers.map((transfer) => transfer.id));
 });
 
 test("fixture glob routing distinguishes exact path and query and preserves ordered overrides", () => {
