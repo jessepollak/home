@@ -3,7 +3,7 @@ import { lstatSync } from "node:fs";
 export const FENCED_LAYERS = ["app", "client", "components", "config", "lib", "server", "shared", "types"];
 export const BOUNDARY_RULE = "home/no-exploration-imports";
 export const BOUNDARY_RULES = [BOUNDARY_RULE, "home/no-test-support-imports", "home/no-full-portfolio-presentation"];
-const ENFORCING_SEVERITIES = new Set(["deny", "error", "warn", 1, 2]);
+export const ENFORCING_SEVERITIES = new Set(["deny", "error", "warn", 1, 2]);
 export const BOUNDARY_EXTENSIONS_GLOB = "{js,jsx,mjs,cjs,ts,tsx,mts,cts}";
 export const BOUNDARY_EXTENSIONS = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"];
 export const BOUNDARY_EXCLUDED_FILES = [
