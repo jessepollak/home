@@ -386,7 +386,7 @@ test("cached Home HTML contains money before React hydration", async ({ browser,
   const documentResponse = await context.request.get(`${baseURL}/home`);
   const now = Date.parse(documentResponse.headers().date ?? "");
   if (!Number.isFinite(now)) throw new Error("Server clock header missing");
-  const session = { ...sessionBody, smartAccount: { ...sessionBody.smartAccount, address: "0x1111111111111111111111111111111111111111" as const }, accountProvider: "cdp-embedded" as const };
+  const session = { ...sessionBody, smartAccount: { ...sessionBody.smartAccount, address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const };
   const presentation = presentHomeBalances({ status: "ready", snapshot: balancesSnapshot(), error: null });
   const summary = presentation.summary;
   const total = presentation.displayTotal;
