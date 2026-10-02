@@ -141,7 +141,11 @@ describe("support v2 routes", () => {
     expect((await createCustomerSupportHandlers(options).GET(request("support"))).status).toBe(200);
     const response = await createCustomerSupportChatHandler(options)(request("support/chat", "POST", chat));
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("vary")).toBe("Authorization, X-Home-Account-Provider");
     expect(await response.text()).toContain('"type":"data-support"');
     expect(calls).toContain(`send:${bob}:Hello:${messageId}`);
 expect((await createCustomerSupportHandoffHandler(options)(request("support/handoff", "POST", { version: 2 }))).status).toBe(200);
@@ -640,15 +644,13 @@ expect(calls).not.toContain(`handoff:${bob}:false`);
   });
 
 
-  test("local fixture stream is deterministic and never opens a provider or database", async () => {
+  test("local smoke requests still require customer authorization", async () => {
     const previous = process.env.HOME_PLAYWRIGHT_SMOKE;
     process.env.HOME_PLAYWRIGHT_SMOKE = "1";
     try {
-      const response = await createCustomerSupportChatHandler({ authorize: async () => { throw new Error("fixture must not authorize remotely"); }, store: () => { throw new Error("fixture must not use the database"); } })(new Request("http://127.0.0.1:3199/api/support/chat", { method: "POST", headers: { origin: "http://127.0.0.1:3199", "content-type": "application/json" }, body: JSON.stringify(chat) }));
-      expect(response.status).toBe(200);
-      const body = await response.text();
-      expect(body).toContain("I can help with that.");
-      expect(body).toContain('"type":"data-support"');
+      const response = await createCustomerSupportChatHandler({ authorize: async () => new Response(null, { status: 401 }), store: () => { throw new Error("unauthorized requests must not use the database"); } })(new Request("http://127.0.0.1:3199/api/support/chat", { method: "POST", headers: { origin: "http://127.0.0.1:3199", "content-type": "application/json" }, body: JSON.stringify(chat) }));
+      expect(response.status).toBe(401);
+      expect(await response.text()).toBe("");
     } finally { if (previous === undefined) delete process.env.HOME_PLAYWRIGHT_SMOKE; else process.env.HOME_PLAYWRIGHT_SMOKE = previous; }
   });
 

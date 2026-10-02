@@ -10,7 +10,7 @@ import { readCookie } from "@/server/auth/signed-cookie";
 import { resolveCustomer } from "@/server/customers/resolve";
 import { getSqlExecutor } from "@/server/db/sql";
 import { readSameOriginJson } from "@/server/http/same-origin-mutation";
-import { privateJson } from "@/server/http/private-response";
+import { privateJson, withPrivateHeaders } from "@/server/http/private-response";
 import { emitServerEvent, observeSafely } from "@/server/observability/log";
 import { authorizeOperatorRequest } from "@/server/operator/api";
 import { readOperatorConfig, type OperatorConfig } from "@/server/operator/config";
@@ -136,27 +136,12 @@ function supportStream(id: string, handler: SupportHandler, turn?: (writer: Para
     catch { writer.write({ type: "error", errorText: "Support is temporarily unavailable." }); }
     writer.write({ type: "data-support", data: final });
   }, onError: () => "Support is temporarily unavailable." });
-  return createUIMessageStreamResponse({ stream, headers: privateJson(null).headers });
+  return withPrivateHeaders(createUIMessageStreamResponse({ stream }));
 }
 
 export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
   const route = "/api/support/chat";
   return async (request: Request): Promise<Response> => run(route, async () => {
-    if (process.env.HOME_PLAYWRIGHT_SMOKE === "1" && process.env.NODE_ENV !== "production" && !process.env.VERCEL && ["127.0.0.1", "localhost"].includes(new URL(request.url).hostname)) {
-      const checked = await readSameOriginJson(request);
-      if ("error" in checked) return fail(route, checked.error, checked.error === "CROSS_ORIGIN" ? 403 : 400);
-      const fixture = parseCustomerSupportChatRequest(checked.value);
-      if (!fixture) return fail(route, "INVALID_REQUEST", 400);
-      const conversationId = "11111111-1111-4111-8111-111111111111";
-      const messageId = crypto.randomUUID();
-      return supportStream(conversationId, "assistant", async (writer) => {
-        writer.write({ type: "start", messageId });
-        writer.write({ type: "text-start", id: messageId });
-        writer.write({ type: "text-delta", id: messageId, delta: "I can help with that. What would you like to know?" });
-        writer.write({ type: "text-end", id: messageId });
-        return { handler: "assistant", conversationId };
-      });
-    }
     const session = await customerSession(request, deps);
     if (session instanceof Response) return session;
     const checked = await readSameOriginJson(request);

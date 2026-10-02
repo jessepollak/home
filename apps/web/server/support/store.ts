@@ -25,6 +25,14 @@ type ContextSummaryRow = ContextRow & {
 
 function date(value: Date): string { return new Date(value).toISOString(); }
 function message(row: MessageRow): SupportMessage { return { id: row.id, authorType: row.author_type, status: row.status, body: row.body, createdAt: date(row.created_at), ...(row.author_type === "customer" ? { clientMessageId: row.client_message_id } : {}) }; }
+function preview(body: string): string {
+  let text = "";
+  for (const point of body) {
+    if (text.length + point.length > 140) break;
+    text += point;
+  }
+  return text;
+}
 function effectiveHandler(row: { handler: SupportHandler }, capability: SupportAssistantCapability): SupportHandler { return capability.available && row.handler === "assistant" ? "assistant" : "operator"; }
 function unread(row: Pick<ConversationRow, "last_customer_message_at" | "operator_read_at">): boolean { return row.last_customer_message_at !== null && (row.operator_read_at === null || row.last_customer_message_at > row.operator_read_at); }
 function receiptState(row: ContextSummaryRow): ActionReceiptState | null {
@@ -181,7 +189,7 @@ export class SupportStore {
        WHERE ($1::text='all' OR c.status=$1) AND ($2::timestamptz IS NULL OR (c.last_message_at,c.id) < ($2::timestamptz,$3::uuid))
        ORDER BY c.last_message_at DESC,c.id DESC LIMIT $4`, [input.status, before?.at ?? null, before?.id ?? null, input.limit + 1]);
     const rows = result.rows.slice(0, input.limit);
-    return { version: SUPPORT_CONTRACT_VERSION, conversations: rows.map((row) => ({ id: row.id, status: row.status, handler: effectiveHandler(row, capability), lastMessageAt: date(row.last_message_at), preview: row.preview.slice(0, 140), lastAuthorType: row.author_type, unread: effectiveHandler(row, capability) === "operator" && unread(row), customerLabel: row.label_wallet ? `${row.label_wallet.slice(0, 6)}…${row.label_wallet.slice(-4)}` : `Customer ${row.id.slice(0, 8)}` })), nextCursor: result.rows.length > input.limit ? Buffer.from(JSON.stringify({ at: date(rows.at(-1)!.last_message_at), id: rows.at(-1)!.id })).toString("base64url") : null };
+    return { version: SUPPORT_CONTRACT_VERSION, conversations: rows.map((row) => ({ id: row.id, status: row.status, handler: effectiveHandler(row, capability), lastMessageAt: date(row.last_message_at), preview: preview(row.preview), lastAuthorType: row.author_type, unread: effectiveHandler(row, capability) === "operator" && unread(row), customerLabel: row.label_wallet ? `${row.label_wallet.slice(0, 6)}…${row.label_wallet.slice(-4)}` : `Customer ${row.id.slice(0, 8)}` })), nextCursor: result.rows.length > input.limit ? Buffer.from(JSON.stringify({ at: date(rows.at(-1)!.last_message_at), id: rows.at(-1)!.id })).toString("base64url") : null };
   }
 
   async operatorSummary(capability: SupportAssistantCapability = { available: false, handoff: false }): Promise<OperatorSupportSummary> {
