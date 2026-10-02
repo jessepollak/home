@@ -356,6 +356,12 @@ const fixtures = {
   "storybook-static/ignored.ts": 'const x: any = 1;'
 };
 
+const explorationPrefixes = Array.from({ length: 64 }, (_, index) => `./prefix${index}/zz`)
+  .reduceRight((tail, prefix, index) => `(prefixFlag${index} ? ${JSON.stringify(prefix)} : ${tail})`, '"@/client/explor"');
+const explorationSuffixes = Array.from({ length: 64 }, (_, index) => `zz${index}`)
+  .reduceRight((tail, suffix, index) => `(suffixFlag${index} ? ${JSON.stringify(suffix)} : ${tail})`, '"ations/row"');
+fixtures["client/exploration-bounded.ts"] = `export const load = import("" + ${explorationPrefixes} + ${explorationSuffixes});`;
+
 for (const directory of [...boundary.requiredFence, ...boundary.exempt]) {
   fixtures[`${directory}/__exploration-boundary-probe.ts`] = 'export * from "./explorations/probe";';
 }
@@ -469,6 +475,7 @@ const contracts = [
   ["non-static concatenation checks known segments on both sides", () => assertHits("client/exploration-concatenated-dynamic.ts", "home(no-exploration-imports)", 4)],
   ["split static template fragments still reveal knowable exploration segments", () => { assertHits("client/exploration-split-template.ts", "home(no-exploration-imports)", 2); }],
   ["cross-boundary known runs still reveal knowable exploration segments", () => { assertHits("client/exploration-cross-boundary.ts", "home(no-exploration-imports)", 2); assertHits("client/exploration-cross-boundary-clean.ts", "home(no-exploration-imports)", 0); }],
+  ["cross-operand exploration joins beyond the analysis bounds fail closed", () => assertHits("client/exploration-bounded.ts", "home(no-exploration-imports)")],
   ["conditional and logical specifiers are traversed", () => { assertHits("client/exploration-conditional.ts", "home(no-exploration-imports)", 2); assertHits("client/exploration-conditional-clean.ts", "home(no-exploration-imports)", 0); }],
   ["branch alternatives inside a concatenation are traversed", () => assertHits("client/exploration-conditional-concat.ts", "home(no-exploration-imports)", 1)],
   ["an unknown segment splits known runs so a false positive cannot form", () => assertHits("client/exploration-unknown-segment-clean.ts", "home(no-exploration-imports)", 0)],

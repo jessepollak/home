@@ -403,7 +403,7 @@ export const noRealWaits = {
       sleep: "tests must not sleep; use fake timers or an injected scheduler",
       browserSleep: "Playwright tests must not use waitForTimeout; wait for a locator or poll an observable condition",
       wallClock: "tests must not read the wall clock; inject a clock or pin a fixed time",
-      wait: "tests must not wait longer than 2000ms; bound the wait deterministically",
+      wait: "tests must not wait longer than 2000ms with an inline timeout; a named guard object is a deliberate hang budget",
     },
   },
   create(context) {
@@ -559,22 +559,47 @@ export const noRealWaits = {
           if (binding && (references.length !== 1 || references[0].identifier.start !== argument.start)
             || selfBinding?.references.some((reference) => !reference.init)) callbackCalls.set(callback, null);
         }
-        const pins = pinCandidates.map(({ argument, node }) => ({
-          sources: pinSources(argument), scope: clockScope(node, context.sourceCode, callbackCalls),
-        }));
+        const pins = pinCandidates.map(({ argument, node }) => {
+          const scope = clockScope(node, context.sourceCode, callbackCalls);
+          return {
+            sources: pinSources(argument), scope, start: node.start,
+            container: scope.kind === "hook"
+              ? clockScope(scope.node, context.sourceCode, callbackCalls, true).node : null,
+          };
+        });
         const withinPin = (read, sources) => sources.some((source) => withinArgument(read.node, source));
-        const validPins = pins.filter(({ sources }) => !clockReads.some((read) => withinPin(read, sources)));
+        const preHook = (pin) => pin.scope.kind === "hook" && clockPreHookNames.has(pin.scope.name);
+        const scopeLast = new Map();
+        const containerHooks = new Map();
+        for (const pin of pins.filter(preHook)) {
+          const entry = containerHooks.get(pin.container) ?? { early: [], each: [] };
+          entry[pin.scope.name === "beforeEach" ? "each" : "early"].push(pin);
+          containerHooks.set(pin.container, entry);
+        }
+        const lastRegistered = (list) => list.reduce((latest, pin) =>
+          !latest || pin.scope.node.start > latest.scope.node.start
+            || (pin.scope.node.start === latest.scope.node.start && pin.start > latest.start) ? pin : latest, null);
+        const governingHook = (scope, containers) => {
+          if (!["test", "hook"].includes(scope.kind)) return null;
+          const earlyOnly = scope.kind === "hook" && ["beforeAll", "before"].includes(scope.name);
+          for (const phase of earlyOnly ? ["early"] : ["each", "early"]) {
+            for (const container of containers) {
+              const list = containerHooks.get(container)?.[phase];
+              if (list?.length) return lastRegistered(list);
+            }
+          }
+          return null;
+        };
+        for (const pin of [...pins].sort((a, b) => a.start - b.start)) {
+          scopeLast.set(pin.scope.node, pin);
+        }
+        const invalidPin = (pin) => clockReads.some((read) => withinPin(read, pin.sources));
         for (const read of clockReads) {
           const pinArgumentRead = pins.some(({ sources }) => withinPin(read, sources));
           const scope = clockScope(read.node, context.sourceCode, callbackCalls);
           const containers = clockContainers(scope.node, context.sourceCode, callbackCalls);
-          const governed = validPins.some((pin) => {
-            if (pin.scope.node === scope.node) return true;
-            if (pin.scope.kind !== "hook" || !clockPreHookNames.has(pin.scope.name)
-              || !["test", "hook"].includes(scope.kind)) return false;
-            if (pin.scope.name === "beforeEach" && ["beforeAll", "before"].includes(scope.name)) return false;
-            return containers.includes(clockScope(pin.scope.node, context.sourceCode, callbackCalls, true).node);
-          });
+          const deciding = scopeLast.get(scope.node) ?? governingHook(scope, containers);
+          const governed = deciding ? !invalidPin(deciding) : false;
           if (!pinArgumentRead && read.kind === "date"
             && (playwright ? pinnedPageClock(read.node, governed) : governed)) continue;
           if (!pinArgumentRead && read.kind === "performance" && read.call

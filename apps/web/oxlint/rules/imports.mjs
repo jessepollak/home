@@ -28,6 +28,18 @@ function sourceValue(node) {
 
 const assertionNodes = ["ParenthesizedExpression", "TSAsExpression", "TSSatisfiesExpression", "TSNonNullExpression", "TSTypeAssertion", "TypeAssertionExpression"];
 const unknownSegment = Symbol("unknown");
+const tooComplexSegment = Symbol("tooComplex");
+const analysisLimits = { alternatives: 4096, evaluations: 16384, work: 16384 };
+
+function analysisBudget() {
+  return { work: 0, exceeded: false };
+}
+
+function chargeWork(budget, amount) {
+  budget.work += amount;
+  if (budget.work > analysisLimits.work) budget.exceeded = true;
+  return !budget.exceeded;
+}
 
 function mergeSegments(left, right) {
   if (!left.length) return right;
@@ -40,75 +52,96 @@ function mergeSegments(left, right) {
 
 const alternativeKey = (alternative) => JSON.stringify(alternative.map((segment) => (typeof segment === "string" ? segment : null)));
 
-function dedupeAlternatives(alternatives) {
+function dedupeAlternatives(alternatives, budget) {
   const seen = new Set();
-  return alternatives.filter((alternative) => {
+  const distinct = [];
+  for (const alternative of alternatives) {
+    if (!chargeWork(budget, alternative.length)) return null;
     const key = alternativeKey(alternative);
-    if (seen.has(key)) return false;
+    if (seen.has(key)) continue;
     seen.add(key);
-    return true;
-  });
+    distinct.push(alternative);
+  }
+  return distinct;
 }
 
-function combineSegments(lefts, rights) {
+function combineSegments(lefts, rights, budget) {
+  if (isTruncated(lefts)) return lefts;
+  if (isTruncated(rights)) return rights;
+  if (budget.exceeded) return truncatedSegments([...lefts, ...rights]);
   const combined = [];
   const seenMerged = new Set();
   let evaluated = 0;
-  const distinctLefts = dedupeAlternatives(lefts);
-  const distinctRights = dedupeAlternatives(rights);
+  const distinctLefts = dedupeAlternatives(lefts, budget);
+  const distinctRights = dedupeAlternatives(rights, budget);
+  if (distinctLefts === null || distinctRights === null) return truncatedSegments([...lefts, ...rights]);
   for (const left of distinctLefts) for (const right of distinctRights) {
     evaluated += 1;
-    if (evaluated > 16384) return [widenSegments([...combined, ...lefts, ...rights])];
+    if (evaluated > analysisLimits.evaluations) return truncatedSegments([...combined, ...lefts, ...rights]);
     const merged = mergeSegments(left, right);
+    if (!chargeWork(budget, merged.length)) return truncatedSegments([...combined, merged, ...lefts, ...rights]);
     const key = alternativeKey(merged);
     if (seenMerged.has(key)) continue;
     seenMerged.add(key);
     combined.push(merged);
-    if (combined.length > 4096) return [widenSegments([...combined, ...lefts, ...rights])];
+    if (combined.length > analysisLimits.alternatives) return truncatedSegments([...combined, ...lefts, ...rights]);
   }
   return combined;
 }
 
-// A pathological alternative count must not erase known segments and let a
-// definite exploration import through, so widen the constructed alternatives
-// into one fail-closed sequence of every known segment seen.
-function widenSegments(alternatives) {
-  const segments = [unknownSegment];
+function unionAlternatives(lefts, rights, budget) {
+  if (isTruncated(lefts)) return lefts;
+  if (isTruncated(rights)) return rights;
+  if (budget.exceeded) return truncatedSegments([...lefts, ...rights]);
+  const union = [...lefts, ...rights];
+  if (union.length > analysisLimits.alternatives || !chargeWork(budget, union.reduce((total, alternative) => total + alternative.length, 0))) return truncatedSegments(union);
+  return dedupeAlternatives(union, budget) ?? truncatedSegments(union);
+}
+
+// Preserve known fragments for shared rules and mark truncation for rules that
+// reject specifiers whose cross-operand joins exceed the analysis bounds.
+function truncatedSegments(alternatives) {
+  const segments = [tooComplexSegment, unknownSegment];
   const seen = new Set();
   for (const alternative of alternatives) for (const segment of alternative) {
     if (typeof segment !== "string" || !segment.length || seen.has(segment)) continue;
     seen.add(segment);
     segments.push(segment);
   }
-  return segments;
+  return [segments];
 }
 
+const isTruncated = (alternatives) => alternatives.some((alternative) => alternative[0] === tooComplexSegment);
 
-function segmentAlternatives(node) {
+function segmentAlternatives(node, budget) {
   if (node == null) return [[unknownSegment]];
-  if (assertionNodes.includes(node?.type)) return segmentAlternatives(node.expression);
+  if (assertionNodes.includes(node?.type)) return segmentAlternatives(node.expression, budget);
   if (node?.type === "Literal" || node?.type === "StringLiteral") return typeof node.value === "string" ? [[node.value]] : [[unknownSegment]];
-  if (node?.type === "BinaryExpression" && node.operator === "+") return combineSegments(segmentAlternatives(node.left), segmentAlternatives(node.right));
-  if (node?.type === "ConditionalExpression") return [...segmentAlternatives(node.consequent), ...segmentAlternatives(node.alternate)];
-  if (node?.type === "LogicalExpression") return [...segmentAlternatives(node.left), ...segmentAlternatives(node.right)];
+  if (node?.type === "BinaryExpression" && node.operator === "+") return combineSegments(segmentAlternatives(node.left, budget), segmentAlternatives(node.right, budget), budget);
+  if (node?.type === "ConditionalExpression") return unionAlternatives(segmentAlternatives(node.consequent, budget), segmentAlternatives(node.alternate, budget), budget);
+  if (node?.type === "LogicalExpression") return unionAlternatives(segmentAlternatives(node.left, budget), segmentAlternatives(node.right, budget), budget);
   if (node?.type !== "TemplateLiteral") return [[unknownSegment]];
   let alternatives = [[]];
   for (const [index, quasi] of node.quasis.entries()) {
     const cooked = quasi.value.cooked;
-    alternatives = combineSegments(alternatives, [[typeof cooked === "string" ? cooked : unknownSegment]]);
-    if (index < node.expressions.length) alternatives = combineSegments(alternatives, segmentAlternatives(node.expressions[index]));
+    alternatives = combineSegments(alternatives, [[typeof cooked === "string" ? cooked : unknownSegment]], budget);
+    if (index < node.expressions.length) alternatives = combineSegments(alternatives, segmentAlternatives(node.expressions[index], budget), budget);
   }
   return alternatives;
 }
 
-function sourceVisitors(check) {
+function sourceVisitors(check, tooComplex) {
   function visit(node) {
-    for (const segments of segmentAlternatives(node)) {
-      const complete = segments.length === 1 && typeof segments[0] === "string";
+    const budget = analysisBudget();
+    let truncated = false;
+    for (const segments of segmentAlternatives(node, budget)) {
+      if (segments[0] === tooComplexSegment) truncated = true;
+      const complete = segments[0] !== tooComplexSegment && segments.length === 1 && typeof segments[0] === "string";
       for (const segment of segments) {
         if (typeof segment === "string" && segment.length) check(node, segment, complete);
       }
     }
+    if (truncated) tooComplex?.(node);
   }
   return {
     ImportDeclaration(node) { visit(node.source); },
@@ -147,7 +180,7 @@ function jsdocImportReferences(filename, text) {
   return references;
 }
 
-function rule(message, reject, { jsdoc = false } = {}) {
+function rule(message, reject, { jsdoc = false, failClosed = false } = {}) {
   return {
     meta: { type: "problem", schema: [], messages: { rejected: message } },
     create(context) {
@@ -156,7 +189,11 @@ function rule(message, reject, { jsdoc = false } = {}) {
         if (typeof value !== "string" || reported.has(node) || !reject(value, context.filename, complete)) return;
         reported.add(node);
         context.report({ node, messageId: "rejected" });
-      });
+      }, failClosed ? (node) => {
+        if (reported.has(node)) return;
+        reported.add(node);
+        context.report({ node, messageId: "rejected" });
+      } : undefined);
       if (jsdoc) visitors["Program:exit"] = () => {
         const offending = jsdocImportReferences(context.filename, context.sourceCode.text)
           .filter((reference) => reject(reference.value, context.filename, true))
@@ -215,13 +252,13 @@ function packageRoot(value) {
 
 export const noStorybookImports = rule(productionIsolationMessage, isStorybookImport);
 export const noExplorationImports = rule(explorationIsolationMessage, (value) =>
-  /(?:^|\/)explorations(?:\/|$)/.test(value), { jsdoc: true });
+  /(?:^|\/)explorations(?:\/|$)/.test(value), { jsdoc: true, failClosed: true });
 export const noTestSupportImports = rule(testSupportIsolationMessage, (value, _filename, complete) => {
   const specifier = normalizedSpecifier(value, complete);
   return /(?:^|\/)(?:tests|testing)(?:\/|$)/.test(specifier)
     || /\.test(?:\.[^/]+)?$/.test(specifier)
     || /(?:^|\/)[^/]*test-harness(?:\.[^/]+)?$/.test(specifier);
-}, { jsdoc: true });
+}, { jsdoc: true, failClosed: true });
 export const noClassicZodImports = rule(classicZodMessage, (value) =>
   value !== "zod/mini" && (value === "zod" || value.startsWith("zod/")));
 
