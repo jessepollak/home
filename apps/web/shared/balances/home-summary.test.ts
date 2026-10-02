@@ -4,7 +4,7 @@ import { balancesSnapshotFixture } from "./fixtures";
 import { encodeHomeSummaryCookie, parseHomeSummaryCookie, parseHomeSummaryRecord } from "./home-summary";
 
 const now = Date.parse("2026-10-02T05:00:00.000Z");
-const raw = { version: 1, owner: "owner-a", region: "US", updatedAt: now,
+const raw = { version: 2, owner: "owner-a", region: "US", updatedAt: now,
   presentation: presentHomeBalances({ status: "ready", snapshot: balancesSnapshotFixture, error: null }),
   rates: { cash: { value: "4.38% APY", updatedAt: now - 60_000 }, borrow: { value: "4.78% APR", updatedAt: now - 360_000 } } };
 
@@ -30,7 +30,7 @@ describe("Home first-paint display cookie", () => {
   });
   test("large valid local summaries do not become oversized request cookies", () => {
     const large = { ...raw, presentation: { ...raw.presentation, displayTotal: "€".repeat(160),
-      breakdown: [{ id: "cash", label: "Cash", value: "€".repeat(160), weight: 1 }] } };
+      breakdown: [{ id: "cash", label: "Cash", value: "€".repeat(160), weight: 1, status: "complete" }] } };
     const record = parseHomeSummaryRecord(JSON.stringify(large), "owner-a", "US", now);
     if (!record) throw new Error("Summary fixture invalid");
     expect(record).not.toBeNull();

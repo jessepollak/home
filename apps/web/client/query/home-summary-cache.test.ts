@@ -22,13 +22,14 @@ describe("Home summary cache", () => {
     expect(readHomeSummary(cache, "b", "US")).toBeNull();
     expect(readHomeSummary(cache, "a", "GB")).toBeNull();
   });
-  test("rejects swapped scope, expired, future, malformed and oversized values", () => {
+  test("rejects swapped scope, expired, future, malformed, legacy and oversized values", () => {
     const cache = storage(); const key = homeSummaryStorageKey("a", "US");
     for (const fields of [{ owner: "b" }, { region: "GB" }, { updatedAt: NOW + 1 }, { updatedAt: NOW - ownerQueryCacheTtlMs - 1 }]) {
-      cache.setItem(key, JSON.stringify({ version: 1, owner: "a", region: "US", updatedAt: NOW, presentation: ready, ...fields }));
+      cache.setItem(key, JSON.stringify({ version: 2, owner: "a", region: "US", updatedAt: NOW, presentation: ready, ...fields }));
       expect(readHomeSummary(cache, "a", "US")).toBeNull();
     }
-    for (const value of ["bad JSON", "x".repeat(8193), JSON.stringify({ version: 1, presentation: {} })]) {
+    for (const value of ["bad JSON", "x".repeat(8193), JSON.stringify({ version: 2, presentation: {} }),
+      JSON.stringify({ version: 1, owner: "a", region: "US", updatedAt: NOW, presentation: { ...ready, breakdown: [] } })]) {
       cache.setItem(key, value); expect(readHomeSummary(cache, "a", "US")).toBeNull();
     }
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Banknote, ChartLine, HandCoins } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,8 +11,10 @@ import {
   MoneyBreakdownLegend,
   SignedBalanceBar,
 } from "@/components/signed-balance-bar";
-import type { HomeMoneySummary as HomeMoneySummaryModel, MoneyBreakdownItem } from "@/shared/balances/present";
-import { cn } from "@/lib/utils";
+import type {
+  HomeMoneySummary as HomeMoneySummaryModel,
+  MoneyBreakdownItem,
+} from "@/shared/balances/present";
 import { formatPresentationDate } from "@/shared/formatting";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
@@ -45,6 +47,7 @@ export function HomeOverview({
   onRetryBalances?: () => void;
 }) {
   const isLoading = assetBalances?.status === "loading";
+  const retryBalances = assetBalances?.needsCountry ? undefined : onRetryBalances;
   const moneyRef = useRef<HTMLDivElement>(null);
   const [stickyFits, setStickyFits] = useState(false);
   useEffect(() => {
@@ -78,7 +81,7 @@ export function HomeOverview({
           cashRate={cashRate}
           borrowOfferRate={borrowOfferRate}
           destinations={destinations}
-          onRetryBalances={assetBalances?.needsCountry ? undefined : onRetryBalances}
+          onRetryBalances={retryBalances}
         />
       </div>
       <div>{activity}</div>
@@ -101,6 +104,7 @@ function HomeTotalBalance({
   assetBalances?: HomeAssetBalancesPresentation;
   accountKey: string | null;
 }) {
+  const statusId = useId();
   const isLoading = assetBalances?.status === "loading";
   const isRevalidating = assetBalances?.revalidating === true;
   const heroLabel = isLoading
@@ -110,6 +114,9 @@ function HomeTotalBalance({
       : "Total balance";
   const breakdown = assetBalances?.breakdown ?? [];
   const totalStatus = isLoading ? undefined : assetBalances?.totalStatus ?? "unavailable";
+  const displayTotal = assetBalances?.displayTotal ?? "—";
+  const showStatus = !isLoading && !assetBalances?.needsCountry && (totalStatus === "partial" || totalStatus === "unavailable");
+  const statusLabel = assetBalances?.statusLabel ?? (totalStatus === "partial" ? "Partial balance" : "Balance unavailable");
   return (
     <Card
       variant="flush"
@@ -119,22 +126,27 @@ function HomeTotalBalance({
     >
       <CardContent inset="hero">
         <p className="text-sm text-muted-foreground">Total balance</p>
+        {showStatus ? <span id={statusId} className="sr-only">{statusLabel}</span> : null}
         {assetBalances?.cachedAt !== undefined ? <span className="sr-only">Updating balance saved {formatPresentationDate(assetBalances.cachedAt, { style: "date-time-zone" })}.</span> : null}
         <div className="flex min-h-10 items-center" data-shimmer={isLoading ? "hero" : undefined}>
         {isLoading ? <><Skeleton className="h-10 w-48" /><span className="sr-only">Updating…</span></> : (
           <div
-            className={cn(
-              "text-4xl font-semibold tabular-nums",
-              totalStatus !== "complete" && "text-muted-foreground",
-            )}
+            className="text-4xl font-semibold tabular-nums"
             data-total-status={totalStatus === "complete" ? undefined : totalStatus}
           >
-            <MoneyTicker
-              value={assetBalances?.displayTotal ?? "—"}
-              align="start"
-              reserveDigits={false}
-              animated={false}
-            />
+            {displayTotal === "—" ? (
+              <span role="img" aria-label="Unavailable" aria-describedby={showStatus ? statusId : undefined}>
+                —
+              </span>
+            ) : (
+              <MoneyTicker
+                value={displayTotal}
+                align="start"
+                reserveDigits={false}
+                animated={false}
+                aria-describedby={showStatus ? statusId : undefined}
+              />
+            )}
           </div>
         )}
         </div>
@@ -251,7 +263,8 @@ function CashRow({
       context={rate ?? undefined}
       reserveContext
       value={summaryValue(summary.value)}
-      valueTone={summary.status === "complete" ? "default" : "muted"}
+      valueTone={summaryTone(summary.value)}
+      valueContext={summary.status === "partial" ? "Partial balance" : undefined}
       onActivate={onOpen}
       activateLabel="Open Cash"
       readRetry={summary.value === null && onRetryBalances ? { label: "Retry Cash balance", onRetry: onRetryBalances } : undefined}
@@ -282,7 +295,8 @@ function InvestmentsRow({
           ? "Across 1 asset"
           : `Across ${summary.assetCount} assets`}
       value={empty ? undefined : summaryValue(summary.value)}
-      valueTone={summary.status === "complete" ? "default" : "muted"}
+      valueTone={summaryTone(summary.value)}
+      valueContext={summary.status === "partial" ? "Partial balance" : undefined}
       onActivate={onOpen}
       activateLabel={empty ? "Open Invest" : "Open Investments"}
       readRetry={!empty && summary.value === null && onRetryBalances ? { label: "Retry Investments balance", onRetry: onRetryBalances } : undefined}
@@ -312,8 +326,10 @@ function BorrowRow({
         label="Borrow Cash"
         context="Against your investments"
         value={summaryValue(summary.value)}
-        valueTone={summary.status === "complete" ? "default" : "muted"}
-        valueContext={summary.rate ?? undefined}
+        valueTone={summaryTone(summary.value)}
+        valueContext={summary.status === "partial"
+          ? summary.rate ? `Partial · ${summary.rate}` : "Partial balance"
+          : summary.rate ?? undefined}
         onActivate={onOpen}
         activateLabel="Open Borrow"
         readRetry={summary.value === null && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
@@ -351,6 +367,10 @@ function BorrowRow({
       chevron={summary.kind === "none"}
     />
   );
+}
+
+function summaryTone(value: string | null): "default" | "muted" {
+  return value === null ? "muted" : "default";
 }
 
 function summaryValue(value: string | null): ReactNode {
