@@ -101,7 +101,7 @@ describePostgres("support PostgreSQL contract", () => {
   afterAll(async () => { await sql?.dispose?.(); await admin?.unsafe(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin?.close(); await observer?.close(); });
 
   test("listing audits every returned customer in one insert and shares the detail read window", async () => {
-    const accounts = [];
+    const accounts: Array<Awaited<ReturnType<typeof conversation>>> = [];
     for (const subject of ["alice", "bob", "carol"]) accounts.push(await conversation(subject));
     const writes: number[] = [];
     const audit = new AdminAuditLog({
