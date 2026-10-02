@@ -86,7 +86,7 @@ test("the first server HTML has the scoped summary, and clearing never revives i
 test("invalidation clears the cookie even when local storage removal is denied", () => {
   window.history.replaceState(null, "", "/home");
   const initialSummary = parseHomeSummaryRecord(JSON.stringify({ version: 1, owner: "a", region: "US", updatedAt: NOW, presentation: ready }), "a", "US", NOW);
-  if (!initialSummary) throw new Error("Summary fixture invalid");
+  if (!initialSummary || !ready.displayTotal) throw new Error("Summary fixture invalid");
   const client = getHomeQueryClient();
   client.setQueryData(ownerQueryKey("a", "balances", "US"), balancesSnapshotFixture);
   writeHomeSummaryCookie(initialSummary);
