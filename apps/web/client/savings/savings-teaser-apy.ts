@@ -23,6 +23,7 @@ export function savingsTeaserApyLabel({
   if (summary?.funded && (summary.apy.status === "available" || summary.apy.status === "stale")) {
     return `${formatExactSavingsApy(summary.apy.value, regionId)} APY`;
   }
+  if (summary && (summary.funded || summary.balance.status === "unavailable")) return null;
   const rates = candidates.map((candidate) =>
     getSavingsRateState(candidate, {
       metadataFetchedAt: metadata.source.fetchedAt,

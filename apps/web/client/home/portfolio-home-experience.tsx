@@ -7,6 +7,7 @@ import { usePendingCashoutEscrow } from "@/client/balances/pending-cashout";
 import { useInterruption } from "@/client/status/use-interruption";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
 import { countryPreferenceOwnerKey, dataOwnerKey } from "@/client/account/owner-keys";
+import type { HomeSummaryRecord } from "@/shared/balances/home-summary";
 import { useHomeSummary } from "./use-home-summary";
 import { recentActionsPath } from "@/client/actions/recent-actions-query";
 import { presentHomeBalances } from "@/shared/balances/present";
@@ -36,6 +37,7 @@ function RoutedInvestExperience(props: Omit<ComponentProps<typeof PricedInvestEx
 export function PortfolioHomeExperience({
   detectedCountry,
   children,
+  initialHomeSummary = null,
   accountPreference,
   regionOffer = ALL_REGIONS_OFFER,
   investVisibility,
@@ -44,6 +46,7 @@ export function PortfolioHomeExperience({
   detectedCountry: CountryCode | null;
   regionOffer?: RegionOffer;
   children?: ReactNode;
+  initialHomeSummary?: HomeSummaryRecord | null;
   accountPreference: CountryPreferenceSeed | null;
   investVisibility?: InvestSettings;
   cardsEnabled?: boolean;
@@ -185,7 +188,7 @@ export function PortfolioHomeExperience({
         : { status: balanceStatus === "unavailable" ? "unavailable" : "loading", snapshot: null, error: null },
     { pendingCashout },
   ), [balanceStatus, snapshot, pendingCashout]);
-  const cachedHomeBalances = useHomeSummary({ owner: session ? dataOwnerKey(session) : null,
+  const cachedHomeBalances = useHomeSummary({ initialSummary: initialHomeSummary, owner: session ? dataOwnerKey(session) : null,
     region: region.regionId, enabled: !suppressBalances || paintCachedWhileHeld,
     presentation: homeBalances, updatedAt: balances.observation.dataUpdatedAt, pending: pendingCashout?.state === "loading" });
   const assetBalances = useMemo(() => revalidating
@@ -208,6 +211,7 @@ export function PortfolioHomeExperience({
     <DashboardShell
       region={region}
       regionReady={regionReady}
+      initialRateLabels={initialHomeSummary && initialHomeSummary.owner === (session ? dataOwnerKey(session) : null) && initialHomeSummary.region === region.regionId ? initialHomeSummary.rates : undefined}
       cardsEnabled={cardsEnabled}
       investContent={<RoutedInvestExperience discover={discover} investVisibility={investVisibility} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.

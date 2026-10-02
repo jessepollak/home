@@ -66,6 +66,7 @@ export function ActivityPage({
 }
 
 export function ConnectedActivityPanel({
+  quietLoading = false,
   density,
   header,
   activitySession,
@@ -76,6 +77,7 @@ export function ConnectedActivityPanel({
   onDetailsOpenChange,
   scheduleContinuationRetry,
 }: {
+  quietLoading?: boolean;
   density: ActivityPanelDensity;
   header?: ReactNode | null;
   emptyAction?: ReactNode;
@@ -216,6 +218,7 @@ export function ConnectedActivityPanel({
   };
   return (
     <ActivityPanelView
+      quietLoading={quietLoading}
       key={`${ownerKey ?? "signed-out"}:${reviewOpened}`}
       activity={activity}
       operations={operations}
