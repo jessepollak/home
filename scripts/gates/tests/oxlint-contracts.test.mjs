@@ -7,7 +7,7 @@ import path from "node:path";
 import test, { after } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { evaluateBoundaryExemptions, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
+import { BOUNDARY_EXTENSIONS, evaluateBoundaryExemptions, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const appsWebDir = path.join(repoRoot, "apps/web");
@@ -77,6 +77,7 @@ const fixtures = {
   "proxy.js": 'import "./client/explorations/probe";',
   "instrumentation.js": 'import "./client/explorations/probe";',
   "next.config.mjs": 'import "./client/explorations/probe";',
+  "server/actions/gmail.ts": ['import "server-only";', 'import "@storybook/react";', 'void import("./explorations/probe");', 'try { JSON.parse("{}"); } catch {}', 'Reflect.get({}, "x");'].join(String.fromCharCode(10)),
   "client/exploration-concatenated.ts": 'const a = import("./explorations/" + "x"); const b = require("@/client/" + "explorations/x"); const c = import(`./explorations/${name}`); void a; void b; void c;',
   "client/exploration-concatenated-dynamic.ts": 'const a = import("./explorations/" + name); const b = require("@/client/explorations/" + name); const c = import(name + "/explorations/row"); const d = require(name + "/explorations/row"); void a; void b; void c; void d;',
   "client/exploration-concatenated-clean.ts": 'const a = import(dir + "/row"); const b = import("./explor" + "ationNotes"); const c = import(`${kind}/row`); const d = import("./explor" + name); void a; void b; void c; void d;',
@@ -380,6 +381,20 @@ fixtures["__exploration-boundary-root-probe.d.cts"] = rootProbe("__exploration-b
 fixtures["verify.stories.foo.ts"] = rootProbe("verify.stories.foo.ts");
 fixtures["a.stories..ts"] = rootProbe("a.stories..ts");
 
+const rootViolations = (file) => [
+  /\.(?:cjs|cts)$/u.test(file) ? 'void import("@storybook/react");' : 'import "@storybook/react";',
+  'try { JSON.parse("{}"); } catch {}',
+  'Reflect.get({}, "x");',
+  /\.(?:ts|tsx|mts|cts)$/u.test(file) ? 'const input = "probe"; const value = input as unknown as string; void value;' : "",
+  // A .cjs script cannot carry the static import the instrumentation rule tracks.
+  file.endsWith(".cjs") ? "" : 'import { sendHomeStartupReport } from "@/client/observability/perf-marks"; sendHomeStartupReport(report);',
+].filter(Boolean).join("\n");
+for (const extension of BOUNDARY_EXTENSIONS) {
+  const file = `__root-entry-probe${extension}`;
+  fixtures[file] = rootViolations(file);
+}
+for (const file of boundary.exemptRootFiles) fixtures[file] = `${rootProbe(file)}\n${rootViolations(file)}`;
+
 assert.ok(Object.keys(fixtures).length > 0, "Oxlint contract fixtures must not be empty");
 
 for (const [relativePath, contents] of Object.entries(fixtures)) {
@@ -417,6 +432,19 @@ function assertClean(file) {
 
 const contracts = [
   ["workshop imports cover static, export, dynamic, template, and require", () => { assertHits("client/storybook.tsx", "home(no-storybook-imports)", 4); assertHits("config/storybook.ts", "home(no-storybook-imports)"); assertHits("types/storybook.d.ts", "home(no-storybook-imports)"); }],
+  ["root production fences cover every JS-family extension", () => {
+    for (const extension of BOUNDARY_EXTENSIONS) {
+      const file = `__root-entry-probe${extension}`;
+      for (const rule of ["home(no-storybook-imports)", "home(no-silent-catch)", "home(no-reflect-indirection)"]) assertHits(file, rule);
+      if (!file.endsWith(".cjs")) assertHits(file, "home(isolate-instrumentation-calls)");
+      if (/\.(?:ts|tsx|mts|cts)$/u.test(file)) assertHits(file, "home(no-chained-type-assertions)");
+    }
+  }],
+  ["reasoned root exemptions stay clean outside every production fence", () => {
+    assert.ok(boundary.exemptRootFiles.length > 0, "root-exemption proof must not be vacuous");
+    for (const file of boundary.exemptRootFiles) assertClean(file);
+  }],
+  ["nested files sharing an exempt root name stay inside every production fence", () => { assert.ok(boundary.exemptRootFiles.includes("gmail.ts"), "the fixture must mirror a current root exemption"); assertHits("server/actions/gmail.ts", "home(no-storybook-imports)"); assertHits("server/actions/gmail.ts", "home(no-exploration-imports)"); assertHits("server/actions/gmail.ts", "home(no-silent-catch)"); assertHits("server/actions/gmail.ts", "home(no-reflect-indirection)"); }],
   ["exploration imports block production barrels and app, server, shared modules", () => { assertHits("components/barrel.ts", "home(no-exploration-imports)", 5); for (const file of ["app/exploration-leak.ts", "server/exploration-leak.ts", "shared/exploration-leak.ts"]) assertHits(file, "home(no-exploration-imports)"); }],
   ["test-support aliases and relative imports are blocked in production", () => { for (const file of ["client/test-support-relative.ts", "client/test-support-alias.ts", "server/test-support-relative.ts"]) assertHits(file, "home(no-test-support-imports)"); }],
   ["test-support dynamic, template, require, and type-query imports are blocked", () => { assertHits("client/test-support-dynamic.ts", "home(no-test-support-imports)", 3); assertHits("client/test-support-type-query.ts", "home(no-test-support-imports)"); }],
