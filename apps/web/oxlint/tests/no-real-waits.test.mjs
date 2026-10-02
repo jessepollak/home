@@ -52,6 +52,18 @@ describe("no-real-waits", () => {
     expect(results.fixture1).toHaveLength(0);
   }, budgetMs);
 
+  it("documents the inline wait boundary and the named guard exception", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `waitFor(cb, { timeout: 2_001 });` },
+      fixture2: { path: "fixture2.test.ts", code: `const GUARD = 5_000; waitFor(cb, { timeout: GUARD });` },
+      fixture3: { path: "fixture3.test.ts", code: `const waitedFor = { timeout: 5_000 }; waitFor(cb, waitedFor);` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture1[0].message).toBe("tests must not wait longer than 2000ms with an inline timeout; a named guard object is a deliberate hang budget");
+    expect(results.fixture2).toHaveLength(0);
+    expect(results.fixture3).toHaveLength(0);
+  }, budgetMs);
+
   const rejectedClocks = [
     ["Date.now call", "Date.now();", 1],
     ["Date call", "Date();", 1],
@@ -553,6 +565,24 @@ describe("no-real-waits", () => {
     expect(results.fixture1).toHaveLength(2);
   }, budgetMs);
 
+  it("keeps sibling post-hook and pre-hook pins valid after an invalid post-hook pin", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      afterEach(() => { setSystemTime(FIXED); Date.now(); });
+      afterEach(() => setSystemTime(Date.now()));
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      beforeEach(() => setSystemTime(FIXED));
+      afterEach(() => setSystemTime(Date.now()));
+      test("read", () => Date.now());
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(1);
+  }, budgetMs);
+
   it("recognizes modified test callbacks and skips non-callback functions", async () => {
     const testCalls = ["test", "it", "test.only", "it.skip", "test.todo", "test.fixme",
       "test.fail", "test.slow", "test.concurrent", "test.sequential", "test.each",
@@ -648,7 +678,216 @@ describe("no-real-waits", () => {
     expect(results.fixture1).toHaveLength(1);
   }, budgetMs);
 
-  it("keeps invalid pin sources reported even when a pre-hook governs their test", async () => {
+  it("uses the last pin in each scope without revoking sibling describe pins", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      beforeEach(() => setSystemTime(FIXED));
+      beforeEach(() => setSystemTime(Date.now()));
+      test("read", () => Date.now());
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      beforeEach(() => setSystemTime(Date.now()));
+      beforeEach(() => setSystemTime(FIXED));
+      test("read", () => Date.now());
+    ` },
+      fixture3: { path: "fixture3.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      test("read", () => { setSystemTime(FIXED); setSystemTime(Date.now()); Date.now(); });
+    ` },
+      fixture4: { path: "fixture4.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      test("read", () => { setSystemTime(Date.now()); setSystemTime(FIXED); Date.now(); });
+    ` },
+      fixture5: { path: "fixture5.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      describe("a", () => {
+        beforeEach(() => setSystemTime(FIXED));
+        test("read", () => Date.now());
+      });
+      describe("b", () => {
+        beforeEach(() => setSystemTime(Date.now()));
+        test("read", () => Date.now());
+      });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(2);
+    expect(results.fixture4).toHaveLength(1);
+    expect(results.fixture5).toHaveLength(2);
+  }, budgetMs);
+
+  it("lets descendant and local invalid pins revoke an ancestor hook pin", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+        import { setSystemTime } from "bun:test";
+        beforeEach(() => setSystemTime(FIXED));
+        describe("inner", () => {
+          beforeEach(() => setSystemTime(Date.now()));
+          test("read", () => Date.now());
+        });
+      ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+        import { setSystemTime } from "bun:test";
+        beforeEach(() => setSystemTime(FIXED));
+        test("read", () => { setSystemTime(0); setSystemTime(Date.now()); Date.now(); });
+      ` },
+      fixture3: { path: "fixture3.test.ts", code: `
+        import { setSystemTime } from "bun:test";
+        beforeEach(() => setSystemTime(FIXED));
+        afterEach(() => { setSystemTime(0); setSystemTime(Date.now()); Date.now(); });
+      ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+    expect(results.fixture2).toHaveLength(2);
+    expect(results.fixture3).toHaveLength(2);
+  }, budgetMs);
+
+  it("governs early hook reads without applying a later-phase invalid pin", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+        import { setSystemTime } from "bun:test";
+        beforeAll(() => setSystemTime(FIXED));
+        beforeEach(() => setSystemTime(Date.now()));
+        beforeAll(() => Date.now());
+        test("read", () => Date.now());
+      ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
+
+  it("retains applicable ancestor pins and later-registered valid hooks", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+        import { setSystemTime } from "bun:test";
+        beforeEach(() => setSystemTime(FIXED));
+        describe("inner", () => { test("read", () => Date.now()); });
+      ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+        import { setSystemTime } from "bun:test";
+        beforeAll(() => setSystemTime(FIXED));
+        beforeEach(() => Date.now());
+      ` },
+      fixture3: { path: "fixture3.test.ts", code: `
+        import { setSystemTime } from "bun:test";
+        beforeEach(() => setSystemTime(Date.now()));
+        beforeEach(() => setSystemTime(FIXED));
+        test("read", () => Date.now());
+      ` },
+    });
+    expect(results.fixture1).toHaveLength(0);
+    expect(results.fixture2).toHaveLength(0);
+    expect(results.fixture3).toHaveLength(1);
+  }, budgetMs);
+
+  it("orders named pre-hook pins by registration instead of declaration", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      function bad() { setSystemTime(Date.now()); }
+      function good() { setSystemTime(FIXED); }
+      beforeEach(good); beforeEach(bad);
+      test("read", () => Date.now());
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      function good() { setSystemTime(FIXED); }
+      function bad() { setSystemTime(Date.now()); }
+      beforeEach(bad); beforeEach(good);
+      test("read", () => Date.now());
+    ` },
+      fixture3: { path: "fixture3.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      function bad() { setSystemTime(Date.now()); }
+      function good() { setSystemTime(FIXED); }
+      test.beforeEach(good); test.beforeEach(bad);
+      test("read", () => Date.now());
+    ` },
+      fixture4: { path: "fixture4.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      function good() { setSystemTime(FIXED); }
+      function bad() { setSystemTime(Date.now()); }
+      test.beforeEach(bad); test.beforeEach(good);
+      test("read", () => Date.now());
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(2);
+    expect(results.fixture4).toHaveLength(1);
+  }, budgetMs);
+
+  it("keeps a pre-hook's own fixed reads valid after a container-level revocation", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      beforeAll(() => { setSystemTime(0); Date.now(); });
+      beforeEach(() => setSystemTime(Date.now()));
+      test("read", () => Date.now());
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(2);
+  }, budgetMs);
+
+  it("orders pre-hook pins by lifecycle phase before registration", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      beforeEach(() => setSystemTime(FIXED));
+      beforeAll(() => setSystemTime(Date.now()));
+      test("read", () => Date.now());
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      beforeAll(() => setSystemTime(FIXED));
+      beforeEach(() => setSystemTime(Date.now()));
+      test("read", () => Date.now());
+    ` },
+      fixture3: { path: "fixture3.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      beforeEach(() => setSystemTime(FIXED));
+      before(() => setSystemTime(Date.now()));
+      test("read", () => Date.now());
+    ` },
+      fixture4: { path: "fixture4.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      before(() => setSystemTime(FIXED));
+      beforeEach(() => setSystemTime(Date.now()));
+      test("read", () => Date.now());
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(2);
+    expect(results.fixture3).toHaveLength(1);
+    expect(results.fixture4).toHaveLength(2);
+  }, budgetMs);
+
+  it("keeps container-body pins separate from pre-hook pins", async () => {
+    const results = await lint({
+      fixture1: { path: "fixture1.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      describe("d", () => {
+        beforeEach(() => setSystemTime(FIXED));
+        setSystemTime(Date.now());
+        test("read", () => Date.now());
+      });
+    ` },
+      fixture2: { path: "fixture2.test.ts", code: `
+      import { setSystemTime } from "bun:test";
+      describe.only("d", () => {
+        beforeEach(() => setSystemTime(FIXED));
+        setSystemTime(Date.now());
+        test("read", () => Date.now());
+      });
+    ` },
+    });
+    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture2).toHaveLength(1);
+  }, budgetMs);
+
+  it("keeps invalid pin sources and locally revoked reads reported under a pre-hook", async () => {
     const results = await lint({
       fixture1: { path: "fixture1.test.ts", code: `
       import { setSystemTime } from "bun:test";
@@ -656,7 +895,7 @@ describe("no-real-waits", () => {
       test("invalid", () => { setSystemTime(Date.now()); Date.now(); });
     ` },
     });
-    expect(results.fixture1).toHaveLength(1);
+    expect(results.fixture1).toHaveLength(2);
   }, budgetMs);
 
   it("rejects clock reads in system-time and fake-timer pin arguments file-wide", async () => {

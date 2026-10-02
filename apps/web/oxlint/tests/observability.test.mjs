@@ -818,6 +818,33 @@ describe("no-silent-catch", () => {
     expect(results.fixture2).toHaveLength(0);
   }, budgetMs);
 
+  it("accepts a returned telemetry write inside its own divergent loop", async () => {
+    const results = await lint({
+      fixture1: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      function handle() {
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { do { return emitServerEvent("x", {}); } while (true); } });
+        }
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { for (;;) { return emitServerEvent("x", {}); } } });
+        }
+      }
+    `,
+      fixture2: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      function handle() {
+        try { run(); } catch (error) {
+          observeSafely(async () => { try { risky(); } finally { do {} while (true); return emitServerEvent("x", {}); } });
+        }
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(0);
+    expect(results.fixture2).toHaveLength(1);
+    for (const diagnostic of results.fixture2) expect(diagnostic.message).toBe(messages.silent);
+  }, budgetMs);
+
   it("rejects retained fallbacks behind divergent catches but preserves finite-loop fallbacks", async () => {
     const results = await lint({
       fixture1: `
@@ -1073,6 +1100,206 @@ describe("no-silent-catch", () => {
       }
     ` }, { rule: "no-silent-catch", options })).fixture1).toHaveLength(0);
   }, budgetMs);
+
+  it("accepts sibling returned telemetry writes in an own finalizer but keeps conditional throws interrupting", async () => {
+    const results = await lint({
+      fixture1: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      try { run(); } catch (error) {
+        observeSafely(() => { try { risky(); } finally { if (flag) return emitServerEvent("x", {}); return emitServerEvent("y", {}); } });
+      }
+    `,
+      fixture2: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      try { run(); } catch (error) {
+        observeSafely(() => { try { risky(); } finally { if (flag) { (() => { throw error; })(); } return emitServerEvent("x", {}); } });
+      }
+    `,
+      fixture3: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      try { run(); } catch (error) {
+        observeSafely(async () => { try { risky(); } finally { if (flag) return await emitServerEvent("x", {}); return emitServerEvent("y", {}); } });
+      }
+    `,
+      fixture4: `
+      import { observeSafely, emitServerEvent } from "@/server/observability/log";
+      try { run(); } catch (error) {
+        observeSafely(async () => { try { risky(); } finally { if (flag) { return await emitServerEvent("x", {}); } else { return emitServerEvent("y", {}); } } });
+      }
+    `,
+    }, { rule: "no-silent-catch", options });
+    expect(results.fixture1).toHaveLength(0);
+    expect(results.fixture2).toHaveLength(1);
+    expect(results.fixture3).toHaveLength(0);
+    expect(results.fixture4).toHaveLength(0);
+  }, budgetMs);
+
+  for (const { name, body, expected } of [
+    {
+      name: "rejects a bare returned telemetry write after a throwing finalizer IIFE",
+      body: `try { risky(); } finally { (() => { throw error; })(); return emitServerEvent("x", {}); }`,
+      expected: 1,
+    },
+    {
+      name: "accepts awaited telemetry after a throwing finalizer IIFE",
+      body: `try { risky(); } finally { (() => { throw error; })(); return await emitServerEvent("x", {}); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts a returned telemetry write after a non-throwing finalizer IIFE",
+      body: `try { risky(); } finally { (() => { pending.delete(key); })(); return emitServerEvent("x", {}); }`,
+      expected: 0,
+    },
+    {
+      name: "rejects a bare returned telemetry write after a throwing static field initializer",
+      body: `try { risky(); } finally { class Nested { static field = (() => { throw error; })(); } return emitServerEvent("x", {}); }`,
+      expected: 1,
+    },
+    {
+      name: "rejects a bare returned telemetry write inside a for-of body with a later disposition",
+      body: `for (const item of items) { return emitServerEvent("x", {}); } return emitServerEvent("y", {});`,
+      expected: 1,
+    },
+    {
+      name: "accepts awaited telemetry inside a for-of body with a later disposition",
+      body: `for (const item of items) { return await emitServerEvent("x", {}); } return emitServerEvent("y", {});`,
+      expected: 0,
+    },
+    {
+      name: "accepts a for-of body without a return before a returned telemetry write",
+      body: `for (const item of items) { pending.delete(item); } return emitServerEvent("y", {});`,
+      expected: 0,
+    },
+    {
+      name: "rejects returned telemetry discarded by a throwing finalizer IIFE parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { ((x = (() => { throw error; })()) => {})(); }`,
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a disposing finalizer IIFE parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { ((x = (() => { using resource = disposable; })()) => {})(); }`,
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a nested finalizer IIFE parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (() => { ((x = (() => { throw error; })()) => {})(); })(); }`,
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a throwing finalizer generator parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (function*(x = (() => { throw error; })()) {})(); }`,
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a throwing finalizer async generator parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (async function*(x = (() => { throw error; })()) {})(); }`,
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a disposing finalizer generator parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (function*(x = (() => { using resource = disposable; })()) {})(); }`,
+      expected: 1,
+    },
+    {
+      name: "accepts returned telemetry before a non-throwing finalizer generator parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (function*(x = 1) {})(); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry before a throwing finalizer async parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (async (x = (() => { throw error; })()) => {})(); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry before a non-throwing finalizer IIFE parameter default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { ((x = 1) => {})(); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry before a supplied-argument finalizer IIFE without a default",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { ((x) => {})(1); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts awaited telemetry before a throwing finalizer IIFE parameter default",
+      body: `try { return await emitServerEvent("x", {}); } catch { return await emitServerEvent("x", {}); } finally { ((x = (() => { throw error; })()) => {})(); }`,
+      expected: 0,
+    },
+    {
+      name: "rejects a bare returned telemetry write discarded by an enclosing finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (() => { throw error; })(); }`,
+      expected: 1,
+    },
+    {
+      name: "accepts awaited telemetry before a throwing enclosing finalizer IIFE",
+      body: `try { return await emitServerEvent("x", {}); } catch { return await emitServerEvent("x", {}); } finally { (() => { throw error; })(); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry before a generator finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (function* () { throw error; })(); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry before an async finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (async () => { throw error; })(); }`,
+      expected: 0,
+    },
+    {
+      name: "rejects returned telemetry discarded by an as-wrapped finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { ((() => { throw error; }) as () => void)(); }`,
+      expected: 1,
+    },
+    {
+      name: "rejects returned telemetry discarded by a satisfies-wrapped finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { ((() => { throw error; }) satisfies () => void)(); }`,
+      expected: 1,
+    },
+    {
+      name: "accepts returned telemetry before a generator finalizer IIFE with a resource",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (function* () { using resource = disposable; })(); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry before a nested generator finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (() => { (function* () { throw error; })(); })(); }`,
+      expected: 0,
+    },
+    {
+      name: "accepts returned telemetry before a nested async finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (() => { (async () => { throw error; })(); })(); }`,
+      expected: 0,
+    },
+    {
+      name: "rejects returned telemetry discarded by a nested as-wrapped finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (() => { ((() => { throw error; }) as () => void)(); })(); }`,
+      expected: 1,
+    },
+    {
+      name: "accepts returned telemetry before a locally returning enclosing finalizer IIFE",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { (() => { return 1; })(); }`,
+      expected: 0,
+    },
+    {
+      name: "rejects returned telemetry discarded by an enclosing finalizer static field initializer",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { class Nested { static field = (() => { throw error; })(); } }`,
+      expected: 1,
+    },
+    {
+      name: "accepts returned telemetry before an unexecuted finalizer instance field initializer",
+      body: `try { return emitServerEvent("x", {}); } catch { return emitServerEvent("x", {}); } finally { class Nested { field = (() => { throw error; })(); } }`,
+      expected: 0,
+    },
+  ]) {
+    it(name, async () => {
+      const diagnostics = (await lint({ fixture1: `
+        import { observeSafely, emitServerEvent } from "@/server/observability/log";
+        try { run(); } catch (error) { observeSafely(async () => { ${body} }); }
+      ` }, { rule: "no-silent-catch", options })).fixture1;
+      expect(diagnostics).toHaveLength(expected);
+      for (const diagnostic of diagnostics) expect(diagnostic.message).toBe(messages.silent);
+    }, budgetMs);
+  }
 
   for (const { name, body, expected } of [
     {
