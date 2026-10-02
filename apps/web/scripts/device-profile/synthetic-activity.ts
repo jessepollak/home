@@ -1,4 +1,9 @@
 import { sessionBody } from "../../tests/browser/fixtures/bodies";
+import { FIXED_NOW } from "../../tests/browser/fixtures/fixed-time";
+
+export function fixtureSyntheticActivity(rows: number) {
+  return syntheticActivity(rows, FIXED_NOW - 120_000);
+}
 
 export function syntheticActivity(rows: number, anchor: number) {
 const transferCount = rows - Math.floor(rows / 10);
