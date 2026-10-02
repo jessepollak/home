@@ -6,6 +6,11 @@ import { homeSummaryStorageKey, writeHomeSummary } from "@/client/query/home-sum
 import { balancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { presentHomeBalances, type HomeBalancesPresentation } from "@/shared/balances/present";
 import type { RegionId } from "@/config/regions";
+import { spyOn } from "bun:test";
+import { writeHomeSummaryCookie } from "@/client/query/home-summary-cookie";
+import { homeSummaryCookieName } from "@/shared/balances/home-summary";
+import { renderToString } from "react-dom/server";
+import { parseHomeSummaryRecord, type HomeSummaryRecord } from "@/shared/balances/home-summary";
 import { useHomeSummary } from "./use-home-summary";
 
 const NOW = Date.parse("2026-10-01T08:00:00.000Z");
@@ -13,10 +18,10 @@ const loading: HomeBalancesPresentation = { status: "loading", displayTotal: nul
 const ready = presentHomeBalances({ status: "ready", snapshot: balancesSnapshotFixture, error: null });
 beforeEach(() => setSystemTime(new Date(NOW)));
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); window.localStorage.clear(); setSystemTime(); });
-function Display({ owner, region = "US", enabled = true, presentation = loading, updatedAt = 0, pending = false }: {
-  owner: string | null; region?: RegionId; enabled?: boolean; presentation?: HomeBalancesPresentation; updatedAt?: number; pending?: boolean;
+function Display({ owner, region = "US", enabled = true, presentation = loading, updatedAt = 0, pending = false, initialSummary }: {
+  owner: string | null; region?: RegionId; enabled?: boolean; presentation?: HomeBalancesPresentation; updatedAt?: number; pending?: boolean; initialSummary?: HomeSummaryRecord;
 }) {
-  const summary = useHomeSummary({ owner, region, enabled, presentation, updatedAt, pending });
+  const summary = useHomeSummary({ owner, region, enabled, presentation, updatedAt, pending, initialSummary });
   return <output data-cached-at={summary.cachedAt}>{summary.displayTotal ?? "loading"}</output>;
 }
 describe("Home summary startup", () => {
@@ -62,4 +67,34 @@ describe("Home summary startup", () => {
     expect(view.getByRole("status").textContent).toBe(ready.displayTotal ?? "");
     expect(view.getByRole("status").getAttribute("data-cached-at")).toBeNull();
   });
+});
+
+test("the first server HTML has the scoped summary, and clearing never revives its seed", () => {
+  const initialSummary = parseHomeSummaryRecord(JSON.stringify({ version: 1, owner: "a", region: "US", updatedAt: NOW, presentation: ready }), "a", "US", NOW);
+  if (!initialSummary || !ready.displayTotal) throw new Error("Summary fixture invalid");
+  expect(renderToString(<Display owner="a" initialSummary={initialSummary} />)).toContain(ready.displayTotal);
+  expect(renderToString(<Display owner="b" initialSummary={initialSummary} />)).toContain("loading");
+  const view = render(<Display owner="a" initialSummary={initialSummary} />);
+  expect(view.getByRole("status").textContent).toBe(ready.displayTotal);
+  act(() => { clearOwnerQueryBoundary(getHomeQueryClient(), window.localStorage); });
+  expect(view.getByRole("status").textContent).toBe("loading");
+  view.rerender(<Display owner="b" initialSummary={initialSummary} />);
+  view.rerender(<Display owner="a" initialSummary={initialSummary} />);
+  expect(view.getByRole("status").textContent).toBe("loading");
+});
+
+test("invalidation clears the cookie even when local storage removal is denied", () => {
+  window.history.replaceState(null, "", "/home");
+  const initialSummary = parseHomeSummaryRecord(JSON.stringify({ version: 1, owner: "a", region: "US", updatedAt: NOW, presentation: ready }), "a", "US", NOW);
+  if (!initialSummary || !ready.displayTotal) throw new Error("Summary fixture invalid");
+  const client = getHomeQueryClient();
+  client.setQueryData(ownerQueryKey("a", "balances", "US"), balancesSnapshotFixture);
+  writeHomeSummaryCookie(initialSummary);
+  const view = render(<Display owner="a" initialSummary={initialSummary} />);
+  const remove = spyOn(window.localStorage, "removeItem").mockImplementation(() => { throw new Error("denied"); });
+  try {
+    act(() => { void client.invalidateQueries({ queryKey: ownerQueryKey("a", "balances", "US") }); });
+    expect(document.cookie).not.toContain(homeSummaryCookieName);
+    expect(view.getByRole("status").textContent).toBe(ready.displayTotal);
+  } finally { remove.mockRestore(); window.history.replaceState(null, "", "/"); }
 });
