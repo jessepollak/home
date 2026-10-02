@@ -373,6 +373,22 @@ describe("SavingsJourney amount entry", () => {
     expect(page().getAllByRole("button", { name: "Back" }).every((button) => !button.hasAttribute("data-money-action-id"))).toBe(true);
   });
 
+  test("explains a Save offer withdrawn during prepare or confirm", async () => {
+    render(<AmountJourney open mode="deposit" session={session} candidate={candidate}
+      prepareMoneyAction={async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; }}
+      executeMoneyAction={async () => { throw new Error("unexpected execution"); }} onClose={() => {}} />);
+    await typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect((await page().findByRole("alert")).textContent).toBe("This is no longer offered.");
+    cleanup();
+    render(<AmountJourney open mode="deposit" session={session} candidate={candidate}
+      prepareMoneyAction={async () => prepared("savings-deposit")}
+      executeMoneyAction={async () => { throw { status: 409, code: "PRODUCT_NOT_OFFERED" }; }} onClose={() => {}} />);
+    await typeAmount("1");
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    fireEvent.click(await page().findByRole("button", { name: "Deposit $1.00" }));
+    expect((await page().findByRole("alert")).textContent).toBe("This is no longer offered.");
+  });
   test("removes the Save confirm marker when the server expires a prepared action", async () => {
     for (const mode of ["deposit", "withdraw"] as const) {
       let executions = 0;

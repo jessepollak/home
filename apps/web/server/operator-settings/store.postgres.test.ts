@@ -6,6 +6,7 @@ import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/ses
 import { AdminAuditLog } from "./audit";
 import { createSettingsDomainHandlers } from "./handlers";
 import { OperatorSettingsConflictError, OperatorSettingsCorruptError, OperatorSettingsStore, OperatorSettingsValidationError } from "./store";
+import { deploymentProductSettings, productCatalog } from "@/shared/operator-settings/products";
 
 const connectionString = process.env.OPERATOR_PG_TEST_URL?.trim();
 const describePostgres = connectionString ? describe : describe.skip;
@@ -44,7 +45,7 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
   test("defaults, writes, restart reads, revisions, no-ops, and audited before/after", async () => {
     expect(await store.read("support")).toEqual({ domain: "support", settings: { value: { email: null, url: null }, revision: 0, source: "default", updatedAt: null, updatedBy: null } });
     expect(await store.read("funding")).toEqual({ domain: "funding", settings: { value: { corridors: [] }, revision: 0, source: "default", updatedAt: null, updatedBy: null } });
-    expect((await store.readAll()).map((entry) => [entry.domain, entry.settings.source])).toEqual([["funding", "default"], ["support", "default"], ["brand", "default"], ["regions", "default"], ["invest", "default"], ["fees", "default"]]);
+    expect((await store.readAll()).map((entry) => [entry.domain, entry.settings.source])).toEqual([["funding", "default"], ["support", "default"], ["brand", "default"], ["regions", "default"], ["invest", "default"], ["fees", "default"], ["products", "default"]]);
     await expect(store.write({ domain: "support", expectedRevision: 0, value: { email: "bad", url: null }, actor })).rejects.toBeInstanceOf(OperatorSettingsValidationError);
     expect((await audit.list()).entries).toHaveLength(0);
     const first = await store.write({ domain: "support", expectedRevision: 0, value, actor });
@@ -133,5 +134,15 @@ describePostgres("operator settings and audit against PostgreSQL", () => {
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect((await store.read("support")).settings.revision).toBe(1);
     expect((await audit.list()).entries).toHaveLength(before + 1);
+  });
+
+  test("products persist a reducing-only vault and read back as stored", async () => {
+    const vault = productCatalog().vaults.find((entry) => entry.mode === "enabled");
+    if (!vault) throw new Error("Expected an enabled catalog vault.");
+    const defaults = deploymentProductSettings();
+    const products = { ...defaults, vaults: { ...defaults.vaults, [vault.id]: "reducing-only" as const } };
+    const written = await store.write({ domain: "products", expectedRevision: 0, value: products, actor });
+    expect(written.settings).toMatchObject({ value: products, revision: 1, source: "stored" });
+    expect((await store.read("products")).settings).toMatchObject({ value: products, revision: 1, source: "stored" });
   });
 });

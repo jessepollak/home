@@ -2,6 +2,7 @@ import { parseAddress, type Address, type Hash32 } from "@/shared/chain/hex";
 import { CONVERT_PROVIDER } from "@/shared/currencies/types";
 import type { OperatorFeeRecord } from "@/shared/fees/contract";
 import type { CoinbaseSmartWalletTypedData, Permit2TypedData } from "./server-types";
+import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 
 export const TRADE_ACTION_CONTRACT_VERSION = 3 as const;
 export const TRADE_AVAILABILITY_CONTRACT_VERSION = 2 as const;
@@ -79,6 +80,7 @@ export const TRADE_ERROR_CODES = [
   "TRADE_ROUTE_UNAVAILABLE",
   "TRADE_BELOW_MINIMUM",
   "TRADE_TOKEN_UNREADABLE",
+  PRODUCT_NOT_OFFERED_CODE,
   "TRADE_BUY_UNAVAILABLE",
   "TRADE_QUOTE_STALE",
   "TRADE_QUOTE_REJECTED",

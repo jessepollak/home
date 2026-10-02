@@ -15,6 +15,8 @@ import { BASE_CBBTC, BASE_USDC } from "@/shared/assets/base";
 import { parseActivityPage } from "@/shared/activity/contract";
 import type { InvestmentsContentProps } from "./home-types";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
+import { ProductOfferingProvider } from "./product-offering";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
 import { readClientHistoryFlag } from "@/config/shell-location";
 
@@ -259,7 +261,7 @@ function DashboardHarness({
           summary: {
             cash: { status: "complete", value: "$12.34" },
             investments: { status: "complete", value: "$0.00", assetCount: 0, ownedCount: 0 },
-            borrow: { kind: "none" },
+            borrow: { kind: "none", hasCollateral: false },
           },
           rows: [{
             key: "usdc",
@@ -454,7 +456,7 @@ describe("pushed funding history", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/home"));
   });
 
-  test("Home activity empty Add money closes by popping the overlay entry", async () => {
+  test("Home activity empty Add money closes by popping the overlay entry and keeps its opener focused", async () => {
     syncLocation("/home");
     historyEntries = ["/home"];
     const sessionFetch: SessionFetch = async (input) => {
@@ -483,6 +485,7 @@ describe("pushed funding history", () => {
     fireEvent.click(within(await page().findByRole("dialog", { name: "Add money" })).getByRole("button", { name: "Close add money" }));
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/home"));
     expect(historyEntries).toEqual(["/home", "/home?flow=add-money"]);
+    await waitFor(() => expect(document.activeElement).toBe(emptyPrompt));
   });
 
   test("replacing a pushed savings picker with Add money closes back to savings without reopening", async () => {
@@ -1649,6 +1652,24 @@ describe("Home shell routing and intents", () => {
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={null} />);
     expect(document.querySelector("[data-home-status]")).toBeNull();
+  });
+
+  test("offered Send becomes Cash out without removing transfer actions when Send pauses", async () => {
+    const accountSdk = sdk({ isSignedIn: true, ownerKey: OWNER });
+    const view = render(<ProductOfferingProvider value={resolveProductOffering({ kind: "deployment" })}>
+      <HomeHarness accountSdk={accountSdk} />
+    </ProductOfferingProvider>);
+    await waitForVerifiedShell();
+    expect(page().getByRole("button", { name: "Send" })).toBeTruthy();
+    view.rerender(<ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}>
+      <HomeHarness accountSdk={accountSdk} />
+    </ProductOfferingProvider>);
+    expect(page().queryByRole("button", { name: "Send" })).toBeNull();
+    const cashOut = page().getByRole("button", { name: "Cash out" });
+    expect(cashOut.hasAttribute("data-action-trigger")).toBe(true);
+    expect(page().getByRole("link", { name: "Add money" })).toBeTruthy();
+    expect(page().queryByRole("button", { description: "Open Borrow" })).toBeNull();
+    expect(within(tabsNavigation()).queryByRole("button", { name: "Invest" })).toBeNull();
   });
 
   test("opens Borrow from the Borrow Cash row without adding a bottom navigation item", async () => {
