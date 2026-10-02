@@ -30,11 +30,15 @@ export class AdminAuditLog {
   async recordSupportConversationReads(input: { actor: `0x${string}`; conversationIds: string[]; repeatWithinSeconds: number }): Promise<void> {
     if (!Number.isSafeInteger(input.repeatWithinSeconds) || input.repeatWithinSeconds < 1) throw new OperatorSettingsValidationError("Invalid customer read");
     if (!input.conversationIds.length) return;
-    await this.sql.query(`INSERT INTO admin_audit_log (actor, action, target_kind, target_id, purpose)
-      SELECT $1, 'customer.read', 'customer', c.customer_id::text, 'support'
-      FROM support_conversations c WHERE c.id = ANY($2::uuid[])
-        AND NOT EXISTS (SELECT 1 FROM admin_audit_log WHERE action='customer.read' AND actor=$1 AND target_id=c.customer_id::text AND purpose='support'
-          AND occurred_at > now() - make_interval(secs => $3))`, [input.actor, input.conversationIds, input.repeatWithinSeconds]);
+    const result = await this.sql.query<{ matched_count: string }>(`WITH listed AS MATERIALIZED (
+      SELECT customer_id FROM support_conversations WHERE id = ANY($2::uuid[])
+    ), inserted AS (
+      INSERT INTO admin_audit_log (actor, action, target_kind, target_id, purpose)
+      SELECT $1, 'customer.read', 'customer', c.customer_id::text, 'support' FROM listed c
+      WHERE NOT EXISTS (SELECT 1 FROM admin_audit_log WHERE action='customer.read' AND actor=$1 AND target_id=c.customer_id::text AND purpose='support'
+        AND occurred_at > now() - make_interval(secs => $3)) RETURNING id
+    ) SELECT (SELECT count(*) FROM listed)::text AS matched_count, (SELECT count(*) FROM inserted)::text AS inserted_count`, [input.actor, input.conversationIds, input.repeatWithinSeconds]);
+    if (Number(result.rows[0]?.matched_count) !== input.conversationIds.length) throw new Error("Support read could not be audited");
   }
 
   async list(input: { limit?: number; before?: string } = {}): Promise<{ entries: AuditEntry[]; nextCursor: string | null }> {

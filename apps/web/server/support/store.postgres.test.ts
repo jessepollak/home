@@ -103,11 +103,11 @@ describePostgres("support PostgreSQL contract", () => {
   test("listing audits every returned customer in one insert and shares the detail read window", async () => {
     const accounts: Array<Awaited<ReturnType<typeof conversation>>> = [];
     for (const subject of ["alice", "bob", "carol"]) accounts.push(await conversation(subject));
-    const writes: number[] = [];
+    let writes = 0;
     const audit = new AdminAuditLog({
       async query<T>(text: string, values?: unknown[]) {
         const result = await sql.query<T>(text, values);
-        writes.push(result.rowCount);
+        writes++;
         return result;
       },
       transaction: (fn) => sql.transaction(fn),
@@ -128,14 +128,34 @@ describePostgres("support PostgreSQL contract", () => {
     const entries = async () => (await sql.query<{ target_id: string; occurred_at: Date }>("SELECT target_id,occurred_at FROM admin_audit_log WHERE actor=$1 AND action='customer.read' AND purpose='support' AND target_id=ANY($2::text[]) ORDER BY target_id", [actor, accounts.map(({ customerId }) => customerId)])).rows;
     const first = await entries();
     expect(first.map((row) => row.target_id)).toEqual(expected);
-    expect(writes).toEqual([2]);
+    expect(writes).toBe(1);
     expect((await list(request())).status).toBe(200);
     expect(await entries()).toEqual(first);
-    expect(writes).toEqual([2, 0]);
+    expect(writes).toBe(2);
     const id = page.conversations[0].id;
     expect((await createOperatorSupportConversationHandler(options)(new Request(`https://home.test/api/admin/support/conversations/${id}`), { params: Promise.resolve({ id }) })).status).toBe(200);
     expect(await entries()).toEqual(first);
-    expect(writes).toEqual([2, 0, 0]);
+    expect(writes).toBe(3);
+  });
+
+  test("listing fails closed if a customer is deleted between the preview read and its audit", async () => {
+    const { customerId } = await conversation();
+    await conversation("bob");
+    const audit = new AdminAuditLog({
+      async query<T>(text: string, values?: unknown[]) {
+        await sql.query("DELETE FROM customers WHERE id=$1", [customerId]);
+        return sql.query<T>(text, values);
+      },
+      transaction: (fn) => sql.transaction(fn),
+    });
+    const response = await createOperatorSupportListHandler({
+      authorize: async () => ({ ...session(), smartAccount: { address: actor, chainId: BASE_CHAIN_ID } }),
+      config: () => ({ kind: "configured" as const, addresses: new Set([actor]) }),
+      store: () => store, audit: () => audit, assistant: () => new SupportAssistantStore(sql),
+    })(new Request("https://home.test/api/admin/support/conversations"));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: { code: "SUPPORT_UNAVAILABLE" } });
+    expect((await sql.query("SELECT id FROM admin_audit_log WHERE action='customer.read' AND target_id=$1", [customerId])).rows).toEqual([]);
   });
 
   test("inbox previews preserve whole code points within the 140-code-unit contract", async () => {
