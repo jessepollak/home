@@ -52,7 +52,7 @@ class SectionBoundary extends Component<SectionInputs & { story: string; childre
   }
 }
 
-function QueuedFrame({ root, slots, busy, story, component, changed, theme, args, annotating, frameSource, onUserInput, onEscape, onExitAnnotate }: {
+function QueuedFrame({ root, slots, busy, story, component, changed, theme, args, initialArgs, annotating, frameSource, onUserInput, onEscape, onExitAnnotate }: {
   root: HTMLElement | null;
   slots: FrameSlots;
   busy: { current: Set<string> };
@@ -61,6 +61,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
   changed: boolean;
   theme: string;
   args: Record<string, unknown>;
+  initialArgs: Record<string, unknown>;
   annotating: boolean;
   frameSource: "story" | "blank";
   onUserInput: () => void;
@@ -162,7 +163,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
   return <div ref={container}>
     {!granted ? <div className={styles.framePending} style={{ height: fitted.height }} role="status">
       Queued {story.name}…
-    </div> : <FrameSection target={target} theme={theme} args={args} annotating={annotating}
+    </div> : <FrameSection target={target} theme={theme} args={args} initialArgs={initialArgs} annotating={annotating}
       frameSource={frameSource} viewport={viewport} scale={fitted.scale} onSettled={() => release.current?.()} onRendered={measure}
       onUserInput={onUserInput} onEscape={onEscape} onExitAnnotate={onExitAnnotate} />}
     {story.viewport && <p className={styles.viewportCaption}>
@@ -219,7 +220,7 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
         {reason && <span className={styles.sectionNote}>{reason}</span>}
       </h2>
       {reason ? <QueuedFrame root={root} slots={slots} busy={busy} story={story} component={component} changed={changed} theme={theme}
-        args={args} annotating={annotating} frameSource={frameSource} onUserInput={onUserInput}
+        args={args} initialArgs={initialArgs.get(story.id) ?? {}} annotating={annotating} frameSource={frameSource} onUserInput={onUserInput}
         onEscape={onEscape} onExitAnnotate={onExitAnnotate} /> :
           <div className={styles.sectionBody} data-layout={story.layout} data-library-story=""
             inert={annotating || undefined}>

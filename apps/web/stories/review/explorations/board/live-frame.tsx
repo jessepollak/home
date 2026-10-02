@@ -12,6 +12,7 @@ type LiveFrameProps = {
   loaded: boolean;
   active: boolean;
   frameSource: "story" | "blank";
+  src?: string;
   scale?: number;
   frameRef?: Ref<HTMLIFrameElement>;
   onActiveLoad?: () => void;
@@ -25,7 +26,7 @@ type LiveFrameProps = {
 };
 
 export function LiveFrame({
-  position, metric, loaded, active, frameSource, scale = 1, frameRef, onActiveLoad,
+  position, metric, loaded, active, frameSource, src, scale = 1, frameRef, onActiveLoad,
   onMark, onFinish, onCancel, onSelect, onFocusSelect = onSelect, onFit = onSelect, onInteract,
 }: LiveFrameProps) {
   const { id, story, frame, rect, before } = position;
@@ -104,7 +105,7 @@ export function LiveFrame({
       {loaded && metric?.status !== "errored" && <iframe
         ref={frameRef}
         title={`${position.section} · ${frame.label}${before ? " · Before" : ""}`}
-        src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(story)}
+        src={frameSource === "blank" ? "about:blank" : src ?? storyCanvasUrl(story)}
         width={rect.width}
         height={rect.height}
         inert={!active}

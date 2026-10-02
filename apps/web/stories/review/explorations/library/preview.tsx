@@ -3,6 +3,7 @@ import type { Positioned } from "../board/layout";
 import { LiveFrame } from "../board/live-frame";
 import type { Metric } from "../board/use-frame-loading";
 import { startRenderDeadline } from "../board/render-deadline";
+import { storyCanvasUrl } from "../board/url-state";
 import { watchFrameFailure, watchFrameLoaded } from "./frame-loading";
 
 export type FrameSectionTarget = { story: string; component: string; label: string; changed: boolean };
@@ -21,11 +22,33 @@ function previewApi(frame: HTMLIFrameElement | null): PreviewApi | undefined {
   }
 }
 
-export function FrameSection({ target, theme, args, annotating, frameSource, viewport, scale = 1, onSettled, onRendered,
+function scheduleUpdate(iframe: HTMLIFrameElement, story: string, immediate: boolean,
+  update: (api: PreviewApi) => unknown, failed: (error: unknown) => void): () => void {
+  let cancelled = false;
+  let animation: number | undefined;
+  const reject = (error: unknown) => { if (!cancelled) failed(error); };
+  const apply = () => {
+    if (cancelled) return;
+    const api = previewApi(iframe);
+    if (!api) throw new Error("Preview props API unavailable");
+    const render = api.currentRender;
+    if ((render?.story?.id ?? render?.id) !== story ||
+      (!immediate && !["finished", "completed", "played"].includes(render?.phase ?? ""))) {
+      animation = requestAnimationFrame(() => { void Promise.resolve().then(apply).catch(reject); });
+      return;
+    }
+    return update(api);
+  };
+  void Promise.resolve().then(apply).catch(reject);
+  return () => { cancelled = true; if (animation !== undefined) cancelAnimationFrame(animation); };
+}
+
+export function FrameSection({ target, theme, args, initialArgs = {}, annotating, frameSource, viewport, scale = 1, onSettled, onRendered,
   onUserInput, onEscape, onExitAnnotate }: {
   target: FrameSectionTarget;
   theme: string;
   args: Record<string, unknown>;
+  initialArgs?: Record<string, unknown>;
   annotating: boolean;
   frameSource: "story" | "blank";
   viewport: { width: number; height: number };
@@ -40,8 +63,12 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   const frame = useRef<HTMLIFrameElement>(null);
   const [metric, setMetric] = useState<Metric>({ id: item.id, story: item.story, status: "loading" });
   const ready = metric.status === "rendered";
-  const applied = useRef<string | null>(null);
-  const appliedTheme = useRef<string | null>(null);
+  const [initial] = useState(() => ({ theme, args: JSON.stringify(initialArgs),
+    src: `${storyCanvasUrl(item.story)}&globals=${encodeURIComponent(`theme:${theme}`)}` }));
+  const applied = useRef(initial.args);
+  const appliedTheme = useRef(initial.theme);
+  const wanted = useRef({ args: JSON.stringify(args), theme });
+  const edited = useRef({ args: false, theme: false });
   const generation = useRef(0);
   const loads = useRef(0);
   const stopRender = useRef<(() => void) | null>(null);
@@ -56,6 +83,10 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     settled.current = onSettled;
     rendered.current = onRendered;
     interaction.current = { annotating, onUserInput, onEscape };
+    const serialized = JSON.stringify(args);
+    if (wanted.current.args !== serialized) edited.current.args = true;
+    if (wanted.current.theme !== theme) edited.current.theme = true;
+    wanted.current = { args: serialized, theme };
   });
   useEffect(() => {
     if (metric.status === "rendered" && frame.current) rendered.current?.(frame.current);
@@ -85,9 +116,10 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
     stopDeadline.current = null;
     stopInteractions.current?.();
     stopInteractions.current = null;
-    applied.current = null;
-    appliedTheme.current = null;
-  }, []);
+    applied.current = initial.args;
+    appliedTheme.current = initial.theme;
+    edited.current = { args: false, theme: false };
+  }, [initial]);
   const fail = useCallback((error?: string) => {
     cancel();
     setMetric((current) => current.status === "errored" ? current : { ...current, status: "errored", error });
@@ -158,34 +190,32 @@ export function FrameSection({ target, theme, args, annotating, frameSource, vie
   }, [fail]);
   useEffect(() => {
     if (!ready || appliedTheme.current === theme) return;
-    appliedTheme.current = theme;
     const load = generation.current;
-    void Promise.resolve().then(() => {
+    return scheduleUpdate(frame.current!, item.story, edited.current.theme, (api) => {
       if (generation.current !== load) return;
-      const api = previewApi(frame.current);
-      if (!api?.onUpdateGlobals) throw new Error("Preview props API unavailable");
+      if (!api.onUpdateGlobals) throw new Error("Preview props API unavailable");
+      appliedTheme.current = theme;
       return api.onUpdateGlobals({ globals: { theme } });
-    }).catch((error: unknown) => {
+    }, (error) => {
       if (generation.current === load) fail(error instanceof Error ? error.message : String(error));
     });
-  }, [ready, theme, fail]);
+  }, [ready, theme, item.story, fail]);
   useEffect(() => {
     if (!ready) return;
     const serialized = JSON.stringify(args);
     if (serialized === applied.current) return;
-    applied.current = serialized;
     const load = generation.current;
-    void Promise.resolve().then(() => {
+    return scheduleUpdate(frame.current!, item.story, edited.current.args, (api) => {
       if (generation.current !== load) return;
-      const api = previewApi(frame.current);
-      if (!api?.onUpdateArgs) throw new Error("Preview props API unavailable");
+      if (!api.onUpdateArgs) throw new Error("Preview props API unavailable");
+      applied.current = serialized;
       return api.onUpdateArgs({ storyId: item.story, updatedArgs: args });
-    }).catch((error: unknown) => {
+    }, (error) => {
       if (generation.current === load) fail(error instanceof Error ? error.message : String(error));
     });
   }, [ready, args, item.story, fail]);
   const noop = useCallback(() => {}, []);
   return <LiveFrame position={position} metric={metric} loaded active={!annotating} frameSource={frameSource} scale={scale}
-    frameRef={frame} onMark={mark} onFinish={finish} onCancel={cancel}
+    src={initial.src} frameRef={frame} onMark={mark} onFinish={finish} onCancel={cancel}
     onSelect={noop} onFit={onExitAnnotate} onInteract={onExitAnnotate} />;
 }

@@ -18,6 +18,12 @@ const positions = layout(parseBoard({
   }],
 }), "after").sections[0].frames;
 
+test("omitting src keeps the board's standalone story URL", () => {
+  const view = render(<LiveFrame position={positions[0]} loaded active frameSource="story"
+    onMark={() => {}} onFinish={() => {}} onCancel={() => {}} onSelect={() => {}} onInteract={() => {}} />);
+  expect(view.getByTitle("Section · Frame 0").getAttribute("src")).toBe("./iframe.html?id=story-0&viewMode=story");
+});
+
 test("string storyRendered keeps the deadline and queue slot until held afterEach finishes", async () => {
   const originalRequest = globalThis.requestAnimationFrame;
   const originalCancel = globalThis.cancelAnimationFrame;
