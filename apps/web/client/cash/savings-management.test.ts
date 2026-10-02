@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
-import { savingsRateLabel } from "./savings-management";
+import { savingsManagement, savingsRateLabel } from "./savings-management";
 
 const fetchedAt = "2026-09-10T12:00:00.000Z";
 const nowMs = Date.parse("2026-09-10T12:04:00.000Z");
@@ -43,5 +43,41 @@ describe("savings rate label", () => {
   test("keeps unavailable rates unavailable regardless of region", () => {
     expect(savingsRateLabel(null, metadata, nowMs, "DE")).toBe("Rate unavailable");
     expect(savingsRateLabel(candidate, null, nowMs, "DE")).toBe("Rate unavailable");
+  });
+});
+
+describe("savings performance fee", () => {
+  const fee = (feeRate: number, regionId: "GLOBAL" | "DE" | "TR") => savingsManagement({
+    address: candidate.vaultAddress,
+    snapshot: null,
+    metadata: { ...metadata, candidates: [{ ...candidate, feeRate }] },
+    nowMs,
+    regionId,
+    actionsAvailable: true,
+    usdcBaseUnits: null,
+    usdcUnavailable: false,
+  }).details.find(([label]) => label === "Performance fee")?.[1];
+
+  test("formats the fee like the savings rate for the presentation region", () => {
+    expect(fee(0.1, "GLOBAL")).toBe("10.00%");
+    expect(fee(0.1, "DE")).toBe("10,00\u00a0%");
+    expect(fee(0.1, "TR")).toBe("%10,00");
+    expect(fee(0.055, "DE")).toBe(savingsRateLabel(candidate, metadata, nowMs, "DE").replace(" APY", ""));
+  });
+
+  test("keeps a small charged fee visible", () => {
+    expect(fee(0.00004, "GLOBAL")).toBe("0.004%");
+    expect(fee(0.00004, "DE")).toBe("0,004\u00a0%");
+    expect(fee(0.00004, "TR")).toBe("%0,004");
+  });
+
+  test("shows an invalid negative fee as unavailable", () => {
+    expect(fee(-0.1, "DE")).toBe("—");
+  });
+
+  test("formats a zero fee through the locale-aware percent", () => {
+    expect(fee(0, "GLOBAL")).toBe("0%");
+    expect(fee(0, "DE")).toBe("0\u00a0%");
+    expect(fee(0, "TR")).toBe("%0");
   });
 });
