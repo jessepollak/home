@@ -4,11 +4,19 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
+export function supportUnreadLabel(label: string, unreadCount: number | null): string {
+  return unreadCount !== null && unreadCount > 0 ? `${label}, ${unreadCount} unread support ${unreadCount === 1 ? "message" : "messages"}` : label;
+}
+
+export function SupportUnreadDot({ unreadCount }: { unreadCount: number | null }) {
+  return unreadCount !== null && unreadCount > 0 ? <span className="absolute end-1 top-1 size-2 rounded-full bg-destructive" aria-hidden="true" data-support-unread="" /> : null;
+}
 
 export function ProfileMark({
   status,
   ownerKey,
   address,
+  supportUnreadCount = null,
   disabled = false,
   onClick,
 }: {
@@ -17,6 +25,7 @@ export function ProfileMark({
   address?: string | null;
   disabled?: boolean;
   onClick?: (button: HTMLButtonElement) => void;
+  supportUnreadCount?: number | null;
 }) {
   return (
     <ProfileMarkButton
@@ -24,6 +33,7 @@ export function ProfileMark({
       status={status}
       ownerKey={ownerKey}
       address={address}
+      supportUnreadCount={supportUnreadCount}
       disabled={disabled}
       onClick={onClick}
     />
@@ -35,12 +45,14 @@ function ProfileMarkButton({
   ownerKey,
   address,
   disabled = false,
+  supportUnreadCount = null,
   onClick,
 }: {
   status: "loading" | "ready";
   ownerKey?: string | null;
   address?: string | null;
   disabled?: boolean;
+  supportUnreadCount?: number | null;
   onClick?: (button: HTMLButtonElement) => void;
 }) {
   const profile = useBasenameProfile({
@@ -66,13 +78,14 @@ function ProfileMarkButton({
 
   return (
     <Button
-      className="size-11 shrink-0"
+      className="relative size-11 shrink-0"
       variant="ghost"
       size="icon-lg"
-      aria-label="Account"
+      aria-label={supportUnreadLabel("Account", supportUnreadCount)}
       disabled={disabled}
       onClick={(event) => onClick?.(event.currentTarget)}
     >
+      <SupportUnreadDot unreadCount={supportUnreadCount} />
       <span
         className={`relative isolate grid size-8 place-items-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-foreground ${showShimmer ? "animate-pulse" : ""}`}
         data-profile={

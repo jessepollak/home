@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { makeDirectory, readFixture, withUnitTestFixture, writeFixture } from "./unit-tests-fixture";
 import { parseJunit } from "../../../scripts/gates/test-runtime.mjs";
-import { batchTests, classifyBatch, discoverTests, filterTests, isDomTestSource, mergeJunit, normalizeRss, run, splitArgs, summarize, type Command } from "./unit-tests";
+import { DEFAULT_BATCH_SIZE, batchTests, classifyBatch, discoverTests, filterTests, isDomTestSource, mergeJunit, normalizeRss, run, splitArgs, summarize, type Command } from "./unit-tests";
 
 const xml = (name: string, failures = 0) => `<?xml version="1.0" encoding="UTF-8"?>
 <testsuites name="bun test" tests="1" assertions="2" failures="${failures}" skipped="0" time="0.2">
@@ -39,6 +39,14 @@ test("batches, substring filters and option values", () => {
   expect(() => splitArgs(["--coverage"])).toThrow("run bun test directly");
   expect(() => splitArgs(["--coverage-reporter=lcov"])).toThrow("run bun test directly");
   expect(() => splitArgs(["--coverage-dir", "coverage"])).toThrow("run bun test directly");
+});
+
+test("only the operator inbox suite is isolated from default 25-file batches", () => {
+  const inbox = "./client/operator-support/operator-support-inbox.test.tsx";
+  const files = Array.from({ length: 26 }, (_, index) => `./client/suite-${index}.test.tsx`);
+  const batches = batchTests([...files.slice(0, 13), inbox, ...files.slice(13)], DEFAULT_BATCH_SIZE);
+  expect(batches).toEqual([files.slice(0, 25), files.slice(25), [inbox]]);
+  expect(batchTests([inbox], DEFAULT_BATCH_SIZE)).toEqual([[inbox]]);
 });
 
 test("DOM partition scan recognizes runtime imports but not comments or type-only imports", () => {

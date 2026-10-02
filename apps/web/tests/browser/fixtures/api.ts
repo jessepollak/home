@@ -315,6 +315,24 @@ export async function installApiFixtures(
       return json(route, { version: COUNTRY_PREFERENCE_VERSION, regionId: options.countryPreferenceRegion ?? null });
     }
     if (path === "/api/invites/link") return json(route, { version: 1, code: "abcdefghjk" });
+    if (path === "/api/support/chat" && request.method() === "POST") {
+      const conversationId = "11111111-1111-4111-8111-111111111111";
+      const messageId = "22222222-2222-4222-8222-222222222222";
+      const events = [
+        { type: "start", messageId },
+        { type: "text-start", id: messageId },
+        { type: "text-delta", id: messageId, delta: "I can help with that. What would you like to know?" },
+        { type: "text-end", id: messageId },
+        { type: "data-support", data: { handler: "assistant", conversationId } },
+      ];
+      return route.fulfill({
+        status: 200, contentType: "text/event-stream",
+        headers: { "x-vercel-ai-ui-message-stream": "v1", "cache-control": "private, no-store, max-age=0" },
+        body: `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")}data: [DONE]\n\n`,
+      });
+    }
+    if (path === "/api/support/summary") return json(route, { version: 2, unreadCount: 0 });
+    if (path === "/api/support" && request.method() === "GET") return json(route, { version: 2, conversation: null, assistant: { available: true, handoff: false } });
     if (path === "/api/basename-profile") return json(route, basenameProfileBody);
     return json(route, {});
   });

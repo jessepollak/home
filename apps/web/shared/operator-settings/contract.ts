@@ -38,6 +38,18 @@ export function parseSupportSettings(value: unknown): SupportSettings | null {
   }
   return { email: email as string | null, url: url as string | null };
 }
+export const SUPPORT_ASSISTANT_DEFAULTS: SupportAssistantSettings = { mode: "operator", model: "", instructions: "" };
+
+export type SupportAssistantSettings = { mode: "operator" | "assistant" | "hybrid"; model: string; instructions: string };
+
+export function parseSupportAssistantSettings(value: unknown): SupportAssistantSettings | null {
+  if (!isObject(value) || !exactKeys(value, ["mode", "model", "instructions"])) return null;
+  if (value.mode !== "operator" && value.mode !== "assistant" && value.mode !== "hybrid") return null;
+  if (typeof value.model !== "string" || value.model.length > 100 || (value.model !== "" && !/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.\-]*$/.test(value.model)) || (value.mode !== "operator" && !value.model)) return null;
+  if (typeof value.instructions !== "string" || value.instructions.length > 2000 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(value.instructions)) return null;
+  return { mode: value.mode, model: value.model, instructions: value.instructions };
+}
+
 
 export type FundingCorridorSetting = { providerId: string; region: string; direction: "onramp" | "offramp"; offered: boolean };
 export type FundingSettings = { corridors: FundingCorridorSetting[] };
@@ -67,6 +79,7 @@ export function parseFundingSettings(value: unknown): FundingSettings | null {
 export const OPERATOR_SETTINGS_DOMAINS = {
   funding: { schemaVersion: 1, defaults: { corridors: [] }, parse: parseFundingSettings },
   support: { schemaVersion: 1, defaults: { email: null, url: null }, parse: parseSupportSettings },
+  "support-assistant": { schemaVersion: 1, defaults: SUPPORT_ASSISTANT_DEFAULTS, parse: parseSupportAssistantSettings },
   [BRAND_SETTINGS_DOMAIN]: { schemaVersion: OPERATOR_BRANDING_SCHEMA_VERSION, defaults: BRAND_DEFAULTS, parse: parseBrandSettings },
   regions: { schemaVersion: 1, defaults: REGION_SETTINGS_DEFAULTS, parse: parseRegionSettings, parseWrite: parseRegionSettingsWrite },
   invest: { schemaVersion: 1, defaults: INVEST_SETTINGS_DEFAULTS, parse: parseInvestSettings, parseWrite: parseInvestSettingsWrite },
@@ -86,6 +99,8 @@ export type AuditEntry = {
   id: string; occurredAt: string; actor: `0x${string}`;
 } & (
   | { action: "settings.update"; target: { kind: "settings"; id: string }; before: unknown; after: unknown }
+  | { action: "support.credential.update"; target: { kind: "settings"; id: string }; before: unknown; after: unknown }
+  | { action: "support.credential.delete"; target: { kind: "settings"; id: string }; before: unknown; after: unknown }
   | { action: "customer.read"; target: { kind: "customer"; id: string }; purpose: string }
 );
 export type AuditListResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; entries: AuditEntry[]; nextCursor: string | null };
@@ -118,7 +133,7 @@ export function parseAuditListResponse(value: unknown): ParsedAuditListResponse 
     if (!isObject(entry)) return null;
     const actor = parseAddress(entry.actor);
     if (!actor || !validCursor(entry.id) || typeof entry.occurredAt !== "string" || !Number.isFinite(Date.parse(entry.occurredAt)) || !isObject(entry.target) || typeof entry.target.id !== "string") return null;
-    if (entry.action === "settings.update") {
+    if (entry.action === "settings.update" || entry.action === "support.credential.update" || entry.action === "support.credential.delete") {
       if (entry.target.kind !== "settings" || !("before" in entry) || !("after" in entry)) return null;
     } else if (entry.action === "customer.read") {
       if (entry.target.kind !== "customer" || typeof entry.purpose !== "string") return null;

@@ -9,7 +9,7 @@ test("keeps every non-manual surface's fixture Reach available to the replay", a
   expect([...surfaces.keys()].sort()).toEqual([
     "access-gate", "account-settings", "activity", "add-money", "borrow", "card", "cash-out",
     "coverage", "dev-ui", "home-panel", "invest", "investments", "landing", "operator-console", "save",
-    "send", "sign-in", "toasts",
+    "send", "sign-in", "support-chat", "toasts",
   ]);
   expect([...surfaces.values()].filter((surface) => !surface.manual && !surface.reach.length)).toEqual([]);
   expect(surfaces.get("send")?.reach).toContainEqual({ kind: "fill", label: "To", value: "example.base.eth" });

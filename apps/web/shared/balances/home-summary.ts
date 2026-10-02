@@ -5,14 +5,16 @@ import { OWNER_SESSION_RETENTION_MS } from "@/shared/account/session-types";
 
 const text = z.string().check(z.maxLength(160));
 const status = z.enum(["complete", "partial", "unavailable"]);
+const reason = z.enum(["unreadable", "price-delayed", "value-unavailable", "borrow-unconfirmed", "loan-unpriced", "pending-cash-out-unpriced", "pending-cash-out"]);
 const amount = { status, value: z.nullable(text) };
 const count = z.number().check(z.int(), z.minimum(0), z.maximum(1_000_000));
 const presentationSchema = z.object({
   status: z.literal("ready"), displayTotal: z.nullable(text), totalStatus: z.optional(status), statusLabel: z.optional(text), needsCountry: z.optional(z.literal(true)),
+  statusReasons: z.optional(z.array(reason).check(z.maxLength(7))),
   breakdown: z.array(z.object({
     id: z.enum(["borrow", "cash", "pending-cash-out", "investments"]),
     label: z.enum(["Borrow", "Cash", "Pending cash-out", "Investments"]),
-    value: text, weight: z.number().check(z.minimum(0)),
+    value: text, weight: z.number().check(z.minimum(0)), status,
   })).check(z.maxLength(4)),
   summary: z.object({
     cash: z.object(amount), investments: z.object({ ...amount, assetCount: count, ownedCount: count }),
@@ -26,7 +28,7 @@ const presentationSchema = z.object({
 const rateSchema = z.object({ value: z.nullable(text), updatedAt: z.number() });
 export type HomeRateObservation = { value: string | null; updatedAt: number; pending: boolean };
 export type HomeRateLabels = { cash?: { value: string | null; updatedAt: number }; borrow?: { value: string | null; updatedAt: number } };
-const schema = z.object({ version: z.literal(1), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
+const schema = z.object({ version: z.literal(2), owner: z.string().check(z.maxLength(200)), region: text, updatedAt: z.number(), presentation: presentationSchema, rates: z.optional(z.object({ cash: z.optional(rateSchema), borrow: z.optional(rateSchema) })) });
 const maxCharacters = 8 * 1024;
 
 export type HomeSummaryRecord = z.infer<typeof schema>;
