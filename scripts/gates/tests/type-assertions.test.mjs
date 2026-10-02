@@ -6,7 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { assertionDebtReport, assertionExceptions, changedProductionTypeScript, changedScopedTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, isTestOrStoryTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
+import { evaluateBoundaryExemptions, existingBoundaryPaths, isPreclassifiedRootFile, rootSourceFiles, topLevelSourceDirectories } from "../exploration-boundary.mjs";
+import { NON_PRODUCTION_ROOT_FILES, assertionDebtReport, assertionExceptions, changedProductionTypeScript, changedScopedTypeScript, countAssertions, evaluateAssertionDelta, isProductionTypeScript, isTestOrStoryTypeScript, mergeBaseRevision, resolveBaseRevision } from "../type-assertions.mjs";
 import { gitFixtureEnv } from "./git-fixture-env.mjs";
 
 const file = "apps/web/shared/ratchet-fixture.ts";
@@ -59,8 +60,51 @@ test("counts comments even in TSX and at EOF but not directive-looking text", ()
 });
 
 test("scope follows the production TypeScript override", () => {
-  for (const file of ["apps/web/app/page.tsx", "apps/web/server/index.mts", "apps/web/shared/a.cts", "apps/web/instrumentation.node.ts", "apps/web/proxy.ts", "apps/web/next.config.ts"]) assert.equal(isProductionTypeScript(file), true, file);
-  for (const file of ["apps/web/app/a.test.ts", "apps/web/components/a.stories.tsx", "apps/web/server/tests/a.ts", "apps/web/client/testing/a.ts", "apps/web/shared/explorations/a.ts", "apps/web/client/account/dom-test-harness.ts", "apps/web/client/smoke-fixture-provider.tsx", "apps/web/oxlint/rules/a.ts", "apps/web/scripts/a.ts", "apps/web/stories/a.tsx", "apps/web/app/a.js"]) assert.equal(isProductionTypeScript(file), false, file);
+  for (const file of ["apps/web/app/page.tsx", "apps/web/server/index.mts", "apps/web/shared/a.cts", "apps/web/instrumentation.node.ts", "apps/web/proxy.ts", "apps/web/next.config.ts", "apps/web/middleware.ts"]) assert.equal(isProductionTypeScript(file), true, file);
+  for (const file of ["apps/web/app/a.test.ts", "apps/web/components/a.stories.tsx", "apps/web/server/tests/a.ts", "apps/web/client/testing/a.ts", "apps/web/shared/explorations/a.ts", "apps/web/client/account/dom-test-harness.ts", "apps/web/client/smoke-fixture-provider.tsx", "apps/web/oxlint/rules/a.ts", "apps/web/scripts/a.ts", "apps/web/stories/a.tsx", "apps/web/app/a.js", "apps/web/playwright.config.ts"]) assert.equal(isProductionTypeScript(file), false, file);
+});
+
+function classifyRootFile(file) {
+  const source = `apps/web/${file}`;
+  const exempt = NON_PRODUCTION_ROOT_FILES.has(file);
+  const testOrStory = isTestOrStoryTypeScript(source) || isPreclassifiedRootFile(file);
+  const production = isProductionTypeScript(source);
+  assert.equal(Number(exempt) + Number(testOrStory) + Number(production), 1,
+    `${source}: a root-level JS-family entry point must be production TypeScript, test/story, or a reasoned non-production entry in scripts/gates/exploration-boundary-exemptions.json`);
+  if (exempt) {
+    assert.equal(production, false, source);
+    assert.equal(isTestOrStoryTypeScript(source), false, source);
+    assert.equal(isPreclassifiedRootFile(file), false, source);
+    return "exempt";
+  }
+  if (testOrStory) {
+    assert.equal(production, false, source);
+    return "test/story";
+  }
+  assert.equal(production, true, source);
+  return "production";
+}
+
+test("every root-level JS-family entry point has exactly one reasoned classification", () => {
+  const root = fileURLToPath(new URL("../../..", import.meta.url));
+  const paths = existingBoundaryPaths(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "apps/web"], { cwd: root, env: gitFixtureEnv() })
+    .toString().split("\0").filter(Boolean).map((entry) => path.join(root, entry)))
+    .map((entry) => path.relative(path.join(root, "apps/web"), entry).split(path.sep).join("/"));
+  const rootFiles = rootSourceFiles(paths);
+  const exemptions = JSON.parse(readFileSync(new URL("../exploration-boundary-exemptions.json", import.meta.url), "utf8"));
+  const boundary = evaluateBoundaryExemptions({ directories: topLevelSourceDirectories(paths), rootFiles, exemptions });
+  assert.deepEqual(boundary.invalid, []);
+  assert.deepEqual(boundary.stale, []);
+  assert.deepEqual([...NON_PRODUCTION_ROOT_FILES].sort(), boundary.exemptRootFiles);
+  assert.ok(rootFiles.length > 0, "root-entry classification must not be vacuous");
+  for (const file of rootFiles) classifyRootFile(file);
+});
+
+test("new root TypeScript is production while test/story/harness and JS probes retain their classification", () => {
+  for (const extension of ["ts", "tsx", "mts", "cts"]) assert.equal(classifyRootFile(`middleware.${extension}`), "production");
+  for (const file of ["foo.test.ts", "foo.stories.tsx", "foo-test-harness.mts", "foo-test-harness.d.ts", "foo-test-harness.helpers.ts", "foo-test-harness.d.mts", "smoke-fixture-provider.mts"]) assert.equal(classifyRootFile(file), "test/story");
+  assert.equal(isProductionTypeScript("apps/web/middleware.js"), false);
+  assert.throws(() => classifyRootFile("middleware.js"), /a root-level JS-family entry point must be production TypeScript, test\/story, or a reasoned non-production entry/u);
 });
 
 test("test and story scope follows the shared exclusion patterns without overlapping production", () => {
