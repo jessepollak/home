@@ -76,13 +76,35 @@ jobs:
             exit 0
           fi
 
+          id="$(jq -r '.id // empty' <<<"$match")"
+          if [ -z "$id" ]; then
+            echo "Neon branch ${PREVIEW_BRANCH} has no id: $match"
+            exit 1
+          fi
           echo "Found $(jq -r '"\(.id) (\(.name), created \(.created_at))"' <<<"$match")"
+          echo "branch_id=${id}" >> "$GITHUB_OUTPUT"
           echo "exists=true" >> "$GITHUB_OUTPUT"
 
       - name: Delete preview branch
         if: steps.creds.outputs.configured == 'true' && steps.find.outputs.exists == 'true'
-        uses: neondatabase/delete-branch-action@v3
-        with:
-          project_id: ${{ env.NEON_PROJECT_ID }}
-          branch: ${{ env.PREVIEW_BRANCH }}
-          api_key: ${{ env.NEON_API_KEY }}
+        env:
+          BRANCH_ID: ${{ steps.find.outputs.branch_id }}
+        run: |
+          set -euo pipefail
+
+          # Delete by id; 404 means the branch is already gone (the Neon
+          # integration or the prune workflow can delete it after the lookup),
+          # so cleanup is idempotent. Any other status is a real failure.
+          del="$(mktemp)"
+          code="$(curl -sS -o "$del" -w '%{http_code}' -X DELETE \
+            -H "Accept: application/json" \
+            -H "Authorization: Bearer ${NEON_API_KEY}" \
+            "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${BRANCH_ID}")"
+          if [ "$code" != "200" ] && [ "$code" != "404" ]; then
+            echo "Neon delete branch failed: HTTP $code"
+            cat "$del"
+            rm -f "$del"
+            exit 1
+          fi
+          echo "Delete ${PREVIEW_BRANCH} (${BRANCH_ID}): HTTP $code"
+          rm -f "$del"
