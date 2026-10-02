@@ -1,0 +1,18 @@
+{
+  "id": "muted-foreground",
+  "title": "Muted foreground — Light candidates",
+  "summary": "Issue #1692: compare secondary text on the same funded Home overview. Production and Dark remain unchanged; adoption waits for Jesse's selection.",
+  "sections": [
+    {
+      "id": "home-overview",
+      "title": "Home overview · Light",
+      "note": "Page contrast is against --muted (oklch(0.97 0 0)); normal text requires 4.5:1. Each frame also includes the Activity feed below Your money.",
+      "frames": [
+        { "id": "current", "story": "explorations-muted-foreground--current", "label": "Current · #737373 · page 4.34:1 (fails)", "viewport": "mobile", "change": "unchanged" },
+        { "id": "a", "story": "explorations-muted-foreground--a", "label": "A · #6f6f6f · page 4.64:1 · smallest passing step", "viewport": "mobile", "change": "new" },
+        { "id": "b", "story": "explorations-muted-foreground--b", "label": "B · #696969 · page 5.05:1", "viewport": "mobile", "change": "new" },
+        { "id": "c", "story": "explorations-muted-foreground--c", "label": "C · #636363 · page 5.50:1", "viewport": "mobile", "change": "new" }
+      ]
+    }
+  ]
+}
