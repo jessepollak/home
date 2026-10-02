@@ -541,19 +541,19 @@ expect(calls).not.toContain(`handoff:${bob}:false`);
   test("a turn whose claim was superseded before the model call never calls the model", async () => {
     const fixture = setup("assistant");
     let modelCalls = 0;
-    const store = { ...fixture.store, ownsAssistantRun: async () => false } as unknown as SupportStore;
+    fixture.store.ownsAssistantRun = async () => false;
     const counted = () => new MockLanguageModelV3({ doStream: async () => { modelCalls += 1; return { stream: simulateReadableStream({ chunks: [] }) }; } });
-    const response = await createCustomerSupportChatHandler({ ...fixture.options, store: () => store, model: counted })(request("support/chat", "POST", chat));
-    const events = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)) as { type: string });
+    const response = await createCustomerSupportChatHandler({ ...fixture.options, model: counted })(request("support/chat", "POST", chat));
+    const events: Array<{ type: string }> = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)));
     expect(modelCalls).toBe(0);
     expect(events.some((event) => event.type === "error" || event.type === "text-delta")).toBe(false);
     expect(fixture.calls.some((call) => call.startsWith("saved:"))).toBe(false);
   });
   test("a streamed reply that fails to persist is identified for the client to discard", async () => {
     const fixture = setup("assistant");
-    const store = { ...fixture.store, saveAssistant: async () => { throw new Error("database unavailable"); } } as unknown as SupportStore;
-    const response = await createCustomerSupportChatHandler({ ...fixture.options, store: () => store, model })(request("support/chat", "POST", chat));
-    const events = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)) as { type: string; id?: string; messageId?: string; data?: unknown });
+    fixture.store.saveAssistant = async () => { throw new Error("database unavailable"); };
+    const response = await createCustomerSupportChatHandler({ ...fixture.options, model })(request("support/chat", "POST", chat));
+    const events: Array<{ type: string; messageId?: string; data?: unknown }> = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)));
     const streamedId = events.find((event) => event.type === "start")?.messageId;
     expect(streamedId).toBeDefined();
     expect(events.some((event) => event.type === "error")).toBe(true);

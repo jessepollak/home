@@ -425,13 +425,13 @@ describePostgres("support PostgreSQL contract", () => {
     await sql.query(`INSERT INTO funding_orders (id,owner_subject,account_provider,destination,provider_id,region,asset_id,payment_method,fiat_amount,intent_digest,quote,quote_token,state,creation_block,fees,created_at,updated_at)
       VALUES ($1,'alice','base-account',$2,'coinbase','US','USDC','card','20',$3,'{}','token','failed',0,'[]',now(),now())`, [order, address, crypto.randomUUID()]);
     const first = await store.sendCustomer(c.id, session(), send("reattach_01", { kind: "funding_order", id: order }));
-    const id = first.response.conversation!.id;
+    const id = first.response.conversation?.id ?? "";
     for (let index = 0; index < 20; index++) {
       await sql.query("INSERT INTO support_context_refs (id,conversation_id,message_id,kind,ref_id,created_at) VALUES ($1,$2,$3,'money_action',$4,clock_timestamp())", [crypto.randomUUID(), id, first.messageId, `ref_${String(index).padStart(2, "0")}`]);
     }
-    expect((await store.operatorConversation(id))!.conversation.contextRefs.map((ref) => ref.id)).not.toContain(order);
+    expect((await store.operatorConversation(id))?.conversation.contextRefs.map((ref) => ref.id)).not.toContain(order);
     const again = await store.sendCustomer(c.id, session(), send("reattach_02", { kind: "funding_order", id: order }));
-    expect((await store.operatorConversation(id))!.conversation.contextRefs.at(-1)).toMatchObject({ kind: "funding_order", id: order });
+    expect((await store.operatorConversation(id))?.conversation.contextRefs.at(-1)).toMatchObject({ kind: "funding_order", id: order });
     expect(await store.assistantContext(id, again.messageId)).toContainEqual(expect.stringContaining("failed · coinbase · 20"));
     expect((await sql.query<{ message_id: string }>("SELECT message_id FROM support_context_refs WHERE conversation_id=$1 AND ref_id=$2", [id, order])).rows).toEqual([{ message_id: again.messageId }]);
   });
@@ -439,7 +439,7 @@ describePostgres("support PostgreSQL contract", () => {
   test("ownership of an assistant run ends when an operator replies", async () => {
     const c = await customer();
     const sent = await store.sendCustomer(c.id, session(), send("owned_01"), { available: true, handoff: false });
-    const id = sent.response.conversation!.id;
+    const id = sent.response.conversation?.id ?? "";
     const latest = sent.messageId;
     const runId = await claimRun(id, latest);
     expect(await store.ownsAssistantRun(id, runId)).toBe(true);
