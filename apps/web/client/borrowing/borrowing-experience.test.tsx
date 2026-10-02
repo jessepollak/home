@@ -105,7 +105,7 @@ function prepared(operation: "borrow" | "supply-and-borrow" | "repay" | "repay-a
     calls: [{ to: MORPHO_BLUE_ADDRESS, data: "0x1234", value: "0" }],
     amounts,
     warnings: [],
-    metadata: { product: "borrow", operation, marketId: BORROW_MARKET_ID, loanAsset: { id: BORROW_LOAN_TOKEN.id, symbol: "USDC" }, collateralAsset: { id: BORROW_COLLATERAL_TOKEN.id, symbol: "cbBTC" }, projectedHealthFactorWad: "1500000000000000000", projectedLiquidationPriceRaw: "610000000000000000000000000000000000000", borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: BLOCK_HASH, blockTimestamp: "1788897600" } },
+    metadata: { product: "borrow", operation, marketId: BORROW_MARKET_ID, riskIncreased: operation === "borrow" || operation === "supply-and-borrow", loanAsset: { id: BORROW_LOAN_TOKEN.id, symbol: "USDC" }, collateralAsset: { id: BORROW_COLLATERAL_TOKEN.id, symbol: "cbBTC" }, projectedHealthFactorWad: "1500000000000000000", projectedLiquidationPriceRaw: "610000000000000000000000000000000000000", borrowAprWad: "31536000000000000", source: { blockNumber: "100", blockHash: BLOCK_HASH, blockTimestamp: "1788897600" } },
     createdAt: "2026-09-13T12:00:00.000Z",
     expiresAt: "2030-09-13T12:02:00.000Z",
     ...overrides,

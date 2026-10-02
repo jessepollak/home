@@ -19,7 +19,7 @@ export default function ShellLayout({ children }: { children: React.ReactNode })
 async function ShellContent({ children }: { children: React.ReactNode }) {
   const cookieStore = await cookies();
   const rendered = readRenderSession(cookieStore);
-  const { accountPreference, investVisibility, regionOffer } = await readShellPolicyForRender(rendered?.session ?? null);
+  const { accountPreference, investVisibility, productOffering, regionOffer } = await readShellPolicyForRender(rendered?.session ?? null);
   const detectedCountry = readRequestCountry(await headers());
   const region = resolvePresentation({ persistedCountry: accountPreference?.regionId, detectedCountry, offer: regionOffer }).region.id;
   const summaryCookies = cookieStore.getAll(homeSummaryCookieName);
@@ -39,6 +39,7 @@ async function ShellContent({ children }: { children: React.ReactNode }) {
         regionOffer={regionOffer}
         accountPreference={accountPreference}
         investVisibility={investVisibility}
+        productOffering={productOffering}
         cardsEnabled={cardJourneyEnabled()}
       >
         {children}

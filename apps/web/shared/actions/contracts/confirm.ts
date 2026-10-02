@@ -2,7 +2,7 @@
 import { parseAddress } from "@/shared/chain/hex";
 import type { MoneyActionCall } from "@/shared/money-actions/types";
 import type { ActionSummaryResponse } from "./get";
-import { CASHOUT_PREPARE_ERRORS } from "./prepare";
+import { CASHOUT_PREPARE_ERRORS, PRODUCT_NOT_OFFERED_CODE } from "./prepare";
 import { CARD_ALLOWANCE_PREPARE_ERRORS } from "@/shared/cards/allowance-contract";
 
 const MAX_UINT256 = (BigInt(1) << BigInt(256)) - BigInt(1);
@@ -13,16 +13,38 @@ export const CONFIRM_CASHOUT_ERRORS = {
   "settings-unavailable": CASHOUT_PREPARE_ERRORS["settings-unavailable"],
 } as const;
 
-export type ConfirmActionErrorCode = (typeof CONFIRM_CASHOUT_ERRORS)[keyof typeof CONFIRM_CASHOUT_ERRORS]["code"] | typeof CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code | typeof CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"]["code"];
-const CONFIRM_ACTION_ERROR_CODES: readonly ConfirmActionErrorCode[] = [...Object.values(CONFIRM_CASHOUT_ERRORS).map((entry) => entry.code), CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code, CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"].code];
+export type ConfirmActionErrorCode =
+  | "INVALID_ACTION"
+  | "ACTION_NOT_FOUND"
+  | "ACTION_EXPIRED"
+  | "TRADE_STOCK_RESTRICTED"
+  | "INVALID_TRADE_SIGNATURE"
+  | typeof PRODUCT_NOT_OFFERED_CODE
+  | (typeof CONFIRM_CASHOUT_ERRORS)[keyof typeof CONFIRM_CASHOUT_ERRORS]["code"]
+  | typeof CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code
+  | typeof CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"]["code"];
+const CONFIRM_ACTION_ERROR_CODES: readonly ConfirmActionErrorCode[] = [
+  "INVALID_ACTION",
+  "ACTION_NOT_FOUND",
+  "ACTION_EXPIRED",
+  "TRADE_STOCK_RESTRICTED",
+  "INVALID_TRADE_SIGNATURE",
+  PRODUCT_NOT_OFFERED_CODE,
+  ...Object.values(CONFIRM_CASHOUT_ERRORS).map((entry) => entry.code),
+  CARD_ALLOWANCE_PREPARE_ERRORS.unavailable.code,
+  CARD_ALLOWANCE_PREPARE_ERRORS["not-ready"].code,
+];
 
 export type ConfirmActionErrorResponse = { error: { code: ConfirmActionErrorCode; message: string } };
 
+export function isConfirmActionErrorCode(value: unknown): value is ConfirmActionErrorCode {
+  return typeof value === "string" && (CONFIRM_ACTION_ERROR_CODES as readonly string[]).includes(value);
+}
+
 export function parseConfirmActionErrorResponse(value: unknown): ConfirmActionErrorResponse | null {
-  if (!isRecord(value) || !isRecord(value.error)) return null;
-  const { code, message } = value.error;
-  if (typeof message !== "string" || typeof code !== "string" || !(CONFIRM_ACTION_ERROR_CODES as readonly string[]).includes(code)) return null;
-  return { error: { code: code as ConfirmActionErrorCode, message } };
+  if (!isRecord(value) || !isRecord(value.error) ||
+    !isConfirmActionErrorCode(value.error.code) || typeof value.error.message !== "string") return null;
+  return { error: { code: value.error.code, message: value.error.message } };
 }
 
 export type ConfirmActionResponse = {

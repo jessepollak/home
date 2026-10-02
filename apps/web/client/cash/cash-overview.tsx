@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { ArrowLeftRight, CircleAlertIcon, Eye, Percent, PiggyBank, Plus, RotateCw } from "lucide-react";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
@@ -52,6 +52,8 @@ import {
 import type { MorphoVaultCandidate, MorphoVaultsResult } from "@/shared/savings/types";
 import { savingsWithdrawTargets } from "./savings-withdraw-targets";
 import { savingsRateLabel } from "./savings-management";
+import { useProductOffering } from "@/client/home/product-offering";
+import { depositOffered, saveEntryOffered } from "./save-offering";
 import { verifiedEmptySavings } from "./verified-empty-savings";
 import type { SavingsPortfolioSummary } from "@/client/savings/portfolio-summary";
 
@@ -251,7 +253,8 @@ function savingsData(
   snapshot: BalancesSnapshot | null,
   metadata: MorphoVaultsResult | null,
   vaultStatus: "ready" | "loading" | "failed",
-  nowMs: number
+  nowMs: number,
+  canDeposit: (candidate: MorphoVaultCandidate) => boolean
 ) {
   const candidates = vaultStatus === "failed" ? [] : metadata?.candidates ?? [];
   const withdrawTargets = savingsWithdrawTargets(
@@ -268,7 +271,7 @@ function savingsData(
     BigInt(0)
   );
   const partial = holdings.some(({ partial: unreadable }) => unreadable);
-  const rates = candidates.flatMap((candidate) => {
+  const rates = candidates.filter(canDeposit).flatMap((candidate) => {
     const rate = getSavingsRateState(candidate, {
       metadataFetchedAt: metadata?.source.fetchedAt,
       metadataStale: metadata?.stale,
@@ -426,9 +429,12 @@ export function CashOverview({
   onRetryBalances,
 }: CashOverviewProps) {
   const loading = balanceStatus === "loading";
+  const offering = useProductOffering();
+  const canDeposit = useCallback((candidate: MorphoVaultCandidate) => depositOffered(offering, candidate), [offering]);
   const failed = balanceStatus === "failed";
   const activeSnapshot = failed ? null : snapshot;
   const pendingValue = activeSnapshot ? presentPendingCashout(activeSnapshot, pendingCashout) : null;
+  const balanceComplete = balanceStatus === "ready" && activeSnapshot?.stale !== true && activeSnapshot?.coverage.registry === "complete" && activeSnapshot.coverage.catalog === "complete";
   const summary = useMemo(() => activeSnapshot
     ? presentCashTotal(activeSnapshot)
     : null, [activeSnapshot]);
@@ -439,8 +445,9 @@ export function CashOverview({
     activeSnapshot,
     metadata,
     vaultStatus,
-    nowMs
-  ), [activeSnapshot, metadata, vaultStatus, nowMs]);
+    nowMs,
+    canDeposit
+  ), [activeSnapshot, metadata, vaultStatus, nowMs, canDeposit]);
   const { growth, earningApy } = useSavingsGrowth(
     activeSnapshot,
     vaultStatus === "ready" ? metadata : null,
@@ -453,11 +460,12 @@ export function CashOverview({
     () => activeSnapshot ? selectBalanceTotals(activeSnapshot).cash : null,
     [activeSnapshot]
   );
+  const savingsHeld = holdings.some(({ held }) => held);
   const empty =
     !loading &&
     summary?.status === "complete" &&
     cashTotal?.value?.atoms === "0" &&
-    !holdings.some(({ held }) => held);
+    !savingsHeld;
   const savingsValue =
     partial && total === BigInt(0)
       ? "Unavailable"
@@ -536,8 +544,8 @@ export function CashOverview({
                 ) : null}
                 {!failed &&
                 (empty
-                  ? vaultStatus !== "loading" && bestRate !== null
-                  : Boolean(rateLabel)) ? (
+                  ? saveEntryOffered(offering, metadata?.candidates) && vaultStatus !== "loading" && bestRate !== null
+                  : (savingsHeld || saveEntryOffered(offering, metadata?.candidates)) && Boolean(rateLabel)) ? (
                   <p
                     className={
                       !empty && earningApy
@@ -554,7 +562,7 @@ export function CashOverview({
                       : rateLabel}
                   </p>
                 ) : null}
-                {!failed && empty && vaultStatus === "loading" ? (
+                {!failed && empty && vaultStatus === "loading" && offering.products.save === "on" ? (
                   <div data-cash-rate>
                     <Skeleton className="h-5 w-40" />
                     <span className="sr-only">Loading rate</span>
@@ -671,7 +679,7 @@ export function CashOverview({
               </Card>
             </section>
           ) : null}
-          <section
+          {(!balanceComplete || saveEntryOffered(offering, vaultStatus === "failed" ? null : metadata?.candidates) || total > BigInt(0) || partial) ? <section
             aria-labelledby="cash-savings-heading"
             aria-busy={loading || vaultStatus === "loading" || undefined}
           >
@@ -728,7 +736,7 @@ export function CashOverview({
                 )}
               </CardContent>
             </Card>
-          </section>
+          </section> : null}
         </>
       ) : null}
     </div>
@@ -760,14 +768,17 @@ export function SavingsDetail({
   onRetryActions,
   depositFailed = false,
 }: SavingsDetailProps) {
+  const offering = useProductOffering();
+  const canDeposit = useCallback((candidate: MorphoVaultCandidate) => depositOffered(offering, candidate), [offering]);
   const balanceFailed = balanceStatus === "failed";
   const activeSnapshot = balanceFailed ? null : snapshot;
   const { candidates, holdings, total, partial, bestRate } = useMemo(() => savingsData(
     activeSnapshot,
     metadata,
     vaultStatus,
-    nowMs
-  ), [activeSnapshot, metadata, vaultStatus, nowMs]);
+    nowMs,
+    canDeposit
+  ), [activeSnapshot, metadata, vaultStatus, nowMs, canDeposit]);
   const { growth, earningApy } = useSavingsGrowth(
     activeSnapshot,
     vaultStatus === "ready" ? metadata : null,
@@ -780,7 +791,7 @@ export function SavingsDetail({
     ({ held, partial: unreadable }) => held || unreadable
   );
   const other = candidates.filter(
-    (candidate) =>
+    (candidate) => canDeposit(candidate) &&
       !holdings.some(
         ({ vault, held, partial: unreadable }) =>
           vault.address.toLowerCase() ===
@@ -802,13 +813,14 @@ export function SavingsDetail({
     metadataStale: metadata?.stale,
     nowMs,
   }).status : "unavailable";
+  const entryOffered = saveEntryOffered(offering, vaultStatus === "failed" ? null : candidates);
   const verifiedEmpty = verifiedEmptySavings({
     balanceStatus, snapshot, balanceStale, vaultStatus, summary, shownCount: shown.length,
   });
   const pendingEmpty = pendingDeposits.length > 0 && verifiedEmpty;
   const pendingTotal = pendingDeposits.reduce((sum, deposit) => sum + BigInt(deposit.amountBaseUnits), BigInt(0));
   const actionHistoryUnresolved = pendingActionsError && verifiedEmpty && !pendingEmpty;
-  const firstUse = verifiedEmpty && !pendingEmpty && !pendingActionsLoading && !actionHistoryUnresolved;
+  const firstUse = verifiedEmpty && !pendingEmpty && !pendingActionsLoading && !actionHistoryUnresolved && entryOffered;
   const depositUnavailable =
     !actionsAvailable ||
     balanceStatus === "failed" ||
@@ -964,6 +976,10 @@ export function SavingsDetail({
           />
         </>
       ) : null}
+      {verifiedEmpty && !entryOffered &&
+      !pendingEmpty && !pendingActionsLoading && !actionHistoryUnresolved ? (
+        <p className="text-sm text-muted-foreground" role="status">This is no longer offered.</p>
+      ) : null}
       {balanceFailed && onRetryBalances ? (
         <Button variant="outline" size="lg" className="h-11 w-full" onClick={onRetryBalances}>
           <RotateCw aria-hidden="true" />
@@ -1014,7 +1030,7 @@ export function SavingsDetail({
       {!balanceFailed &&
       vaultStatus !== "failed" &&
       (!verifiedEmpty || pendingEmpty) &&
-      (vaultStatus === "loading" || other.length) ? (
+      ((vaultStatus === "loading" && entryOffered) || other.length) ? (
         <section
           aria-labelledby="more-savings-heading"
           aria-busy={vaultStatus === "loading" || undefined}

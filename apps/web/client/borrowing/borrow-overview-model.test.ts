@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { borrowOverviewBody } from "@/tests/browser/fixtures/bodies";
 import { VERIFIED_MORPHO_MARKETS } from "@/shared/morpho-markets/config";
 import { parseBorrowOverview, type BorrowOverviewResponse, type BorrowMarketSnapshot } from "@/shared/borrowing/contract";
-import { borrowableAssets, borrowDebtsMatchOverview, loanActions, openLoans, summarizeBorrowOverview } from "./borrow-overview-model";
+import { borrowableAssets, borrowDebtsMatchOverview, borrowMarketsOffered, loanActions, openLoans, summarizeBorrowOverview } from "./borrow-overview-model";
 
 const market = VERIFIED_MORPHO_MARKETS;
 function fixture(changes: Array<[number, Partial<BorrowMarketSnapshot>]>) {
@@ -68,6 +68,27 @@ describe("borrow overview derivations", () => {
     expect(parseBorrowOverview(overview, overview.owner.address)).not.toBeNull();
     expect(summarizeBorrowOverview(overview).completeness).toBe("unavailable");
   });
+  test("reports no offered market when every market is reducing-only, ignoring read failures", () => {
+    const offered = borrowOverviewBody({ openMarketId: null });
+    expect(borrowMarketsOffered(offered)).toBe(true);
+    const exitOnly: BorrowOverviewResponse = {
+      ...offered,
+      opportunities: offered.opportunities.map((entry) => entry.availability.status === "available"
+        ? { market: entry.market, availability: { status: "available", mode: "reducing-only", reason: null, source: entry.availability.source, snapshot: { ...entry.availability.snapshot, eligibility: { mode: "reducing-only", newRisk: false, reason: "New borrowing is paused." } } } }
+        : { market: entry.market, availability: { status: "unavailable", mode: "reducing-only", reason: entry.availability.reason, source: null } }),
+    };
+    expect(borrowMarketsOffered(exitOnly)).toBe(false);
+    const partial: BorrowOverviewResponse = {
+      ...exitOnly,
+      discovery: { ...exitOnly.discovery, status: "partial", verifiedCount: exitOnly.opportunities.length - 1 },
+      opportunities: exitOnly.opportunities.map((entry, index) => index === 0
+        ? { market: entry.market, availability: { status: "unavailable", mode: "reducing-only", reason: "Unavailable", source: null } }
+        : entry),
+    };
+    expect(borrowMarketsOffered(partial)).toBe(false);
+    expect(borrowMarketsOffered({ ...partial, opportunities: partial.opportunities.map((entry, index) => index === 0 ? entry : { ...entry, availability: { ...entry.availability, mode: "enabled" as const } }) })).toBe(true);
+  });
+
   test("refuses to add differently denominated loans", () => {
     const base = borrowOverviewBody({ openMarketId: null });
     const mixed = fixture([[0, { position: { ...snapshot(borrowOverviewBody({ openMarketId: null }), 0).position, ...debt("1000000000") } }], [2, { position: { ...snapshot(borrowOverviewBody({ openMarketId: null }), 2).position, ...debt("3000000000") }, market: { ...snapshot(base, 2).market, loanToken: { ...snapshot(base, 2).market.loanToken, decimals: 8 } } }]]);

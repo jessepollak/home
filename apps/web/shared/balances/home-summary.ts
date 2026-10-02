@@ -17,7 +17,7 @@ const presentationSchema = z.object({
   summary: z.object({
     cash: z.object(amount), investments: z.object({ ...amount, assetCount: count, ownedCount: count }),
     borrow: z.union([
-      z.object({ kind: z.literal("none") }), z.object({ kind: z.literal("unavailable") }),
+      z.object({ kind: z.literal("none"), hasCollateral: z.boolean() }), z.object({ kind: z.literal("unavailable") }),
       z.object({ ...amount, kind: z.literal("position"), rate: z.nullable(text),
         debts: z.array(z.object({ marketId: text, baseUnits: text })).check(z.maxLength(32)) }),
     ]),

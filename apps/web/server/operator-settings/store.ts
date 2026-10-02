@@ -55,7 +55,7 @@ export class OperatorSettingsStore {
   async write(input: { domain: string; expectedRevision: number; value: unknown; actor: string }): Promise<SettingsEntry> {
     const definition = this.definition(input.domain);
     const parsed = (definition.parseWrite ?? definition.parse)(input.value);
-    if (parsed === null || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new OperatorSettingsValidationError("Invalid settings write");
+    if (parsed === null || (definition.acceptsWrite && !definition.acceptsWrite(parsed)) || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) throw new OperatorSettingsValidationError("Invalid settings write");
     try {
       return await this.sql.transaction(async (tx) => {
         const result = await tx.query<SettingsRow>("SELECT * FROM operator_settings WHERE domain = $1 FOR UPDATE", [input.domain]);

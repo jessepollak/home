@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import { formatPresentationDate } from "@/shared/formatting";
 import type { HomeAssetBalancesPresentation } from "./home-types";
 import { ShimmerRows } from "./panel-shared";
+import { useProductOffering } from "./product-offering";
+import { borrowEntryOffered } from "@/client/borrowing/borrow-offering";
 
 export type HomeOverviewDestinations = {
   onOpenCash: () => void;
@@ -69,9 +71,7 @@ export function HomeOverview({
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
       <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-(--home-money-sticky-top)" : ""}`}>
         <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
-        <div className="grid grid-cols-2 gap-2" aria-label="Money actions">
-          {actions}
-        </div>
+        {actions ? <div className="grid grid-cols-2 gap-2" aria-label="Money actions">{actions}</div> : null}
         <HomeMoneySummary
           summary={assetBalances?.summary ?? null}
           isLoading={isLoading}
@@ -190,6 +190,8 @@ export function HomeMoneySummary({
   destinations: HomeOverviewDestinations;
   onRetryBalances?: () => void;
 }) {
+  const offering = useProductOffering();
+  const borrowSummary = (summary ?? unavailableSummary).borrow;
   return (
     <section aria-labelledby="your-money-heading" aria-busy={isLoading || undefined}>
       <Card className="gap-3">
@@ -207,17 +209,21 @@ export function HomeMoneySummary({
                 onOpen={destinations.onOpenCash}
                 onRetryBalances={onRetryBalances}
               />
-              <InvestmentsRow
-                summary={(summary ?? unavailableSummary).investments}
-                onOpen={destinations.onOpenInvestments}
-                onRetryBalances={onRetryBalances}
-              />
-              <BorrowRow
-                summary={(summary ?? unavailableSummary).borrow}
-                offerRate={borrowOfferRate}
-                onOpen={destinations.onOpenBorrow}
-                onRetryBalances={onRetryBalances}
-              />
+              {(offering.products.invest === "on" || (summary ?? unavailableSummary).investments.ownedCount > 0 || (summary ?? unavailableSummary).investments.status !== "complete") ? (
+                <InvestmentsRow
+                  summary={(summary ?? unavailableSummary).investments}
+                  onOpen={destinations.onOpenInvestments}
+                  onRetryBalances={onRetryBalances}
+                />
+              ) : null}
+              {(borrowEntryOffered(offering) || borrowSummary.kind !== "none" || borrowSummary.hasCollateral) ? (
+                <BorrowRow
+                  summary={borrowSummary}
+                  offerRate={borrowOfferRate}
+                  onOpen={destinations.onOpenBorrow}
+                  onRetryBalances={onRetryBalances}
+                />
+              ) : null}
             </ul>
           )}
         </CardContent>
@@ -296,6 +302,7 @@ function BorrowRow({
   onOpen: () => void;
   onRetryBalances?: () => void;
 }) {
+  const offering = useProductOffering();
   const icon = <GlyphMark size="sm"><HandCoins /></GlyphMark>;
   if (summary.kind === "position") {
     return (
@@ -311,6 +318,19 @@ function BorrowRow({
         activateLabel="Open Borrow"
         readRetry={summary.value === null && onRetryBalances ? { label: "Retry Borrow balance", onRetry: onRetryBalances } : undefined}
         chevron={summary.value !== null}
+      />
+    );
+  }
+  if (summary.kind === "none" && summary.hasCollateral && !borrowEntryOffered(offering)) {
+    return (
+      <BalanceRow
+        icon={icon}
+        iconTone="mark"
+        label="Collateral"
+        context="Manage in Borrow"
+        onActivate={onOpen}
+        activateLabel="Open Borrow"
+        chevron
       />
     );
   }
