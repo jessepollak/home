@@ -260,6 +260,62 @@ const transparentExpression = new Set([
   "TSTypeAssertion",
 ]);
 
+function valueDefinitions(variable) {
+  const values = variable.defs.filter((definition) => definition.type !== "Type");
+  const implemented = values.some((definition) => definition.type === "FunctionName" && definition.node?.type !== "TSDeclareFunction");
+  return implemented
+    ? values.filter((definition) => !(definition.type === "FunctionName" && definition.node?.type === "TSDeclareFunction"))
+    : values;
+}
+
+function findValueVariable(state, identifier) {
+  let scope = state.sourceCode.getScope(identifier);
+  while (scope) {
+    const variable = scope.set.get(identifier.name);
+    if (variable && (variable.defs.length === 0 || valueDefinitions(variable).length > 0)) return variable;
+    scope = scope.upper;
+  }
+  return null;
+}
+
+function isUndeclared(state, identifier) {
+  const variable = findValueVariable(state, identifier);
+  return !variable || variable.defs.length === 0;
+}
+
+function isPromiseSettlementParameter(state, fn, identifier) {
+  if (![0, 1].some((index) => fn?.params?.[index]?.type === "Identifier"
+    && fn.params[index].start === identifier.start)) return false;
+  let current = fn;
+  while (current.parent && transparentWrappers.has(current.parent.type)) current = current.parent;
+  const parent = current.parent;
+  const constructor = unwrapTransparent(parent?.callee);
+  return parent?.type === "NewExpression" && parent.arguments[0] === current
+    && constructor?.type === "Identifier" && constructor.name === "Promise" && isUndeclared(state, constructor);
+}
+
+function boundRecoveryCallee(state, callee) {
+  const variable = findValueVariable(state, callee);
+  if (!variable || variable.defs.length === 0) return true;
+  const definitions = valueDefinitions(variable);
+  if (definitions.length !== 1) return false;
+  const [definition] = definitions;
+  const writes = variable.references.filter((reference) => reference.isWrite());
+  if (writes.length > 1 || writes.some((reference) => reference.identifier.start !== definition.name?.start)) return false;
+  if (definition.type === "ImportBinding") return true;
+  if (definition.type === "Parameter") return isPromiseSettlementParameter(state, definition.node, definition.name);
+  if (definition.type !== "Variable" || definition.node?.type !== "VariableDeclarator") return false;
+  let init = unwrapTransparent(definition.node.init);
+  if (init?.type === "AwaitExpression") init = unwrapTransparent(init.argument);
+  return init?.type === "CallExpression";
+}
+
+function recoveryCallDisposes(state, node, name) {
+  if (node.optional || !name || !recoveryCall.test(name)) return false;
+  const callee = unwrapTransparent(node.callee);
+  return callee?.type !== "Identifier" || boundRecoveryCallee(state, callee);
+}
+
 function localHelperDisposes(state, identifier) {
   if (state.skipHelpers) return false;
   const name = identifier.name;
@@ -269,12 +325,15 @@ function localHelperDisposes(state, identifier) {
   }
   const entries = state.localFunctions.get(name);
   if (!entries) return false;
-  const variable = findVariable(state, identifier);
+  const variable = findValueVariable(state, identifier);
   if (!variable) return false;
   const owned = entries.filter((entry) => variable.defs.some((definition) =>
     (definition.type === "FunctionName" || definition.type === "Variable")
       && definition.node === entry.node));
-  if (owned.length === 0 || owned.some((entry) => entry.body.parent?.generator === true)) return false;
+  if (owned.length === 0 || owned.length !== valueDefinitions(variable).length
+    || owned.some((entry) => entry.body.parent?.generator === true)) return false;
+  const declaredAt = new Set(owned.map((entry) => entry.node.id?.start));
+  if (variable.references.some((reference) => reference.isWrite() && !declaredAt.has(reference.identifier.start))) return false;
   state.stack.add(name);
   const disposes = owned.every((entry) => entry.body.type === "BlockStatement"
     ? blockOutcomes(state, entry.body, true) === 0
@@ -495,7 +554,7 @@ function expressionHasDisposition(state, node) {
         && surfacedTelemetryWrite(node);
     }
     if (state.requireReport) return false;
-    if (!node.optional && name && recoveryCall.test(name)) return true;
+    if (recoveryCallDisposes(state, node, name)) return true;
     return !node.optional && node.arguments.some((argument) =>
       argument.type !== "SpreadElement"
         ? expressionHasDisposition(state, argument)
@@ -830,8 +889,9 @@ export const noSilentCatch = {
       },
       VariableDeclarator(node) {
         if (node.id.type !== "Identifier" || !node.init) return;
-        if (node.init.type === "ArrowFunctionExpression" || node.init.type === "FunctionExpression") {
-          addLocalFunction(node.id.name, node, node.init.body);
+        const init = unwrapTransparent(node.init);
+        if (init?.type === "ArrowFunctionExpression" || init?.type === "FunctionExpression") {
+          addLocalFunction(node.id.name, node, init.body);
         }
       },
       CatchClause(node) {
