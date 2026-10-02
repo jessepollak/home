@@ -95,7 +95,13 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     let frame = 0;
     let quietTimer: ReturnType<typeof setTimeout> | null = null;
     let expiry: ReturnType<typeof setTimeout> | null = null;
-    const clearExpiry = () => { if (expiry) { clearTimeout(expiry); expiry = null; } };
+    const clearExpiry = () => { if (expiry !== null) { clearTimeout(expiry); expiry = null; } };
+    const cancel = () => {
+      pending = null;
+      clearExpiry();
+      cancelAnimationFrame(frame);
+      frame = 0;
+    };
     const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
 
     const persist = () => {
@@ -128,11 +134,13 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     };
     const attempt = () => {
       frame = 0;
-      if (!pending || path.current !== pending.path || window.location.pathname !== pending.path) return;
+      if (!pending) return;
+      if (window.location.pathname !== pending.path) { cancel(); return; }
+      if (path.current !== pending.path) return;
       const target = pending;
       if (performance.now() - target.started > 5_000) {
-        pending = null;
-        clearExpiry();
+        cancel();
+        persist();
         return;
       }
       window.scrollTo(0, target.y);
@@ -152,13 +160,15 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
         const delta = row.getBoundingClientRect().top - anchor.top;
         if (Math.abs(delta) > 1) window.scrollBy(0, delta);
       }
-      pending = null;
-      clearExpiry();
+      cancel();
     };
     const requestAttempt = () => {
       if (pending && !frame) frame = requestAnimationFrame(() => { frame = requestAnimationFrame(attempt); });
     };
-    schedule.current = requestAttempt;
+    schedule.current = () => {
+      if (pending && path.current !== pending.path) cancel();
+      else requestAttempt();
+    };
     const onKeyMissing = (event: Event) => {
       if (!(event instanceof CustomEvent) || !isRecord(event.detail)) return;
       const key = event.detail.key;
@@ -169,18 +179,18 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     const onPop = (event: PopStateEvent) => {
       const saved = scopedSavedScroll(event.state, owner.current);
       if (!saved && path.current === window.location.pathname) return;
+      cancel();
       pending = saved ? { ...saved, path: window.location.pathname, started: performance.now() } : null;
       window.scrollTo(0, saved ? saved.y : 0);
       requestAttempt();
-      clearExpiry();
       const target = pending;
       if (target) expiry = setTimeout(() => {
         if (pending !== target) return;
-        pending = null;
+        cancel();
+        if (path.current !== target.path || window.location.pathname !== target.path || owner.current !== target.owner) return;
         persist();
       }, 5_000);
     };
-    const cancel = () => { pending = null; clearExpiry(); };
     cancelPending.current = cancel;
     const onKey = (event: KeyboardEvent) => {
       if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) cancel();
@@ -209,9 +219,9 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       schedule.current = () => {};
-      cancelAnimationFrame(frame);
+      cancelPending.current = () => {};
+      cancel();
       clearTimeout(quietTimer ?? undefined);
-      clearExpiry();
       observer.disconnect();
       resize.disconnect();
       window.removeEventListener("scrollend", persist);
