@@ -38,6 +38,14 @@ async function lintTestFile(filename, code) {
     diagnostic.code === "home(no-test-support-imports)");
 }
 
+function conditionalSpecifier(count) {
+  const prefixes = Array.from({ length: count - 1 }, (_, index) => `./prefix${index}/zz`)
+    .reduceRight((tail, prefix, index) => `(prefixFlag${index} ? ${JSON.stringify(prefix)} : ${tail})`, '"./te"');
+  const suffixes = Array.from({ length: count - 1 }, (_, index) => `zz${index}`)
+    .reduceRight((tail, suffix, index) => `(suffixFlag${index} ? ${JSON.stringify(suffix)} : ${tail})`, '"sts/helper"');
+  return `export const load = import("" + ${prefixes} + ${suffixes});`;
+}
+
 describe("no-test-support-imports", () => {
   it("ignores checkout ancestry while rejecting test-support paths", async () => {
     expect(await lintTestFile("client/clean-relative.ts", 'export * from "./live";')).toHaveLength(0);
@@ -51,5 +59,39 @@ describe("no-test-support-imports", () => {
 
   it("rejects test-harness targets beneath a testing ancestor", async () => {
     expect(await lintTestFile("client/harness-consumer.ts", 'export * from "./probe-test-harness";')).toHaveLength(1);
+  }, budgetMs);
+
+  it("rejects cross-operand test-support joins beyond the analysis bounds", async () => {
+    expect(await lintTestFile("client/bounded-specifier.ts", conditionalSpecifier(65))).toHaveLength(1);
+  }, budgetMs);
+
+  it("bounds work across repeated binary conditional fragments", async () => {
+    const prefixes = Array.from({ length: 20 }, (_, index) => `(prefixFlag${index} ? "./te" : "./zz")`).join(" + ");
+    const suffixes = Array.from({ length: 20 }, (_, index) => `(suffixFlag${index} ? "sts/helper" : "zz")`).join(" + ");
+    expect(await lintTestFile("client/repeated-specifier.ts", `export const load = import(${prefixes} + ${suffixes});`)).toHaveLength(1);
+  }, budgetMs);
+
+  it("bounds segment work without conditional alternatives or known test-support fragments", async () => {
+    const specifier = (count) => `export const load = import(\`${Array.from({ length: count }, (_, index) => `\${part${index}}`).join("")}\`);`;
+    expect(await lintTestFile("client/work-only-specifier.ts", specifier(80))).toHaveLength(1);
+    expect(await lintTestFile("client/work-control-specifier.ts", specifier(8))).toHaveLength(0);
+  }, budgetMs);
+
+  it("bounds segment work across a long template chain", async () => {
+    const parts = Array.from({ length: 24000 }, (_, index) => `p${index}\${part${index}}`).join("");
+    const start = performance.now();
+    const diagnostics = await lintTestFile("client/long-template-specifier.ts", `export const load = import(\`${parts}\`);`);
+    const elapsed = performance.now() - start;
+    console.info(`long template lint: ${elapsed.toFixed(3)} ms`);
+    expect(diagnostics).toHaveLength(1);
+    expect(elapsed).toBeLessThan(5000);
+  }, budgetMs);
+
+  it("re-forms cross-operand test-support joins within the analysis bounds", async () => {
+    expect(await lintTestFile("client/joined-specifier.ts", conditionalSpecifier(10))).toHaveLength(1);
+  }, budgetMs);
+
+  it("keeps bounded conditional fragments without test-support joins clean", async () => {
+    expect(await lintTestFile("client/conditional-clean.ts", 'export const load = import("" + (flag0 ? "./live/" : "./other/") + (flag1 ? "row" : "item") + (flag2 ? ".js" : ".ts"));')).toHaveLength(0);
   }, budgetMs);
 });
