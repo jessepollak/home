@@ -2,26 +2,28 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
-  BOUNDARY_EXCLUDED_FILES, BOUNDARY_EXTENSIONS, BOUNDARY_EXTENSIONS_GLOB, BOUNDARY_IGNORE_PATTERNS, BOUNDARY_INVENTORY_EXCEPTIONS, BOUNDARY_RULE, BOUNDARY_RULES, FENCED_LAYERS,
+  BOUNDARY_EXCLUDED_FILES, BOUNDARY_EXTENSIONS, BOUNDARY_EXTENSIONS_GLOB, BOUNDARY_IGNORE_PATTERNS, BOUNDARY_INVENTORY_EXCEPTIONS, BOUNDARY_RULE, BOUNDARY_RULES, FENCED_LAYERS, ROOT_CATCH_ALL,
   evaluateBoundaryConfig, evaluateBoundaryExemptions, evaluateBoundaryInventory, existingBoundaryPaths, expectedBoundaryFiles, isPreclassifiedRootFile, rootSourceFiles, topLevelSourceDirectories,
 } from "../exploration-boundary.mjs";
 
+const ts = createRequire(new URL("../../../apps/web/package.json", import.meta.url))("typescript");
 const root = fileURLToPath(new URL("../../..", import.meta.url));
 const exemptionsUrl = new URL("../exploration-boundary-exemptions.json", import.meta.url);
 const clean = { requiredFence: [], requiredRootFence: [], exempt: [], exemptRootFiles: [], preclassifiedRootFiles: [], stale: [], invalid: [] };
-const cleanBoundary = { owners: 1, severities: ["deny"], missingRules: [], unenforcedRules: [], missing: [], unexpected: [], missingExclusions: [], unexpectedExclusions: [], missingIgnores: [], unexpectedIgnores: [] };
+const cleanBoundary = { owners: 1, severities: ["error"], missingRules: [], unenforcedRules: [], missing: [], unexpected: [], missingExclusions: [], unexpectedExclusions: [], missingIgnores: [], unexpectedIgnores: [] };
 const cleanInventory = { unparsed: [], staleExceptions: [], invalidExceptions: [] };
 const missingBoundary = {
   ...cleanBoundary, owners: 0, severities: [], missingRules: [...BOUNDARY_RULES].sort(), missing: expectedBoundaryFiles().sort(), missingExclusions: [...BOUNDARY_EXCLUDED_FILES].sort(),
 };
 
 function boundaryOverride(fields = {}) {
-  return { files: expectedBoundaryFiles(), excludeFiles: BOUNDARY_EXCLUDED_FILES, rules: Object.fromEntries(BOUNDARY_RULES.map((rule) => [rule, "deny"])), ...fields };
+  return { files: expectedBoundaryFiles(), excludeFiles: BOUNDARY_EXCLUDED_FILES, rules: Object.fromEntries(BOUNDARY_RULES.map((rule) => [rule, "error"])), ...fields };
 }
 
 async function realBoundary() {
@@ -80,16 +82,16 @@ test("tracked and new source directories and root files are fenced or reasonedly
 test("the real oxlint config has exactly the canonical exploration boundary patterns", async () => {
   for (const filename of [".eslintignore", ".oxlintignore"]) {
     assert.equal(existsSync(path.join(root, "apps/web", filename)), false,
-      `${filename}: an additional ignore file may not prevent production source from being selected for linting; oxlint merges such files into the printed configuration, so remove the file or add an explicit reasoned entry instead`);
+      `${filename}: an additional ignore file may not prevent production source from being selected for linting; oxlint merges such files into the effective configuration, so remove the file or add an explicit reasoned entry instead`);
   }
-  const result = spawnSync(path.join(root, "apps/web/node_modules/.bin/oxlint"),
-    ["-c", ".oxlintrc.jsonc", "--disable-nested-config", "--print-config"],
-    { cwd: path.join(root, "apps/web"), encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr || result.error?.message);
-  const parsed = JSON.parse(result.stdout);
-  assert.ok(Array.isArray(parsed.overrides) && parsed.overrides.length > 0, "printed config must contain overrides");
+  const parsed = ts.parseConfigFileTextToJson("apps/web/.oxlintrc.jsonc",
+    await readFile(new URL("../../../apps/web/.oxlintrc.jsonc", import.meta.url), "utf8"));
+  assert.equal(parsed.error, undefined, parsed.error && ts.flattenDiagnosticMessageText(parsed.error.messageText, " "));
+  assert.equal(Object.hasOwn(parsed.config, "extends"), false,
+    "the boundary contract reads this config directly; an inherited config can add a second owner or an unanchored root pattern, so resolve extends in this contract before using it");
+  assert.ok(Array.isArray(parsed.config.overrides) && parsed.config.overrides.length > 0, "the config must contain overrides");
   const { boundary: { exemptRootFiles } } = await realBoundary();
-  assert.deepEqual(evaluateBoundaryConfig({ overrides: parsed.overrides, ignorePatterns: parsed.ignorePatterns, exemptRootFiles }), cleanBoundary);
+  assert.deepEqual(evaluateBoundaryConfig({ overrides: parsed.config.overrides, ignorePatterns: parsed.config.ignorePatterns, exemptRootFiles }), cleanBoundary);
 });
 
 test("oxlint selects every git-visible lintable source for linting except reasoned inventory exceptions", () => {
@@ -184,7 +186,7 @@ test("one exactly matching boundary override passes", () => {
 });
 
 test("a single-rule boundary owner reports the missing sibling rules", () => {
-  const overrides = [boundaryOverride({ rules: { [BOUNDARY_RULE]: "deny" } })];
+  const overrides = [boundaryOverride({ rules: { [BOUNDARY_RULE]: "error" } })];
   assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }),
     { ...cleanBoundary, missingRules: BOUNDARY_RULES.filter((rule) => rule !== BOUNDARY_RULE).sort() });
 });
@@ -192,34 +194,34 @@ test("a single-rule boundary owner reports the missing sibling rules", () => {
 test("a sibling rule moved to a second override reports two owners with no missing rules", () => {
   const sibling = "home/no-test-support-imports";
   const overrides = [
-    boundaryOverride({ rules: Object.fromEntries(BOUNDARY_RULES.filter((rule) => rule !== sibling).map((rule) => [rule, "deny"])) }),
-    { files: [`types/**/*.${BOUNDARY_EXTENSIONS_GLOB}`], rules: { [sibling]: "deny" } },
+    boundaryOverride({ rules: Object.fromEntries(BOUNDARY_RULES.filter((rule) => rule !== sibling).map((rule) => [rule, "error"])) }),
+    { files: [`types/**/*.${BOUNDARY_EXTENSIONS_GLOB}`], rules: { [sibling]: "error" } },
   ];
   assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }),
     { ...cleanBoundary, owners: 2, missingRules: [] });
 });
 
-test("a reasoned root-file exclusion passes after dot-slash normalization", () => {
+test("a reasoned root-file exclusion passes with its literal dot-slash anchor", () => {
   const excludeFiles = [...BOUNDARY_EXCLUDED_FILES, "./playwright.config.ts"];
   assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ excludeFiles })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS, exemptRootFiles: ["playwright.config.ts"] }), cleanBoundary);
 });
 
 test("a root-file exemption without its exclusion reports the missing exclusion", () => {
   assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride()], ignorePatterns: BOUNDARY_IGNORE_PATTERNS, exemptRootFiles: ["playwright.config.ts"] }),
-    { ...cleanBoundary, missingExclusions: ["playwright.config.ts"] });
+    { ...cleanBoundary, missingExclusions: ["./playwright.config.ts"] });
 });
 
 test("a root-file exclusion without its exemption reports the unexpected exclusion", () => {
   const excludeFiles = [...BOUNDARY_EXCLUDED_FILES, "./playwright.config.ts"];
   assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ excludeFiles })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS }),
-    { ...cleanBoundary, unexpectedExclusions: ["playwright.config.ts"] });
+    { ...cleanBoundary, unexpectedExclusions: ["./playwright.config.ts"] });
 });
 
 test("an unescaped root-file glob exclusion without an exemption is unexpected", () => {
   const excludeFiles = [...BOUNDARY_EXCLUDED_FILES, "./verify[1].ts"];
   const { exemptRootFiles } = evaluateBoundaryExemptions({ directories: [], rootFiles: ["verify[1].ts", "verify1.ts"], exemptions: [] });
   assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ excludeFiles })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS, exemptRootFiles }),
-    { ...cleanBoundary, unexpectedExclusions: ["verify[1].ts"] });
+    { ...cleanBoundary, unexpectedExclusions: ["./verify[1].ts"] });
 });
 
 test("an added production exclusion reports the unexpected exclusion", () => {
@@ -277,13 +279,13 @@ test("every boundary rule must keep an enforcing severity", () => {
 
 test("a second masking override reports both owners and sorted severities", () => {
   const overrides = [boundaryOverride(), boundaryOverride({ rules: { [BOUNDARY_RULE]: "allow" } })];
-  assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }), { ...cleanBoundary, owners: 2, severities: ["allow", "deny"], unenforcedRules: [BOUNDARY_RULE] });
+  assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }), { ...cleanBoundary, owners: 2, severities: ["allow", "error"], unenforcedRules: [BOUNDARY_RULE] });
 });
 
 test("canonical files split across two overrides still report two owners", () => {
   const files = expectedBoundaryFiles();
   const overrides = [boundaryOverride({ files: files.slice(0, 4) }), boundaryOverride({ files: files.slice(4) })];
-  assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }), { ...cleanBoundary, owners: 2, severities: ["deny", "deny"] });
+  assert.deepEqual(evaluateBoundaryConfig({ overrides, ignorePatterns: BOUNDARY_IGNORE_PATTERNS }), { ...cleanBoundary, owners: 2, severities: ["error", "error"] });
 });
 
 test("a narrowed types boundary reports the missing and unexpected patterns", () => {
@@ -301,11 +303,35 @@ test("an extra named root boundary reports raw and oxlint-normalized unexpected 
   }
 });
 
-test("a leading dot slash in files, exclusions, and ignores normalizes to the canonical fence", () => {
-  const files = expectedBoundaryFiles().map((pattern) => `./${pattern}`);
+test("nested patterns and ignores normalize while root patterns keep their literal anchors", () => {
+  const files = expectedBoundaryFiles().map((pattern) => pattern === ROOT_CATCH_ALL ? pattern : `./${pattern}`);
   const excludeFiles = BOUNDARY_EXCLUDED_FILES.map((pattern) => `./${pattern}`);
   const ignorePatterns = BOUNDARY_IGNORE_PATTERNS.map((pattern) => `./${pattern}`);
   assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ files, excludeFiles })], ignorePatterns }), cleanBoundary);
+});
+
+test("the root catch-all without its literal dot-slash anchor fails the boundary contract", () => {
+  const files = expectedBoundaryFiles().map((pattern) => pattern === ROOT_CATCH_ALL ? ROOT_CATCH_ALL.slice(2) : pattern);
+  assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ files })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS }),
+    { ...cleanBoundary, missing: [ROOT_CATCH_ALL], unexpected: [ROOT_CATCH_ALL.slice(2)] });
+});
+
+test("a double-anchored root catch-all fails the boundary contract", () => {
+  const files = expectedBoundaryFiles().map((pattern) => pattern === ROOT_CATCH_ALL ? `./${ROOT_CATCH_ALL}` : pattern);
+  assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ files })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS }),
+    { ...cleanBoundary, missing: [ROOT_CATCH_ALL], unexpected: [`./${ROOT_CATCH_ALL}`] });
+});
+
+test("a root-file exclusion without its literal dot-slash anchor fails the boundary contract", () => {
+  const excludeFiles = [...BOUNDARY_EXCLUDED_FILES, "playwright.config.ts"];
+  assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ excludeFiles })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS, exemptRootFiles: ["playwright.config.ts"] }),
+    { ...cleanBoundary, missingExclusions: ["./playwright.config.ts"], unexpectedExclusions: ["playwright.config.ts"] });
+});
+
+test("a double-anchored root-file exclusion fails the boundary contract", () => {
+  const excludeFiles = [...BOUNDARY_EXCLUDED_FILES, "././playwright.config.ts"];
+  assert.deepEqual(evaluateBoundaryConfig({ overrides: [boundaryOverride({ excludeFiles })], ignorePatterns: BOUNDARY_IGNORE_PATTERNS, exemptRootFiles: ["playwright.config.ts"] }),
+    { ...cleanBoundary, missingExclusions: ["./playwright.config.ts"], unexpectedExclusions: ["././playwright.config.ts"] });
 });
 
 test("a config without a matching override reports every boundary pattern and exclusion missing", () => {

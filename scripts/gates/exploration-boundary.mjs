@@ -5,6 +5,7 @@ export const BOUNDARY_RULE = "home/no-exploration-imports";
 export const BOUNDARY_RULES = [BOUNDARY_RULE, "home/no-test-support-imports", "home/no-full-portfolio-presentation"];
 export const ENFORCING_SEVERITIES = new Set(["deny", "error", "warn", 1, 2]);
 export const BOUNDARY_EXTENSIONS_GLOB = "{js,jsx,mjs,cjs,ts,tsx,mts,cts}";
+export const ROOT_CATCH_ALL = `./*.${BOUNDARY_EXTENSIONS_GLOB}`;
 export const BOUNDARY_EXTENSIONS = [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"];
 export const BOUNDARY_EXCLUDED_FILES = [
   `**/*.stories.${BOUNDARY_EXTENSIONS_GLOB}`,
@@ -41,7 +42,7 @@ export function existingBoundaryPaths(paths, stat = lstatSync) {
 }
 
 export function expectedBoundaryFiles() {
-  return [...FENCED_LAYERS.map((layer) => `${layer}/**/*.${BOUNDARY_EXTENSIONS_GLOB}`), `*.${BOUNDARY_EXTENSIONS_GLOB}`];
+  return [...FENCED_LAYERS.map((layer) => `${layer}/**/*.${BOUNDARY_EXTENSIONS_GLOB}`), ROOT_CATCH_ALL];
 }
 
 export function evaluateBoundaryConfig({ overrides, ignorePatterns, exemptRootFiles = [] }) {
@@ -52,6 +53,10 @@ export function evaluateBoundaryConfig({ overrides, ignorePatterns, exemptRootFi
   const unenforcedRules = new Set();
   let owners = 0;
   const normalize = (pattern) => pattern.replace(/^\.\//, "");
+  const normalizeBoundaryPattern = (pattern) => {
+    const remainder = pattern.replace(/^\.\//, "");
+    return remainder.includes("/") && !remainder.startsWith("./") ? remainder : pattern;
+  };
   for (const override of Array.isArray(overrides) ? overrides : []) {
     if (override?.rules === null || typeof override?.rules !== "object" || !BOUNDARY_RULES.some((rule) => Object.hasOwn(override.rules, rule))) continue;
     owners += 1;
@@ -63,14 +68,14 @@ export function evaluateBoundaryConfig({ overrides, ignorePatterns, exemptRootFi
     }
     if (Object.hasOwn(override.rules, BOUNDARY_RULE)) severities.push(override.rules[BOUNDARY_RULE]);
     for (const pattern of Array.isArray(override.files) ? override.files : []) {
-      patterns.add(normalize(pattern));
+      patterns.add(normalizeBoundaryPattern(pattern));
     }
     for (const pattern of Array.isArray(override.excludeFiles) ? override.excludeFiles : []) {
-      exclusions.add(normalize(pattern));
+      exclusions.add(normalizeBoundaryPattern(pattern));
     }
   }
-  const expected = new Set(expectedBoundaryFiles().map(normalize));
-  const expectedExclusions = new Set([...BOUNDARY_EXCLUDED_FILES, ...exemptRootFiles.map((file) => `./${file}`)].map(normalize));
+  const expected = new Set(expectedBoundaryFiles().map(normalizeBoundaryPattern));
+  const expectedExclusions = new Set([...BOUNDARY_EXCLUDED_FILES, ...exemptRootFiles.map((file) => `./${file}`)].map(normalizeBoundaryPattern));
   const ignores = new Set((Array.isArray(ignorePatterns) ? ignorePatterns : []).map(normalize));
   const expectedIgnores = new Set(BOUNDARY_IGNORE_PATTERNS.map(normalize));
   return {
