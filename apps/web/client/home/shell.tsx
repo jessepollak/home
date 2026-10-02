@@ -223,10 +223,8 @@ function DashboardShellBody({
       row?.closest("button")?.focus({ preventScroll: true });
       return;
     }
-    holdingRestoreRef.current = restoreHoldingReturn(main, previous.holding, (restored) => {
+    holdingRestoreRef.current = restoreHoldingReturn(main, previous.holding, () => {
       holdingRestoreRef.current = null;
-      restored?.closest("button")?.focus({ preventScroll: true });
-      restored?.scrollIntoView({ block: "center", behavior: "auto" });
     });
   }, [location]);
   useEffect(() => () => {

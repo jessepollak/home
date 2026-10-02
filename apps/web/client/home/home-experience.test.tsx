@@ -1426,6 +1426,58 @@ describe("Home shell routing and intents", () => {
     });
   }
 
+  for (const action of ["focus Account", "focus Home", "wheel", "navigate Home"] as const) {
+    test(`asynchronous holding Back respects intervening ${action}`, async () => {
+      pendingSelectionReady = true;
+      const originalObserver = globalThis.MutationObserver;
+      const callbacks = new Set<() => void>();
+      globalThis.MutationObserver = class extends originalObserver {
+        callback: () => void;
+        constructor(callback: MutationCallback) { super(callback); this.callback = () => callback([], this); }
+        observe(target: Node, options?: MutationObserverInit) {
+          if (target instanceof HTMLElement && target.tagName === "MAIN" && options?.attributeFilter?.includes("aria-busy")) callbacks.add(this.callback);
+        }
+        disconnect() { callbacks.delete(this.callback); }
+      };
+      try {
+        render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+          assetBalances={fundedInvestments()} investmentsContent={PendingInvestmentsFixture} />);
+        await waitForVerifiedShell();
+        fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+        fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
+        await page().findByRole("region", { name: "Holding detail" });
+        fireEvent.click(page().getByRole("button", { name: "Back" }));
+        const section = page().getByRole("region", { name: "Your investments" });
+        expect(section.getAttribute("aria-busy")).toBe("true");
+        const homeButton = within(tabsNavigation()).getByRole("button", { name: "Home" });
+        const target = action === "focus Account" ? page().getByRole("button", { name: "Account" }) : homeButton;
+        const lateCallbacks = [...callbacks];
+        expect(lateCallbacks.length).toBeGreaterThan(0);
+        if (action === "navigate Home") {
+          fireEvent.click(homeButton);
+          expect(window.location.pathname).toBe("/home");
+          expect(callbacks.size).toBe(0);
+          const lateFocus = document.activeElement;
+          act(() => { section.setAttribute("aria-busy", "false"); for (const callback of lateCallbacks) callback(); });
+          expect(document.activeElement).toBe(lateFocus);
+          expect(page().queryByRole("button", { name: "Ethereum row" })).toBeNull();
+          return;
+        }
+        if (action === "wheel") fireEvent.wheel(page().getByRole("main"));
+        else act(() => target.focus());
+        fireEvent.click(page().getByRole("button", { name: "Finish selection" }));
+        const button = page().getByRole("button", { name: "Ethereum row" });
+        const row = button.querySelector<HTMLElement>("[data-holding-key]");
+        if (!row) throw new Error("Missing Ethereum holding key");
+        const scroll = mock(() => {});
+        row.scrollIntoView = scroll;
+        act(() => { for (const callback of lateCallbacks) callback(); });
+        expect(document.activeElement).toBe(action === "wheel" ? button : target);
+        expect(scroll).not.toHaveBeenCalled();
+      } finally { globalThis.MutationObserver = originalObserver; }
+    });
+  }
+
   test("cold holding detail replaces to the list, focuses and scrolls its row", async () => {
     syncLocation(INVESTMENT_PATH);
     historyEntries = [INVESTMENT_PATH];
