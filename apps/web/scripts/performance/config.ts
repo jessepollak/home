@@ -11,6 +11,8 @@ export const repetitions = 3;
 // Structural failures first, then timing breaches. Seeded runs take a reduced sample and record no traces.
 export const maxTracedScenarios = 3;
 export const navigationCycles = 10;
+export const navigationAttributionRows = 300;
+export const navigationTraceCategories = "devtools.timeline,disabled-by-default-devtools.timeline,disabled-by-default-devtools.timeline.frame,blink.user_timing,benchmark,cc,viz,gpu,renderer.scheduler";
 export const modalCycles = 10;
 export const flingDistance = 6000;
 export const navigationSettleMs = 75;

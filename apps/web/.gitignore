@@ -18,6 +18,7 @@
 
 # next.js
 /.next/
+/.next-profiling/
 /out/
 
 # production
