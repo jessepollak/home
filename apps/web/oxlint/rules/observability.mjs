@@ -327,21 +327,62 @@ function delegatedTelemetryCall(state, expression) {
     && isWithin(state.telemetryCallback, argument));
 }
 
-function finalizerInterruptsReturn(node) {
-  if (!node || typeof node !== "object") return false;
-  if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type)) return false;
-  if (visiblyDivergentLoop(node)) return true;
-  if (node.type === "ReturnStatement" || node.type === "AwaitExpression"
+function immediateInvocation(node) {
+  let current = node;
+  while (current.parent && transparentWrappers.has(current.parent.type)) current = current.parent;
+  return current.parent?.type === "CallExpression" && current.parent.callee === current;
+}
+
+function isFunctionNode(node) {
+  return ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(node.type);
+}
+
+function invokedFunctionDiscards(node, limit) {
+  if (!immediateInvocation(node)) return false;
+  if (node.async && !node.generator) return false;
+  if (node.params.some((param) => invokedFunctionInterrupts(param, limit))) return true;
+  return !node.generator && invokedFunctionInterrupts(node.body, limit);
+}
+
+function invokedFunctionInterrupts(node, limit) {
+  if (!node || typeof node !== "object" || node.start >= limit) return false;
+  if (isFunctionNode(node)) return invokedFunctionDiscards(node, limit);
+  if (node.type === "ThrowStatement"
+    || (node.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using"))) return true;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "parent" || !value) continue;
+    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) {
+      if (node.type === "PropertyDefinition" && node.static && invokedFunctionInterrupts(value, limit)) return true;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      if (value.some((child) => invokedFunctionInterrupts(child, limit))) return true;
+    } else if (typeof value === "object" && invokedFunctionInterrupts(value, limit)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function finalizerInterruptsReturn(node, limit = Infinity) {
+  if (!node || typeof node !== "object" || node.start >= limit) return false;
+  if (limit !== Infinity && node.type === "ReturnStatement") return false;
+  if (isFunctionNode(node)) return invokedFunctionDiscards(node, limit);
+  if (visiblyDivergentLoop(node) && node.end <= limit) return true;
+  if ((node.type === "ReturnStatement" && limit === Infinity) || node.type === "AwaitExpression"
     || node.type === "BreakStatement" || node.type === "ContinueStatement"
     || node.type === "ThrowStatement"
     || (node.type === "VariableDeclaration" && (node.kind === "using" || node.kind === "await using"))
     || (node.type === "ForOfStatement" && node.await)) return true;
   for (const [key, value] of Object.entries(node)) {
     if (key === "parent" || !value) continue;
-    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) continue;
+    if (key === "value" && ["MethodDefinition", "PropertyDefinition", "AccessorProperty"].includes(node.type)) {
+      if (node.type === "PropertyDefinition" && node.static && finalizerInterruptsReturn(value, limit)) return true;
+      continue;
+    }
     if (Array.isArray(value)) {
-      if (value.some(finalizerInterruptsReturn)) return true;
-    } else if (typeof value === "object" && finalizerInterruptsReturn(value)) {
+      if (value.some((child) => finalizerInterruptsReturn(child, limit))) return true;
+    } else if (typeof value === "object" && finalizerInterruptsReturn(value, limit)) {
       return true;
     }
   }
@@ -353,8 +394,13 @@ function hasInterruptingFinalizer(node) {
   while (current.parent) {
     const parent = current.parent;
     if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
-    if (parent.type === "TryStatement" && parent.finalizer && parent.finalizer !== current
-      && finalizerInterruptsReturn(parent.finalizer)) return true;
+    if (parent.type === "TryStatement" && parent.finalizer) {
+      if (parent.finalizer !== current) {
+        if (finalizerInterruptsReturn(parent.finalizer)) return true;
+      } else if (finalizerInterruptsReturn(current, node.start)) {
+        return true;
+      }
+    }
     current = parent;
   }
   return false;
@@ -387,12 +433,23 @@ function pendingUsingScope(node) {
   return false;
 }
 
+function pendingIteratorCloseScope(node) {
+  let current = node;
+  while (current.parent) {
+    const parent = current.parent;
+    if (["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(parent.type)) break;
+    if (parent.type === "ForOfStatement") return true;
+    current = parent;
+  }
+  return false;
+}
+
 function surfacedTelemetryWrite(node) {
   let current = node;
   while (current.parent) {
     const parent = current.parent;
     if (parent.type === "AwaitExpression") return true;
-    if (parent.type === "ReturnStatement") return !hasInterruptingFinalizer(parent) && !pendingUsingScope(parent);
+    if (parent.type === "ReturnStatement") return !hasInterruptingFinalizer(parent) && !pendingUsingScope(parent) && !pendingIteratorCloseScope(parent);
     if ((parent.type === "ArrowFunctionExpression" || parent.type === "FunctionExpression")
       && parent.body === current) return true;
     if (transparentWrappers.has(parent.type)) {
@@ -598,6 +655,7 @@ function computeStatementOutcomes(state, node, inHelper) {
   if (node.type === "DoWhileStatement") {
     return statementOutcomes(state, node.body, inHelper);
   }
+  if (node.type === "ForOfStatement") return state.requireReport ? exitsWithoutDisposition : fallsThrough | statementOutcomes(state, node.body, inHelper);
   if (state.requireReport) return exitsWithoutDisposition;
   return fallsThrough;
 }

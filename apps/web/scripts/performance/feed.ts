@@ -79,18 +79,20 @@ export async function fillFeed(session: Session, rows: number, filled: () => boo
     const until = Date.now() + 120_000;
     while (Date.now() < until) {
       if (filled() && await end.isVisible()) return;
-      await page.evaluate(() => {
-        const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
-        const root = document.scrollingElement ?? document.documentElement;
-        const scroller = main && ["auto", "scroll"].includes(getComputedStyle(main).overflowY) &&
-          main.scrollHeight > main.clientHeight + 1 ? main : root;
-        scroller.scrollTop = scroller.scrollHeight;
-      });
+      await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "bottom");
       await page.waitForTimeout(65);
     }
     throw new Error(`Feed fill timed out at ${rows} rows`);
   } finally { await setCpuRate(session, session.cpu.requested); }
 }
+export function scrollFeedTo(target: "top" | "bottom") {
+  const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+  const root = document.scrollingElement ?? document.documentElement;
+  const scroller = main && ["auto", "scroll"].includes(getComputedStyle(main).overflowY) &&
+    main.scrollHeight > main.clientHeight + 1 ? main : root;
+  scroller.scrollTop = target === "bottom" ? scroller.scrollHeight : 0;
+}
+
 export function feedScrollHost(position: { x: number; y: number }): { host: "document" | "main"; height: number; viewport: number } {
   const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
   const bounds = main?.getBoundingClientRect();

@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
+import { chromium, webkit, type Browser, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "../../tests/browser/fixtures/api";
 import { cpuThrottle, type GateId } from "./config";
 import { installPerformanceFixtures } from "./fixtures";
@@ -175,6 +175,7 @@ export async function inlineFixtureMark(page: Page) {
 }
 
 export async function launch() { return chromium.launch({ headless: true, channel: "chromium" }); }
+export async function launchWebKit() { return webkit.launch({ headless: true }); }
 
 export async function resourceSnapshot(session: Session) {
   await session.cdp.send("HeapProfiler.collectGarbage");
