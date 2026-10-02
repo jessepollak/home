@@ -21,6 +21,7 @@
     "ab": "bun scripts/verify/agent-browser.ts",
     "knip": "bun run --cwd apps/web knip",
     "worktree:bootstrap": "node scripts/worktree/bootstrap.mjs",
+    "worktree:verify-resolution": "node scripts/worktree/verify-resolution.mjs",
     "gates": "node scripts/gates/preflight.mjs && node --test scripts/gates/tests/*.test.mjs",
     "assertions:report": "node scripts/gates/type-assertions.mjs --report",
     "disables:shrink": "node scripts/gates/lint-disables.mjs --shrink",
