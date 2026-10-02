@@ -53,7 +53,7 @@ export function DashboardShell(props: DashboardShellProps) {
 
 function DashboardShellBody({
   children, investContent, cashContent, investmentsContent, cardsEnabled = false, initialAccountOpen = false,
-  initialAccountSettingsOpen = false, assetBalances,
+  initialAccountSettingsOpen = false, assetBalances, initialRateLabels,
   interruption = null, interruptionAnnouncement = null, onRetryInterruption,
   sendAvailability = [], canOpenAssetDetail = () => false, assetMarkResolution,
   showSmallBalances = false, onShowSmallBalancesChange = () => {},
@@ -335,7 +335,7 @@ function DashboardShellBody({
   const balanceRowRetry = headerStatus({ interruption, coverage: null })?.recovery === "none" ? undefined : retryHomeReads;
   const pageValue = {
     paintedAssetBalances, activitySession, fetchActivity: account.fetchActivity, fetchOperations: account.fetchOperations,
-    regionId, regionReady, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
+    regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
     showSmallBalances,
     cardsEnabled,
     cashContent, investContent, investmentsContent, onHomeDetailsOpenChange: setHomeDetailsOpen, onInvestmentsChromeChange: setInvestmentsChrome, openInvestmentHolding, closeInvestmentHolding, investmentsReturnHolding: location.panel === "investments" ? investmentsReturnHolding : null, openCashSavings,

@@ -29,6 +29,7 @@ import { useOptionalHomeShellRouting } from "./panel-routing";
 
 export function HomePanel({
   assetBalances,
+  initialRateLabels,
   activitySession,
   onRetryBalances,
   sessionSettling,
@@ -48,6 +49,7 @@ export function HomePanel({
   onDetailsOpenChange,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
+  initialRateLabels?: import("@/shared/balances/home-summary").HomeRateLabels;
   activitySession: VerifiedAccountSession | null;
   onRetryBalances?: () => void;
   sessionSettling: boolean;
@@ -87,8 +89,8 @@ export function HomePanel({
   const wallet = useAccountWallet();
   const knownDisplay = assetBalances?.status === "ready";
   const rates = useHomeRateLabels({
-    owner: knownDisplay && regionReady && wallet.verification && wallet.session?.smartAccount ? dataOwnerKey(wallet.session) : null,
-    region: regionId, cash: cashRate, borrow: borrowRate,
+    owner: knownDisplay && (regionReady || initialRateLabels !== undefined) && wallet.verification && wallet.session?.smartAccount ? dataOwnerKey(wallet.session) : null,
+    region: regionId, cash: !regionReady && initialRateLabels !== undefined ? { ...cashRate, pending: true } : cashRate, borrow: borrowRate, initial: initialRateLabels,
   });
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const fundingPromptRef = useRef<HTMLButtonElement>(null);

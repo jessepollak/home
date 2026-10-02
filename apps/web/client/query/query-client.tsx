@@ -1,5 +1,7 @@
 "use client";
 
+import { clearHomeSummaryCookie } from "./home-summary-cookie";
+
 import {
   MutationCache,
   QueryClient,
@@ -297,6 +299,7 @@ export function clearOwnerQueryBoundary(
   storage?: Storage,
   preserveOwnerKey?: string,
 ): void {
+  if (!preserveOwnerKey) clearHomeSummaryCookie();
   ownerRestoreRevisions.set(queryClient, (ownerRestoreRevisions.get(queryClient) ?? 0) + 1);
   for (const listener of boundaryListeners.get(queryClient) ?? []) listener(preserveOwnerKey);
   clearBrowserIndexedOwnerCache(preserveOwnerKey);
