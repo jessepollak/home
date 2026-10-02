@@ -169,6 +169,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
   reveal?: CardReveal;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [detailsOpener, setDetailsOpener] = useState<HTMLElement | null>(null);
   const [revealed, setRevealed] = useState(false);
   const locked = card.status !== "active";
   const titleId = useId();
@@ -186,7 +187,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
       {showHold ? <HoldAlert description="New purchases are declined." /> : null}
       {canReveal ? (
         <Button size="touch" variant="outline" className="w-full" aria-label={single ? undefined : `Card details${detailsSuffix}`}
-          onClick={() => { setRevealed(true); setDetailsOpen(true); }}>
+          onClick={(event) => { setDetailsOpener(event.currentTarget); setRevealed(true); setDetailsOpen(true); }}>
           <Eye data-icon="inline-start" aria-hidden="true" />Card details
         </Button>
       ) : null}
@@ -199,7 +200,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
         </Card>
       </section>
       {reveal && canReveal ? (
-        <MoneyModal open={detailsOpen} labelledBy={titleId} onCancel={() => setDetailsOpen(false)} onClose={() => setRevealed(false)}>
+        <MoneyModal open={detailsOpen} opener={detailsOpener} labelledBy={titleId} onCancel={() => setDetailsOpen(false)} onClose={() => setRevealed(false)}>
           <MoneyModalStep step="details">
             <MoneyModalHeader title={`Card details${detailsSuffix}`} titleId={titleId} closeLabel="Close card details" />
             <MoneyModalBody className="gap-3 pt-4">

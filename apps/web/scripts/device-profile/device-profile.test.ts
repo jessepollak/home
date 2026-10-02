@@ -5,7 +5,20 @@ import { activityPage, syntheticActivity } from "./synthetic-activity";
 import { parseHistoryResponse, MARKET_PRICE_RANGES } from "../../shared/invest/contracts/market-price-history";
 import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, probeProxy, proxyOptions } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
-import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, waitForQuietFeed, androidFamily, androidView, type Result, type TraceEvent } from "./model";
+import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, detailTarget, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, runPartial, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, waitForQuietFeed, androidFamily, androidView, type Result, type Run, type TraceEvent } from "./model";
+
+const runFor = (overrides: Partial<Run> = {}): Run => ({
+  frameCount: 60, periodMs: 16.67, missedDeadlinePct: 0, longFramePct: 0, longFrameCount: 0,
+  frameMs: { p50: 16, p95: 17, p99: 20, max: 30 }, feedbackMs: [], blankCheck: { framesWithBlank: 0, maxBlankPx: 0 },
+  longTasks: { count: 0, totalMs: 0 }, loaf: { count: 0, totalMs: 0, blockingMs: 0 }, ...overrides,
+});
+const resultFor = (runs: Result["runs"], overrides: Partial<Result> = {}): Result => ({
+  version: 1,
+  plan: { workload: "activity-fling", rows: 300, label: "test", repeat: Math.max(1, runs.length), duration: 10 },
+  environment: { userAgent: "Chrome", viewport: { width: 390, height: 844 }, dpr: 3, standalone: false, navigatorStandalone: false, supportedEntryTypes: [] },
+  runs,
+  ...overrides,
+});
 
 test("synthetic generator keeps 25-transfer pagination and original deterministic row values", () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z"), data = syntheticActivity(300, anchor);
@@ -329,6 +342,17 @@ test("loaded activity rows prefer a positive setsize then the highest position t
   expect(feedComplete({ pending: [], end: false, partialSourceCount: 0, settled: 5 })).toBe(false);
 });
 
+test("detail targets select the nearest eligible row to the midpoint and skip grouped rows", () => {
+  const rows = [{ posinset: 1, detail: true }, { posinset: 4, detail: false }, { posinset: 5, detail: true }, { posinset: 7, detail: true }];
+  expect(detailTarget(rows, detailPosition(7))).toBe(5);
+  expect(detailTarget([{ posinset: 6, detail: true }, { posinset: 4, detail: true }], 5)).toBe(4);
+  expect(detailTarget([{ posinset: 4, detail: false }], 4)).toBeNull();
+  expect(detailTarget([], 4)).toBeNull();
+  const invalid = [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1].map((posinset) => ({ posinset, detail: true }));
+  expect(detailTarget(invalid, 1)).toBeNull();
+  expect(detailTarget([...invalid, { posinset: 3, detail: true }], 1)).toBe(3);
+});
+
 test("feed changes after the fill mark the measured run partial", () => {
   expect(feedChangeMarker(20, 20)).toBeNull();
   expect(feedChangeMarker(20, 24)).toBe("The measured activity feed changed during the run (20 to 24 rows)");
@@ -436,6 +460,7 @@ test("command flags reject unsupported options and ignored production flags", ()
   expect(parseArgs("android", ["--serial", "device", "--url", "https://x", "--trace", "/tmp/traces"])).toEqual({ flags: new Map([["serial", "device"], ["url", "https://x"], ["trace", "/tmp/traces"]]), paths: [] });
   expect(parseArgs("serve", ["--port", "4199", "--rows", "20"])).toEqual({ flags: new Map([["port", "4199"], ["rows", "20"]]), paths: [] });
   expect(parseArgs("summarize", ["one.json", "--markdown", "two.json"])).toEqual({ flags: new Map([["markdown", "true"]]), paths: ["one.json", "two.json"] });
+  expect(parseArgs("summarize", ["--include-partial", "one.json"])).toEqual({ flags: new Map([["include-partial", "true"]]), paths: ["one.json"] });
 });
 
 test("summary distinguishes measured production rows from fixture plan rows", () => {
@@ -447,7 +472,8 @@ test("summary distinguishes measured production rows from fixture plan rows", ()
   expect(summarize([result])).toContain("Chrome | activity-detail-open | 300 |");
   result.runs[0]!.partialSource = ["Onchain transfers are unavailable."];
   expect(summarize([result], true)).toContain("| Onchain transfers are unavailable. |");
-  expect(summarize([result], true)).toContain("| 300 | 16.67 | 0 | 0 | 17 | — | — | 0 | Onchain transfers are unavailable. |");
+  expect(summarize([result], true)).toContain("| excluded 1/1 partial |");
+  expect(summarize([result], true, true)).toContain("| 300 | — | 16.67 | 0 | 0 | 17 | — | — | 0 | Onchain transfers are unavailable. |");
 });
 
 test("summary computes percentiles, median, trace totals and replaceState count", () => {
@@ -455,14 +481,71 @@ test("summary computes percentiles, median, trace totals and replaceState count"
   expect(percentile([10, 40, 20, 30], 0.95)).toBe(40);
   expect(safeName("../../unsafe")).toBe("______unsafe");
   const result = { environment: { userAgent: "Safari", fixture: { tokenImages: "omitted" } }, plan: { workload: "replace-state-probe", rows: 20 }, runs: [{ periodMs: 16.67, missedDeadlinePct: 5, longFrameCount: 1, frameMs: { p95: 20 }, feedbackMs: [5, 10, 20], replaceState: [{ errors: [{ name: "SecurityError", message: "limited" }] }] }] } as Result;
-  expect(summarize([result], true)).toContain("| Safari | replace-state-probe | 20 | 16.67 | 5 | 1 | 20 | 10 | — | 1 | — |");
+  expect(summarize([result], true)).toContain("| Safari | replace-state-probe | 20 | — | 16.67 | 5 | 1 | 20 | 10 | — | 1 | — |");
   const fling = { environment: { userAgent: "Chrome", fixture: { tokenImages: "omitted" } }, plan: { workload: "home-fling", rows: 20 }, runs: [{ periodMs: 16.67, missedDeadlinePct: 0, longFrameCount: 0, frameMs: { p95: 17 }, feedbackMs: [] as number[] }] } as Result;
-  expect(summarize([fling], true)).toContain("| Chrome | home-fling | 20 | 16.67 | 0 | 0 | 17 | — | — | 0 | — |");
+  expect(summarize([fling], true)).toContain("| Chrome | home-fling | 20 | — | 16.67 | 0 | 0 | 17 | — | — | 0 | — |");
   const table = summarize([fling], true).split("\n");
   const cells = (line: string) => line.split("|").length;
-  expect(cells(table[0]!)).toBe(14);
+  expect(cells(table[0]!)).toBe(15);
   expect(cells(table[1]!)).toBe(cells(table[0]!));
   expect(cells(table[2]!)).toBe(cells(table[0]!));
+});
+
+test("summary excludes partial measurements by default and includes them on request", () => {
+  const run = runFor({ periodMs: 16.67, missedDeadlinePct: 9, longFrameCount: 2, frameMs: { p50: 16, p95: 40, p99: 50, max: 60 }, rowsLoaded: 151, groupedRows: 2, underlyingRows: 153, partial: true, partialSource: ["Activity source orders reported error"] });
+  const result = resultFor([run], { plan: { workload: "activity-fling", rows: 300, label: "test", repeat: 1, duration: 10 } });
+  const excluded = summarize([result], true).split("\n"), included = summarize([result], true, true).split("\n");
+  expect(excluded).toHaveLength(3);
+  expect(excluded.at(-1)).toBe("| Chrome | activity-fling | — | — | — | — | — | — | — | — | — | Activity source orders reported error | excluded 1/1 partial |");
+  expect(included).toHaveLength(3);
+  expect(included.at(-1)).toBe("| Chrome | activity-fling | 151 | 2/153 | 16.67 | 9 | 2 | 40 | — | — | 0 | Activity source orders reported error | ok 1/1 |");
+  expect(included.at(0)).toContain("| Rows | Grouped/underlying | Period ms |");
+  for (const table of [excluded, included]) for (const line of table) expect(line.split("|")).toHaveLength(15);
+  expect(runPartial(run)).toBe(true);
+  run.partial = undefined;
+  expect(runPartial(run)).toBe(true);
+  expect(summarize([result])).toContain("excluded 1/1 partial");
+  run.partialSource = undefined;
+  expect(runPartial(run)).toBe(false);
+  run.partial = true;
+  expect(summarize([result])).toContain("| — | excluded 1/1 partial");
+});
+
+test("summary preserves failures and incomplete results when every run is excluded as partial", () => {
+  const run = runFor({ partial: true, partialSource: ["Orders unavailable"] });
+  const cases: [Partial<Result>, string][] = [
+    [{ error: "Timed out | waiting\nfor rows" }, "failed 1/3: Timed out waiting for rows"],
+    [{}, "incomplete 1/3"],
+  ];
+  for (const [overrides, status] of cases) {
+    const result = resultFor([run], { plan: { workload: "activity-fling", rows: 300, label: "test", repeat: 3, duration: 10 }, ...overrides });
+    const summary = summarize([result]);
+    expect(summary.split("\n")).toHaveLength(2);
+    expect(summary).toContain(`excluded 1/3 partial; ${status}`);
+    const markdown = summarize([result], true).split("\n");
+    expect(markdown).toHaveLength(3);
+    expect(markdown.at(-1)).toEndWith(`| Orders unavailable | excluded 1/3 partial; ${status} |`);
+    for (const line of markdown) expect(line.split("|")).toHaveLength(15);
+  }
+});
+
+test("summary aggregates unique partial sources after measured rows with consistent cells", () => {
+  const plain = runFor();
+  const run = runFor({ partialSource: ["Orders unavailable", "Transfers unavailable"] });
+  const partial = runFor({ partial: true, partialSource: ["Orders unavailable"] });
+  const result = resultFor([run, plain, partial], { plan: { workload: "activity-fling", rows: 300, label: "test", repeat: 3, duration: 10 } });
+  const table = summarize([result], true).split("\n");
+  expect(table).toHaveLength(4);
+  expect(table.at(2)).toContain("| — | — | 16.67 | 0 | 0 | 17 | — | — | 0 | — | ok 3/3 |");
+  expect(table.at(-1)).toEndWith("| Orders unavailable; Transfers unavailable | excluded 2/3 partial |");
+  for (const line of table) expect(line.split("|")).toHaveLength(15);
+  const included = summarize([result], true, true).split("\n");
+  expect(included).toHaveLength(5);
+  expect(included.some((line) => line.includes("excluded"))).toBe(false);
+  for (const line of included) expect(line.split("|")).toHaveLength(15);
+  const marker = "The activity feed has a grouped run whose transfer count could not be read";
+  run.partialSource = [marker, "Orders unavailable"];
+  expect(summarize([result], true)).toContain("| The activity feed has a grouped run whose transfer count could not be read; Orde | excluded 2/3 partial |");
 });
 
 test("summary surfaces failed and incomplete results with completed repeat counts", () => {
@@ -471,7 +554,7 @@ test("summary surfaces failed and incomplete results with completed repeat count
   const failed = { ...base, runs: [], error: "Timed out | waiting\nfor rows" } as unknown as Result;
   const table = summarize([failed], true).split("\n");
   expect(table).toHaveLength(3);
-  expect(table[2]).toBe("| Safari | home-fling | 20 | — | — | — | — | — | — | — | — | failed 0/3: Timed out waiting for rows |");
+  expect(table[2]).toBe("| Safari | home-fling | 20 | — | — | — | — | — | — | — | — | — | failed 0/3: Timed out waiting for rows |");
   expect(table[2]!.split("|").length).toBe(table[0]!.split("|").length);
   const partial = { ...base, runs: [run], error: "Frame budget lost" } as unknown as Result;
   expect(summarize([partial])).toContain("| failed 1/3: Frame budget lost");
@@ -584,6 +667,11 @@ test("saved results must carry every field the summary reads", () => {
   expect(validResult({ ...result, runs: [missingFrames] })).toBe(false);
   expect(validResult({ ...result, runs: [{ ...run, replaceState: [{}] }] })).toBe(false);
   expect(validResult({ ...result, runs: [{ ...run, partialSource: [1] }] })).toBe(false);
+  expect(validResult({ ...result, runs: [{ ...run, partial: true, groupedRows: 2, underlyingRows: 153 }] })).toBe(true);
+  expect(validResult({ ...result, runs: [{ ...run, partial: false }] })).toBe(true);
+  expect(validResult({ ...result, runs: [{ ...run, partial: "true" }] })).toBe(false);
+  expect(validResult({ ...result, runs: [{ ...run, groupedRows: "2" }] })).toBe(false);
+  expect(validResult({ ...result, runs: [{ ...run, underlyingRows: "153" }] })).toBe(false);
   expect(validResult({ ...result, runs: [null] })).toBe(false);
   expect(validResult({ ...result, traceError: 3 })).toBe(false);
   expect(validResult({ ...result, runs: [{ ...run, trace: { scriptMs: 5, styleMs: 1, layoutMs: 2, paintMs: 3 } }] })).toBe(true);

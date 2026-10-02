@@ -1,5 +1,5 @@
-import { frameProblem, feedComplete, round, settledPages, waitForQuietFeed, detailPosition, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
-import { activityList, activityPartialSources, activityReadinessMarkers, activityRecentRows, activityRowCount, activitySurfaces, activityUnsettledSources, mergePartialSources, visible } from "./activity-rows";
+import { frameProblem, feedComplete, round, settledPages, waitForQuietFeed, detailPosition, detailTarget, median, percentile, validPlan, visibilityProblem, type Plan, type Run, type Result } from "./model";
+import { activityDetailOpener, activityRowFacts, activityList, activityPartialSources, activityReadinessMarkers, activityRecentRows, activityRowCount, feedCounts, activityScrollHost, activitySurfaces, activityUnsettledSources, mergePartialSources, mergeRowFacts, visible, visibleIn, type ActivityRowFacts } from "./activity-rows";
 
 const raf = () => new Promise<number>((done, reject) => {
   const onHidden = () => {
@@ -24,14 +24,47 @@ function badge(text: string) {
   document.title = text;
 }
 function main() { const el = document.querySelector<HTMLElement>("main[data-app-main-authenticated]"); if (!el) throw new Error("Missing authenticated main"); return el; }
-const scroller = () => document.scrollingElement ?? document.documentElement;
-function blankGap() {
+function scrollTarget(root: HTMLElement) {
+  const host = activityScrollHost(root);
+  const documentScroll = host === (document.scrollingElement ?? document.documentElement);
+  return { host, events: (documentScroll ? window : host) as EventTarget, top: () => documentScroll ? window.scrollY : host.scrollTop,
+    to: (value: number) => { if (documentScroll) window.scrollTo(0, value); else host.scrollTop = value; },
+    height: () => host.scrollHeight,
+    viewportHeight: () => documentScroll ? window.innerHeight : host.clientHeight,
+    viewport: () => documentScroll ? { top: 0, bottom: window.innerHeight } : { top: host.getBoundingClientRect().top, bottom: host.getBoundingClientRect().bottom } };
+}
+type ScrollTarget = ReturnType<typeof scrollTarget>;
+async function scanPass(root: HTMLElement, target: ScrollTarget, facts: ActivityRowFacts[], deadline: number): Promise<{ facts: ActivityRowFacts[]; changed: boolean; complete: boolean }> {
+  let changed = false;
+  let complete = false;
+  const step = Math.max(1, target.viewportHeight() - 128);
+  for (let offset = 0; performance.now() < deadline; ) {
+    const end = Math.max(0, target.height() - target.viewportHeight());
+    const at = Math.min(offset, end);
+    target.to(at);
+    await twoFrames();
+    const merged = mergeRowFacts(facts, activityRowFacts(root));
+    facts = merged.facts; changed = merged.changed || changed;
+    if (at >= Math.max(0, target.height() - target.viewportHeight())) { complete = true; break; }
+    offset = at + step;
+  }
+  return { facts, changed, complete };
+}
+async function scanFeed(root: HTMLElement, target: ScrollTarget): Promise<{ facts: ActivityRowFacts[]; changed: boolean; verified: boolean }> {
+  const budget = 30000;
+  const first = await scanPass(root, target, [], performance.now() + budget);
+  const second = await scanPass(root, target, first.facts, performance.now() + budget);
+  target.to(0);
+  await twoFrames();
+  const merged = mergeRowFacts(second.facts, activityRowFacts(root));
+  return { facts: merged.facts, changed: first.changed || second.changed || merged.changed, verified: second.complete };
+}
+function blankGap(target: ReturnType<typeof scrollTarget>) {
   const root = main();
   const list = activitySurfaces(root).flatMap((surface) => [...surface.querySelectorAll<HTMLElement>("ul")]).filter(visible).at(-1);
   if (!list) return 0;
-  const frame = root.getBoundingClientRect();
-  const bounds = list.getBoundingClientRect();
-  const top = Math.max(0, frame.top, bounds.top), bottom = Math.min(window.innerHeight, frame.bottom, bounds.bottom);
+  const viewport = target.viewport(), frame = root.getBoundingClientRect(), bounds = list.getBoundingClientRect();
+  const top = Math.max(viewport.top, frame.top, bounds.top), bottom = Math.min(viewport.bottom, frame.bottom, bounds.bottom);
   if (bottom <= top) return 0;
   let covered = top, blank = 0;
   const rects = [...list.querySelectorAll("li")].map((row) => row.getBoundingClientRect()).filter((rect) => rect.bottom > top && rect.top < bottom).sort((a, b) => a.top - b.top);
@@ -41,6 +74,7 @@ function blankGap() {
 async function measure(work: (feedback: number[]) => Promise<void>, periodMs: number, blank = false): Promise<Run> {
   const blocked = visibilityProblem(document.visibilityState);
   if (blocked) throw new Error(blocked);
+  const target = blank ? scrollTarget(main()) : null;
   const frames: number[] = [], tasks: number[] = [], loafs: number[] = [], blocking: number[] = [], feedback: number[] = [];
   let last = 0, recording = true, hidden = false, samplingError: string | null = null, blankFrames = 0, maxBlankPx = 0;
   let stopOnHidden = () => {};
@@ -52,7 +86,7 @@ async function measure(work: (feedback: number[]) => Promise<void>, periodMs: nu
     try {
       if (last) frames.push(time - last);
       last = time;
-      if (blank) { const gap = blankGap(); if (gap > 0.5) { blankFrames++; maxBlankPx = Math.max(maxBlankPx, gap); } }
+      if (target) { const gap = blankGap(target); if (gap > 0.5) { blankFrames++; maxBlankPx = Math.max(maxBlankPx, gap); } }
     } catch (error) { samplingError = String(error); recording = false; return; }
     requestAnimationFrame(tick);
   };
@@ -93,12 +127,13 @@ async function fill() {
     const pending = activityUnsettledSources(root);
     return pending.length ? `the first activity row to mount (${pending.join(", ")} still loading)` : "the first activity row to mount";
   });
+  const target = scrollTarget(root);
   let listed = -1, settled = 0;
   await until(() => {
     const pending = activityUnsettledSources(root);
     const end = [...document.querySelectorAll<HTMLElement>('[role="status"]')].some((el) => visible(el) && el.textContent?.includes("End of activity"));
     if (!end) {
-      scroller().scrollTop = scroller().scrollHeight;
+      target.to(target.height());
       const rendered = activitySurfaces(root).reduce((count, surface) => count + surface.querySelectorAll("li").length, 0);
       settled = settledPages(rendered, listed, settled); listed = rendered;
     }
@@ -107,11 +142,16 @@ async function fill() {
     const pending = activityUnsettledSources(root);
     return pending.length ? `every activity source to settle (${pending.join(", ")} still loading)` : "the activity feed to reach its end";
   });
-  const rowsLoaded = activityRowCount(root), detailRows = activityRecentRows(root), partialSource = activityPartialSources(root);
-  partialSource.push(...activityReadinessMarkers(root));
-  scroller().scrollTop = 0;
-  await twoFrames();
-  return { rowsLoaded, detailRows, partialSource };
+  const rowsLoaded = activityRowCount(root), recentRows = activityRecentRows(root);
+  const beforeScan = mergePartialSources(activityPartialSources(root), activityReadinessMarkers(root));
+  const { facts, changed, verified } = await scanFeed(root, target), counts = feedCounts(facts, rowsLoaded);
+  const partialSource = mergePartialSources(beforeScan, [...activityPartialSources(root), ...activityReadinessMarkers(root)]);
+  if (changed) partialSource.push("The activity feed changed while it was scanned");
+  if (counts.unreadable > 0) partialSource.push("The activity feed has a grouped run whose transfer count could not be read");
+  if (facts.length !== recentRows) partialSource.push(`The activity feed scan covered ${facts.length} of ${recentRows} rows`);
+  if (!verified) partialSource.push("The activity feed scan could not re-verify every row");
+  const detailRow = recentRows >= 1 ? detailTarget(facts, detailPosition(recentRows)) : null;
+  return { rowsLoaded, groupedRows: counts.grouped, underlyingRows: counts.underlying, detailRows: recentRows, detailRow, partialSource };
 }
 async function sourcePartials(filled: { rowsLoaded: number; partialSource: string[] }, pending: string[]) {
   const observed = await waitForQuietFeed({
@@ -123,13 +163,14 @@ async function sourcePartials(filled: { rowsLoaded: number; partialSource: strin
   return mergePartialSources(filled.partialSource, [...activityPartialSources(main()), ...observed]);
 }
 async function fling() {
-  for (const destination of [scroller().scrollHeight - scroller().clientHeight, 0]) {
-    const start = scroller().scrollTop, at = performance.now();
+  const target = scrollTarget(main());
+  for (const destination of [target.height() - target.viewportHeight(), 0]) {
+    const start = target.top(), at = performance.now();
     while (true) {
       const t = await raf();
-      scroller().scrollTop = start + Math.sign(destination - start) * Math.min(Math.abs(destination - start), (t - at) * 4);
-      const edge = destination > start ? Math.max(0, scroller().scrollHeight - scroller().clientHeight) : 0;
-      if (Math.abs(scroller().scrollTop - destination) <= 5 || Math.abs(scroller().scrollTop - edge) <= 5) break;
+      target.to(start + Math.sign(destination - start) * Math.min(Math.abs(destination - start), (t - at) * 4));
+      const edge = destination > start ? Math.max(0, target.height() - target.viewportHeight()) : 0;
+      if (Math.abs(target.top() - destination) <= 5 || Math.abs(target.top() - edge) <= 5) break;
       if (t - at > 30000) throw new Error("Scroll did not reach destination");
     }
   }
@@ -166,21 +207,31 @@ async function roundTrip(feedback: number[]) {
   await interaction(nav("Invest"), () => atPanel("/invest"), feedback);
   const at = performance.now(); history.back(); await until(() => atPanel("/home")); feedback.push((await twoFrames()) - at);
 }
-async function detail(feedback: number[], rows: number) {
-  const root = main(), position = detailPosition(rows);
+async function detail(feedback: number[], row: number | null) {
+  if (row === null) throw new Error("No detail-capable activity row: the feed has no detail-capable Recent rows");
+  const root = main();
   const list = activityList(root);
   if (!list) throw new Error("Missing activity detail list control");
-  scroller().scrollTop = window.scrollY + list.getBoundingClientRect().top + list.scrollHeight * position / rows - window.innerHeight / 2;
+  const target = scrollTarget(root);
+  target.to(target.top() + list.getBoundingClientRect().top - target.viewport().top + list.scrollHeight * row / activityRecentRows(root) - target.viewportHeight() / 2);
   await until(() => {
-    const item = list?.querySelector<HTMLElement>(`li[aria-posinset="${position}"]`);
-    if (visible(item ?? null)) return true;
-    const nearest = [...(list?.querySelectorAll<HTMLElement>('li[aria-posinset]') ?? [])].reduce((best, item) => Math.abs(Number(item.getAttribute("aria-posinset")) - position) < Math.abs(best - position) ? Number(item.getAttribute("aria-posinset")) : best, 0);
-    window.scrollBy(0, (position - nearest) * 76);
+    const item = list.querySelector<HTMLElement>(`li[aria-posinset="${row}"]`);
+    if (visibleIn(item, target.host)) return true;
+    if (item) {
+      const rect = item.getBoundingClientRect();
+      target.to(target.top() + rect.top - target.viewport().top + rect.height / 2 - target.viewportHeight() / 2);
+    } else {
+      const mounted = [...list.querySelectorAll<HTMLElement>("li[aria-posinset]")].map((item) => ({ posinset: Number(item.getAttribute("aria-posinset")), rect: item.getBoundingClientRect() }));
+      const nearest = mounted.reduce<typeof mounted[number] | null>((closest, item) => !closest || Math.abs(item.posinset - row) < Math.abs(closest.posinset - row) ? item : closest, null);
+      const heights = mounted.map((item) => item.rect.height).filter((height) => height > 0);
+      const average = heights.length ? heights.reduce((total, height) => total + height, 0) / heights.length : 64;
+      target.to(nearest ? target.top() + nearest.rect.top - target.viewport().top + (row - nearest.posinset) * average - target.viewportHeight() / 2 : target.top() + target.viewportHeight() / 2);
+    }
     return false;
-  }, 15);
+  }, 15, `activity detail row ${row} to enter the scroll viewport`);
   for (let i = 0; i < 3; i++) {
-    const opener = list?.querySelector<HTMLElement>(`li[aria-posinset="${position}"] button:not([aria-expanded])`);
-    if (!visible(opener)) throw new Error(`Missing activity detail control for row ${position} (absent or a grouped run)`);
+    const opener = activityDetailOpener(root, row);
+    if (!visible(opener)) throw new Error(`Missing activity detail control for row ${row}`);
     await interaction(opener, () => visible(document.querySelector('[role="dialog"]')), feedback);
     const close = [...document.querySelectorAll<HTMLElement>('[role="dialog"] button')].find((node) => visible(node) && (node.getAttribute("aria-label") ?? "").startsWith("Close "));
     if (!close) throw new Error("Missing activity detail Close control");
@@ -230,18 +281,19 @@ function wrapReplace() {
 async function probe(period: number) {
   const phases: Run["replaceState"] = [], traces: Run[] = [];
   const filled = await fill();
+  const target = scrollTarget(main());
   for (const extra of [false, true]) {
     const wrapped = wrapReplace();
     const listener = () => { try { history.replaceState(history.state, ""); } catch {} };
-    if (extra) window.addEventListener("scroll", listener);
+    if (extra) target.events.addEventListener("scroll", listener);
     try { traces.push(await measure(fling, period, true)); }
-    finally { try { if (extra) window.removeEventListener("scroll", listener); } finally { phases.push(wrapped.finish()); } }
+    finally { try { if (extra) target.events.removeEventListener("scroll", listener); } finally { phases.push(wrapped.finish()); } }
   }
   const pending = activityUnsettledSources(main());
   const wrapped = wrapReplace();
   try { for (let i = 0; i < 200; i++) { try { history.replaceState(history.state, ""); } catch {} } }
   finally { phases.push(wrapped.finish()); }
-  const result = traces[1]!; result.replaceState = phases; result.scrollDriver = "js"; result.rowsLoaded = filled.rowsLoaded; const partialSource = await sourcePartials(filled, pending); if (partialSource.length) result.partialSource = partialSource; return result;
+  const result = traces[1]!; result.replaceState = phases; result.scrollDriver = "js"; result.rowsLoaded = filled.rowsLoaded; result.groupedRows = filled.groupedRows; result.underlyingRows = filled.underlyingRows; const partialSource = await sourcePartials(filled, pending); if (partialSource.length) { result.partialSource = partialSource; result.partial = true; } return result;
 }
 async function run(plan: Plan, period: number): Promise<Run> {
   if (plan.workload === "replace-state-probe") return probe(period);
@@ -249,9 +301,9 @@ async function run(plan: Plan, period: number): Promise<Run> {
     const filled = await fill();
     const run = await measure(fling, period, true);
     const pending = activityUnsettledSources(main());
-    run.scrollDriver = "js"; run.rowsLoaded = filled.rowsLoaded;
+    run.scrollDriver = "js"; run.rowsLoaded = filled.rowsLoaded; run.groupedRows = filled.groupedRows; run.underlyingRows = filled.underlyingRows;
     const partialSource = await sourcePartials(filled, pending);
-    if (partialSource.length) run.partialSource = partialSource;
+    if (partialSource.length) { run.partialSource = partialSource; run.partial = true; }
     return run;
   }
   if (plan.workload === "nav-round-trips") {
@@ -268,11 +320,11 @@ async function run(plan: Plan, period: number): Promise<Run> {
   }, period);
   if (plan.workload === "activity-detail-open") {
     const filled = await fill();
-    const run = await measure((feedback) => detail(feedback, filled.detailRows), period, true);
+    const run = await measure((feedback) => detail(feedback, filled.detailRow), period, true);
     const pending = activityUnsettledSources(main());
-    run.rowsLoaded = filled.rowsLoaded;
+    run.rowsLoaded = filled.rowsLoaded; run.groupedRows = filled.groupedRows; run.underlyingRows = filled.underlyingRows;
     const partialSource = await sourcePartials(filled, pending);
-    if (partialSource.length) run.partialSource = partialSource;
+    if (partialSource.length) { run.partialSource = partialSource; run.partial = true; }
     return run;
   }
   if (plan.workload === "chart-scrub") { const result = await measure(chart, period); return Object.assign(result, { feedback: result.feedbackMs.length ? "readout" : "none" }); }

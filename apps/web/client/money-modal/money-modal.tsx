@@ -13,7 +13,7 @@ import {
   opensSoftKeyboard,
 } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { DeferredSheetHandoff } from "@/client/money-modal/deferred-sheet";
+import { useSheetOpener, type DeferredSheetHandoff } from "@/client/money-modal/deferred-sheet";
 import { MONEY_ACTION_ID_ATTRIBUTE } from "@/shared/money-actions";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { ArrowLeft, X } from "lucide-react";
@@ -225,14 +225,16 @@ function ignoreDesktopSwipe(event: PointerEvent<HTMLDivElement>) {
   event.currentTarget.toggleAttribute("data-base-ui-swipe-ignore", window.matchMedia?.(desktopDialogQuery).matches ?? false);
 }
 
-export function AppDrawer({ open, labelledBy, describedBy, immediate = false, variant = "default", initialFocusRef, onCancel, onClose, onOpened, children }: {
+export function AppDrawer({ open, opener, focusOnClose, labelledBy, describedBy, immediate = false, variant = "default", initialFocusRef, onCancel, onClose, onOpened, children }: {
   open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; variant?: "default" | "money";
-  initialFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
+  opener?: HTMLElement | null; focusOnClose?: () => boolean; initialFocusRef?: RefObject<HTMLElement | null>; onCancel: () => boolean | void;
   onClose?: () => void; onOpened?: () => void; children: ReactNode;
 }) {
   const popupRef = useRef<HTMLDivElement>(null);
   const lastOutsideFocusRef = useRef<HTMLElement | null>(null);
-  const openRef = useRef(open);
+  const hasReturnFocusSourceRef = useRef(false);
+  const openRef = useRef(false);
+  const sheetOpener = useSheetOpener();
   const handoff = useContext(MoneyModalHandoffContext);
   const receivedCarryRef = useRef(handoff?.role === "loaded" && handoff.initial && open ? handoff.carry : null);
   const shellCarry = handoff?.role === "shell" ? handoff.carry : null;
@@ -243,33 +245,25 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
   }, [shellCarry]);
 
   useLayoutEffect(() => {
+    if (open && !openRef.current) {
+      hasReturnFocusSourceRef.current = opener !== undefined || sheetOpener !== null;
+      lastOutsideFocusRef.current = opener === undefined ? sheetOpener?.current ?? null : opener;
+    }
     openRef.current = open;
     if (!open) carriedHeightRef.current = 0;
-  }, [open]);
+  }, [open, sheetOpener, opener]);
 
   useLayoutEffect(() => {
     const received = receivedCarryRef.current?.take();
+    receivedCarryRef.current = null;
     if (received) {
-      lastOutsideFocusRef.current ??= received.returnFocus;
+      if (!hasReturnFocusSourceRef.current) lastOutsideFocusRef.current = received.returnFocus;
       if (received.height > 0) carriedHeightRef.current = received.height;
     }
     return () => {
       if (openRef.current) shellCarry?.carryReturnFocus(lastOutsideFocusRef.current);
     };
   }, [shellCarry]);
-
-  useEffect(() => {
-    if (open) return;
-    const rememberOutsideFocus = (target: EventTarget | null) => {
-      if (target instanceof HTMLButtonElement && !target.closest("[data-money-sheet]")) {
-        lastOutsideFocusRef.current = target;
-      }
-    };
-    rememberOutsideFocus(document.activeElement);
-    const onFocusIn = (event: FocusEvent) => rememberOutsideFocus(event.target);
-    document.addEventListener("focusin", onFocusIn);
-    return () => document.removeEventListener("focusin", onFocusIn);
-  }, [open]);
 
   useLayoutEffect(() => {
     const popup = popupRef.current;
@@ -294,6 +288,7 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
         aria-describedby={describedBy}
         initialFocus={initialFocusRef ?? (() => popupRef.current?.querySelector<HTMLElement>("[data-money-amount-input]:not(:disabled)") ?? popupRef.current?.querySelector<HTMLElement>("[data-initial-focus]:not(:disabled)") ?? true)}
         finalFocus={() => {
+          if (focusOnClose?.() === false) return false;
           const target = lastOutsideFocusRef.current;
           if (openRef.current || opensSoftKeyboard(target)) return false;
           return target?.isConnected && target.getClientRects().length > 0 && !target.matches(":disabled") && !target.closest("[hidden], [inert]") ? target : true;
@@ -313,8 +308,8 @@ export function AppDrawer({ open, labelledBy, describedBy, immediate = false, va
   );
 }
 
-export function MoneyModal({ open, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, onOpened, children }: {
-  open: boolean; labelledBy: string; describedBy?: string; immediate?: boolean; pending?: boolean;
+export function MoneyModal({ open, opener, focusOnClose, labelledBy, describedBy, immediate = false, pending = false, onCancel, onClose, onOpened, children }: {
+  open: boolean; opener?: HTMLElement | null; focusOnClose?: () => boolean; labelledBy: string; describedBy?: string; immediate?: boolean; pending?: boolean;
   onCancel: () => boolean | void; onClose: () => void; onOpened?: () => void; children: ReactNode;
 }) {
   const [registrants, setRegistrants] = useState<Set<symbol>>(() => new Set());
@@ -330,7 +325,7 @@ export function MoneyModal({ open, labelledBy, describedBy, immediate = false, p
   const effectivePending = pending || registrants.size > 0;
   const handoff = useContext(MoneyModalHandoffContext);
   const pendingValue = useMemo(() => ({ pending: effectivePending, register }), [effectivePending, register]);
-  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || (handoff?.role === "loaded" && handoff.initial)} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose} onOpened={onOpened}>{children}</AppDrawer></MoneyModalPendingContext>;
+  return <MoneyModalPendingContext value={pendingValue}><AppDrawer open={open} opener={opener} focusOnClose={focusOnClose} labelledBy={labelledBy} describedBy={describedBy} immediate={immediate || (handoff?.role === "loaded" && handoff.initial)} variant="money" onCancel={() => effectivePending ? false : onCancel()} onClose={onClose} onOpened={onOpened}>{children}</AppDrawer></MoneyModalPendingContext>;
 }
 
 /** @public shared money-flow step contract (#1058) */

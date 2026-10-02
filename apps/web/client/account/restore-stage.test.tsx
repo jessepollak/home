@@ -394,8 +394,8 @@ describe("bounded account restore stages", () => {
       expect(account().status).toBe("unavailable");
       let retry!: Promise<void>;
       act(() => { retry = account().retrySessionValidation(); });
-      await waitFor(() => expect(fetches).toBe(2));
-      expect(account().status).toBe("validating");
+      await waitFor(() => expect(account().status).toBe("validating"));
+      expect(fetches).toBe(2);
       await act(async () => {
         finishRetry(Response.json(verifiedSession));
         await retry;
