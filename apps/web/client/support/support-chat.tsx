@@ -63,6 +63,7 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
   const [streamed, setStreamed] = useState<{ handler: SupportHandler; at: number } | null>(null);
   const [discarded, setDiscarded] = useState<ReadonlySet<string>>(() => new Set());
   const [limitedUntil, setLimitedUntil] = useState<number | null>(null);
+  const [stoppedBeforeReply, setStoppedBeforeReply] = useState(false);
   const transport = useMemo(() => new DefaultChatTransport<SupportUIMessage>({
     api: "/api/support/chat",
     fetch: ((input: RequestInfo | URL, init?: RequestInit) => fetchAccountResponse(String(input), { body: String(init?.body ?? "{}"), ...(init?.signal ? { signal: init.signal } : {}) })) as typeof fetch,
@@ -125,11 +126,12 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
   const capability = serverConversation?.assistant ?? conversation.data?.assistant ?? { available: false, handoff: false };
   const handler: SupportHandler = streamed && streamed.at >= conversation.dataUpdatedAt ? streamed.handler : serverConversation?.handler ?? (capability.available ? "assistant" : "operator");
   const limited = limitedUntil !== null && handler === "assistant";
-  const failure = limited ? "rate-limited" : chat.status === "error" ? turnFailure(chat.error) : null;
+  const failure = limited ? "rate-limited" : chat.status === "error" ? turnFailure(chat.error) : stoppedBeforeReply && !busy && handler === "assistant" ? "no-reply" : null;
   const blocked = failure === "not-sent" || failure === "rate-limited";
   const hasConversation = Boolean(serverConversation) || streamed !== null;
-  const offerHandoff = capability.handoff && handler === "assistant" && hasConversation;
-  const withPerson = capability.available && handler === "operator" && hasConversation;
+  const conversationOpen = !serverConversation || serverConversation.status === "open" || (streamed !== null && streamed.at >= conversation.dataUpdatedAt);
+  const offerHandoff = capability.handoff && handler === "assistant" && hasConversation && conversationOpen;
+  const withPerson = capability.available && handler === "operator" && hasConversation && conversationOpen;
   const typing = chat.status === "submitted" && handler === "assistant";
   const tailKey = `${tail?.id ?? ""}:${tail ? messageText(tail).length : 0}:${typing}`;
   const oldestMessagesCursor = serverConversation?.messagesNextCursor ?? null;
@@ -162,7 +164,18 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
 
   function send(text: string) {
     setLimitedUntil(null);
+    setStoppedBeforeReply(false);
     void chat.sendMessage({ text, metadata: { author: "customer", ...(context ? { context } : {}) } });
+  }
+
+  function retryTurn() {
+    setStoppedBeforeReply(false);
+    void chat.regenerate();
+  }
+
+  function stopTurn() {
+    if (chat.messages.at(-1)?.role === "user") setStoppedBeforeReply(true);
+    void chat.stop();
   }
 
   async function loadEarlier() {
@@ -258,7 +271,7 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
               const continued = previous !== undefined && (previous.metadata?.author ?? (previous.role === "user" ? "customer" : "assistant")) === author;
               const state = delivery(message);
               return <div key={message.id} data-message-id={message.metadata?.serverId} data-message-author={message.metadata?.serverId ? author : undefined}>
-                <SupportMessageBubble author={author} side="customer" continued={continued} delivery={state} onRetry={state === "failed" ? () => void chat.regenerate() : undefined}>{messageText(message)}</SupportMessageBubble>
+                <SupportMessageBubble author={author} side="customer" continued={continued} delivery={state} onRetry={state === "failed" ? retryTurn : undefined}>{messageText(message)}</SupportMessageBubble>
               </div>;
             })}
             {typing ? <SupportMessageBubble author="assistant" side="customer" continued={tail?.role === "assistant"}>
@@ -271,12 +284,12 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
         <div className="shrink-0 space-y-2 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {failure === "rate-limited" ? <p role="alert" className="text-sm text-destructive">Too many messages. Try again later.</p> : null}
           {failure === "not-sent" ? <p role="alert" className="text-sm text-destructive">Message not sent. Retry above.</p> : null}
-          {failure === "no-reply" ? <div role="alert" className="flex flex-wrap items-center gap-x-2 text-sm text-destructive">The assistant couldn&apos;t reply.<Button variant="link" size="touch" onClick={() => void chat.regenerate()}>Try again</Button></div> : null}
+          {failure === "no-reply" ? <div role="alert" className="flex flex-wrap items-center gap-x-2 text-sm text-destructive">The assistant couldn&apos;t reply.<Button variant="link" size="touch" onClick={retryTurn}>Try again</Button></div> : null}
           {handoff === "failed" ? <p role="alert" className="text-sm text-destructive">Couldn&apos;t reach a person. Try again.</p> : null}
           {withPerson ? <p role="status" className="text-center text-xs text-muted-foreground">A person will reply here.</p> : null}
           <PromptInput onSubmit={submit}>
             <PromptInputTextarea ref={composerRef} aria-label="Message support" value={body} maxLength={2000} onInput={(event) => setBody(event.currentTarget.value)} onKeyDown={onComposerKeyDown} placeholder={capability.available && handler === "assistant" ? "Ask a question" : "Message"} />
-            <PromptInputSubmit busy={busy} disabled={blocked || !normalizeSupportBody(body)} onStop={() => void chat.stop()} />
+            <PromptInputSubmit busy={busy} disabled={blocked || !normalizeSupportBody(body)} onStop={stopTurn} />
           </PromptInput>
           {body.length >= 1900 ? <p role="status" className="text-xs text-muted-foreground">{body.length} of 2000 characters</p> : null}
         </div>

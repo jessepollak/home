@@ -686,6 +686,7 @@ test("the list shows who is handling each conversation", async () => {
     { id, status: "open" as const, handler: "assistant" as const, lastMessageAt: time, preview: "Assistant row", lastAuthorType: "assistant" as const, unread: false, customerLabel: "Assisted customer" },
     { id: "88888888-8888-4888-8888-888888888888", status: "open" as const, handler: "operator" as const, lastMessageAt: "2026-09-27T11:00:00.000Z", preview: "Waiting row", lastAuthorType: "customer" as const, unread: true, customerLabel: "Waiting customer" },
     { id: "99999999-9999-4999-8999-999999999999", status: "open" as const, handler: "operator" as const, lastMessageAt: "2026-09-27T10:00:00.000Z", preview: "Answered row", lastAuthorType: "operator" as const, unread: false, customerLabel: "Answered customer" },
+    { id: "77777777-7777-4777-8777-777777777777", status: "open" as const, handler: "operator" as const, lastMessageAt: "2026-09-27T09:00:00.000Z", preview: "Taken over row", lastAuthorType: "assistant" as const, unread: false, customerLabel: "Taken over customer" },
   ];
   const { transport } = setup({ list: async () => ({ version: 2, conversations: rows, nextCursor: null }) });
   render(<OperatorSupportInbox transport={transport} />);
@@ -698,6 +699,8 @@ test("the list shows who is handling each conversation", async () => {
   const answered = screen.getByRole("link", { name: /Answered customer/ });
   expect(within(answered).queryByText("Needs reply")).toBeNull();
   expect(within(answered).queryByText("Assistant")).toBeNull();
+  const takenOver = screen.getByRole("link", { name: /Taken over customer/ });
+  expect(within(takenOver).queryByText("Needs reply")).toBeNull();
 });
 
 test("messages name the customer, the assistant and the replying operator", async () => {

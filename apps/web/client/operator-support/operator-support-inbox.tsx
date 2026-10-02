@@ -19,7 +19,7 @@ type GenerationError = { generation: number; message: string; source?: "handler"
 type InboxProps = { conversationId?: string; transport?: OperatorSupportTransport; initialList?: OperatorSupportListResponse; initialConversation?: OperatorSupportConversationResponse };
 type InboxList = OperatorSupportListResponse & { firstPageIds?: string[] };
 function needsReply(item: OperatorSupportListItem): boolean {
-  return item.handler === "operator" && item.status === "open" && item.lastAuthorType !== "operator";
+  return item.handler === "operator" && item.status === "open" && item.lastAuthorType === "customer";
 }
 function authorLabel(message: OperatorSupportMessage): string {
   if (message.authorType === "customer") return "Customer";

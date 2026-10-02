@@ -209,6 +209,35 @@ test("Stop aborts the streaming request", async () => {
   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Send" })).toBeTruthy());
 });
 
+test("Stop before the first token offers a retry of the same turn", async () => {
+  const requests: ChatRequest[] = [];
+  const view = render(<SupportChat open ownerKey="support-stop-empty-unit" fetchAccountResource={async () => ({ version: 2, assistant: { available: true, handoff: false }, conversation: null })} fetchAccountResponse={async (_path, options) => {
+    requests.push(requestOf(options));
+    return requests.length === 1 ? stream([], new Promise(() => {})) : stream(assistantReply("Here is the answer."));
+  }} onClose={() => {}} />);
+  const dialog = await view.findByRole("dialog", { name: "Support" });
+  fireEvent.click(await within(dialog).findByRole("button", { name: "How do I add money?" }));
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Stop" }));
+  await waitFor(() => expect(within(dialog).getByRole("alert").textContent).toContain("The assistant couldn't reply."));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+  await within(dialog).findByText("Here is the answer.");
+  expect(requests[1]).toEqual(requests[0]);
+  expect(within(dialog).queryByRole("alert")).toBeNull();
+});
+
+test("a resolved conversation offers no handoff and makes no promise of a person", async () => {
+  const question = customer("44444444-4444-4444-8444-444444444444", "Question");
+  const answer: SupportMessage = { id: "66666666-6666-4666-8666-666666666666", authorType: "assistant", status: "sent", body: "Resolved answer.", createdAt: "2026-09-27T12:03:00.000Z" };
+  for (const handler of ["assistant", "operator"] as const) {
+    const view = render(<SupportChat open ownerKey={`support-resolved-${handler}-unit`} fetchAccountResource={async (path) => path === "/api/support/read" ? null : snapshot([question, answer], { status: "resolved", handler, assistant: hybrid }, hybrid)} fetchAccountResponse={noStream} onClose={() => {}} />);
+    const dialog = await view.findByRole("dialog", { name: "Support" });
+    await within(dialog).findByText("Resolved answer.");
+    expect(within(dialog).queryByRole("button", { name: "Talk to a person" })).toBeNull();
+    expect(within(dialog).queryByText("A person will reply here.")).toBeNull();
+    view.unmount();
+  }
+});
+
 test("a reply the server discards after an operator takes over is removed", async () => {
   let sent: ChatRequest | null = null;
   const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => {
