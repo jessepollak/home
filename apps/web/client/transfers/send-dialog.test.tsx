@@ -17,6 +17,12 @@ const RECIPIENT = "0x2222222222222222222222222222222222222222" as const;
 const TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const ACTION_ID = "11111111-1111-4111-8111-111111111111";
 
+function transferAssetFixture(id: string): NonNullable<ReturnType<typeof getTransferAsset>> {
+  const asset = getTransferAsset(id);
+  if (!asset) throw new Error(`Expected the ${id} transfer asset fixture.`);
+  return asset;
+}
+
 function resumedAction(kind: PreparedMoneyAction["kind"] = "send"): PreparedMoneyAction {
   return {
     id: ACTION_ID,
@@ -346,6 +352,49 @@ describe("SendDialog prepare boundary", () => {
 });
 
 describe("SendDialog Peer cash-out", () => {
+  test("when Send is off, offers only Base USDC and a cash-out destination", async () => {
+    const requested: string[] = [];
+    render(<SendDialog open immediate sendOffered={false} address={ACCOUNT} queryOwnerKey="cash-out-only" regionId="US"
+      availableAssets={[
+        { ...transferAssetFixture("eth"), balanceBaseUnits: "1000000000000000000", balanceLabel: "1 ETH" },
+        { ...transferAssetFixture("usdc"), balanceBaseUnits: "5000000", balanceLabel: "$5.00" },
+      ]}
+      fetchAccountResource={async (url) => {
+        requested.push(url);
+        return url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? offrampResponse : { version: 1, recipients: [{ address: RECIPIENT, name: null }] };
+      }}
+      prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    expect(page().getByRole("dialog", { name: "Cash out" })).toBeTruthy();
+    expect(page().getByRole("group", { name: "USDC" })).toBeTruthy();
+    expect(page().queryByRole("combobox", { name: "Asset" })).toBeNull();
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole<HTMLButtonElement>("button", { name: "Continue" })).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect(page().getByRole("dialog", { name: "Cash out" })).toBeTruthy();
+    expect(page().queryByRole("textbox", { name: "To" })).toBeNull();
+    expect(page().queryByText("Or")).toBeNull();
+    expect(page().queryByText("Recent recipients")).toBeNull();
+    expect(page().queryByRole("button", { name: "Continue" })).toBeNull();
+    fireEvent.click(await page().findByRole("button", { name: /Cash out to Cash App/ }));
+    expect(page().getByRole("button", { name: "Cash App" })).toBeTruthy();
+    expect(requested).not.toContain("/api/transfers/recent-recipients");
+  });
+
+  test("shows an unavailable country when no Base USDC cash-out binding exists", async () => {
+    render(<SendDialog open immediate sendOffered={false} address={ACCOUNT} queryOwnerKey="cash-out-unavailable" regionId="AU"
+      availableAssets={[{ ...transferAssetFixture("usdc"), balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
+      fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers")
+        ? { ...offrampResponse, providers: [{ ...offrampResponse.providers[0], region: "AU", assetId: "base:eth" }] } : { version: 1, recipients: [] }}
+      prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
+      executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })} onClose={() => {}} />);
+    fireEvent.input(page().getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
+    await waitFor(() => expect((page().getByRole<HTMLButtonElement>("button", { name: "Continue" })).disabled).toBe(false));
+    fireEvent.click(page().getByRole("button", { name: "Continue" }));
+    expect((await page().findByRole("status")).textContent).toBe("Cash out isn't available in Australia yet.");
+    expect(page().queryByRole("textbox", { name: "To" })).toBeNull();
+  });
+
   test("waits for the settled region before discovering cash-out destinations", async () => {
     const requests: string[] = [];
     const props: ComponentProps<typeof SendDialog> = {
@@ -1098,10 +1147,10 @@ describe("SendDialog resume", () => {
     expect(routes).toEqual([ACTION_ID, null, SECOND_ID, null]);
     expect(resumes).toEqual([]);
   });
-  test("resumed cash-out Back resolves the loaded binding and preserves the canonical entry", async () => {
+  test("resumed cash-out loads with Send off and Back resolves the loaded binding", async () => {
     const responses = [offrampResponse, { ...offrampResponse, providers: [] }];
     for (const [index, response] of responses.entries()) {
-      const view = render(<SendDialog open immediate address={ACCOUNT} queryOwnerKey={`owner-resumed-${index}`} regionId="US" resumeActionId={ACTION_ID}
+      const view = render(<SendDialog open immediate sendOffered={index !== 0} address={ACCOUNT} queryOwnerKey={`owner-resumed-${index}`} regionId="US" resumeActionId={ACTION_ID}
         availableAssets={[{ ...getTransferAsset("usdc")!, balanceBaseUnits: "5000000", balanceLabel: "$5.00" }]}
         fetchAccountResource={async (url) => url === "/api/actions/network-fee" ? feeResponse : url.startsWith("/api/funding/providers") ? response : { version: 1, recipients: [] }}
         prepareMoneyAction={async () => cashoutAction()} resumeMoneyAction={async () => cashoutAction()}
@@ -1124,7 +1173,7 @@ describe("SendDialog resume", () => {
     let invalidResumes = 0;
     render(
       <SendDialog
-        open immediate address={ACCOUNT} queryOwnerKey="owner-withdraw-resume" resumeActionId={ACTION_ID}
+        open immediate sendOffered={false} address={ACCOUNT} queryOwnerKey="owner-withdraw-resume" resumeActionId={ACTION_ID}
         availableAssets={[{ ...getTransferAsset("eth")!, balanceBaseUnits: "1000000000000000000", balanceLabel: "$4,000.00" }]}
         prepareMoneyAction={async () => withdrawAction()} resumeMoneyAction={async () => withdrawAction()}
         executeMoneyAction={async () => ({ id: ACTION_ID, status: "submitted" })}

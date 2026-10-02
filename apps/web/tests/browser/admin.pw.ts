@@ -113,6 +113,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       if (heading === "Settings") {
         await expect(page.getByText("Invest settings need a database. Home is showing its full catalog.")).toBeVisible();
         await expect(page.getByText("Fee settings couldn’t load")).toBeVisible();
+        await expect(page.getByRole("link", { name: /Products and markets/ })).toBeVisible();
       }
       if (viewport.width === 390) {
         const trigger = page.getByRole("button", { name: "Open sections menu" });

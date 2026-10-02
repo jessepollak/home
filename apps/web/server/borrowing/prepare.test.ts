@@ -82,6 +82,13 @@ describe("Borrow action preparation across verified markets", () => {
       expect(result.fullySimulated).toBe(true);
     }
   });
+  test("records whether collateral withdrawal increases risk from pre-action debt", async () => {
+    const market = BORROW_MARKETS[0];
+    const risky = await prepare(market, "withdraw-collateral");
+    const riskFree = await prepare(market, "withdraw-collateral", snapshot(market, { zeroDebt: true }));
+    expect(risky.result.draft.metadata).toMatchObject({ product: "borrow", riskIncreased: true });
+    expect(riskFree.result.draft.metadata).toMatchObject({ product: "borrow", riskIncreased: false });
+  });
 
   test("supply-and-borrow approves the exact collateral amount only when allowance is not exact", async () => {
     const market = BORROW_MARKETS[0];

@@ -63,6 +63,15 @@ export default async function SettingsPage() {
             <ItemActions><ChevronRight className="size-4 rtl:-scale-x-100" aria-hidden="true" /></ItemActions>
           </Item>
         </li>
+        <li>
+          <Item variant="outline" render={<Link href="/admin/settings/products" />}>
+            <ItemContent className="min-w-0">
+              <ItemTitle>Products and markets</ItemTitle>
+              <ItemDescription>Manage which new entries are offered.</ItemDescription>
+            </ItemContent>
+            <ItemActions><ChevronRight className="size-4 rtl:-scale-x-100" aria-hidden="true" /></ItemActions>
+          </Item>
+        </li>
       </ul>
       {regionEntry ? <RegionsPane key={address} initialEntry={regionEntry} operator={address} /> : <OperatorEmpty>{database ? "Region settings are unavailable. Try again shortly." : "Region settings need a database. Home is offering its built-in regions."}</OperatorEmpty>}
       {investEntry ? <InvestPane key={address} initialEntry={investEntry} operator={address} /> : <OperatorEmpty>{database ? "Invest settings are unavailable. Try again shortly." : "Invest settings need a database. Home is showing its full catalog."}</OperatorEmpty>}

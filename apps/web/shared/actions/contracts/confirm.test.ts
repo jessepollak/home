@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CONFIRM_CASHOUT_ERRORS, parseConfirmActionErrorResponse, parseConfirmActionResponse, supportsBaseBatchGasHint } from "./confirm";
+import { CONFIRM_CASHOUT_ERRORS, isConfirmActionErrorCode, parseConfirmActionErrorResponse, parseConfirmActionResponse, supportsBaseBatchGasHint } from "./confirm";
 import { CASHOUT_PREPARE_ERRORS } from "./prepare";
 
 const calls = [{
@@ -32,6 +32,19 @@ test("Base batch gas hint requires independent intermediate token calls", () => 
   expect(supportsBaseBatchGasHint([swap, transfer, swap])).toBe(false);
   expect(supportsBaseBatchGasHint([approve, { data: `${transfer.data}00` }, swap])).toBe(false);
   expect(supportsBaseBatchGasHint([approve, { data: transfer.data.replace(/^0xa9059cbb0/, "0xa9059cbb1") }, swap])).toBe(false);
+});
+
+test("confirm action error contract accepts declared codes and rejects malformed or unknown responses", () => {
+  for (const code of ["INVALID_ACTION", "ACTION_NOT_FOUND", "ACTION_EXPIRED", "TRADE_STOCK_RESTRICTED", "INVALID_TRADE_SIGNATURE", "PRODUCT_NOT_OFFERED"] as const) {
+    expect(isConfirmActionErrorCode(code)).toBe(true);
+    expect(parseConfirmActionErrorResponse({ error: { code, message: "Unavailable" } })).toEqual({ error: { code, message: "Unavailable" } });
+  }
+  for (const value of [null, [], {}, { error: null }, { error: { code: "UNKNOWN", message: "Unavailable" } },
+    { error: { code: "ACTION_EXPIRED", message: 42 } }]) {
+    expect(parseConfirmActionErrorResponse(value)).toBeNull();
+  }
+  expect(isConfirmActionErrorCode("UNKNOWN")).toBe(false);
+  expect(isConfirmActionErrorCode(null)).toBe(false);
 });
 
 describe("confirm action response parser", () => {

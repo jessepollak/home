@@ -12,6 +12,8 @@ import { getSavingsRateState, SAVINGS_RATE_FRESHNESS_MS } from "./portfolio-summ
 const { act, cleanup, render } = await import("@testing-library/react");
 const { AccountWalletContext, AccountWalletClientProvider, createBlockedAccountWalletClient } = await import("@/client/account/cdp-client");
 const { useSavingsRateLabel } = await import("./use-savings-rate-label");
+const { resolveProductOffering } = await import("@/shared/operator-settings/products");
+const deploymentOffering = resolveProductOffering({ kind: "deployment" });
 
 const wallet = { verification: null, session: null, fetchBalances: async () => { throw new Error("Unexpected balance request"); } } as unknown as AccountWalletClient;
 
@@ -28,7 +30,7 @@ function rates(at: number, netApy: number): MorphoVaultsResult {
 }
 
 function RateLabel({ onRender }: { onRender?: (label: string | null) => void }) {
-  const { value: label } = useSavingsRateLabel("US");
+  const { value: label } = useSavingsRateLabel("US", true, deploymentOffering);
   onRender?.(label);
   return <output>{label}</output>;
 }

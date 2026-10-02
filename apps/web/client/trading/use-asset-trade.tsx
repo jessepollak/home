@@ -10,6 +10,7 @@ import { deferSheet, useIdlePreload } from "@/client/money-modal/deferred-sheet"
 import { moneySheetLoading } from "@/client/money-modal";
 import { browserHomeQueryClient } from "@/client/query/query-client";
 import { selectBalanceBaseUnits } from "@/shared/balances/select";
+import { useProductOffering } from "@/client/home/product-offering";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { RegionId } from "@/config/regions";
 import type { TradeDirection, TradeToken } from "@/shared/trading/contract";
@@ -25,6 +26,7 @@ type Options = { session?: VerifiedAccountSession | null; regionId?: RegionId; o
 
 export function useAssetTrade(candidates: readonly TradeCandidate[], { session: expectedSession, regionId, onFallbackFocus }: Options = {}) {
   const account = useOptionalAccountWallet();
+  const investOffered = useProductOffering().products.invest === "on";
   const walletOwner = account ? uiBoundary(account) : null;
   const verified = walletOwner !== null && account && isServerVerified(account) ? account.session : null;
   const [mountedOwner, setMountedOwner] = useState(walletOwner);
@@ -55,7 +57,7 @@ export function useAssetTrade(candidates: readonly TradeCandidate[], { session: 
   const states = new Map(candidates.map(({ assetId }) => {
     const available = availability.get(assetId);
     const state = !account || !session?.smartAccount || available?.status === "unavailable" ||
-      (available?.status === "available" && available.buy === "blocked") || balances.status === "error" ||
+      (!investOffered || (available?.status === "available" && available.buy === "blocked")) || balances.status === "error" ||
       (balances.status === "ready" && (!usableBalances || cash === null)) ? "none"
       : available === null || balances.status === "loading" ? "pending"
         : cash === "0" ? "zero" : "ready";

@@ -1,8 +1,11 @@
 import "server-only";
 
 import { keccak256 } from "viem";
+import { PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE } from "@/shared/actions/contracts/prepare";
+import { offeredMarketMode, offeredVaultMode, resolveProductOffering } from "@/shared/operator-settings/products";
+import { readProductOffering } from "@/server/operator-settings/offering";
 
-import { CONFIRM_CASHOUT_ERRORS, supportsBaseBatchGasHint, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
+import { CONFIRM_CASHOUT_ERRORS, supportsBaseBatchGasHint, type ConfirmActionErrorCode, type ConfirmActionResponse } from "@/shared/actions/contracts/confirm";
 import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actions/contracts/get";
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
@@ -137,7 +140,7 @@ async function recordConfirmedBestEffort(row: ActionRow, recordConfirmed?: (row:
 async function checkCardAllowanceSetGate(row: ActionRow, owner: MoneyActionOwner, signal: AbortSignal, dependencies: {
   cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
   cardAllowanceEligible?: typeof checkCardAllowanceEligibility;
-}, fail: (code: string, message: string, status: number) => Response): Promise<Response | null> {
+}, fail: (code: ConfirmActionErrorCode, message: string, status: number) => Response): Promise<Response | null> {
   const metadata = parseCardAllowanceMetadata(row.summary.metadata);
   if (!metadata) return fail("CARD_ALLOWANCE_UNAVAILABLE", "Card spending limits are unavailable right now. Prepare again.", 503);
   if (metadata.operation !== "set-allowance") return null;
@@ -192,6 +195,7 @@ export function createConfirmActionHandler(dependencies: {
   convertPair?: typeof resolveConvertPair;
   markHot?: (address: `0x${string}`, until: Date) => Promise<void>;
   estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
+  readOffering?: typeof readProductOffering;
   now?: () => Date;
   regionOffered?: (region: string) => Promise<boolean>;
   cardAllowanceSetAllowed?: (metadata: CardAllowanceMoneyActionMetadata) => boolean | Promise<boolean>;
@@ -205,7 +209,7 @@ export function createConfirmActionHandler(dependencies: {
     const startedAt = Date.now();
     const owner = await authorizeOwner(request, dependencies.authorize);
     if (owner instanceof Response) return owner;
-    const fail = (code: string, message: string, status: number) => {
+    const fail = (code: ConfirmActionErrorCode, message: string, status: number) => {
       emitServerEvent("action-confirm", {
         route: "/api/actions/:id/confirm",
         code,
@@ -300,6 +304,9 @@ export function createConfirmActionHandler(dependencies: {
         if (corridorOffered === null) return fail(CONFIRM_CASHOUT_ERRORS["settings-unavailable"].code, "Cash out is unavailable right now. Try again shortly.", CONFIRM_CASHOUT_ERRORS["settings-unavailable"].status);
         if (!corridorOffered) return fail(CONFIRM_CASHOUT_ERRORS.unavailable.code, "This cash-out option is no longer offered.", CONFIRM_CASHOUT_ERRORS.unavailable.status);
       }
+    }
+    if (!replay && !draft.confirmed_at && await entryPaused(draft, dependencies.readOffering ?? readProductOffering)) {
+      return fail(PRODUCT_NOT_OFFERED_CODE, PRODUCT_NOT_OFFERED_MESSAGE, 409);
     }
 
     let calls = draftCalls;
@@ -701,6 +708,24 @@ function createDeadline(parentSignal: AbortSignal, ms: number): {
 function iso(value: string | Date | null): string | null {
   if (!value) return null;
   return typeof value === "string" ? new Date(value).toISOString() : value.toISOString();
+}
+
+async function entryPaused(row: ActionRow, read: typeof readProductOffering): Promise<boolean> {
+  const metadata = row.summary.metadata;
+  if (row.kind === "withdraw-collateral" && metadata?.product === "borrow" && metadata.riskIncreased === false) return false;
+  if (row.kind !== "send" && row.kind !== "savings-deposit" && row.kind !== "borrow" && row.kind !== "withdraw-collateral" &&
+    !(row.kind === "trade" && metadata?.product === "trade" && metadata.direction === "buy")) return false;
+  let offering;
+  try { offering = await read(); }
+  catch { offering = resolveProductOffering({ kind: "unavailable" }); }
+  if (row.kind === "send") return offering.products.send !== "on";
+  if (row.kind === "savings-deposit") {
+    const vault = metadata?.product === "savings" ? getVerifiedSaveVault(metadata.vaultAddress) : null;
+    return !vault || offering.products.save !== "on" || offeredVaultMode(offering, vault.id) !== "enabled";
+  }
+  if (row.kind === "borrow" || row.kind === "withdraw-collateral") return metadata?.product !== "borrow" || offering.products.borrow !== "on" ||
+    offeredMarketMode(offering, metadata.marketId) !== "enabled";
+  return offering.products.invest !== "on";
 }
 
 function replayableTradeCalls(row: ActionRow): MoneyActionCall[] | null {

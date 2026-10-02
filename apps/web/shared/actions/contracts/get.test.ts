@@ -131,6 +131,16 @@ describe("pending action response parser", () => {
       product: "savings", exchangeConstraint: "deposit-preview-no-minimum-shares",
     });
   });
+  test("restores legacy borrow metadata without a risk flag", () => {
+    const value = pendingSavings("withdraw");
+    const metadata = { product: "borrow", operation: "withdraw-collateral", marketId: `0x${"1".repeat(64)}`,
+      loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "eth", symbol: "ETH" },
+      projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
+      source: { blockNumber: "1", blockHash: `0x${"2".repeat(64)}`, blockTimestamp: "1789214400" } };
+    const legacy = { ...value, kind: "withdraw-collateral", summary: { ...value.summary, metadata } };
+    expect(parsePendingActionResponse(legacy, ID, session)?.metadata).toMatchObject({ product: "borrow", operation: "withdraw-collateral", marketId: metadata.marketId });
+    expect(parsePendingActionResponse(legacy, ID, session)?.metadata).not.toHaveProperty("riskIncreased");
+  });
 
   test("drops malformed savings metadata instead of restoring untrusted review facts", () => {
     const value = pendingSavings("deposit");

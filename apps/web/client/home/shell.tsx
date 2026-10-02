@@ -26,6 +26,7 @@ import { useShellDocumentScrollRestoration } from "./use-shell-document-scroll-r
 import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalances } from "./home-status";
 import { ActionToasts } from "./action-toasts";
 import { scheduleAfterPaint } from "./after-paint";
+import { useProductOffering } from "./product-offering";
 import { useHomeRefresh } from "./use-home-refresh";
 import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } from "@/components/ui/pull-to-refresh";
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
@@ -271,7 +272,11 @@ function DashboardShellBody({
     else router.replace(href);
   }, [router, setFlowOrigin, setAccountOpener]);
 
+  const { products } = useProductOffering();
+  const investOffered = products.invest === "on";
+  const sendOffered = products.send === "on";
   const navigateTo = useCallback((panel: ShellPanelId) => {
+    if (panel === "invest" && !investOffered) return;
     setFlowOrigin(null);
     setAccountOpener(null);
     setInvestmentsReturnHolding(null);
@@ -285,7 +290,7 @@ function DashboardShellBody({
     const href = shellHref({ panel });
     if (window.location.pathname === href) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     if (`${window.location.pathname}${window.location.search}` !== href) pushRoute(href);
-  }, [pushRoute, activeNavigation, setUrlSearchOverride, setFlowOrigin, setAccountOpener]);
+  }, [pushRoute, activeNavigation, investOffered, setUrlSearchOverride, setFlowOrigin, setAccountOpener]);
   const setFlow = useCallback((flow: ShellFlow, options: { actionId?: string | null; mode?: "push" | "replace"; opener?: HTMLElement | null } = {}) => {
     const href = flowHref(window.location.pathname, flow, options.actionId ?? null,
       new URLSearchParams(window.location.search));
@@ -451,7 +456,7 @@ function DashboardShellBody({
         {activeNavigation !== "home" ? <>
           <FundingActions showTrigger={false} initialOpen={urlIntent.addMoney} returnedFromProvider={urlIntent.returnedFromProvider}
             regionId={regionId} regionReady={regionReady} />
-          <PresentationRegionProvider regionId={regionId}><TransferActions showTrigger={false}
+          <PresentationRegionProvider regionId={regionId}><TransferActions showTrigger={false} sendOffered={sendOffered}
             initialOpen={urlIntent.sendFlow} initialActionId={urlIntent.actionId}
             availableAssets={sendAvailability} assetMarkResolution={assetMarkResolution ?? { images: {}, pending: false }}
             regionId={regionId} regionReady={regionReady} /></PresentationRegionProvider>

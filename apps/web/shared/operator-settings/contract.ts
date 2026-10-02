@@ -4,6 +4,7 @@ import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION
 import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
 import { INVEST_SETTINGS_DEFAULTS, parseInvestSettings, parseInvestSettingsWrite } from "./invest";
 import { parseRegionSettings, parseRegionSettingsWrite, REGION_SETTINGS_DEFAULTS } from "./regions";
+import { deploymentProductSettings, parseProductSettings, productSettingsMatchCatalog, type ProductSettings } from "./products";
 
 export { OPERATOR_SETTINGS_CONTRACT_VERSION } from "./envelope";
 /** @public parses settings responses for future administrator clients */
@@ -15,6 +16,7 @@ export type DomainDefinition<T> = {
   parse(value: unknown): T | null;
   parseWrite?: (value: unknown) => T | null;
   upgrade?: (fromVersion: number, value: unknown) => unknown;
+  acceptsWrite?(value: T): boolean;
 };
 
 export type DomainRegistry = Record<string, DomainDefinition<unknown>>;
@@ -82,6 +84,7 @@ export const OPERATOR_SETTINGS_DOMAINS = {
   regions: { schemaVersion: 1, defaults: REGION_SETTINGS_DEFAULTS, parse: parseRegionSettings, parseWrite: parseRegionSettingsWrite },
   invest: { schemaVersion: 1, defaults: INVEST_SETTINGS_DEFAULTS, parse: parseInvestSettings, parseWrite: parseInvestSettingsWrite },
   fees: { schemaVersion: 1, defaults: OPERATOR_FEE_SETTINGS_DEFAULTS, parse: parseOperatorFeeSettings },
+  products: { schemaVersion: 1, defaults: deploymentProductSettings(), parse: parseProductSettings, acceptsWrite: (value) => productSettingsMatchCatalog(value) } satisfies DomainDefinition<ProductSettings>,
 } satisfies DomainRegistry;
 
 export type SettingsEntry<T = unknown> = {
