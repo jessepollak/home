@@ -1,4 +1,6 @@
 import { readJson } from "@/tests/helpers/read-json";
+import { TestOperatorSettingsStore } from "@/tests/helpers/store-doubles";
+import type { SettingsEntry } from "@/shared/operator-settings/contract";
 import { describe, expect, test } from "bun:test";
 import { BASE_CHAIN_ID, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseOperatorFeeSettings } from "@/shared/fees/contract";
@@ -102,7 +104,8 @@ test("products writes require exactly the compiled catalog and successful PUT in
   try {
     const first = await readProductOffering();
     const productsContext = { params: Promise.resolve({ domain: "products" }) };
-    const store = { ...fakeStore, hasDomain: (domain: string) => domain === "products", write: async () => ({ domain: "products", settings: { value: products, revision: 1, source: "stored", updatedAt: null, updatedBy: X } }) } as unknown as OperatorSettingsStore;
+    const productsEntry: SettingsEntry = { domain: "products", settings: { value: { ...products, products: { ...products.products, send: "off" } }, revision: 0, source: "default", updatedAt: null, updatedBy: null } };
+    const store = new TestOperatorSettingsStore(new Set(["products"]), [productsEntry]);
     const result = await createSettingsDomainHandlers({ ...deps(), store: () => store }).PUT(request("PUT", "settings/products", { headers: { origin: "https://home.test", "content-type": "application/json" }, body: JSON.stringify({ version: 1, expectedRevision: 0, value: products, operator: X }) }), productsContext);
     expect(result.status).toBe(200);
     const saved = parseSettingsResponse(await result.json());

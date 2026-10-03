@@ -64,11 +64,17 @@ function retryRequest(): Request {
 }
 
 function tradeMetadata(address: string, direction: "buy" | "sell"): TradeMoneyActionMetadata {
+  const usdc = { id: "usdc", symbol: "USDC", decimals: 6, address: requireAddress(BASE_USDC_ADDRESS) };
+  const token = { id: "fixture", symbol: "FIXTURE", decimals: 6, address: requireAddress(address) };
   return {
-    product: "trade", direction,
-    fromAsset: { address: direction === "sell" ? address : BASE_USDC_ADDRESS },
-    toAsset: { address: direction === "buy" ? address : BASE_USDC_ADDRESS },
-  } as unknown as TradeMoneyActionMetadata;
+    product: "trade", provider: "cdp-swaps", direction,
+    network: { name: "Base", chainId: 8453 }, assetId: "fixture", assetName: "Fixture",
+    fromAsset: direction === "sell" ? token : usdc,
+    toAsset: direction === "buy" ? token : usdc,
+    fromAmountBaseUnits: "1000000", expectedToAmountBaseUnits: "1000", minimumToAmountBaseUnits: "990",
+    slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "1",
+    quotedAt: "2026-09-25T12:00:00.000Z", permitDeadline: "4102444800", executionDeadline: "4102444800",
+  };
 }
 
 const request = (signature: string, provider: "base-account" | "cdp-embedded") => new Request(`https://home.test/api/actions/${ID}/confirm`, {
@@ -300,7 +306,7 @@ describe("trade confirmation", () => {
   test.each(["base-account", "cdp-embedded"] as const)("finalizes a fee-prepended %s trade with an exact call commitment", async (provider) => {
     const row = tradeRow(provider, "2026-09-25T12:03:00.000Z");
     const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
-    row.summary.metadata = { product: "trade", direction: "buy" } as TradeMoneyActionMetadata;
+    row.summary.metadata = tradeMetadata(OWNER, "buy");
     let offeringReads = 0;
     let committed = "";
     const handler = createConfirmActionHandler({
@@ -336,7 +342,8 @@ describe("trade confirmation", () => {
   });
   test("confirms a stock sell without reading paused invest settings", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
-    row.summary.metadata = { product: "trade", direction: "sell", fromAsset: { address: stockAssets[0].contractAddress }, toAsset: { address: BASE_USDC_ADDRESS } } as unknown as TradeMoneyActionMetadata;
+    const metadata = tradeMetadata(stockAssets[0].contractAddress, "sell");
+    row.summary.metadata = { ...metadata, fromAsset: { ...metadata.fromAsset, id: stockAssets[0].id } };
     const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
     let reads = 0;
     const handler = createConfirmActionHandler({
