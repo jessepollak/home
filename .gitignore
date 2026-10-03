@@ -13,3 +13,4 @@ dist/
 .home-verify/
 
 !apps/web/server/db/migrations/*.sql
+!apps/web/server/funding/migrations/*.sql

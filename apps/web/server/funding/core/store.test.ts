@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MemoryFundingOrderStore, type FundingReservation } from "./store";
+import { randomUUID } from "node:crypto";
+import { fundingAbandonStoreContract } from "@/tests/helpers/funding-store-contract";
 
 const owner = { subject: "subject-1", accountProvider: "base-account" as const };
 const other = { subject: "subject-2", accountProvider: "base-account" as const };
@@ -12,6 +14,8 @@ const base: FundingReservation = {
 };
 
 describe("MemoryFundingOrderStore contract", () => {
+  fundingAbandonStoreContract(() => new MemoryFundingOrderStore(), () => ({ ...base, id: randomUUID(), intentDigest: randomUUID() }));
+
   test("atomically returns one reservation for a repeated intent and scopes owner reads", async () => {
     const store = new MemoryFundingOrderStore();
     const [first, second] = await Promise.all([store.reserve(base), store.reserve({ ...base, id: "22222222-2222-4222-8222-222222222222" })]);

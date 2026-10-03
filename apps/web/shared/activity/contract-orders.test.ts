@@ -44,6 +44,25 @@ const order = {
   expiresAt: null, clearableAt: null, logIndex: "1", createdAt: "2026-09-25T12:00:00Z", updatedAt: "2026-09-25T12:00:00Z",
 };
 
+test("funding movement timestamps are optional for skew but validated when present", () => {
+  const funding = { ...order, transactionHash: null, logIndex: null };
+  const parse = (entry: unknown) => parseActivityOrders({ version: 1, owner: { subject: "owner", accountProvider: "cdp-embedded" }, orders: [entry] }, session);
+  expect(parse(funding)).toHaveLength(1);
+  expect(parse({ ...funding, movedAt: "2026-09-25T10:00:00Z" })[0]).toMatchObject({ movedAt: "2026-09-25T10:00:00Z" });
+  for (const movedAt of [null, "invalid", 1]) expect(parse({ ...funding, movedAt })).toEqual([]);
+});
+
+test("funding abandonment uses existing stages and an optional validated reason", () => {
+  const funding = { ...order, transactionHash: null, logIndex: null };
+  const parse = (entry: unknown) => parseActivityOrders({ version: 1, owner: { subject: "owner", accountProvider: "cdp-embedded" }, orders: [entry] }, session);
+  for (const [stage, status, abandonReason] of [["cancelled", "failed", "owner"], ["expired", "expired", "timed-out"]] as const) {
+    expect(parse({ ...funding, stage, status })[0]).toMatchObject({ stage, status });
+    expect(parse({ ...funding, stage, status, abandonReason })[0]).toMatchObject({ stage, status, abandonReason });
+  }
+  for (const abandonReason of [null, "invalid", 1]) expect(parse({ ...funding, abandonReason })).toEqual([]);
+  for (const stage of ["abandoned", "timed-out"]) expect(parse({ ...funding, stage })).toEqual([]);
+});
+
 test("funding orders canonicalize mixed-case transaction hashes and omit invalid rows", () => {
   const parse = (transactionHash: string) => parseActivityOrders({ version: 1, owner: { subject: "owner", accountProvider: "cdp-embedded" }, orders: [{ ...order, transactionHash }] }, session);
   const parsed = parse(`0x${"Ab".repeat(32)}`)[0];

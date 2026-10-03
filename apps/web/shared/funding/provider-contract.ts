@@ -366,6 +366,7 @@ export type Observation = {
 
 export type OrderState =
   | ReportedState
+  | "abandoned"
   | "reserving"
   | "dispatch-ambiguous"
   | "sent-unverified"

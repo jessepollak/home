@@ -7,6 +7,7 @@ import { savingsPrepareFixture } from "../feature-map/savings-fixture";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
 import { FUNDING_OPEN_ORDER_VERSION } from "../../../shared/funding/contracts/open-order";
 import { FUNDING_PROVIDERS_VERSION } from "../../../shared/funding/contracts/providers";
+import { activityOrdersFixture, fundingOrderCancellationFixture } from "../feature-map/fixtures";
 import {
   actionsBody,
   basenameProfileBody,
@@ -119,7 +120,7 @@ export function seedSignedInSession(page: Page, country = "US") {
 
 export async function installApiFixtures(
   page: Page,
-  options: { balances?: BalancesSnapshot; countryPreferenceRegion?: RegionId; clock?: "date" | "playwright" | "system" } = {},
+  options: { balances?: BalancesSnapshot; countryPreferenceRegion?: RegionId; clock?: "date" | "playwright" | "system"; activityOrders?: boolean } = {},
 ) {
   if (options.clock === "playwright") await page.clock.install({ time: FIXED_NOW });
   else if (options.clock !== "system") await installFixedPageDate(page);
@@ -135,6 +136,7 @@ export async function installApiFixtures(
   let handleRecorded = false;
   let failHandleResponseOnce = true;
   let fundingStatusReads = 0;
+  const activityOrders = activityOrdersFixture();
   const currentAction = preparedSendFixtureAction();
 
   await page.route("**/api/**", async (route) => {
@@ -282,6 +284,16 @@ export async function installApiFixtures(
         },
       });
     }
+    if (path.endsWith("/cancel") && path.startsWith("/api/funding/orders/") && request.method() === "POST") {
+      const id = path.split("/").at(-2);
+      const order = activityOrders.orders.find((entry) => entry.kind === "funding" && entry.id === id);
+      if (order?.kind !== "funding" || order.stage !== "awaiting-payment" || request.postDataJSON()?.version !== 1) {
+        return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ code: "ORDER_NOT_CANCELLABLE" }) });
+      }
+      activityOrders.orders = activityOrders.orders.map((entry) => entry.id === id && entry.kind === "funding"
+        ? { ...entry, stage: "cancelled", abandonReason: "owner", status: "failed", resumable: false, instruction: null } : entry);
+      return json(route, fundingOrderCancellationFixture(order.id));
+    }
     if (path === "/api/funding/orders" && request.method() === "GET") return json(route, { version: FUNDING_OPEN_ORDER_VERSION, order: null });
     if (path === `/api/funding/orders/${ACTION_ID}`) {
       fundingStatusReads += 1;
@@ -303,6 +315,7 @@ export async function installApiFixtures(
         activityPageBody(url.searchParams.get("to"), url.searchParams.get("currency") ?? "USD"),
       );
     }
+    if (path === "/api/activity/orders" && options.activityOrders) return json(route, activityOrders);
     if (path === "/api/activity/orders") return json(route, {
       version: 1, owner: { subject: sessionBody.user.subject, accountProvider: sessionBody.accountProvider }, orders: [],
     });

@@ -14,6 +14,7 @@ import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { isTerminalFundingOrderState as terminal } from "./order-polling";
 import { fundingOrderKey, fundingOrderQuery } from "./funding-queries";
+import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "./cancel-order";
 import {
   formatFiatAmount,
   formatPresentationDate,
@@ -94,6 +95,13 @@ export function FundingOrderFlow({
   const [resolvingAmbiguous, setResolvingAmbiguous] = useState(false);
   const [resolutionError, setResolutionError] = useState<string | null>(null);
   const support = useOptionalSupport();
+  const [cancelling, setCancelling] = useState(false);
+  const [cancellationError, setCancellationError] = useState<string | null>(null);
+  const cancelAttemptRef = useRef(0);
+  const cancelInFlightRef = useRef(false);
+  const cancelOwnerRef = useRef(queryOwnerKey);
+  useEffect(() => { cancelOwnerRef.current = queryOwnerKey; }, [queryOwnerKey]);
+  useEffect(() => () => { cancelAttemptRef.current += 1; }, []);
   const [clearedOrderId, setClearedOrderId] = useState<string | null>(null);
   const [confirmationAttempted, setConfirmationAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,6 +114,7 @@ export function FundingOrderFlow({
   }
 
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
+  const cancelMutation = useCancelFundingOrder(queryOwnerKey ?? null, fetchAccountResource);
   const quoteMutation = useHomeMutation(mutationOptions({
     mutationFn: async ({ paymentMethod, fiatAmount }: { paymentMethod: string; fiatAmount: string }) => {
       const value = await fetchAccountResource("/api/funding/quotes", {
@@ -221,6 +230,30 @@ export function FundingOrderFlow({
     }
   }
 
+  async function cancelOrder() {
+    if (!currentOrder || currentOrder.state !== "awaiting-payment" || cancelInFlightRef.current) return;
+    const requested = currentOrder;
+    const owner = queryOwnerKey;
+    const attempt = ++cancelAttemptRef.current;
+    const current = () => attempt === cancelAttemptRef.current && owner === cancelOwnerRef.current;
+    cancelInFlightRef.current = true;
+    setCancelling(true);
+    setCancellationError(null);
+    try {
+      const resolved = await cancelMutation.mutateAsync({ id: requested.id, region: binding.region, providerId: binding.providerId });
+      if (!current()) return;
+      setOrder(resolved.order);
+      queryClient.setQueryData(fundingOrderKey(owner ?? null, requested), resolved.order);
+    } catch (failure) {
+      if (!current()) return { ok: false as const, message: cancellationErrorCopy(failure) };
+      setCancellationError(cancellationErrorCopy(failure));
+      if (cancellationNeedsRefetch(failure)) await orderQuery.refetch();
+      return { ok: false as const, message: cancellationErrorCopy(failure) };
+    } finally {
+      if (current()) { cancelInFlightRef.current = false; setCancelling(false); }
+    }
+  }
+
   async function confirmOrder() {
     if (busy || !draft) return;
     setBusy(true);
@@ -246,24 +279,24 @@ export function FundingOrderFlow({
   }
 
   if (currentOrder?.instructions?.kind === "redirect") {
-    return <MoneyModalStep step="order:status" depth={5}><MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" /><OrderStatus binding={binding} order={currentOrder} /></MoneyModalStep>;
+    return <MoneyModalStep step={`order:status:${currentOrder.state}`} depth={5}><MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" /><OrderStatus binding={binding} order={currentOrder} onRefetch={orderQuery.refetch} onCancel={() => void cancelOrder()} cancelling={cancelling} cancellationError={cancellationError} onStartNew={onBack} /></MoneyModalStep>;
   }
   if (
     currentOrder?.instructions &&
     currentOrder.expectedTokenAmountAtomic &&
     !showInstructions &&
-    !terminal(currentOrder.state, currentOrder.sandbox)
+    currentOrder.state === "awaiting-payment"
   ) {
     return (
       <MoneyModalStep step="order:economics" depth={4}>
         <MoneyModalHeader title={`Deposit ${binding.currency}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" />
-        <ProviderEconomicsReview binding={binding} order={currentOrder} onContinue={() => setShowInstructions(true)} />
+        <ProviderEconomicsReview binding={binding} order={currentOrder} onContinue={() => setShowInstructions(true)} onCancel={() => void cancelOrder()} cancelling={cancelling} cancellationError={cancellationError} />
       </MoneyModalStep>
     );
   }
   if (currentOrder) {
     return (
-      <MoneyModalStep step="order:status" depth={5}>
+      <MoneyModalStep step={`order:status:${currentOrder.state}`} depth={5}>
         <MoneyModalHeader
           title={`Deposit ${binding.currency}`}
           titleId={titleId}
@@ -274,6 +307,10 @@ export function FundingOrderFlow({
           binding={binding}
           order={currentOrder}
           onRefetch={orderQuery.refetch}
+          onCancel={() => void cancelOrder()}
+          cancelling={cancelling}
+          cancellationError={cancellationError}
+          onStartNew={onBack}
           cleared={currentOrder.id === clearedOrderId && currentOrder.state === "cancelled"}
           {...(currentOrder.state === "dispatch-ambiguous"
             ? {
@@ -458,10 +495,14 @@ function ProviderEconomicsReview({
   binding,
   order,
   onContinue,
+  onCancel, cancelling, cancellationError,
 }: {
   binding: FundingBinding;
   order: FundingOrderSummary;
   onContinue: () => void;
+  onCancel: () => void;
+  cancelling: boolean;
+  cancellationError: string | null;
 }) {
   const fees = order.fees ?? [];
   const regionId = presentationCurrencyMetadata(
@@ -507,10 +548,15 @@ function ProviderEconomicsReview({
             </dl>
           </CardContent>
         </Card>
+        {cancellationError ? <FundingNotice tone="error" role="alert">{cancellationError}</FundingNotice> : null}
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel="View payment instructions"
         onPrimary={onContinue}
+        secondaryLabel="Cancel deposit"
+        onSecondary={onCancel}
+        secondaryLoading={cancelling}
+        secondaryDisabled={cancelling}
       />
     </>
   );
@@ -533,12 +579,16 @@ export function OpenOrderPrompt({
   startNewAllowed,
   onContinue,
   onStartNew,
+  onCancel, cancelling = false, cancellationError = null,
 }: {
   binding: FundingBinding;
   order: FundingOrderSummary;
   startNewAllowed: boolean;
   onContinue: () => void;
   onStartNew: () => void;
+  onCancel?: () => void;
+  cancelling?: boolean;
+  cancellationError?: string | null;
 }) {
   const support = useOptionalSupport();
   return (
@@ -567,11 +617,14 @@ export function OpenOrderPrompt({
           <FundingNotice>Home can&apos;t confirm this deposit yet. Continue to check it before starting another.</FundingNotice>
         ) : null}
         {order.state === "dispatch-ambiguous" && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport({ kind: "funding_order", id: order.id })}>Message support</Button> : null}
+        {cancellationError ? <FundingNotice tone="error" role="alert">{cancellationError}</FundingNotice> : null}
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel="Continue deposit"
         onPrimary={onContinue}
-        {...(startNewAllowed ? { secondaryLabel: "Start new deposit", onSecondary: onStartNew } : {})}
+        {...(order.state === "awaiting-payment" && onCancel
+          ? { secondaryLabel: "Cancel deposit", onSecondary: onCancel, secondaryLoading: cancelling, secondaryDisabled: cancelling }
+          : startNewAllowed ? { secondaryLabel: "Start new deposit", onSecondary: onStartNew } : {})}
       />
     </>
   );
@@ -584,6 +637,7 @@ function OrderStatus({
   resolving = false,
   resolutionError = null,
   cleared = false,
+  onCancel, cancelling = false, cancellationError = null, onStartNew,
 }: {
   binding: FundingBinding;
   order: FundingOrderSummary;
@@ -592,28 +646,34 @@ function OrderStatus({
   resolving?: boolean;
   resolutionError?: string | null;
   cleared?: boolean;
+  onCancel?: () => void;
+  cancelling?: boolean;
+  cancellationError?: string | null;
+  onStartNew?: () => void;
 }) {
   const support = useOptionalSupport();
   const needsSupport = ["failed", "dispatch-ambiguous", "sent-unverified"].includes(order.state) && !(order.sandbox && order.state === "sent-unverified");
+  const [unusableCheckout, setUnusableCheckout] = useState(false);
   const copy = cleared
     ? {
         title: "Order cleared",
         body: "Home closed this deposit attempt without sending another request. You can start a new deposit.",
       }
-    : stateCopy(order.state, order.sandbox);
+    : stateCopy(order.state, order.sandbox, binding.displayName, order.abandonReason);
   return (
     <>
-      <MoneyModalBody hasFooter={Boolean(onResolve)} className="gap-4 pt-4">
+      <MoneyModalBody hasFooter={Boolean(onResolve || (order.state === "awaiting-payment" && onCancel) || (order.state === "abandoned" && onStartNew))} className="gap-4 pt-4">
         <h3 className="text-lg font-semibold">{copy.title}</h3>
         {order.sandbox ? <SandboxBadge /> : null}
         {copy.body ? <FundingNotice>{copy.body}</FundingNotice> : null}
         {needsSupport && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport({ kind: "funding_order", id: order.id })}>Message support</Button> : null}
+        {unusableCheckout && order.state === "awaiting-payment" ? <FundingNotice>{binding.displayName} couldn&apos;t load this checkout. It may have expired. Cancel it and start a new deposit.</FundingNotice> : null}
         <SettledAmounts binding={binding} order={order} />
-        {order.instructions &&
-        (order.instructions.kind !== "embed" || order.state === "awaiting-payment") ? (
+        {order.instructions && order.state === "awaiting-payment" ? (
           <InstructionView
             instruction={order.instructions}
             onRefetch={onRefetch}
+            onLoadError={() => setUnusableCheckout(true)}
           />
         ) : null}
         {resolutionError ? (
@@ -621,7 +681,10 @@ function OrderStatus({
             {resolutionError}
           </FundingNotice>
         ) : null}
+        {cancellationError && order.state === "awaiting-payment" ? <FundingNotice tone="error" role="alert">{cancellationError}</FundingNotice> : null}
       </MoneyModalBody>
+      {order.state === "awaiting-payment" && onCancel ? <MoneyModalFooter primaryLabel="Cancel deposit" onPrimary={onCancel} primaryLoading={cancelling} primaryDisabled={cancelling} /> : null}
+      {order.state === "abandoned" && onStartNew ? <MoneyModalFooter primaryLabel="Start new deposit" onPrimary={onStartNew} /> : null}
       {onResolve ? (
         <MoneyModalFooter
           primaryLabel={resolving ? "Clearing old order…" : "Clear old order"}
@@ -669,9 +732,11 @@ function SettledAmounts({
 function InstructionView({
   instruction,
   onRefetch,
+  onLoadError,
 }: {
   instruction: Instruction;
   onRefetch?: () => Promise<unknown>;
+  onLoadError?: () => void;
 }) {
   if (instruction.kind === "redirect") {
     return (
@@ -681,7 +746,7 @@ function InstructionView({
     );
   }
   if (instruction.kind === "embed") {
-    return <EmbedInstruction instruction={instruction} onRefetch={onRefetch} />;
+    return <EmbedInstruction instruction={instruction} onRefetch={onRefetch} onLoadError={onLoadError} />;
   }
   if (instruction.kind === "bank-transfer") {
     return (
@@ -781,14 +846,17 @@ const EMBED_REFETCH_EVENTS = new Set([
   "onramp_api.polling_error",
   "onramp_api.session_error",
   "onramp_api.commit_error",
+  "onramp_api.load_error",
 ]);
 
 function EmbedInstruction({
   instruction,
   onRefetch,
+  onLoadError,
 }: {
   instruction: Extract<Instruction, { kind: "embed" }>;
   onRefetch?: () => Promise<unknown>;
+  onLoadError?: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const refetchingRef = useRef(false);
@@ -802,6 +870,7 @@ function EmbedInstruction({
         event.source !== iframeRef.current?.contentWindow
       ) return;
       const eventName = readEmbedEventName(event.data);
+      if (eventName === "onramp_api.load_error") onLoadError?.();
       if (!eventName || !EMBED_REFETCH_EVENTS.has(eventName)) return;
       if (refetchingRef.current) return;
       refetchingRef.current = true;
@@ -811,7 +880,7 @@ function EmbedInstruction({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [onRefetch, origin]);
+  }, [onRefetch, onLoadError, origin]);
 
   if (!origin) return null;
   return (
@@ -910,7 +979,16 @@ function SandboxBadge() {
   return <Badge variant="outline">Sandbox — not a real deposit</Badge>;
 }
 
-function stateCopy(state: string, sandbox = false) {
+function stateCopy(state: string, sandbox = false, displayName: string, abandonReason?: FundingOrderSummary["abandonReason"]) {
+  if (state === "abandoned") return abandonReason === "timed-out"
+    ? { title: "Checkout timed out", body: "This checkout wasn't paid in time. If you already paid, the money will still show up here when it arrives." }
+    : { title: "Deposit cancelled", body: `Home won't show this checkout as pending. Don't complete it in ${displayName}. If you already paid, the money will still show up here when it arrives.` };
+  if (state === "payment-received" || state === "settling") return {
+    title: "Payment received", body: `${displayName} is processing your payment. Home will show the money when it arrives on Base.`,
+  };
+  if (state === "unknown") return {
+    title: "Checking deposit status", body: "Home can't read this deposit's status right now and will keep checking. Don't pay again.",
+  };
   if (state === "received")
     return {
       title: "Money received",

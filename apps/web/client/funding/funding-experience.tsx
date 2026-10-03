@@ -18,7 +18,8 @@ import { isFundingBindingListFor, type FundingBinding } from "@/shared/funding/c
 import { isFundingCustomerListFor, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { browserHomeQueryClient, disabledQueryKey, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { queryViewState } from "@/client/query/query-view-state";
-import { fundingOpenOrderQuery, fundingProviderCustomersQuery, fundingProvidersQuery } from "./funding-queries";
+import { fundingOpenOrderQuery, fundingOrderKey, fundingProviderCustomersQuery, fundingProvidersQuery } from "./funding-queries";
+import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "./cancel-order";
 
 const AddMoneySheet = deferSheet(() => import("./add-money-dialog").then((module) => module.AddMoneyDialog),
   addMoneySheetLoading);
@@ -139,6 +140,12 @@ function FundingExperienceBoundary({
   const pausedSelectionCountRef = useRef(0);
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const onStepChangeRef = useRef(onStepChange);
+  const cancelMutation = useCancelFundingOrder(queryOwnerKey, wallet.fetchAccountResource);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
+  const [cancellationError, setCancellationError] = useState<string | null>(null);
+  const cancelAttemptRef = useRef(0);
+  const cancelInFlightRef = useRef(false);
+  useEffect(() => () => { cancelAttemptRef.current += 1; }, []);
 
   useEffect(() => {
     onStepChangeRef.current = onStepChange;
@@ -156,6 +163,10 @@ function FundingExperienceBoundary({
   }
 
   function clearSelection() {
+    cancelAttemptRef.current += 1;
+    cancelInFlightRef.current = false;
+    setCancellingOrder(false);
+    setCancellationError(null);
     setSelectedBinding(null);
     setPausedSelectionAttempt(null);
     setInitialOrder(null);
@@ -343,6 +354,42 @@ function FundingExperienceBoundary({
               }
             : null;
 
+  async function cancelPromptOrder() {
+    if (!promptOrder || promptOrder.state !== "awaiting-payment" || !selectedBinding || cancelInFlightRef.current) return;
+    const requested = promptOrder;
+    const attempt = ++cancelAttemptRef.current;
+    cancelInFlightRef.current = true;
+    setCancellingOrder(true);
+    setCancellationError(null);
+    try {
+      const resolved = await cancelMutation.mutateAsync({ id: requested.id, region: selectedBinding.region, providerId: requested.providerId });
+      if (attempt !== cancelAttemptRef.current) return;
+      queryClient.setQueryData(fundingOrderKey(queryOwnerKey, requested), resolved.order);
+      if (selectedBinding.direction === "onramp" && selectedBinding.resumeOnly) { goBack(); return; }
+      setPromptOrder(null);
+      setInitialOrder(null);
+      navigateTo("order");
+    } catch (failure) {
+      if (attempt !== cancelAttemptRef.current) return { ok: false as const, message: cancellationErrorCopy(failure) };
+      setCancellationError(cancellationErrorCopy(failure));
+      if (cancellationNeedsRefetch(failure)) {
+        try {
+          const latest = readFundingOrder(await wallet.fetchAccountResource(`/api/funding/orders/${encodeURIComponent(requested.id)}`));
+          if (attempt !== cancelAttemptRef.current || !latest || latest.id !== requested.id) return;
+          queryClient.setQueryData(fundingOrderKey(queryOwnerKey, requested), latest);
+          setPromptOrder(latest);
+          if (latest.state !== "awaiting-payment") { setInitialOrder(latest); setPromptOrder(null); navigateTo("order"); }
+        } catch {
+          if (attempt === cancelAttemptRef.current) setCancellationError(cancellationErrorCopy(failure));
+          return { ok: false as const, message: cancellationErrorCopy(failure) };
+        }
+      }
+      return { ok: false as const, message: cancellationErrorCopy(failure) };
+    } finally {
+      if (attempt === cancelAttemptRef.current) { cancelInFlightRef.current = false; setCancellingOrder(false); }
+    }
+  }
+
   function resetJourney() {
     navigateTo("method");
     clearSelection();
@@ -374,6 +421,9 @@ function FundingExperienceBoundary({
       selectedBinding={selectedBinding}
       initialOrder={initialOrder}
       promptOrder={promptOrder}
+      onCancelOrder={() => void cancelPromptOrder()}
+      cancellingOrder={cancellingOrder}
+      cancellationError={cancellationError}
       onContinueOrder={() => {
         setInitialOrder(promptOrder);
         setPromptOrder(null);

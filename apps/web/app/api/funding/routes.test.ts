@@ -17,6 +17,8 @@ import { handleFundingQuotePost } from "./quotes/handler";
 import { GET as openOrders, POST as createOrder } from "./orders/route";
 import { GET as orderStatus } from "./orders/[id]/route";
 import { POST as resolveOrder } from "./orders/[id]/resolve/route";
+import { POST as cancelOrder } from "./orders/[id]/cancel/route";
+import { readCancelFundingOrderResponse } from "@/shared/funding/contracts/order-cancellation";
 import { GET as providerCustomers } from "./provider-customers/route";
 import { handleFundingProviderCustomersGet } from "./provider-customers/handler";
 import { POST as startProviderCustomerVerification } from "./provider-customers/verification/route";
@@ -27,6 +29,7 @@ import {
   handleFundingOrderGetById,
   handleFundingOrderPost,
   handleFundingOrderResolutionPost,
+  handleFundingOrderCancellationPost,
 } from "./orders/handler";
 import { FundingCoreError } from "@/server/funding/core/service";
 import { assertFundingProviderCustomersResponse } from "@/shared/funding/contracts/provider-customers";
@@ -395,6 +398,7 @@ describe("funding route privacy and rejection", () => {
     ["open orders", () => openOrders(new Request("https://home.example/api/funding/orders?region=ID"))],
     ["create order", () => createOrder(new Request("https://home.example/api/funding/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))],
     ["order status", () => orderStatus(new Request("https://home.example/api/funding/orders/11111111-1111-4111-8111-111111111111"), { params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }) })],
+    ["cancel order", () => cancelOrder(new Request("https://home.example/api/funding/orders/11111111-1111-4111-8111-111111111111/cancel", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"version":1}' }), { params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }) })],
     ["resolve order", () => resolveOrder(new Request("https://home.example/api/funding/orders/11111111-1111-4111-8111-111111111111/resolve", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"version":1}' }), { params: Promise.resolve({ id: "11111111-1111-4111-8111-111111111111" }) })],
     ["provider customers", () => providerCustomers(new Request("https://home.example/api/funding/provider-customers?region=AR"))],
     ["start provider customer verification", () => startProviderCustomerVerification(new Request("https://home.example/api/funding/provider-customers/verification", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }))],
@@ -509,6 +513,49 @@ describe("funding route privacy and rejection", () => {
       expect(readFundingOpenOrderResponse(body)).toMatchObject({
         version: FUNDING_OPEN_ORDER_VERSION, order: { providerId, region, paymentMethod: method },
       });
+    }
+  });
+
+  test("cancellation handler returns a versioned shared-parser response with owner authorization", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const session: VerifiedAccountSession = { user: { subject: "cancel-owner" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
+    let calls = 0;
+    const response = await handleFundingOrderCancellationPost(new Request(`https://home.example/api/funding/orders/${id}/cancel`, { method: "POST", headers: { "X-Home-Account-Provider": "base-account", "Content-Type": "application/json; charset=utf-8" }, body: '{"version":1}' }), id, { authorize: async () => session, cancelOrder: async (owner, orderId) => { calls++; expect(owner).toEqual(session); expect(orderId).toBe(id); return { id, providerId: "fixture", state: "abandoned", abandonReason: "owner", fiatAmount: "10", providerStatus: "PENDING", instructions: null }; } });
+    expect(response.status).toBe(200);
+    assertPrivate(response);
+    expect(readCancelFundingOrderResponse(await response.json())).toMatchObject({ version: 1, order: { id, state: "abandoned", abandonReason: "owner", instructions: null } });
+    expect(calls).toBe(1);
+  });
+
+  test("cancellation rejects malformed content-type, body and version without service calls", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const session: VerifiedAccountSession = { user: { subject: "owner" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
+    let calls = 0;
+    for (const [contentType, body] of [["text/plain", '{"version":1}'], ["application/json", "{"], ["application/json", '{"version":2}'], ["application/json", '{"version":1,"reason":"owner"}']] as const) {
+      const response = await handleFundingOrderCancellationPost(new Request(`https://home.example/api/funding/orders/${id}/cancel`, { method: "POST", headers: { "X-Home-Account-Provider": "base-account", "Content-Type": contentType }, body }), id, { authorize: async () => session, cancelOrder: async () => { calls++; return {}; } });
+      expect(response.status).toBe(400);
+      assertPrivate(response);
+      expect(readFundingErrorResponse(await response.json())).toEqual({ error: { code: "INVALID_ORDER_CANCELLATION_REQUEST", message: "A valid cancellation request is required." } });
+    }
+    const invalidId = await handleFundingOrderCancellationPost(new Request("https://home.example/api/funding/orders/bad/cancel", { method: "POST", headers: { "X-Home-Account-Provider": "base-account" } }), "bad", { authorize: async () => session, cancelOrder: async () => { calls++; } });
+    expect(invalidId.status).toBe(404);
+    expect(readFundingErrorResponse(await invalidId.json())).toEqual({ error: { code: "ORDER_NOT_FOUND", message: "Funding order not found." } });
+    expect(calls).toBe(0);
+  });
+
+  test("cancellation errors preserve typed 404, 409 and 503 public-neutral bodies", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const session: VerifiedAccountSession = { user: { subject: "owner" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
+    for (const [code, status, message] of [
+      ["ORDER_NOT_FOUND", 404, "Funding order not found."],
+      ["ORDER_NOT_CANCELLABLE", 409, "This deposit can no longer be cancelled."],
+      ["ORDER_STATE_CHANGED", 409, "This deposit changed before it could be cancelled. Check its latest status."],
+      ["ORDER_STATUS_UNAVAILABLE", 503, "Home couldn't check this deposit with the provider. Try again."],
+    ] as const) {
+      const response = await handleFundingOrderCancellationPost(new Request(`https://home.example/api/funding/orders/${id}/cancel`, { method: "POST", headers: { "X-Home-Account-Provider": "base-account", "Content-Type": "application/json" }, body: '{"version":1}' }), id, { authorize: async () => session, cancelOrder: async () => { throw new FundingCoreError(code, status); } });
+      expect(response.status).toBe(status);
+      assertPrivate(response);
+      expect(readFundingErrorResponse(await response.json())).toEqual({ error: { code, message } });
     }
   });
 

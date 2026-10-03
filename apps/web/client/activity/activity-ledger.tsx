@@ -41,6 +41,7 @@ export type ActivityLedgerNextActionKind =
   | "retry"
   | "start-again"
   | "clear-order"
+  | "cancel-order"
   | "withdraw-returned-funds"
   | "cancel-cash-out";
 export type Transaction = {
@@ -121,6 +122,7 @@ export type ActivityLedgerItem = {
     time?: string;
   }>;
   nextAction?: { kind: ActivityLedgerNextActionKind; label: string };
+  secondaryAction?: { kind: ActivityLedgerNextActionKind; label: string };
 } & {
   [F in ActivityLedgerFamily]: {
     family: F;
@@ -151,7 +153,7 @@ export function isActivityLedgerGroup(entry: ActivityLedgerEntry): entry is Acti
 }
 
 const allowed: Record<ActivityLedgerStatus, readonly ActivityLedgerNextActionKind[]> = {
-  "waiting-customer": ["resume", "resume-verification", "complete-payment"],
+  "waiting-customer": ["resume", "resume-verification", "complete-payment", "cancel-order"],
   "waiting-provider": ["cancel-cash-out"],
   "waiting-chain": [],
   "waiting-home": [],
@@ -169,7 +171,7 @@ export function isActivityLedgerNextActionAllowed(
   kind: ActivityLedgerNextActionKind,
 ): boolean {
   if (!allowed[status]?.includes(kind) || family === "card") return false;
-  if (kind === "resume-verification" || kind === "complete-payment" || kind === "clear-order") {
+  if (kind === "resume-verification" || kind === "complete-payment" || kind === "clear-order" || kind === "cancel-order") {
     return family === "funding-order";
   }
   if (kind === "withdraw-returned-funds") return family === "cash-out-order";

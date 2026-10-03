@@ -28,14 +28,35 @@ const statuses: ActivityLedgerStatus[] = [
 const families: ActivityLedgerFamily[] = ["onchain-transfer", "home-action", "funding-order", "cash-out-order", "card"];
 const kinds: ActivityLedgerNextActionKind[] = [
   "resume", "resume-verification", "complete-payment", "retry", "start-again",
-  "clear-order", "withdraw-returned-funds", "cancel-cash-out",
+  "clear-order", "cancel-order", "withdraw-returned-funds", "cancel-cash-out",
 ];
 const statusActions: Record<ActivityLedgerStatus, ActivityLedgerNextActionKind[]> = {
-  "waiting-customer": ["resume", "resume-verification", "complete-payment"],
+  "waiting-customer": ["resume", "resume-verification", "complete-payment", "cancel-order"],
   "waiting-provider": ["cancel-cash-out"], "waiting-chain": [], "waiting-home": [], confirmed: [],
   failed: ["retry"], expired: ["start-again"],
   ambiguous: ["clear-order"], reversed: ["withdraw-returned-funds"], refunded: [],
 };
+test("funding sheet loads only the pressed secondary action and dispatches cancellation", async () => {
+  const onAction = mock(() => {});
+  const entry: ActivityLedgerItem = { ...funding, secondaryAction: { kind: "cancel-order", label: "Cancel deposit" } };
+  const view = render(<ActivityLedgerDetailSheet item={entry} open onDismiss={() => {}} onAction={onAction} />);
+  const cancel = await view.findByRole("button", { name: "Cancel deposit" });
+  fireEvent.click(cancel);
+  expect(onAction).toHaveBeenCalledWith(entry, "cancel-order");
+  view.rerender(<ActivityLedgerDetailSheet item={entry} open onDismiss={() => {}} onAction={onAction}
+    actionBusy actionBusyKind="cancel-order" actionError="Home couldn't check this deposit." />);
+  expect(view.getByRole("button", { name: "Cancel deposit" }).getAttribute("aria-busy")).toBe("true");
+  expect(view.getByRole("button", { name: "Continue payment" }).getAttribute("aria-busy")).toBeNull();
+  expect(view.getByRole("alert").textContent).toContain("Home couldn't check this deposit.");
+});
+
+test("a non-resumable funding sheet offers Cancel as its only footer action", async () => {
+  const entry: ActivityLedgerItem = { ...funding, nextAction: undefined, secondaryAction: { kind: "cancel-order", label: "Cancel deposit" } };
+  const view = render(<ActivityLedgerDetailSheet item={entry} open onDismiss={() => {}} onAction={() => {}} />);
+  expect(await view.findByRole("button", { name: "Cancel deposit" })).toBeTruthy();
+  expect(view.queryByRole("button", { name: "Continue payment" })).toBeNull();
+});
+
 const ignoreOpen = () => undefined;
 
 function Composition({ onAction = () => undefined }: {
@@ -119,7 +140,7 @@ describe("activity ledger", () => {
   test("fails closed across status, family and action kind", () => {
     for (const status of statuses) for (const family of families) for (const kind of kinds) {
       const expected = family !== "card" && statusActions[status].includes(kind) &&
-        (!["resume-verification", "complete-payment", "clear-order"].includes(kind) || family === "funding-order") &&
+        (!["resume-verification", "complete-payment", "clear-order", "cancel-order"].includes(kind) || family === "funding-order") &&
         (kind !== "withdraw-returned-funds" || family === "cash-out-order") &&
         (kind !== "cancel-cash-out" || family === "cash-out-order" || family === "home-action");
       expect(isActivityLedgerNextActionAllowed(status, family, kind)).toBe(expected);

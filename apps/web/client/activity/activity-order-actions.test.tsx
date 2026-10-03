@@ -6,7 +6,7 @@ import { ConnectedActivityPanel } from "@/client/home/activity-panel";
 import { activityOwnerKey } from "@/client/activity/use-activity";
 import { getHomeQueryClient, ownerQueryKey } from "@/client/query/query-client";
 import { cashoutFixtureAction, cashoutFixtureWithdraw } from "@/tests/browser/feature-map/cashout-fixture";
-import { activityOrdersFixture, fundingOrderResolutionFixture } from "@/tests/browser/feature-map/fixtures";
+import { activityOrdersFixture, fundingOrderResolutionFixture, fundingOrderCancellationFixture } from "@/tests/browser/feature-map/fixtures";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { ReactNode } from "react";
 
@@ -25,12 +25,15 @@ function setup(options: { failOrders?: boolean; failResolve?: boolean; resolveBo
   const requests: Array<{ path: string; method: string; body?: unknown }> = [];
   const prepared: Array<{ kind: string; params: unknown }> = [];
   const flows: Array<{ flow: string; options: unknown }> = [];
+  let cancelled = false;
   const wallet = {
     fetchAccountResource: async (path: string, config?: { method?: string; body?: unknown }) => {
       requests.push({ path, method: config?.method ?? "GET", ...(config?.body ? { body: config.body } : {}) });
       if (path === "/api/activity/orders") {
         if (options.failOrders) throw new Error("Orders unavailable");
         const response = activityOrdersFixture();
+        if (cancelled) response.orders = response.orders.map((order) => order.id === "fixture-funding-pending" && order.kind === "funding"
+          ? { ...order, stage: "cancelled", abandonReason: "owner", status: "failed", resumable: false, instruction: null } : order);
         if (options.completePayment) {
           response.orders = response.orders.map((order) => order.id === "fixture-funding-pending" && order.kind === "funding"
             ? { ...order, instruction: "bank-transfer" } : order);
@@ -43,6 +46,9 @@ function setup(options: { failOrders?: boolean; failResolve?: boolean; resolveBo
             : { ...cashout, id: "cashout-fallback", status: "reversed", amountAtomic: "25000000", remainingAtomic: "25000000" }];
         }
         return response;
+      }
+      if (path === "/api/funding/orders/fixture-funding-pending/cancel") {
+        cancelled = true; return fundingOrderCancellationFixture("fixture-funding-pending");
       }
       if (path === "/api/funding/orders/fixture-funding-ambiguous/resolve") {
         if (options.failResolve) throw { serverMessage: "Clear failed. Try again." };
@@ -75,6 +81,22 @@ async function openOrder(view: ReturnType<typeof render>, amount: string) {
   fireEvent.click(row);
   return view.findByRole("dialog", { name: "Add money" });
 }
+
+test("pending Activity offers both actions and Cancel posts once then shows Cancelled", async () => {
+  const { view, requests } = setup();
+  await openOrder(view, "25");
+  await view.findByRole("button", { name: "Continue with Coinbase" });
+  const sheet = within(view.getByRole("dialog", { name: "Add money" }));
+  expect(sheet.getByRole("button", { name: "Continue with Coinbase" })).toBeTruthy();
+  const cancel = sheet.getByRole("button", { name: "Cancel deposit" });
+  fireEvent.click(cancel); fireEvent.click(cancel);
+  await sheet.findByText("Cancelled");
+  expect(sheet.getByText("Deposit cancelled")).toBeTruthy();
+  expect(requests.filter((request) => request.method === "POST")).toEqual([{
+    path: "/api/funding/orders/fixture-funding-pending/cancel", method: "POST", body: { version: 1 },
+  }]);
+  expect(sheet.queryByRole("button", { name: "Cancel deposit" })).toBeNull();
+});
 
 test("Clear order posts only to resolve, with version 1, and refreshes orders and the region's open order", async () => {
   const client = getHomeQueryClient();

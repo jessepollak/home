@@ -22,6 +22,7 @@ export type FundingOrderSummary = {
   transactionHash?: `0x${string}` | null;
   createdAt?: string;
   updatedAt?: string;
+  abandonReason?: "owner" | "timed-out" | null;
 };
 const fiatAmountPattern = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
 const atomicAmountPattern = /^(?:0|[1-9][0-9]*)$/;
@@ -36,6 +37,7 @@ export function isFundingOrderSummary(value: unknown): value is FundingOrderSumm
     optional(value, "expectedTokenAmountAtomic", (amount) => amount === null || (typeof amount === "string" && atomicAmountPattern.test(amount))) &&
     optional(value, "fees", isFundingFees) &&
     optional(value, "expiresAt", (expiresAt) => expiresAt === null || typeof expiresAt === "string") &&
+    optional(value, "abandonReason", (reason) => reason === null || reason === "owner" || reason === "timed-out") &&
     optional(value, "transactionHash", (hash) => hash === null || (typeof hash === "string" && /^0x[0-9a-fA-F]{64}$/.test(hash)));
 }
 export function readFundingOrder(value: unknown): FundingOrderSummary | null {

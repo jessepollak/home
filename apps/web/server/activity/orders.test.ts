@@ -14,6 +14,7 @@ const funding: FundingOrder = {
   expiresAt: "2026-09-12T13:00:00.000Z", instructions: { kind: "qr", scheme: "qris", payload: "secret-payload", amount: "20000", currency: "IDR" },
   providerStatus: "secret-status", providerTransactionHash: `0x${"2".repeat(64)}`, transactionHash: null, logIndex: null, version: 1,
   createdAt: "2026-09-12T10:00:00.000Z", updatedAt: "2026-09-12T11:00:00.000Z",
+  checkedAt: null, abandonReason: null,
 };
 const cashout: CashoutOrderRow = {
   action_id: "action-1", owner_key: "private-owner", provider_id: "peer", environment: "production", region: "US", deposit_id: "deposit-1", deposit_proven: true,
@@ -41,6 +42,24 @@ describe("activity order presenters", () => {
     expect(presentFundingOrder({ ...funding, state: "cancelled", providerOrderId: null }, now, false)).toMatchObject({ status: "failed", stage: "cleared" });
     expect(presentFundingOrder({ ...funding, state: "dispatch-ambiguous" }, now, false)?.clearableAt).toBe("2026-09-13T14:00:00.000Z");
     expect(presentFundingOrder({ ...funding, state: "dispatch-ambiguous", updatedAt: "invalid" }, now, false)?.clearableAt).toBeNull();
+  });
+
+  test("presents owner abandonment and checkout timeout without provider cancellation", () => {
+    expect(presentFundingOrder({ ...funding, state: "abandoned", abandonReason: "owner", instructions: null }, now, false)).toMatchObject({ status: "failed", stage: "cancelled", abandonReason: "owner", instruction: null, movedAt: funding.updatedAt });
+    expect(presentFundingOrder({ ...funding, state: "abandoned", abandonReason: "timed-out", instructions: null }, now, false)).toMatchObject({ status: "expired", stage: "expired", abandonReason: "timed-out" });
+    expect(presentFundingOrder({ ...funding, expiresAt: null, createdAt: "2026-09-11T12:00:00.000Z" }, now, false)).toMatchObject({ status: "expired", stage: "expired", movedAt: "2026-09-11T12:00:00.000Z" });
+    for (const state of ["reserving", "awaiting-payment", "unknown", "dispatch-ambiguous"] as const) {
+      expect(presentFundingOrder({ ...funding, state }, now, false)).toMatchObject({ createdAt: funding.createdAt, updatedAt: funding.updatedAt, movedAt: funding.createdAt });
+    }
+  });
+
+  test("a terminal provider report drops the Home-local abandonment reason", () => {
+    const expired = presentFundingOrder({ ...funding, state: "expired", abandonReason: "timed-out", instructions: null }, now, false);
+    expect(expired).toMatchObject({ status: "expired", stage: "expired" });
+    expect(expired).not.toHaveProperty("abandonReason");
+    const cancelled = presentFundingOrder({ ...funding, state: "cancelled", abandonReason: "owner", instructions: null }, now, false);
+    expect(cancelled).toMatchObject({ status: "failed", stage: "cancelled" });
+    expect(cancelled).not.toHaveProperty("abandonReason");
   });
 
   test("resolves manifest labels, asset details, verified hash and excludes provider secrets", () => {
