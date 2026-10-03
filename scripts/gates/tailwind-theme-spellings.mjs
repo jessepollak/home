@@ -62,8 +62,31 @@ async function deriveThemeSpellings(declaredTokens) {
     const utilities = roots.filter((_, rootIndex) => css[i * roots.length + rootIndex] !== null);
     const variants = [...variantTemplates[i]].sort();
     if (utilities.length || variants.length) {
-      spellings.set(namespace, { utilities, variants });
+      spellings.set(namespace, { utilities, variants, modifiers: [], defaults: { bare: [], valued: [] } });
     }
+  }
+  const utilityModifierProbes = [...spellings].flatMap(([namespace]) => [...spellings]
+    .filter(([valueNamespace]) => valueNamespace !== namespace)
+    .flatMap(([valueNamespace, { utilities }]) => utilities.map((root) => ({
+      namespace,
+      root,
+      candidate: `${root}-p${candidates.indexOf(valueNamespace)}/p${candidates.indexOf(namespace)}`,
+    }))));
+  const utilityModifierCss = design.candidatesToCss(utilityModifierProbes.map(({ candidate }) => candidate));
+  for (const [namespace, entry] of spellings) {
+    const reference = new RegExp(`var\\(${namespace}-p${candidates.indexOf(namespace)}[,)]`);
+    entry.modifiers = [...new Set(utilityModifierProbes
+      .filter((probe, i) => probe.namespace === namespace && reference.test(utilityModifierCss[i] ?? ""))
+      .map(({ root }) => root))].sort();
+  }
+
+  const defaultDeclarations = [...spellings.keys()].map((namespace) => `${namespace}: 1px;`).join(" ");
+  const defaultDesign = await tailwind.__unstable__loadDesignSystem(`${core}\n@theme { ${defaultDeclarations} }`, { base: "." });
+  const defaultCss = defaultDesign.candidatesToCss([...roots, ...roots.map((root) => `${root}-1`)]);
+  for (const [namespace, entry] of spellings) {
+    const reference = new RegExp(`var\\(${namespace}[,)]`);
+    entry.defaults.bare = roots.filter((_, i) => reference.test(defaultCss[i] ?? ""));
+    entry.defaults.valued = roots.filter((_, i) => reference.test(defaultCss[roots.length + i] ?? ""));
   }
   return spellings;
 }

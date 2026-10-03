@@ -30,7 +30,6 @@ for (const [namespace, value, spelling] of [
   ["--container", "719px", "@probe/sidebar:block"],
   ["--container", "719px", "@probe/[a]:block"],
   ["--container", "719px", "@min-probe/sidebar:block"],
-  ["--container", "719px", "not-@probe:block"],
 ]) {
   test(`class scanner keeps ${namespace}-probe live through ${spelling}`, () => {
     assert.deepEqual(evaluate(`@theme inline { ${namespace}-probe: ${value}; }`, [
@@ -47,6 +46,7 @@ for (const [namespace, value, spelling] of [
   ["--breakpoint", "30rem", "not-probe/sidebar:block"],
   ["--container", "719px", "@probe//sidebar:block"],
   ["--container", "719px", "@probe/:block"],
+  ["--container", "719px", "not-@probe:block"],
   ["--blur", "1px", "blur-other"],
 ]) {
   test(`class scanner reports ${namespace}-probe unused with ${spelling}`, () => {
@@ -146,8 +146,8 @@ test("variant modifiers require a bare container name or one balanced nonempty a
 });
 
 for (const [valid, modifiers] of [
-  [true, ["[a]", "[a/b]", "[a:b]", "[a[b]]", "[a\\]b]", "[a\\]]", "[[]]", "[(a)]", "[()]", "[a(b)]", "[[a]]", "[(])]", "[())]", "['a]/b']", '["a]/b"]']],
-  [false, ["[a]]", "[(]", "[a(b]", "[a[b]", "[]]", "[[]", "[(])", "[a)", "[a(]", "[)("]],
+  [true, ["[a]", "[a/b]", "[a:b]", "[a[b]]", "[a\\]b]", "[a\\]]", "[[]]", "[(a)]", "[()]", "[a(b)]", "[[a]]", "[(])]", "[())]", "['a]/b']", '["a]/b"]', "[([])]", "[a\\[b]", "[a(b)c]", "[a\\(b]", "[a\\)b]"]],
+  [false, ["[a]]", "[(]", "[a(b]", "[a[b]", "[]]", "[[]", '[(])', "[a)", "[a(]", "[)(", "[([)]]", "[]", "[a]b", "[a\\]", "(a/b)", "a\\/b", '("a)/b")', "[`a]/b`]", "(a:b)"]],
 ]) {
   for (const modifier of modifiers) {
     test(`arbitrary container modifier ${modifier} ${valid ? "keeps its token live" : "leaves its token unused"}`, () => {
@@ -188,10 +188,38 @@ test("declared theme namespaces without default values keep their consuming util
   }
 });
 
-test("named-container modifiers and negated variants keep their theme tokens live", () => {
-  for (const spelling of ["@probe/sidebar:block", "@min-probe/sidebar:block", "not-@probe:block", "not-@probe/sidebar:block", "not-@min-probe/sidebar:block"]) {
+test("named-container modifiers count in class strings, while negated forms count only in @apply", () => {
+  for (const spelling of ["@probe/sidebar:block", "@min-probe/sidebar:block", "not-@probe:block", "not-@probe/sidebar:block", "not-@min-probe/sidebar:block", "hover:not-@probe:block", "a@probe:block"]) {
     assert.deepEqual(evaluate("@theme inline { --container-probe: 719px; }", [
       { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+    ]).unused, spelling.startsWith("@") ? [] : ["--container-probe"], spelling);
+    if (!spelling.startsWith("a@")) {
+      assert.deepEqual(evaluate("@theme inline { --container-probe: 719px; }", [
+        { path: "components/probe.css", content: `.x { @apply ${spelling}; }` },
+      ]), clean, spelling);
+    }
+  }
+});
+
+test("the class-string scanner models only the top-level @ boundary", () => {
+  for (const spelling of ["@probe:block", "hover:@probe:block", "x:@probe:block", "bg-probe:@probe:block", "@probe/sidebar:block", "@min-probe/sidebar:block"]) {
+    assert.deepEqual(evaluate("@theme inline { --container-probe: 719px; }", [
+      { path: "components/probe.tsx", content: `const classes = ${JSON.stringify(spelling)};` },
+    ]), clean, spelling);
+  }
+  for (const spelling of ["content-[@foo]:bg-probe", "supports-[@x]:bg-probe", "content-['@foo']:bg-probe", "content-(x:@foo):bg-probe", "content-[`@foo`]:bg-probe", "bg-probe/[@foo]", "unknown]:bg-probe"]) {
+    assert.deepEqual(evaluate("@theme inline { --color-probe: red; }", [
+      { path: "components/probe.tsx", content: `const classes = ${JSON.stringify(spelling)};` },
+    ]), clean, spelling);
+  }
+  for (const spelling of ["bg-probe@foo", "bg-probe@foo:bg-probe"]) {
+    assert.deepEqual(evaluate("@theme inline { --color-probe: red; }", [
+      { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+    ]).unused, ["--color-probe"], spelling);
+  }
+  for (const spelling of ["not-@foo.hover:bg-probe", "not-@foo.bg-probe", "not-@foo}bg-probe", "not-@foo>bg-probe", "bg-probe@foo.bg-probe", "x@y.z@w.v.bg-probe", "not-@foo\\.hover:bg-probe", "not-@foo\\>bg-probe", "not-@foo\\}bg-probe"]) {
+    assert.deepEqual(evaluate("@theme inline { --color-probe: red; }", [
+      { path: "components/probe.tsx", content: `const classes = ${JSON.stringify(spelling)};` },
     ]), clean, spelling);
   }
 });
@@ -239,11 +267,58 @@ test("escaped delimiters keep the utility separator outside arbitrary variants",
   ]).unused, ["--breakpoint-probe"]);
 });
 
-test("a token consumed only through a utility modifier still needs a var() reference", () => {
+test("bare default-value keys use only measured bare and numeric valued roots", () => {
+  assert.ok(themeSpellings.get("--radius").defaults.bare.includes("rounded"));
+  for (const spelling of ["rounded", "hover:!rounded", "rounded-tl!"]) {
+    assert.deepEqual(evaluate("@theme inline { --radius: 1px; }", [
+      { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+    ]), clean, spelling);
+  }
+  assert.deepEqual(evaluate("@theme inline { --radius: 1px; }", [
+    { path: "components/probe.tsx", content: 'const classes = "unknown";' },
+  ]).unused, ["--radius"]);
+  assert.ok(themeSpellings.get("--drop-shadow").defaults.bare.includes("drop-shadow"));
+  for (const spelling of ["drop-shadow", "drop-shadow/50"]) {
+    assert.deepEqual(evaluate("@theme inline { --drop-shadow: 0 1px 2px #123456; }", [
+      { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+    ]), clean, spelling);
+  }
+  assert.ok(themeSpellings.get("--spacing").defaults.valued.includes("p"));
+  for (const spelling of ["p-4", "p-1.5", "-mt-4", "hover:!p-4", "-mt-4!"]) {
+    assert.deepEqual(evaluate("@theme inline { --spacing: 1px; }", [
+      { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+    ]), clean, spelling);
+  }
+  for (const spelling of ["w-1/2", "p-[3px]", "p-px", "p-p3"]) {
+    assert.deepEqual(evaluate("@theme inline { --spacing: 1px; --spacing-p3: 1px; }", [
+      { path: "components/probe.tsx", content: `const classes = "${spelling} p-p3";` },
+    ]).unused, ["--spacing"], spelling);
+  }
+});
+
+test("every measured default lookup keeps its exact namespace key live", () => {
+  for (const [namespace, { defaults }] of themeSpellings) {
+    for (const spelling of [...defaults.bare, ...defaults.valued.map((root) => `${root}-1`)]) {
+      assert.deepEqual(evaluate(`@theme inline { ${namespace}: 1px; }`, [
+        { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+      ]), clean, `${namespace} through ${spelling}`);
+    }
+  }
+});
+
+test("utility modifiers keep their measured namespace tokens live", () => {
   const css = "@theme inline { --leading-probe: 7; }";
-  const file = { path: "components/probe.tsx", content: 'const classes = "text-lg/probe";' };
-  assert.deepEqual(evaluate(css, [file]).unused, ["--leading-probe"]);
-  assert.deepEqual(evaluate(css, [{ ...file, content: `${file.content} const value = "var(--leading-probe)";` }]), clean);
+  assert.ok(themeSpellings.get("--leading").modifiers.includes("text"));
+  for (const spelling of ["text-lg/probe", "text-[1px]/probe", "!text-lg/probe", "hover:text-lg/probe", "hover:text-lg/probe!"]) {
+    assert.deepEqual(evaluate(css, [
+      { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+    ]), clean, spelling);
+  }
+  for (const spelling of ["text-lg/other", "text-lg/probe/other", "other-lg/probe", "text-[1px/probe]", "text-lg/[probe]"]) {
+    assert.deepEqual(evaluate(css, [
+      { path: "components/probe.tsx", content: `const classes = "${spelling}";` },
+    ]).unused, ["--leading-probe"], spelling);
+  }
 });
 
 test("theme spellings are memoized for the installed Tailwind build", async () => {
@@ -261,7 +336,8 @@ test("the derived Tailwind namespace contract stays explicit", () => {
 });
 
 test("derived namespaces expose their consuming utility and variant spellings", () => {
-  for (const [namespace, { utilities, variants }] of themeSpellings) {
+  for (const [namespace, { utilities, variants, modifiers, defaults }] of themeSpellings) {
+    for (const roots of [modifiers, defaults.bare, defaults.valued]) assert.deepEqual(roots, [...new Set(roots)].sort());
     assert.ok(utilities.length || variants.length, `${namespace} must have a consuming spelling`);
     assert.deepEqual(utilities, [...new Set(utilities)].sort());
     assert.deepEqual(variants, [...new Set(variants)].sort());
@@ -310,10 +386,12 @@ test("theme variants consume only a complete non-final class segment", () => {
       const base = template.replace("/{modifier}", "").replace("{value}", "probe");
       const modifier = template.endsWith("/{modifier}") ? "/sidebar" : "";
       const segment = `${base}${modifier}`;
-      const file = { path: "components/probe.tsx", content: `const classes = "hover:${segment}:focus:block";` };
+      const file = base.includes("not-@")
+        ? { path: "components/probe.css", content: `.x { @apply hover:${segment}:focus:block; }` }
+        : { path: "components/probe.tsx", content: `const classes = "hover:${segment}:focus:block";` };
       assert.deepEqual(evaluate(css, [file]), clean, `${namespace} through ${segment}`);
       for (const wrong of [`${segment}`, `hover:${base}-other${modifier}:block`, `hover:other-${segment}:block`]) {
-        assert.deepEqual(evaluate(css, [{ ...file, content: `const classes = "${wrong}";` }]).unused, [token], wrong);
+        assert.deepEqual(evaluate(css, [{ ...file, content: file.path.endsWith(".css") ? `.x { @apply ${wrong}; }` : `const classes = "${wrong}";` }]).unused, [token], wrong);
       }
     }
   }
@@ -494,3 +572,11 @@ test("allowlist entries fail when referenced, removed, duplicated, or missing re
   assert.deepEqual(evaluate(orphan, files, [{ name: "--color-orphan", reason: "external" }, { name: "--color-orphan", reason: "external" }]).invalidAllowlist, ["--color-orphan"]);
   assert.deepEqual(evaluate(orphan, files, [{ name: "--color-orphan", reason: "external" }]), clean);
 });
+
+for (const [modifier, live] of [["[([])]", true], ["[([)]]", false]]) {
+  test(`CSS @apply exotic modifier ${modifier} ${live ? "keeps its token live" : "leaves it unused"}`, () => {
+    assert.deepEqual(evaluate("@theme inline { --container-probe: 719px; }", [
+      { path: "components/probe.css", content: `.x { @apply @probe/${modifier}:block; }` },
+    ]).unused, live ? [] : ["--container-probe"]);
+  });
+}
