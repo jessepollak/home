@@ -1,4 +1,4 @@
-import { test, expect, setSystemTime } from "bun:test";
+import { afterEach, test, expect, setSystemTime } from "bun:test";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { activityPage, fixtureSyntheticActivity, syntheticActivity } from "./synthetic-activity";
@@ -7,9 +7,12 @@ import { parseSession } from "../../shared/account/contracts/session";
 import { isVerifiedActivitySession, parseActivityPage } from "../../shared/activity/contract";
 import { sessionBody } from "../../tests/browser/fixtures/bodies";
 import { FIXED_NOW } from "../../tests/browser/fixtures/fixed-time";
-import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, probeProxy, proxyOptions } from "./proxy";
+import { assertOutsideWorktree, cookieRows, createHandler, fixtureBody, injectHtml, matches, parsePlan, probeProxy, proxyOptions, toolkitFingerprint } from "./proxy";
 import { acquireDeviceLock } from "./device-lock";
 import { artifactName, assertProxyToolkit, CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, detailPosition, detailTarget, duplicateValues, feedChangeMarker, feedComplete, frameProblem, isEmulatorDevice, loadedRowCount, matrix, median, parseAdbDevices, parseArgs, partialFeedComplete, percentile, phoneFamily, phoneView, probeInto, productionTarget, resultFailure, routeFor, runId, runPartial, safeName, selectSimulator, settledPages, simulatorRuntimeVersion, simulatorView, summarize, traceTotals, unsettledMarker, validResult, visibilityProblem, waitForQuietFeed, androidFamily, androidView, type Result, type Run, type TraceEvent } from "./model";
+
+const pendingCleanup: (() => Promise<void>)[] = [];
+afterEach(async () => { for (const release of pendingCleanup.splice(0).reverse()) await release(); });
 
 const runFor = (overrides: Partial<Run> = {}): Run => ({
   frameCount: 60, periodMs: 16.67, missedDeadlinePct: 0, longFramePct: 0, longFrameCount: 0,
@@ -209,7 +212,7 @@ test("proxy probe reports a stalled successful body as a read failure, not a non
   } finally { await server.stop(true); }
 });
 
-test("toolkit fingerprint is a deterministic sha256 of the bundled toolkit", async () => {
+test("toolkit fingerprint is a deterministic sha256 of the toolkit sources", async () => {
   const script = `import { buildToolkit } from ${JSON.stringify(resolve(import.meta.dir, "proxy.ts"))}; console.log(JSON.stringify([await buildToolkit(), await buildToolkit()]));`;
   const child = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
@@ -222,8 +225,56 @@ test("toolkit fingerprint is a deterministic sha256 of the bundled toolkit", asy
   if (typeof first.harness !== "string" || typeof first.toolkit !== "string") throw new Error("Expected string harness and toolkit fields");
   expect(first.harness.length).toBeGreaterThan(0);
   expect(first.toolkit).toMatch(/^[a-f0-9]{64}$/);
-  expect(second).toEqual(first);
+  if (typeof second !== "object" || second === null || !("toolkit" in second)) throw new Error("Expected a second toolkit build");
+  expect(second.toolkit).toBe(first.toolkit);
 });
+
+test("toolkit fingerprint ignores minification and changes with dependency sources", async () => {
+  const dir = join(tmpdir(), `home-profile-fingerprint-${crypto.randomUUID()}`);
+  try {
+    const entry = join(dir, "entry.ts"), dependency = join(dir, "dep.ts");
+    await Bun.write(entry, 'import { value } from "./dep.ts"; console.log(value);');
+    await Bun.write(dependency, 'export const value = "first";');
+    const minified = await Bun.build({ entrypoints: [entry], target: "bun", minify: true, metafile: true });
+    const plain = await Bun.build({ entrypoints: [entry], target: "bun", minify: false, metafile: true });
+    expect(minified.success).toBe(true);
+    expect(plain.success).toBe(true);
+    if (!minified.metafile || !plain.metafile) throw new Error("Expected toolkit build metadata");
+    const fingerprint = await toolkitFingerprint([minified.metafile]);
+    expect(await toolkitFingerprint([plain.metafile])).toBe(fingerprint);
+    await Bun.write(dependency, 'export const value = "changed";');
+    const changed = await Bun.build({ entrypoints: [entry], target: "bun", metafile: true });
+    expect(changed.success).toBe(true);
+    if (!changed.metafile) throw new Error("Expected changed toolkit build metadata");
+    expect(await toolkitFingerprint([changed.metafile])).not.toBe(fingerprint);
+  } finally {
+    await Bun.spawn(["rm", "-rf", "--", dir]).exited;
+  }
+});
+
+test("a proxy started by an earlier process is reused by a fresh toolkit build", async () => {
+  const dir = join(tmpdir(), `home-profile-reuse-${crypto.randomUUID()}`);
+  pendingCleanup.push(async () => { await Bun.spawn(["rm", "-rf", "--", dir]).exited; });
+  const proxyPath = JSON.stringify(resolve(import.meta.dir, "proxy.ts"));
+  const child = Bun.spawn([process.execPath, "-e", `import { startProxy } from ${proxyPath}; const server = await startProxy({ port: 0, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: ${JSON.stringify(join(dir, "results"))} }); console.log("port " + server.port);`], { stdout: "pipe", stderr: "pipe" });
+  pendingCleanup.push(async () => { child.kill(); await child.exited; });
+  const reader = child.stdout.getReader(), decoder = new TextDecoder();
+  let output = "", port: number | undefined;
+  while (port === undefined) {
+    const { value, done } = await Promise.race([reader.read(), child.exited.then(() => ({ value: undefined, done: true }))]);
+    if (done) throw new Error(`Proxy child exited before listening: ${await new Response(child.stderr).text()}`);
+    output += decoder.decode(value, { stream: true });
+    const match = output.match(/port (\d+)/);
+    if (match) port = Number(match[1]);
+  }
+  const script = `import { buildToolkit, probeProxy } from ${proxyPath}; const built = await buildToolkit(); console.log(await probeProxy(${port}, built.toolkit, 5000));`;
+  const probe = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+  pendingCleanup.push(async () => { probe.kill(); await probe.exited; });
+  const [stdout, stderr, code] = await Promise.all([new Response(probe.stdout).text(), new Response(probe.stderr).text(), probe.exited]);
+  expect(stdout.trim()).toBe("reuse");
+  expect(stderr).toBe("");
+  expect(code).toBe(0);
+}, 20_000);
 
 test("status reports the toolkit to every client and the output directory only to loopback", async () => {
   const dir = join(tmpdir(), `home-profile-status-${crypto.randomUUID()}`);

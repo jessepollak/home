@@ -1,5 +1,5 @@
-import { link, mkdir, realpath, unlink, writeFile, readdir } from "node:fs/promises";
-import { resolve, relative, sep } from "node:path";
+import { link, mkdir, readFile, realpath, unlink, writeFile, readdir } from "node:fs/promises";
+import { isAbsolute, resolve, relative, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { fixtureRoutes } from "../../tests/browser/feature-map/fixtures";
@@ -137,14 +137,36 @@ export function createHandler(options: ProxyOptions, harness: string, toolkit: s
     catch (error) { console.error(`Device profile proxy request failed: ${String(error)}`); return bad("Device profile proxy failed", 500); }
   };
 }
-export async function buildToolkit(): Promise<{ harness: string; toolkit: string }> {
-  const build = await Bun.build({ entrypoints: [resolve(import.meta.dir, "harness.ts")], target: "browser", minify: true });
+type ToolkitBuildInputs = { inputs: Record<string, unknown> };
+export async function toolkitFingerprint(builds: ToolkitBuildInputs[]): Promise<string> {
+  const root = resolve(import.meta.dir, "../../../..");
+  const manifests = await Promise.all(builds.map(async (build) => {
+    const manifest = await Promise.all(Object.keys(build.inputs).map(async (path): Promise<[string, string]> => {
+      const absolute = isAbsolute(path) ? path : resolve(process.cwd(), path);
+      const digest = createHash("sha256").update(await readFile(absolute)).digest("hex");
+      return [relative(root, absolute), digest];
+    }));
+    return manifest.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  }));
+  return createHash("sha256").update(JSON.stringify([Bun.version, manifests])).digest("hex");
+}
+async function buildToolkitPart(entry: "harness.ts" | "proxy.ts", target: "browser" | "bun", minify: boolean) {
+  const build = await Bun.build({ entrypoints: [resolve(import.meta.dir, entry)], target, minify, metafile: true });
   if (!build.success) throw new Error(build.logs.map(String).join("\n"));
-  const proxy = await Bun.build({ entrypoints: [resolve(import.meta.dir, "proxy.ts")], target: "bun", minify: true });
-  if (!proxy.success) throw new Error(proxy.logs.map(String).join("\n"));
-  const harness = await build.outputs[0]!.text();
-  const toolkit = createHash("sha256").update(JSON.stringify([harness, await proxy.outputs[0]!.text()])).digest("hex");
-  return { harness, toolkit };
+  if (!build.metafile) throw new Error("Bun.build did not return the toolkit build metadata");
+  const output = build.outputs[0];
+  if (!output) throw new Error("Bun.build did not return the toolkit harness");
+  return { text: await output.text(), metafile: build.metafile };
+}
+export async function buildToolkit(): Promise<{ harness: string; toolkit: string }> {
+  const probeHarness = await buildToolkitPart("harness.ts", "browser", false);
+  const probeProxy = await buildToolkitPart("proxy.ts", "bun", false);
+  const before = await toolkitFingerprint([probeHarness.metafile, probeProxy.metafile]);
+  const harness = await buildToolkitPart("harness.ts", "browser", true);
+  const proxy = await buildToolkitPart("proxy.ts", "bun", true);
+  const toolkit = await toolkitFingerprint([harness.metafile, proxy.metafile]);
+  if (toolkit !== before) throw new Error("The toolkit sources changed while it was building; run the command again");
+  return { harness: harness.text, toolkit };
 }
 export async function probeProxy(port: number, toolkit: string, timeoutMs = 3000): Promise<"absent" | "reuse"> {
   const response = await fetch(`http://127.0.0.1:${port}/__device-profile/status?since=0`, { signal: AbortSignal.timeout(timeoutMs) }).catch(() => null);
