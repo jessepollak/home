@@ -29,6 +29,17 @@ export async function lexLibraryImports(source: string, filename: string): Promi
   }
 }
 
+export async function compositionUiImports(root = webRoot): Promise<Record<string, string[]>> {
+  const directory = join(root, "stories/review/compositions");
+  const files = (await readdir(directory)).filter((name) => name.endsWith(".stories.tsx")).sort();
+  return Object.fromEntries(await Promise.all(files.map(async (name) => {
+    const file = join(directory, name);
+    const { specifiers, lexFailure } = await lexLibraryImports(await readFile(file, "utf8"), file);
+    if (lexFailure) throw new Error(`Couldn't read composition imports: ${name}`);
+    return [name, specifiers.flatMap((specifier) => specifier.match(/^@\/components\/ui\/([^/]+)$/)?.[1] ?? [])];
+  })));
+}
+
 export function libraryImportsPlugin(root = webRoot): Plugin {
   const uiRoot = join(root, "components/ui");
   const matches = (file: string) => /^(?:[^/]+\.(?:ts|tsx)|[^/]+\/index\.tsx)$/.test(normalizePath(relative(uiRoot, file)));

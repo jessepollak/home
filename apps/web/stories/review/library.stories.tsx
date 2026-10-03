@@ -209,6 +209,43 @@ export const OverviewGrid: Story = {
   },
 };
 
+const compositionsIndex = indexOf([
+  ...fixtureEntries,
+  story("compositions-home--home", "Compositions/Home", "Home", "./stories/review/compositions/home.stories.tsx"),
+  story("compositions-deposit-to-savings--deposit-to-savings", "Compositions/Deposit to Savings", "Deposit to Savings",
+    "./stories/review/compositions/deposit-to-savings.stories.tsx"),
+  story("compositions-deposit-to-savings--deposit-submitted", "Compositions/Deposit to Savings", "Deposit Submitted",
+    "./stories/review/compositions/deposit-to-savings.stories.tsx"),
+]);
+
+export const Compositions: Story = {
+  args: { build: fixtureBuild, storyIndex: compositionsIndex, frameSource: "blank" },
+  parameters: { a11y: { test: "error" } },
+  beforeEach: Overview.beforeEach,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await canvas.findByRole("main", { name: "Library overview" });
+    const window = canvasElement.ownerDocument.defaultView;
+    if (!window) throw new Error("Library window is missing");
+    const historyLength = window.history.length;
+    await userEvent.click(canvas.getByRole("option", { name: "Compositions, 3 compositions" }));
+    const surface = await canvas.findByRole("main", { name: "Library compositions" });
+    await expect(search(canvasElement).get("component")).toBe("compositions");
+    await expect(window.history.length).toBe(historyLength + 1);
+    for (const name of ["Home", "Deposit to Savings", "Deposit Submitted"]) {
+      await expect(await within(surface).findByRole("heading", { name }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
+    }
+    await expect(await within(surface).findByTitle("Compositions · Deposit to Savings", {}, { timeout: INITIAL_MODULE_TIMEOUT }))
+      .toHaveAttribute("width", "390");
+    await expect(within(surface).queryByRole("alert")).not.toBeInTheDocument();
+    await expect(within(surface).getAllByRole("link", { name: /^390 × 844/ })).toHaveLength(3);
+    await userEvent.click(section(canvas, "Deposit to Savings"));
+    await expect(search(canvasElement).get("story")).toBe("compositions-deposit-to-savings--deposit-to-savings");
+    await expect(window.history.length).toBe(historyLength + 1);
+  },
+};
+
+
 export const RestoredPreview: Story = {
   args: { build: fixtureBuild, storyIndex: restoredIndex, frameSource: "blank", theme: "dark" },
   beforeEach: () => {

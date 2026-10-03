@@ -11,6 +11,7 @@ export type LibraryItem = {
 };
 
 export const OVERVIEW = "overview";
+export const COMPOSITIONS = "compositions";
 
 export type LibraryCatalog = { items: LibraryItem[]; changes: number | null };
 

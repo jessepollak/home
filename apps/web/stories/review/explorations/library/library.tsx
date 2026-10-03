@@ -7,7 +7,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { startRenderDeadline } from "../board/render-deadline";
 import type { ReviewBuild, StoryIndexEntry } from "../board/review-build";
 import { writeBoardUrl } from "../board/url-state";
-import { libraryCatalog, OVERVIEW, type LibraryCatalog } from "./catalog";
+import { COMPOSITIONS, libraryCatalog, OVERVIEW, type LibraryCatalog } from "./catalog";
+import { CompositionsSheet } from "./compositions/compositions";
 import { propControls, storyArgs, type PropValue } from "./controls";
 import { FoundationsSurface } from "./foundations/foundations";
 import { foundationPages, isFoundation } from "./foundations/model";
@@ -16,7 +17,7 @@ import { PropsBar } from "./props-bar";
 import { VariantSheet } from "./sheet";
 import { restoredFocus, toggleFocus } from "./sheet-state";
 import { LibrarySidebar } from "./sidebar";
-import { loadStoryModule, peekStoryModule, sheetStories, type StoryModule } from "./stories";
+import { compositionEntries, loadStoryModule, peekStoryModule, sheetStories, type StoryModule } from "./stories";
 import { loadLibraryIndex } from "./story-index";
 import { readLibraryUrl, writeLibraryUrl } from "./url-state";
 import styles from "./library.module.css";
@@ -77,12 +78,14 @@ function componentStories(index: StoryIndex, title: string): StoryIndexEntry[] {
   return Object.values(index).filter((entry) => entry.type === "story" && entry.title === title);
 }
 
-function restoredLibraryUrl(catalog: LibraryCatalog) {
+function restoredLibraryUrl(catalog: LibraryCatalog, compositions: readonly StoryIndexEntry[]) {
   const state = readLibraryUrl(new URL(location.href));
   const component = catalog.items.some((item) => item.id === state.component);
+  const composition = state.component === COMPOSITIONS;
   return {
-    selected: component || isFoundation(state.component) ? state.component! : OVERVIEW,
-    focus: component ? state.story ?? null : null,
+    selected: component || composition || isFoundation(state.component) ? state.component! : OVERVIEW,
+    focus: component ? state.story ?? null
+      : composition && compositions.some((entry) => entry.id === state.story) ? state.story ?? null : null,
     overrides: component && state.story ? state.props : {},
     theme: state.theme,
   };
@@ -95,9 +98,11 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   theme: string;
   frameSource: "story" | "blank";
 }) {
-  const [original] = useState(() => restoredLibraryUrl(catalog));
+  const compositions = useMemo(() => compositionEntries(index), [index]);
+  const [original] = useState(() => restoredLibraryUrl(catalog, compositions));
   const [selected, setSelected] = useState(original.selected);
   const overview = selected === OVERVIEW;
+  const composing = selected === COMPOSITIONS;
   const foundation = isFoundation(selected) ? selected : null;
   const [focus, setFocus] = useState<string | null>(original.focus);
   const [overrides, setOverrides] = useState<Record<string, PropValue>>(original.overrides);
@@ -113,7 +118,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   const position = Math.max(0, catalog.items.findIndex((entry) => entry.id === selected));
   const item = catalog.items[position];
   const entries = useMemo(() => componentStories(index, item.title), [index, item.title]);
-  const { module, failed } = useStoryModule(overview ? undefined : entries[0]?.importPath);
+  const { module, failed } = useStoryModule(overview || composing ? undefined : entries[0]?.importPath);
   const allStories = useMemo(() => module ? sheetStories(module, entries, theme) : null, [module, entries, theme]);
   const stories = useMemo(() => allStories?.filter((story) => !story.themePinned) ?? null, [allStories]);
   const hiddenThemes = allStories ? allStories.length - (stories?.length ?? 0) : 0;
@@ -133,16 +138,17 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
     history.replaceState(history.state, "", writeBoardUrl(new URL(location.href),
       { rev: build.revision, deployment: build.deployment || undefined }));
   }, [build.revision, build.deployment]);
-  const sheet = !overview && !foundation;
+  const sheet = !overview && !composing && !foundation;
   useEffect(() => {
     history.replaceState(history.state, "", writeLibraryUrl(new URL(location.href), {
-      component: overview ? undefined : foundation ?? item.id, story: sheet ? focused ?? undefined : undefined,
+      component: overview ? undefined : composing ? COMPOSITIONS : foundation ?? item.id,
+      story: sheet || composing ? focused ?? undefined : undefined,
       props: sheet && focused ? overrides : {}, theme: theme === "dark" ? "dark" : "light",
     }));
-  }, [overview, foundation, sheet, item.id, focused, overrides, theme]);
+  }, [overview, composing, foundation, sheet, item.id, focused, overrides, theme]);
   useEffect(() => {
     const restore = () => {
-      const state = restoredLibraryUrl(catalog);
+      const state = restoredLibraryUrl(catalog, compositions);
       setSelected(state.selected);
       setFocus(state.focus);
       setOverrides(state.overrides);
@@ -151,7 +157,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
     };
     window.addEventListener("popstate", restore);
     return () => window.removeEventListener("popstate", restore);
-  }, [catalog, toolbarTheme]);
+  }, [catalog, compositions, toolbarTheme]);
   useEffect(() => {
     for (const neighbour of [catalog.items[position - 1], catalog.items[position + 1]]) {
       const path = neighbour && componentStories(index, neighbour.title)[0]?.importPath;
@@ -193,9 +199,9 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   });
   const count = entries.length === 1 ? "1 story" : `${entries.length} stories`;
   return <div className={styles.library} data-review-library="workspace">
-    <LibrarySidebar catalog={catalog} selected={overview ? OVERVIEW : foundation ?? item.id} onSelect={select}
-      onPreload={preload} />
-    <main className={styles.surface} aria-label={overview ? "Library overview" : foundation
+    <LibrarySidebar catalog={catalog} compositions={compositions.length}
+      selected={overview || composing ? selected : foundation ?? item.id} onSelect={select} onPreload={preload} />
+    <main className={styles.surface} aria-label={overview ? "Library overview" : composing ? "Library compositions" : foundation
       ? `${foundationPages.find((page) => page.id === foundation)!.name} foundations` : `${item.name} preview`}>
       <header className={styles.toolbar}>
         <div className={styles.pickers}>
@@ -210,6 +216,13 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
           <PropsBar name={`${item.name} · ${focusedStory.name}`} controls={controls} values={args} onChange={change} />}
       </header>
       {overview ? <OverviewSurface items={catalog.items} onSelect={select} />
+        : composing ? <figure className={styles.stage}>
+        <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
+          <CompositionsSheet entries={compositions} root={root} theme={theme} focused={focused} annotating={annotating}
+            frameSource={frameSource} onToggle={toggle} onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} />
+        </div>
+        <figcaption className={styles.caption}>Compositions · {compositionCount(compositions.length)}</figcaption>
+      </figure>
         : foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <figure className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
           {stories ? <VariantSheet key={item.id} root={root} component={item.name} changed={item.changed}
@@ -222,9 +235,13 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
         </div>
         <figcaption className={styles.caption}>{item.name} · {count}</figcaption>
       </figure>}
-      {sheet && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
+      {(sheet || composing) && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
     </main>
   </div>;
+}
+
+function compositionCount(count: number): string {
+  return count === 1 ? "1 composition" : `${count} compositions`;
 }
 
 function AnnotateToggle({ annotating, onChange }: { annotating: boolean; onChange: (value: boolean) => void }) {

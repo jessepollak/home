@@ -17,6 +17,8 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/config/",
   "/lib/",
   "/shared/",
+  "/stories/",
+  "/.storybook/",
 ] as const;
 
 const STORYBOOK_RUNTIME_EXACT_PATHS = ["/vite-inject-mocker-entry.js"] as const;

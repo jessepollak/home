@@ -187,7 +187,7 @@ function QueuedFrame({ root, slots, busy, story, component, changed, theme, args
 }
 
 export function VariantSheet({ root, component, changed, stories, hiddenThemes = 0, theme, focused, focusedArgs, annotating, frameSource,
-  onToggle, onEscape, onExitAnnotate }: {
+  showReasons = true, onToggle, onEscape, onExitAnnotate }: {
   root: HTMLElement | null;
   component: string;
   changed: boolean;
@@ -198,6 +198,7 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
   focusedArgs: Record<string, unknown> | null;
   annotating: boolean;
   frameSource: "story" | "blank";
+  showReasons?: boolean;
   onToggle: (story: string) => void;
   onEscape: () => void;
   onExitAnnotate: () => void;
@@ -263,7 +264,7 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
       <h2 className={styles.sectionHeading} inert={annotating || undefined}>
         <button type="button" id={heading} className={styles.sectionToggle} aria-pressed={isFocused}
           onClick={() => onToggle(story.id)}>{story.name}</button>
-        {reason && <span className={styles.sectionNote}>{reason}</span>}
+        {reason && showReasons && <span className={styles.sectionNote}>{reason}</span>}
       </h2>
       <div className={styles.sectionStage} data-layout={reason ? "frame" : story.layout}>
         {reason ? <QueuedFrame root={root} slots={slots} busy={busy} story={story} component={component} changed={changed} theme={theme}

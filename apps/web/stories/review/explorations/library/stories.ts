@@ -29,6 +29,13 @@ const modules = (() => {
     return {};
   }
 })();
+const compositionModules = (() => {
+  try {
+    return import.meta.glob("../../compositions/*.stories.tsx") as Record<string, () => Promise<StoryModule>>;
+  } catch {
+    return {};
+  }
+})();
 const sources = (() => {
   try {
     return import.meta.glob("../../../../components/ui/{*.tsx,*.ts,*/index.tsx}", { query: "?raw", import: "default" }) as Record<string, () => Promise<string>>;
@@ -124,4 +131,41 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
   });
   byTheme.set(key, stories);
   return stories;
+}
+
+export const COMPOSITION_TITLE = "Compositions/";
+const COMPOSITION_STORY = /^(?:\.\/)?(?:apps\/web\/)?stories\/review\/compositions\/[^/]+\.stories\.[^/]+$/;
+const PHONE_VIEWPORT: FrameViewport = { width: 390, height: 844 };
+const EmptyStory: ComponentType<Record<string, unknown>> = () => null;
+
+export function compositionEntries(entries: Record<string, StoryIndexEntry>): StoryIndexEntry[] {
+  return Object.values(entries).filter((entry) => entry.type === "story" && entry.title.startsWith(COMPOSITION_TITLE) &&
+    COMPOSITION_STORY.test(entry.importPath));
+}
+
+export async function loadCompositionStories(entries: StoryIndexEntry[]): Promise<SheetStory[]> {
+  const { composeStory, preview } = await loadRuntime();
+  const files = [...new Set(entries.map((entry) => entry.importPath))];
+  const loadedModules = await Promise.all(files.map((path) => {
+    const file = path.split("/").at(-1);
+    const key = file && Object.keys(compositionModules).find((candidate) => candidate.endsWith(`/compositions/${file}`));
+    return key ? compositionModules[key]() : Promise.reject(new Error(`No composition module for ${path}`));
+  }));
+  const composedStories = new Map(loadedModules.flatMap((module) => {
+    const meta = module.default ?? {};
+    return Object.entries(module).flatMap(([name, value]) => {
+      if (name === "default" || !value || typeof value !== "object") return [];
+      const story = composeStory(value, meta as Parameters<typeof composeStory>[1], preview, name);
+      return [[story.id, story] as const];
+    });
+  }));
+  return entries.flatMap((entry): SheetStory[] => {
+    const story = composedStories.get(entry.id);
+    if (!story) return [];
+    return [{
+      id: entry.id, name: entry.name, Story: EmptyStory, argTypes: {}, initialArgs: {}, layout: "fullscreen",
+      frame: "Library override", portals: true, themePinned: false,
+      viewport: declaredViewport(story.parameters, story.globals, 1) ?? PHONE_VIEWPORT,
+    }];
+  });
 }

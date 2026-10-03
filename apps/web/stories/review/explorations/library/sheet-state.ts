@@ -73,7 +73,7 @@ function pixels(value: unknown): number {
   return Number.parseFloat(value);
 }
 
-export function declaredViewport(parameters: Record<string, unknown>, globals: Record<string, unknown> = {}): FrameViewport | undefined {
+export function declaredViewport(parameters: Record<string, unknown>, globals: Record<string, unknown> = {}, minWidth = 768): FrameViewport | undefined {
   const settings = record(parameters.viewport);
   if (settings.disable === true) return undefined;
   const global = globals.viewport;
@@ -86,7 +86,7 @@ export function declaredViewport(parameters: Record<string, unknown>, globals: R
   const height = pixels(styles.height);
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return undefined;
   const viewport = record(global).isRotated === true ? { width: height, height: width } : { width, height };
-  return viewport.width >= 768 ? viewport : undefined;
+  return viewport.width >= minWidth ? viewport : undefined;
 }
 
 export function scaledViewport(viewport: FrameViewport, available: number): FrameViewport & { scale: number } {

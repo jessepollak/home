@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
-import { ActivityIcon, LayoutGridIcon, PaletteIcon, RulerIcon, TypeIcon } from "lucide-react";
-import { monogram, OVERVIEW, type LibraryCatalog } from "./catalog";
+import { ActivityIcon, LayersIcon, LayoutGridIcon, PaletteIcon, RulerIcon, TypeIcon } from "lucide-react";
+import { COMPOSITIONS, monogram, OVERVIEW, type LibraryCatalog } from "./catalog";
 import { foundationPages, type FoundationId } from "./foundations/model";
 import styles from "./library.module.css";
 
@@ -19,8 +19,9 @@ function changeSummary(changes: number | null): string | null {
   return changes === 1 ? "1 change" : `${changes} changes`;
 }
 
-export function LibrarySidebar({ catalog, selected, onSelect, onPreload }: {
+export function LibrarySidebar({ catalog, compositions, selected, onSelect, onPreload }: {
   catalog: LibraryCatalog;
+  compositions: number;
   selected: string;
   onSelect: (id: string) => void;
   onPreload: (id: string) => void;
@@ -37,7 +38,11 @@ export function LibrarySidebar({ catalog, selected, onSelect, onPreload }: {
     };
   });
   const count = catalog.items.length === 1 ? "1 component" : `${catalog.items.length} components`;
-  const overviewRows = [{ id: OVERVIEW, name: "Overview", kind: count, label: `Overview, ${count}`, tile: <LayoutGridIcon /> }];
+  const composed = compositions === 1 ? "1 composition" : `${compositions} compositions`;
+  const overviewRows = [
+    { id: OVERVIEW, name: "Overview", kind: count, label: `Overview, ${count}`, tile: <LayoutGridIcon /> },
+    { id: COMPOSITIONS, name: "Compositions", kind: composed, label: `Compositions, ${composed}`, tile: <LayersIcon /> },
+  ];
   return <nav className={styles.sidebar} aria-label="Library">
     <h1 className={styles.visuallyHidden}>Library</h1>
     <SidebarGroup id="library-overview-heading" heading="Overview" rows={overviewRows} selected={selected}
