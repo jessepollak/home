@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -17,6 +17,7 @@ import {
   sinceArgument,
   summarizeFixCommits,
 } from "../caught-by-report.mjs";
+import { removeFixture } from "./fixture-cleanup.mjs";
 import { applyGitFixtureEnv, gitFixtureEnv } from "./git-fixture-env.mjs";
 
 applyGitFixtureEnv();
@@ -27,7 +28,7 @@ const cli = fileURLToPath(new URL("../caught-by-report.mjs", import.meta.url));
 // corpus spans the default 30-day window and carries every detector plus the
 // malformed-trailer cases the report must bucket as unknown.
 const repo = mkdtempSync(path.join(tmpdir(), "caught-by-report-"));
-after(() => rmSync(repo, { recursive: true, force: true }));
+after(() => removeFixture(repo));
 
 function git(args, options = {}) {
   const result = spawnSync("git", args, { cwd: repo, encoding: "utf8", ...options, env: { ...gitFixtureEnv(), ...options.env } });
@@ -410,7 +411,7 @@ test("collectReport passes through PR body lookup, includes recovered candidates
     assert.match(markdown, /Detectors recovered from pull request bodies: 1\. Pull request body lookups unavailable: 1 — counted as unknown\./);
     assert.match(markdown, /fix\(home\): repair \(#12\) — `review\.ts`/);
   } finally {
-    rmSync(fixture, { recursive: true, force: true });
+    removeFixture(fixture);
   }
 });
 
@@ -457,7 +458,7 @@ test("collectReport bounds default PR lookups, retaining memoized bodies after t
     assert.equal(report.detectors.find(({ detector }) => detector === "unknown").count, 2);
     assert.equal(report.detectors.find(({ detector }) => detector === "review").count, 2);
   } finally {
-    rmSync(fixture, { recursive: true, force: true });
+    removeFixture(fixture);
   }
 });
 
