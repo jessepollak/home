@@ -115,6 +115,7 @@ function createTestPricer(
   return createBalancesPricer({
     now: () => new Date("2026-09-13T12:00:00.000Z"),
     ...options,
+    schedule: options.schedule ?? (() => {}),
     priceStore: options.priceStore ?? new MemoryPriceObservationStore(),
   });
 }
@@ -1466,8 +1467,10 @@ describe("balances pricing", () => {
       asOf: "2026-09-13T11:00:00.000Z",
       fetchedAt: "2026-09-13T11:00:01.000Z",
     }]);
+    const scheduled: Array<() => Promise<unknown>> = [];
     const price = createTestPricer({
       priceStore: store,
+      schedule: (task) => scheduled.push(typeof task === "function" ? task : () => task),
       now: () => new Date("2026-09-13T12:00:00.000Z"),
       readPrices: async () => { throw new Error("Codex unavailable"); },
       readExchangeRates: async () => rates(),
@@ -1478,6 +1481,26 @@ describe("balances pricing", () => {
       status: "priced",
       asOf: "2026-09-13T11:00:00.000Z",
     });
+    expect(scheduled).toHaveLength(1);
+    await runScheduledTask(scheduled, 0);
+    expect(await store.getAttempts([usdc.key])).toEqual([{ assetKey: usdc.key, attemptAt: source.fetchedAt, status: "unavailable" }]);
+  });
+
+  test("does not run scheduled refresh work without an explicit scheduler", async () => {
+    const store = new MemoryPriceObservationStore();
+    await store.putMany([{
+      assetKey: usdc.key,
+      unitPrice: { atoms: "1", scale: 0 },
+      asOf: "2026-09-13T11:00:00.000Z",
+      fetchedAt: "2026-09-13T11:00:01.000Z",
+    }]);
+    let reads = 0;
+    const price = createTestPricer({
+      priceStore: store,
+      readPrices: async () => { reads += 1; return []; },
+    });
+    await price({ ...read, holdings: [usdc] }, "US");
+    expect(reads).toBe(0);
   });
 
   test("cached rows never await providers and expose revalidation only for a degraded scheduled value", async () => {
