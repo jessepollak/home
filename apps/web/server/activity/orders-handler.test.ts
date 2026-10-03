@@ -73,6 +73,14 @@ test("echoes verified owner, fences source queries and merges newest updates", a
   expect(JSON.stringify(body)).not.toContain("provider-1");
 });
 
+test("polling updates do not reorder unpaid funding history, including expired checkout", async () => {
+  const pending = { ...funding, id: "pending", state: "awaiting-payment" as const, createdAt: "2026-09-10T00:00:00.000Z", updatedAt: "2026-09-12T03:00:00.000Z" };
+  const get = createActivityOrdersHandler({ authorize: async () => session, listFundingOrders: async () => [pending, funding], getOpenFundingOrder: async () => null, listCashoutOrders: async () => [cashout], now: () => new Date("2026-09-12T12:00:00.000Z") });
+  const orders = parseActivityOrders(await (await get(request())).json(), session);
+  expect(orders.map((order) => order.id)).toEqual(["cashout", "owned", "pending"]);
+  expect(orders[2]).toMatchObject({ stage: "expired", createdAt: pending.createdAt, updatedAt: pending.updatedAt, movedAt: pending.createdAt });
+});
+
 test("real handler orders reject every truncated field independently while preserving valid siblings", async () => {
   const olderFunding = { ...funding, id: "older", updatedAt: "2026-09-12T00:30:00.000Z" };
   const get = createActivityOrdersHandler({
@@ -89,6 +97,7 @@ test("real handler orders reject every truncated field independently while prese
   for (const [index, order] of body.orders.entries()) {
     if (!isRecord(order)) throw new Error("Expected a handler order record");
     for (const key of Object.keys(order)) {
+      if (key === "movedAt") continue;
       const truncated: Record<string, unknown> = { ...order };
       delete truncated[key];
       const orders = [...body.orders];
@@ -190,8 +199,8 @@ test("only the latest updated open order per region is resumable, fenced to the 
     listCashoutOrders: async () => [], now: () => new Date("2026-09-12T04:00:00.000Z"),
   });
   const parsed = parseActivityOrders(await readJson((await get(request()))), session);
-  expect(parsed.map(({ id }) => id)).toEqual(["older", "newer"]);
-  expect(parsed.map((order) => order.kind === "funding" ? [order.id, order.resumable] : [])).toEqual([["older", true], ["newer", false]]);
+  expect(parsed.map(({ id }) => id)).toEqual(["newer", "older"]);
+  expect(parsed.map((order) => order.kind === "funding" ? [order.id, order.resumable] : [])).toEqual([["newer", false], ["older", true]]);
   expect(await store.getOpen(otherOwner, "US")).toMatchObject({ id: "other" });
   expect(await store.getOpen({ subject: session.user.subject, accountProvider: session.accountProvider }, "US")).toMatchObject({ id: "older" });
 });

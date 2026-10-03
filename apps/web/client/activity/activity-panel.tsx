@@ -49,6 +49,7 @@ export function ActivityPanelView({
   onCancelCashout,
   onOrderAction,
   cancelBusy = false,
+  cancelActionKind = null,
   cancelError = null,
   withdrawJourney,
   fetchOperations,
@@ -81,6 +82,7 @@ export function ActivityPanelView({
   onCancelCashout?: (operation: RecentMoneyActionOperation) => void;
   onOrderAction?: (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => void;
   cancelBusy?: boolean;
+  cancelActionKind?: ActivityLedgerNextActionKind | null;
   cancelError?: string | null;
   withdrawJourney?: CashOutWithdrawJourney;
   fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
@@ -361,6 +363,7 @@ export function ActivityPanelView({
             source?.kind === "action" && source.operation.action.kind === "cash-out") onCancelCashout?.(source.operation);
         }}
         actionBusy={cancelBusy}
+        actionBusyKind={cancelActionKind}
         actionError={cancelError}
         withdrawJourney={withdrawJourney}
         fetchOperations={fetchOperations}

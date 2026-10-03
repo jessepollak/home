@@ -41,6 +41,8 @@ export type FundingOrder = {
   version: number;
   createdAt: string;
   updatedAt: string;
+  checkedAt: string | null;
+  abandonReason: "owner" | "timed-out" | null;
 };
 
 export type FundingReservation = Pick<FundingOrder,
@@ -75,6 +77,11 @@ export interface FundingOrderStore {
     expectedVersion: number,
     updatedAt: string,
   ): Promise<FundingOrder | null>;
+  abandon(id: string, owner: FundingOrderOwner, input: {
+    expectedVersion: number;
+    reason: "owner" | "timed-out";
+    updatedAt: string;
+  }): Promise<FundingOrder | null>;
   applyObservation(id: string, input: {
     state: ReportedState | "sent-unverified";
     providerStatus: string;
@@ -117,6 +124,7 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
       expectedTokenAmountAtomic: null, fees: [], expiresAt: null, instructions: null,
       providerStatus: null, providerTransactionHash: null, transactionHash: null,
       logIndex: null, version: 0, updatedAt: input.createdAt,
+      checkedAt: null, abandonReason: null,
     };
     this.orders.set(order.id, order);
     this.intents.set(intentKey, order.id);
@@ -224,11 +232,27 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
     return clone(order);
   }
 
+  async abandon(id: string, owner: FundingOrderOwner, input: Parameters<FundingOrderStore["abandon"]>[2]) {
+    const order = this.orders.get(id);
+    if (!order || !sameOwner(order.owner, owner) || order.state !== "awaiting-payment" || order.version !== input.expectedVersion) return null;
+    Object.assign(order, { state: "abandoned" as const, abandonReason: input.reason, instructions: null, updatedAt: input.updatedAt, version: order.version + 1 });
+    return clone(order);
+  }
+
   async applyObservation(id: string, input: Parameters<FundingOrderStore["applyObservation"]>[1]) {
     const order = this.required(id);
     if (isTerminalFundingState(order.state) || order.version !== input.expectedVersion) return null;
     const state = nextFundingState(order.state, input.state);
-    if (!state) return null;
+    order.checkedAt = input.updatedAt;
+    if (!state) return clone(order);
+    const material = state !== order.state || input.providerStatus !== order.providerStatus ||
+      Boolean(input.providerTransactionHash && input.providerTransactionHash !== order.providerTransactionHash) ||
+      Boolean(input.expectedTokenAmountAtomic && input.expectedTokenAmountAtomic !== order.expectedTokenAmountAtomic) ||
+      Boolean(input.fees && (input.fees.length !== order.fees.length || input.fees.some((fee, index) => {
+        const current = order.fees[index];
+        return current?.label !== fee.label || current.amount !== fee.amount || current.currency !== fee.currency;
+      })));
+    if (!material) return clone(order);
     Object.assign(order, {
       state,
       providerStatus: input.providerStatus,
@@ -274,10 +298,11 @@ export function nextFundingState(current: OrderState, reported: ReportedState | 
     reserving: -1,
     unknown: 0,
     "awaiting-payment": 1,
-    "payment-received": 2,
-    settling: 3,
-    sent: 4,
-    "sent-unverified": 4,
+    abandoned: 2,
+    "payment-received": 3,
+    settling: 4,
+    sent: 5,
+    "sent-unverified": 5,
   };
   return (rank[reported] ?? -1) >= (rank[current] ?? -1) ? reported : null;
 }
@@ -297,6 +322,7 @@ function sameOwner(left: FundingOrderOwner, right: FundingOrderOwner): boolean {
 function isOpenFundingOrder(order: FundingOrder): boolean {
   return (
     (!isTerminalFundingState(order.state) || order.state === "dispatch-ambiguous") &&
+    order.state !== "abandoned" &&
     !(order.sandbox && order.state === "sent-unverified")
   );
 }

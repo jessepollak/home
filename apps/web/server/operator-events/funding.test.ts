@@ -62,6 +62,20 @@ describe("funding order operator capture", () => {
     expect(events.some((event) => event.name === "funding.order_finalized")).toBe(false);
   });
 
+  test("abandon passes through owner CAS without a finalized event, and late receipt finalizes", async () => {
+    const events: OperatorEventInput[] = [];
+    const store = orders(async (event) => { events.push(event); });
+    await store.reserve(reservation);
+    const pending = await store.completeDispatch(reservation.id, { providerOrderId: "provider", expectedTokenAmountAtomic: "2000000", fees: [], expiresAt: null, instructions: { kind: "redirect", url: "https://example.com" }, expectedVersion: 0, updatedAt: "2026-09-12T00:00:01.000Z" });
+    events.length = 0;
+    const abandoned = await store.abandon(reservation.id, owner, { expectedVersion: pending.version, reason: "owner", updatedAt: "2026-09-12T00:00:02.000Z" });
+    expect(abandoned).toMatchObject({ state: "abandoned", abandonReason: "owner", instructions: null });
+    if (!abandoned) throw new Error("Expected abandoned order");
+    expect(events).toEqual([]);
+    await store.claimReceipt(reservation.id, { transactionHash: `0x${"ab".repeat(32)}`, logIndex: 0, expectedVersion: abandoned.version, updatedAt: "2026-09-12T00:00:03.000Z" });
+    expect(events.map((event) => event.name)).toEqual(["funding.order_finalized"]);
+  });
+
   test("reads never record events", async () => {
     const events: OperatorEventInput[] = [];
     const store = orders(async (event) => { events.push(event); });

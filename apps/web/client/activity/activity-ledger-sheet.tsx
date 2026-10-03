@@ -101,6 +101,7 @@ export type ActivityLedgerDetailSheetProps = {
   canOpenAsset?: (assetKey: string) => boolean;
   onOpenAsset?: (item: ActivityLedgerItem) => void;
   actionBusy?: boolean;
+  actionBusyKind?: ActivityLedgerNextActionKind | null;
   actionError?: string | null;
   withdrawJourney?: CashOutWithdrawJourney;
   fetchOperations?: (signal?: AbortSignal) => Promise<unknown>;
@@ -109,7 +110,7 @@ export type ActivityLedgerDetailSheetProps = {
 
 export function ActivityLedgerDetailSheet({
   item, open, immediate = false, onDismiss, onClosed, onAction, canOpenAsset, onOpenAsset,
-  actionBusy = false, actionError = null, withdrawJourney, fetchOperations, onViewActivity,
+  actionBusy = false, actionBusyKind = null, actionError = null, withdrawJourney, fetchOperations, onViewActivity,
 }: ActivityLedgerDetailSheetProps) {
   const titleId = useId();
   const step = withdrawJourney?.step ?? "details";
@@ -125,6 +126,11 @@ export function ActivityLedgerDetailSheet({
   const action = item?.nextAction && isActivityLedgerNextActionAllowed(
     item.status, item.family, item.nextAction.kind,
   ) ? item.nextAction : null;
+  const secondaryAction = item?.secondaryAction && isActivityLedgerNextActionAllowed(
+    item.status, item.family, item.secondaryAction.kind,
+  ) ? item.secondaryAction : null;
+  const primaryAction = action ?? secondaryAction;
+  const footerSecondary = action ? secondaryAction : null;
   const owner = item && item.status !== "confirmed" && item.status !== "refunded"
     ? item.ownerSentence ?? ownerDefaults[item.status] : null;
   const StatusIcon = item ? {
@@ -217,7 +223,7 @@ export function ActivityLedgerDetailSheet({
         titleId={titleId}
         closeLabel={`Close ${item?.title ?? "activity"} details`}
       />
-      <MoneyModalBody hasFooter={Boolean(action)} className="gap-4 pt-4">
+      <MoneyModalBody hasFooter={Boolean(primaryAction)} className="gap-4 pt-4">
         {item ? (
           <>
             <div className="flex min-w-0 flex-col items-center gap-2 py-3">
@@ -283,28 +289,32 @@ export function ActivityLedgerDetailSheet({
             ) : null}
           </>
         ) : null}
-        {action && (actionError ?? ((action.kind === "cancel-cash-out" || action.kind === "withdraw-returned-funds") ? withdrawJourney?.error : null)) ? (
+        {primaryAction && (actionError ?? ((primaryAction.kind === "cancel-cash-out" || primaryAction.kind === "withdraw-returned-funds") ? withdrawJourney?.error : null)) ? (
           <p role="alert" className="text-sm text-destructive">{actionError ?? withdrawJourney?.error}</p>
         ) : null}
       </MoneyModalBody>
-      {item && action ? action.kind === "clear-order" ? (
+      {item && primaryAction ? primaryAction.kind === "clear-order" ? (
         <MoneyModalActions>
           <Button
             size="lg"
             variant="outline"
             className="h-11"
             loading={actionBusy}
-            onClick={() => onAction(item, action.kind)}
+            onClick={() => onAction(item, primaryAction.kind)}
           >
-            {action.label}
+            {primaryAction.label}
           </Button>
         </MoneyModalActions>
       ) : (
         <MoneyModalFooter
-          primaryLabel={action.label}
-          onPrimary={() => onAction(item, action.kind)}
+          primaryLabel={primaryAction.label}
+          onPrimary={() => onAction(item, primaryAction.kind)}
           primaryDisabled={actionBusy}
-          primaryLoading={Boolean(withdrawJourney?.preparing && (action.kind === "cancel-cash-out" || action.kind === "withdraw-returned-funds"))}
+          primaryLoading={(actionBusy && (actionBusyKind === null || actionBusyKind === primaryAction.kind)) || Boolean(withdrawJourney?.preparing && (primaryAction.kind === "cancel-cash-out" || primaryAction.kind === "withdraw-returned-funds"))}
+          {...(footerSecondary ? {
+            secondaryLabel: footerSecondary.label, onSecondary: () => onAction(item, footerSecondary.kind),
+            secondaryDisabled: actionBusy, secondaryLoading: actionBusy && actionBusyKind === footerSecondary.kind,
+          } : {})}
         />
       ) : null}
       </MoneyModalStep> : null}

@@ -46,6 +46,7 @@
     "cards/webhooks/stripe/route.ts": { "exempt": { "kind": "webhook", "reason": "Stripe sends signed provider-defined events; Home returns acknowledgement status without a parsed client body." } },
     "client-errors/route.ts": { "exempt": { "kind": "status", "reason": "The client error transport resolves only the response status and never parses a JSON body." } },
     "client-performance/route.ts": { "contracts": ["shared/observability/client-performance.contract.ts"] },
+    "funding/orders/[id]/cancel/route.ts": { "contracts": ["shared/funding/contracts/order-cancellation.ts"] },
     "funding/orders/[id]/resolve/route.ts": { "contracts": ["shared/funding/contracts/order-resolution.ts"] },
     "funding/orders/[id]/route.ts": { "contracts": ["shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/order.ts"], "allowance": { "kind": "unversioned-compatibility", "reason": "The order-by-id GET keeps the compatibility order body that the permissive funding order reader validates without a version token." } } } },
     "funding/orders/route.ts": { "contracts": ["shared/funding/contracts/open-order.ts", "shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/open-order.ts"] }, "POST": { "contracts": ["shared/funding/contracts/order.ts"], "allowance": { "kind": "unversioned-compatibility", "reason": "The create-order POST keeps the compatibility order body that the permissive funding order reader validates without a version token." } } } },

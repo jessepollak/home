@@ -2,6 +2,7 @@ import { parseHash32 } from "@/shared/chain/hex";
 import { describe, expect, test } from "bun:test";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityFundingOrder, ActivityCashoutOrder } from "@/shared/activity/contract-orders";
+import { parseActivityOrders } from "@/shared/activity/contract-orders";
 import type { ActivityTransfer } from "@/shared/activity/types";
 import { activityOrdersNeedPolling, mergeActivityFeed } from "./activity-feed";
 import { presentActivityLedgerItems } from "./activity-ledger-items";
@@ -46,6 +47,58 @@ const presentWithWithdrawal = (order: ActivityCashoutOrder, status: RecentMoneyA
     .find((entry) => entry.kind === "order")!;
   return presentActivityLedgerItems([item], { regionId: "US", now: Date.parse(updatedAt), timeZone: "UTC" })[0]!;
 };
+
+test("funding cancellation stays available outside its resumable region", () => {
+  expect(present(funding).secondaryAction).toEqual({ kind: "cancel-order", label: "Cancel deposit" });
+  const outside = present({ ...funding, resumable: false }, "GB");
+  expect(outside.nextAction).toBeUndefined();
+  expect(outside.secondaryAction).toEqual({ kind: "cancel-order", label: "Cancel deposit" });
+});
+
+test("funding chronology and the loaded-through cutoff use movedAt", () => {
+  const order = { ...funding, status: "confirmed" as const, stage: "received" as const, movedAt: createdAt };
+  const item = present(order);
+  expect([item.timestamp, item.updatedAt, item.dateLabel, item.fullDateLabel]).toEqual([
+    createdAt, createdAt, "Sep 15, 12:00 PM", "Sep 15, 2026, 12:00 PM",
+  ]);
+  expect(mergeActivityFeed({ transfers: [], operations: [], orders: [order], loadedThrough: createdAt })).toEqual([]);
+  expect(mergeActivityFeed({ transfers: [], operations: [], orders: [order], loadedThrough: null })[0]?.timestamp).toBe(createdAt);
+});
+
+for (const [stage, abandonReason, status, label, title] of [
+  ["cancelled", "owner", "failed", "Cancelled", "Deposit cancelled"],
+  ["expired", "timed-out", "expired", "Timed out", "Checkout timed out"],
+] as const) {
+  test(`${abandonReason} has an honest label and stops polling`, () => {
+    const order = { ...funding, stage, abandonReason, status };
+    expect(present(order)).toMatchObject({ statusLabel: label, ownerSentence: { title,
+      description: "If you already paid, the money will still show up here when it arrives.",
+    } });
+    expect(activityOrdersNeedPolling([order])).toBe(false);
+    expect(present(order).secondaryAction).toBeUndefined();
+  });
+}
+
+for (const [stage, status, label] of [["cancelled", "failed", "Cancelled"], ["expired", "expired", undefined]] as const) {
+  test(`base-compatible ${stage} without an abandonment reason still parses and renders`, () => {
+    const session = { user: { subject: "owner" }, accountProvider: "cdp-embedded" as const, smartAccount: null };
+    const orders = parseActivityOrders({ version: 1, owner: { subject: "owner", accountProvider: "cdp-embedded" },
+      orders: [{ ...funding, stage, status, resumable: false, instruction: null }],
+    }, session);
+    expect(orders).toHaveLength(1);
+    const order = orders[0];
+    if (!order || order.kind !== "funding") throw new Error("Expected a parsed funding order");
+    expect(present(order)).toMatchObject({ family: "funding-order", title: "Add money", status });
+    expect(present(order).statusLabel).toBe(label);
+    expect(present(order).ownerSentence).toBeUndefined();
+  });
+}
+
+test("unknown provider status warns against paying again instead of offering clear", () => {
+  const item = present({ ...funding, status: "ambiguous", stage: "unconfirmed", clearableAt: null });
+  expect(item.ownerSentence).toEqual({ title: "Checking with Coinbase", description: "Don't pay again while Home checks." });
+  expect(item.nextAction).toBeUndefined();
+});
 
 describe("Activity orders", () => {
   test("reconciles the cash-out action and funding receipt without hiding the order", () => {
