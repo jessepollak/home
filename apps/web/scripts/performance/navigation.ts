@@ -60,6 +60,16 @@ export async function home(page: Page, requests?: { method: string; path: string
   } finally { page.off("request", onRequest); }
 }
 
+export async function browserBack(page: Page) {
+  const start = performance.now();
+  await page.goBack();
+  await ready(page, "/home");
+  const latency = performance.now() - start;
+  await twoFrames(page);
+  await page.waitForTimeout(navigationSettleMs);
+  return latency;
+}
+
 export async function runNavigation(session: Session, baseUrl: string, rows: number, collectGrowth: boolean, seedLeak: boolean,
   paths: readonly string[] = navigationPaths) {
   const { page } = session;

@@ -10,7 +10,8 @@ import { runFeed } from "./feed";
 import { runModal } from "./modal";
 import { runNavigation } from "./navigation";
 import { runWalletNavigation } from "./wallet";
-import { aggregateAttribution, aggregateWebKit, attributionMarkdown, runChromiumNavigationAttribution, runWebKitNavigation,
+import { aggregateAttribution, aggregateWebKit, attributionMarkdown, runChromiumBackAttribution, runChromiumDetailAttribution, runChromiumNavigationAttribution,
+  runWebKitBackAttribution, runWebKitDetailAttribution, runWebKitNavigation,
   type NavigationAttributionReport, type WebKitResult } from "./navigation-attribution";
 import { aggregateReact, type ReactAttributionReport } from "./react-attribution";
 
@@ -237,8 +238,21 @@ async function main() {
           runChromiumNavigationAttribution(session, baseUrl, navigationAttributionRows, path)));
         recordCpu(key, result.cpu);
         samples.push(...result.samples);
-        const aggregated = aggregateAttribution(path, result.samples, plainLatenciesByPath[path] ?? [], result.topInvoker);
+        const aggregated = aggregateAttribution(path, result.samples, plainLatenciesByPath[path] ?? [], result.topInvokerByPath[path] ?? null);
         chromium.push(aggregated);
+      }
+      const additionalScenarios = [
+        { name: "back", labels: ["Back (Home tab)", "Back (browser history)"], chromium: runChromiumBackAttribution, webkit: runWebKitBackAttribution },
+        { name: "activity-detail", labels: ["Activity detail"], chromium: runChromiumDetailAttribution, webkit: runWebKitDetailAttribution },
+      ];
+      const attributionPaths = [...navigationPaths, ...additionalScenarios.flatMap((scenario) => scenario.labels)];
+      for (const scenario of additionalScenarios) {
+        const key = `nav-attribution-${navigationAttributionRows}-${scenario.name}`;
+        const result = await phase(key, () => withSession(browser, null, (session) =>
+          scenario.chromium(session, baseUrl, navigationAttributionRows)));
+        recordCpu(key, result.cpu);
+        samples.push(...result.samples);
+        for (const label of scenario.labels) chromium.push(aggregateAttribution(label, result.samples, plainLatenciesByPath[label] ?? [], result.topInvokerByPath[label] ?? null));
       }
       const webkit: WebKitResult = { browser: null, samples: [], errors: [] };
       try {
@@ -251,6 +265,14 @@ async function main() {
                 webkit.samples.push(...await phase(`nav-attribution-webkit-${path.slice(1)}`, () =>
                   runWebKitNavigation(desktop, baseUrl, navigationAttributionRows, path)));
               } catch (error) { webkit.errors.push({ path, reason: error instanceof Error ? error.message : String(error) }); }
+            }
+            for (const scenario of additionalScenarios) {
+              try {
+                webkit.samples.push(...await phase(`nav-attribution-webkit-${navigationAttributionRows}-${scenario.name}`, () =>
+                  scenario.webkit(desktop, baseUrl, navigationAttributionRows)));
+              } catch (error) {
+                for (const path of scenario.labels) webkit.errors.push({ path, reason: error instanceof Error ? error.message : String(error) });
+              }
             }
           } finally { await desktop.close(); }
         });
@@ -265,9 +287,17 @@ async function main() {
         react.samples.push(...result.samples);
         react.hooks.push({ path, injected: result.hookInjected, reason: result.reactReason });
       }
-      react.paths = navigationPaths.map((path) => aggregateReact(path, react.samples));
-      navigationAttribution = { rows: navigationAttributionRows, pooling: "cycles and both legs", chromium, samples, plainLatenciesByPath,
-        webkit: { ...webkit, paths: navigationPaths.map((path) => aggregateWebKit(path, webkit.samples)) }, react };
+      if (reactProfilingUrl) for (const scenario of additionalScenarios) {
+        const key = `nav-attribution-react-${navigationAttributionRows}-${scenario.name}`;
+        const result = await phase(key, () => withSession(browser, null, (session) =>
+          scenario.chromium(session, reactProfilingUrl, navigationAttributionRows, { collectCommits: true })));
+        recordCpu(key, result.cpu);
+        react.samples.push(...result.samples);
+        for (const path of scenario.labels) react.hooks.push({ path, injected: result.hookInjected, reason: result.reactReason });
+      }
+      react.paths = attributionPaths.map((path) => aggregateReact(path, react.samples));
+      navigationAttribution = { rows: navigationAttributionRows, pooling: "cycles and measured legs per path", chromium, samples, plainLatenciesByPath,
+        webkit: { ...webkit, paths: attributionPaths.map((path) => aggregateWebKit(path, webkit.samples)) }, react };
     }
     const structural = evaluateStructural(structuralInputs), timing = evaluateTiming(timingInputs);
     const failures = new Set<string>();
