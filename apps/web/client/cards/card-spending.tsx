@@ -30,7 +30,7 @@ export type CardSpendingCommands = {
 };
 
 type Preparation = { action: PreparedMoneyAction } | { error: unknown };
-type Entry = { operation: "set" } | { operation: "revoke"; spender: `0x${string}`; preparation: Promise<Preparation> };
+type Entry = ({ operation: "set" } | { operation: "revoke"; spender: `0x${string}`; preparation: Promise<Preparation> }) & { opener: HTMLElement };
 type Submission = "submitted" | "ambiguous" | "failed";
 const unavailableMessage = "Card spending limits are unavailable right now. Try again.";
 
@@ -58,12 +58,12 @@ export function CardSpending({ spending, variant, visible, canSet, commands, onR
   const headingId = useId();
   const [entry, setEntry] = useState<Entry | null>(null);
   const ready = spending.status === "ready" ? spending.response : null;
-  function revoke(spender: `0x${string}`) {
+  function revoke(spender: `0x${string}`, opener: HTMLElement) {
     if (!commands) return;
     const preparation = commands.prepare({ version: 1, operation: "revoke", spender }).then(
       (action): Preparation => ({ action }), (error: unknown): Preparation => ({ error }),
     );
-    setEntry({ operation: "revoke", spender, preparation });
+    setEntry({ operation: "revoke", spender, preparation, opener });
   }
   const sectionVisible = visible && (variant === "full" || Boolean(ready && (BigInt(ready.allowanceBaseUnits) > BigInt(0) || ready.retired.some((item) => BigInt(item.allowanceBaseUnits) > BigInt(0)))));
   return <>{sectionVisible ? <section aria-labelledby={headingId} aria-busy={spending.status === "loading" || undefined}>
@@ -86,18 +86,18 @@ export function CardSpending({ spending, variant, visible, canSet, commands, onR
             <ItemContent><ItemTitle>Spending limit</ItemTitle><ItemDescription>{limitLabel(ready.allowanceBaseUnits)}</ItemDescription>
               {!ready.setEnabled || !canSet ? <ItemDescription>Not available yet</ItemDescription> : null}
             </ItemContent>
-            <ItemActions><Button variant="ghost" size="sm" disabled={!ready.setEnabled || !canSet || !commands} onClick={() => setEntry({ operation: "set" })}>
+            <ItemActions><Button variant="ghost" size="sm" disabled={!ready.setEnabled || !canSet || !commands} onClick={(event) => setEntry({ operation: "set", opener: event.currentTarget })}>
               {BigInt(ready.allowanceBaseUnits) === BigInt(0) ? "Set limit" : "Change"}
             </Button></ItemActions>
           </Item>
           </> : null}
           {BigInt(ready.allowanceBaseUnits) > BigInt(0) ? <Item>
             <ItemContent><ItemTitle>Turn off card spending</ItemTitle></ItemContent>
-            <ItemActions><Button variant="ghost" size="sm" disabled={!commands} onClick={() => revoke(ready.spender)}>Turn off</Button></ItemActions>
+            <ItemActions><Button variant="ghost" size="sm" disabled={!commands} onClick={(event) => revoke(ready.spender, event.currentTarget)}>Turn off</Button></ItemActions>
           </Item> : null}
           {ready.retired.filter((item) => BigInt(item.allowanceBaseUnits) > BigInt(0)).map((item) => <Item key={item.spender}>
             <ItemContent><ItemTitle>Old card program</ItemTitle><ItemDescription>{limitLabel(item.allowanceBaseUnits)}</ItemDescription></ItemContent>
-            <ItemActions><Button variant="ghost" size="sm" disabled={!commands} onClick={() => revoke(item.spender)}>Remove</Button></ItemActions>
+            <ItemActions><Button variant="ghost" size="sm" disabled={!commands} onClick={(event) => revoke(item.spender, event.currentTarget)}>Remove</Button></ItemActions>
           </Item>)}
         </> : null}
       </CardContent>
@@ -233,7 +233,7 @@ function CardSpendingSheet({ entry, commands, onClosed, onRefresh }: {
   }
 
   const lead = revoke ? "Turn off card spending" : "Set card spending limit";
-  return <MoneyModal open={open} labelledBy={titleId} pending={step === "pending"} onCancel={close} onClose={onClosed}>
+  return <MoneyModal open={open} opener={entry.opener} labelledBy={titleId} pending={step === "pending"} onCancel={close} onClose={onClosed}>
     <MoneyModalStep step={step === "pending" ? "confirm" : step} depth={step === "amount" ? 0 : step === "result" ? 2 : 1}>
       <MoneyModalHeader title={step === "amount" ? lead : step === "result" ? "Card spending" : "Confirm"} titleId={titleId} closeLabel="Close spending limit" />
       {step === "result" && action && metadata && submission ? <CardSpendingResult action={action} submission={submission} commands={commands} onRefresh={onRefresh} onDone={close}

@@ -1,7 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Route } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
 import { expectNavigation, NAVIGATION_BUDGET_MS } from "./fixtures/navigation-budget";
+
+test.use({ hasTouch: true });
 
 async function signIn(page: Page) {
   await page.goto("/?account=signin");
@@ -38,16 +40,30 @@ test("Add money before hydration navigates to the IDRX funding flow", { tag: "@s
   await page.setViewportSize({ width: 390, height: 844 });
   await seedSignedInSession(page, "ID");
   await installApiFixtures(page);
-  await page.route("**/_next/**/*.js", (route) => route.abort());
-  await page.goto("/home");
-  const trigger = page.getByRole("link", { name: "Add money", exact: true });
-  await expect(page.getByRole("button", { name: "Account", exact: true })).toBeDisabled();
-  await expect(trigger).toBeVisible();
-  await expect(trigger).toHaveAttribute("href", "/home?flow=add-money");
-  await page.unroute("**/_next/**/*.js");
-  await trigger.click();
-  await expectNavigation(page, "/home?flow=add-money");
-  await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible({ timeout: NAVIGATION_BUDGET_MS });
+  const { promise: chunksReleased, resolve: releaseChunks } = Promise.withResolvers<void>();
+  let heldChunks = 0;
+  const holdChunk = async (route: Route) => {
+    heldChunks += 1;
+    await chunksReleased;
+    await route.continue();
+  };
+  await page.route("**/_next/static/chunks/**/*.js", holdChunk);
+  try {
+    await page.goto("/home", { waitUntil: "commit" });
+    const trigger = page.getByRole("link", { name: "Add money", exact: true });
+    await expect(page.getByRole("button", { name: "Account", exact: true })).toBeDisabled();
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toHaveAttribute("href", "/home?flow=add-money");
+    await expect.poll(() => heldChunks).toBeGreaterThan(0);
+    await trigger.tap({ noWaitAfter: true });
+    await expectNavigation(page, "/home?flow=add-money");
+    await expect(page.getByRole("button", { name: "Account", exact: true })).toBeDisabled();
+    releaseChunks();
+    await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible({ timeout: NAVIGATION_BUDGET_MS });
+  } finally {
+    releaseChunks();
+    await page.unroute("**/_next/static/chunks/**/*.js", holdChunk);
+  }
   const method = page.getByRole("button", { name: /Deposit IDR/ });
   await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();

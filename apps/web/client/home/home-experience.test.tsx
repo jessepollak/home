@@ -4,7 +4,7 @@ import { getHomeQueryClient, ownerQueryKey, useHomeQuery } from "@/client/query/
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, spyOn, test } from "bun:test";
 import * as homePerformance from "@/client/observability/perf-marks";
-import { useState, useSyncExternalStore, type ComponentProps } from "react";
+import { useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
 import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
@@ -275,7 +275,7 @@ function DashboardHarness({
           hiddenRows: [],
           hiddenCount: 0,
         }}
-    ><TestPage /></DashboardShell>
+    >{props.children}<TestPage /></DashboardShell>
   );
 }
 
@@ -433,6 +433,49 @@ function EmptySavingsFunding({ view, onOpenSavings }: { view: "cash" | "savings"
     prepareMoneyAction={async () => { throw new Error("Not part of this test"); }}
     executeMoneyAction={async () => { throw new Error("Not part of this test"); }} />;
 }
+
+function FlowOpenerObserver({ observe }: { observe: (opener: HTMLElement | null) => void }) {
+  const routing = useOptionalHomeShellRouting();
+  useEffect(() => { observe(routing?.flowOpener ?? null); }, [routing?.flowOpener, observe]);
+  return <button onClick={() => routing?.setFlow("add-money")}>Programmatic funding</button>;
+}
+
+describe("DashboardShell flow opener provenance", () => {
+  test("passes the actual activating DOM opener to the flow and clears it on history entry", async () => {
+    syncLocation("/home");
+    historyEntries = ["/home"];
+    const observe = jest.fn((_opener: HTMLElement | null) => {});
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}>
+      <FlowOpenerObserver observe={observe} />
+    </HomeHarness>);
+    const unrelated = await waitForVerifiedShell();
+    const trigger = page().getByRole("link", { name: "Add money" });
+    unrelated.focus();
+    fireEvent.click(trigger);
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === trigger).toBe(true);
+    act(() => popHistory());
+    act(() => forwardHistory());
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === null).toBe(true);
+  });
+
+  test("deep-link and programmatic entries do not invent an opener", async () => {
+    syncLocation("/home?flow=add-money");
+    historyEntries = ["/home?flow=add-money"];
+    const observe = jest.fn((_opener: HTMLElement | null) => {});
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}>
+      <FlowOpenerObserver observe={observe} />
+    </HomeHarness>);
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === null).toBe(true);
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(window.location.search).toBe(""));
+    fireEvent.click(page().getByRole("button", { name: "Programmatic funding" }));
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === null).toBe(true);
+  });
+});
 
 describe("pushed funding history", () => {
   test("Home to Cash to Add money closes without a duplicate Cash history entry", async () => {

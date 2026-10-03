@@ -16,7 +16,7 @@ import { formatExactPresentationTokenAmount } from "@/shared/formatting";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { borrowOverviewBody, sessionBody } from "@/tests/browser/fixtures/bodies";
 
-const { act, cleanup, fireEvent, render, within } = await import("@testing-library/react");
+const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { BorrowMoneyDialog } = await import("./borrow-money-dialog");
 
 const session = sessionBody as VerifiedAccountSession;
@@ -65,6 +65,25 @@ function describedByText(input: HTMLElement): string {
   return (input.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean)
     .map((id) => document.getElementById(id)?.textContent ?? "").join(" ");
 }
+
+test("programmatic BorrowMoneyDialog close does not restore unrelated ambient focus", async () => {
+  const unrelated = document.createElement("button");
+  unrelated.textContent = "Unrelated";
+  document.body.append(unrelated);
+  unrelated.focus();
+  const restored = unrelated.focus.bind(unrelated);
+  let restorationCalls = 0;
+  unrelated.focus = (...args) => { restorationCalls += 1; restored(...args); };
+  const dialog = <BorrowMoneyDialog session={session} snapshot={snapshot} operation="borrow" regionId="US"
+    prepareMoneyAction={async () => action} executeMoneyAction={async () => ({ id: action.id, status: "rejected" })} onClose={() => {}} />;
+  const view = render(dialog);
+  await view.findByRole("dialog", { name: "Borrow" });
+  view.rerender(<BorrowMoneyDialog session={session} snapshot={snapshot} operation="borrow" regionId="US" open={false}
+    prepareMoneyAction={async () => action} executeMoneyAction={async () => ({ id: action.id, status: "rejected" })} onClose={() => {}} />);
+  await waitFor(() => expect(view.queryByRole("dialog") === null).toBe(true));
+  expect(restorationCalls).toBe(0);
+  unrelated.remove();
+});
 
 describe("Supply and borrow amount and review", () => {
   for (const market of [BORROW_MARKETS[0]!, BORROW_MARKETS[2]!]) {
