@@ -292,13 +292,13 @@ describe("Card allowance flow", () => {
     for (const operation of ["set", "revoke"] as const) {
       const { view, execute, refresh } = setup();
       execute.mockImplementationOnce(async () => { throw new TransferExecutionError("stale-session"); });
-      let dialog: ReturnType<typeof within>;
-      if (operation === "set") dialog = await setReview(view);
-      else {
+      const dialog = await (async () => {
+        if (operation === "set") return setReview(view);
         fireEvent.click(view.getByRole("button", { name: "Turn off" }));
-        dialog = within(await view.findByRole("dialog"));
-        await waitFor(() => expect(dialog.getByText("Purpose")).toBeTruthy());
-      }
+        const review = within(await view.findByRole("dialog"));
+        await waitFor(() => expect(review.getByText("Purpose")).toBeTruthy());
+        return review;
+      })();
       const label = operation === "set" ? "Set limit" : "Turn off";
       fireEvent.click(dialog.getByRole("button", { name: label }));
       await waitFor(() => expect(dialog.getByText("Your account changed. Sign in again and try again.")).toBeTruthy());

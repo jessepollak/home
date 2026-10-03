@@ -3,6 +3,7 @@ import "@/client/account/dom-test-harness";
 import { afterEach, expect, jest, test } from "bun:test";
 import { countryRegionIds } from "@/config/regions";
 import { REGION_SETTINGS_DEFAULTS } from "@/shared/operator-settings/regions";
+import { isRecord } from "@/shared/guards";
 
 const { act, cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { regionChanges, RegionsPane } = await import("./regions-pane");
@@ -97,7 +98,11 @@ test("409 updates baseline and keeps draft for new review using latest revision"
   expect(next.textContent).toContain("United Kingdom");
   expect(next.textContent).not.toContain("United States");
   await act(async () => { fireEvent.click(within(next).getByRole("button", { name: "Confirm changes" })); });
-  expect(JSON.parse(fetcher.mock.calls[1]![1]?.body as string).expectedRevision).toBe(1);
+  const body = fetcher.mock.calls[1]![1]?.body;
+  if (typeof body !== "string") throw new Error("Expected a JSON request body");
+  const request: unknown = JSON.parse(body);
+  if (!isRecord(request)) throw new Error("Expected a settings request object");
+  expect(request.expectedRevision).toBe(1);
   expect(view.getByText("Region settings saved.")).toBeTruthy();
 });
 

@@ -313,14 +313,57 @@
       }
     },
     {
-      "files": [
-        "server/cdp/**/*.{ts,tsx}"
-      ],
+      // Argument, call and member-access gate across production. The account
+      // session boundary in client/account/base-account-connector.ts stays on the
+      // assignment/return gate until #1235 lands.
+      "files": ["{app,client,server}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "excludeFiles": [
-        "**/*.test.{ts,tsx}"
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**",
+        "**/*test-harness.{ts,tsx}",
+        "**/*smoke-fixture*.{ts,tsx}",
+        "client/account/base-account-connector.ts"
       ],
       "rules": {
+        "typescript/no-unsafe-argument": "error",
+        "typescript/no-unsafe-call": "error",
         "typescript/no-unsafe-member-access": "error"
+      }
+    },
+    {
+      // Member-access, call and return gate across tests and stories. The
+      // action (#1241), funding (#1242) and account (#1244) test packets stay
+      // outside it until those issues land.
+      "files": [
+        "**/*.test.{ts,tsx,mts,cts}",
+        "**/*.stories.{ts,tsx,mts,cts}",
+        "**/*.pw.{ts,tsx}",
+        "tests/**/*.{ts,tsx,mts,cts}",
+        "**/tests/**/*.{ts,tsx,mts,cts}",
+        "**/testing/**/*.{ts,tsx,mts,cts}",
+        "**/*test-harness.{ts,tsx}",
+        "**/*smoke-fixture*.{ts,tsx}"
+      ],
+      "excludeFiles": [
+        "server/actions/follow-through.test.ts",
+        "server/actions/handler.trade.test.ts",
+        "server/actions/kinds/trade/cdp-swaps.test.ts",
+        "server/actions/kinds/trade/prepare.test.ts",
+        "server/funding/cash-out-progress.test.ts",
+        "server/funding/core/customer-service.test.ts",
+        "server/funding/core/service.test.ts",
+        "server/funding/core/user-token-rotation.test.ts",
+        "server/funding/core/user-token-service.test.ts",
+        "client/account/base-account-eip5792-recovery.test.ts",
+        "client/account/cdp-money-action-execution.test.ts",
+        "client/account/owner-fence.test.tsx",
+        "client/account/restore-stage.test.tsx"
+      ],
+      "rules": {
+        "typescript/no-unsafe-call": "error",
+        "typescript/no-unsafe-member-access": "error",
+        "typescript/no-unsafe-return": "error"
       }
     },
     {

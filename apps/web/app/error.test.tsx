@@ -47,7 +47,7 @@ function Page() {
 
 const originalFetch = globalThis.fetch;
 let reports: unknown[] = [];
-let consoleError: ReturnType<typeof spyOn>;
+let consoleError: { mockRestore(): void };
 
 beforeEach(() => {
   reports = [];

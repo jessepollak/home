@@ -8,6 +8,8 @@ import { ChainDataError } from "@/server/chain-data/errors";
 import { createActivityHandler as createHandler } from "./handler";
 import { createActivityReader } from "./reader";
 import type { ActivityReadRequest, VerifiedActivityAccount } from "./types";
+import { isRecord } from "@/shared/guards";
+import { readJson } from "@/tests/helpers/read-json";
 
 const VERIFIED = "0x1111111111111111111111111111111111111111" as const;
 const ATTACKER = "0x9999999999999999999999999999999999999999";
@@ -147,7 +149,8 @@ describe("activity route handler", () => {
       readCards: async () => { calls += 1; throw new Error("provider unavailable"); }, now: () => new Date(TO) });
     const first = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}`));
     expect(first.status).toBe(200);
-    const body = await first.json();
+    const body = await readJson(first);
+    if (!isRecord(body)) throw new Error("Expected an activity response object");
     expect(body.cards).toEqual({ status: "unavailable", rows: [] });
     expect(body.onchainStatus).toBeUndefined();
     const parsed = parseActivityPage(body, { user: { subject: "subject-a" }, smartAccount: { address: VERIFIED, chainId: 8453 }, accountProvider: "cdp-embedded" }, TO);
@@ -155,7 +158,9 @@ describe("activity route handler", () => {
     expect(parsed.cards).toEqual({ status: "unavailable", rows: [] });
     expect(body.source).toEqual(page().source);
     const next = await handler(new Request(`http://localhost/api/activity?to=${encodeURIComponent(TO)}&cursor=older`));
-    expect((await next.json()).cards).toBeUndefined();
+    const nextBody = await readJson(next);
+    if (!isRecord(nextBody)) throw new Error("Expected an activity response object");
+    expect(nextBody.cards).toBeUndefined();
     expect(calls).toBe(1);
   });
   test("onchain failure returns card rows in a scoped, explicitly partial first page", async () => {
@@ -257,7 +262,9 @@ describe("activity route handler", () => {
     finishOnchain(page());
     const response = await pending;
     expect(response.status).toBe(200);
-    expect((await response.json()).cards.status).toBe("ready");
+    const body = await readJson(response);
+    if (!isRecord(body) || !isRecord(body.cards)) throw new Error("Expected activity cards");
+    expect(body.cards.status).toBe("ready");
   });
   test("derives wallet scope only from the verified session and forwards the stable window", async () => {
     let received: unknown;

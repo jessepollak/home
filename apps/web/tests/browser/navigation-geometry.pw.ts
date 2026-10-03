@@ -15,8 +15,9 @@ for (const width of [390, 320]) {
       const main = document.querySelector<HTMLElement>("[data-app-main-authenticated]")!;
       window.scrollTo(0, document.documentElement.scrollHeight);
       const lastContent = main.lastElementChild as HTMLElement;
+      const { x, y, width, height, top, right, bottom, left } = nav.getBoundingClientRect();
       return {
-        nav: nav.getBoundingClientRect().toJSON(),
+        nav: { x, y, width, height, top, right, bottom, left },
         contentBottom: lastContent.getBoundingClientRect().bottom,
         viewportWidth: window.innerWidth,
         documentWidth: document.documentElement.scrollWidth,

@@ -5,6 +5,8 @@ import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import { MORPHO_BLUE_ADDRESS } from "@/shared/morpho-markets/config";
 import { contractHistoryAsset, morphoHistoryAssets, nativeHistoryAsset } from "./assets";
 import { createHistoryChainReader } from "./chain";
+import { isRecord } from "@/shared/guards";
+import { readJson } from "@/tests/helpers/read-json";
 
 const ACCOUNT = "0x1111111111111111111111111111111111111111";
 const TOKEN = "0x2222222222222222222222222222222222222222";
@@ -202,7 +204,8 @@ describe("history chain reader", () => {
     const { fetchImpl } = fakeFetch(() => null);
     const rpcErrorFetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
       const response = await fetchImpl(url, init);
-      const payload = JSON.parse(await response.text());
+      const payload = await readJson(response);
+      if (!isRecord(payload)) throw new Error("Expected a JSON-RPC response object");
       if (payload.method === "eth_chainId") return new Response(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: "0x2105" }));
       return new Response(JSON.stringify({ jsonrpc: "2.0", id: payload.id, error: { code: -32000, message: "archive unavailable" } }));
     }) as typeof fetch;

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { isRecord } from "@/shared/guards";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { cashoutFixtureWithdraw } from "./feature-map/cashout-fixture";
 import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
@@ -206,7 +207,9 @@ test("mobile cash-out destination review remains within the dialog", async ({ pa
   });
   const canonical = "averyveryveryveryveryveryverylongcashappcashtag@example.com";
   await page.route("**/api/actions/prepare", (route) => {
-    if (route.request().method() !== "POST" || route.request().postDataJSON()?.kind !== "cash-out") return route.fallback();
+    if (route.request().method() !== "POST") return route.fallback();
+    const body: unknown = route.request().postDataJSON();
+    if (!isRecord(body) || body.kind !== "cash-out") return route.fallback();
     return json(route, {
       ...cashoutFixtureWithdraw, kind: "cash-out", title: "Cash out with Peer",
       amounts: [{ assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "1000000", direction: "spend" }],

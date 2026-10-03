@@ -49,7 +49,10 @@ test("operator page access schedules bounded background re-checks, throttles rel
     expect(calls).toHaveLength(2);
     expect(calls[1]).toMatchObject({ limit: 10, route: "/admin/customers" });
     expect(deadlines).toEqual([20_000, 20_000]);
-    expect(lines.map((line) => JSON.parse(line))).toEqual([
+    expect(lines.map((line) => {
+      const event: unknown = JSON.parse(line);
+      return event;
+    })).toEqual([
       expect.objectContaining({ kind: "action-reconcile", route: "/admin", code: "OPERATOR_RECHECK_COMPLETED", outcome: "ok" }),
       expect.objectContaining({ kind: "action-reconcile", route: "/admin/customers", code: "OPERATOR_RECHECK_FAILED", outcome: "failed" }),
     ]);
@@ -63,7 +66,10 @@ test("unavailable background scheduling never throws into page render", () => {
   const lines: string[] = [];
   setObservabilityLogWriterForTests((line) => { lines.push(line); });
   expect(() => scheduleOperatorRecheck(operator, () => { throw new Error("after unavailable"); }, "/admin")).not.toThrow();
-  expect(lines.map((line) => JSON.parse(line))).toEqual([
+  expect(lines.map((line) => {
+    const event: unknown = JSON.parse(line);
+    return event;
+  })).toEqual([
     expect.objectContaining({ kind: "action-reconcile", route: "/admin", code: "OPERATOR_RECHECK_UNAVAILABLE", outcome: "unavailable" }),
   ]);
 });

@@ -49,6 +49,28 @@ describe("user operation log lookup", () => {
     const { lookup } = harness([log(USER_OPERATION_ENTRY_POINTS.V06, "0x2222222222222222222222222222222222222222"), log(sender)]);
     expect(await lookup(row)).toEqual({ status: "pending" });
   });
+  test("treats an unverifiable topic on a canonical log as unavailable", async () => {
+    const { lookup } = harness([{ ...log(USER_OPERATION_ENTRY_POINTS.V06), topics: [{ toLowerCase: 1 }, handle, `0x${"0".repeat(24)}${sender.slice(2)}`] }]);
+    expect(await lookup(row)).toEqual({ status: "unavailable" });
+  });
+  test("refuses a complete match while an unverifiable canonical log could also match", async () => {
+    const malformed = { ...log(USER_OPERATION_ENTRY_POINTS.V07), transactionHash: `0x${"ef".repeat(32)}`, topics: [USER_OPERATION_EVENT_TOPIC, handle, { toLowerCase: 1 }] };
+    const { lookup } = harness([log(USER_OPERATION_ENTRY_POINTS.V06), malformed]);
+    expect(await lookup(row)).toEqual({ status: "unavailable" });
+  });
+  test("treats a canonical log without a topic array as unavailable", async () => {
+    const { lookup } = harness([{ ...log(USER_OPERATION_ENTRY_POINTS.V06), topics: "not-an-array" }]);
+    expect(await lookup(row)).toEqual({ status: "unavailable" });
+  });
+  test("treats a log without a string address as unavailable", async () => {
+    const { lookup } = harness([{ address: 42, transactionHash: hash, topics: [USER_OPERATION_EVENT_TOPIC, handle, `0x${"0".repeat(24)}${sender.slice(2)}`] }]);
+    expect(await lookup(row)).toEqual({ status: "unavailable" });
+  });
+  test("treats a canonical log with a malformed topic word as unavailable", async () => {
+    const malformed = { ...log(USER_OPERATION_ENTRY_POINTS.V07), transactionHash: `0x${"ef".repeat(32)}`, topics: [USER_OPERATION_EVENT_TOPIC, handle, "0x1234"] };
+    const { lookup } = harness([log(USER_OPERATION_ENTRY_POINTS.V06), malformed]);
+    expect(await lookup(row)).toEqual({ status: "unavailable" });
+  });
   test("refuses multiple attributable logs", async () => {
     const { lookup } = harness([log(USER_OPERATION_ENTRY_POINTS.V06), log(USER_OPERATION_ENTRY_POINTS.V07)]);
     expect(await lookup(row)).toEqual({ status: "unavailable" });

@@ -25,7 +25,9 @@ export async function installFixedPageDate(page: Page, instant = FIXED_NOW) {
     const current = () => fixed + (nativeNow() - anchor);
     function FixedDate(this: unknown, ...args: unknown[]) {
       if (!new.target) return new NativeDate(current()).toString();
-      return args.length === 0 ? new NativeDate(current()) : Reflect.construct(NativeDate, args);
+      const date: unknown = args.length === 0 ? new NativeDate(current()) : Reflect.construct(NativeDate, args);
+      if (!(date instanceof NativeDate)) throw new TypeError("Date construction did not return a Date");
+      return date;
     }
     Object.setPrototypeOf(FixedDate, NativeDate);
     FixedDate.prototype = NativeDate.prototype;

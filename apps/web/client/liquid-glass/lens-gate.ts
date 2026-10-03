@@ -21,7 +21,8 @@ export function shouldMountNavLens(environment: NavLensEnvironment): boolean {
 }
 
 export function isChromiumEngine(brands: readonly EngineBrand[] | null | undefined): boolean {
-  return Array.isArray(brands) && brands.some((entry) => entry?.brand === "Chromium");
+  const entries = brands;
+  return Array.isArray(brands) && entries?.some((entry) => entry?.brand === "Chromium") === true;
 }
 
 export function shouldRefractNavRim(environment: NavLensEnvironment & { brands: readonly EngineBrand[] | null | undefined }): boolean {

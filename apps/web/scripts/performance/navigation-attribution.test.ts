@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { isRecord } from "@/shared/guards";
 import { attributeWindow, summarizeLoaf, type LoafEntry, type TraceEvent } from "./attribution";
 import { aggregateAttribution, aggregateWebKit, attributionMarkdown, awaitTraceEnd, drainTailFrames, endTraceWithDeadline, latencySummary, mapTraceWindows, overheadDelta, sliceLoaf, summarizeLoafWindow, topInvokerByPath,
   type NavigationAttributionSample, type NavigationLeg, type NavigationWindow, type WebKitSample } from "./navigation-attribution";
@@ -293,7 +294,9 @@ describe("navigation attribution aggregation", () => {
       { startMs: 80, durationMs: 80, blockingMs: 10, styleAndLayoutMs: 15, forcedStyleAndLayoutMs: 4, forcedSharePct: 5, invoker: "animation-frame", invokerMs: 30 },
     ]);
     const aggregated = aggregateAttribution("/cash", [attributed, { ...attributed, path: "/invest" }], []);
-    expect(JSON.parse(JSON.stringify(aggregated)).frames).toEqual([
+    const parsed: unknown = JSON.parse(JSON.stringify(aggregated));
+    if (!isRecord(parsed)) throw new Error("Serialized attribution must be a record");
+    expect(parsed.frames).toEqual([
       { startMs: 10, durationMs: 60, blockingMs: 10, styleAndLayoutMs: 15, forcedStyleAndLayoutMs: 12, forcedSharePct: 20, invoker: "click", invokerMs: 30, leg: "outbound", cycle: 1 },
       { startMs: 80, durationMs: 80, blockingMs: 10, styleAndLayoutMs: 15, forcedStyleAndLayoutMs: 4, forcedSharePct: 5, invoker: "animation-frame", invokerMs: 30, leg: "outbound", cycle: 1 },
     ]);
