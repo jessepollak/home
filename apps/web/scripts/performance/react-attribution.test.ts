@@ -173,7 +173,7 @@ describe("React window summaries", () => {
     });
   });
   test("Markdown reports configured, missing and non-injected profiling legs honestly", () => {
-    const report: NavigationAttributionReport = { rows: 300, pooling: "cycles and both legs", chromium: [], samples: [], plainLatenciesByPath: {},
+    const report: NavigationAttributionReport = { rows: 300, pooling: "cycles and measured legs per path", chromium: [], samples: [], plainLatenciesByPath: {},
       webkit: { browser: null, samples: [], paths: [], errors: [] }, react: { url: null, samples: [], hooks: [], reason: "No profiling build configured",
         paths: [aggregateReact("/cash", [])] } };
     expect(attributionMarkdown(report)).toContain("| /cash | — | — | — | — | — | — | — | — | — |");

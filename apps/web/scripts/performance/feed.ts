@@ -184,7 +184,7 @@ export async function fling(session: Session): Promise<Fling> {
   }, { before, selector: recentRowSelector, droppedPct, scrollHost: scroll.host });
 }
 
-export async function detailCycles(page: Page, count: number): Promise<number[]> {
+export async function selectDetailRow(page: Page) {
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight / 2));
   await twoFrames(page);
   const mounted = page.locator(`${section} ul > li[aria-posinset]:not([data-perf-clone])`);
@@ -194,19 +194,34 @@ export async function detailCycles(page: Page, count: number): Promise<number[]>
   const datetime = await first.locator("time[datetime]").first().getAttribute("datetime");
   if (!position || !datetime) throw new Error("Activity detail row has no identity");
   const button = page.locator(`${section} ul > li[aria-posinset="${position}"]:not([data-perf-clone]) button`).first();
+  return { button, position, datetime };
+}
+
+export async function openDetailRow(page: Page, identity: Awaited<ReturnType<typeof selectDetailRow>>, cycle: number) {
+  const { button, position } = identity;
+  const start = performance.now();
+  await button.click();
+  try { await page.getByRole("dialog").waitFor({ timeout: 15_000 }); }
+  catch (error) { throw new Error(`Detail cycle ${cycle} row ${position}: ${await button.textContent()} (${page.url()})`, { cause: error }); }
+  return performance.now() - start;
+}
+
+export async function closeDetailRow(page: Page, identity: Awaited<ReturnType<typeof selectDetailRow>>) {
+  const { position, datetime } = identity;
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 15_000 });
+  await page.waitForFunction(({ position, datetime }) => {
+    const row = document.activeElement?.closest('section[aria-label="Activity"]:not(#navigation-panel) ul > li');
+    return row?.getAttribute("aria-posinset") === position && row.querySelector("time[datetime]")?.getAttribute("datetime") === datetime;
+  }, { position, datetime }, { timeout: 10_000 });
+}
+
+export async function detailCycles(page: Page, count: number): Promise<number[]> {
+  const identity = await selectDetailRow(page);
   const times: number[] = [];
   for (let i = 0; i < count; i++) {
-    const start = performance.now();
-    await button.click();
-    try { await page.getByRole("dialog").waitFor({ timeout: 15_000 }); }
-    catch (error) { throw new Error(`Detail cycle ${i + 1} row ${position}: ${await button.textContent()} (${page.url()})`, { cause: error }); }
-    times.push(performance.now() - start);
-    await page.keyboard.press("Escape");
-    await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 15_000 });
-    await page.waitForFunction(({ position, datetime }) => {
-      const row = document.activeElement?.closest('section[aria-label="Activity"]:not(#navigation-panel) ul > li');
-      return row?.getAttribute("aria-posinset") === position && row.querySelector("time[datetime]")?.getAttribute("datetime") === datetime;
-    }, { position, datetime }, { timeout: 10_000 });
+    times.push(await openDetailRow(page, identity, i + 1));
+    await closeDetailRow(page, identity);
   }
   return times;
 }

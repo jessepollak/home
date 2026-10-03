@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { attributeWindow, summarizeLoaf, type LoafEntry, type TraceEvent } from "./attribution";
-import { aggregateAttribution, aggregateWebKit, attributionMarkdown, awaitTraceEnd, drainTailFrames, endTraceWithDeadline, latencySummary, mapTraceWindows, overheadDelta, sliceLoaf, summarizeLoafWindow,
-  type NavigationAttributionSample, type NavigationWindow, type WebKitSample } from "./navigation-attribution";
+import { aggregateAttribution, aggregateWebKit, attributionMarkdown, awaitTraceEnd, drainTailFrames, endTraceWithDeadline, latencySummary, mapTraceWindows, overheadDelta, sliceLoaf, summarizeLoafWindow, topInvokerByPath,
+  type NavigationAttributionSample, type NavigationLeg, type NavigationWindow, type WebKitSample } from "./navigation-attribution";
+import { aggregateReact } from "./react-attribution";
 
 const windows = (): NavigationWindow[] => [
   { path: "/cash", leg: "outbound", cycle: 1, latencyMs: 20, startMs: 10, endMs: 110, startMark: "out-start", endMark: "out-end" },
   { path: "/cash", leg: "home", cycle: 1, latencyMs: 30, startMs: 120, endMs: 220, startMark: "home-start", endMark: "home-end" },
 ];
-const marks = (): TraceEvent[] => windows().flatMap((window) => [
+const marks = (measured = windows()): TraceEvent[] => measured.flatMap((window) => [
   { name: window.startMark, ts: window.startMs * 1000, cat: "blink.user_timing" },
   { name: window.endMark, ts: window.endMs * 1000, cat: "blink.user_timing" },
 ]);
@@ -25,7 +26,7 @@ const loaf = (startMs: number, durationMs = 60, invoker = "click", forcedStyleAn
   startMs, durationMs, blockingMs: 10, styleAndLayoutMs: 15,
   scripts: [{ invoker, invokerType: "event-listener", durationMs: 30, forcedStyleAndLayoutMs }],
 });
-function sample(latencyMs: number, leg: "outbound" | "home", scriptMs: number): NavigationAttributionSample {
+function sample(latencyMs: number, leg: NavigationLeg, scriptMs: number): NavigationAttributionSample {
   const attributed = attributeWindow([
     { name: "thread_name", ph: "M", pid: 1, tid: 1, args: { name: "CrRendererMain" } },
     { name: "FunctionCall", ph: "X", ts: 0, dur: scriptMs * 1000, pid: 1, tid: 1 },
@@ -162,6 +163,28 @@ describe("navigation attribution windows", () => {
     expect(() => mapTraceWindows(marks(), windows().map((window) => ({ ...window, leg: "outbound" })), 1)).toThrow("missing or out-of-order leg");
     expect(() => mapTraceWindows(marks(), windows().map((window) => ({ ...window, cycle: 2 })), 1)).toThrow("missing or out-of-order leg");
   });
+  test("return-only home/back windows allow consistent per-leg paths across cycles", () => {
+    const returns: NavigationWindow[] = [1, 2].flatMap((cycle) => windows().map((window, index) => ({ ...window, cycle,
+      leg: index === 0 ? "home" : "back", path: index === 0 ? "Back (Home tab)" : "Back (browser history)",
+      startMs: window.startMs + (cycle - 1) * 300, endMs: window.endMs + (cycle - 1) * 300,
+      startMark: `${cycle}-${window.startMark}`, endMark: `${cycle}-${window.endMark}` })));
+    const legs = ["home", "back"] as const;
+    expect(mapTraceWindows(marks(returns).reverse(), returns, 2, false, legs).map(({ path, leg, cycle }) => ({ path, leg, cycle }))).toEqual([
+      { path: "Back (Home tab)", leg: "home", cycle: 1 }, { path: "Back (browser history)", leg: "back", cycle: 1 },
+      { path: "Back (Home tab)", leg: "home", cycle: 2 }, { path: "Back (browser history)", leg: "back", cycle: 2 },
+    ]);
+    expect(() => mapTraceWindows(marks(returns), returns, 2, false, ["back", "home"])).toThrow("missing or out-of-order leg");
+    expect(() => mapTraceWindows(marks(returns), returns.slice(0, -1), 2, false, legs)).toThrow("window/leg mismatch");
+    expect(() => mapTraceWindows(marks(returns), returns.map((window, index) => index === 2 ? { ...window, cycle: 1 } : window), 2, false, legs)).toThrow("missing or out-of-order leg");
+    expect(() => mapTraceWindows(marks(returns), returns.map((window, index) => index === 2 ? { ...window, path: "different" } : window), 2, false, legs)).toThrow("missing or out-of-order leg");
+  });
+  test("single-leg detail windows retain cycle validation and trace mapping", () => {
+    const details: NavigationWindow[] = windows().map((window, index) => ({ ...window, path: "Activity detail", leg: "detail", cycle: index + 1 }));
+    expect(mapTraceWindows(marks(details), details, 2, false, ["detail"]).map(({ leg, cycle }) => ({ leg, cycle }))).toEqual([
+      { leg: "detail", cycle: 1 }, { leg: "detail", cycle: 2 },
+    ]);
+    expect(() => mapTraceWindows(marks(details), details, 1, false, ["detail"])).toThrow("window/leg mismatch");
+  });
   test("unmatched, duplicate, wrong-category and reversed marks fail loudly", () => {
     expect(() => mapTraceWindows(marks().slice(1), windows(), 1)).toThrow("unmatched");
     expect(() => mapTraceWindows([...marks(), firstMark()], windows(), 1)).toThrow("unmatched");
@@ -186,6 +209,42 @@ describe("navigation attribution windows", () => {
     expect(sliced.map((entry) => entry.startMs)).toEqual([10, 109]);
     expect(summarizeLoaf(sliced)).toMatchObject({ count: 2, totalMs: 130, blockingMs: 20, maxMs: 80, forcedStyleAndLayoutMs: 20, topInvoker: "click" });
     expect(sliceLoaf([], firstWindow())).toEqual([]);
+  });
+});
+
+describe("LoAF top invoker by path", () => {
+  test("each Back path selects its own highest-duration invoker without leaking across paths", () => {
+    const home = loaf(10, 60, "home-click");
+    home.scripts.push({ invoker: "home-secondary", invokerType: "event-listener", durationMs: 10, forcedStyleAndLayoutMs: 0 });
+    const history = { ...loaf(120, 90, "history-popstate"),
+      scripts: [{ invoker: "history-popstate", invokerType: "event-listener", durationMs: 80, forcedStyleAndLayoutMs: 0 }] };
+    expect(topInvokerByPath([home, history], [
+      { path: "Back (Home tab)", startMs: 10, endMs: 110 },
+      { path: "Back (browser history)", startMs: 120, endMs: 220 },
+    ])).toEqual({ "Back (Home tab)": "home-click", "Back (browser history)": "history-popstate" });
+  });
+  test("sums script durations across a path's windows and breaks ties by name", () => {
+    const first = loaf(10, 60, "zeta"), second = loaf(120, 60, "zeta");
+    const competitor = { invoker: "alpha", invokerType: "event-listener", durationMs: 40, forcedStyleAndLayoutMs: 0 };
+    first.scripts.push(competitor);
+    const measured = [
+      { path: "/cash", startMs: 10, endMs: 110 },
+      { path: "/cash", startMs: 120, endMs: 220 },
+    ];
+    expect(topInvokerByPath([first, second], measured)).toEqual({ "/cash": "zeta" });
+    competitor.durationMs = 60;
+    expect(topInvokerByPath([first, second], measured)).toEqual({ "/cash": "alpha" });
+  });
+  test("paths without qualifying entries return null", () => {
+    expect(topInvokerByPath([loaf(10, 49), loaf(110)], [
+      { path: "short", startMs: 10, endMs: 110 },
+      { path: "empty", startMs: 120, endMs: 220 },
+    ])).toEqual({ short: null, empty: null });
+    expect(topInvokerByPath([], [{ path: "empty", startMs: 0, endMs: 100 }])).toEqual({ empty: null });
+  });
+  test("no windows returns an empty mapping", () => {
+    expect(topInvokerByPath([], [])).toEqual({});
+    expect(topInvokerByPath([loaf(10)], [])).toEqual({});
   });
 });
 
@@ -238,7 +297,7 @@ describe("navigation attribution aggregation", () => {
       { startMs: 10, durationMs: 60, blockingMs: 10, styleAndLayoutMs: 15, forcedStyleAndLayoutMs: 12, forcedSharePct: 20, invoker: "click", invokerMs: 30, leg: "outbound", cycle: 1 },
       { startMs: 80, durationMs: 80, blockingMs: 10, styleAndLayoutMs: 15, forcedStyleAndLayoutMs: 4, forcedSharePct: 5, invoker: "animation-frame", invokerMs: 30, leg: "outbound", cycle: 1 },
     ]);
-    const lines = attributionMarkdown({ rows: 300, pooling: "cycles and both legs", chromium: [aggregated], samples: [attributed], plainLatenciesByPath: {}, react: null,
+    const lines = attributionMarkdown({ rows: 300, pooling: "cycles and measured legs per path", chromium: [aggregated], samples: [attributed], plainLatenciesByPath: {}, react: null,
       webkit: { browser: null, samples: [], paths: [], errors: [] } });
     expect(lines).toContain("#### Long animation frames (per frame, start in window, ≥50 ms)");
     expect(lines).toContain("| Window | Start | Duration | Blocking | Style + layout phase | Forced style + layout | Forced share | Top script invoker |");
@@ -267,8 +326,36 @@ describe("navigation attribution aggregation", () => {
     });
     expect(aggregateWebKit("/cash", [])).toMatchObject({ frameGapP95Ms: null, frameGapMaxMs: null, longFrameCount: null });
   });
+  test("Back and Activity detail aggregate separately and render every path table with unavailable buckets", () => {
+    const paths = ["Back (Home tab)", "Back (browser history)", "Activity detail"];
+    const samples = paths.map((path, index): NavigationAttributionSample => ({ ...sample((index + 1) * 10, index === 0 ? "home" : index === 1 ? "back" : "detail", 5), path,
+      main: null, threads: { rasterMs: null, compositorMs: null, gpuMs: null, vizMs: null }, presentedMs: null, pipeline: [], loaf: null, loafFrames: null }));
+    const chromium = paths.map((path) => aggregateAttribution(path, samples, []));
+    const react = { url: null, samples: [], paths: paths.map((path) => aggregateReact(path, samples)), hooks: [], reason: "No profiling build configured" };
+    const lines = attributionMarkdown({ rows: 300, pooling: "cycles and measured legs per path", chromium, samples, plainLatenciesByPath: {}, react,
+      webkit: { browser: null, samples: [], paths: paths.map((path) => aggregateWebKit(path, [])), errors: [] } });
+    for (const [index, path] of paths.entries()) {
+      const row = chromium[index];
+      expect(row?.latency).toEqual({ samples: 1, p50: (index + 1) * 10, p95: (index + 1) * 10 });
+      expect(row?.main.scriptMs).toBeNull();
+      expect(row?.threads.rasterMs).toBeNull();
+      expect(row?.loaf).toBeNull();
+      expect(row?.presented.p50).toBeNull();
+      expect(row?.overhead.plain.p50).toBeNull();
+      expect(row?.overhead.p50DeltaMs).toBeNull();
+      expect(aggregateWebKit(path, []).frameGapP95Ms).toBeNull();
+      expect(aggregateReact(path, samples).renderMs).toBeNull();
+      expect(lines.filter((line) => line.startsWith(`| ${path} |`))).toHaveLength(9);
+      expect(lines).toContain(`| ${path} | — | — | — | — | — | — | — | — |`);
+      expect(lines).toContain(`| ${path} | — | — | — | — | — | — | — | — | — |`);
+      expect(lines).toContain(`| ${path} | 0 | — | — | 0 | — | — | — |`);
+    }
+    expect(lines.join("\n")).toContain("Back returns to Home from /cash");
+    expect(lines.join("\n")).toContain("click → dialog visible");
+    expect(lines.join("\n")).toContain("pooled over cycles and measured legs per path");
+  });
   test("Markdown names report-only, unavailability and WebKit failures without fake zero timing", () => {
-    const lines = attributionMarkdown({ rows: 300, pooling: "cycles and both legs", chromium: [aggregateAttribution("/cash", [], [])], samples: [], plainLatenciesByPath: {}, react: null,
+    const lines = attributionMarkdown({ rows: 300, pooling: "cycles and measured legs per path", chromium: [aggregateAttribution("/cash", [], [])], samples: [], plainLatenciesByPath: {}, react: null,
       webkit: { browser: null, samples: [], paths: [aggregateWebKit("/cash", [])], errors: [{ path: "/cash", reason: "engine unavailable" }] } });
     expect(lines).toContain("## Navigation attribution (report only)");
     expect(lines).toContain("### Desktop WebKit");
