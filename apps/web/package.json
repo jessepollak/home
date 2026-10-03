@@ -79,7 +79,7 @@
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.0",
-    "@playwright/test": "1.55.0",
+    "@playwright/test": "1.63.0",
     "@storybook/addon-a11y": "10.6.0",
     "@storybook/addon-mcp": "10.6.0",
     "@storybook/addon-vitest": "10.6.0",

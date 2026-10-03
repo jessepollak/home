@@ -121,7 +121,7 @@ The weekly and manually triggered **Invest catalog drift** workflow runs `bun ru
 
 ## Surface verification boundary
 
-Use the repository-pinned `agent-browser` directly for [fixture and live browser validation](browser-validation.md). The [feature-map surfaces](../.agents/skills/browser-iteration/surfaces/) supply Reach guidance; agents report observed facts and screenshots under PR evidence rules. Playwright remains the only committed automated browser regression layer.
+Use the repository-pinned `agent-browser` directly for [fixture and live browser validation](browser-validation.md). The [feature-map surfaces](../.agents/skills/browser-iteration/surfaces/) supply Reach guidance; agents report observed facts and screenshots under PR evidence rules. The current Playwright smoke stays required until a replacement meets the evidence criteria in `docs/agentic-testing-pilot.md`.
 
 Each surface file declares machine-readable **Owned paths**. The `verification-evidence` CI step maps the pull-request diff to those paths and checks the PR's `## Verification` table for every affected surface, its required rung, an evidence pointer, and incidents, plus a `Verified: <surface> rung <n>` or `Not verified: <surface> rung <n> — <reason>` line for each mapped surface at its required rung. Read-only changes require Rung 1, money-client changes require Rung 2, and action/calldata/confirm-step changes on confirm surfaces require Rung 3. The step is soft (`continue-on-error`) while the map is calibrated. A follow-up PR makes it hard after three consecutive mapped pull requests report no false-positive surface or rung; until then, a failure is a required handoff finding but does not block CI.
 
@@ -218,3 +218,7 @@ The only direct-drawer import exceptions live in `apps/web/oxlint/policy/sheet-h
 The **SQL performance evidence** CI step runs `node scripts/gates/sql-performance.mjs` for pull requests. It compares the merge base of `origin/<BASE_REF>` and HEAD and finds changed production server modules containing SQL-looking string/template literals, plus server SQL files (including migrations). Any edit to such a module requires exactly one visible `SQL-performance: <verified|not-verified|not-applicable> — <specific evidence, blocker, or reason>` line. Missing, malformed, duplicate, comment-hidden or fenced lines fail. Tests, fixtures and docs are excluded.
 
 This is an evidence-presence guard, not a SQL planner or a proof of index use. It does not cover indirect changes in other helper modules or runtime SQL assembled without recognizable literals. Reviewers apply [SQL performance](sql-performance.md) to every changed query regardless of detection. A blocked disposition keeps validation honest; it does not establish acceptance. Gate contract tests run in `bun run gates`.
+
+## Agentic browser pilot
+
+The optional [testing pilot](agentic-testing-pilot.md) compares scripted and agent-driven journeys. Frameworks are replaceable when measured bug detection, reliability and cost support replacement; the current required smoke remains unchanged pending that evidence.

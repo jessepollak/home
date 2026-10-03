@@ -1,0 +1,51 @@
+name: Agentic testing pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_agent:
+        description: Run fresh-model comparisons using dedicated pilot credentials
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22.13.1
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.12
+      - run: bun install --frozen-lockfile
+      - run: npm ci --prefix tests/agentic
+      - run: npx --no-install playwright install --with-deps chromium
+        working-directory: tests/agentic
+      - run: node apps/web/node_modules/typescript/bin/tsc -p tests/agentic/tsconfig.json
+      - run: npm run test:mutations
+        working-directory: tests/agentic
+        env:
+          E2E_TELEMETRY_DISABLED: '1'
+      - name: Fresh agent comparison
+        if: inputs.run_agent
+        working-directory: tests/agentic
+        env:
+          HOME_E2E_MODEL: ${{ secrets.HOME_E2E_MODEL }}
+          AI_GATEWAY_API_KEY: ${{ secrets.HOME_E2E_GATEWAY_API_KEY }}
+          E2E_TELEMETRY_DISABLED: '1'
+        run: |
+          npm run test:agent -- --no-cache --repeat-each 3 --output .e2e/fresh-agent
+          npm run test:mutations -- --agent
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: agentic-pilot-evidence
+          path: tests/agentic/.e2e/
+          retention-days: 7

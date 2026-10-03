@@ -1,0 +1,17 @@
+{
+  "name": "home-agentic-testing-pilot",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "test": "e2e run tests/deterministic.e2e.ts --workers 1 --retries 0",
+    "test:agent": "node agent.mjs",
+    "test:mutations": "node mutations.mjs"
+  },
+  "devDependencies": {
+    "@e2e-dev/web": "0.11.2",
+    "ai": "7.0.118",
+    "e2e": "0.16.0",
+    "playwright": "1.63.0"
+  }
+}

@@ -19,7 +19,7 @@ Implement the smallest purposeful motion within the assigned task. Home's `AGENT
 - Home's limits are authoritative: tabs at most 180ms, chips at most 120ms, and CTA press feedback 100–160ms. Other motion should be comparably short and optical.
 - `prefers-reduced-motion: reduce` removes spatial and transform motion. Keep short opacity or color transitions only when they aid comprehension; never add a decorative fallback, and smooth scrolling stays `auto`.
 - Use existing components, variants, tokens, and Base UI transform-origin contracts. Do not create a parallel easing or duration vocabulary for one change.
-- Follow `docs/browser-validation.md`: use the repository-pinned `agent-browser` for required interactive iteration and motion proof before and after editing. Tests cover Home behavior, not Motion or browser internals; Playwright remains the sole committed automated browser layer and is used only when the permanent-test ladder calls for it.
+- Follow `docs/browser-validation.md`: use the repository-pinned `agent-browser` for required interactive iteration and motion proof before and after editing. Tests cover Home behavior, not Motion or browser internals; Choose committed browser regression coverage by observable behavior and the evidence criteria in `docs/agentic-testing-pilot.md`; retain the current required smoke pending replacement evidence.
 
 ## Decision sequence
 
@@ -42,4 +42,4 @@ Implement the smallest purposeful motion within the assigned task. Home's `AGENT
 
 ## Report
 
-State the purpose, tool, properties, timing, reduced-motion behavior, `agent-browser` mode/route/viewport/path and health result, and any operator feel check. Distinguish this ephemeral proof from committed Playwright regression coverage. If the gate rejects motion, report that outcome without manufacturing an implementation.
+State the purpose, tool, properties, timing, reduced-motion behavior, `agent-browser` mode/route/viewport/path and health result, and any operator feel check. Distinguish this ephemeral proof from committed regression coverage. If the gate rejects motion, report that outcome without manufacturing an implementation.

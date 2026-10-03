@@ -18,7 +18,7 @@ Apply the smallest platform-correct change to the named mobile-web surface. Home
 - Touch and mouse can coexist. Gate behavior by `(hover)` and `(pointer)`, not user agent or width guesses.
 - Never disable zoom. Preserve selectable content, browser navigation, focus, and native scrolling unless the named control must own a gesture.
 - Keep reduced-motion behavior and Home timing within the `docs/ui-direction.md` limits.
-- Follow `docs/browser-validation.md`: the repository-pinned `agent-browser` is required for interactive iteration and proof before and after editing. Playwright remains the sole authoritative committed automated browser layer; use its existing configuration only when the permanent-test ladder calls for a browser assertion.
+- Follow `docs/browser-validation.md`: the repository-pinned `agent-browser` is required for interactive iteration and proof before and after editing. Choose committed browser assertions by observable behavior and the evidence criteria in `docs/agentic-testing-pilot.md`; retain the current required smoke pending replacement evidence.
 - A real-device check is an operator action unless the runner exposes an Android device under [the real Android device contract](../../../docs/browser-validation.md#real-android-device); then run the Android Chrome check yourself and report iOS/Safari as unverified. Never claim an emulated viewport proves real-device behavior.
 
 ## Review sequence

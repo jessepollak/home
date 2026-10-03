@@ -1,6 +1,6 @@
 # Browser validation
 
-Status: normative browser-development contract. Home pins Vercel Labs `agent-browser` v0.38.1. [Browser-iteration skill](../.agents/skills/browser-iteration/SKILL.md) and [feature map](../.agents/skills/browser-iteration/feature-map.md) supply the operational steps. Playwright is the sole committed automated browser regression layer.
+Status: normative browser-development contract. Home pins Vercel Labs `agent-browser` v0.38.1. [Browser-iteration skill](../.agents/skills/browser-iteration/SKILL.md) and [feature map](../.agents/skills/browser-iteration/feature-map.md) supply the operational steps. Playwright 1.63 is the current required browser smoke. Regression frameworks are replaceable under the evidence criteria in [the testing pilot](agentic-testing-pilot.md).
 
 ## Decision tree
 
@@ -81,7 +81,7 @@ The separate **Production warm navigation** workflow runs on every push to `main
 
 Playwright-rung: dispatch
 
-Browser-issued document/RSC requests under the optimized Next runtime cannot be established by a unit/component test or the development smoke; this extends the existing browser assertion rather than adding a second regression layer. Fixture Chromium evidence does not prove live-provider behavior, hardware latency or a navigation timing budget.
+Browser-issued document/RSC requests under the optimized Next runtime cannot be established by a unit/component test or the development smoke; choose a browser assertion that observes that behavior under the testing pilot evidence criteria. Fixture Chromium evidence does not prove live-provider behavior, hardware latency or a navigation timing budget.
 
 ### Real Android device
 

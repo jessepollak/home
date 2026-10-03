@@ -186,3 +186,5 @@ Report suspected vulnerabilities privately through the repository [security poli
 Original repository content is licensed under [MIT](LICENSE). Third-party materials, provider SDKs, fonts, and trademarks keep their own terms.
 
 The Home mark's font provenance and reuse constraints are documented in [`apps/web/public/home-mark/PROVENANCE.md`](apps/web/public/home-mark/PROVENANCE.md). Do not assume the Home mark, its fonts, or Base-related marks are covered by the MIT license.
+
+Optional: [agentic browser-testing pilot](docs/agentic-testing-pilot.md).
