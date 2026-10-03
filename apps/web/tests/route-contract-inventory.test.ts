@@ -5,6 +5,12 @@ import { dirname, join } from "node:path";
 import { inventoryRouteContracts } from "./helpers/route-contract-inventory";
 
 type Manifest = Parameters<typeof inventoryRouteContracts>[0]["manifest"];
+
+function routeEntry(manifest: Manifest, path: string) {
+  const entry = manifest.routes[path];
+  if (!entry) throw new Error(`Fixture route is missing: ${path}`);
+  return entry;
+}
 const roots: string[] = [];
 const route = "items/route.ts";
 const contract = "shared/items/contract.ts";
@@ -25,7 +31,7 @@ function fixture() {
   const manifest: Manifest = {
     routes: { [route]: { contracts: [contract] } },
     appRoutes: {},
-    baseline: { routesWithoutVersionedParser: {}, unversionedContracts: [], parserlessContracts: [], handlerUnlinked: {}, clientUnlinked: {} },
+    baseline: { routesWithoutVersionedParser: {}, unversionedContracts: [], parserlessContracts: [], handlerUnlinked: {}, clientUnlinked: {}, undeclaredHandlerContracts: {} },
   };
   const violations = () => inventoryRouteContracts({ root, manifest });
   const codes = () => violations().map(({ code, path }) => ({ code, path }));
@@ -47,12 +53,1048 @@ function mixedMethodFixture() {
   return { ...result, methods };
 }
 
+const otherContract = "shared/other/contract.ts";
+const undeclaredViolation = { code: "handler-contract-undeclared", path: route, detail: `GET references an undeclared contract: ${otherContract}` };
+
+function undeclaredFixture() {
+  const result = fixture();
+  result.write(otherContract, "export const OTHER_VERSION = 1; export const parseOther = (value: unknown) => value;");
+  result.write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const GET = () => parseOther(parseItem({ version: 1 }));');
+  const register = () => {
+    routeEntry(result.manifest, route).contracts = [contract, otherContract];
+    result.write("client/items.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const loadItem = () => fetch("/api/items").then((value) => parseOther(parseItem(value)));');
+  };
+  return { ...result, register };
+}
+
+function methodGapFixture() {
+  const result = undeclaredFixture();
+  result.write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const GET = () => parseOther(parseItem({})); export const POST = () => parseOther(parseItem({}));');
+  routeEntry(result.manifest, route).contracts = [contract];
+  routeEntry(result.manifest, route).methods = { GET: { contracts: [contract] }, POST: { contracts: [contract] } };
+  return result;
+}
+
+function namespaceHandlerFixture() {
+  const result = undeclaredFixture();
+  result.write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({})); export const nested = { handle }; export const createHandlers = () => ({ GET: () => parseOther(parseItem({})) });');
+  return result;
+}
+
+function analysisBudgetFixture(localFunctions: number) {
+  const result = undeclaredFixture();
+  const declarations = Array.from({ length: localFunctions }, (_, index) => `function local${index}() {}`).join("\n");
+  result.write(`app/api/${route}`, `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const GET = () => { parseItem({}); ${declarations} function decode() { return parseOther({}); } return decode(); };`);
+  return result;
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 test("accepts a mapped versioned, parsed contract with both sides linked", () => {
   expect(fixture().violations()).toEqual([]);
+});
+
+test("rejects a referenced contract until the route declares it and the client links it", () => {
+  const { violations, register } = undeclaredFixture();
+  expect(violations()).toEqual([undeclaredViolation]);
+  register();
+  expect(violations()).toEqual([]);
+});
+
+test("reports an analysis limit instead of undeclared contracts above the function budget", () => {
+  const { violations } = analysisBudgetFixture(1_000);
+  expect(violations()).toEqual([{
+    code: "handler-analysis-limit", path: route,
+    detail: "GET handler reference scan exceeded its analysis budget",
+  }]);
+});
+
+test("finds undeclared contracts below the function budget", () => {
+  expect(analysisBudgetFixture(900).violations()).toEqual([undeclaredViolation]);
+});
+
+test("an analysis limit does not make a frozen handler contract gap stale", () => {
+  const { manifest, violations } = analysisBudgetFixture(1_000);
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([{
+    code: "handler-analysis-limit", path: route,
+    detail: "GET handler reference scan exceeded its analysis budget",
+  }]);
+});
+
+test("removing a contract declaration and method binding does not hide the handler reference", () => {
+  const { manifest, methods, violations } = mixedMethodFixture();
+  methods.POST.allowance = { kind: "unversioned-compatibility", reason: "POST preserves the legacy unversioned response while existing clients migrate." };
+  routeEntry(manifest, route).contracts = [contract];
+  methods.POST.contracts = [];
+  expect(violations()).toEqual([{
+    code: "handler-contract-undeclared", path: route,
+    detail: "POST references an undeclared contract: shared/items/legacy-contract.ts",
+  }]);
+});
+
+test("a contract bound only to another method remains undeclared for the referencing method", () => {
+  const { manifest, violations } = undeclaredFixture();
+  routeEntry(manifest, route).contracts = [contract, otherContract];
+  routeEntry(manifest, route).methods = { GET: { contracts: [contract] }, POST: { contracts: [otherContract] } };
+  expect(violations()).toContainEqual(undeclaredViolation);
+});
+
+test("tolerates a frozen handler contract gap", () => {
+  const { manifest, violations } = undeclaredFixture();
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([]);
+});
+
+test("a frozen handler contract gap covers only its method", () => {
+  const { manifest, violations } = methodGapFixture();
+  manifest.baseline.undeclaredHandlerContracts[route] = [`GET ${otherContract}`];
+  expect(violations()).toEqual([{
+    code: "handler-contract-undeclared", path: route,
+    detail: `POST references an undeclared contract: ${otherContract}`,
+  }]);
+});
+
+test("method-qualified frozen handler contract gaps stay valid", () => {
+  const { manifest, violations } = methodGapFixture();
+  manifest.baseline.undeclaredHandlerContracts[route] = [`GET ${otherContract}`, `POST ${otherContract}`];
+  expect(violations()).toEqual([]);
+});
+
+test("a method-qualified handler contract baseline becomes stale when its method stops referencing", () => {
+  const { write, manifest, violations } = methodGapFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const GET = () => parseItem({}); export const POST = () => parseOther(parseItem({}));');
+  manifest.baseline.undeclaredHandlerContracts[route] = [`GET ${otherContract}`, `POST ${otherContract}`];
+  expect(violations()).toEqual([{
+    code: "baseline-stale", path: route,
+    detail: `Handler contract gap no longer applies: GET ${otherContract}`,
+  }]);
+});
+
+for (const resolution of ["declared", "reference removed", "route removed", "route exempted"] as const) {
+  test(`a handler contract baseline becomes stale when ${resolution}`, () => {
+    const { root, write, manifest, violations, register } = undeclaredFixture();
+    manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+    if (resolution === "declared") register();
+    if (resolution === "reference removed") write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; export const GET = () => parseItem({ version: 1 });');
+    if (resolution === "route removed") {
+      rmSync(join(root, `app/api/${route}`));
+      delete manifest.routes[route];
+    }
+    if (resolution === "route exempted") manifest.routes[route] = { exempt: documentExemption };
+    expect(violations()).toContainEqual({ code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}` });
+  });
+}
+
+test("an empty handler contract baseline entry is stale", () => {
+  const { manifest, violations } = fixture();
+  manifest.baseline.undeclaredHandlerContracts[route] = [];
+  expect(violations()).toEqual([{
+    code: "baseline-stale", path: route, detail: "Handler contract gap no longer applies",
+  }]);
+});
+
+test("a removed-route handler contract baseline key is stale", () => {
+  const { manifest, violations } = fixture();
+  const removed = "removed/route.ts";
+  manifest.baseline.undeclaredHandlerContracts[removed] = [otherContract];
+  expect(violations()).toEqual([
+    { code: "baseline-stale", path: removed, detail: "Handler contract gap no longer applies" },
+    { code: "baseline-stale", path: removed, detail: `Handler contract gap no longer applies: ${otherContract}` },
+  ]);
+});
+
+test("exempt routes do not need to declare referenced contracts", () => {
+  const { manifest, violations } = undeclaredFixture();
+  manifest.routes[route] = { exempt: documentExemption };
+  expect(violations()).toEqual([]);
+});
+
+for (const [name, source] of [
+  ["function declaration", 'export function GET() { return parseOther({}); }'],
+  ["contract identifier", 'export const GET = parseOther;'],
+  ["contract local alias", 'const handle = parseOther; export const GET = handle;'],
+  ["body value alias", 'const decode = parseOther; export const GET = () => decode(parseItem({}));'],
+  ["body value alias chain", 'const decode = parseOther; const alias = decode; export const GET = () => alias(parseItem({}));'],
+  ["cyclic value aliases", 'const first = second; const second = first; export const GET = () => { first(); return parseOther({}); };'],
+  ["parameter default", 'export const GET = (request = parseOther({})) => parseItem(request);'],
+  ["nested binding default", 'export const GET = ({ nested: { value = parseOther({}) } = {} } = {}) => parseItem(value);'],
+  ["binding value default", 'export const GET = ({ decode = parseOther } = {}) => parseItem(decode);'],
+  ["local function call", 'const decode = () => parseOther({}); export const GET = () => decode();'],
+  ["local declaration call", 'function decode() { return parseOther({}); } export const GET = () => decode();'],
+  ["local export alias", 'const handle = () => parseOther({}); export { handle as GET };'],
+  ["factory arguments", 'export const GET = createHandler(() => parseOther({}));'],
+  ["local factory", 'function createLocal() { return () => parseOther({}); } export const GET = createLocal();'],
+  ["namespace binding", 'import * as other from "@/shared/other/contract"; export const GET = () => other.parseOther({});'],
+  ["cyclic local calls", 'function first() { second(); return parseOther({}); } function second() { first(); } export const GET = () => first();'],
+] as const) {
+  test(`finds undeclared contracts through a ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; import { createHandler } from "./factory"; ${source}`);
+    write("app/api/items/factory.ts", "export const createHandler = (handler: unknown) => handler;");
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+for (const [name, source] of [
+  ["string literal", 'const other = await import("@/shared/other/contract"); return other.parseOther(parseItem({ version: 1 }));'],
+  ["no-substitution template literal", "const other = await import(`@/shared/other/contract`); return other.parseOther(parseItem({ version: 1 }));"],
+  ["import options", 'const other = await import("@/shared/other/contract", {}); return other.parseOther(parseItem({ version: 1 }));'],
+  ["parenthesized string literal", 'const other = await import(("@/shared/other/contract")); return other.parseOther(parseItem({ version: 1 }));'],
+  ["parenthesized template literal with options", "const other = await import((`@/shared/other/contract`), {}); return other.parseOther(parseItem({ version: 1 }));"],
+] as const) {
+  test(`finds undeclared contracts reached through a dynamic import with a ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, `import { parseItem } from "@/shared/items/contract"; export const GET = async () => { ${source} };`);
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+test("links a declared contract imported through a dynamic import", () => {
+  const { write, violations } = fixture();
+  write(`app/api/${route}`, 'export const GET = async () => { const { parseItem } = await import((`@/shared/items/contract`), {}); return parseItem({ version: 1 }); };');
+  expect(violations()).toEqual([]);
+});
+
+for (const source of [
+  'import { handle as GET } from "./handler"; export { GET };',
+  'export { handle as GET } from "./handler";',
+  'export * from "./barrel";',
+  'import { createHandler } from "./barrel"; export const GET = createHandler();',
+  'import { createHandlers } from "./handler"; export const { GET } = createHandlers();',
+  'import { handle } from "./handler"; export function GET(request: Request) { return handle(request); }',
+  'import { handle } from "./handler"; const delegate = () => handle(); export const GET = () => delegate();',
+  'import { GET as handle } from "./barrel"; export const GET = () => handle();',
+]) {
+  test(`resolves an imported implementation: ${source}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, source);
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({})); export const createHandler = () => handle; export const createHandlers = () => ({ GET: handle });');
+    write("app/api/items/barrel.ts", 'export { handle as GET, createHandler } from "./handler";');
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+for (const [name, handler] of [
+  ["named default function", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export default function handle() { return parseOther(parseItem({})); }'],
+  ["anonymous default arrow", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export default () => parseOther(parseItem({}));'],
+  ["default identifier", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; const handle = () => parseOther(parseItem({})); export default handle;'],
+] as const) {
+  test(`finds undeclared contracts through a ${name} re-exported as a route method`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, 'export { default as GET } from "./handler";');
+    write("app/api/items/handler.ts", handler);
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+test("finds undeclared contracts through a default-imported handler", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import handle from "./handler"; export const GET = handle;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export default () => parseOther(parseItem({}));');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("finds undeclared contracts through a named default export", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'export { default as GET } from "./handler";');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; const handle = () => parseOther(parseItem({})); export { handle as default };');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("accepts a registered default-exported handler", () => {
+  const { write, register, violations } = undeclaredFixture();
+  register();
+  write(`app/api/${route}`, 'export { default as GET } from "./handler";');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export default function handle() { return parseOther(parseItem({})); }');
+  expect(violations()).toEqual([]);
+});
+
+for (const [name, source] of [
+  ["exported call", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; export const GET = withAuth(handle);'],
+  ["handler-body call", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; export const GET = () => withAuth(handle)();'],
+  ["returned call", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; export function GET() { return withAuth(handle)(); }'],
+  ["default-imported callback", 'import { withAuth } from "./wrapper"; import handle from "./handler"; export const GET = withAuth(handle);'],
+] as const) {
+  test(`finds undeclared contracts through a wrapped imported callback: ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, source);
+    write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({})); export default handle;');
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+test("accepts a registered wrapped imported callback", () => {
+  const { write, register, violations } = undeclaredFixture();
+  register();
+  write(`app/api/${route}`, 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; export const GET = withAuth(handle);');
+  write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+  expect(violations()).toEqual([]);
+});
+
+for (const [name, source] of [
+  ["namespace member", 'import { withAuth } from "./wrapper"; import * as handlers from "./handler"; export const GET = withAuth(handlers.handle);'],
+  ["module alias", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; const delegate = handle; export const GET = withAuth(delegate);'],
+  ["body namespace member", 'import { withAuth } from "./wrapper"; import * as handlers from "./handler"; export const GET = () => withAuth(handlers.handle)();'],
+  ["body alias", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; export const GET = () => { const delegate = handle; return withAuth(delegate)(); };'],
+] as const) {
+  test(`finds undeclared contracts through a wrapped ${name} callback`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, source);
+    write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+test("a shadowed callback argument is not followed", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; import { parseItem } from "@/shared/items/contract"; export const GET = () => { const handle = () => parseItem({}); return withAuth(handle)(); };');
+  write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+  expect(violations()).toEqual([]);
+});
+
+test("a parameter callback argument is not followed", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { withAuth } from "./wrapper"; import { parseItem } from "@/shared/items/contract"; export const GET = (delegate: () => unknown) => { parseItem({}); return withAuth(delegate)(); };');
+  write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+  expect(violations()).toEqual([]);
+});
+
+test("a consumed factory call does not follow its callback argument", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; import { handle } from "./consumer"; export const GET = () => handlers.create(handle).read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; export const create = (write: () => unknown) => ({ read: () => parseItem({}), write });');
+  write("app/api/items/consumer.ts", 'import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther({});');
+  expect(violations()).toEqual([]);
+});
+
+test("a frozen consumed factory callback gap is stale", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; import { handle } from "./consumer"; export const GET = () => handlers.create(handle).read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; export const create = (write: () => unknown) => ({ read: () => parseItem({}), write });');
+  write("app/api/items/consumer.ts", 'import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther({});');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([{
+    code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+  }]);
+});
+
+for (const [name, source] of [
+  ["inline arrow", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; export const GET = withAuth(() => handle());'],
+  ["module arrow", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; const local = () => handle(); export const GET = withAuth(local);'],
+  ["module function", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; function local() { return handle(); } export const GET = withAuth(local);'],
+  ["later direct call", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; const local = () => handle(); export const GET = () => { withAuth(local); return local(); };'],
+  ["local object member", 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; const handlers = { local: () => handle() }; export const GET = withAuth(handlers.local);'],
+] as const) {
+  test(`finds undeclared contracts through a local callback passed to a wrapper: ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, source);
+    write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+test("a frozen local callback gap stays valid", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { withAuth } from "./wrapper"; import { handle } from "./handler"; export const GET = withAuth(() => handle());');
+  write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([]);
+});
+
+for (const [name, body] of [
+  ["member call first", 'export const GET = () => { handlers.local(); return withAuth(local)(); };'],
+  ["wrapper call first", 'export const GET = () => { const result = withAuth(local)(); handlers.local(); return result; };'],
+] as const) {
+  test(`finds undeclared contracts regardless of scan order: ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, `import { withAuth } from "./wrapper"; import { handle } from "./handler"; const local = () => handle(); const handlers = { local }; ${body}`);
+    write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+for (const [name, body] of [
+  ["member call first", 'export const GET = () => { handlers.local(); return withAuth(local)(); };'],
+  ["wrapper call first", 'export const GET = () => { const result = withAuth(local)(); handlers.local(); return result; };'],
+] as const) {
+  test(`a frozen gap stays valid regardless of scan order: ${name}`, () => {
+    const { write, manifest, violations } = undeclaredFixture();
+    write(`app/api/${route}`, `import { withAuth } from "./wrapper"; import { handle } from "./handler"; const local = () => handle(); const handlers = { local }; ${body}`);
+    write("app/api/items/wrapper.ts", "export const withAuth = (callback: () => unknown) => callback;");
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+    manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+    expect(violations()).toEqual([]);
+  });
+}
+
+for (const [name, source] of [
+  ["exported member", "export const GET = handlers.handle;"],
+  ["local handler call", "export const GET = () => handlers.handle();"],
+  ["local export alias", "const GET = handlers.handle; export { GET };"],
+  ["nested member", "export const GET = handlers.nested.handle;"],
+  ["factory member", "export const GET = handlers.createHandlers().GET;"],
+] as const) {
+  test(`finds undeclared contracts through a namespace ${name}`, () => {
+    const { write, violations } = namespaceHandlerFixture();
+    write(`app/api/${route}`, `import * as handlers from "./handler"; ${source}`);
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+for (const source of [
+  "export const GET = () => handlers.create().read();",
+  'export const GET = () => handlers["create"]().read();',
+  "export const GET = () => handlers.nested.create().read();",
+  "const api = handlers.create(); export const GET = () => api.read();",
+]) {
+  test(`a resolved namespace factory member call excludes its unused sibling: ${source}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, `import * as handlers from "./handler"; ${source}`);
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseItem({}), write: () => parseOther({}) }); export const nested = { create };');
+    expect(violations()).toEqual([]);
+  });
+}
+
+for (const source of [
+  "export const GET = () => handlers.create().read();",
+  'export const GET = () => handlers["create"]().read();',
+  "export const GET = () => handlers.nested.create().read();",
+  "const api = handlers.create(); export const GET = () => api.read();",
+]) {
+  test(`finds an eagerly executed factory contract: ${source}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, `import * as handlers from "./handler"; ${source}`);
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export function create() { parseOther({}); return { read: () => parseItem({}) }; } export const nested = { create };');
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+test("a frozen eager factory contract gap stays valid", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export function create() { parseOther({}); return { read: () => parseItem({}) }; } export const nested = { create };');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([]);
+});
+
+test("finds an eagerly executed factory parameter default", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export function create(value = parseOther({})) { return { read: () => parseItem(value) }; }');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("a deferred factory sibling stays excluded", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseItem({}), write: () => parseOther({}) });');
+  expect(violations()).toEqual([]);
+});
+
+test("a deferred sibling bound to a local const stays excluded", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; const write = () => parseOther({}); export function create() { return { read: () => parseItem({}), write }; }');
+  expect(violations()).toEqual([]);
+});
+
+test("a frozen deferred sibling bound to a local const stays valid", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; const write = () => parseOther({}); export function create() { return { read: () => parseItem({}), write }; }');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([{
+    code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+  }]);
+});
+
+test("finds a contract in an eagerly invoked local helper", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; function helper() { parseOther({}); } export function create() { helper(); return { read: () => parseItem({}) }; }');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("finds a contract through a wrapped callee", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; function helper() { parseOther({}); } export function create() { (helper)(); return { read: () => parseItem({}) }; }');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("finds a contract through a module-level alias invoked after a reference", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; const helper = () => parseOther({}); const alias = helper; export function create() { void alias; alias(); return { read: () => parseItem({}) }; }');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("finds a contract through a wrapped module-level alias", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; function helper() { parseOther({}); } const alias = (helper); export function create() { alias(); return { read: () => parseItem({}) }; }');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("a frozen alias-chain gap stays valid when the alias is invoked", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; const helper = () => parseOther({}); const alias = helper; export function create() { void alias; alias(); return { read: () => parseItem({}) }; }');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([]);
+});
+
+test("a module-level alias that is never invoked stays excluded", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = () => handlers.create().read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; const helper = () => parseOther({}); const alias = helper; export function create() { void alias; return { read: () => parseItem({}) }; }');
+  expect(violations()).toEqual([]);
+});
+
+test("finds an undeclared contract called through a factory member call", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import * as handlers from "./handler"; export const GET = () => { parseItem({}); return handlers.create().read(); };');
+  write("app/api/items/handler.ts", 'import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseOther({}), write: () => ({}) });');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("finds an undeclared contract passed to a resolved factory call", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseOther } from "@/shared/other/contract"; import * as handlers from "./handler"; export const GET = () => handlers.create(parseOther({})).read();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; export const create = (value: unknown) => ({ read: () => parseItem(value), write: () => ({}) });');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("a namespace element factory call excludes its unused sibling", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers["create"]().read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseItem({}), write: () => parseOther({}) });');
+  expect(violations()).toEqual([]);
+});
+
+test("a namespace nested element factory call excludes its unused sibling", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers["nested"]["create"]().read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseItem({}), write: () => parseOther({}) }); export const nested = { create };');
+  expect(violations()).toEqual([]);
+});
+
+test("a frozen element factory sibling contract is stale when only its sibling is selected", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers["create"]().read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseItem({}), write: () => parseOther({}) });');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([{
+    code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+  }]);
+});
+
+test("a namespace property factory call excludes its unused sibling", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers.create().read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseItem({}), write: () => parseOther({}) });');
+  expect(violations()).toEqual([]);
+});
+
+test("finds an undeclared contract called through an element factory member", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import * as handlers from "./handler"; export const GET = () => { parseItem({}); return handlers["create"]().read(); };');
+  write("app/api/items/handler.ts", 'import { parseOther } from "@/shared/other/contract"; export const create = () => ({ read: () => parseOther({}), write: () => ({}) });');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("a namespace nested member excludes its unused sibling", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers.nested.read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const nested = { read: () => parseItem({}), write: () => parseOther({}) };');
+  expect(violations()).toEqual([]);
+});
+
+test("a namespace element receiver excludes its unused sibling", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers["nested"].read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const nested = { read: () => parseItem({}), write: () => parseOther({}) };');
+  expect(violations()).toEqual([]);
+});
+
+test("finds an undeclared contract called through a nested namespace member", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import * as handlers from "./handler"; export const GET = () => { parseItem({}); return handlers.nested.read(); };');
+  write("app/api/items/handler.ts", 'import { parseOther } from "@/shared/other/contract"; export const nested = { read: () => parseOther({}), write: () => ({}) };');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("a frozen nested member call gap stays valid", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import * as handlers from "./handler"; export const GET = () => { parseItem({}); return handlers.nested.read(); };');
+  write("app/api/items/handler.ts", 'import { parseOther } from "@/shared/other/contract"; export const nested = { read: () => parseOther({}), write: () => ({}) };');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([]);
+});
+
+test("a frozen sibling contract is stale when only its sibling is selected", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers.nested.read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const nested = { read: () => parseItem({}), write: () => parseOther({}) };');
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+  expect(violations()).toEqual([{
+    code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+  }]);
+});
+
+test("accepts registered contracts through a namespace exported member", () => {
+  const { write, violations, register } = namespaceHandlerFixture();
+  register();
+  write(`app/api/${route}`, 'import * as handlers from "./handler"; export const GET = handlers.handle;');
+  expect(violations()).toEqual([]);
+});
+
+test("finds an undeclared contract selected directly from a namespace", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import * as other from "@/shared/other/contract"; parseItem({}); export const GET = other.parseOther;');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("does not attribute imported contracts to a shadowed namespace", () => {
+  const { write, violations } = namespaceHandlerFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import * as handlers from "./handler"; export const GET = () => { const handlers = { handle: () => ({}) }; parseItem({}); return handlers.handle(); };');
+  expect(violations()).toEqual([]);
+});
+
+test("destructured factory exports attribute contracts to each exported method", () => {
+  const { write, manifest, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { createHandlers } from "./handler"; export const { GET, PUT } = createHandlers();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export function createHandlers() { return { GET: () => parseItem({}), PUT: () => parseOther({}) }; }');
+  routeEntry(manifest, route).methods = { GET: { contracts: [contract] }, PUT: { contracts: [contract] } };
+  expect(violations()).toEqual([{ ...undeclaredViolation, detail: `PUT references an undeclared contract: ${otherContract}` }]);
+});
+
+test("accepts correctly declared destructured factory members including renamed bindings", () => {
+  const { write, manifest, violations, register } = undeclaredFixture();
+  register();
+  write(`app/api/${route}`, 'import { createHandlers } from "./handler"; export const { read: GET, write: PUT } = createHandlers();');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const createHandlers = () => ({ read: () => parseItem({}), write: () => parseOther({}) });');
+  routeEntry(manifest, route).methods = { GET: { contracts: [contract] }, PUT: { contracts: [otherContract] } };
+  expect(violations()).toEqual([]);
+});
+
+for (const [name, source, handler] of [
+  ["local const factory", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;', 'export function createHandlers() { const GET = () => parseOther(parseItem({})); const PUT = () => parseItem({}); return { GET, PUT }; }'],
+  ["imported object factory", 'import { handlers } from "./handler"; export const GET = handlers.read;', 'function createHandlers() { function decode() { return parseOther({}); } return { read: () => decode(parseItem({})), write: () => parseItem({}) }; } export const handlers = createHandlers();'],
+  ["local object factory", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; function factory() { return { GET: () => parseOther(parseItem({})), PUT: () => ({}) }; } const handlers = factory(); export const GET = handlers.GET;', 'export const unused = () => parseItem({});'],
+  ["unresolved factory member fallback", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;', 'export function createHandlers() { const value = parseOther(parseItem({})); return dynamicallyCreate(value); }'],
+] as const) {
+  test(`finds undeclared contracts through a property-selected ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, source);
+    write("app/api/items/handler.ts", `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; ${handler}`);
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+for (const frozen of [false, true]) {
+  test(`spread-overridden factory handlers ${frozen ? "keep their frozen gap valid" : "report undeclared contracts"}`, () => {
+    const { write, manifest, violations } = undeclaredFixture();
+    write(`app/api/${route}`, 'import { createHandlers } from "./handler"; export const { GET } = createHandlers();');
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const createHandlers = () => ({ GET: () => parseItem({}), ...{ GET: () => parseOther(parseItem({})) } });');
+    if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+    expect(violations()).toEqual(frozen ? [] : [undeclaredViolation]);
+  });
+}
+
+for (const [name, members, undeclared] of [
+  ["last direct property", 'GET: () => parseItem({}), GET: () => parseOther(parseItem({}))', true],
+  ["resolved alias spread", 'GET: () => parseItem({}), ...overrides', true],
+  ["spread without the selected property", 'GET: () => parseItem({}), ...{ PUT: () => parseOther({}) }', false],
+  ["unresolved trailing spread", 'GET: () => parseItem({}), ...unknown(parseOther({}))', true],
+  ["unresolved spread before the selected property", '...unknown(parseOther({})), GET: () => parseItem({})', false],
+  ["resolved overwrite after an unresolved spread", 'GET: () => parseOther({}), ...unknown(), ...{ GET: () => parseItem({}) }', false],
+] as const) {
+  test(`factory member resolution respects a ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;');
+    write("app/api/items/handler.ts", `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export function createHandlers() { const overrides = { GET: () => parseOther(parseItem({})) }; return { ${members} }; }`);
+    expect(violations()).toEqual(undeclared ? [undeclaredViolation] : []);
+  });
+}
+
+for (const [name, members, undeclared] of [
+  ["string-literal computed overwrite", 'GET: () => parseItem({}), ["GET"]: () => parseOther({})', true],
+  ["template-literal computed overwrite", 'GET: () => parseItem({}), [`GET`]: () => parseOther({})', true],
+  ["nonmatching string-literal computed property", 'GET: () => parseItem({}), ["PUT"]: () => parseOther({})', false],
+  ["nonmatching template-literal computed property", 'GET: () => parseItem({}), [`PUT`]: () => parseOther({})', false],
+  ["nonmatching numeric-literal computed property", 'GET: () => parseItem({}), [1]: () => parseOther({})', false],
+  ["definitive computed overwrite removing a gap", 'GET: () => parseOther({}), ["GET"]: () => parseItem({})', false],
+  ["unknown trailing computed property", 'GET: () => parseItem({}), [method]: () => parseOther({})', true],
+  ["literal computed overwrite inside a spread", 'GET: () => parseItem({}), ...{ ["GET"]: () => parseOther({}) }', true],
+  ["nonmatching literal computed property inside a spread", 'GET: () => parseItem({}), ...{ [`PUT`]: () => parseOther({}) }', false],
+  ["unknown computed property inside a spread", 'GET: () => parseItem({}), ...{ [method]: () => parseOther({}) }', true],
+  ["unknown computed overwrite after a literal inside a spread", 'GET: () => parseItem({}), ...{ ["GET"]: () => parseItem({}), [method]: () => parseOther({}) }', true],
+  ["definitive GET after an unknown computed property", 'GET: () => parseItem({}), [method]: () => parseOther({}), GET: () => parseItem({})', false],
+  ["definitive GET after a spread with an unknown computed property", 'GET: () => parseItem({}), ...{ [method]: () => parseOther({}) }, GET: () => parseItem({})', false],
+  ["definitive computed GET after an unknown computed property", '[method]: () => parseOther({}), [`GET`]: () => parseItem({})', false],
+] as const) {
+  for (const [selection, source] of [
+    ["property-selected", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;'],
+    ["destructured", 'import { createHandlers } from "./handler"; export const { GET } = createHandlers();'],
+  ] as const) {
+    for (const frozen of [false, true]) {
+      test(`${selection} factory handlers resolve a ${name} for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+        const { write, manifest, violations } = undeclaredFixture();
+        write(`app/api/${route}`, source);
+        write("app/api/items/handler.ts", `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export function createHandlers() { const method: string = ["GET"].join(""); return { ${members} }; }`);
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        expect(violations()).toEqual(frozen ? undeclared ? [] : [{
+          code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+        }] : undeclared ? [undeclaredViolation] : []);
+      });
+    }
+  }
+}
+
+for (const [name, members, undeclared] of [
+  ["getter then setter", 'get ["GET"]() { return () => parseOther({}); }, set ["GET"](value) {}', true],
+  ["setter then getter", 'set ["GET"](value) {}, get ["GET"]() { return () => parseOther({}); }', true],
+  ["spread getter then setter", 'GET: () => parseItem({}), ...{ get ["GET"]() { return () => parseOther({}); }, set ["GET"](value) {} }', true],
+  ["spread setter then getter", 'GET: () => parseItem({}), ...{ set ["GET"](value) {}, get ["GET"]() { return () => parseOther({}); } }', true],
+  ["data property replacing an accessor pair", 'get GET() { return () => parseOther({}); }, set GET(value) {}, GET: () => parseItem({})', false],
+  ["accessor pair replacing a data property", 'GET: () => parseItem({}), get GET() { return () => parseOther({}); }, set GET(value) {}', true],
+  ["method replacing an accessor pair", 'get GET() { return () => parseOther({}); }, set GET(value) {}, GET() { return parseItem({}); }', false],
+  ["accessor pair replacing a method", 'GET() { return parseItem({}); }, get GET() { return () => parseOther({}); }, set GET(value) {}', true],
+  ["data property between getter and setter", 'get GET() { return () => parseItem({}); }, GET: () => parseOther({}), set GET(value) {}', true],
+  ["method between getter and setter", 'get GET() { return () => parseItem({}); }, GET() { return parseOther({}); }, set GET(value) {}', true],
+  ["setter without a getter", 'set GET(value) {}, PUT: () => parseOther({})', true],
+  ["setter body excluded from a getter pair", 'get GET() { return () => parseItem({}); }, set GET(value) { parseOther({}); }', false],
+  ["later getter replacing the pair getter", 'get GET() { return () => parseOther({}); }, set GET(value) {}, get GET() { return () => parseItem({}); }', false],
+  ["unrelated spread between getter and setter", 'get GET() { return () => parseOther({}); }, ...{ PUT: () => parseItem({}) }, set GET(value) {}', true],
+  ["spread getter copied as data before a setter", '...{ get GET() { return () => parseItem({}); } }, set GET(value) { parseOther({}); }', true],
+  ["unresolved spread between getter and setter", 'get GET() { return () => parseItem({}); }, ...unknown(parseOther({})), set GET(value) {}', true],
+  ["unknown computed property between getter and setter", 'get GET() { return () => parseItem({}); }, [method]: () => parseOther({}), set GET(value) {}', true],
+] as const) {
+  for (const selection of ["direct", "property-selected", "destructured"] as const) {
+    for (const frozen of [false, true]) {
+      test(`${selection} handlers resolve a ${name} accessor descriptor for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+        const { write, manifest, violations } = undeclaredFixture();
+        const definitions = 'const method: string = ["GET"].join("");';
+        const imports = 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract";';
+        if (selection === "direct") {
+          write(`app/api/${route}`, `${imports} ${definitions} export const GET = ({ ${members} }).GET;`);
+        } else {
+          write(`app/api/${route}`, selection === "destructured"
+            ? 'import { createHandlers } from "./handler"; export const { GET } = createHandlers();'
+            : 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;');
+          write("app/api/items/handler.ts", `${imports} export function createHandlers() { ${definitions} return { ${members} }; }`);
+        }
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        expect(violations()).toEqual(frozen ? undeclared ? [] : [{
+          code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+        }] : undeclared ? [undeclaredViolation] : []);
+      });
+    }
+  }
+}
+
+for (const frozen of [false, true]) {
+  test(`destructured numeric-literal computed members preserve a ${frozen ? "frozen" : "fresh"} gap`, () => {
+    const { write, manifest, violations } = undeclaredFixture();
+    write(`app/api/${route}`, 'import { createHandlers } from "./handler"; export const { "1": GET } = createHandlers();');
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const createHandlers = () => ({ "1": () => parseItem({}), [1]: () => parseOther({}) });');
+    if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+    expect(violations()).toEqual(frozen ? [] : [undeclaredViolation]);
+  });
+}
+
+for (const [name, members, undeclared] of [
+  ["numeric data overwrite", '[1]: () => parseItem({}), 1: () => parseOther({})', true],
+  ["canonical numeric data overwrite", '1: () => parseItem({}), 1.0: () => parseOther({})', true],
+  ["canonical computed numeric overwrite", '"1": () => parseItem({}), [1.0]: () => parseOther({})', true],
+  ["numeric getter overwrite", '[1]: () => parseItem({}), get 1.0() { return () => parseOther({}); }', true],
+  ["canonical getter and setter pair", 'get [1]() { return () => parseOther({}); }, set 1.0(value) { parseItem(value); }', true],
+  ["canonical setter and getter pair", 'set "1"(value) { parseItem(value); }, get 1.0() { return () => parseOther({}); }', true],
+  ["numeric data spread overwrite", '[1]: () => parseItem({}), ...{ 1: () => parseOther({}) }', true],
+  ["canonical numeric getter spread overwrite", '"1": () => parseItem({}), ...{ get 1.0() { return () => parseOther({}); }, set [1](value) {} }', true],
+  ["numeric data overwrite removing a gap", '[1]: () => parseOther({}), 1.0: () => parseItem({})', false],
+  ["computed numeric overwrite removing a gap", '1.0: () => parseOther({}), [1]: () => parseItem({})', false],
+  ["numeric getter overwrite removing a gap", '[1]: () => parseOther({}), get 1() { return () => parseItem({}); }', false],
+  ["numeric data replacing an accessor pair", 'get 1.0() { return () => parseOther({}); }, set "1"(value) {}, 1: () => parseItem({})', false],
+  ["numeric data spread removing a gap", '[1]: () => parseOther({}), ...{ 1.0: () => parseItem({}) }', false],
+  ["numeric getter spread removing a gap", '"1": () => parseOther({}), ...{ get [1.0]() { return () => parseItem({}); } }', false],
+  ["distinct decimal string key", '1: () => parseItem({}), "1.0": () => parseOther({})', false],
+  ["distinct computed decimal string key", '1.0: () => parseItem({}), ...{ ["1.0"]: () => parseOther({}) }', false],
+] as const) {
+  for (const [selection, source] of [
+    ["direct numeric", '[1]'],
+    ["direct decimal numeric", '[1.0]'],
+    ["direct string", '["1"]'],
+    ["property-selected numeric", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers[1];'],
+    ["property-selected decimal numeric", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers[1.0];'],
+    ["property-selected string", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers["1"];'],
+    ["destructured numeric", 'import { createHandlers } from "./handler"; export const { 1: GET } = createHandlers();'],
+    ["destructured decimal numeric", 'import { createHandlers } from "./handler"; export const { 1.0: GET } = createHandlers();'],
+    ["destructured string", 'import { createHandlers } from "./handler"; export const { "1": GET } = createHandlers();'],
+  ] as const) {
+    for (const frozen of [false, true]) {
+      test(`${selection} handlers resolve a ${name} for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+        const { write, manifest, violations } = undeclaredFixture();
+        const imports = 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract";';
+        if (selection.startsWith("direct")) {
+          write(`app/api/${route}`, `${imports} export const GET = ({ ${members} })${source};`);
+        } else {
+          write(`app/api/${route}`, source);
+          write("app/api/items/handler.ts", `${imports} export const createHandlers = () => ({ ${members} });`);
+        }
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        expect(violations()).toEqual(frozen ? undeclared ? [] : [{
+          code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+        }] : undeclared ? [undeclaredViolation] : []);
+      });
+    }
+  }
+}
+
+for (const [name, source, undeclared] of [
+  ["literal decimal string", 'export const GET = ({ 1: () => parseItem({}), "1.0": () => parseOther({}) })["1.0"];', true],
+  ["unknown element key", 'const key = unknown(); export const GET = ({ 1: () => parseItem({}), 2: () => parseOther({}) })[key];', true],
+  ["nonliteral element key", 'export const GET = ({ 1: () => parseItem({}), 2: () => parseOther({}) })[1 + 1];', true],
+  ["nonmatching numeric property", 'export const GET = ({ GET: () => parseItem({}), 1: () => parseOther({}) }).GET;', false],
+] as const) {
+  for (const frozen of [false, true]) {
+    test(`numeric member resolution preserves a ${name} for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+      const { write, manifest, violations } = undeclaredFixture();
+      write(`app/api/${route}`, `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; ${source}`);
+      if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+      expect(violations()).toEqual(frozen ? undeclared ? [] : [{
+        code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+      }] : undeclared ? [undeclaredViolation] : []);
+    });
+  }
+}
+
+for (const [name, body, undeclared] of [
+  ["catch binding", 'try {} catch (parseOther) { return { GET: () => parseOther }; }', false],
+  ["destructured catch binding", 'try {} catch ({ parseOther }) { return { GET: () => parseOther() }; }', false],
+  ["for binding", 'for (let parseOther = () => ({}); true;) { return { GET: () => parseOther() }; }', false],
+  ["for-of binding", 'for (const parseOther of []) { return { GET: () => parseOther() }; }', false],
+  ["for-in binding", 'for (const parseOther in {}) { return { GET: () => parseOther }; }', false],
+  ["hoisted var", 'return { GET: () => parseOther() }; if (true) { var parseOther = () => ({}); }', false],
+  ["outer function hoisted var", 'function nested() { return { GET: () => parseOther() }; } return nested(); if (true) { var parseOther = () => ({}); }', false],
+  ["unrelated nested function var", 'function nested() { var parseOther = () => ({}); } return { GET: () => parseOther({}) };', true],
+  ["parameter default outside the body var scope", 'return { GET: (value = parseOther({})) => { if (true) { var parseOther = () => ({}); } return parseItem(value); } };', true],
+  ["genuinely imported parser", 'return { GET: () => parseOther({}) };', true],
+] as const) {
+  test(`selected factory handlers recognize a ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, 'import { createHandlers } from "./handler"; export const { GET } = createHandlers();');
+    write("app/api/items/handler.ts", `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export function createHandlers() { ${body} }`);
+    expect(violations()).toEqual(undeclared ? [undeclaredViolation] : []);
+  });
+}
+
+for (const [binding, body] of [
+  ["loop binding", 'for (const parseOther = actualOther; true;) return { GET: () => parseOther(parseItem({})) };'],
+  ["var loop binding", 'for (var parseOther = actualOther; true;) return { GET: () => parseOther(parseItem({})) };'],
+  ["hoisted var", 'if (true) { var parseOther = actualOther; } return { GET: () => parseOther(parseItem({})) };'],
+] as const) {
+  for (const [selection, source] of [
+    ["property-selected", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;'],
+    ["destructured", 'import { createHandlers } from "./handler"; export const { GET } = createHandlers();'],
+  ] as const) {
+    for (const frozen of [false, true]) {
+      test(`${selection} factory handlers preserve ${binding} initializer provenance for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+        const { write, manifest, violations } = undeclaredFixture();
+        write(`app/api/${route}`, source);
+        write("app/api/items/handler.ts", `import { parseItem } from "@/shared/items/contract"; import { parseOther, parseOther as actualOther } from "@/shared/other/contract"; export function createHandlers() { ${body} }`);
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        expect(violations()).toEqual(frozen ? [] : [undeclaredViolation]);
+      });
+    }
+  }
+}
+
+for (const [binding, body] of [
+  ["object loop binding", 'for (const { parseOther } = { parseOther: () => ({}), unused: actualOther }; true;) return { GET: () => parseOther(parseItem({})) };'],
+  ["array loop binding", 'for (const [parseOther] = [() => ({}), actualOther]; true;) return { GET: () => parseOther(parseItem({})) };'],
+  ["object var loop binding", 'for (var { parseOther } = { parseOther: () => ({}), unused: actualOther }; true;) return { GET: () => parseOther(parseItem({})) };'],
+  ["array var loop binding", 'for (var [parseOther] = [() => ({}), actualOther]; true;) return { GET: () => parseOther(parseItem({})) };'],
+  ["object hoisted var", 'if (true) { var { parseOther } = { parseOther: () => ({}), unused: actualOther }; } return { GET: () => parseOther(parseItem({})) };'],
+  ["array hoisted var", 'if (true) { var [parseOther] = [() => ({}), actualOther]; } return { GET: () => parseOther(parseItem({})) };'],
+  ["duplicate var loop initializer", 'for (var parseOther = actualOther, parseOther = () => ({}); true;) return { GET: () => parseOther(parseItem({})) };'],
+  ["nested-block var redeclaration", 'for (var parseOther = actualOther; true;) { { var parseOther = () => ({}); } return { GET: () => parseOther(parseItem({})) }; }'],
+  ["loop-body and nested-block var redeclarations", 'for (var parseOther = actualOther; true;) { var parseOther = actualOther; { var parseOther = () => ({}); } return { GET: () => parseOther(parseItem({})) }; }'],
+  ["nested loop-block var redeclarations", 'for (var parseOther = actualOther; true;) { { var parseOther = actualOther; { var parseOther = () => ({}); } return { GET: () => parseOther(parseItem({})) }; } }'],
+] as const) {
+  for (const [selection, source] of [
+    ["property-selected", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;'],
+    ["destructured", 'import { createHandlers } from "./handler"; export const { GET } = createHandlers();'],
+  ] as const) {
+    for (const frozen of [false, true]) {
+      test(`${selection} factory handlers ignore unused initializer contracts in a ${binding} for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+        const { write, manifest, violations } = undeclaredFixture();
+        write(`app/api/${route}`, source);
+        write("app/api/items/handler.ts", `import { parseItem } from "@/shared/items/contract"; import { parseOther, parseOther as actualOther } from "@/shared/other/contract"; export function createHandlers() { ${body} }`);
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        expect(violations()).toEqual(frozen ? [{
+          code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+        }] : []);
+      });
+    }
+  }
+}
+
+for (const [binding, declarations, body, undeclared] of [
+  ["switch-case const shadow", "", 'switch (1) { case 1: const parseOther = () => ({}); return { GET: () => parseOther(parseItem({})) }; }', false],
+  ["switch-case function shadow", "", 'switch (1) { case 1: function parseOther() { return {}; } return { GET: () => parseOther(parseItem({})) }; }', false],
+  ["switch-case class shadow", "", 'switch (1) { case 1: class parseOther {} return { GET: () => new parseOther() }; }', false],
+  ["switch-case const alias", "", 'switch (1) { case 1: const parseOther = actualOther; return { GET: () => parseOther(parseItem({})) }; }', true],
+  ["switch-case let alias across clauses", "", 'switch (1) { case 0: let parseOther = actualOther; case 1: return { GET: () => parseOther(parseItem({})) }; }', true],
+  ["switch-case var alias", "", 'switch (1) { case 1: var parseOther = actualOther; return { GET: () => parseOther(parseItem({})) }; }', true],
+  ["switch-case object binding", "", 'switch (1) { case 1: const { parseOther } = { parseOther: () => ({}), unused: actualOther }; return { GET: () => parseOther() }; }', false],
+  ["switch-case array binding", "", 'switch (1) { case 1: const [parseOther] = [() => ({}), actualOther]; return { GET: () => parseOther() }; }', false],
+  ["switch-case duplicate var", "", 'switch (1) { case 0: var parseOther = actualOther; case 1: var parseOther = () => ({}); return { GET: () => parseOther() }; }', false],
+  ["module-scope var alias", 'var decode = actualOther;', 'return { GET: () => decode(parseItem({})) };', true],
+  ["module-scope let alias", 'let decode = actualOther;', 'return { GET: () => decode(parseItem({})) };', true],
+  ["module-block hoisted var alias", 'if (true) { var decode = actualOther; }', 'return { GET: () => decode(parseItem({})) };', true],
+  ["module-loop var alias", 'for (var decode = actualOther; false;) {}', 'return { GET: () => decode(parseItem({})) };', true],
+  ["module-scope let shadow", 'let parseOther = () => ({});', 'return { GET: () => parseOther(parseItem({})) };', false],
+  ["module-scope var shadow", 'var parseOther = () => ({});', 'return { GET: () => parseOther(parseItem({})) };', false],
+  ["module-block hoisted var shadow", 'if (true) { var parseOther = () => ({}); }', 'return { GET: () => parseOther(parseItem({})) };', false],
+  ["module-scope object binding", 'const { parseOther } = { parseOther: () => ({}), unused: actualOther };', 'return { GET: () => parseOther() };', false],
+  ["module-scope array binding", 'const [parseOther] = [() => ({}), actualOther];', 'return { GET: () => parseOther() };', false],
+  ["module-block duplicate var", 'var parseOther = actualOther; if (true) { var parseOther = () => ({}); }', 'return { GET: () => parseOther() };', false],
+  ["unrelated module function var", 'function unrelated() { var parseOther = () => ({}); }', 'return { GET: () => parseOther(parseItem({})) };', true],
+] as const) {
+  for (const [selection, source] of [
+    ["property-selected", 'import { createHandlers } from "./handler"; const handlers = createHandlers(); export const GET = handlers.GET;'],
+    ["destructured", 'import { createHandlers } from "./handler"; export const { GET } = createHandlers();'],
+  ] as const) {
+    for (const frozen of [false, true]) {
+      test(`${selection} factory handlers resolve a ${binding} for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+        const { write, manifest, violations } = undeclaredFixture();
+        write(`app/api/${route}`, source);
+        write("app/api/items/handler.ts", `import { parseItem } from "@/shared/items/contract"; import { parseOther, parseOther as actualOther } from "@/shared/other/contract"; ${declarations} export function createHandlers() { ${body} }`);
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        expect(violations()).toEqual(frozen ? undeclared ? [] : [{
+          code: "baseline-stale", path: route, detail: `Handler contract gap no longer applies: ${otherContract}`,
+        }] : undeclared ? [undeclaredViolation] : []);
+      });
+    }
+  }
+}
+
+for (const [selection, source] of [
+  ["direct", 'export const GET = () => decode(parseItem({}));'],
+  ["property-selected factory", 'function createHandlers() { return { GET: () => decode(parseItem({})) }; } const handlers = createHandlers(); export const GET = handlers.GET;'],
+  ["destructured factory", 'function createHandlers() { return { GET: () => decode(parseItem({})) }; } export const { GET } = createHandlers();'],
+] as const) {
+  for (const frozen of [false, true]) {
+    test(`${selection} handlers resolve module-scope overload implementations for a ${frozen ? "frozen" : "fresh"} gap`, () => {
+      const { write, manifest, violations } = undeclaredFixture();
+      write(`app/api/${route}`, `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; function decode(value: unknown): unknown; function decode(value: unknown) { return parseOther(value); } ${source}`);
+      if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+      expect(violations()).toEqual(frozen ? [] : [undeclaredViolation]);
+    });
+  }
+}
+
+test("cyclic destructured members still analyze their terminal handler", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const { GET } = GET(() => parseOther(parseItem({})));');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+test("route-local selected members do not follow imported infrastructure calls", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { infrastructure } from "@/server/infrastructure"; function factory() { return { GET: () => infrastructure(parseItem({})) }; } const handlers = factory(); export const GET = handlers.GET;');
+  write("server/infrastructure.ts", 'import { parseOther } from "@/shared/other/contract"; export const infrastructure = (value: unknown) => parseOther(value);');
+  expect(violations()).toEqual([]);
+});
+
+test("property selection does not attribute sibling members or follow imported infrastructure calls", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { handlers } from "./handler"; export const GET = handlers.read;');
+  write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; import { infrastructure } from "@/server/infrastructure"; function factory() { return { read: () => infrastructure(parseItem({})), write: () => parseOther({}) }; } export const handlers = factory();');
+  write("server/infrastructure.ts", 'import { parseOther } from "@/shared/other/contract"; export const infrastructure = (value: unknown) => parseOther(value);');
+  expect(violations()).toEqual([]);
+});
+
+for (const source of [
+  'export { parseOther as decode } from "@/shared/other/contract";',
+  'import { parseOther } from "@/shared/other/contract"; export { parseOther as decode };',
+  'export * from "./second";',
+]) {
+  test(`follows contract re-exports: ${source}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { decode } from "./barrel"; export const GET = () => decode(parseItem({}));');
+    write("app/api/items/barrel.ts", source);
+    write("app/api/items/second.ts", 'export { parseOther as decode } from "@/shared/other/contract"; export * from "./barrel";');
+    expect(violations()).toEqual([undeclaredViolation]);
+  });
+}
+
+for (const [name, source] of [
+  ["parameter", 'export const GET = (parseOther: () => unknown) => parseOther();'],
+  ["destructured parameter", 'export const GET = ({ parseOther }: { parseOther: () => unknown }) => parseOther();'],
+  ["shadowed parameter default", 'export const GET = (parseOther = () => ({}), request = parseOther()) => parseItem(request);'],
+  ["nested binding name with default", 'export const GET = ({ nested: { parseOther = () => ({}) } = {} } = {}) => parseItem(parseOther());'],
+  ["local const", 'export const GET = () => { const parseOther = () => ({}); return parseOther(); };'],
+  ["local let", 'export const GET = () => { let parseOther = () => ({}); return parseOther(); };'],
+  ["hoisted var", 'export const GET = () => { parseOther(); if (true) { var parseOther = () => ({}); } };'],
+  ["local function", 'export const GET = () => { function parseOther() { return {}; } return parseOther(); };'],
+  ["local class", 'export const GET = () => { class parseOther {} return new parseOther(); };'],
+  ["catch binding", 'export const GET = () => { try {} catch (parseOther) { return parseOther; } };'],
+  ["loop binding", 'export const GET = () => { for (const parseOther of []) { parseOther(); } };'],
+  ["property name", 'export const GET = () => ({ parseOther: true });'],
+  ["type reference", 'export const GET = () => { let value: typeof parseOther; return value; };'],
+] as const) {
+  test(`ignores a contract identifier used as a ${name}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, `import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; ${source}`);
+    expect(violations()).toEqual([]);
+  });
+}
+
+test("a nested shadow does not hide an outer contract reference", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const GET = () => { const nested = (parseOther: unknown) => parseOther; { const parseOther = () => ({}); parseOther(); } return parseOther({}); };');
+  expect(violations()).toEqual([undeclaredViolation]);
+});
+
+for (const source of [
+  'import { createHandler } from "./handler"; export const GET = createHandler();',
+  'import { handle } from "./handler"; export function GET(request: Request) { return handle(request); }',
+]) {
+  test(`does not follow imported infrastructure calls beyond the initial handler: ${source}`, () => {
+    const { write, violations } = undeclaredFixture();
+    write(`app/api/${route}`, source);
+    write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { infrastructure } from "@/server/infrastructure"; export const handle = () => infrastructure(parseItem({})); export function createHandler() { return handle; }');
+    write("server/infrastructure.ts", 'import { parseOther } from "@/shared/other/contract"; export const infrastructure = (value: unknown) => parseOther(value);');
+    expect(violations()).toEqual([]);
+  });
+}
+
+test("does not resolve an imported handler call shadowed by a parameter", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { handle } from "./handler"; export const GET = (handle: () => unknown) => handle();');
+  write("app/api/items/handler.ts", 'import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther({});');
+  expect(violations()).toEqual([]);
+});
+
+test("ignores type-only contract imports and unused runtime imports", () => {
+  const { write, violations } = undeclaredFixture();
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import type { parseOther } from "@/shared/other/contract"; export const GET = () => parseItem({});');
+  expect(violations()).toEqual([]);
+  write(`app/api/${route}`, 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const GET = () => parseItem({});');
+  expect(violations()).toEqual([]);
 });
 
 test("requires per-method classification for a route exporting GET and POST", () => {
@@ -496,6 +1538,12 @@ test("baseline tolerance maps must be sorted and duplicate-free", () => {
   expect(codes()).toContainEqual({ code: "baseline-stale", path: route });
   manifest.baseline.clientUnlinked = { "zulu/route.ts": [], "alpha/route.ts": [] };
   expect(codes()).toContainEqual({ code: "baseline-unsorted", path: "clientUnlinked" });
+  manifest.baseline.undeclaredHandlerContracts = { "zulu/route.ts": [], "alpha/route.ts": [] };
+  expect(codes()).toContainEqual({ code: "baseline-unsorted", path: "undeclaredHandlerContracts" });
+  manifest.baseline.undeclaredHandlerContracts = { [route]: ["shared/zulu/contract.ts", "shared/alpha/contract.ts"] };
+  expect(codes()).toContainEqual({ code: "baseline-unsorted", path: route });
+  manifest.baseline.undeclaredHandlerContracts[route] = [otherContract, otherContract];
+  expect(codes()).toContainEqual({ code: "baseline-stale", path: route });
 });
 
 test("handler-link baseline becomes stale when the handler imports the contract", () => {
