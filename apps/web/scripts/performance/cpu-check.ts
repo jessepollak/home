@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { inlineFixtureMark, launch, twoFrames, withSession } from "./browser";
-import { fillFeed, installFeed } from "./feed";
+import { fillFeed, installFeed, resetFeedScroll } from "./feed";
 import { home, navigate, ready } from "./navigation";
 
 type Sample = { requested: number; applied: number; scriptMs: number; longFrames: number };
@@ -30,7 +30,7 @@ async function main() {
         await ready(page, "/home");
         await fillFeed(session, 300, fixture.filled, "section[data-activity-feed]");
         fixture.verify();
-        await page.locator("main[data-app-main-authenticated]").evaluate((main) => { main.scrollTop = 0; });
+        await resetFeedScroll(page);
         await twoFrames(page);
         await navigate(page, "/cash");
         await home(page);

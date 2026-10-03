@@ -93,6 +93,17 @@ export function scrollFeedTo(target: "top" | "bottom") {
   scroller.scrollTop = target === "bottom" ? scroller.scrollHeight : 0;
 }
 
+export async function resetFeedScroll(page: Page): Promise<void> {
+  await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
+  try {
+    await page.waitForFunction(() => window.scrollY === 0 &&
+      (document.querySelector<HTMLElement>("main[data-app-main-authenticated]")?.scrollTop ?? 0) === 0,
+    undefined, { timeout: 5_000, polling: 100 });
+  } catch (cause) {
+    throw new Error("Feed scroll reset did not reach the top", { cause });
+  }
+}
+
 export function feedScrollHost(position: { x: number; y: number }): { host: "document" | "main"; height: number; viewport: number } {
   const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
   const bounds = main?.getBoundingClientRect();

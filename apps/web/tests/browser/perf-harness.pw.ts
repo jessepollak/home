@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { setCpuRate, type Session } from "../../scripts/performance/browser";
-import { feedScrollHost, fillFeed, fling } from "../../scripts/performance/feed";
+import { feedScrollHost, fillFeed, fling, resetFeedScroll } from "../../scripts/performance/feed";
 
 /**
  * The profiler harness drives real scroll, gesture and CPU-throttle behavior, so it runs in the
@@ -81,41 +81,46 @@ test("feed scroll host ignores a non-scrollable main and a main outside the gest
   expect(await page.evaluate(feedScrollHost, { x: 195, y: 100 })).toMatchObject({ host: "main" });
 });
 
+async function paginatedFeed(page: Page, context: BrowserContext, host: "main" | "document") {
+  const loaded: number[] = [];
+  await page.exposeFunction("feedPageLoaded", (number: number) => { loaded.push(number); });
+  const style = host === "main"
+    ? "body { margin: 0; overflow: hidden } main { height: 100vh; overflow-y: auto }"
+    : "body { margin: 0 } main { overflow-y: visible }";
+  await page.setContent(`${viewportMeta}<style>${style}</style>${activityMarkup(rows(25, 48))}`);
+  await page.evaluate((selected) => {
+    const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+    const scroller = selected === "main" ? main : document.scrollingElement;
+    const list = document.querySelector("section ul");
+    if (!main || !scroller || !list) throw new Error("missing feed fixture");
+    const target = selected === "main" ? main : window;
+    let next = 2;
+    target.addEventListener("scroll", () => {
+      if (next > 3 || scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 5) return;
+      for (let i = 0; i < 25; i++) {
+        const row = document.createElement("li");
+        row.style.height = "48px";
+        row.textContent = `Row ${(next - 1) * 25 + i + 1}`;
+        list.appendChild(row);
+      }
+      if (next === 3) {
+        const end = document.createElement("p");
+        end.setAttribute("role", "status");
+        end.textContent = "End of activity";
+        list.after(end);
+      }
+      const notify: unknown = Reflect.get(window, "feedPageLoaded");
+      if (typeof notify === "function") void notify(next++);
+    });
+  }, host);
+  const session: Session = { page, context, cdp: await context.newCDPSession(page), cpu: { requested: 4, applied: 1 } };
+  await fillFeed(session, 75, () => loaded.length === 2);
+  return { loaded, session };
+}
+
 for (const host of ["main", "document"] as const) {
   test(`fillFeed paginates through the ${host} scroll host`, async ({ page, context }) => {
-    const loaded: number[] = [];
-    await page.exposeFunction("feedPageLoaded", (number: number) => { loaded.push(number); });
-    const style = host === "main"
-      ? "body { margin: 0; overflow: hidden } main { height: 100vh; overflow-y: auto }"
-      : "body { margin: 0 } main { overflow-y: visible }";
-    await page.setContent(`${viewportMeta}<style>${style}</style>${activityMarkup(rows(25, 48))}`);
-    await page.evaluate((selected) => {
-      const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
-      const scroller = selected === "main" ? main : document.scrollingElement;
-      const list = document.querySelector("section ul");
-      if (!main || !scroller || !list) throw new Error("missing feed fixture");
-      const target = selected === "main" ? main : window;
-      let next = 2;
-      target.addEventListener("scroll", () => {
-        if (next > 3 || scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 5) return;
-        for (let i = 0; i < 25; i++) {
-          const row = document.createElement("li");
-          row.style.height = "48px";
-          row.textContent = `Row ${(next - 1) * 25 + i + 1}`;
-          list.appendChild(row);
-        }
-        if (next === 3) {
-          const end = document.createElement("p");
-          end.setAttribute("role", "status");
-          end.textContent = "End of activity";
-          list.after(end);
-        }
-        const notify: unknown = Reflect.get(window, "feedPageLoaded");
-        if (typeof notify === "function") void notify(next++);
-      });
-    }, host);
-    const session: Session = { page, context, cdp: await context.newCDPSession(page), cpu: { requested: 4, applied: 1 } };
-    await fillFeed(session, 75, () => loaded.length === 2);
+    const { loaded, session } = await paginatedFeed(page, context, host);
     expect(loaded).toEqual([2, 3]);
     expect(await page.locator('section[aria-label="Activity"] ul li').count()).toBe(75);
     expect(await page.locator('section[aria-label="Activity"] [role="status"]').isVisible()).toBe(true);
@@ -124,4 +129,41 @@ for (const host of ["main", "document"] as const) {
     expect(scroll[host === "main" ? "document" : "main"]).toBe(0);
     expect(session.cpu.applied).toBe(4);
   });
+
+  test(`resetFeedScroll resets the ${host} scroll host after fillFeed`, async ({ page, context }) => {
+    await paginatedFeed(page, context, host);
+    const before = await page.evaluate(() => ({
+      main: document.querySelector<HTMLElement>("main[data-app-main-authenticated]")?.scrollTop,
+      document: window.scrollY,
+    }));
+    expect(before[host]).toBeGreaterThan(0);
+    await resetFeedScroll(page);
+    expect(await page.evaluate(() => ({
+      main: document.querySelector<HTMLElement>("main[data-app-main-authenticated]")?.scrollTop,
+      document: window.scrollY,
+    }))).toEqual({ main: 0, document: 0 });
+  });
 }
+
+test("resetFeedScroll reaches the document top when resetting main alone is a no-op", async ({ page, context }) => {
+  await paginatedFeed(page, context, "document");
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await page.locator("main[data-app-main-authenticated]").evaluate((main) => { main.scrollTop = 0; });
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  await resetFeedScroll(page);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test("resetFeedScroll rejects when the document stays scrolled", async ({ page, context }) => {
+  await paginatedFeed(page, context, "document");
+  await page.evaluate(() => {
+    const root = document.scrollingElement;
+    if (!root) throw new Error("missing document scroll host");
+    Object.defineProperty(root, "scrollTop", {
+      get: () => window.scrollY,
+      set: (top: number) => { window.scrollTo(0, Math.max(200, top)); },
+    });
+  });
+  await expect(resetFeedScroll(page)).rejects.toThrow("Feed scroll reset did not reach the top");
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+});
