@@ -120,6 +120,49 @@ test("immediate browser Back preserves a scrolled Home entry for Forward", async
   await expect.poll(() => page.evaluate((expected) => Math.abs(window.scrollY - expected), target)).toBeLessThanOrEqual(1);
 });
 
+test("browser Back during an unsettled scroll keeps the offset the user left for Forward", async ({ page }) => {
+  await setupLongActivity(page);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.locator("#home-nav").click();
+  await expectNavigation(page, /\/home$/);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBeGreaterThan(1_200);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  const before = await historyReplaceCount(page);
+  const left = await page.evaluate(() => new Promise<{ y: number; target: number; settled: boolean }>((resolve, reject) => {
+    const target = document.documentElement.scrollHeight - innerHeight - 100;
+    let settled = false;
+    const onScrollEnd = () => { settled = true; };
+    window.addEventListener("scrollend", onScrollEnd);
+    window.addEventListener("popstate", () => {
+      window.removeEventListener("scrollend", onScrollEnd);
+      resolve({ y: window.scrollY, target, settled });
+    }, { capture: true, once: true });
+    const started = performance.now();
+    const traverse = () => {
+      if (window.scrollY > 600 && window.scrollY < target - 100) {
+        history.back();
+        return;
+      }
+      if (performance.now() - started > 5_000 || window.scrollY >= target - 100) {
+        window.removeEventListener("scrollend", onScrollEnd);
+        reject(new Error("Smooth scroll did not expose an unsettled traversal window"));
+        return;
+      }
+      requestAnimationFrame(traverse);
+    };
+    window.scrollTo({ top: target, behavior: "smooth" });
+    requestAnimationFrame(traverse);
+  }));
+  expect(left.settled).toBe(false);
+  expect(left.y).toBeGreaterThan(600);
+  expect(left.y).toBeLessThan(left.target);
+  await expectNavigation(page, /\/activity$/);
+  await page.goForward();
+  await expectNavigation(page, /\/home$/);
+  await expect.poll(() => page.evaluate((expected) => Math.abs(window.scrollY - expected), left.y)).toBeLessThanOrEqual(1);
+  expect(await historyReplaceCount(page) - before).toBeLessThanOrEqual(5);
+});
+
 test("reselecting the active Home tab, the Home mark or the Invest root tab scrolls to the top", async ({ page }) => {
   await setupLongActivity(page);
   await page.locator("#home-nav").click();

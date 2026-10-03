@@ -6,7 +6,7 @@ import { isRecord } from "@/shared/guards";
 
 type RowAnchor = { index: number; key: string | null; top: number };
 type SavedScroll = { y: number; anchor: RowAnchor | null; owner: string | null };
-type PendingScroll = SavedScroll & { path: string; started: number };
+type PendingScroll = SavedScroll & { path: string; entry: string | null; started: number };
 
 const scrollKey = "__homeShellScrollY";
 const anchorKey = "__homeShellScrollAnchor";
@@ -17,6 +17,27 @@ export const shellVirtualScrollKeyEvent = "home:shell-virtual-scroll-key";
 export const shellVirtualKeyMissingEvent = "home:shell-virtual-key-missing";
 export type ShellVirtualSnapshotEvent = CustomEvent<{ measurements: VirtualItem[] | null }>;
 const rowSelector = "main[data-app-main-authenticated] ul[id] > li[data-index][aria-posinset]";
+
+function navigationApi(): EventTarget | null {
+  const navigation: unknown = "navigation" in window ? window.navigation : undefined;
+  return navigation instanceof EventTarget ? navigation : null;
+}
+
+function navigationKey(navigation: EventTarget | null): string | null {
+  const entry: unknown = navigation && "currentEntry" in navigation ? navigation.currentEntry : null;
+  return isRecord(entry) && typeof entry.key === "string" ? entry.key : null;
+}
+
+function isCallable(value: unknown): value is () => unknown {
+  return typeof value === "function";
+}
+
+function navigationKeys(navigation: EventTarget): Set<string> | null {
+  if (!("entries" in navigation) || !isCallable(navigation.entries)) return null;
+  const entries: unknown = navigation.entries();
+  if (!Array.isArray(entries)) return null;
+  return new Set(entries.flatMap((entry: unknown) => isRecord(entry) && typeof entry.key === "string" ? [entry.key] : []));
+}
 
 function visibleRow(): RowAnchor | null {
   let first: RowAnchor | null = null;
@@ -65,6 +86,7 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
   const owner = useRef(ownerKey);
   const verified = useRef(ownerKey !== null);
   const cancelPending = useRef<() => void>(() => {});
+  const left = useRef(new Map<string, SavedScroll>());
 
   useLayoutEffect(() => {
     path.current = pathname;
@@ -76,6 +98,7 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     verified.current = ownerKey !== null;
     if (!next.reset && !next.clear) return;
     cancelPending.current();
+    left.current.clear();
     const state: unknown = window.history.state;
     if (isRecord(state)) {
       const cleared = { ...state };
@@ -92,6 +115,7 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     const previousRestoration = window.history.scrollRestoration;
     window.history.scrollRestoration = "manual";
     let pending: PendingScroll | null = null;
+    let arrivingKey: string | null = null;
     let frame = 0;
     let quietTimer: ReturnType<typeof setTimeout> | null = null;
     let expiry: ReturnType<typeof setTimeout> | null = null;
@@ -103,6 +127,7 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
       frame = 0;
     };
     const main = document.querySelector<HTMLElement>("main[data-app-main-authenticated]");
+    const navigation = navigationApi();
 
     const persist = () => {
       if (pending) return;
@@ -176,11 +201,28 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
       pending.anchor = { ...pending.anchor, key: null };
       requestAttempt();
     };
+    const onEntryChange = (event: Event) => {
+      if (!isRecord(event) || event.navigationType !== "traverse" || !isRecord(event.from) ||
+        typeof event.from.key !== "string") return;
+      arrivingKey = navigationKey(navigation);
+      if (!verified.current || pending && pending.entry !== event.from.key) return;
+      left.current.set(event.from.key, pending
+        ? { y: pending.y, anchor: pending.anchor, owner: pending.owner }
+        : { y: window.scrollY, anchor: visibleRow(), owner: owner.current });
+      const keys = navigation ? navigationKeys(navigation) : null;
+      if (keys) for (const key of left.current.keys()) if (!keys.has(key)) left.current.delete(key);
+    };
     const onPop = (event: PopStateEvent) => {
-      const saved = scopedSavedScroll(event.state, owner.current);
+      const key = navigationKey(navigation);
+      const arriving = arrivingKey;
+      arrivingKey = null;
+      const record = arriving !== null && arriving === key ? left.current.get(arriving) : undefined;
+      if (arriving !== null && arriving === key) left.current.delete(arriving);
+      const saved = record && record.owner !== null && record.owner === owner.current
+        ? record : scopedSavedScroll(event.state, owner.current);
       if (!saved && path.current === window.location.pathname) return;
       cancel();
-      pending = saved ? { ...saved, path: window.location.pathname, started: performance.now() } : null;
+      pending = saved ? { ...saved, path: window.location.pathname, entry: key, started: performance.now() } : null;
       window.scrollTo(0, saved ? saved.y : 0);
       requestAttempt();
       const target = pending;
@@ -208,6 +250,7 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
     if (main) resize.observe(main);
     window.addEventListener("scrollend", persist, { passive: true });
     window.addEventListener("scroll", onScroll, { passive: true });
+    navigation?.addEventListener("currententrychange", onEntryChange);
     window.addEventListener("popstate", onPop);
     window.addEventListener(shellVirtualKeyMissingEvent, onKeyMissing);
     window.addEventListener("pagehide", persist);
@@ -226,6 +269,7 @@ export function useShellDocumentScrollRestoration(pathname: string, ownerKey: st
       resize.disconnect();
       window.removeEventListener("scrollend", persist);
       window.removeEventListener("scroll", onScroll);
+      navigation?.removeEventListener("currententrychange", onEntryChange);
       window.removeEventListener("popstate", onPop);
       window.removeEventListener(shellVirtualKeyMissingEvent, onKeyMissing);
       window.removeEventListener("pagehide", persist);

@@ -68,6 +68,7 @@ describe("shell pending scroll lifecycle", () => {
 
   afterEach(() => {
     cleanup();
+    Reflect.deleteProperty(window, "navigation");
     jest.restoreAllMocks();
     window.history.replaceState(null, "", "/");
   });
@@ -78,8 +79,8 @@ describe("shell pending scroll lifecycle", () => {
       { initialProps });
   }
 
-  function pop(path = "/home", y = 5_000) {
-    const state = { [scrollKey]: y, [ownerKey]: "A" };
+  function pop(path = "/home", y = 5_000, owner = "A") {
+    const state = { [scrollKey]: y, [ownerKey]: owner };
     window.history.replaceState(state, "", path);
     act(() => { window.dispatchEvent(new PopStateEvent("popstate", { state })); });
   }
@@ -111,6 +112,213 @@ describe("shell pending scroll lifecycle", () => {
     window.scrollTo(0, y);
     window.dispatchEvent(new Event("scrollend"));
   }
+
+  function installNavigation(entries?: () => { key: string }[]) {
+    const navigation = Object.assign(new EventTarget(), { currentEntry: { key: "home" }, entries });
+    Object.defineProperty(window, "navigation", { configurable: true, value: navigation });
+    return {
+      navigation,
+      change(from: string, to: string, navigationType = "traverse") {
+        navigation.currentEntry = { key: to };
+        act(() => { navigation.dispatchEvent(Object.assign(new Event("currententrychange"), { navigationType, from: { key: from } })); });
+      },
+    };
+  }
+
+  test("traversal preserves the outgoing offset over stale state without extra history writes", () => {
+    const { change } = installNavigation();
+    const hook = mount();
+    const replace = spyOn(window.history, "replaceState");
+    window.scrollTo(0, 280);
+    change("home", "activity");
+    expect(replace).not.toHaveBeenCalled();
+    pop("/activity", 0);
+    hook.rerender({ path: "/activity", owner: "A" });
+    flushFrames();
+    change("activity", "home");
+    pop("/home", 40);
+    hook.rerender({ path: "/home", owner: "A" });
+    flushFrames();
+    expect(window.scrollY).toBe(280);
+    expect(window.history.state[scrollKey]).toBe(40);
+    expect(replace).toHaveBeenCalledTimes(2);
+    persistAt(280);
+    expect(window.history.state[scrollKey]).toBe(280);
+    expect(replace).toHaveBeenCalledTimes(3);
+  });
+
+  test.each(["push", "replace"])("a %s entry change does not record an outgoing offset", (type) => {
+    const { change } = installNavigation();
+    mount();
+    window.scrollTo(0, 280);
+    change("home", "activity", type);
+    change("activity", "home", type);
+    pop("/home", 40);
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("owner changes ignore the outgoing owner's record", () => {
+    const { change } = installNavigation();
+    const hook = mount();
+    window.scrollTo(0, 280);
+    change("home", "activity");
+    hook.rerender({ path: "/home", owner: "B" });
+    change("activity", "home");
+    pop("/home", 40, "B");
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("switching back to the original owner cannot recover a cleared record", () => {
+    const { change } = installNavigation();
+    const hook = mount();
+    window.scrollTo(0, 280);
+    change("home", "activity");
+    hook.rerender({ path: "/home", owner: "B" });
+    hook.rerender({ path: "/home", owner: "A" });
+    change("activity", "home");
+    pop("/home", 40);
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("a traversal record is consumed by its first pop", () => {
+    const { change } = installNavigation();
+    mount();
+    window.scrollTo(0, 280);
+    change("home", "activity");
+    change("activity", "home");
+    pop("/home", 40);
+    expect(window.scrollY).toBe(280);
+    flushFrames();
+    change("activity", "home");
+    pop("/home", 40);
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("a synthetic pop uses state without consuming a record for the current key", () => {
+    const { navigation, change } = installNavigation();
+    const hook = mount();
+    window.scrollTo(0, 280);
+    change("home", "activity");
+    pop("/activity", 0);
+    hook.rerender({ path: "/activity", owner: "A" });
+    flushFrames();
+    navigation.currentEntry = { key: "home" };
+    pop("/home", 40);
+    hook.rerender({ path: "/home", owner: "A" });
+    flushFrames();
+    expect(window.scrollY).toBe(40);
+    change("activity", "home");
+    pop("/home", 40);
+    expect(window.scrollY).toBe(280);
+  });
+
+  test("without the Navigation API a pop uses the existing saved state", () => {
+    mount();
+    window.scrollTo(0, 280);
+    pop("/home", 40);
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("an unverified owner does not record a traversal", () => {
+    const { change } = installNavigation();
+    const hook = mount();
+    hook.rerender({ path: "/home", owner: null });
+    window.scrollTo(0, 280);
+    change("home", "activity");
+    hook.rerender({ path: "/home", owner: "A" });
+    change("activity", "home");
+    pop("/home", 40);
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("a pending Forward restore retains its target across Back and another Forward", () => {
+    const { change } = installNavigation();
+    const hook = mount();
+    window.scrollTo(0, 280);
+    change("home", "activity");
+    pop("/activity", 0);
+    hook.rerender({ path: "/activity", owner: "A" });
+    flushFrames();
+    maximum = 100;
+    change("activity", "home");
+    pop("/home", 40);
+    hook.rerender({ path: "/home", owner: "A" });
+    flushFrames();
+    expect(window.scrollY).toBe(100);
+    expect(timers.size).toBe(1);
+    change("home", "activity");
+    pop("/activity", 0);
+    hook.rerender({ path: "/activity", owner: "A" });
+    flushFrames();
+    maximum = 300;
+    change("activity", "home");
+    pop("/home", 40);
+    hook.rerender({ path: "/home", owner: "A" });
+    flushFrames();
+    expect(window.scrollY).toBe(280);
+    expect(window.history.state[scrollKey]).toBe(40);
+    expect(timers.size).toBe(0);
+  });
+
+  test("a pending restore left on a same-path entry is not recorded against another entry", () => {
+    const { change } = installNavigation();
+    mount();
+    maximum = 100;
+    change("start", "home");
+    pop("/home", 5_000);
+    flushFrames();
+    expect(window.scrollY).toBe(100);
+    change("home", "other");
+    window.history.replaceState({}, "", "/home");
+    act(() => { window.dispatchEvent(new PopStateEvent("popstate", { state: {} })); });
+    change("other", "third");
+    window.history.replaceState({}, "", "/home");
+    act(() => { window.dispatchEvent(new PopStateEvent("popstate", { state: {} })); });
+    maximum = 6_000;
+    change("third", "other");
+    pop("/home", 40);
+    flushFrames();
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("prunes discarded forward records after a push while retaining live records", () => {
+    let keys = ["home", "activity", "discarded"];
+    const { change } = installNavigation(() => keys.map((key) => ({ key })));
+    mount();
+    window.scrollTo(0, 180);
+    change("home", "activity");
+    pop("/home", 0);
+    flushFrames();
+    window.scrollTo(0, 280);
+    change("activity", "discarded");
+    pop("/home", 0);
+    flushFrames();
+    window.scrollTo(0, 240);
+    change("discarded", "activity");
+    pop("/home", 0);
+    flushFrames();
+    keys = ["home", "activity", "new"];
+    change("activity", "new", "push");
+    window.scrollTo(0, 90);
+    change("new", "activity");
+    pop("/home", 40);
+    flushFrames();
+    change("activity", "home");
+    pop("/home", 40);
+    flushFrames();
+    expect(window.scrollY).toBe(180);
+    change("home", "discarded");
+    pop("/home", 40);
+    expect(window.scrollY).toBe(40);
+  });
+
+  test("unmount removes the Navigation API listener", () => {
+    const { navigation } = installNavigation();
+    const remove = spyOn(navigation, "removeEventListener");
+    const hook = mount();
+    hook.unmount();
+    expect(remove).toHaveBeenCalledWith("currententrychange", expect.any(Function));
+  });
 
   test("successful restore releases persistence and cancels its deadline", () => {
     mount();
