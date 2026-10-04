@@ -14,6 +14,7 @@ type Manifest = {
     parserlessContracts: string[];
     handlerUnlinked: Record<string, string[]>;
     clientUnlinked: Record<string, string[]>;
+    undeclaredHandlerContracts: Record<string, string[]>;
   };
 };
 type Violation = { code: string; path: string; detail: string };
@@ -31,6 +32,23 @@ const allowanceKinds = ["unversioned-compatibility"];
 type ExportedValue = { callable: boolean; version: boolean };
 type ExportLink = { name: string; original: string; specifier?: string };
 
+function unwrap(node: ts.Expression): ts.Expression {
+  let current = node;
+  while (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current) || ts.isTypeAssertionExpression(current)) current = current.expression;
+  return current;
+}
+
+function literalPropertyKey(node: ts.Node): string | undefined {
+  return ts.isNumericLiteral(node) ? String(Number(node.text))
+    : ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) ? node.text : undefined;
+}
+
+function bindingNames(name: ts.BindingName): string[] {
+  return ts.isIdentifier(name) ? [name.text]
+    : name.elements.flatMap((element) => ts.isOmittedExpression(element) ? [] : bindingNames(element.name));
+}
+
 function inspect(source: string, path: string) {
   const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, path.endsWith(".tsx") ? ts.ScriptKind.TSX : path.endsWith(".jsx") ? ts.ScriptKind.JSX : path.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS);
   const modules: { specifier: string; runtime: boolean }[] = [];
@@ -42,21 +60,17 @@ function inspect(source: string, path: string) {
   const shadowedNames = new Set<string>();
   const functionDeclarations = new Map<string, ts.FunctionDeclaration>();
   const variableInitializers = new Map<string, ts.Expression>();
+  const destructuredInitializers = new Map<string, { initializer: ts.Expression; property?: string }>();
   const directExports = new Set<string>();
   const exportLinks: ExportLink[] = [];
   const stars: string[] = [];
   const importedNames = new Map<string, { specifier: string; original: string }>();
   const runtimeBindings: { specifier: string; original?: string; namespace?: string }[] = [];
+  const namespaceImports = new Map<string, string>();
   const referencedMembers = new Map<string, Set<string>>();
   let propertyVersioned = false;
   let defaultParser = false;
   const nameOf = (name: ts.PropertyName) => ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : undefined;
-  const unwrap = (node: ts.Expression): ts.Expression => {
-    let current = node;
-    while (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isSatisfiesExpression(current) ||
-      ts.isNonNullExpression(current) || ts.isTypeAssertionExpression(current)) current = current.expression;
-    return current;
-  };
   const literalVersion = (node: ts.Expression | undefined) => {
     if (!node) return false;
     const value = unwrap(node);
@@ -71,8 +85,6 @@ function inspect(source: string, path: string) {
   const exported = (node: ts.Node & { modifiers?: ts.NodeArray<ts.ModifierLike> }) =>
     node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
   const moduleScope = (node: ts.Node) => node.parent === file;
-  const bindingNames = (name: ts.BindingName): string[] => ts.isIdentifier(name) ? [name.text]
-    : name.elements.flatMap((element) => ts.isOmittedExpression(element) ? [] : bindingNames(element.name));
   const shadowParameters = (node: ts.Node) => {
     if (!ts.isFunctionDeclaration(node) && !ts.isFunctionExpression(node) && !ts.isArrowFunction(node) && !ts.isMethodDeclaration(node)) return;
     for (const parameter of node.parameters) for (const name of bindingNames(parameter.name)) shadowedNames.add(name);
@@ -106,7 +118,10 @@ function inspect(source: string, path: string) {
           runtimeBindings.push({ specifier: node.moduleSpecifier.text, original: "default" });
           importedNames.set(clause.name.text, { specifier: node.moduleSpecifier.text, original: "default" });
         }
-        if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) runtimeBindings.push({ specifier: node.moduleSpecifier.text, namespace: clause.namedBindings.name.text });
+        if (clause.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+          runtimeBindings.push({ specifier: node.moduleSpecifier.text, namespace: clause.namedBindings.name.text });
+          namespaceImports.set(clause.namedBindings.name.text, node.moduleSpecifier.text);
+        }
       }
       if (clause && !clause.isTypeOnly) {
         for (const element of clause.namedBindings && ts.isNamedImports(clause.namedBindings) ? clause.namedBindings.elements : []) {
@@ -130,19 +145,24 @@ function inspect(source: string, path: string) {
     if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && node.moduleReference.expression && ts.isStringLiteral(node.moduleReference.expression)) {
       modules.push({ specifier: node.moduleReference.expression.text, runtime: !node.isTypeOnly });
     }
-    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length === 1 && ts.isStringLiteral(node.arguments[0])) {
-      modules.push({ specifier: node.arguments[0].text, runtime: true });
+    const dynamicImport = ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length >= 1 ? unwrap(node.arguments[0]) : undefined;
+    if (dynamicImport && ts.isStringLiteralLike(dynamicImport)) {
+      modules.push({ specifier: dynamicImport.text, runtime: true });
     }
     if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
       const members = referencedMembers.get(node.expression.text) ?? new Set<string>();
       members.add(node.name.text);
       referencedMembers.set(node.expression.text, members);
     }
-    if (ts.isFunctionDeclaration(node) && node.name && moduleScope(node)) {
-      if (!isDeferred(node) && hasImplementation(node)) localCallables.add(node.name.text);
-      functionDeclarations.set(node.name.text, node);
-      if (exported(node)) directExports.add(node.name.text);
-      if (exported(node) && !isDeferred(node) && hasImplementation(node) && node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) && parserPattern.test(node.name.text)) defaultParser = true;
+    if (ts.isFunctionDeclaration(node) && moduleScope(node)) {
+      const isDefault = node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
+      for (const name of [node.name?.text, ...(isDefault ? ["default"] : [])]) {
+        if (!name) continue;
+        if (!isDeferred(node) && hasImplementation(node)) localCallables.add(name);
+        functionDeclarations.set(name, node);
+        if (exported(node)) directExports.add(name);
+      }
+      if (isDefault && !isDeferred(node) && hasImplementation(node) && node.name && parserPattern.test(node.name.text)) defaultParser = true;
     }
     if (ts.isFunctionDeclaration(node) && node.name && !moduleScope(node)) shadowedNames.add(node.name.text);
     if (ts.isVariableStatement(node)) {
@@ -152,7 +172,15 @@ function inspect(source: string, path: string) {
           continue;
         }
         if (!ts.isIdentifier(declaration.name)) {
-          if (exported(node)) for (const name of bindingNames(declaration.name)) directExports.add(name);
+          if (exported(node)) for (const name of bindingNames(declaration.name)) {
+            directExports.add(name);
+            if (declaration.initializer) {
+              const element = ts.isObjectBindingPattern(declaration.name)
+                ? declaration.name.elements.find((element) => ts.isIdentifier(element.name) && element.name.text === name && !element.dotDotDotToken)
+                : undefined;
+              destructuredInitializers.set(name, { initializer: declaration.initializer, property: element?.propertyName ? ts.isNumericLiteral(element.propertyName) ? literalPropertyKey(element.propertyName) : nameOf(element.propertyName) : element ? name : undefined });
+            }
+          }
           continue;
         }
         const isConst = (node.declarationList.flags & ts.NodeFlags.Const) === ts.NodeFlags.Const;
@@ -172,6 +200,10 @@ function inspect(source: string, path: string) {
       const candidate = unwrap(schemaVersionArgument(node.initializer) ?? node.initializer);
       if (literalVersion(candidate)) propertyVersioned = true;
       else if (ts.isIdentifier(candidate) && versionPattern.test(candidate.text)) versionRefs.add(candidate.text);
+    }
+    if (ts.isExportAssignment(node) && !node.isExportEquals && moduleScope(node)) {
+      directExports.add("default");
+      variableInitializers.set("default", unwrap(node.expression));
     }
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) urls.push(node.text);
     if (ts.isTemplateExpression(node)) urls.push(node.head.text + node.templateSpans.map((span) => "${}" + span.literal.text).join(""));
@@ -232,7 +264,7 @@ function inspect(source: string, path: string) {
     return returned && valid && terminatesCallable(body, seen);
   }
   for (const [name, initializer] of variableInitializers) if (callableValue(initializer, new Set())) localCallables.add(name);
-  return { modules, urls, localCallables, localAliases, localVersions, versionRefs, shadowedNames, directExports, exportLinks, stars, importedNames, runtimeBindings, referencedMembers, defaultParser, propertyVersioned };
+  return { modules, urls, localCallables, localAliases, localVersions, versionRefs, shadowedNames, functionDeclarations, variableInitializers, destructuredInitializers, directExports, exportLinks, stars, importedNames, runtimeBindings, namespaceImports, referencedMembers, defaultParser, propertyVersioned };
 }
 
 const routeGroupPattern = /^\(.+\)$/;
@@ -342,6 +374,477 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
     }
     visiting.delete(path);
     return values;
+  };
+  const referencedContracts = (path: string, method: string): { contracts: Set<string>; limited: boolean } => {
+    const result = new Set<string>();
+    let limited = false;
+    const contractOrigin = (path: string, name: string, visiting = new Set<string>()): string | undefined => {
+      const key = `${path}\u0000${name}`;
+      if (visiting.has(key)) return undefined;
+      if (visiting.size >= 1_000) {
+        limited = true;
+        return undefined;
+      }
+      visiting.add(key);
+      if (contracts.has(path)) return exportedValues(path).has(name) ? path : undefined;
+      const info = sourceInfo(path);
+      const link = info.importedNames.get(name) ?? info.exportLinks.find((candidate) => candidate.name === name);
+      if (link) {
+        const target = link.specifier ? resolveModule(path, link.specifier) : path;
+        return target ? contractOrigin(target, link.original, visiting) : undefined;
+      }
+      for (const specifier of info.stars) {
+        const target = resolveModule(path, specifier);
+        const origin = target && contractOrigin(target, name, visiting);
+        if (origin) return origin;
+      }
+      return undefined;
+    };
+    type Implementation = { path: string; node: ts.Node; selected?: boolean };
+    const resolvingImplementations = new Set<string>();
+    const implementationValue = (path: string, name: string, visiting = new Set<string>()): Implementation | undefined => {
+      const key = `${path}\u0000${name}`;
+      if (resolvingImplementations.has(key)) return undefined;
+      if (resolvingImplementations.size >= 1_000) {
+        limited = true;
+        return undefined;
+      }
+      resolvingImplementations.add(key);
+      try {
+        return resolveImplementationValue(path, name, visiting);
+      } finally {
+        resolvingImplementations.delete(key);
+      }
+    };
+    const resolveImplementationValue = (path: string, name: string, visiting: Set<string>): Implementation | undefined => {
+      const key = `${path}\u0000${name}`;
+      if (visiting.has(key)) return undefined;
+      if (visiting.size >= 1_000) {
+        limited = true;
+        return undefined;
+      }
+      visiting.add(key);
+      const info = sourceInfo(path);
+      const destructured = info.destructuredInitializers.get(name);
+      if (destructured) {
+        const member = destructured.property && memberValue(path, destructured.initializer, destructured.property);
+        return member ? { ...member, selected: true } : { path, node: destructured.initializer };
+      }
+      const node = info.functionDeclarations.get(name) ?? info.variableInitializers.get(name);
+      if (node) {
+        const value = ts.isExpression(node) ? unwrap(node) : node;
+        return ts.isIdentifier(value) && !contractOrigin(path, value.text) ? implementationValue(path, value.text, visiting) : { path, node: value };
+      }
+      const link = info.importedNames.get(name) ?? info.exportLinks.find((candidate) => candidate.name === name);
+      if (link) {
+        const target = link.specifier ? resolveModule(path, link.specifier) : path;
+        return target ? implementationValue(target, link.original, visiting) : undefined;
+      }
+      for (const specifier of info.stars) {
+        const target = resolveModule(path, specifier);
+        const value = target && implementationValue(target, name, visiting);
+        if (value) return value;
+      }
+      return undefined;
+    };
+    const varBinding = (body: ts.Node, name: string): { node?: ts.Node } => {
+      const declarations: ts.VariableDeclaration[] = [];
+      const collect = (current: ts.Node) => {
+        if (ts.isFunctionLike(current) || ts.isClassDeclaration(current) || ts.isClassExpression(current)) return;
+        if (ts.isVariableDeclarationList(current) && (current.flags & ts.NodeFlags.BlockScoped) === 0) {
+          declarations.push(...current.declarations.filter((declaration) => bindingNames(declaration.name).includes(name)));
+        }
+        ts.forEachChild(current, collect);
+      };
+      collect(body);
+      const declaration = declarations.length === 1 ? declarations[0] : undefined;
+      return declaration && ts.isIdentifier(declaration.name) && declaration.initializer ? { node: declaration.initializer } : {};
+    };
+    const lexicalBinding = (node: ts.Node, name: string): { node?: ts.Node } | undefined => {
+      const owningVarBinding = (scope: ts.Node): { node?: ts.Node } => {
+        let owner: ts.Node | undefined = scope;
+        while (owner && !ts.isFunctionLike(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
+        return owner && ts.isSourceFile(owner) ? varBinding(owner, name)
+          : owner && ts.isFunctionLike(owner) && "body" in owner && owner.body ? varBinding(owner.body, name) : {};
+      };
+      const hasVarBinding = (current: ts.Node): boolean => {
+        if (ts.isFunctionLike(current) || ts.isClassDeclaration(current) || ts.isClassExpression(current)) return false;
+        if (ts.isVariableDeclarationList(current) && (current.flags & ts.NodeFlags.BlockScoped) === 0 &&
+          current.declarations.some((declaration) => bindingNames(declaration.name).includes(name))) return true;
+        return ts.forEachChild(current, hasVarBinding) ?? false;
+      };
+      for (let child = node, parent = node.parent; parent; child = parent, parent = parent.parent) {
+        if (ts.isFunctionLike(parent)) {
+          if (parent.parameters.some((parameter) => bindingNames(parameter.name).includes(name))) return {};
+          if ((ts.isFunctionDeclaration(parent) || ts.isFunctionExpression(parent)) && parent.name?.text === name) return { node: parent };
+          if ("body" in parent && parent.body === child && functionBindings(parent).has(name)) return varBinding(child, name);
+        }
+        if (ts.isCatchClause(parent) && parent.variableDeclaration && bindingNames(parent.variableDeclaration.name).includes(name)) return {};
+        if (ts.isForStatement(parent) || ts.isForOfStatement(parent) || ts.isForInStatement(parent)) {
+          const initializer = parent.initializer;
+          if (initializer && ts.isVariableDeclarationList(initializer)) {
+            const declaration = initializer.declarations.find((candidate) => bindingNames(candidate.name).includes(name));
+            if (declaration) {
+              if (!ts.isForStatement(parent)) return {};
+              if ((initializer.flags & ts.NodeFlags.BlockScoped) === 0) return owningVarBinding(parent);
+              return ts.isIdentifier(declaration.name) && declaration.initializer ? { node: declaration.initializer } : {};
+            }
+          }
+        }
+        if (!ts.isBlock(parent) && !ts.isCaseBlock(parent) && !ts.isSourceFile(parent)) continue;
+        const statements = ts.isCaseBlock(parent) ? parent.clauses.flatMap((clause) => [...clause.statements]) : parent.statements;
+        for (const statement of statements) {
+          if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) {
+            const implementation = statements.find((candidate) => ts.isFunctionDeclaration(candidate) && candidate.name?.text === name && candidate.body);
+            return implementation ? { node: implementation } : {};
+          }
+          if (ts.isClassDeclaration(statement) && statement.name?.text === name) return {};
+          if (!ts.isVariableStatement(statement)) continue;
+          for (const declaration of statement.declarationList.declarations) {
+            if (!bindingNames(declaration.name).includes(name)) continue;
+            if ((statement.declarationList.flags & ts.NodeFlags.BlockScoped) === 0) return owningVarBinding(parent);
+            return { node: ts.isIdentifier(declaration.name) ? declaration.initializer : undefined };
+          }
+        }
+        if (ts.isSourceFile(parent) && hasVarBinding(parent)) return varBinding(parent, name);
+      }
+      return undefined;
+    };
+    const identifierValue = (module: string, node: ts.Identifier): { path: string; node: ts.Node; selected?: boolean } | undefined => {
+      const local = lexicalBinding(node, node.text);
+      return local ? local.node && { path: module, node: local.node } : implementationValue(module, node.text);
+    };
+    const resolvedCalls = new Set<ts.Node>();
+    const namespaceTarget = (module: string, name: string): string | undefined => {
+      const specifier = sourceInfo(module).namespaceImports.get(name);
+      return specifier ? resolveModule(module, specifier) : undefined;
+    };
+    const memberName = (node: ts.PropertyAccessExpression | ts.ElementAccessExpression): string | undefined => {
+      if (ts.isPropertyAccessExpression(node)) return node.name.text;
+      const argument = node.argumentExpression ? unwrap(node.argumentExpression) : undefined;
+      return argument && (ts.isStringLiteral(argument) || ts.isNumericLiteral(argument)) ? literalPropertyKey(argument) : undefined;
+    };
+    const memberValue = (module: string, node: ts.Node, property: string, visiting = new Set<ts.Node>()): { path: string; node: ts.Node } | null | undefined => {
+      if (visiting.has(node)) return undefined;
+      if (visiting.size >= 1_000) {
+        limited = true;
+        return undefined;
+      }
+      const next = new Set(visiting).add(node);
+      const value = ts.isExpression(node) ? unwrap(node) : node;
+      if (ts.isIdentifier(value)) {
+        const implementation = identifierValue(module, value);
+        if (implementation) return memberValue(implementation.path, implementation.node, property, next);
+        if (lexicalBinding(value, value.text)) return undefined;
+        const target = namespaceTarget(module, value.text);
+        return target ? implementationValue(target, property) : undefined;
+      }
+      if (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value)) {
+        const name = memberName(value);
+        if (name === undefined) return undefined;
+        const inner = memberValue(module, value.expression, name, next);
+        return inner && memberValue(inner.path, inner.node, property, next);
+      }
+      if (ts.isCallExpression(value)) {
+        const callee = unwrap(value.expression);
+        let implementation: { path: string; node: ts.Node } | undefined;
+        if (ts.isIdentifier(callee)) implementation = identifierValue(module, callee);
+        else if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
+          const name = memberName(callee);
+          if (name !== undefined) implementation = memberValue(module, callee.expression, name, next) ?? undefined;
+        }
+        const resolved = implementation && memberValue(implementation.path, implementation.node, property, next);
+        if (resolved) resolvedCalls.add(value);
+        return resolved;
+      }
+      if (ts.isFunctionDeclaration(value) || ts.isFunctionExpression(value) || ts.isArrowFunction(value)) {
+        if (!value.body) return undefined;
+        if (!ts.isBlock(value.body)) return memberValue(module, value.body, property, next);
+        const returns: ts.Expression[] = [];
+        const collect = (child: ts.Node) => {
+          if (ts.isFunctionLike(child)) return;
+          if (ts.isReturnStatement(child)) {
+            if (child.expression) returns.push(child.expression);
+            return;
+          }
+          ts.forEachChild(child, collect);
+        };
+        collect(value.body);
+        if (returns.length !== 1) return undefined;
+        const [returned] = returns;
+        return returned ? memberValue(module, returned, property, next) : undefined;
+      }
+      if (ts.isObjectLiteralExpression(value)) {
+        let selected: { path: string; node: ts.Node } | null | undefined = null;
+        let selectedGetter = false;
+        for (const member of value.properties) {
+          if (ts.isSpreadAssignment(member)) {
+            const spread = memberValue(module, member.expression, property, next);
+            if (spread !== null) {
+              selected = spread;
+              selectedGetter = false;
+            }
+            continue;
+          }
+          let name: string | undefined;
+          if (ts.isComputedPropertyName(member.name)) {
+            const expression = unwrap(member.name.expression);
+            if (ts.isStringLiteral(expression) || ts.isNumericLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) name = literalPropertyKey(expression);
+            else {
+              selected = undefined;
+              selectedGetter = false;
+              continue;
+            }
+          } else name = ts.isIdentifier(member.name) ? member.name.text : literalPropertyKey(member.name);
+          if (name !== property) continue;
+          if (ts.isSetAccessorDeclaration(member)) {
+            if (!selectedGetter) selected = undefined;
+            continue;
+          }
+          selectedGetter = ts.isGetAccessorDeclaration(member);
+          selected = { path: module, node: ts.isPropertyAssignment(member) ? member.initializer : ts.isShorthandPropertyAssignment(member) ? member.name : member };
+        }
+        return selected;
+      }
+      return undefined;
+    };
+    const callableMember = (module: string, callee: ts.Expression, active: Set<string>[]): Implementation | undefined => {
+      const value = unwrap(callee);
+      if (ts.isIdentifier(value)) {
+        if (active.some((scope) => scope.has(value.text)) || lexicalBinding(value, value.text) || contractOrigin(module, value.text) || !sourceInfo(module).importedNames.has(value.text)) return undefined;
+        return implementationValue(module, value.text);
+      }
+      if (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value)) {
+        const name = memberName(value);
+        if (name === undefined) return undefined;
+        const object = value.expression;
+        if (ts.isIdentifier(object) && active.some((scope) => scope.has(object.text))) return undefined;
+        return memberValue(module, object, name) ?? undefined;
+      }
+      return undefined;
+    };
+    const resolveValue = (module: string, start: ts.Node): ts.Node => {
+      const info = sourceInfo(module);
+      const seen = new Set<ts.Node>();
+      let node = ts.isExpression(start) ? unwrap(start) : start;
+      while (ts.isIdentifier(node) && !seen.has(node)) {
+        seen.add(node);
+        const binding = lexicalBinding(node, node.text);
+        const next = binding ? binding.node : info.functionDeclarations.get(node.text) ?? info.variableInitializers.get(node.text);
+        if (!next) break;
+        node = ts.isExpression(next) ? unwrap(next) : next;
+      }
+      return node;
+    };
+    const callbackValue = (module: string, argument: ts.Expression): { path: string; node: ts.Node } | undefined => {
+      const resolved = resolveValue(module, unwrap(argument));
+      if (!ts.isExpression(resolved)) return undefined;
+      const member = callableMember(module, resolved, []);
+      return member && member.path !== module ? member : undefined;
+    };
+    const visitedFunctions = new Map<ts.Node, { followImportedCalls: boolean; eager: boolean }>();
+    const visitedInitializers = new Map<ts.Node, { followImportedCalls: boolean; eager: boolean }>();
+    const covered = (prior: { followImportedCalls: boolean; eager: boolean } | undefined, followImportedCalls: boolean, eager: boolean) =>
+      prior !== undefined && (prior.followImportedCalls || !followImportedCalls) && (!prior.eager || eager);
+    const blockBindings = (statements: readonly ts.Statement[]): Set<string> => {
+      const names = new Set<string>();
+      for (const statement of statements) {
+        if (ts.isVariableStatement(statement) && (statement.declarationList.flags & ts.NodeFlags.BlockScoped) !== 0) {
+          for (const declaration of statement.declarationList.declarations) for (const name of bindingNames(declaration.name)) names.add(name);
+        }
+        if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) names.add(statement.name.text);
+      }
+      return names;
+    };
+    const functionBindings = (node: ts.FunctionLikeDeclaration): Set<string> => {
+      const names = new Set(node.parameters.flatMap((parameter) => bindingNames(parameter.name)));
+      if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && node.name) names.add(node.name.text);
+      const collect = (child: ts.Node) => {
+        if (ts.isFunctionLike(child) || ts.isClassDeclaration(child) || ts.isClassExpression(child)) return;
+        if (ts.isVariableDeclarationList(child) && (child.flags & ts.NodeFlags.BlockScoped) === 0) {
+          for (const declaration of child.declarations) for (const name of bindingNames(declaration.name)) names.add(name);
+        }
+        ts.forEachChild(child, collect);
+      };
+      ts.forEachChild(node, collect);
+      return names;
+    };
+    const scan = (node: ts.Node, module: string, followImportedCalls = module === path, eager = false, invoked = true) => {
+      const info = sourceInfo(module);
+      const deferredCallable = (node: ts.Node) =>
+        ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) ||
+        ts.isMethodDeclaration(node) || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node) || ts.isConstructorDeclaration(node);
+      const isCallCallee = (node: ts.Node): boolean => {
+        let current = node;
+        let parent = node.parent;
+        while (parent && (ts.isParenthesizedExpression(parent) || ts.isAsExpression(parent) || ts.isNonNullExpression(parent) ||
+          ts.isTypeAssertionExpression(parent) || ts.isSatisfiesExpression(parent))) {
+          current = parent;
+          parent = parent.parent;
+        }
+        return ts.isCallExpression(parent) && parent.expression === current;
+      };
+      const walk = (current: ts.Node, active: Set<string>[], invoked = false) => {
+        if (ts.isTypeNode(current) || ts.isInterfaceDeclaration(current) || ts.isTypeAliasDeclaration(current)) return;
+        if (deferredCallable(current)) {
+          if (eager && !invoked) return;
+          if (covered(visitedFunctions.get(current), followImportedCalls, eager)) return;
+          if (visitedFunctions.size >= 1_000) {
+            limited = true;
+            return;
+          }
+          visitedFunctions.set(current, { followImportedCalls, eager });
+          const parameters = [...active, new Set(current.parameters.flatMap((parameter) => bindingNames(parameter.name)))];
+          const defaults = (name: ts.BindingName) => {
+            if (ts.isIdentifier(name)) return;
+            for (const element of name.elements) {
+              if (ts.isOmittedExpression(element)) continue;
+              if (element.initializer) walk(element.initializer, parameters);
+              defaults(element.name);
+            }
+          };
+          for (const parameter of current.parameters) {
+            if (parameter.initializer) walk(parameter.initializer, parameters);
+            defaults(parameter.name);
+          }
+          if (current.body) walk(current.body, [...active, functionBindings(current)]);
+          return;
+        }
+        if (ts.isBlock(current)) {
+          const nested = [...active, blockBindings(current.statements)];
+          for (const statement of current.statements) walk(statement, nested);
+          return;
+        }
+        if (ts.isCaseBlock(current)) {
+          const nested = [...active, blockBindings(current.clauses.flatMap((clause) => [...clause.statements]))];
+          ts.forEachChild(current, (child) => walk(child, nested));
+          return;
+        }
+        if (ts.isCatchClause(current)) {
+          const names = new Set(current.variableDeclaration ? bindingNames(current.variableDeclaration.name) : []);
+          walk(current.block, [...active, names]);
+          return;
+        }
+        if (ts.isForStatement(current) || ts.isForOfStatement(current) || ts.isForInStatement(current)) {
+          const initializer = current.initializer;
+          const names = new Set(initializer && ts.isVariableDeclarationList(initializer) && (initializer.flags & ts.NodeFlags.BlockScoped) !== 0
+            ? initializer.declarations.flatMap((declaration) => bindingNames(declaration.name)) : []);
+          ts.forEachChild(current, (child) => walk(child, [...active, names]));
+          return;
+        }
+        if (ts.isVariableDeclaration(current)) {
+          if (current.initializer) walk(current.initializer, active);
+          return;
+        }
+        if ((ts.isClassDeclaration(current) || ts.isClassExpression(current)) && current.name) {
+          const nested = [...active, new Set([current.name.text])];
+          ts.forEachChild(current, (child) => { if (child !== current.name) walk(child, nested); });
+          return;
+        }
+        if (ts.isCallExpression(current) && current.expression.kind === ts.SyntaxKind.ImportKeyword && current.arguments.length >= 1) {
+          const specifier = unwrap(current.arguments[0]);
+          if (ts.isStringLiteralLike(specifier)) {
+            const target = resolveModule(module, specifier.text);
+            if (target && contracts.has(target)) result.add(target);
+          }
+        }
+        if (followImportedCalls && ts.isCallExpression(current)) {
+          const implementation = callableMember(module, current.expression, active);
+          if (implementation) scan(implementation.node, implementation.path, false, resolvedCalls.has(current), true);
+          if (!resolvedCalls.has(current)) {
+            for (const argument of current.arguments) {
+              const callback = callbackValue(module, argument);
+              if (callback) scan(callback.node, callback.path, false, false, true);
+            }
+          }
+        }
+        if (ts.isIdentifier(current)) {
+          const parent = current.parent;
+          if ((ts.isPropertyAccessExpression(parent) && parent.name === current) ||
+            ((ts.isPropertyAssignment(parent) || ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent)) && parent.name === current) ||
+            (ts.isBindingElement(parent) && (parent.name === current || parent.propertyName === current)) || ts.isLabeledStatement(parent) || ts.isBreakStatement(parent) || ts.isContinueStatement(parent)) return;
+          if (active.some((scope) => scope.has(current.text))) return;
+          const local = lexicalBinding(current, current.text);
+          const imported = !local && info.importedNames.get(current.text);
+          if (imported) {
+            const target = resolveModule(module, imported.specifier);
+            const origin = target && (contracts.has(target) ? target : contractOrigin(target, imported.original));
+            if (origin) result.add(origin);
+          }
+          for (const binding of info.runtimeBindings) {
+            if (local || binding.namespace !== current.text) continue;
+            const target = resolveModule(module, binding.specifier);
+            if (target && contracts.has(target)) result.add(target);
+          }
+          const value = local ? local.node : info.functionDeclarations.get(current.text) ?? info.variableInitializers.get(current.text);
+          const resolved = value && resolveValue(module, value);
+          const invokedValue = invoked || isCallCallee(current);
+          if (resolved && !covered(visitedInitializers.get(resolved), followImportedCalls, eager) && !(eager && !invokedValue && deferredCallable(resolved))) {
+            if (visitedInitializers.size >= 1_000) limited = true;
+            else {
+              visitedInitializers.set(resolved, { followImportedCalls, eager });
+              scan(resolved, module, followImportedCalls, eager, invokedValue);
+            }
+          }
+        }
+        ts.forEachChild(current, (child) => walk(child, active));
+      };
+      walk(node, [], invoked);
+    };
+    const handle = (node: ts.Node, module: string, visiting = new Set<ts.Node>(), followImportedCalls = module === path) => {
+      if (visiting.has(node)) return;
+      if (visiting.size >= 1_000) {
+        limited = true;
+        return;
+      }
+      visiting.add(node);
+      const value = ts.isExpression(node) ? unwrap(node) : node;
+      if (ts.isPropertyAccessExpression(value) || ts.isElementAccessExpression(value)) {
+        const property = memberName(value);
+        const member = property === undefined ? undefined : memberValue(module, value.expression, property);
+        if (member) {
+          if (contracts.has(member.path)) result.add(member.path);
+          handle(member.node, member.path, visiting, false);
+        } else {
+          handle(value.expression, module, visiting, followImportedCalls);
+          scan(value, module, followImportedCalls);
+        }
+      } else if (ts.isCallExpression(value)) {
+        const callee = unwrap(value.expression);
+        if (ts.isIdentifier(callee)) {
+          const origin = !lexicalBinding(callee, callee.text) && contractOrigin(module, callee.text);
+          if (origin) result.add(origin);
+          else {
+            const implementation = identifierValue(module, callee);
+            if (implementation) handle(implementation.node, implementation.path, visiting, followImportedCalls && implementation.path === path && !implementation.selected);
+          }
+        } else {
+          const implementation = callableMember(module, callee, []);
+          if (implementation) handle(implementation.node, implementation.path, visiting, false);
+        }
+        scan(value.expression, module, followImportedCalls);
+        for (const argument of value.arguments) {
+          const callback = callbackValue(module, argument);
+          if (callback) handle(callback.node, callback.path, visiting, false);
+          scan(argument, module, followImportedCalls);
+        }
+      } else if (ts.isIdentifier(value)) {
+        const origin = !lexicalBinding(value, value.text) && contractOrigin(module, value.text);
+        if (origin) result.add(origin);
+        else {
+          const implementation = identifierValue(module, value);
+          if (implementation) handle(implementation.node, implementation.path, visiting, followImportedCalls && implementation.path === path && !implementation.selected);
+          else scan(value, module, followImportedCalls);
+        }
+      } else scan(value, module, followImportedCalls);
+    };
+    const origin = contractOrigin(path, method);
+    if (origin) result.add(origin);
+    else {
+      const implementation = implementationValue(path, method);
+      if (implementation) handle(implementation.node, implementation.path, new Set(), implementation.path === path && !implementation.selected);
+    }
+    return { contracts: result, limited };
   };
   const closures = new Map<string, Set<string>>();
   const closure = (path: string, clientOnly = false): Set<string> => {
@@ -516,6 +1019,7 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
     handlerUnlinked: baseline.handlerUnlinked,
     routesWithoutVersionedParser: baseline.routesWithoutVersionedParser,
     clientUnlinked: baseline.clientUnlinked,
+    undeclaredHandlerContracts: baseline.undeclaredHandlerContracts,
   };
   for (const [name, values] of Object.entries(maps)) {
     if (Object.keys(values).join("\0") !== Object.keys(values).sort().join("\0")) {
@@ -577,6 +1081,8 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
       }
     }
   }
+  const undeclaredHandlerContracts = new Map<string, Set<string>>();
+  const limitedHandlerRoutes = new Set<string>();
   for (const [path, entry] of Object.entries(manifest.routes)) {
     if (!routes.has(path)) report("route-unknown", path, "Manifest route does not exist");
     const hasContracts = Object.hasOwn(entry, "contracts");
@@ -589,6 +1095,25 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
     }
     if (routes.has(path) && !hasExempt) {
       const exportedMethods = new Set([...exportedValues(`app/api/${path}`).keys()].filter((name) => httpMethods.includes(name)));
+      const gaps = new Set<string>();
+      undeclaredHandlerContracts.set(path, gaps);
+      for (const method of exportedMethods) {
+        const declared = hasMethods ? methods?.[method]?.contracts : entry.contracts;
+        const references = referencedContracts(`app/api/${path}`, method);
+        if (references.limited) {
+          report("handler-analysis-limit", path, `${method} handler reference scan exceeded its analysis budget`);
+          limitedHandlerRoutes.add(path);
+          continue;
+        }
+        for (const contract of references.contracts) {
+          if (Array.isArray(declared) && declared.includes(contract)) continue;
+          const identity = hasMethods ? `${method} ${contract}` : contract;
+          gaps.add(identity);
+          if (!baseline.undeclaredHandlerContracts[path]?.includes(identity)) {
+            report("handler-contract-undeclared", path, `${method} references an undeclared contract: ${contract}`);
+          }
+        }
+      }
       if (!hasMethods && exportedMethods.size > 1) {
         report("method-unclassified", path, "Routes exporting multiple HTTP methods must classify every method");
       } else if (hasMethods && validMethodMap) {
@@ -650,6 +1175,17 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
         if (contracts.has(contract) && !toleratedClient.includes(contract) && !clientLinked(path, [contract])) {
           report("client-unlinked", path, `Declared contract is not client-linked: ${contract}`);
         }
+      }
+    }
+  }
+  for (const [path, tolerated] of Object.entries(baseline.undeclaredHandlerContracts)) {
+    if (!routes.has(path) || !Object.hasOwn(manifest.routes, path) || tolerated.length === 0) {
+      report("baseline-stale", path, "Handler contract gap no longer applies");
+    }
+    if (limitedHandlerRoutes.has(path)) continue;
+    for (const contract of tolerated) {
+      if (!undeclaredHandlerContracts.get(path)?.has(contract)) {
+        report("baseline-stale", path, `Handler contract gap no longer applies: ${contract}`);
       }
     }
   }
