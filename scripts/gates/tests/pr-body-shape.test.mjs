@@ -5,10 +5,14 @@ import test from "node:test";
 import { prBodyShapeFindings } from "../pr-body-shape.mjs";
 
 const title = "feat(home): change behavior";
-const labels = ["Before", "After", "Who notices", "Decide", "Risk"];
-const section = labels.map((label) => `**${label}:** none`).join("\n");
+const bulletLabels = ["Before", "After"];
+const labels = [...bulletLabels, "Who notices", "Decide", "Risk"];
+const lineFor = (label, value = "none") => bulletLabels.includes(label) ? `- **${label}:** ${value}` : `| **${label}** | ${value} |`;
+const section = `${lineFor("Before")}\n${lineFor("After")}\n\n| | |\n|---|---|\n${labels.slice(2).map((label) => lineFor(label)).join("\n")}`;
 const body = `## What changes\n${section}`;
-const findingFor = (label) => `## What changes needs a **${label}:** line: label and text on one line, no list marker, not a template placeholder.`;
+const findingFor = (label) => bulletLabels.includes(label)
+  ? `## What changes needs a \`- **${label}:** …\` bullet with text that is not a template placeholder.`
+  : `## What changes needs a \`| **${label}** | … |\` table row with text that is not a template placeholder.`;
 
 for (const type of ["product", "design", "feat", "fix", "test", "ops", "dx", "docs", "chore"]) {
   for (const scope of ["", "(home)"]) {
@@ -71,25 +75,26 @@ test("recognizes Markdown heading indentation, tabs, trailing whitespace and clo
 for (const label of labels) {
   for (const [name, replacement] of [
     ["missing", ""],
-    ["empty", `**${label}:** \t `],
-    ["comment-only", `**${label}:** <!-- none -->`],
-    ["fenced", `~~~\n**${label}:** none\n~~~`],
-    ["prose-prefixed", `Answer: **${label}:** none`],
+    ["empty", lineFor(label, " \t ")],
+    ["comment-only", lineFor(label, "<!-- none -->")],
+    ["fenced", `~~~\n${lineFor(label)}\n~~~`],
+    ["prose-prefixed", `Answer: ${lineFor(label)}`],
+    ["old bold-line", `**${label}:** none`],
   ]) {
     test(`rejects a ${name} ${label} line`, () => {
-      assert.deepEqual(prBodyShapeFindings(title, body.replace(`**${label}:** none`, replacement)), [findingFor(label)]);
+      assert.deepEqual(prBodyShapeFindings(title, body.replace(lineFor(label), replacement)), [findingFor(label)]);
     });
   }
 }
 
 test("rejects the template Who notices placeholder", () => {
-  const value = body.replace(/^\*\*Who notices:\*\*.*$/m, "**Who notices:** users / developers (name the command, job, or file) / operators / nobody (refactor)");
+  const value = body.replace(lineFor("Who notices"), lineFor("Who notices", "users / developers (name the command, job, or file) / operators / nobody (refactor)"));
   assert.deepEqual(prBodyShapeFindings(title, value), [findingFor("Who notices")]);
 });
 
 for (const placeholder of ["What happens today, in plain words.", "What happens once this merges."]) {
   test(`rejects the template placeholder: ${placeholder}`, () => {
-    assert.deepEqual(prBodyShapeFindings(title, body.replace("**Before:** none", `**Before:** ${placeholder}  `)), [findingFor("Before")]);
+    assert.deepEqual(prBodyShapeFindings(title, body.replace(lineFor("Before"), lineFor("Before", `${placeholder}  `))), [findingFor("Before")]);
   });
 }
 
@@ -98,11 +103,11 @@ test("required lines must be inside What changes, but deeper subsections do not 
   assert.deepEqual(prBodyShapeFindings(title, `## What changes\n### Details\n${section}`), []);
 });
 
-test("accepts 100 visible words and rejects 101, counting labels and prose", () => {
-  const words = section.match(/\S+/g).length;
-  const atLimit = `${body}\n${Array(100 - words).fill("word").join(" ")}`;
+test("accepts 200 visible words and rejects 201, counting labels and prose but not table markup", () => {
+  const words = 11;
+  const atLimit = `${body}\n${Array(200 - words).fill("word").join(" ")}`;
   assert.deepEqual(prBodyShapeFindings(title, atLimit), []);
-  assert.deepEqual(prBodyShapeFindings(title, `${atLimit} extra`), ["## What changes has 101 words; the limit is 100."]);
+  assert.deepEqual(prBodyShapeFindings(title, `${atLimit} extra`), ["## What changes has 201 words; the limit is 200."]);
   assert.deepEqual(prBodyShapeFindings(title, `${atLimit}\n## Preview\n${Array(200).fill("word").join(" ")}`), []);
 });
 
@@ -110,7 +115,7 @@ test("comments and fenced code cannot change the first heading, section boundary
   const hidden = `${Array(200).fill("hidden").join(" ")}\n## Failure modes`;
   const value = `<!-- ${hidden} -->\n\`\`\`md\n${hidden}\n\`\`\`\n${body}\n<!-- ${hidden} -->\n~~~md\n${hidden}\n~~~\n## Preview`;
   assert.deepEqual(prBodyShapeFindings(title, value.replace(/\n/g, "\r\n")), []);
-  const missingBefore = body.replace("**Before:** none", "<!-- **Before:** none -->\n<!-- ## Preview -->");
+  const missingBefore = body.replace(lineFor("Before"), `<!-- ${lineFor("Before")} -->\n<!-- ## Preview -->`);
   assert.deepEqual(prBodyShapeFindings(title, missingBefore), [findingFor("Before")]);
 });
 

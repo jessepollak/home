@@ -1,13 +1,15 @@
 ## What changes
 
-**Before:** What happens today, in plain words.
-**After:** What happens once this merges.
-**Who notices:** users / developers (name the command, job, or file) / operators / nobody (refactor)
+- **Before:** What happens today, in plain words.
+- **After:** What happens once this merges.
 
-**Decide:** none
-**Risk:** none
+| | |
+| --- | --- |
+| **Who notices** | users / developers (name the command, job, or file) / operators / nobody (refactor) |
+| **Decide** | none |
+| **Risk** | none |
 
-<!-- Write for someone who has not read the issue or the diff. Name the concrete thing that changes (screen, route, command, CI job, table) and describe behavior, not mechanics. At most 100 words. Decide: a choice you made that Jesse might reverse, else "none"; an unmet required verification rung, a skipped Real money check, or a pending operator action always goes here as "approve without …". Risk: the one thing most likely to go wrong, else "none"; known gaps belong in the area's debt issue, not here. No edge-case catalogs, review-pass names, head/rung jargon, or history. Rewrite on every push. Use only this template's `## ` sections; add `## State transitions` only for a lifecycle change. -->
+<!-- Write for someone who has not read the issue or the diff. Name the concrete thing that changes (screen, route, command, CI job, table) and describe behavior, not mechanics. At most 200 words; keep each bullet and table cell on one line. Decide: a choice you made that Jesse might reverse, else "none"; an unmet required verification rung, a skipped Real money check, or a pending operator action always goes here as "approve without …". Risk: the one thing most likely to go wrong, else "none"; known gaps belong in the area's debt issue, not here. No edge-case catalogs, review-pass names, head/rung jargon, or history. Rewrite on every push. Use only this template's `## ` sections; add `## State transitions` only for a lifecycle change. -->
 
 ## Preview
 

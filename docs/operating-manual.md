@@ -113,9 +113,9 @@ The bot-dedicated Home account is configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not
 
 ## PR evidence and media
 
-Lead the PR body with `## What changes` (at most 100 words), written for a reader who has not seen the issue or the diff:
+Lead the PR body with `## What changes` (at most 200 words), written for a reader who has not seen the issue or the diff. It is two bullets, `- **Before:** …` and `- **After:** …`, followed by a two-column table with **Who notices**, **Decide**, and **Risk** rows, as in the template:
 
-- **Before** and **After**: one plain sentence each describing behavior, naming the concrete thing that changes (screen, route, command, CI job, table). Non-user-facing changes say what a developer, CI run, or operator now sees differently; a pure refactor says behavior is unchanged and what got simpler.
+- **Before** and **After**: one to three plain sentences each describing behavior, naming the concrete thing that changes (screen, route, command, CI job, table). Non-user-facing changes say what a developer, CI run, or operator now sees differently; a pure refactor says behavior is unchanged and what got simpler.
 - **Who notices**: users, developers (name the command or job), operators, or nobody.
 - **Decide**: a choice made without Jesse that he might reverse, including issue deviations; otherwise "none". An unmet required verification rung, a skipped `## Real money` check, or a pending `## Operator action required` always appears here as "approve without …".
 - **Risk**: the single most likely way this goes wrong; otherwise "none". Known gaps and deferred follow-ups go to the area's debt issue, not a list here.

@@ -6,7 +6,12 @@ const factoryTitle = /^(?:product|design|feat|fix|test|ops|dx|docs|chore)(?:\([^
 const allowedHeadings = new Set([
   "What changes", "Preview", "Verification", "State transitions", "Test plan", "Review", "Real money", "Operator action required",
 ]);
-const labels = ["Before", "After", "Who notices", "Decide", "Risk"];
+const bulletLabels = ["Before", "After"];
+const tableLabels = ["Who notices", "Decide", "Risk"];
+const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const bulletLine = (label) => new RegExp(`^[-*][ \\t]+\\*\\*${escape(label)}:\\*\\*(.*)$`);
+const tableLine = (label) => new RegExp(`^\\|[ \\t]*\\*\\*${escape(label)}\\*\\*[ \\t]*\\|(.*?)\\|?[ \\t]*$`);
+const tableSeparator = /^\|?[ \t:|-]+\|?[ \t]*$/;
 const placeholders = new Set([
   "What happens today, in plain words.",
   "What happens once this merges.",
@@ -28,14 +33,18 @@ export function prBodyShapeFindings(title, body) {
     if (section !== headings[0]) findings.push("## What changes must be the first level-two heading.");
     const next = headings.find((heading) => heading.index > section.index);
     const content = lines.slice(section.index + 1, next?.index ?? lines.length);
-    const words = content.join("\n").match(/\S+/g)?.length ?? 0;
-    if (words > 100) findings.push(`## What changes has ${words} words; the limit is 100.`);
-    for (const label of labels) {
-      const prefix = `**${label}:**`;
-      const values = content.filter((line) => line.startsWith(prefix)).map((line) => line.slice(prefix.length).trim());
-      if (!values.some((value) => value && !placeholders.has(value))) {
-        findings.push(`## What changes needs a ${prefix} line: label and text on one line, no list marker, not a template placeholder.`);
-      }
+    const prose = content.filter((line) => !tableSeparator.test(line)).join("\n").replace(/^[-*][ \t]+/gm, "").replace(/\|/g, " ");
+    const words = prose.match(/\S+/g)?.length ?? 0;
+    if (words > 200) findings.push(`## What changes has ${words} words; the limit is 200.`);
+    const filled = (pattern) => content.some((line) => {
+      const value = pattern.exec(line)?.[1]?.trim();
+      return Boolean(value) && !placeholders.has(value);
+    });
+    for (const label of bulletLabels) {
+      if (!filled(bulletLine(label))) findings.push(`## What changes needs a \`- **${label}:** …\` bullet with text that is not a template placeholder.`);
+    }
+    for (const label of tableLabels) {
+      if (!filled(tableLine(label))) findings.push(`## What changes needs a \`| **${label}** | … |\` table row with text that is not a template placeholder.`);
     }
   }
   for (const heading of headings) {
