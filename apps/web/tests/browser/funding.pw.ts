@@ -2,6 +2,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { typeAmount } from "./fixtures/type-amount";
 import { expectNavigation, NAVIGATION_BUDGET_MS } from "./fixtures/navigation-budget";
+import { waitForShellHydration } from "./fixtures/shell-hydration";
 
 test.use({ hasTouch: true });
 
@@ -21,6 +22,7 @@ test("IDRX funding reaches payment instructions and receipt", { tag: "@smoke" },
   await installApiFixtures(page);
   await signIn(page);
   await page.getByRole("link", { name: "Add money", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible({ timeout: NAVIGATION_BUDGET_MS });
   const method = page.getByRole("button", { name: /Deposit IDR/ });
   await expect(method).toContainText("IDRX · Bank transfer · Mandiri");
   await method.click();
@@ -55,11 +57,13 @@ test("Add money before hydration navigates to the IDRX funding flow", { tag: "@s
     await expect(trigger).toBeVisible();
     await expect(trigger).toHaveAttribute("href", "/home?flow=add-money");
     await expect.poll(() => heldChunks).toBeGreaterThan(0);
+    await expect(page.locator("[data-hydrated='true']")).toHaveCount(0);
     await trigger.tap({ noWaitAfter: true });
     await expectNavigation(page, "/home?flow=add-money");
     await expect(page.getByRole("button", { name: "Account", exact: true })).toBeDisabled();
     releaseChunks();
     await expect(page.getByRole("dialog", { name: "Add money", exact: true })).toBeVisible({ timeout: NAVIGATION_BUDGET_MS });
+    await waitForShellHydration(page);
   } finally {
     releaseChunks();
     await page.unroute("**/_next/static/chunks/**/*.js", holdChunk);
