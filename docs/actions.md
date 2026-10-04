@@ -76,7 +76,7 @@ create index actions_open_by_account on actions (account_address) where confirme
 | 2 | The same deposit records a definite outcome during the request | Confirmed/failed stays in `retainedSavingsDeposits` for 24h after `outcome_recorded_at`, within the 30-day confirmation bound | Confirmed: held until the balance snapshot postdates settlement; failed: not blocking, and the money result sees failed |
 | 3 | Older deposit with an outcome already recorded (succeeded/reverted/not_submitted) | Included if recorded within the last 24h; excluded after that window or the 30-day confirmation bound | While retained, confirmed uses the balance-postdates rule and failed is not blocking; once excluded, Start saving is offered when unfunded |
 
-Tests: `server/actions/store.postgres.test.ts`, `client/cash/cash-experience.test.tsx`, and `client/actions/money-action-outcome.test.tsx`.
+Tests: `server/actions/store.postgres.test.ts`.
 
 ### Cash-out retention
 

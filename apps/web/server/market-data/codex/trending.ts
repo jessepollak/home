@@ -328,7 +328,6 @@ async function fetchTrendingMemeAdmission({
   return normalizeTrendingMemeAdmission(payload, address, networkId);
 }
 
-/** @public exercised by server/market-data/codex/trending.test.ts */
 export function normalizeTrendingMemes(
   data: unknown,
   fetchedAt: Date,

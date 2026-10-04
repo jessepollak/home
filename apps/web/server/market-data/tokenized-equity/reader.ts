@@ -82,8 +82,7 @@ export async function readTokenizedEquityReferences(
   });
 }
 
-/** @public exercised by server/market-data/tokenized-equity/reader.test.ts */
-export const TOKENIZED_EQUITY_MAX_IN_FLIGHT = 16;
+const TOKENIZED_EQUITY_MAX_IN_FLIGHT = 16;
 
 export function createTokenizedEquityReader({
   read = readTokenizedEquityReferences,

@@ -6,7 +6,7 @@ import { caughtByPrBodyFindings, prBodyDetectors } from "../caught-by-pr-body.mj
 
 const title = "fix(home): repair state";
 
-for (const value of ["lint", "bot", "review", "browser", "production"]) {
+for (const value of ["lint", "unit", "bot", "review", "browser", "production"]) {
   test(`accepts ${value} in a scoped fix PR body`, () => {
     assert.deepEqual(caughtByPrBodyFindings(title, `## Test plan\nFailure-cases: 0/0\nCaught-by: ${value}`), []);
   });
@@ -18,6 +18,9 @@ for (const [name, body] of [
   ["invalid detector", "Caught-by: manual"],
   ["two different detectors", "Caught-by: lint\nCaught-by: review"],
   ["identical duplicate plus a different detector", "Caught-by: lint\nCaught-by: lint\nCaught-by: bot"],
+  ["unit plus a different detector", "Caught-by: unit\nCaught-by: review"],
+  ["unit only in HTML comment", "<!-- Caught-by: unit -->"],
+  ["unit only in fenced code", "```text\nCaught-by: unit\n```"],
   ["only in HTML comment", "<!--\nCaught-by: lint\n-->"],
   ["only in inline HTML comment", "<!-- Caught-by: lint -->"],
   ["only in fenced code", "```text\nCaught-by: lint\n```"],

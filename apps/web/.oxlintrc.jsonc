@@ -346,19 +346,14 @@
         "**/*smoke-fixture*.{ts,tsx}"
       ],
       "excludeFiles": [
-        "server/actions/follow-through.test.ts",
         "server/actions/handler.trade.test.ts",
-        "server/actions/kinds/trade/cdp-swaps.test.ts",
         "server/actions/kinds/trade/prepare.test.ts",
-        "server/funding/cash-out-progress.test.ts",
-        "server/funding/core/customer-service.test.ts",
         "server/funding/core/service.test.ts",
         "server/funding/core/user-token-rotation.test.ts",
         "server/funding/core/user-token-service.test.ts",
         "client/account/base-account-eip5792-recovery.test.ts",
         "client/account/cdp-money-action-execution.test.ts",
-        "client/account/owner-fence.test.tsx",
-        "client/account/restore-stage.test.tsx"
+        "client/account/owner-fence.test.tsx"
       ],
       "rules": {
         "typescript/no-unsafe-call": "error",

@@ -27,9 +27,6 @@
     "apps/web/client/account/native-base-bridge.tsx": {
       "home/no-silent-catch": 1
     },
-    "apps/web/client/account/sdk-activation.test.ts": {
-      "home/no-self-referential-expectation": 1
-    },
     "apps/web/client/activity/activity-ledger-sheet.tsx": {
       "react/no-array-index-key": 1
     },
@@ -73,9 +70,6 @@
     },
     "apps/web/client/money-modal/money-modal.tsx": {
       "home/no-silent-catch": 1
-    },
-    "apps/web/client/observability/client-reporter.test.ts": {
-      "home/no-self-referential-expectation": 1
     },
     "apps/web/client/query/fresh-until-moved.ts": {
       "home/no-silent-catch": 1
@@ -127,9 +121,6 @@
     "apps/web/instrumentation.ts": {
       "home/no-silent-catch": 2
     },
-    "apps/web/server/activity/token-metadata-rpc.test.ts": {
-      "home/no-self-referential-expectation": 2
-    },
     "apps/web/server/auth/cdp-render-session.test.ts": {
       "home/no-self-referential-expectation": 2
     },
@@ -142,9 +133,6 @@
     "apps/web/server/balances/price.ts": {
       "home/no-silent-catch": 3
     },
-    "apps/web/server/cards/stripe/transactions.test.ts": {
-      "home/no-real-waits": 1
-    },
     "apps/web/server/chain/rpc.ts": {
       "home/no-silent-catch": 1
     },
@@ -156,21 +144,6 @@
     },
     "apps/web/server/funding/core/base-receipt.ts": {
       "home/no-silent-catch": 1
-    },
-    "apps/web/server/market-data/codex/history.test.ts": {
-      "home/no-self-referential-expectation": 1
-    },
-    "apps/web/server/market-data/codex/raw-quotes.test.ts": {
-      "home/no-self-referential-expectation": 1
-    },
-    "apps/web/server/market-data/codex/recognized-catalog.test.ts": {
-      "home/no-self-referential-expectation": 1
-    },
-    "apps/web/server/market-data/codex/token-lookup.test.ts": {
-      "home/no-self-referential-expectation": 1
-    },
-    "apps/web/server/market-data/codex/trending.test.ts": {
-      "home/no-self-referential-expectation": 2
     },
     "apps/web/server/morpho/client.ts": {
       "home/no-silent-catch": 1

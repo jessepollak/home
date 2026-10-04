@@ -133,9 +133,7 @@ The Bun mock policy applies to test files and test infrastructure (including sup
 
 - `tests/server-only-preload.ts` → `server-only`;
 - `app/api/consolidated-native-base-session.test.ts` → `@/server/cdp/provider`;
-- `client/home/home-experience.test.tsx` → `next/navigation`;
-- `client/account/composite-account-provider.test.tsx` → `@coinbase/cdp-hooks`, `./native-base-bridge`, `@base-org/account`;
-- `client/funding/funding-actions.test.tsx` → `next/navigation`.
+- `app/api/savings/vaults/route.test.ts` → `@/server/morpho`, `next/server`.
 
 Calls must resolve by scope to `mock` imported from `bun:test`, either directly, through a named or namespace import, or through an immutable local alias; computed literal `module` members are included. The first argument must be static, and the normalized `apps/web`-relative path must exactly match the reviewed policy map. A new path/specifier pair is a policy-map change. The rule does not infer Jest/Vitest cleanup semantics and does not require `mock.restore()` for the reviewed file-level mocks.
 

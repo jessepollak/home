@@ -180,11 +180,3 @@ bun test
 bun check
 git diff --check
 ```
-
-An opt-in live public smoke test is available and performs one bounded V1 candidate query:
-
-```sh
-MORPHO_LIVE_SMOKE=1 bun test apps/web/server/morpho/live.test.ts
-```
-
-The live smoke test verifies provenance, Base chain identity, exact USDC address, V1 version, and a non-empty configured shortlist. It does not execute a transaction.
