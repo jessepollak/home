@@ -242,6 +242,8 @@ export const Compositions: Story = {
     for (const name of ["Home", "Home Loading", "Invest", "Orbit Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
       await expect(await within(surface).findByRole("heading", { name }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     }
+    await userEvent.keyboard("{PageDown}");
+    section(canvas, "Card Onboarding").scrollIntoView();
     await expect(await within(surface).findByTitle("Compositions · Card Onboarding", {}, { timeout: INITIAL_MODULE_TIMEOUT }))
       .toHaveAttribute("width", "390");
     await expect(within(surface).queryByRole("alert")).not.toBeInTheDocument();

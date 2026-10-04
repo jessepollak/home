@@ -21,7 +21,13 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/.storybook/",
 ] as const;
 
-const STORYBOOK_RUNTIME_EXACT_PATHS = ["/vite-inject-mocker-entry.js"] as const;
+const STORYBOOK_RUNTIME_EXACT_PATHS = [
+  "/vite-inject-mocker-entry.js",
+  "/app/coverage/page.tsx",
+  "/app/admin/operator-shell.tsx",
+  "/tests/helpers/pin-clock.ts",
+  "/tests/browser/feature-map/search-fixtures.ts",
+] as const;
 
 export function isStorybookRuntimeRequest(request: Request, storybookOrigin: string): boolean {
   const url = new URL(request.url);

@@ -127,6 +127,50 @@ describe("library compositions", () => {
       .toBe(`export const notUsedInProduct = ${JSON.stringify(expectedNotUsedInProduct)};`);
   }, 15_000);
 
+  test("coverage is lazy, cached across concurrent loads and recomputed after a source edit", async () => {
+    let names: string[] = [];
+    let fail = false;
+    let computations = 0;
+    const plugin = libraryImportsPlugin("/fixture", async () => {
+      computations += 1;
+      if (fail) throw new Error("Coverage failed");
+      return names;
+    });
+    const watcher = Object.assign(new EventEmitter(), { add: (_path: unknown) => {} });
+    const server = { watcher, moduleGraph: { getModuleById: () => undefined }, ws: { send() {} } };
+    if (typeof plugin.configureServer !== "function" || typeof plugin.load !== "function" || typeof plugin.closeBundle !== "function") {
+      throw new Error("Missing coverage hooks");
+    }
+    const loadCoverage = plugin.load;
+    const load = async (): Promise<unknown> => {
+      const result: unknown = await Reflect.apply(loadCoverage, { addWatchFile() {} }, ["\u0000virtual:composition-coverage"]);
+      return result;
+    };
+    try {
+      Reflect.apply(plugin.configureServer, undefined, [server]);
+      expect(await Reflect.apply(plugin.load, {}, ["unrelated-story.tsx"])).toBeUndefined();
+      expect(computations).toBe(0);
+      const code = "export const notUsedInProduct = [];";
+      expect(await Promise.all([load(), load()])).toEqual([code, code]);
+      expect(computations).toBe(1);
+      names = ["button"];
+      expect(await load()).toBe(code);
+      expect(computations).toBe(1);
+      watcher.emit("change", "/fixture/app/page.tsx");
+      expect(await load()).toBe('export const notUsedInProduct = ["button"];');
+      expect(computations).toBe(2);
+      fail = true;
+      watcher.emit("change", "/fixture/app/page.tsx");
+      await expect(load()).rejects.toThrow("Coverage failed");
+      fail = false;
+      names = [];
+      expect(await load()).toBe(code);
+      expect(computations).toBe(4);
+    } finally {
+      Reflect.apply(plugin.closeBundle, undefined, []);
+    }
+  });
+
   test("real source edits and composition additions invalidate the coverage module, then unsubscribe", () => {
     const plugin = libraryImportsPlugin("/fixture");
     const watcher = Object.assign(new EventEmitter(), { add: (_path: unknown) => {} });

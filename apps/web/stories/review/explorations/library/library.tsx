@@ -100,16 +100,17 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
 }) {
   const compositions = useMemo(() => compositionEntries(index), [index]);
   const [notUsedInProduct, setNotUsedInProduct] = useState<string[]>([]);
-  useEffect(() => {
-    let live = true;
-    loadNotUsedInProduct().then((names) => { if (live) setNotUsedInProduct(names); }, () => undefined);
-    return () => { live = false; };
-  }, []);
   const compositionGroups = new Set(compositions.map((entry) => entry.title)).size;
   const [original] = useState(() => restoredLibraryUrl(catalog, compositions));
   const [selected, setSelected] = useState(original.selected);
   const overview = selected === OVERVIEW;
   const composing = selected === COMPOSITIONS;
+  useEffect(() => {
+    if (!composing) return;
+    let live = true;
+    loadNotUsedInProduct().then((names) => { if (live) setNotUsedInProduct(names); }, () => undefined);
+    return () => { live = false; };
+  }, [composing]);
   const foundation = isFoundation(selected) ? selected : null;
   const [focus, setFocus] = useState<string | null>(original.focus);
   const [overrides, setOverrides] = useState<Record<string, PropValue>>(original.overrides);

@@ -148,10 +148,11 @@ export async function compositionNotUsedInProduct(root = webRoot): Promise<strin
   return catalog.flat().filter((name) => !used.has(name)).sort();
 }
 
-export function libraryImportsPlugin(root = webRoot): Plugin {
+export function libraryImportsPlugin(root = webRoot, computeCoverage: () => Promise<string[]> = () => compositionNotUsedInProduct(root)): Plugin {
   const uiRoot = join(root, "components/ui");
   const matches = (file: string) => /^(?:[^/]+\.(?:ts|tsx)|[^/]+\/index\.tsx)$/.test(normalizePath(relative(uiRoot, file)));
   let cleanup: (() => void) | undefined;
+  let compositionCoverage: Promise<string> | undefined;
   return {
     name: "library-imports",
     resolveId(id) {
@@ -160,8 +161,16 @@ export function libraryImportsPlugin(root = webRoot): Plugin {
     },
     async load(id) {
       if (id === compositionResolvedId) {
-        const notUsedInProduct = await compositionNotUsedInProduct(root);
-        return `export const notUsedInProduct = ${JSON.stringify(notUsedInProduct)};`;
+        if (!compositionCoverage) {
+          const pending = computeCoverage()
+            .then((names) => `export const notUsedInProduct = ${JSON.stringify(names)};`)
+            .catch((error: unknown) => {
+              if (compositionCoverage === pending) compositionCoverage = undefined;
+              throw error;
+            });
+          compositionCoverage = pending;
+        }
+        return compositionCoverage;
       }
       if (id !== resolvedId) return;
       const entries = await readdir(uiRoot, { withFileTypes: true });
@@ -189,6 +198,7 @@ export function libraryImportsPlugin(root = webRoot): Plugin {
       const changed = (file: string) => {
         const local = normalizePath(relative(root, file));
         if (!local.startsWith("../") && !local.split("/").includes("node_modules") && /\.[cm]?[jt]sx?$/.test(local)) {
+          compositionCoverage = undefined;
           const coverage = server.moduleGraph.getModuleById(compositionResolvedId);
           if (coverage) {
             server.moduleGraph.invalidateModule(coverage);

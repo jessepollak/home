@@ -61,8 +61,8 @@ export function FrameSection({ target, theme, args, initialArgs = {}, annotating
 }) {
   const item = useMemo(() => ({ id: target.story, story: target.story }), [target.story]);
   const frame = useRef<HTMLIFrameElement>(null);
-  const [metric, setMetric] = useState<Metric>({ id: item.id, story: item.story, status: "loading" });
-  const ready = metric.status === "rendered";
+  const [metric, setMetric] = useState<Metric>({ id: item.id, story: item.story, status: frameSource === "blank" ? "rendered" : "loading" });
+  const ready = metric.status === "rendered" && frameSource !== "blank";
   const [initial] = useState(() => ({ theme, args: JSON.stringify(initialArgs),
     src: `${storyCanvasUrl(item.story)}&globals=${encodeURIComponent(`theme:${theme}`)}` }));
   const applied = useRef(initial.args);
@@ -142,10 +142,12 @@ export function FrameSection({ target, theme, args, initialArgs = {}, annotating
     startDeadline();
   }, [cancel, startDeadline, item.id, item.story]);
   useLayoutEffect(() => {
+    if (frameSource === "blank") return;
     startDeadline();
     return cancel;
-  }, [cancel, startDeadline]);
+  }, [cancel, startDeadline, frameSource]);
   const mark = useCallback((_: string, patch: Partial<Metric>) => {
+    if (frameSource === "blank") return;
     if (patch.status === "loaded" && loads.current++ > 0) begin();
     if (patch.status === "loaded") {
       stopInteractions.current?.();
@@ -188,11 +190,12 @@ export function FrameSection({ target, theme, args, initialArgs = {}, annotating
       }, playback.current);
     }
     if (patch.status !== "rendered") setMetric((current) => ({ ...current, ...patch }));
-  }, [begin, fail, item.story]);
+  }, [begin, fail, item.story, frameSource]);
   const finish = useCallback((_: string, status: "rendered" | "errored", error?: string) => {
+    if (frameSource === "blank") return;
     if (isFrameLoaded(previewApi(frame.current)?.currentRender, item.story)) playback.current.started = true;
     if (status === "errored" && (!playback.current.started || error)) fail(error);
-  }, [fail, item.story]);
+  }, [fail, item.story, frameSource]);
   useEffect(() => {
     if (!ready || appliedTheme.current === theme) return;
     const load = generation.current;

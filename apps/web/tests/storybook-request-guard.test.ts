@@ -53,6 +53,22 @@ describe("Storybook unexpected-request guard", () => {
     }
   });
 
+  for (const path of ["/app/coverage/page.tsx", "/app/admin/operator-shell.tsx", "/tests/helpers/pin-clock.ts", "/tests/browser/feature-map/search-fixtures.ts"]) {
+    test(`allows only same-origin GET and HEAD for composition module ${path}`, () => {
+      for (const method of ["GET", "HEAD"]) {
+        expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}${path}?t=1`, { method }), ORIGIN)).not.toThrow();
+      }
+      expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}${path}`, { method: "POST" }), ORIGIN)).toBeFalse();
+      expect(isStorybookRuntimeRequest(new Request(`https://provider.example.invalid${path}`), ORIGIN)).toBeFalse();
+    });
+  }
+
+  test("exact composition allowances do not open app routes or other test helpers", () => {
+    for (const path of ["/app/coverage/page.tsx.json", "/app/admin/page.tsx", "/app/api/cards/route.ts", "/tests/helpers/private.ts", "/tests/browser/feature-map/private.ts", "/api/cards"]) {
+      expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}${path}`), ORIGIN)).toThrow("[Storybook request guard]");
+    }
+  });
+
   test("fails visibly for unexpected component, API, and external requests", () => {
     for (const request of [
       new Request(`${ORIGIN}/api/balances`),

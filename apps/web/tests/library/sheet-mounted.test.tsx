@@ -1,4 +1,4 @@
-import { requireInstance, requireValue } from "./fixtures/runtime";
+import { isolateFrameDocuments, requireInstance, requireValue } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -17,13 +17,16 @@ const originalCancel = globalThis.cancelAnimationFrame;
 const originalIntersection = globalThis.IntersectionObserver;
 let next = 0;
 const callbacks = new Map<number, FrameRequestCallback>();
+let restoreFrameDocuments: () => void;
 beforeEach(() => {
+  restoreFrameDocuments = isolateFrameDocuments();
   callbacks.clear();
   Reflect.deleteProperty(globalThis, "IntersectionObserver");
   globalThis.requestAnimationFrame = (callback) => { callbacks.set(++next, callback); return next; };
   globalThis.cancelAnimationFrame = (id) => { callbacks.delete(id); };
 });
 afterEach(() => {
+  restoreFrameDocuments();
   cleanup();
   globalThis.requestAnimationFrame = originalRequest;
   globalThis.cancelAnimationFrame = originalCancel;
@@ -41,7 +44,7 @@ function story(id: string, Story: SheetStory["Story"], source = "", frame: Sheet
 }
 function sheet(stories: SheetStory[]) {
   const props = { root: null, component: "Fixture", changed: false, stories, theme: "light", focused: null,
-    focusedArgs: null, annotating: false, frameSource: "blank" as const,
+    focusedArgs: null, annotating: false, frameSource: "story" as const,
     onToggle: (_id: string) => {}, onEscape: () => {}, onExitAnnotate: () => {} };
   const view = render(<VariantSheet {...props} />);
   return { ...view, update: (patch: Partial<Parameters<typeof VariantSheet>[0]>) => {

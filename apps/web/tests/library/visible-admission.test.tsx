@@ -1,4 +1,4 @@
-import { requireValue, requireInstance } from "./fixtures/runtime";
+import { isolateFrameDocuments, requireValue, requireInstance } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
@@ -14,6 +14,7 @@ const originalRequest = globalThis.requestAnimationFrame;
 const originalCancel = globalThis.cancelAnimationFrame;
 const callbacks = new Map<number, FrameRequestCallback>();
 const deadlines = new Map<number, () => void>();
+let restoreFrameDocuments: () => void;
 let next = 0;
 
 class Intersection implements IntersectionObserver {
@@ -55,6 +56,7 @@ class Resize implements ResizeObserver {
 }
 
 beforeEach(() => {
+  restoreFrameDocuments = isolateFrameDocuments();
   Intersection.instances = [];
   Resize.instances = [];
   callbacks.clear();
@@ -77,6 +79,7 @@ beforeEach(() => {
   };
 });
 afterEach(() => {
+  restoreFrameDocuments();
   cleanup();
   globalThis.IntersectionObserver = originalIntersection;
   globalThis.ResizeObserver = originalResize;
@@ -92,7 +95,7 @@ function story(id: string, frame: SheetStory["frame"] = "Library override"): She
 }
 function sheet(stories = [story("frame")], focused: string | null = null, root: HTMLElement | null = null) {
   const props = { root, component: "Fixture", changed: false, stories, theme: "light", focused,
-    focusedArgs: null, annotating: false, frameSource: "blank" as const,
+    focusedArgs: null, annotating: false, frameSource: "story" as const,
     onToggle: () => {}, onEscape: () => {}, onExitAnnotate: () => {} };
   const view = render(<VariantSheet {...props} />, root ? { container: root } : undefined);
   return { ...view, update: (patch: Partial<Parameters<typeof VariantSheet>[0]>) => {
@@ -119,6 +122,25 @@ function preview(iframe: HTMLIFrameElement, id: string, phase = "rendering") {
   fireEvent.load(iframe);
   return currentRender;
 }
+
+test("more than three blank frames settle immediately and release every loading slot", () => {
+  const view = sheet([1, 2, 3, 4, 5].map((id) => story(String(id))));
+  view.update({ frameSource: "blank" });
+  for (let index = 0; index < 5; index++) observers(index).nearby.emit(0.01, 1);
+  expect(view.container.querySelectorAll("iframe")).toHaveLength(5);
+  expect(view.queryAllByRole("status")).toHaveLength(0);
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(deadlines.size).toBe(0);
+  expect(callbacks.size).toBe(0);
+});
+
+test("a real frame waits for its preview rather than settling like a blank placeholder", () => {
+  const view = sheet();
+  show();
+  expect(view.getByTitle("Fixture · frame")).toBeTruthy();
+  expect(view.getByRole("status").textContent).toBe("Loading frame…");
+  expect(deadlines.size).toBe(1);
+});
 
 test("playing clears its deadline, releases a slot and stays live without finishing play", () => {
   const view = sheet([1, 2, 3, 4].map((id) => story(String(id))));

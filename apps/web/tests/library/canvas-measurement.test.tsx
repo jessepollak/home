@@ -1,4 +1,4 @@
-import { requireValue, requireInstance } from "./fixtures/runtime";
+import { isolateFrameDocuments, requireValue, requireInstance } from "./fixtures/runtime";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -14,6 +14,7 @@ const originalRequest = globalThis.requestAnimationFrame;
 const originalCancel = globalThis.cancelAnimationFrame;
 const originalWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
 const callbacks = new Map<number, FrameRequestCallback>();
+let restoreFrameDocuments: () => void;
 let next = 0;
 let width = 390;
 class Resize implements ResizeObserver {
@@ -34,6 +35,7 @@ class Intersection implements IntersectionObserver {
   disconnect() {}
 }
 beforeEach(() => {
+  restoreFrameDocuments = isolateFrameDocuments();
   Resize.all = [];
   callbacks.clear();
   width = 390;
@@ -44,6 +46,7 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => width });
 });
 afterEach(() => {
+  restoreFrameDocuments();
   cleanup();
   globalThis.ResizeObserver = originalResize;
   globalThis.IntersectionObserver = originalIntersection;
@@ -63,7 +66,7 @@ function story(id: string, viewport?: { width: number; height: number }): SheetS
     argTypes: {}, initialArgs: {}, themePinned: false, viewport };
 }
 const defaults = { root: null, component: "Fixture", changed: false, theme: "light", focused: null,
-  focusedArgs: null, annotating: false, frameSource: "blank" as const,
+  focusedArgs: null, annotating: false, frameSource: "story" as const,
   onToggle: () => {}, onEscape: () => {}, onExitAnnotate: () => {} };
 
 for (const interrupt of [false, true]) {
