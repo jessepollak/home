@@ -94,6 +94,9 @@ export function currencyRegistryDrift(input: {
       addPair("invalid-pair", `Pair ${pair.id} is invalid or duplicated`, pair.id);
     }
     pairKeys.add(key);
+    if (pair.status !== "verified" && !pair.reason?.trim()) {
+      addPair("undispositioned-pair", `Pair ${pair.id} is ${pair.status} without a reason`, pair.id);
+    }
     if (pair.status === "verified") {
       if (isRegistryVerificationDate(pair.verifiedAt, asOf) &&
         asOf.getTime() - Date.parse(`${pair.verifiedAt}T00:00:00Z`) > CONVERT_PAIR_MAX_AGE_DAYS * 86_400_000) {
