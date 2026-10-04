@@ -1,11 +1,12 @@
 import "server-only";
 
 import { decodeAbiParameters, encodeAbiParameters, hashTypedData, parseAbiParameters } from "viem";
+import { emitServerEvent } from "@/server/observability/log";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { isRecord } from "@/shared/guards";
 import type { Address, Hex } from "@/shared/trading/server-types";
 import type { SwapQuote } from "./cdp-swaps";
-import { PERMIT2_ADDRESS, TradePreparationError, validatePermit2 } from "./permit2";
+import { PERMIT2_ADDRESS, TradePreparationError, parseUint, validatePermit2 } from "./permit2";
 
 const USDC = BASE_USDC_ADDRESS.toLowerCase() as Address;
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -199,9 +200,6 @@ function basicPool(action: Hex, context: ActionContext): Address | null {
     validBasicCall(data, offset, context) ? pool.toLowerCase() as Address : null;
 }
 
-function permitUint(value: unknown): bigint | null {
-  return typeof value === "string" && /^(?:0|[1-9][0-9]*)$/.test(value) ? BigInt(value) : null;
-}
 
 function permitMessage(context: ActionContext): Record<string, unknown> | null {
   const typed = context.quote.permit2?.eip712;
@@ -212,7 +210,7 @@ function permitBoundsMatch(context: ActionContext): boolean {
   const message = permitMessage(context);
   const permitted = message?.permitted;
   return isRecord(permitted) && typeof permitted.token === "string" && permitted.token.toLowerCase() === context.fromToken &&
-    permitUint(permitted.amount) === context.request.fromAmount &&
+    parseUint(permitted.amount) === context.request.fromAmount &&
     typeof message?.spender === "string" && message.spender.toLowerCase() === context.router;
 }
 
@@ -229,7 +227,7 @@ function validateTransferFrom(action: Hex, context: ActionContext): boolean {
     return [routedPool(other)];
   });
   return token === context.fromToken && amount === context.request.fromAmount &&
-    nonce === permitUint(message?.nonce) && deadline === permitUint(message?.deadline) &&
+    nonce === parseUint(message?.nonce) && deadline === parseUint(message?.deadline) &&
     (recipient === context.router.toLowerCase() || pools.includes(recipient));
 }
 
@@ -237,7 +235,7 @@ function validateV4Vip(action: Hex, context: ActionContext, index: number): bool
   const message = permitMessage(context);
   return index === 0 && addressWord(action, 4) === context.router.toLowerCase() &&
     addressWord(action, 36) === context.fromToken && word(action, 68) === context.request.fromAmount &&
-    word(action, 100) === permitUint(message?.nonce) && word(action, 132) === permitUint(message?.deadline) &&
+    word(action, 100) === parseUint(message?.nonce) && word(action, 132) === parseUint(message?.deadline) &&
     word(action, 324) <= context.quote.minToAmount;
 }
 
@@ -521,11 +519,16 @@ export function validateSwapQuote(input: QuoteCheck) {
   if (quote.issues.balance !== null) throw new TradePreparationError("insufficient-balance");
   if (quote.issues.simulationIncomplete !== false) reject();
   const permit = checkQuoteExecutionShape(request, quote, now, input.swapRouter);
-  const { actionsVerified, inputSpend } = swapExecutionMatches(request, quote, input.swapRouter);
+  const { actionsVerified, inputSpend, actionSelectors } = swapExecutionMatches(request, quote, input.swapRouter);
   if (!actionsVerified) throw new TradePreparationError(inputSpend !== null && inputSpend !== "exact" ? "stale-quote" : "unverified-actions");
   const executable = executableCalldata(quote.transaction.data, permit.deadline);
   if (executable.executionDeadline * BigInt(1000) <= BigInt(now.getTime())) throw new TradePreparationError("stale-quote");
   const target = quote.transaction.to;
+  const unknownSelectors = [...new Set(actionSelectors?.filter((selector) => !SETTLER_ACTION_VALIDATORS.has(selector)))];
+  if (unknownSelectors.length) emitServerEvent("action-prepare", {
+    route: "/api/actions/prepare", code: "TRADE_UNKNOWN_ACTIONS_ADMITTED", outcome: "accepted",
+    unknownSelectors, direction: request.direction,
+  });
   return {
     direction: request.direction, fromToken, toToken, fromAmount: request.fromAmount,
     toAmount: quote.toAmount, minToAmount: quote.minToAmount, slippageBps: request.slippageBps,

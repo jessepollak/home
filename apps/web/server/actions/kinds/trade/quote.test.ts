@@ -3,6 +3,7 @@ import { encodeAbiParameters, encodeFunctionData, hashTypedData, isHex, keccak25
 import { privateKeyToAccount } from "viem/accounts";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
 import { isRecord } from "@/shared/guards";
+import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import type { Address, Hex } from "@/shared/trading/server-types";
 import type { SwapQuote } from "./cdp-swaps";
 import { PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
@@ -524,6 +525,59 @@ describe("swap quote review", () => {
     return quote;
   }
   test.each([
+    ["spender", (q: FullQuote) => {
+      const typed = q.permit2?.eip712;
+      if (!isRecord(typed) || !isRecord(typed.message)) throw new Error("Invalid test permit");
+      typed.message.spender = POOL;
+    }],
+    ["token", (q: FullQuote) => { changeUnknownPermit(q, "token", POOL); }],
+    ["amount", (q: FullQuote) => { changeUnknownPermit(q, "amount", "1000001"); }],
+  ] as const)("execution matcher rejects a mismatched permit %s without validatePermit2", (_label, change) => {
+    const quote = unknownQuote();
+    expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(true);
+    change(quote);
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({
+      targetMatchesRouter: true, calldataMatches: true, actionsVerified: false, inputSpend: null,
+    });
+  });
+  test.each([1_000_000, BigInt(1_000_000)])("execution matcher accepts permit integer representation %s", (amount) => {
+    const quote: FullQuote = unknownQuote();
+    const typed = quote.permit2?.eip712;
+    if (!isRecord(typed) || !isRecord(typed.message) || !isRecord(typed.message.permitted)) throw new Error("Invalid test permit");
+    typed.message.permitted.amount = amount;
+    typed.message.nonce = BigInt(4);
+    typed.message.deadline = Math.floor(NOW.getTime() / 1000) + 900;
+    expect(swapExecutionMatches(request, quote, TARGET).actionsVerified).toBe(true);
+    expect(validate(quote).fromAmount).toBe(request.fromAmount);
+  });
+  test("unknown action on a pool-funded route reports unmodeled rather than exact spend", () => {
+    const quote = unknownQuote();
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request, POOL), poolSwap(quote.fromToken), "0xaf72634f"] });
+    expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({ actionsVerified: true, inputSpend: "unmodeled" });
+  });
+  test("logs only unknown selectors and direction when admitting an unknown route", () => {
+    const lines: string[] = [];
+    setObservabilityLogWriterForTests((line) => { lines.push(line); });
+    try {
+      const quote = unknownQuote();
+      quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), "0xaf72634f", "0xaf72634f", v3(request)] });
+      validate(quote);
+      expect(lines.map((line): unknown => JSON.parse(line))).toEqual([{
+        schema: "home.observability.v2", level: "info", kind: "action-prepare", route: "/api/actions/prepare",
+        code: "TRADE_UNKNOWN_ACTIONS_ADMITTED", outcome: "accepted", durationMs: 0,
+        unknownSelectors: ["0xaf72634f"], direction: "buy",
+      }]);
+      lines.length = 0;
+      validate(fixture());
+      expect(lines).toEqual([]);
+      quote.transaction.data = setWord(quote.transaction.data, 4, BigInt(POOL));
+      expect(() => validate(quote)).toThrow();
+      expect(lines).toEqual([]);
+    } finally {
+      setObservabilityLogWriterForTests();
+    }
+  });
+  test.each([
     ["recipient", (q: FullQuote) => { q.transaction.data = setWord(q.transaction.data, 4, BigInt(POOL)); }],
     ["buy token", (q: FullQuote) => { q.transaction.data = setWord(q.transaction.data, 36, BigInt(POOL)); }],
     ["minimum", (q: FullQuote) => { q.transaction.data = setWord(q.transaction.data, 68, BigInt(0)); }],
@@ -547,6 +601,38 @@ describe("swap quote review", () => {
     if (!isHex(unsigned)) throw new Error("Invalid test VIP");
     return unsigned;
   }
+  test.each([
+    ["VIP at index one alone", (input: SwapReviewRequest) => [transfer(input), vip(input)]],
+    ["second VIP at index one", (input: SwapReviewRequest) => [vip(input), vip(input)]],
+  ] as const)("execution matcher rejects duplicate permit layout: %s", (_label, actions) => {
+    const input: SwapReviewRequest = { ...request, direction: "sell" };
+    const quote = fixture(input);
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: actions(input) });
+    expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({
+      targetMatchesRouter: true, calldataMatches: false, actionSelectors: null, actionsVerified: false,
+    });
+  });
+  test("execution matcher rejects a VIP token mismatch even with unknown later actions", () => {
+    const input: SwapReviewRequest = { ...request, direction: "sell" };
+    const quote = fixture(input);
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: [vip(input), "0xaf72634f"] });
+    expect(swapExecutionMatches(input, quote, TARGET).actionsVerified).toBe(true);
+    quote.transaction.data = settlerData(quote.toToken, { actions: [setWord(vip(input), 36, BigInt(POOL)), "0xaf72634f"] });
+    expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({
+      calldataMatches: true, actionsVerified: false, inputSpend: null,
+    });
+  });
+  test("execution matcher rejects VIP trailing zeros beyond the padded fills end", () => {
+    const input: SwapReviewRequest = { ...request, direction: "sell" };
+    const quote = fixture(input);
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: [`${vip(input)}${"00".repeat(32)}`] });
+    expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({
+      calldataMatches: false, actionSelectors: null, actionsVerified: false,
+    });
+  });
   test("decodes sell UNISWAPV4_VIP with the existing execute header and rewrites its inner minimum", () => {
     const input: SwapReviewRequest = { ...request, direction: "sell" };
     const quote = fixture(input);

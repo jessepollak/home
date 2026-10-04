@@ -307,6 +307,8 @@ export type ObservabilityEvent =
       sandbox?: boolean;
       ownerHash?: string;
       assistant?: "replied" | "handoff" | "failed" | "discarded";
+      unknownSelectors?: readonly string[];
+      direction?: "buy" | "sell";
       durationMs: number;
     };
 
@@ -489,6 +491,8 @@ export type ObservabilityLogLine = ObservabilityLogBase &
         sandbox?: boolean;
         ownerHash?: string;
         assistant?: "replied" | "handoff" | "failed" | "discarded";
+        unknownSelectors?: string[];
+        direction?: "buy" | "sell";
         durationMs: number;
       }
   );
@@ -790,6 +794,10 @@ export function normalizeObservabilityEvent(
       ...(typeof event.sandbox === "boolean" ? { sandbox: event.sandbox } : {}),
       ...(ownerHash ? { ownerHash } : {}),
       ...(event.kind === "support" && event.assistant && ["replied", "handoff", "failed", "discarded"].includes(event.assistant) ? { assistant: event.assistant } : {}),
+      ...(event.kind === "action-prepare" && code === "TRADE_UNKNOWN_ACTIONS_ADMITTED" ? {
+        unknownSelectors: [...new Set((event.unknownSelectors ?? []).filter((selector) => /^0x[0-9a-f]{8}$/i.test(selector)).map((selector) => selector.toLowerCase()))].slice(0, 7),
+        ...(event.direction === "buy" || event.direction === "sell" ? { direction: event.direction } : {}),
+      } : {}),
       durationMs: boundedInteger(event.durationMs, 60_000),
     };
   }
