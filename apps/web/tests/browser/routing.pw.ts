@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
-import { expectNavigation } from "./fixtures/navigation-budget";
+import { expectNavigation, NAVIGATION_BUDGET_MS } from "./fixtures/navigation-budget";
 import { FUNDING_PROVIDERS_VERSION } from "../../shared/funding/contracts/providers";
 
 test("canonical routing preserves the shell and one balances read", async ({ page }) => {
@@ -295,7 +295,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 
     await expect(addMoney).toBeVisible();
     await addMoney.click();
     const addDialog = page.getByRole("dialog", { name: "Add money" });
-    await expect(addDialog).toBeVisible();
+    await expect(addDialog).toBeVisible({ timeout: NAVIGATION_BUDGET_MS });
     await page.keyboard.press("Escape");
     await expect(addDialog).toHaveCount(0);
     await expect(addMoney).toBeFocused();
