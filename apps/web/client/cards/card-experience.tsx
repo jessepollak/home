@@ -118,10 +118,11 @@ function CardNotice({ title, action }: { title: string; action?: { label: string
   );
 }
 
-function LockRow({ card, restricted, pending, switchLabel, onChange }: {
+function LockRow({ card, restricted, pending, requestedLocked, switchLabel, onChange }: {
   card: IssuedCard;
   restricted: boolean;
   pending: boolean;
+  requestedLocked: boolean | null;
   switchLabel: string;
   onChange: (locked: boolean) => void;
 }) {
@@ -133,14 +134,16 @@ function LockRow({ card, restricted, pending, switchLabel, onChange }: {
       <ItemContent className="min-w-0 flex-1">
         <ItemTitle>Lock card</ItemTitle>
         <ItemDescription lines={1}>
-          {unlockBlocked ? "Can't unlock while on hold" : locked ? "New purchases are declined" : "Pause new purchases"}
+          {unlockBlocked ? "Can't unlock while on hold" : requestedLocked !== null ? requestedLocked ? "Locking…" : "Unlocking…" : locked ? "New purchases are declined" : "Pause new purchases"}
         </ItemDescription>
       </ItemContent>
       <ItemActions>
         <Switch
           aria-label={switchLabel}
-          checked={locked}
-          disabled={pending || unlockBlocked}
+          checked={requestedLocked ?? locked}
+          disabled={(pending && requestedLocked === null) || unlockBlocked}
+          readOnly={requestedLocked !== null}
+          aria-busy={requestedLocked !== null ? "true" : undefined}
           onCheckedChange={onChange}
         />
       </ItemActions>
@@ -158,13 +161,14 @@ function HoldAlert({ description }: { description: string }) {
   );
 }
 
-function IssuedCardOverview({ card, position, restricted, showHold, single, pending, onLock, reveal }: {
+function IssuedCardOverview({ card, position, restricted, showHold, single, pending, requestedLocked, onLock, reveal }: {
   card: IssuedCard;
   restricted: boolean;
   showHold: boolean;
   position?: number;
   single: boolean;
   pending: boolean;
+  requestedLocked: boolean | null;
   onLock: (locked: boolean) => void;
   reveal?: CardReveal;
 }) {
@@ -195,7 +199,7 @@ function IssuedCardOverview({ card, position, restricted, showHold, single, pend
         <Card className="gap-3">
           <CardHeader><HomeSectionHeading id={headingId}>{single ? "Your card" : `Card${suffix}`}</HomeSectionHeading></CardHeader>
           <CardContent inset="list">
-            <LockRow card={card} restricted={restricted} pending={pending} switchLabel={`Lock card${suffix}`} onChange={onLock} />
+            <LockRow card={card} restricted={restricted} pending={pending} requestedLocked={requestedLocked} switchLabel={`Lock card${suffix}`} onChange={onLock} />
           </CardContent>
         </Card>
       </section>
@@ -218,6 +222,7 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
   if (session.boundary !== ownerBoundary) setSession({ boundary: ownerBoundary, generation: session.generation + 1 });
   const { generation } = session;
   const [running, setRunning] = useState<PendingRun | null>(null);
+  const [requested, setRequested] = useState<{ cardId: string; locked: boolean; generation: number } | null>(null);
   const pending: Pending = running && running.generation === generation ? running.kind : null;
   const currentGeneration = useRef(generation);
   useLayoutEffect(() => { currentGeneration.current = generation; }, [generation]);
@@ -311,11 +316,18 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
           showHold={state === "restricted" && single}
           single={single}
           pending={pending === "lock"}
+          requestedLocked={requested?.cardId === card.id && requested.generation === generation ? requested.locked : null}
           reveal={reveal}
-          onLock={(locked) => void run("lock", async () => {
-            await commands.setFrozen(card.id, locked);
-            return () => add({ message: locked ? "Card locked" : "Card unlocked", tone: "success" });
-          }, locked ? "Couldn't lock your card. Try again." : "Couldn't unlock your card. Try again.")}
+          onLock={(locked) => {
+            if (pending !== null) return;
+            const started = { cardId: card.id, locked, generation };
+            setRequested(started);
+            void run("lock", async () => {
+              await commands.setFrozen(card.id, locked);
+              return () => add({ message: locked ? "Card locked" : "Card unlocked", tone: "success" });
+            }, locked ? "Couldn't lock your card. Try again." : "Couldn't unlock your card. Try again.")
+              .finally(() => setRequested((value) => value === started ? null : value));
+          }}
         />
       )) : null}
       {spendingSection}
