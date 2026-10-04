@@ -19,6 +19,7 @@
     "check": "bun run gates && bun run test && bun run check:static",
     "check:static": "bun run lint && bun run typecheck && bun run knip && bun run build && bun run api-routes:dynamic && bun run css:built",
     "ab": "bun scripts/verify/agent-browser.ts",
+    "clip": "bun scripts/verify/clip.ts",
     "knip": "bun run --cwd apps/web knip",
     "worktree:bootstrap": "node scripts/worktree/bootstrap.mjs",
     "worktree:verify-resolution": "node scripts/worktree/verify-resolution.mjs",

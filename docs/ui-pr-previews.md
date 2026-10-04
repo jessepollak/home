@@ -84,11 +84,42 @@ Keep candidate strengths/tradeoffs separate from defect severity. Jesse owns sel
 
 ## How
 
+### Recording clips
+
+Use `bun run clip` for retained motion evidence. **Chromium** is the default (390×844 CSS px); **iOS** is for Safari-specific sheets, safe areas, keyboards and toolbars (recording is not implemented yet); **Android** checks Chrome on an actual phone or emulator. The label reports the CSS viewport measured at start, not the video’s pixel dimensions.
+
+```bash
+bun run clip start --target chromium --session pr-motion --url "http://127.0.0.1:${HOME_FIXTURE_PORT:-3199}/home"
+bun run clip ab --session pr-motion -- snapshot
+bun run clip ab --session pr-motion -- click @ref
+bun run clip stop --session pr-motion --out /tmp/pr-motion.mp4
+```
+
+One-time setup: run `bun run worktree:bootstrap`, install FFmpeg (`ffmpeg` and `ffprobe` on PATH), and install Chromium with `bun run ab -- install`. Start the [credential-free fixture server](browser-validation.md#fixture-session-on-port-3199); initialize its fixture browser in the same session before recording when signed-in data is needed. Use `--viewport 1440x900` for desktop Chromium.
+
+For Android, install [Android platform tools](device-profiling.md#automated-runs), enable USB debugging and authorize the connection (or boot an emulator). `ANDROID_HOME` selects the SDK. Start with `--target android --url <fixture-url>`; the single physical device is preferred over emulators. Select explicitly with `--serial <serial>` or `--device <model-or-AVD-name>` when needed. The recorder holds the shared device lock, forwards Chrome CDP and reverses the fixture port. Physical phones accept localhost HTTP fixture URLs only: no live or personal sessions. Notifications are silenced with Do Not Disturb before full-screen capture and its exact prior mode is restored afterward; recording refuses to proceed if that cannot be done. The video keeps status bar and Chrome UI. Android has a three-minute recording cap; retain short clips (roughly 30 seconds or less).
+
+Physical recordings open and pin a new fixture tab. Pre-existing targets are grandfathered without inspecting their page content, activating them, navigating them or closing them; only counts are logged. Tab-management commands and session-wide browser mutations are unavailable while recording. Leaving the fixture origin, opening a new off-origin page, losing the fixture foreground, or an early recorder exit aborts and discards the clip. Cleanup closes only the recording's own tab. Non-ready devices produce an authorization/reconnection warning instead of silently disappearing from selection.
+
+The guard snapshots both target enumeration and discovery events before opening the session tab; Android discovery can include additional tab-model targets absent from enumeration. Recording begins only after the new session tab has loaded the fixture origin and is visible. Its startup empty/about:blank transition is allowed, not a new-tab page or an off-origin redirect. Once armed, target URL events and the session page's visibility-change events latch failures, including a switch that returns before the next poll. Local target/visibility checks also run between worker iterations (a minimum 100 ms wait plus command time). Visibility events depend on the page's JavaScript and CDP delivery: a switch whose event is missed and whose entire duration falls between polls remains a residual gap, not a proven continuous foreground guarantee.
+
+To use a separate remote checkout, export `HOME_CLIP_REMOTE` (SSH destination) and `HOME_CLIP_REMOTE_DIR` (checkout directory) in your operator shell, then add `--remote` to **start**. That checkout needs the same dependency/browser pin, Bun, FFmpeg and device setup. Loopback fixture URLs use an owned reverse SSH tunnel; **ab** and **stop** automatically use the recorded remote target and copy the MP4 back to the local `--out`. Do not publish device serials or private runner locations.
+
+Each remote session owns one SSH ControlMaster and a socket inside its private session directory, with `ControlPersist=no`; the pin check, status polling, driving and copy share it. Cleanup closes that master without stopping unrelated SSH connections. A destination must permit a fresh authenticated SSH connection, not merely have a still-open unrelated master; failures before SSH key exchange can come from the configured proxy/network path and do not prove a recorder failure or server connection-rate limit.
+
+Stop writes H.264 MP4 at 30 fps with square pixels and prints pixel dimensions plus a ready-to-paste Preview-table label. Chromium inserts a temporary solid calibration marker at capture start, measures its recorded width rather than predicting geometry from the browser window, restores horizontal proportions when needed, and crops the blank strip. The calibration lead-in is trimmed; missing or inconsistent marker frames fail instead of producing an unverified clip. The DPR2 viewport is validated before recording.
+
+Sessions expire after ten minutes by default; set `--max-age <seconds>` at start to change that limit. Android also stops before its three-minute recording cap. A dropped remote tunnel aborts the session. Stop, failed driving commands and Ctrl-C clean up owned recording/browser processes, tunnels, device mappings and session state. Private, owner-verified recovery state survives failed cleanup; `bun run clip cleanup --session <name>` also recovers an interrupted start. The fixture server remains yours to stop with its helper.
+
+If the remote becomes unreachable, local tunnels still stop and failed remote cleanup keeps private recovery state. Once reachable, run `bun run clip cleanup --session <name>` to finish cleanup; Android’s remote recorder also has its own cap/cleanup guard. Device state is snapshotted before changes so recovery can restore the prior Do Not Disturb mode.
+
+### Attaching evidence
+
 Attach from the CLI (GitHub CLI 2.100 or newer; `gh pr edit --help` lists `--attach`) so the file lands as a GitHub `user-attachments` asset and renders inline:
 
 ```bash
 gh pr edit <n> --repo jessepollak/home --attach './after.png#Home after: quiet hero'
-gh pr edit <n> --repo jessepollak/home --attach ./motion.webm
+gh pr edit <n> --repo jessepollak/home --attach ./motion.mp4
 ```
 
 Or paste/drop the files into the PR description in the browser. Either way, every screenshot or clip retained as PR evidence must appear in the compact table with a descriptive state/viewport label. Bare links, `cursor.com/artifacts` URLs (they expire), committed PNGs under `docs/pr-previews/`, and an unlabeled attachment set are not accepted.
