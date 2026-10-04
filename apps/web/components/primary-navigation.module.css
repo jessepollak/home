@@ -69,12 +69,12 @@
 
   .group {
     bottom: var(--shell-navigation-offset);
-    padding-inline: var(--shell-frame-inset) calc(var(--shell-frame-inset) + var(--shell-scrollbar-width, 0px));
+    padding-inline: var(--shell-frame-inset);
     transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
   }
 
   .assetSearchBar {
-    inset-inline: var(--shell-frame-inset) calc(var(--shell-frame-inset) + var(--shell-scrollbar-width, 0px));
+    inset-inline: var(--shell-frame-inset);
   }
   .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
 
@@ -160,7 +160,7 @@
 }
 
 @media (min-width: 40rem) and (max-width: 63.9375rem) {
-  .group, .assetSearchBar { --shell-frame-inset: max(0px, (100% - var(--shell-scrollbar-width, 0px) - 42rem) / 2); }
+  .group, .assetSearchBar { --shell-frame-inset: max(0px, (100% - 42rem) / 2); }
 }
 
 @media (max-width: 63.9375rem) and (hover: hover) {
