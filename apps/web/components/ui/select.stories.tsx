@@ -33,6 +33,7 @@ export const Default: Story = {
 };
 
 export const Dark: Story = {
+  parameters: { library: { render: "frame" } },
   ...Default,
   globals: { theme: "dark" },
   play: async ({ canvasElement }) => {

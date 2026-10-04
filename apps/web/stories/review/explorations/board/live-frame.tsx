@@ -12,6 +12,7 @@ type LiveFrameProps = {
   loaded: boolean;
   active: boolean;
   frameSource: "story" | "blank";
+  src?: string;
   scale?: number;
   frameRef?: Ref<HTMLIFrameElement>;
   onActiveLoad?: () => void;
@@ -25,11 +26,17 @@ type LiveFrameProps = {
 };
 
 export function LiveFrame({
-  position, metric, loaded, active, frameSource, scale = 1, frameRef, onActiveLoad,
+  position, metric, loaded, active, frameSource, src, scale = 1, frameRef, onActiveLoad,
   onMark, onFinish, onCancel, onSelect, onFocusSelect = onSelect, onFit = onSelect, onInteract,
 }: LiveFrameProps) {
   const { id, story, frame, rect, before } = position;
   const status = useRef(metric?.status);
+  const stopWatching = useRef<(() => void) | null>(null);
+  const loadGeneration = useRef(0);
+  useEffect(() => () => {
+    loadGeneration.current += 1;
+    stopWatching.current?.();
+  }, []);
   useEffect(() => { status.current = metric?.status; }, [metric?.status]);
   useEffect(() => {
     if (!loaded) return;
@@ -38,40 +45,53 @@ export function LiveFrame({
     };
   }, [loaded, id, onCancel]);
   const handleLoad = (iframe: HTMLIFrameElement) => {
+    stopWatching.current?.();
+    const generation = ++loadGeneration.current;
+    const listeners: Array<[string, (payload: { storyId?: string } | string) => void]> = [];
+    let stopRender: (() => void) | undefined;
+    let channel: Window["__STORYBOOK_ADDONS_CHANNEL__"];
+    const cleanup = () => {
+      stopRender?.();
+      for (const [eventName, listener] of listeners) channel?.off(eventName, listener);
+    };
+    stopWatching.current = cleanup;
+    const finish = (status: "rendered" | "errored", error?: string) => {
+      if (generation !== loadGeneration.current) return;
+      cleanup();
+      onFinish(id, status, error);
+    };
     if (active) onActiveLoad?.();
     onMark(id, { status: "loaded", loadedAt: performance.now() });
-    if (frameSource === "blank") { onFinish(id, "rendered"); return; }
+    if (frameSource === "blank") { finish("rendered"); return; }
     try {
       const child = iframe.contentWindow;
       const preview = child?.__STORYBOOK_PREVIEW__?.currentRender;
       if (preview?.id === story && preview.phase === "finished") {
-        onFinish(id, "rendered");
+        finish("rendered");
         return;
       }
-      if (isPreviewUpdated(iframe.contentDocument)) { onFinish(id, "errored", PREVIEW_UPDATED); return; }
-      watchStoryRender(iframe, story, (status, error) => {
-        if (status === "cancelled") onCancel(id);
-        else onFinish(id, status, error);
+      if (isPreviewUpdated(iframe.contentDocument)) { finish("errored", PREVIEW_UPDATED); return; }
+      stopRender = watchStoryRender(iframe, story, (status, error) => {
+        if (generation !== loadGeneration.current) return;
+        if (status === "cancelled") { cleanup(); onCancel(id); }
+        else finish(status, error);
       });
-      const channel = child?.__STORYBOOK_ADDONS_CHANNEL__;
+      channel = child?.__STORYBOOK_ADDONS_CHANNEL__;
       if (!channel) return;
-      const listeners: Array<[string, (payload: { storyId?: string }) => void]> = [];
       for (const [name, status] of [
-        ["storyRendered", "rendered"],
         ["storyErrored", "errored"],
         ["storyThrewException", "errored"],
         ["playFunctionThrewException", "errored"],
       ] as const) {
-        const listener = (payload: { storyId?: string }) => {
-          if (payload.storyId !== story) return;
-          for (const [eventName, fn] of listeners) channel.off(eventName, fn);
-          onFinish(id, status, status === "errored" && isPreviewUpdated(iframe.contentDocument)
+        const listener = (payload: { storyId?: string } | string) => {
+          if ((typeof payload === "string" ? payload : payload.storyId) !== story) return;
+          finish(status, status === "errored" && isPreviewUpdated(iframe.contentDocument)
             ? PREVIEW_UPDATED : undefined);
         };
         channel.on(name, listener);
         listeners.push([name, listener]);
       }
-    } catch { if (iframe.isConnected) onFinish(id, "errored"); else onCancel(id); }
+    } catch { if (iframe.isConnected) finish("errored"); else { cleanup(); onCancel(id); } }
   };
   return <div className={styles.frameScreen}
     style={{ width: rect.width * scale, height: rect.height * scale }}>
@@ -85,7 +105,7 @@ export function LiveFrame({
       {loaded && metric?.status !== "errored" && <iframe
         ref={frameRef}
         title={`${position.section} · ${frame.label}${before ? " · Before" : ""}`}
-        src={frameSource === "blank" ? "about:blank" : storyCanvasUrl(story)}
+        src={frameSource === "blank" ? "about:blank" : src ?? storyCanvasUrl(story)}
         width={rect.width}
         height={rect.height}
         inert={!active}

@@ -14,6 +14,10 @@ describe("Storybook unexpected-request guard", () => {
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/mockServiceWorker.js`), ORIGIN)).toBeTrue();
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/client/activity/activity-ledger-sheet.tsx`), ORIGIN)).toBeTrue();
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/client/savings/savings-actions.tsx?t=1`), ORIGIN)).toBeTrue();
+    expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/lib/utils.ts`), ORIGIN)).toBeTrue();
+    expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/stories/review/compositions/home.stories.tsx`), ORIGIN)).toBeTrue();
+    expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/.storybook/preview.tsx?t=1`), ORIGIN)).toBeTrue();
+    expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/stories/review/compositions/home.stories.tsx`, { method: "POST" }), ORIGIN)).toBeFalse();
     expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}/client/savings/savings-actions.tsx`, { method: "POST" }), ORIGIN)).toBeFalse();
     for (const path of ["/currency-flags/us.svg", "/home-mark/Doto.ttf", "/network-marks/base.svg"]) {
       expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}${path}`), ORIGIN)).toBeTrue();
@@ -29,6 +33,38 @@ describe("Storybook unexpected-request guard", () => {
     expect(isStorybookRuntimeRequest(new Request(entry, { method: "POST" }), ORIGIN)).toBeFalse();
     expect(isStorybookRuntimeRequest(new Request("https://provider.example.invalid/vite-inject-mocker-entry.js"), ORIGIN)).toBeFalse();
     for (const path of ["/vite-inject-mocker-entry.js.map", "/vite-inject-mocker-entry.jsx", "/nested/vite-inject-mocker-entry.js"]) {
+      expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}${path}`), ORIGIN)).toThrow("[Storybook request guard]");
+    }
+  });
+
+  test("allows fixture source modules without opening other tests or network requests", () => {
+    const entry = `${ORIGIN}/tests/browser/fixtures/bodies.ts?t=1`;
+    expect(() => rejectUnexpectedStoryRequest(new Request(entry), ORIGIN)).not.toThrow();
+    expect(isStorybookRuntimeRequest(new Request(entry, { method: "HEAD" }), ORIGIN)).toBeTrue();
+    for (const request of [
+      new Request(`${ORIGIN}/tests/browser/other.ts`),
+      new Request(`${ORIGIN}/tests/browser/fixtures/bodies.json`),
+      new Request(entry, { method: "POST" }),
+      new Request(`${ORIGIN}/tests/browser/fixtures/..%2fprivate.ts`),
+      new Request("https://provider.example.invalid/tests/browser/fixtures/bodies.ts"),
+    ]) {
+      expect(isStorybookRuntimeRequest(request, ORIGIN)).toBeFalse();
+      expect(() => rejectUnexpectedStoryRequest(request, ORIGIN)).toThrow("[Storybook request guard]");
+    }
+  });
+
+  for (const path of ["/app/coverage/page.tsx", "/app/admin/operator-shell.tsx", "/tests/helpers/pin-clock.ts", "/tests/browser/feature-map/search-fixtures.ts"]) {
+    test(`allows only same-origin GET and HEAD for composition module ${path}`, () => {
+      for (const method of ["GET", "HEAD"]) {
+        expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}${path}?t=1`, { method }), ORIGIN)).not.toThrow();
+      }
+      expect(isStorybookRuntimeRequest(new Request(`${ORIGIN}${path}`, { method: "POST" }), ORIGIN)).toBeFalse();
+      expect(isStorybookRuntimeRequest(new Request(`https://provider.example.invalid${path}`), ORIGIN)).toBeFalse();
+    });
+  }
+
+  test("exact composition allowances do not open app routes or other test helpers", () => {
+    for (const path of ["/app/coverage/page.tsx.json", "/app/admin/page.tsx", "/app/api/cards/route.ts", "/tests/helpers/private.ts", "/tests/browser/feature-map/private.ts", "/api/cards"]) {
       expect(() => rejectUnexpectedStoryRequest(new Request(`${ORIGIN}${path}`), ORIGIN)).toThrow("[Storybook request guard]");
     }
   });

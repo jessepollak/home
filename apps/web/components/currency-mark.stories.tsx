@@ -105,6 +105,7 @@ export const Inventory: Story = {
 };
 
 export const Header: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => <HeaderStory />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

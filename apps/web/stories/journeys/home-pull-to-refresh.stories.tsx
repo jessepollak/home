@@ -6,17 +6,7 @@ import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { PullToRefreshAction, PullToRefreshIndicator, type PullToRefreshPhase } from "@/components/ui/pull-to-refresh";
-import { buildBalancesSnapshotFixture, priced, pricedCash, ready } from "@/shared/balances/fixtures";
-import { presentBalances } from "@/shared/balances/present";
-
-const balance = presentBalances({
-  status: "ready",
-  snapshot: buildBalancesSnapshotFixture({
-    region: "US",
-    registry: { usdc: { balance: ready("12340000"), value: priced("USD", "1234"), cashValue: pricedCash("USD", "1234") } },
-  }),
-  error: null,
-});
+import { balance } from "./explorations/home-pull-to-refresh.fixtures";
 
 type Scenario = "idle" | "pulling" | "armed" | "loading" | "success" | "partial" | "failed" | "interactive";
 let finishRefresh: (() => void) | null = null;

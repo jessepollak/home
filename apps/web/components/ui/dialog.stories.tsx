@@ -67,6 +67,7 @@ export const Default: Story = {
 };
 
 export const Command: Story = {
+  parameters: { library: { render: "frame" } },
   render: () => <CommandExample />,
   play: async ({ canvasElement }) => {
     await userEvent.click(within(canvasElement).getByRole("button", { name: "Open palette" }));

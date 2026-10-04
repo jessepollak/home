@@ -15,10 +15,19 @@ const STORYBOOK_RUNTIME_PATHS = [
   "/client/",
   "/components/",
   "/config/",
+  "/lib/",
   "/shared/",
+  "/stories/",
+  "/.storybook/",
 ] as const;
 
-const STORYBOOK_RUNTIME_EXACT_PATHS = ["/vite-inject-mocker-entry.js"] as const;
+const STORYBOOK_RUNTIME_EXACT_PATHS = [
+  "/vite-inject-mocker-entry.js",
+  "/app/coverage/page.tsx",
+  "/app/admin/operator-shell.tsx",
+  "/tests/helpers/pin-clock.ts",
+  "/tests/browser/feature-map/search-fixtures.ts",
+] as const;
 
 export function isStorybookRuntimeRequest(request: Request, storybookOrigin: string): boolean {
   const url = new URL(request.url);
@@ -26,6 +35,7 @@ export function isStorybookRuntimeRequest(request: Request, storybookOrigin: str
   if (request.method !== "GET" && request.method !== "HEAD") return false;
 
   return STORYBOOK_RUNTIME_EXACT_PATHS.some((path) => url.pathname === path) ||
+    /^\/tests\/browser\/fixtures\/(?:[\w-]+\/)*[\w-]+\.(?:ts|tsx|js|mjs)$/.test(url.pathname) ||
     STORYBOOK_RUNTIME_PATHS.some((path) => url.pathname.startsWith(path));
 }
 

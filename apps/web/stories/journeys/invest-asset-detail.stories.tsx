@@ -1,29 +1,17 @@
 import { useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { http, HttpResponse } from "msw";
-import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
+import { investMarketHandlers } from "./explorations/invest-market.fixtures";
+import { AccountWalletClientProvider } from "@/client/account/cdp-client";
 import { AssetDetailScreen } from "@/client/invest/asset-detail-screen";
 import { DiscoverAssetRow } from "@/client/invest/discover-asset-row";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { BalanceRow } from "@/components/finance-rows";
-import { investAssets } from "@/config/invest-assets";
-import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
-import type { MarketDataState } from "@/shared/invest/invest-market";
+import { assetDetailAsset as asset, assetDetailMarket as market, assetDetailTime as TIME, createAssetDetailClient } from "./explorations/invest-asset-detail-fixture";
 import { pinClock } from "@/tests/helpers/pin-clock";
 
-const TIME = "2026-09-28T12:00:00.000Z";
-const NOW = Date.parse(TIME);
 
-const asset = investAssets.find((item) => item.id === "cbbtc")!;
-const market: MarketDataState = { status: "ready", snapshots: [{ assetId: asset.id,
-  displayPrice: "$122391.18", asOf: TIME, sourceLabel: "Codex", changeLabel: "+4.1%",
-}] };
-const session = { user: { subject: "synthetic-invest-journey" },
-  smartAccount: { address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const },
-  accountProvider: "cdp-embedded" as const,
-};
 function Journey({ entry }: { entry: "discover" | "holding" }) {
   const [selected, setSelected] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
@@ -33,17 +21,7 @@ function Journey({ entry }: { entry: "discover" | "holding" }) {
     setSelected(false);
     queueMicrotask(() => { if (opener.current?.isConnected) opener.current.focus({ preventScroll: true }); });
   };
-  const blocked = createBlockedAccountWalletClient("unconfigured");
-  const client = { ...blocked, status: "verified" as const, verification: "server" as const, session,
-    fetchBalances: async () => {
-      const snapshot = balancesSnapshot("US");
-      return { ...snapshot, holdings: snapshot.holdings.map((holding) => holding.id === asset.id
-        ? { ...holding, balance: { status: "ready" as const, baseUnits: "1234000" },
-          value: { status: "priced" as const, currency: "USD" as const,
-            amount: { atoms: "151030", scale: 2 }, asOf: TIME } }
-        : holding) };
-    },
-  };
+  const client = createAssetDetailClient();
   return <AccountWalletClientProvider client={client}><PresentationRegionProvider regionId="US">
     <main className="min-h-screen bg-background">
       <section className="mx-auto max-w-2xl space-y-4 p-4" hidden={selected} aria-label={entry === "holding" ? "Investments" : "Discover"}>
@@ -65,27 +43,7 @@ const meta = {
   args: { entry: "discover" },
   beforeEach: () => { getHomeQueryClient().clear(); const restoreClock = pinClock(TIME); return () => { getHomeQueryClient().clear(); restoreClock(); }; },
   parameters: { layout: "fullscreen", a11y: { test: "error" }, viewport: { defaultViewport: "mobile" },
-    msw: { handlers: [
-      http.get("/api/market-prices/history", ({ request }) => {
-        const url = new URL(request.url);
-        const range = url.searchParams.get("range") ?? "1W";
-        const durations: Record<string, number> = { "1D": 86400000, "1W": 604800000, "1M": 2592000000,
-          "3M": 7776000000, "1Y": 31536000000 };
-        const duration = durations[range] ?? durations["1W"]!;
-        const end = NOW - 60000;
-        return HttpResponse.json({ version: 1, provider: "codex", assetId: asset.id, range,
-          currency: "USD", fetchedAt: new Date(end).toISOString(), status: "ready",
-          points: Array.from({ length: 32 }, (_, index) => ({
-            time: new Date(end - duration * (1 - index / 31)).toISOString(),
-            value: (117000 + 5391.18 * index / 31).toFixed(2),
-          })) });
-      }),
-      http.get("/api/market-prices/stats", () => HttpResponse.json({ version: 1, provider: "codex",
-        assetId: asset.id, currency: "USD", fetchedAt: TIME, status: "ready",
-        stats: { marketCapUsd: { atoms: "2410000000000", scale: 0 },
-          volume24hUsd: { atoms: "38200000000", scale: 0 } },
-      })),
-    ] },
+    msw: { handlers: investMarketHandlers },
   },
 } satisfies Meta<typeof Journey>;
 export default meta;
