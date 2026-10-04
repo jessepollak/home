@@ -23,7 +23,7 @@ export function ShellMain({ children, mainRef, contentFrameRef, refreshInput, pu
     enabled: enabled && pullEnabled,
     refreshing: state.phase === "refreshing", onRefresh: () => { void refresh(); },
   });
-  return <main ref={mainRef} inert={open} aria-hidden={open ? true : undefined} data-app-main-authenticated className={`relative min-w-0 flex-1 bg-muted ${shellNavigationClearanceClassName}`}>
+  return <main ref={mainRef} data-rail-follower="" inert={open} aria-hidden={open ? true : undefined} data-app-main-authenticated className={`relative min-w-0 flex-1 bg-muted ${shellNavigationClearanceClassName}`}>
     {enabled ? <PullToRefreshAction label="Refresh Home" refreshing={state.phase === "refreshing"}
       onRefresh={() => { void refresh(); }} actionRef={actionRef} /> : null}
     {enabled ? <PullToRefreshIndicator phase={phase} indicatorRef={indicatorRef} /> : null}

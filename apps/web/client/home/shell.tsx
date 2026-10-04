@@ -451,7 +451,7 @@ function DashboardShellBody({
             address: account.session?.smartAccount?.address ?? null, disabled: isAccountRailBusy,
           } : undefined} onOpenAccount={openAccountSettings} />
       </ShellSearchInert> : null}
-      <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
+      <div data-rail-column="" className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <span role="status" className="sr-only">{isVerified && interruption && interruptionAnnouncement
           ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message : null}</span>
         <ShellSearchInert>

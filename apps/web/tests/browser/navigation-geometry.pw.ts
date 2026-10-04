@@ -451,3 +451,97 @@ function settledLensTab(page: Page) {
     return tab?.id ?? null;
   });
 }
+
+async function openDesktopRail(page: Page) {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.addInitScript(() => {
+    const animate = Element.prototype.animate;
+    Element.prototype.animate = function (keyframes, options) {
+      const animation = animate.call(this, keyframes, options);
+      if (this.matches("#desktop-rail > div, #desktop-rail > div > div, [data-rail-follower]")) animation.pause();
+      return animation;
+    };
+  });
+  await page.goto("/home");
+  await expect(page.locator("#desktop-rail")).toHaveAttribute("data-rail-state", "expanded");
+  await page.evaluate(() => document.fonts.ready);
+}
+
+async function seekRail(page: Page, time: number) {
+  const targets = await page.evaluate((at) => {
+    const running = document.getAnimations().filter((animation) => animation.effect instanceof KeyframeEffect &&
+      animation.effect.target instanceof Element && animation.effect.target.matches("#desktop-rail > div, #desktop-rail > div > div, [data-rail-follower]"));
+    for (const animation of running) animation.currentTime = at;
+    Reflect.set(window, "railMotion", running);
+    const animated = running.map((animation) => animation.effect instanceof KeyframeEffect ? animation.effect.target : null);
+    return { count: running.length, panel: animated.includes(document.querySelector("#desktop-rail > div")),
+      main: animated.includes(document.querySelector("main")), header: animated.includes(document.querySelector("header[data-rail-follower]")) };
+  }, time);
+  expect(targets.count).toBeGreaterThan(0);
+  expect({ panel: targets.panel, main: targets.main, header: targets.header }).toEqual({ panel: true, main: true, header: true });
+}
+
+test("a mid-collapse rail stays within the viewport without releasing the sticky header", async ({ page }) => {
+  await openDesktopRail(page);
+  await page.locator("main").evaluate((element) => { element.style.minHeight = "1600px"; });
+  await page.getByRole("button", { name: "Sidebar" }).click();
+  await seekRail(page, 90);
+  const geometry = await page.evaluate(() => {
+    const width = document.documentElement.scrollWidth;
+    window.scrollTo(100, 0);
+    return { width, viewport: innerWidth, scrollX };
+  });
+  expect(geometry.width).toBeLessThanOrEqual(geometry.viewport);
+  expect(geometry.scrollX).toBe(0);
+  await page.evaluate(() => window.scrollTo(0, 200));
+  await expect.poll(() => page.evaluate(() => ({ scrollY, headerTop: document.querySelector("header[data-rail-follower]")?.getBoundingClientRect().top })))
+    .toEqual({ scrollY: 200, headerTop: 0 });
+  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  await expect(page.locator("[data-rail-column]")).toHaveCSS("overflow-x", "visible");
+});
+
+test("a fixed overlay opened mid-collapse keeps its final viewport bounds", async ({ page }) => {
+  await openDesktopRail(page);
+  await page.getByRole("button", { name: "Sidebar" }).click();
+  await seekRail(page, 90);
+  await page.getByRole("button", { name: "Search assets", exact: true }).click();
+  const search = page.getByRole("dialog", { name: "Search assets" });
+  await expect(search).toBeVisible();
+  const bounds = () => search.evaluate((element) => {
+    const rail: unknown = Reflect.get(window, "railMotion");
+    for (const animation of document.getAnimations()) if (!Array.isArray(rail) || !rail.includes(animation)) animation.finish();
+    const { x, y, width, height } = element.getBoundingClientRect();
+    return { x, y, width, height };
+  });
+  const during = await bounds();
+  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  expect(during).toEqual(await bounds());
+});
+
+test("a collapsed state from another tab mid-collapse retargets without a stale transform", async ({ page }) => {
+  await openDesktopRail(page);
+  const rail = page.locator("#desktop-rail");
+  const seam = () => rail.locator(":scope > div").evaluate((panel) => panel.getBoundingClientRect().right);
+  const homeHit = () => page.locator("#home-rail-nav svg").evaluate((icon) => {
+    const box = icon.getBoundingClientRect();
+    return document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest("#home-rail-nav") != null;
+  });
+  await page.getByRole("button", { name: "Sidebar" }).click();
+  await seekRail(page, 60);
+  const before = await seam();
+  await page.evaluate(() => {
+    localStorage.setItem("home:sidebar:collapsed", "false");
+    window.dispatchEvent(new StorageEvent("storage", { key: "home:sidebar:collapsed", newValue: "false" }));
+  });
+  await expect(rail).toHaveAttribute("data-rail-state", "expanded");
+  await seekRail(page, 0);
+  expect(Math.abs(await seam() - before)).toBeLessThan(1);
+  expect(await homeHit()).toBe(true);
+  await page.evaluate(() => { for (const animation of document.getAnimations()) animation.finish(); });
+  expect(await seam()).toBe(240);
+  expect(await homeHit()).toBe(true);
+  expect(await page.evaluate(() => [...document.querySelectorAll("#desktop-rail div, main"), document.querySelector("main")?.parentElement]
+    .filter((element) => element instanceof HTMLElement && (getComputedStyle(element).transform !== "none" || element.style.overflowX !== "")).length)).toBe(0);
+});
