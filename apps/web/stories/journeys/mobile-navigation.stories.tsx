@@ -375,6 +375,10 @@ export const ExitOnlyInvest: Story = {
   decorators: [(Story) => <ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}><Story /></ProductOfferingProvider>],
   play: async ({ canvasElement }) => { await verifyExitOnlyNavigation(canvasElement); },
 };
+export const ExitOnlyNoProvider: Story = {
+  parameters: { provideProductOffering: false },
+  play: async ({ canvasElement }) => { await verifyExitOnlyNavigation(canvasElement); },
+};
 export const ExitOnlyInvestNarrow320: Story = {
   decorators: [(Story) => <ProductOfferingProvider value={resolveProductOffering({ kind: "unavailable" })}><Story /></ProductOfferingProvider>],
   parameters: { viewport: { defaultViewport: "mobile320" } },
