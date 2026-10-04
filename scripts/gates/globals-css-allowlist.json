@@ -178,6 +178,7 @@
       "@apply bg-muted text-foreground"
     ],
     "html": [
+      "-webkit-tap-highlight-color: transparent",
       "@apply bg-muted font-sans"
     ],
     "a[href], button:not(:disabled), [role=\"button\"]:not([aria-disabled=\"true\"]), [role=\"option\"]:not([aria-disabled=\"true\"]), [role=\"radio\"]:not([aria-disabled=\"true\"]), summary": [

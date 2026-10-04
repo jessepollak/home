@@ -61,7 +61,7 @@
   --muted: oklch(0.97 0 0); --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0); --accent-foreground: oklch(0.205 0 0);
   --destructive: #c8372d;
-  --border: oklch(0.922 0 0); --input: oklch(0.922 0 0); --ring: #0052ff;
+  --border: oklch(0.922 0 0); --input: oklch(0.922 0 0); --ring: oklch(0.556 0 0);
   --radius: 0.25rem;
   --market-gain: #0a7c4a; --market-loss: #c8372d;
   --warning: #b45309;
@@ -101,7 +101,7 @@
   --muted: oklch(0.145 0 0); --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0); --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 20%); --input: oklch(1 0 0 / 30%); --ring: #578bfa;
+  --border: oklch(1 0 0 / 20%); --input: oklch(1 0 0 / 30%); --ring: oklch(0.708 0 0);
   --market-gain: oklch(0.75 0.14 150); --market-loss: oklch(0.704 0.191 22.216);
   --warning: #fbbf24;
   --balance-cash: oklch(0.72 0.16 151);
@@ -116,7 +116,7 @@
 @layer base {
   * { @apply border-border outline-ring/50; }
   body { @apply bg-muted text-foreground; }
-  html { @apply bg-muted font-sans; }
+  html { @apply bg-muted font-sans; -webkit-tap-highlight-color: transparent; }
   a[href], button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), [role="radio"]:not([aria-disabled="true"]), summary { cursor: pointer; }
 }
 

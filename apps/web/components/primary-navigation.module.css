@@ -168,10 +168,10 @@
   padding-bottom: calc(var(--spacing-shell-mobile-navigation) + var(--shell-bottom-control-offset) + 1rem + var(--shell-viewport-inset-bottom));
 }
 .shellSearchField { height: var(--spacing-shell-mobile-navigation); }
-.shellSearchField:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
 @media (min-width: 64rem) {
   .assetSearchSurface { inset-inline-start: var(--shell-rail-width, 15rem); }
   .assetSearchBar { position: relative; inset: auto; transform: none; order: -1; width: 100%; max-width: 73rem; padding: 1.5rem; }
   .assetSearchResults { padding-bottom: 1.5rem; }
   .shellSearchField { background: var(--background); border: 1px solid var(--border); }
+  .shellSearchField:focus-within { border-color: var(--ring); }
 }
