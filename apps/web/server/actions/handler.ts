@@ -35,7 +35,7 @@ import type { TradeConfirmRequest } from "@/shared/trading/contract";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
 import type { resolveConvertPair } from "@/shared/currencies/convert";
-import { tradeMetadataTradeable } from "@/shared/trading/assets";
+import { tradeMetadataDirection, tradeMetadataTradeable } from "@/shared/trading/assets";
 import { emitServerEvent } from "@/server/observability/log";
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import { cashoutWithdrawalInFlight, refreshCashoutProgress, type CashoutReceiptRow, type RefreshedCashoutOrder } from "@/server/funding/cash-out-progress";
@@ -720,7 +720,7 @@ async function entryPaused(row: ActionRow, read: typeof readProductOffering): Pr
   const metadata = row.summary.metadata;
   if (row.kind === "withdraw-collateral" && metadata?.product === "borrow" && metadata.riskIncreased === false) return false;
   if (row.kind !== "send" && row.kind !== "savings-deposit" && row.kind !== "borrow" && row.kind !== "withdraw-collateral" &&
-    !(row.kind === "trade" && metadata?.product === "trade" && metadata.direction === "buy")) return false;
+    !(row.kind === "trade" && metadata?.product === "trade" && tradeMetadataDirection(metadata) === "buy")) return false;
   let offering;
   try { offering = await read(); }
   catch { offering = resolveProductOffering({ kind: "unavailable" }); }

@@ -77,6 +77,12 @@ function tradeMetadata(address: string, direction: "buy" | "sell"): TradeMoneyAc
   };
 }
 
+const eurcSellPair: ConvertPairRecord = { id: "eurc-sell", from: "base:eurc", to: "base:usdc", provider: CONVERT_PROVIDER,
+  regions: "all", status: "verified", verifiedAt: "2026-09-29", evidence: "test fixture" };
+const eurcConvertPair: typeof resolveConvertPair = (input) => resolveConvertPair(
+  { ...input, now: new Date("2026-09-30T12:00:00.000Z") },
+  { pairs: [eurcSellPair, { ...eurcSellPair, id: "eurc-buy", from: eurcSellPair.to, to: eurcSellPair.from }] });
+
 const request = (signature: string, provider: "base-account" | "cdp-embedded") => new Request(`https://home.test/api/actions/${ID}/confirm`, {
   method: "POST", headers: { "X-Home-Account-Provider": provider, "Content-Type": "application/json" }, body: JSON.stringify({ signature }),
 });
@@ -327,6 +333,110 @@ describe("trade confirmation", () => {
     const result = await handler(request("0x1234", "cdp-embedded"), context);
     expect(result.status).toBe(400);
     expect(await readJson(result)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(pairReads).toBe(0);
+  });
+
+  test.each([
+    ["missing", "buy", "none"],
+    ["invalid", "buy", "none"],
+    ["missing", "sell", "none"],
+    ["invalid", "sell", "none"],
+    ["missing", "buy", "pair-paused"],
+    ["invalid", "sell", "pair-paused"],
+  ] as const)("resolves the traded side of a %s-direction %s from the non-USDC asset (pause: %s)", async (kind, shape, pause) => {
+    const reason = pause === "none" ? null : pause;
+    const direction = kind === "invalid" ? "swap" : undefined;
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
+    if (!record) throw new Error("Missing currency record: base:eurc");
+    row.summary.metadata = Object.assign(tradeMetadata(record.contractAddress, shape), { currencyRecordId: record.id, direction });
+    const pairs: Array<{ from: string; to: string }> = [];
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair: (input) => {
+        pairs.push({ from: input.from, to: input.to });
+        return reason ? { status: "unavailable", reason } : eurcConvertPair(input);
+      },
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(pairs).toContainEqual({ from: "base:usdc", to: record.id });
+    expect(pairs.every((pair) => pair.from !== pair.to)).toBe(true);
+    if (reason) {
+      expect(result.status).toBe(410);
+      expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    } else {
+      expect(result.status).toBe(400);
+      expect(await readJson(result)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    }
+  });
+
+  test.each([
+    ["missing", "buy", 409],
+    ["invalid", "buy", 409],
+    ["missing", "sell", 400],
+    ["invalid", "sell", 400],
+  ] as const)("applies the Invest entry gate to a %s-direction %s from the non-USDC asset", async (kind, shape, status) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:eurc");
+    if (!record) throw new Error("Missing currency record: base:eurc");
+    const direction = kind === "invalid" ? "swap" : undefined;
+    row.summary.metadata = Object.assign(tradeMetadata(record.contractAddress, shape), { currencyRecordId: record.id, direction });
+    let offeringReads = 0;
+    let confirms = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair: eurcConvertPair,
+      readOffering: async () => { offeringReads += 1; return resolveProductOffering({ kind: "unavailable" }); },
+      verifySmartAccountSignature: async () => true,
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(status);
+    expect(offeringReads).toBe(shape === "buy" ? 1 : 0);
+    if (shape === "buy") expect(confirms).toBe(0);
+    if (shape === "buy") expect(await readJson(result)).toMatchObject({ error: { code: "PRODUCT_NOT_OFFERED" } });
+  });
+
+  test.each(["missing", "invalid"] as const)("keeps a non-registry buy with a %s direction past pair admission", async (kind) => {
+    const direction = kind === "invalid" ? "swap" : undefined;
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = Object.assign(tradeMetadata("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", "buy"), { direction });
+    let pairReads = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair: () => { pairReads += 1; return { status: "unavailable", reason: "pair-paused" }; },
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(400);
+    expect(await readJson(result)).toMatchObject({ error: { code: "INVALID_TRADE_SIGNATURE" } });
+    expect(pairReads).toBe(0);
+  });
+
+  test.each([
+    ["missing", BASE_USDC_ADDRESS, BASE_USDC_ADDRESS],
+    ["invalid", BASE_USDC_ADDRESS, BASE_USDC_ADDRESS],
+    ["missing", "0x60a3e35cc302bfa44cb288bc5a4f316fdb1adb42", "0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf"],
+    ["invalid", BASE_USDC_ADDRESS, "not-an-address"],
+  ] as const)("refuses a %s-direction trade whose pair has no single non-USDC side (%s to %s)", async (kind, fromAddress, toAddress) => {
+    const direction = kind === "invalid" ? "swap" : undefined;
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = Object.assign(tradeMetadata("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf", "buy"),
+      { direction, fromAsset: { address: fromAddress }, toAsset: { address: toAddress } });
+    let pairReads = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair: (input) => { pairReads += 1; return eurcConvertPair(input); },
+      store: { get: async () => row, confirm: async () => { throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
     expect(pairReads).toBe(0);
   });
 
