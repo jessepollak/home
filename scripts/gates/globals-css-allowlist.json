@@ -188,7 +188,8 @@
       "@apply font-sans"
     ],
     "a[href], button:not(:disabled), [role=\"button\"]:not([aria-disabled=\"true\"]), [role=\"option\"]:not([aria-disabled=\"true\"]), [role=\"radio\"]:not([aria-disabled=\"true\"]), summary": [
-      "cursor: pointer"
+      "cursor: pointer",
+      "touch-action: manipulation"
     ]
   },
   "utilitiesLayer": {
