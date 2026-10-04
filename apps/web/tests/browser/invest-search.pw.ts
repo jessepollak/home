@@ -79,10 +79,14 @@ for (const closeSearch of ["Escape", "Close", "Back"] as const) test(`asset sear
   const restingGap = 640 - pill.y - pill.height;
   const opener = page.getByRole("button", { name: "Search assets" });
   const circle = await box(opener);
-  expect(circle.x - pill.x - pill.width).toBeCloseTo(8, 0); expect(circle.y).toBe(pill.y);
+  expect(pill.x).toBe(16); expect(320 - circle.x - circle.width).toBe(16); expect(circle.y).toBe(pill.y);
   await opener.click(); const input = page.getByRole("textbox", { name: "Search assets" }); await input.fill("ORB");
   const close = await box(page.getByRole("button", { name: "Close search" }));
   expect(close.x).toBe(circle.x); expect(close.y).toBe(circle.y);
+  await expect.poll(async () => (await box(page.getByRole("search"))).x).toBe(16);
+  const field = await box(page.getByRole("search"));
+  expect(close.x - field.x - field.width).toBe(8); expect(field.height).toBe(62);
+  expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.tagName, { x: field.x + field.width / 2, y: field.y + 4 })).toBe("INPUT");
   await expect(page.getByRole("region", { name: "Search results" }).getByRole("button", { name: /Orbit/ })).toHaveCount(3);
   await page.evaluate(() => { const viewport = visualViewport; if (!viewport) throw new Error("Expected visual viewport"); Object.defineProperty(viewport, "height", { configurable: true, value: 340 }); viewport.dispatchEvent(new Event("resize")); });
   await expect(page.locator("html")).toHaveAttribute("data-shell-keyboard", "open");

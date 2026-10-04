@@ -40,7 +40,7 @@ export function ShellSearchBar({ field, action }: { field: ReactNode; action: Re
   }, [present, reducedMotion, progress]);
   const morphStyle: MotionStyle & Record<"--search-morph-rest", MotionValue<number>> = { "--search-morph-rest": rest };
   return <motion.div data-asset-search-bar="" style={morphStyle}
-    className={`${styles.assetSearchBar} fixed inset-x-4 flex items-center gap-2 sm:mx-auto sm:max-w-2xl`}>
+    className={`${styles.assetSearchBar} fixed flex items-center gap-2`}>
     <div className={`${styles.searchMorphField} flex min-w-0 flex-1`}>{field}</div>
     <div className={`${styles.searchMorphAction} shrink-0`}>{action}</div>
   </motion.div>;

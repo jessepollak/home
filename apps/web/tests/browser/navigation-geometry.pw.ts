@@ -40,7 +40,9 @@ for (const width of [390, 320]) {
     expect(geometry.tabHeights).toEqual([54, 54]);
     expect(844 - geometry.nav.bottom).toBe(12);
     if (!geometry.search) throw new Error("Expected Search control");
-    expect(Math.abs((geometry.nav.left + geometry.search.right) / 2 - width / 2)).toBeLessThanOrEqual(1);
+    expect(geometry.nav.left).toBe(16);
+    expect(width - geometry.search.right).toBe(16);
+    expect(geometry.search.top).toBe(geometry.nav.top);
     expect(geometry.contentBottom).toBeLessThanOrEqual(geometry.nav.top);
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
   });

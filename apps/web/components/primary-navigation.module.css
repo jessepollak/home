@@ -57,7 +57,7 @@
 
   .navigation.withSearch {
     width: calc(6rem * var(--navigation-items, 2));
-    max-width: calc(100% - 2rem - var(--spacing-shell-mobile-navigation) - .5rem);
+    max-width: calc(100% - var(--spacing-shell-mobile-navigation) - .5rem);
     margin-inline: 0;
     position: relative;
     inset: auto;
@@ -65,9 +65,16 @@
     flex-shrink: 1;
   }
 
+  .group, .assetSearchBar { --shell-frame-inset: 1rem; }
+
   .group {
     bottom: var(--shell-navigation-offset);
+    padding-inline: var(--shell-frame-inset) calc(var(--shell-frame-inset) + var(--shell-scrollbar-width, 0px));
     transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
+  }
+
+  .assetSearchBar {
+    inset-inline: var(--shell-frame-inset) calc(var(--shell-frame-inset) + var(--shell-scrollbar-width, 0px));
   }
   .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
 
@@ -127,6 +134,10 @@
   .searchMorphAction { opacity: calc(1 - 1.75 * var(--search-morph-rest, 0)); }
 }
 
+@media (min-width: 40rem) and (max-width: 63.9375rem) {
+  .group, .assetSearchBar { --shell-frame-inset: max(0px, (100% - var(--shell-scrollbar-width, 0px) - 42rem) / 2); }
+}
+
 @media (max-width: 63.9375rem) and (hover: hover) {
   .navigation :not([aria-current="page"]):hover > .content :is(span, svg) { color: var(--foreground); }
 }
@@ -170,9 +181,6 @@
 }
 
 .assetSearchBar {
-  width: calc(6rem * var(--shell-navigation-items, 2) + var(--spacing-shell-mobile-navigation) + .5rem);
-  max-width: calc(100% - 2rem);
-  margin-inline: auto;
   bottom: var(--shell-bottom-control-offset);
   transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
 }
@@ -182,7 +190,7 @@
 .shellSearchField { height: var(--spacing-shell-mobile-navigation); }
 @media (min-width: 64rem) {
   .assetSearchSurface { inset-inline-start: var(--shell-rail-width, 15rem); }
-  .assetSearchBar { position: relative; inset: auto; transform: none; order: -1; width: 100%; max-width: 73rem; padding: 1.5rem; }
+  .assetSearchBar { position: relative; inset: auto; transform: none; order: -1; width: 100%; max-width: 73rem; margin-inline: auto; padding: 1.5rem; }
   .assetSearchResults { padding-bottom: 1.5rem; }
   .shellSearchField { background: var(--background); border: 1px solid var(--border); }
   .shellSearchField:focus-within { border-color: var(--ring); }

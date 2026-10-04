@@ -228,7 +228,7 @@ export function PrimaryNavigation({
 
   return (
     <div aria-hidden={chromeHidden ? true : undefined} inert={chromeHidden} data-keyboard-hidden={keyboardHidden ? "true" : undefined}
-      data-search-open={searchOpen ? "" : undefined} className={`${onOpenSearch ? `${styles.group} fixed inset-x-0 z-30 flex items-center justify-center gap-2` : "contents"} lg:hidden ${shellChromeCompensationClassName}`}>
+      data-search-open={searchOpen ? "" : undefined} className={`${onOpenSearch ? `${styles.group} fixed inset-x-0 z-30 flex items-center justify-between gap-2` : "contents"} lg:hidden ${shellChromeCompensationClassName}`}>
       <nav
         ref={navRef}
         aria-label="Main navigation"

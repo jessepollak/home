@@ -27,7 +27,7 @@ function SearchPreview({ state, query = "ORB", long = false }: { state: Partial<
   return <main className="fixed inset-0 flex flex-col bg-muted">
     <div className={`${styles.assetSearchResults} overflow-y-auto overscroll-contain`}><div className="mx-auto max-w-2xl px-4 py-4"><AssetSearchResults query={query} composing={false} search={search}
       markets={{ stockMarket: unavailableMarketData, cryptoMarket: unavailableMarketData, memeMarket: unavailableMarketData }} assetMarkResolution={{}} onOpenAsset={noop} /></div></div>
-    <div className={`${styles.assetSearchBar} fixed inset-x-4 flex gap-2`}><ShellSearchField inputRef={inputRef} query={query} onQueryChange={noop} onComposingChange={noop} maxLength={64} /><ShellSearchControl close onClick={noop} /></div>
+    <div className={`${styles.assetSearchBar} fixed flex gap-2`}><ShellSearchField inputRef={inputRef} query={query} onQueryChange={noop} onComposingChange={noop} maxLength={64} /><ShellSearchControl close onClick={noop} /></div>
   </main>;
 }
 const meta = { title: "Invest/Asset search", component: SearchPreview, args: { state: {} }, parameters: { layout: "fullscreen" } } satisfies Meta<typeof SearchPreview>;
