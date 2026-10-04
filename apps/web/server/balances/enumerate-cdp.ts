@@ -2,6 +2,8 @@ import "server-only";
 
 import { generateJwt } from "@coinbase/cdp-sdk/auth";
 
+import { createUpstreamDeadline, type UpstreamDeadline } from "@/server/http/upstream";
+
 export const CDP_TOKEN_BALANCES_HOST = "api.cdp.coinbase.com" as const;
 export const CDP_TOKEN_BALANCES_NETWORK = "base" as const;
 export const CDP_TOKEN_BALANCES_PATH_PREFIX =
@@ -12,7 +14,7 @@ export const CDP_TOKEN_BALANCES_PAGE_SIZE = 100;
 export const CDP_TOKEN_BALANCES_MAX_PAGES = 32;
 export const CDP_TOKEN_BALANCES_PAGE_ATTEMPTS = 2;
 export const CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS = 2_500;
-export const CDP_TOKEN_BALANCES_TIMEOUT_MS = 4_000;
+export const CDP_TOKEN_BALANCES_INVENTORY_DEADLINE_MS = 4_000;
 
 const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -92,23 +94,23 @@ export function createCdpTokenBalancesClient(options: {
   env?: Environment;
   fetchImpl?: FetchLike;
   generateJwtImpl?: JwtGenerator;
-  timeoutMs?: number;
+  deadlineMs?: number;
   pageAttempts?: number;
   pageStartBudgetMs?: number;
-  now?: () => number;
+  clock?: Parameters<typeof createUpstreamDeadline>[0]["clock"];
 } = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
   const generateJwtImpl = options.generateJwtImpl ?? generateJwt;
-  const timeoutMs = options.timeoutMs ?? CDP_TOKEN_BALANCES_TIMEOUT_MS;
+  const deadlineMs = options.deadlineMs ?? CDP_TOKEN_BALANCES_INVENTORY_DEADLINE_MS;
   const pageAttempts = options.pageAttempts ?? CDP_TOKEN_BALANCES_PAGE_ATTEMPTS;
   const pageStartBudgetMs = options.pageStartBudgetMs ?? CDP_TOKEN_BALANCES_SOFT_PAGE_START_MS;
-  const now = options.now ?? Date.now;
+  const clock = options.clock;
 
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 30_000) {
+  if (!Number.isSafeInteger(deadlineMs) || deadlineMs <= 0 || deadlineMs > 30_000) {
     throw new CdpTokenBalancesError(
       "not-configured",
-      "The CDP Token Balances timeout must be 1-30000ms.",
+      "The CDP Token Balances inventory deadline must be 1-30000ms.",
     );
   }
   if (!Number.isSafeInteger(pageAttempts) || pageAttempts <= 0 || pageAttempts > 3) {
@@ -121,6 +123,12 @@ export function createCdpTokenBalancesClient(options: {
     throw new CdpTokenBalancesError(
       "not-configured",
       "The CDP Token Balances page-start budget must be 1-30000ms.",
+    );
+  }
+  if (pageStartBudgetMs > deadlineMs) {
+    throw new CdpTokenBalancesError(
+      "not-configured",
+      "The CDP Token Balances page-start budget must not exceed the inventory deadline.",
     );
   }
   return {
@@ -140,10 +148,11 @@ export function createCdpTokenBalancesClient(options: {
       let nextPageToken: string | null = pageToken ?? null;
       let complete = false;
       let pagesRead = 0;
-      const startedAt = now();
+      const deadline = createUpstreamDeadline({ timeoutMs: deadlineMs, signal: request.signal, clock });
+      const startedAt = deadline.now();
 
       for (let page = 0; page < CDP_TOKEN_BALANCES_MAX_PAGES; page += 1) {
-        if (page > 0 && now() - startedAt >= pageStartBudgetMs) break;
+        if (page > 0 && deadline.now() - startedAt >= pageStartBudgetMs) break;
         let balances: Awaited<ReturnType<typeof fetchPage>>;
         try {
           balances = await fetchPageWithinCeiling({
@@ -153,8 +162,7 @@ export function createCdpTokenBalancesClient(options: {
             env,
             fetchImpl,
             generateJwtImpl,
-            timeoutMs,
-            signal: request.signal,
+            deadline,
           });
         } catch (error) {
           if (collected.size > 0 && pageToken && isTransientPageError(error)) {
@@ -187,7 +195,7 @@ export function createCdpTokenBalancesClient(options: {
         complete,
         nextPageToken,
         pagesRead,
-        durationMs: Math.max(0, now() - startedAt),
+        durationMs: Math.max(0, deadline.now() - startedAt),
       };
     },
   };
@@ -200,28 +208,36 @@ export type CdpTokenBalancesClient = ReturnType<
 async function fetchPageWithinCeiling(
   options: Parameters<typeof fetchPage>[0] & { attempts: number },
 ): Promise<Awaited<ReturnType<typeof fetchPage>>> {
-  throwIfAborted(options.signal);
-  const controller = new AbortController();
-  const onAbort = () => controller.abort(options.signal?.reason);
-  options.signal?.addEventListener("abort", onAbort, { once: true });
-  const timeout = setTimeout(
-    () => controller.abort("token-balances-page-ceiling"),
-    options.timeoutMs,
-  );
+  const { signal } = options.deadline;
+  throwIfAborted(signal);
+  const aborted = Promise.withResolvers<never>();
+  const onCeilingAbort = () => aborted.reject(new CdpTokenBalancesError(
+    "timed-out",
+    "CDP Token Balances request timed out or was aborted.",
+    { cause: signal.reason },
+  ));
+  signal.addEventListener("abort", onCeilingAbort, { once: true });
+  if (signal.aborted) onCeilingAbort();
   try {
-    return await fetchPageWithRetry({ ...options, signal: controller.signal });
+    const inner = fetchPageWithRetry(options);
+    return await Promise.race([inner, aborted.promise]);
   } finally {
-    clearTimeout(timeout);
-    options.signal?.removeEventListener("abort", onAbort);
+    signal.removeEventListener("abort", onCeilingAbort);
   }
 }
 
 async function fetchPageWithRetry(
-  options: Parameters<typeof fetchPage>[0] & { attempts: number },
+  options: Parameters<typeof fetchPageWithinCeiling>[0],
 ): Promise<Awaited<ReturnType<typeof fetchPage>>> {
   let lastError: unknown;
   for (let attempt = 0; attempt < options.attempts; attempt += 1) {
     try {
+      if (options.deadline.remainingMs() <= 0) {
+        throw new CdpTokenBalancesError(
+          "timed-out",
+          "CDP Token Balances inventory deadline was reached.",
+        );
+      }
       return await fetchPage(options);
     } catch (error) {
       lastError = error;
@@ -248,13 +264,13 @@ async function fetchPage(options: {
   env: Environment;
   fetchImpl: FetchLike;
   generateJwtImpl: JwtGenerator;
-  timeoutMs: number;
-  signal?: AbortSignal;
+  deadline: UpstreamDeadline;
 }): Promise<{
   items: ListedTokenBalance[];
   nextPageToken: string | undefined;
 }> {
-  throwIfAborted(options.signal);
+  const { signal } = options.deadline;
+  throwIfAborted(signal);
   const apiKeyId = options.env.CDP_API_KEY_ID?.trim();
   const apiKeySecret = options.env.CDP_API_KEY_SECRET?.trim();
   if (!apiKeyId || !apiKeySecret) {
@@ -275,7 +291,7 @@ async function fetchPage(options: {
       expiresIn: 120,
     });
   } catch (error) {
-    throwIfAborted(options.signal);
+    throwIfAborted(signal);
     throw new CdpTokenBalancesError(
       "not-configured",
       "CDP Token Balances bearer token generation failed.",
@@ -289,11 +305,13 @@ async function fetchPage(options: {
     );
   }
 
-  const controller = new AbortController();
-  const onAbort = () => controller.abort(options.signal?.reason);
-  options.signal?.addEventListener("abort", onAbort, { once: true });
-  const timeout = setTimeout(() => controller.abort("token-balances-timeout"), options.timeoutMs);
-
+  throwIfAborted(signal);
+  if (options.deadline.remainingMs() <= 0) {
+    throw new CdpTokenBalancesError(
+      "timed-out",
+      "CDP Token Balances inventory deadline was reached.",
+    );
+  }
   try {
     const response = await options.fetchImpl(
       tokenBalancesRequestUrl(options.address, options.pageToken),
@@ -304,7 +322,7 @@ async function fetchPage(options: {
           authorization: `Bearer ${jwt}`,
         },
         cache: "no-store",
-        signal: controller.signal,
+        signal,
       },
     );
     if (response.status === 404) {
@@ -315,6 +333,13 @@ async function fetchPage(options: {
     try {
       payload = JSON.parse(await response.text()) as unknown;
     } catch (error) {
+      if (signal.aborted) {
+        throw new CdpTokenBalancesError(
+          "timed-out",
+          "CDP Token Balances request timed out or was aborted.",
+          { cause: error },
+        );
+      }
       throw new CdpTokenBalancesError(
         "invalid-response",
         "CDP Token Balances returned malformed JSON.",
@@ -324,7 +349,7 @@ async function fetchPage(options: {
     return parsePage(payload);
   } catch (error) {
     if (error instanceof CdpTokenBalancesError) throw error;
-    if (controller.signal.aborted) {
+    if (signal.aborted) {
       throw new CdpTokenBalancesError(
         "timed-out",
         "CDP Token Balances request timed out or was aborted.",
@@ -336,9 +361,6 @@ async function fetchPage(options: {
       "CDP Token Balances request failed.",
       { cause: error },
     );
-  } finally {
-    clearTimeout(timeout);
-    options.signal?.removeEventListener("abort", onAbort);
   }
 }
 

@@ -36,6 +36,32 @@ function token(
   };
 }
 
+function createDeadlineClock() {
+  let clock = 0;
+  const timers = new Set<{ at: number; controller: AbortController }>();
+  const scheduledDelays: number[] = [];
+  return {
+    now: () => clock,
+    scheduledDelays,
+    timeout: (ms: number) => {
+      const controller = new AbortController();
+      timers.add({ at: clock + ms, controller });
+      scheduledDelays.push(ms);
+      return controller.signal;
+    },
+    advanceTo: (target: number) => {
+      while (true) {
+        const timer = [...timers].sort((a, b) => a.at - b.at)[0];
+        if (!timer || timer.at > target) break;
+        clock = timer.at;
+        timers.delete(timer);
+        timer.controller.abort();
+      }
+      clock = target;
+    },
+  };
+}
+
 describe("CDP Onchain Data Token Balances client", () => {
   test("pins the Onchain Data GET path and server API-key JWT family", async () => {
     const jwtOptions: unknown[] = [];
@@ -178,14 +204,14 @@ describe("CDP Onchain Data Token Balances client", () => {
     });
   });
 
-  test("keeps a slow successful first page even when it finishes after the soft start budget", async () => {
+  test("keeps a slow first page that finishes before the inventory deadline", async () => {
     let clock = 0;
     let calls = 0;
     const client = createCdpTokenBalancesClient({
       env: configuredEnv,
       generateJwtImpl: async () => "signed-jwt",
       pageStartBudgetMs: 2_500,
-      now: () => clock,
+      clock: { now: () => clock, timeout: () => new AbortController().signal },
       fetchImpl: async () => {
         calls += 1;
         clock = 3_000;
@@ -207,14 +233,14 @@ describe("CDP Onchain Data Token Balances client", () => {
     });
   });
 
-  test("lets a healthy in-flight page finish after the soft budget then stops", async () => {
+  test("keeps a second page that finishes before the inventory deadline then stops starting pages", async () => {
     let clock = 0;
     let calls = 0;
     const client = createCdpTokenBalancesClient({
       env: configuredEnv,
       generateJwtImpl: async () => "signed-jwt",
       pageStartBudgetMs: 2_500,
-      now: () => clock,
+      clock: { now: () => clock, timeout: () => new AbortController().signal },
       fetchImpl: async () => {
         calls += 1;
         if (calls === 1) {
@@ -237,20 +263,233 @@ describe("CDP Onchain Data Token Balances client", () => {
     expect(listed.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual(["1", "2"]);
   });
 
-  test("bounds a stalled first page with the hard page ceiling", async () => {
+  test("aborts a stalled later page at the inventory deadline and retains its resume cursor", async () => {
+    const clock = createDeadlineClock();
+    const started = Promise.withResolvers<void>();
+    let calls = 0;
+    let abortedAt: number | undefined;
     const client = createCdpTokenBalancesClient({
       env: configuredEnv,
       generateJwtImpl: async () => "signed-jwt",
-      timeoutMs: 10,
-      pageAttempts: 1,
+      clock,
+      fetchImpl: (_input, init) => {
+        calls += 1;
+        if (calls === 1) {
+          clock.advanceTo(2_400);
+          return Promise.resolve(Response.json({
+            balances: [token(USDC, "42")],
+            nextPageToken: "page-two",
+          }));
+        }
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            abortedAt = clock.now();
+            reject(new Error("aborted"));
+          }, { once: true });
+          started.resolve();
+        });
+      },
+    });
+
+    const pending = client.listBalances({ address: ADDRESS });
+    await started.promise;
+    expect(clock.scheduledDelays).toEqual([4_000]);
+    clock.advanceTo(4_000);
+    const listed = await pending;
+    expect(abortedAt).toBe(4_000);
+    expect(calls).toBe(2);
+    expect(listed).toMatchObject({
+      durationMs: 4_000,
+      complete: false,
+      nextPageToken: "page-two",
+      pagesRead: 1,
+      balances: [{ contractAddress: USDC.toLowerCase(), amountBaseUnits: "42" }],
+    });
+  });
+
+  test("retains earlier rows and the cursor when a later response body stalls until the deadline", async () => {
+    const clock = createDeadlineClock();
+    const started = Promise.withResolvers<void>();
+    let calls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      clock,
+      fetchImpl: async (_input, init) => {
+        calls += 1;
+        if (calls === 1) {
+          clock.advanceTo(2_400);
+          return Response.json({
+            balances: [token(USDC, "42")],
+            nextPageToken: "page-two",
+          });
+        }
+        return new Response(new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener("abort", () => {
+              controller.error(new Error("body aborted"));
+            }, { once: true });
+          },
+          pull() {
+            started.resolve();
+            return new Promise<void>(() => {});
+          },
+        }, { highWaterMark: 0 }));
+      },
+    });
+
+    const pending = client.listBalances({ address: ADDRESS });
+    await started.promise;
+    clock.advanceTo(4_000);
+    await expect(pending).resolves.toMatchObject({
+      durationMs: 4_000,
+      complete: false,
+      nextPageToken: "page-two",
+      pagesRead: 1,
+      balances: [{ contractAddress: USDC.toLowerCase(), amountBaseUnits: "42" }],
+    });
+    expect(calls).toBe(2);
+  });
+
+  test("retains earlier rows and the cursor when later JWT generation never settles", async () => {
+    const clock = createDeadlineClock();
+    const started = Promise.withResolvers<void>();
+    let jwtCalls = 0;
+    let fetchCalls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => {
+        jwtCalls += 1;
+        if (jwtCalls === 1) return "signed-jwt";
+        started.resolve();
+        return new Promise<string>(() => {});
+      },
+      clock,
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        clock.advanceTo(2_400);
+        return Response.json({
+          balances: [token(USDC, "42")],
+          nextPageToken: "page-two",
+        });
+      },
+    });
+
+    const pending = client.listBalances({ address: ADDRESS });
+    await started.promise;
+    clock.advanceTo(4_000);
+    await expect(pending).resolves.toMatchObject({
+      durationMs: 4_000,
+      complete: false,
+      nextPageToken: "page-two",
+      pagesRead: 1,
+      balances: [{ contractAddress: USDC.toLowerCase(), amountBaseUnits: "42" }],
+    });
+    expect(jwtCalls).toBe(2);
+    expect(fetchCalls).toBe(1);
+  });
+
+  test("gives a later-page retry only the remaining inventory deadline", async () => {
+    const clock = createDeadlineClock();
+    const started = Promise.withResolvers<void>();
+    let calls = 0;
+    let abortedAt: number | undefined;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      clock,
+      fetchImpl: (_input, init) => {
+        calls += 1;
+        if (calls === 1) {
+          clock.advanceTo(2_400);
+          return Promise.resolve(Response.json({
+            balances: [token(USDC, "42")],
+            nextPageToken: "page-two",
+          }));
+        }
+        if (calls === 2) {
+          clock.advanceTo(3_000);
+          return Promise.resolve(new Response("unavailable", { status: 503 }));
+        }
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            abortedAt = clock.now();
+            reject(new Error("aborted"));
+          }, { once: true });
+          started.resolve();
+        });
+      },
+    });
+
+    const pending = client.listBalances({ address: ADDRESS });
+    await started.promise;
+    expect(clock.scheduledDelays).toEqual([4_000]);
+    clock.advanceTo(4_000);
+    await expect(pending).resolves.toMatchObject({
+      durationMs: 4_000,
+      complete: false,
+      nextPageToken: "page-two",
+      pagesRead: 1,
+      balances: [{ amountBaseUnits: "42" }],
+    });
+    expect(abortedAt).toBe(4_000);
+    expect(calls).toBe(3);
+  });
+
+  test("rejects a stalled first page at the inventory deadline", async () => {
+    const clock = createDeadlineClock();
+    const started = Promise.withResolvers<void>();
+    let calls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      deadlineMs: 10,
+      pageStartBudgetMs: 5,
+      clock,
       fetchImpl: (_input, init) => new Promise((_resolve, reject) => {
+        calls += 1;
         init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        started.resolve();
       }),
+    });
+
+    const pending = client.listBalances({ address: ADDRESS });
+    await started.promise;
+    clock.advanceTo(10);
+    await expect(pending).rejects.toMatchObject({ code: "timed-out" });
+    expect(calls).toBe(1);
+  });
+
+  test("rejects a first page whose inventory deadline expired before it started", async () => {
+    let reads = 0;
+    let calls = 0;
+    const client = createCdpTokenBalancesClient({
+      env: configuredEnv,
+      generateJwtImpl: async () => "signed-jwt",
+      clock: {
+        now: () => (reads++ === 0 ? 0 : 10_000),
+        timeout: () => new AbortController().signal,
+      },
+      fetchImpl: async () => {
+        calls += 1;
+        return Response.json({ balances: [token(USDC, "1")] });
+      },
     });
 
     await expect(client.listBalances({ address: ADDRESS })).rejects.toMatchObject({
       code: "timed-out",
     });
+    expect(calls).toBe(0);
+  });
+
+  test("rejects a page-start budget that exceeds the inventory deadline", () => {
+    try {
+      createCdpTokenBalancesClient({ pageStartBudgetMs: 11, deadlineMs: 10 });
+      throw new Error("expected invalid inventory budgets to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CdpTokenBalancesError);
+      expect(error).toMatchObject({ code: "not-configured" });
+    }
   });
 
   test("returns every collected row as incomplete when the page budget is exhausted", async () => {
