@@ -30,6 +30,7 @@ import { isRegionOffered } from "@/server/operator-settings/regions";
 import { deriveActionStatus, type ActionReceiptState } from "./status";
 import { finalizeTradeCalls, type PendingTradeConfirmation } from "./kinds/trade/finalize";
 import { assertStockTradeConfirmAllowed } from "./kinds/trade/stock-eligibility";
+import { tradeBuyBlocked } from "./kinds/trade/buy-policy";
 import type { TradeConfirmRequest } from "@/shared/trading/contract";
 import { createSmartAccountSignatureVerifier } from "./kinds/trade/signer";
 import type { SmartAccountSignatureVerifier } from "@/shared/trading/server-types";
@@ -193,6 +194,7 @@ export function createConfirmActionHandler(dependencies: {
   ensureAddressSubscribed?: (address: `0x${string}`) => Promise<void>;
   verifySmartAccountSignature?: SmartAccountSignatureVerifier;
   convertPair?: typeof resolveConvertPair;
+  buyBlocked?: typeof tradeBuyBlocked;
   markHot?: (address: `0x${string}`, until: Date) => Promise<void>;
   estimateBaseBatch?: CoinbaseSmartAccountBatchEstimator["estimateBatch"];
   readOffering?: typeof readProductOffering;
@@ -245,6 +247,10 @@ export function createConfirmActionHandler(dependencies: {
       const to = isRecord(tradeMetadata.toAsset) ? tradeMetadata.toAsset : null;
       if ((tradeMetadata.currencyRecordId !== undefined || (typeof from?.address === "string" && typeof to?.address === "string")) &&
         !tradeMetadataTradeable(tradeMetadata, { convertPair: dependencies.convertPair })) {
+        return fail("ACTION_EXPIRED", "This trade is no longer available. Prepare it again.", 410);
+      }
+      if (tradeMetadata.direction === "buy" && (typeof tradeMetadata.assetId !== "string" ||
+        (dependencies.buyBlocked ?? tradeBuyBlocked)(tradeMetadata.assetId))) {
         return fail("ACTION_EXPIRED", "This trade is no longer available. Prepare it again.", 410);
       }
     }
