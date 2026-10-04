@@ -66,23 +66,53 @@ test("DOM partition scan recognizes runtime imports but not comments or type-onl
   expect(isDomTestSource('import type { Foo } from "@testing-library/react";')).toBe(false);
 });
 
-test("runner separates DOM tests and preloads only their batches", async () => {
+test("runner separates DOM tests into smaller sequential batches and preserves explicit overrides", async () => {
   await withUnitTestFixture(async (cwd) => {
-    await writeFixture(cwd, "nested/three.test.tsx", 'import "@/client/account/dom-test-harness";');
-    const seen: string[][] = [];
-    const command: Command = async (args) => {
-      seen.push(args);
-      const outfile = args.find((arg) => arg.startsWith("--reporter-outfile="))!.split("=")[1];
-      const file = args.at(-1)!;
-      await writeFixture(cwd, outfile, xml(file));
-      return { exit: 0, signal: null, seconds: 0 };
-    };
-    expect(await run([], { cwd, command, log: () => {} })).toBe(0);
-    expect(seen).toHaveLength(2);
-    expect(seen[0]).not.toContain("--preload");
-    expect(seen[1]).toContain("./client/account/dom-test-harness.ts");
-    const batches = await readMemoryBatches(cwd);
-    expect(batches.map((batch) => batch.partition)).toEqual(["non-dom", "dom"]);
+    const nonDom = ["./nested/one.test.ts", "./nested/two_spec.js"];
+    const dom: string[] = [];
+    for (let index = 0; index < 24; index++) {
+      const file = `./nested/plain-${String(index).padStart(2, "0")}.test.ts`;
+      nonDom.push(file);
+      await writeFixture(cwd, file, "");
+    }
+    for (let index = 0; index < 11; index++) {
+      const file = `./nested/dom-${String(index).padStart(2, "0")}.test.tsx`;
+      dom.push(file);
+      await writeFixture(cwd, file, 'import "@/client/account/dom-test-harness";');
+    }
+    nonDom.sort();
+    for (const { override, expected } of [
+      { override: undefined, expected: [nonDom.slice(0, 25), nonDom.slice(25), dom.slice(0, 5), dom.slice(5, 10), dom.slice(10)] },
+      { override: " ", expected: [nonDom.slice(0, 25), nonDom.slice(25), dom.slice(0, 5), dom.slice(5, 10), dom.slice(10)] },
+      { override: "7", expected: [nonDom.slice(0, 7), nonDom.slice(7, 14), nonDom.slice(14, 21), nonDom.slice(21), dom.slice(0, 7), dom.slice(7)] },
+    ]) {
+      const seen: string[][] = [];
+      let active = false;
+      const command: Command = async (args, commandCwd) => {
+        expect(active).toBe(false);
+        expect(commandCwd).toBe(cwd);
+        active = true;
+        seen.push(args);
+        const outfile = args.find((arg) => arg.startsWith("--reporter-outfile="))!.split("=")[1];
+        const files = args.filter((arg) => /(?:\.test\.|_spec\.)/.test(arg));
+        await writeFixture(cwd, outfile, mergeJunit(files.map((file) => xml(file))));
+        active = false;
+        return { exit: 0, signal: null, seconds: 0 };
+      };
+      expect(await run([], { cwd, env: { HOME_UNIT_TEST_BATCH_SIZE: override }, command, log: () => {} })).toBe(0);
+      expect(seen.map((args) => args.filter((arg) => /(?:\.test\.|_spec\.)/.test(arg)))).toEqual(expected);
+      for (const args of seen) {
+        expect(args.includes("--preload")).toBe(args.some((arg) => dom.includes(arg)));
+        if (args.includes("--preload")) expect(args).toContain("./client/account/dom-test-harness.ts");
+      }
+      const batches = await readMemoryBatches(cwd);
+      expect(batches.map((batch) => batch.files)).toEqual(expected);
+      expect(batches.map((batch) => batch.partition)).toEqual(expected.map((files) => dom.includes(files[0]) ? "dom" : "non-dom"));
+      const report = await readFixture(cwd, "unit-test-results/junit.xml");
+      expect(report).toContain('tests="37" assertions="74" failures="0" skipped="0"');
+      expect(parseJunit(report).testcaseCount).toBe(37);
+      expect(parseJunit(report).files.map((entry: { file: string }) => entry.file).sort()).toEqual([...nonDom, ...dom].sort());
+    }
   });
 });
 
@@ -127,24 +157,37 @@ test("classification distinguishes test failure, crash and missing JUnit", () =>
 
 test("runner continues past failures, records RSS ceiling and merges available JUnit", async () => {
   await withUnitTestFixture(async (cwd) => {
+    for (const file of ["three", "four", "five"]) await writeFixture(cwd, `nested/${file}.test.ts`, "");
     const logs: string[] = [];
     let invoked = 0;
     const command: Command = async (args) => {
       invoked++;
       const path = args.find((arg) => arg.startsWith("--reporter-outfile="))!.split("=")[1];
+      const maxRSS = process.platform === "darwin" ? 3 * 1024 ** 2 : 3 * 1024;
       if (invoked === 1) {
         await writeFixture(cwd, path, xml("one.test.ts", 1));
-        return { exit: 1, signal: null, maxRSS: process.platform === "darwin" ? 3 * 1024 ** 2 : 3 * 1024, seconds: 0.1 };
+        return { exit: 1, signal: null, maxRSS, seconds: 0.1 };
       }
-      return { exit: 133, signal: "SIGTRAP", seconds: 0.2 };
+      if (invoked === 2) return { exit: 133, signal: "SIGTRAP", seconds: 0.2 };
+      if (invoked === 3) throw new Error("fixture spawn failure");
+      if (invoked === 4) {
+        await writeFixture(cwd, path, "malformed JUnit");
+        return { exit: 0, signal: null, seconds: 0.1 };
+      }
+      await writeFixture(cwd, path, xml("two.test.ts"));
+      return { exit: 0, signal: null, maxRSS, seconds: 0.1 };
     };
     expect(await run([], { cwd, env: { HOME_UNIT_TEST_BATCH_SIZE: "1", HOME_UNIT_TEST_MAX_RSS_MB: "2" }, command, log: (message) => logs.push(message) })).toBe(1);
-    expect(invoked).toBe(2);
+    expect(invoked).toBe(5);
     const batches = await readMemoryBatches(cwd);
-    expect(batches.map((batch) => batch.status)).toEqual(["test failures", "runtime crash"]);
-    expect(batches[0].overLimit).toBe(true);
-    expect(parseJunit(await readFixture(cwd, "unit-test-results/junit.xml")).tests).toHaveLength(1);
+    expect(batches.map((batch) => batch.status)).toEqual(["test failures", "runtime crash", "runtime crash", "runtime crash", "pass"]);
+    expect(batches.map((batch) => batch.overLimit)).toEqual([true, false, false, false, true]);
+    expect(batches.every((batch) => Array.isArray(batch.files) && batch.files.length === 1)).toBe(true);
+    const report = await readFixture(cwd, "unit-test-results/junit.xml");
+    expect(parseJunit(report).tests).toHaveLength(2);
+    expect(report).toContain('tests="2" assertions="4" failures="1" skipped="0"');
     expect(logs.join("\n")).toContain("Bun runtime crash, not a test failure");
+    expect(logs.join("\n")).toContain("spawn error: Error: fixture spawn failure");
     expect(logs.join("\n")).toContain("RSS ceiling exceeded");
     expect(await run(["missing"], { cwd, command, log: () => {} }).catch((error: Error) => error.message)).toContain("No unit test files match");
     expect(await readFixture(cwd, "unit-test-results/junit.xml").catch(() => "removed")).toBe("removed");
