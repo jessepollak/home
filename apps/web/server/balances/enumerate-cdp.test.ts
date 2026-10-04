@@ -498,7 +498,7 @@ describe("CDP Onchain Data Token Balances client", () => {
     const client = createCdpTokenBalancesClient({
       env: configuredEnv,
       generateJwtImpl: async () => "signed-jwt",
-      now: () => 0,
+      clock: { now: () => 0, timeout: () => new AbortController().signal },
       fetchImpl: async () => {
         pages += 1;
         const amount = String(pages);
