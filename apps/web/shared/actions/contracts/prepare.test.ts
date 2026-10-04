@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cashoutPrepareErrorResponse, isCashoutPrepareErrorCode, parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse, validPrepared } from "./prepare";
+import { cashoutPrepareErrorResponse, isCashoutPrepareErrorCode, parsePrepareActionErrorResponse, parseProductNotOfferedPrepareErrorResponse, parsePreparedAction } from "./prepare";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
 const address = "0x1111111111111111111111111111111111111111" as const;
@@ -10,39 +10,82 @@ const fee = { payment: "usdc", token, paymaster, maxFeeBaseUnits: "20000", decim
 const approval = { to: token, value: "0", data: `0x095ea7b3${paymaster.slice(2).padStart(64, "0")}${BigInt(20_000).toString(16).padStart(64, "0")}` };
 const prepared = { id: "action", owner: { subject: "subject", address, accountProvider: "cdp-embedded" }, calls: [approval], amounts: [], warnings: [], networkFee: fee };
 
+class NonPlainCall {
+  to = address;
+  data = "0x";
+  value = "0";
+}
+
+const invalidCalls: [string, unknown][] = [
+  ["non-address to", { ...approval, to: "not-an-address" }],
+  ["short to", { ...approval, to: "0x1234" }],
+  ["zero to", { ...approval, to: `0x${"0".repeat(40)}` }],
+  ["odd-length data", { ...approval, data: "0xABC" }],
+  ["non-hex data", { ...approval, data: "0xGH" }],
+  ["uppercase data prefix", { ...approval, data: "0XABCD" }],
+  ["negative value", { ...approval, value: "-1" }],
+  ["non-decimal value", { ...approval, value: "0x1" }],
+  ["value above uint256", { ...approval, value: (BigInt(1) << BigInt(256)).toString() }],
+  ["zero approval spender", { ...approval, approval: { assetId: "usdc", spender: `0x${"0".repeat(40)}` } }],
+  ["empty approval assetId", { ...approval, approval: { assetId: " ", spender: address } }],
+  ["non-plain call", new NonPlainCall()],
+];
+
+describe("prepared action call validation", () => {
+  test.each(invalidCalls)("rejects %s in any batch position without a network fee", (_reason, call) => {
+    expect(parsePreparedAction({ ...prepared, networkFee: undefined, calls: [approval, call] }, session)).toBeNull();
+  });
+  test("rejects empty batches with absent and native fees", () => {
+    for (const networkFee of [undefined, { payment: "native" }]) {
+      expect(parsePreparedAction({ ...prepared, networkFee, calls: [] }, session)).toBeNull();
+    }
+  });
+  test("canonicalizes calls and approvals without changing other prepared fields", () => {
+    const calls = [{ to: token, data: "0xABCD", value: "0", approval: { assetId: " usdc ", spender: paymaster } }];
+    const input = { ...prepared, networkFee: undefined, calls };
+    expect<unknown>(parsePreparedAction(input, session)).toEqual({ ...input,
+      calls: [{ to: token.toLowerCase(), data: "0xabcd", value: "0", approval: { assetId: "usdc", spender: paymaster.toLowerCase() } }] });
+    expect(input.calls).toEqual(calls);
+  });
+  test("accepts bare 0x data with a nonzero value", () => {
+    const calls = [{ to: address, data: "0x" as const, value: "123" }];
+    expect(parsePreparedAction({ ...prepared, networkFee: undefined, calls }, session)?.calls).toEqual(calls);
+  });
+});
+
 describe("prepared network fee validation", () => {
   test("accepts a zero-amount card allowance only with matching typed metadata", () => {
     const metadata = { product: "card", operation: "set-allowance", provider: "bridge", mode: "production",
       token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", spender: "0x65bf8b55eedef53c094e40003a03390de744df33",
       allowanceBaseUnits: "25000000", previousAllowanceBaseUnits: "0", maximumBaseUnits: "100000000", source: { blockNumber: "100" } };
     const card = { ...prepared, kind: "card-allowance", metadata };
-    expect(validPrepared(card, session)).toBe(true);
-    expect(validPrepared({ ...card, metadata: undefined }, session)).toBe(false);
-    expect(validPrepared({ ...card, amounts: [{ assetId: "usdc" }] }, session)).toBe(false);
-    expect(validPrepared({ ...card, kind: "send" }, session)).toBe(false);
+    expect(parsePreparedAction(card, session)).not.toBeNull();
+    expect(parsePreparedAction({ ...card, metadata: undefined }, session)).toBeNull();
+    expect(parsePreparedAction({ ...card, amounts: [{ assetId: "usdc" }] }, session)).toBeNull();
+    expect(parsePreparedAction({ ...card, kind: "send" }, session)).toBeNull();
   });
   test("accepts native and absent fee and a matching USDC approval", () => {
-    expect(validPrepared(prepared, session)).toBe(true);
-    expect(validPrepared({ ...prepared, networkFee: { payment: "native" }, calls: [] }, session)).toBe(true);
-    expect(validPrepared({ ...prepared, networkFee: undefined, calls: [] }, session)).toBe(true);
+    expect(String(parsePreparedAction(prepared, session)?.calls[0]?.to)).toBe(token.toLowerCase());
+    expect(parsePreparedAction({ ...prepared, networkFee: { payment: "native" } }, session)).not.toBeNull();
+    expect(parsePreparedAction({ ...prepared, networkFee: undefined }, session)).not.toBeNull();
   });
 
   test("rejects malformed arrays and non-record leading ERC20 approvals", () => {
     for (const field of ["calls", "amounts", "warnings"]) {
       for (const malformed of [{}, "not-an-array"]) {
-        expect(validPrepared({ ...prepared, [field]: malformed }, session)).toBe(false);
+        expect(parsePreparedAction({ ...prepared, [field]: malformed }, session)).toBeNull();
       }
     }
-    expect(validPrepared({ ...prepared, calls: ["not-a-call"] }, session)).toBe(false);
+    expect(parsePreparedAction({ ...prepared, calls: ["not-a-call"] }, session)).toBeNull();
   });
 
   test("rejects invalid fee payload and a missing or mismatched leading approval", () => {
-    expect(validPrepared({ ...prepared, networkFee: { ...fee, maxFeeBaseUnits: "0" } }, session)).toBe(false);
-    expect(validPrepared({ ...prepared, calls: [] }, session)).toBe(false);
-    expect(validPrepared({ ...prepared, calls: [{ ...approval, to: paymaster }] }, session)).toBe(false);
-    expect(validPrepared({ ...prepared, calls: [{ ...approval, data: `0x095ea7b3${paymaster.slice(2).padStart(64, "0")}${BigInt(20_001).toString(16).padStart(64, "0")}` }] }, session)).toBe(false);
-    expect(validPrepared({ ...prepared, calls: [{ ...approval, data: approval.data.replace("095ea7b3", "a9059cbb") }] }, session)).toBe(false);
-    expect(validPrepared({ ...prepared, calls: [{ ...approval, data: `0x095ea7b3${address.slice(2).padStart(64, "0")}${BigInt(20_000).toString(16).padStart(64, "0")}` }] }, session)).toBe(false);
+    expect(parsePreparedAction({ ...prepared, networkFee: { ...fee, maxFeeBaseUnits: "0" } }, session)).toBeNull();
+    expect(parsePreparedAction({ ...prepared, calls: [] }, session)).toBeNull();
+    expect(parsePreparedAction({ ...prepared, calls: [{ ...approval, to: paymaster }] }, session)).toBeNull();
+    expect(parsePreparedAction({ ...prepared, calls: [{ ...approval, data: `0x095ea7b3${paymaster.slice(2).padStart(64, "0")}${BigInt(20_001).toString(16).padStart(64, "0")}` }] }, session)).toBeNull();
+    expect(parsePreparedAction({ ...prepared, calls: [{ ...approval, data: approval.data.replace("095ea7b3", "a9059cbb") }] }, session)).toBeNull();
+    expect(parsePreparedAction({ ...prepared, calls: [{ ...approval, data: `0x095ea7b3${address.slice(2).padStart(64, "0")}${BigInt(20_000).toString(16).padStart(64, "0")}` }] }, session)).toBeNull();
   });
 });
 

@@ -1,5 +1,6 @@
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { parseMoneyActionCalls } from "@/shared/money-actions/calls";
 import {
   isActionKind,
   type ActionKind,
@@ -66,7 +67,6 @@ export function parsePendingActionResponse(
     typeof value.summary.title !== "string" ||
     !Array.isArray(value.summary.amounts) ||
     !Array.isArray(value.summary.warnings) ||
-    !Array.isArray(value.calls) ||
     typeof value.expiresAt !== "string" ||
     (value.summary.networkFee !== undefined && !parseMoneyActionNetworkFee(value.summary.networkFee)) ||
     !active.smartAccount || (value.kind === "card-allowance" && (value.summary.amounts.length !== 0 || !parseCardAllowanceMetadata(value.summary.metadata))) ||
@@ -76,6 +76,8 @@ export function parsePendingActionResponse(
   ) {
     return null;
   }
+  const calls = parseMoneyActionCalls(value.calls);
+  if (!calls) return null;
   return {
     id,
     owner: {
@@ -86,7 +88,7 @@ export function parsePendingActionResponse(
     },
     kind: value.kind,
     title: value.summary.title,
-    calls: value.calls as PreparedMoneyAction["calls"],
+    calls,
     amounts: value.summary.amounts as PreparedMoneyAction["amounts"],
     warnings: value.summary.warnings as string[],
     expiresAt: value.expiresAt,

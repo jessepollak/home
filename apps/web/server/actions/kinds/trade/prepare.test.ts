@@ -1,5 +1,5 @@
 import { readJson } from "@/tests/helpers/read-json";
-import { validPrepared } from "@/shared/actions/contracts/prepare";
+import { parsePreparedAction } from "@/shared/actions/contracts/prepare";
 import { parseAddress, requireAddress } from "@/shared/chain/hex";
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, getAddress, hashTypedData, parseAbiParameters } from "viem";
@@ -462,8 +462,8 @@ describe("trade preparation", () => {
       body: JSON.stringify({ kind: "trade", params: { version: 3, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1000000" } }),
     }));
     expect(response.status).toBe(201);
-    const result = await readJson(response);
-    if (!validPrepared(result, sessions())) throw new Error("Invalid prepared trade");
+    const result = parsePreparedAction(await readJson(response), sessions());
+    if (!result) throw new Error("Invalid prepared trade");
     expect(trade.key).not.toBe(result.id);
     expect(inserts[0]?.pending.swapCallIndex).toBe(fee ? 2 : 1);
     expect(inserts[0]?.pending.calls[inserts[0]!.pending.swapCallIndex!]?.to).toBe(ROUTER);
@@ -661,8 +661,8 @@ describe("trade preparation", () => {
     const response = await handler(new Request("https://home.test/api/actions/prepare", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind: "trade", params: { version: 3, assetId: "cbbtc", direction, amountBaseUnits: "1000000" } }) }));
     expect(response.status).toBe(201);
-    const body = await response.json();
-    expect(validPrepared(body, sessions())).toBe(true);
+    const body = parsePreparedAction(await response.json(), sessions());
+    if (!body) throw new Error("Invalid prepared trade");
     expect(inserts[0]?.pending.swapCallIndex).toBe(direction === "buy" ? 3 : 2);
     expect(inserts[0]?.pending.calls[inserts[0]!.pending.swapCallIndex!]?.to).toBe(ROUTER);
     expect(inserts[0]?.pending.calls).toEqual(body.calls);
