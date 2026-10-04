@@ -63,7 +63,7 @@ export function ShellHeader({
     : shellFrameClassName;
 
   return (
-    <header className={`sticky top-0 z-30 order-0 w-full shrink-0 bg-background ${shellChromeCompensationClassName}`}>
+    <header data-rail-follower={hasDesktopRail ? "" : undefined} className={`sticky top-0 z-30 order-0 w-full shrink-0 bg-background ${shellChromeCompensationClassName}`}>
       <div
         className={`${headerFrameClassName} flex min-h-14 items-center justify-between gap-4 border-b py-2`}
         data-shell-header-frame={routeMode}

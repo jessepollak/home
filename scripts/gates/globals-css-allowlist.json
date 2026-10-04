@@ -16,9 +16,16 @@
     "@layer base",
     "@layer utilities",
     "@media (display-mode: standalone)",
-    "@supports (height: 100dvh)",
+    "@property --shell-viewport-inset-bottom",
+    "@property --shell-viewport-keyboard-height",
+    "@property --shell-viewport-pan",
     "@theme inline"
   ],
+  "registeredProperties": {
+    "@property --shell-viewport-inset-bottom": ["inherits: false", "initial-value: 0px", "syntax: \"<length>\""],
+    "@property --shell-viewport-keyboard-height": ["inherits: false", "initial-value: 0px", "syntax: \"<length>\""],
+    "@property --shell-viewport-pan": ["inherits: false", "initial-value: 0px", "syntax: \"<length>\"" ]
+  },
   "themeInline": {
     "properties": [
       "--color-accent",
@@ -108,10 +115,11 @@
       "--ring",
       "--secondary",
       "--secondary-foreground",
+      "--shell-bottom-control-offset",
       "--shell-navigation-clearance",
       "--shell-navigation-offset",
       "--shell-safe-area-bottom",
-      "--shell-viewport-overhang",
+      "--shell-viewport-inset-bottom",
       "--status-caution",
       "--status-negative",
       "--status-positive",
@@ -161,14 +169,7 @@
       "color-scheme: dark"
     ]
   },
-  "supports": {
-    ":root": {
-      "properties": [
-        "--shell-viewport-overhang"
-      ],
-      "other": []
-    }
-  },
+  "supports": {},
   "media": {
     ":root": {
       "properties": [
@@ -182,10 +183,11 @@
       "@apply border-border outline-ring/50"
     ],
     "body": [
-      "@apply bg-background text-foreground"
+      "@apply bg-muted text-foreground"
     ],
     "html": [
-      "@apply font-sans"
+      "-webkit-tap-highlight-color: transparent",
+      "@apply bg-muted font-sans"
     ],
     "a[href], button:not(:disabled), [role=\"button\"]:not([aria-disabled=\"true\"]), [role=\"option\"]:not([aria-disabled=\"true\"]), [role=\"radio\"]:not([aria-disabled=\"true\"]), summary": [
       "cursor: pointer",
@@ -231,7 +233,7 @@
       "reason": "Shell layout variable remains owned by shell work."
     },
     {
-      "entry": ":root/--shell-viewport-overhang",
+      "entry": ":root/--shell-viewport-inset-bottom",
       "owner": [
         "#1075",
         "#1137"
@@ -239,12 +241,12 @@
       "reason": "Shell layout variable remains owned by shell work."
     },
     {
-      "entry": "@supports (height: 100dvh)",
+      "entry": ":root/--shell-bottom-control-offset",
       "owner": [
         "#1075",
         "#1137"
       ],
-      "reason": "Shell viewport overhang fallback remains owned by shell work."
+      "reason": "The shared resting bottom-control offset remains owned by shell work."
     },
     {
       "entry": "@media (display-mode: standalone)",

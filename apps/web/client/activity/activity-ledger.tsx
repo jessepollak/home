@@ -441,7 +441,7 @@ export function ActivityLedger({
     })) : [])];
   }), [recent, assigned.byChild, expandedChildren, recentListId]);
   if (!unique.length) return footer ?? null;
-  const footerSlot = footer ? <div className="pt-2 pb-3">{footer}</div> : null;
+  const footerSlot = footer ? <div className="py-1">{footer}</div> : null;
   if (layout === "feed") {
     return (
       <div className="space-y-3" style={{ overflowAnchor: "none" }}>

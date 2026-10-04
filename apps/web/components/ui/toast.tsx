@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Toast as ToastPrimitive } from "@base-ui/react/toast"
 import { cn } from "cn"
+import { useShellViewportGeometry } from "@/components/visual-viewport"
 
 import { Button } from "@/components/ui/button"
 import { XIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
@@ -18,11 +19,12 @@ function ToastPortal({ ...props }: ToastPrimitive.Portal.Props) {
 }
 
 function ToastViewport({ className, ...props }: ToastPrimitive.Viewport.Props) {
+  useShellViewportGeometry()
   return (
     <ToastPrimitive.Viewport
       data-slot="toast-viewport"
       className={cn(
-        "pointer-events-none fixed inset-x-4 bottom-[calc(var(--shell-navigation-clearance)+var(--shell-viewport-overhang))] z-50 mx-auto w-auto max-w-sm outline-none lg:right-4 lg:bottom-4 lg:left-auto lg:mx-0 lg:w-full",
+        "pointer-events-none fixed inset-x-4 bottom-[calc(var(--shell-navigation-clearance)+var(--shell-viewport-inset-bottom))] z-50 mx-auto w-auto max-w-sm outline-none lg:right-4 lg:bottom-4 lg:left-auto lg:mx-0 lg:w-full",
         className
       )}
       {...props}

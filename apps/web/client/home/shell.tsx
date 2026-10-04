@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { restoreHoldingReturn } from "@/client/investments/restore-holding-return";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { isSessionSettling, useAccountWallet } from "@/client/account/cdp-client";
@@ -9,13 +9,15 @@ import { AccountSettings } from "@/client/account/account-settings";
 import { dataOwnerKey, supportOwnerKey } from "@/client/account/owner-keys";
 import { SupportProvider } from "@/client/support/support-provider";
 import { useAppearance } from "@/client/appearance/use-appearance";
-import { borrowPanelId, cashPanelId, investmentsPanelId, isHomeNestedPanelId, nestedHomePanelTitle, type ShellPanelId } from "@/config/navigation";
+import { borrowPanelId, cashPanelId, investmentsPanelId, isHomeNestedPanelId, nestedHomePanelTitle, visibleNavigationItems, type ShellPanelId } from "@/config/navigation";
 import { backClientHistory, commitClientUrl, commitFlowUrl, flowHref, parseShellLocation, parseShellOverlayIntent, readClientHistoryFlag, readShellHistoryOrigin, shellHref, withoutFlowHref, writeShellHistoryOrigin, type ShellFlow } from "@/config/shell-location";
 import { AppChromeProvider, useOptionalAppChrome, type NestedAppChrome } from "@/components/app-chrome";
 import { LoadErrorCard } from "@/components/load-error";
 import { useBreakpointFocusHandoff } from "@/components/breakpoint-focus";
-import { PrimaryNavigation } from "@/components/primary-navigation";
-import { shellFrameClassName, shellNavigationClearanceClassName, shellDesktopContentClassName } from "@/components/shell-layout";
+import { ShellNavigation } from "./shell-navigation";
+import { ShellRouteSearchProvider, useShellRouteSearch, ShellSearchProvider, ShellSearchInert, ShellSearchSurfaceSlot } from "./shell-search";
+import { ShellMain } from "./shell-main";
+import { shellDesktopContentClassName } from "@/components/shell-layout";
 import { markHomePerformance, markHomeStartupOutcome, startHomePerformance } from "@/client/observability/perf-marks";
 import { beginHomeNavigation, discardHomeInteractionSamples, commitHomeNavigation, takeHomeHistoryTraversal } from "@/client/observability/interaction-performance";
 import { useHomeScrollPerformance } from "@/client/observability/use-home-scroll-performance";
@@ -27,16 +29,13 @@ import { HomeHeaderStatus, headerStatus, homeBalancesStatus, useReloadHomeBalanc
 import { ActionToasts } from "./action-toasts";
 import { scheduleAfterPaint } from "./after-paint";
 import { useProductOffering } from "./product-offering";
-import { useHomeRefresh } from "./use-home-refresh";
-import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } from "@/components/ui/pull-to-refresh";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import { FundingActions } from "@/client/funding/funding-actions";
 import { TransferActions } from "@/client/transfers";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import type { HomeExperienceProps, HomeAssetBalancesPresentation } from "./home-types";
 import type { AssetKey } from "@/shared/balances/types";
 import type { HomeInteractionRoute } from "@/shared/observability/client-performance.contract";
+import { isRecord } from "@/shared/guards";
 
 const AccountSignInSheet = deferSheet(() => import("@/client/account/account-screen").then((module) => module.AccountSignInSheet));
 const EmailShareSheet = deferSheet(() => import("@/client/account/email-share-sheet").then((module) => module.EmailShareSheet));
@@ -48,13 +47,15 @@ const startupRoutes: Record<ShellPanelId, HomeInteractionRoute> = {
 };
 
 export type DashboardShellProps = Omit<HomeExperienceProps, "landingVisual" | "routeMode"> & { children?: ReactNode };
+type ShellNavigationStyle = CSSProperties & Record<"--shell-navigation-items", number>;
+
 
 export function DashboardShell(props: DashboardShellProps) {
-  return <AppChromeProvider><DashboardShellBody {...props} /></AppChromeProvider>;
+  return <AppChromeProvider><ShellRouteSearchProvider><DashboardShellBody {...props} /></ShellRouteSearchProvider></AppChromeProvider>;
 }
 
 function DashboardShellBody({
-  children, investContent, cashContent, investmentsContent, cardsEnabled = false, initialAccountOpen = false,
+  children, investContent, searchContent, cashContent, investmentsContent, cardsEnabled = false, initialAccountOpen = false,
   initialAccountSettingsOpen = false, assetBalances, initialRateLabels,
   interruption = null, interruptionAnnouncement = null, onRetryInterruption,
   sendAvailability = [], canOpenAssetDetail = () => false, assetMarkResolution,
@@ -63,14 +64,17 @@ function DashboardShellBody({
 }: DashboardShellProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const location = parseShellLocation(pathname);
+  const searchParams = useShellRouteSearch();
+  const location = useMemo(() => parseShellLocation(pathname), [pathname]);
   const [urlSearchOverride, setUrlSearchOverride] = useState<string | null>(null);
   const [flowOrigin, setFlowOrigin] = useState<{ href: string; opener: HTMLElement | null } | null>(null);
   const [accountOpener, setAccountOpener] = useState<HTMLElement | null>(null);
-  const currentSearch = new URLSearchParams(urlSearchOverride ?? searchParams.toString());
+  const currentSearch = new URLSearchParams(urlSearchOverride ?? searchParams);
   const overlay = parseShellOverlayIntent(currentSearch);
-  const urlIntent = readHomeInboundPanelState(location, currentSearch);
+  const routingSearch = new URLSearchParams(currentSearch);
+  routingSearch.delete("search");
+  const routingSearchString = routingSearch.toString();
+  const urlIntent = useMemo(() => readHomeInboundPanelState(location, new URLSearchParams(routingSearchString)), [location, routingSearchString]);
   const flowOpener = flowOrigin?.href === `${pathname}${currentSearch.size ? `?${currentSearch}` : ""}` ? flowOrigin.opener : null;
   if (flowOrigin !== null && flowOpener === null && flowOrigin.opener !== null) setFlowOrigin(null);
   const activeNavigation = location.panel;
@@ -90,6 +94,7 @@ function DashboardShellBody({
   const contentFrameRef = useRef<HTMLDivElement>(null);
   const settingsRegionRef = useRef<HTMLElement>(null);
   const panelStageRef = useRef<HTMLElement>(null);
+  const searchDetailTargetRef = useRef<{ href: string; assetId: string; query: string; token: string } | null>(null);
   const wasSettingsOpenRef = useRef(false);
   const previousPanelRef = useRef(activeNavigation);
   const activeNavigationRef = useRef(activeNavigation);
@@ -97,6 +102,7 @@ function DashboardShellBody({
   const holdingRestoreRef = useRef<(() => void) | null>(null);
   const [investmentsReturnHolding, setInvestmentsReturnHolding] = useState<AssetKey | null>(null);
   const pendingOriginRef = useRef<{ origin: string; target: string } | null>(null);
+  const pendingNavigationRef = useRef<string | null>(null);
   const activityReturnRef = useRef<ActivityDetailReturn | null>(null);
   const [activityReturn, setActivityReturnState] = useState<ActivityDetailReturn | null>(null);
   useBreakpointFocusHandoff();
@@ -116,16 +122,11 @@ function DashboardShellBody({
   const activitySession = isVerified && account.session?.smartAccount ? account.session : null;
   const activityOwner = activitySession ? dataOwnerKey(activitySession) : null;
   useShellDocumentScrollRestoration(pathname, activityOwner);
+  const { products } = useProductOffering();
+  const investOffered = products.invest === "on";
   const homeRefreshEnabled = activitySession !== null && activeNavigation === "home" && !isAccountSettingsOpen;
   const flowOpen = overlay.flow !== null || overlay.addMoney || overlay.returnedFromFunding;
-  const { state: refreshState, refresh } = useHomeRefresh({
-    session: activitySession, regionId: region.regionId, fetchActivity: account.fetchActivity, enabled: homeRefreshEnabled,
-  });
-  const { phase: pullPhase, indicatorRef, actionRef } = usePullToRefresh({
-    scrollRef: mainRef, scrollElement: "document", contentRef: contentFrameRef,
-    enabled: homeRefreshEnabled && !flowOpen && !isAccountOpen && !homeDetailsOpen,
-    refreshing: refreshState.phase === "refreshing", onRefresh: () => { void refresh(); },
-  });
+  const searchAvailable = Boolean(searchContent && investOffered && !isAccountSettingsOpen && !isAccountOpen && !flowOpen);
   useEffect(() => {
     for (const panel of ["home", "activity", "cash", "cash/savings", "borrow", "investments", "invest"])
       if (`/${panel}` !== pathname) router.prefetch(`/${panel}`);
@@ -160,6 +161,8 @@ function DashboardShellBody({
   }, [isSignedOut, router]);
   useEffect(() => {
     const onPop = () => {
+      pendingNavigationRef.current = null;
+      searchDetailTargetRef.current = null;
       const pending = activityReturnRef.current;
       if (pending?.suspended && pending.path === window.location.pathname) {
         activityReturnRef.current = { ...pending, opening: false, suspended: false };
@@ -174,6 +177,9 @@ function DashboardShellBody({
     document.addEventListener("visibilitychange", onVisibility);
     return () => { window.removeEventListener("popstate", onPop); document.removeEventListener("visibilitychange", onVisibility); discardHomeInteractionSamples(); };
   }, []);
+  useLayoutEffect(() => {
+    pendingNavigationRef.current = null;
+  }, [pathname, rootRequest]);
   useLayoutEffect(() => {
     const pending = pendingOriginRef.current;
     if (pending === null) return;
@@ -254,6 +260,7 @@ function DashboardShellBody({
     };
   }, [activeNavigation]);
   const pushRoute = useCallback((href: string) => {
+    searchDetailTargetRef.current = null;
     setFlowOrigin(null);
     setAccountOpener(null);
     const target = new URL(href, window.location.origin);
@@ -267,32 +274,40 @@ function DashboardShellBody({
     router.push(href);
   }, [router, setFlowOrigin, setAccountOpener]);
   const leaveRoute = useCallback((href: string) => {
+    searchDetailTargetRef.current = null;
     setFlowOrigin(null);
     setAccountOpener(null);
     if (readShellHistoryOrigin() !== null) router.back();
     else router.replace(href);
   }, [router, setFlowOrigin, setAccountOpener]);
 
-  const { products } = useProductOffering();
-  const investOffered = products.invest === "on";
+  const navigationItemCount = visibleNavigationItems({ cardsEnabled, investOffered }).length;
+  const shellNavigationStyle: ShellNavigationStyle = { "--shell-navigation-items": navigationItemCount };
   const sendOffered = products.send === "on";
   const navigateTo = useCallback((panel: ShellPanelId) => {
     if (panel === "invest" && !investOffered) return;
-    setFlowOrigin(null);
-    setAccountOpener(null);
-    setInvestmentsReturnHolding(null);
-    takeHomeHistoryTraversal(null);
-    if (panel !== activeNavigation) beginHomeNavigation({ from: startupRoutes[activeNavigation], to: startupRoutes[panel], cache: "first-visit", trigger: "in-app" });
-    activityReturnRef.current = null;
-    setActivityReturnState(null);
-    setUrlSearchOverride(null);
-    setRootRequest((current) => ({ panel, revision: (current?.revision ?? 0) + 1 }));
-    setSettingsRequested(false);
-    const href = shellHref({ panel });
-    if (window.location.pathname === href) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    if (`${window.location.pathname}${window.location.search}` !== href) pushRoute(href);
+    startTransition(() => {
+      searchDetailTargetRef.current = null;
+      setFlowOrigin(null);
+      setAccountOpener(null);
+      setInvestmentsReturnHolding(null);
+      takeHomeHistoryTraversal(null);
+      if (panel !== activeNavigation) beginHomeNavigation({ from: startupRoutes[activeNavigation], to: startupRoutes[panel], cache: "first-visit", trigger: "in-app" });
+      activityReturnRef.current = null;
+      setActivityReturnState(null);
+      setUrlSearchOverride(null);
+      setRootRequest((current) => ({ panel, revision: (current?.revision ?? 0) + 1 }));
+      setSettingsRequested(false);
+      const href = shellHref({ panel });
+      if (window.location.pathname === href) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      if (`${window.location.pathname}${window.location.search}` !== href || pendingNavigationRef.current !== null) {
+        pendingNavigationRef.current = href;
+        pushRoute(href);
+      }
+    });
   }, [pushRoute, activeNavigation, investOffered, setUrlSearchOverride, setFlowOrigin, setAccountOpener]);
   const setFlow = useCallback((flow: ShellFlow, options: { actionId?: string | null; mode?: "push" | "replace"; opener?: HTMLElement | null } = {}) => {
+    searchDetailTargetRef.current = null;
     const href = flowHref(window.location.pathname, flow, options.actionId ?? null,
       new URLSearchParams(window.location.search));
     const pushed = commitFlowUrl(href, options.mode ?? "push");
@@ -308,6 +323,7 @@ function DashboardShellBody({
   const clearFlow = useCallback((options: {
     mode?: "push" | "replace"; fundingReturn?: boolean; normalizeInbound?: boolean;
   } = {}) => {
+    searchDetailTargetRef.current = null;
     setFlowOrigin(null);
     if (!options.normalizeInbound && options.mode !== "push" && window.location.pathname === "/cash/savings" &&
       readClientHistoryFlag("cashSavingsFlowPushed") &&
@@ -320,35 +336,50 @@ function DashboardShellBody({
     commitClientUrl(`${next.pathname}${next.search}`, options.mode ?? "replace");
     setUrlSearchOverride(next.search);
   }, [overlay.flow, setUrlSearchOverride, setFlowOrigin]);
-  const openCashSavings = () => {
+  const openCashSavings = useCallback(() => {
     pushRoute(shellHref({ panel: "cash", cashView: "savings" }));
-  };
-  const openInvestmentHolding = (holding: AssetKey) => {
+  }, [pushRoute]);
+  const openInvestmentHolding = useCallback((holding: AssetKey) => {
     setInvestmentsReturnHolding(null);
     pushRoute(shellHref({ panel: "investments", holding }));
-  };
+  }, [pushRoute]);
   const openAssetDetail = useCallback((key: string) => {
     if (!canOpenAssetDetail(key)) return false;
     pushRoute(shellHref({ panel: "investments", holding: key as AssetKey }));
     return true;
   }, [pushRoute, canOpenAssetDetail]);
-  const closeInvestmentHolding = () => {
+  const closeInvestmentHolding = useCallback(() => {
     setInvestmentsReturnHolding(location.holding ?? null);
     leaveRoute(shellHref({ panel: "investments" }));
-  };
-  const routingValue = {
+  }, [location.holding, leaveRoute]);
+  const finalizeSearchDetailOrigin = useCallback((assetId: string) => {
+    const pending = searchDetailTargetRef.current;
+    if (!pending || pending.assetId !== assetId || window.location.pathname !== pending.href || window.location.search !== "") return;
+    const state: unknown = window.history.state;
+    if (window.location.hash === "" && isRecord(state) && state.assetSearchDetailToken === pending.token &&
+      state.investDetailFrom === "search" && state.assetSearchDetailQuery === pending.query) {
+      searchDetailTargetRef.current = null;
+      return;
+    }
+    if (window.location.hash !== `#asset-search-${pending.token}`) return;
+    commitClientUrl(pending.href, "replace", { assetSearchDetailToken: pending.token, investDetailFrom: "search", assetSearchDetailQuery: pending.query }, true);
+    setPopRevision((revision) => revision + 1);
+  }, []);
+  const routingValue = useMemo(() => ({
     activityReturn,
     getActivityReturn: () => activityReturnRef.current,
     setActivityReturn: (value: ActivityDetailReturn | null) => { activityReturnRef.current = value; setActivityReturnState(value); },
+    getSearchDetailOrigin: () => searchDetailTargetRef.current,
+    finalizeSearchDetailOrigin,
     state: urlIntent, flowOpener, popRevision, rootRequest, openPanel: navigateTo, leaveRoute, pushRoute,
     canOpenAssetDetail, openAssetDetail, setFlow, clearFlow,
-  };
+  }), [activityReturn, finalizeSearchDetailOrigin, urlIntent, flowOpener, popRevision, rootRequest, navigateTo, leaveRoute, pushRoute, canOpenAssetDetail, openAssetDetail, setFlow, clearFlow]);
   useActivityReturnOwnerBoundary(activityOwner, routingValue);
   const { regionId, resolutionSource, isPreferenceReady, preferenceMessage, selectRegion, offeredCountries } = region;
   const reloadBalances = useReloadHomeBalances();
   const retryHomeReads = onRetryInterruption ?? reloadBalances;
   const balanceRowRetry = headerStatus({ interruption, coverage: null })?.recovery === "none" ? undefined : retryHomeReads;
-  const pageValue = {
+  const pageValue = useMemo(() => ({
     paintedAssetBalances, activitySession, fetchActivity: account.fetchActivity, fetchOperations: account.fetchOperations,
     regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution,
     showSmallBalances,
@@ -357,8 +388,10 @@ function DashboardShellBody({
     onRetryBalances: balanceRowRetry, initialAddMoney: urlIntent.addMoney,
     returnedFromProvider: urlIntent.returnedFromProvider, initialSendFlow: urlIntent.sendFlow,
     initialSendActionId: urlIntent.actionId,
-  };
+  }), [paintedAssetBalances, activitySession, account.fetchActivity, account.fetchOperations, regionId, regionReady, initialRateLabels, sessionSettling, isChecking, isVerified, sendAvailability, assetMarkResolution, showSmallBalances, cardsEnabled, cashContent, investContent, investmentsContent, openInvestmentHolding, closeInvestmentHolding, location.panel, investmentsReturnHolding, openCashSavings, balanceRowRetry, urlIntent.addMoney, urlIntent.returnedFromProvider, urlIntent.sendFlow, urlIntent.actionId]);
+  const onLeaveSearch = useCallback(() => setUrlSearchOverride(null), []);
   const openAccountSettings = (opener?: HTMLButtonElement) => {
+    searchDetailTargetRef.current = null;
     setAccountOpener(opener ?? null);
     setSettingsOpenedInApp(true);
     commitClientUrl(shellHref({ ...location, account: "settings" }));
@@ -366,6 +399,7 @@ function DashboardShellBody({
     setSettingsRequested(true);
   };
   const closeAccountSettings = () => {
+    searchDetailTargetRef.current = null;
     if (settingsOpenedInApp) { setSettingsOpenedInApp(false); backClientHistory(); }
     else {
       commitClientUrl(shellHref(location), "replace");
@@ -374,6 +408,7 @@ function DashboardShellBody({
     setSettingsRequested(false);
   };
   const signOut = () => {
+    searchDetailTargetRef.current = null;
     activityReturnRef.current = null;
     setActivityReturnState(null);
     explicitLogoutRef.current = true;
@@ -405,16 +440,21 @@ function DashboardShellBody({
   }) : null;
 
   return <HomeShellRoutingProvider value={routingValue}><ShellPageProvider value={pageValue}>
+    <ShellSearchProvider content={searchContent} available={searchAvailable} signedOut={isSignedOut} ownerKey={account.ownerKey} shellRef={shellRef} detailTargetRef={searchDetailTargetRef} onLeaveSearch={onLeaveSearch}>
     <SupportProvider ownerKey={supportOwnerKey(account)} fetchAccountResource={account.fetchAccountResource} fetchAccountResponse={account.fetchAccountResponse}>
-    <div ref={shellRef} className="flex min-h-svh flex-col bg-muted [--shell-scrollbar-width:0px] lg:flex-row">
-      {!isSignedOut ? <PrimaryNavigation layout="rail" cardsEnabled={cardsEnabled} activeNavigation={activeNavigation} onNavigate={navigateTo}
-        isAccountSettingsOpen={isAccountSettingsOpen} account={isAccountRailBusy || isSignedInAccount ? {
-          status: isAccountRailBusy ? "loading" : "ready", ownerKey: account.ownerKey,
-          address: account.session?.smartAccount?.address ?? null, disabled: isAccountRailBusy,
-        } : undefined} onOpenAccount={openAccountSettings} /> : null}
-      <div className="flex min-h-svh min-w-0 flex-1 flex-col">
+    <div ref={shellRef} className="flex min-h-dvh flex-col bg-muted [--shell-scrollbar-width:0px] lg:flex-row"
+      style={shellNavigationStyle} data-shell-navigation-items={navigationItemCount}>
+      {!isSignedOut ? <ShellSearchInert>
+        <ShellNavigation layout="rail" cardsEnabled={cardsEnabled} activeNavigation={activeNavigation} onNavigate={navigateTo}
+          isAccountSettingsOpen={isAccountSettingsOpen} account={isAccountRailBusy || isSignedInAccount ? {
+            status: isAccountRailBusy ? "loading" : "ready", ownerKey: account.ownerKey,
+            address: account.session?.smartAccount?.address ?? null, disabled: isAccountRailBusy,
+          } : undefined} onOpenAccount={openAccountSettings} />
+      </ShellSearchInert> : null}
+      <div data-rail-column="" className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <span role="status" className="sr-only">{isVerified && interruption && interruptionAnnouncement
           ? headerStatus({ interruption: { kind: interruptionAnnouncement }, coverage: null })?.message : null}</span>
+        <ShellSearchInert>
         <ShellHeader hasDesktopRail={!isSignedOut} isAccountSettingsOpen={isAccountSettingsOpen}
           nestedChromeTitle={nestedChromeTitle} nestedChromeBackLabel={isHomeNestedPanelId(activeNavigation) ? "Back" : investChrome?.nested?.backLabel ?? "Back"} onNestedChromeBack={onNestedChromeBack}
           routeMode="dashboard" activeNavigation={activeNavigation} isVerified={isVerified} account={account}
@@ -422,17 +462,8 @@ function DashboardShellBody({
           onSignIn={(opener) => { setAccountOpener(opener); setIsAccountOpen(true); router.push("/?account=signin"); }}
           onSignOut={signOut} onOpenSettings={openAccountSettings} onCloseSettings={closeAccountSettings}
           status={homeStatus ? <HomeHeaderStatus status={homeStatus} onRetry={retryHomeReads} onOpenAccount={() => openAccountSettings()} /> : null} />
-        <main ref={mainRef} data-app-main-authenticated className={`relative min-w-0 flex-1 bg-muted ${shellNavigationClearanceClassName}`}>
-          {homeRefreshEnabled ? <PullToRefreshAction label="Refresh Home" refreshing={refreshState.phase === "refreshing"}
-            onRefresh={() => { void refresh(); }} actionRef={actionRef} /> : null}
-          {homeRefreshEnabled ? <PullToRefreshIndicator phase={pullPhase} indicatorRef={indicatorRef} /> : null}
-          <div ref={contentFrameRef} className={`${shellFrameClassName} py-4 sm:py-6`}>
-            <span role="status" aria-live="polite" className="sr-only">{homeRefreshEnabled
-              ? refreshState.phase === "refreshing" ? "Refreshing Home" : refreshState.phase === "complete" ? "Home updated" : null : null}</span>
-            {homeRefreshEnabled && (refreshState.phase === "failed" || refreshState.phase === "partial") ? <Alert className="mb-4" role="alert">
-              <AlertDescription>{refreshState.phase === "failed" ? "Couldn't refresh Home." : "Some of Home didn't refresh."}</AlertDescription>
-              <AlertAction><Button variant="outline" size="touch" onClick={() => { void refresh(); }}>Retry</Button></AlertAction>
-            </Alert> : null}
+        </ShellSearchInert>
+        <ShellMain mainRef={mainRef} contentFrameRef={contentFrameRef} refreshInput={{ session: activitySession, regionId, fetchActivity: account.fetchActivity, enabled: homeRefreshEnabled }} pullEnabled={!flowOpen && !isAccountOpen && !homeDetailsOpen}>
             {isUnavailable ? <div className="mb-4"><LoadErrorCard description={account.message ?? "Account check unavailable."}
               onRetry={() => void account.retrySessionValidation()} /></div> : null}
             {isSignedOut ? <section aria-busy="true" aria-label="Signed out"><span className="sr-only">Signed out</span></section> :
@@ -451,9 +482,9 @@ function DashboardShellBody({
                   onShowSmallBalancesChange={onShowSmallBalancesChange} appearancePreference={appearancePreference}
                   onAppearancePreferenceChange={setAppearancePreference} onSignOut={signOut} /></div> : children}
               </section>}
-          </div>
-        </main>
-        {!isSignedOut ? <PrimaryNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} /> : null}
+        </ShellMain>
+        {!isSignedOut ? <ShellNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} /> : null}
+        <ShellSearchSurfaceSlot />
         {activeNavigation !== "home" ? <>
           <FundingActions showTrigger={false} initialOpen={urlIntent.addMoney} returnedFromProvider={urlIntent.returnedFromProvider}
             regionId={regionId} regionReady={regionReady} />
@@ -476,5 +507,6 @@ function DashboardShellBody({
       </div>
     </div>
     </SupportProvider>
+    </ShellSearchProvider>
   </ShellPageProvider></HomeShellRoutingProvider>;
 }

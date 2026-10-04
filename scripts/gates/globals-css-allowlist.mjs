@@ -102,5 +102,6 @@ export function inventoryGlobalsCss(css) {
     media: nested("@media (display-mode: standalone)"),
     baseLayer: ruleDeclarations(top["@layer base"] ?? []),
     utilitiesLayer: ruleDeclarations(top["@layer utilities"] ?? []),
+    registeredProperties: Object.fromEntries(Object.entries(top).filter(([selector]) => selector.startsWith("@property ")).map(([selector, body]) => [selector, declarations(body).map(({ name, value }) => `${name}: ${value}`).sort()])),
   };
 }

@@ -505,7 +505,7 @@ test("a new declaration without references fails, including a nested declaration
   const css = await readFile(cssUrl, "utf8");
   const files = await source();
   assert.deepEqual(evaluate(css.replace("@theme inline {", "@theme inline { --color-orphan: red;"), files).unused, ["--color-orphan"]);
-  assert.deepEqual(evaluate(css.replace("@supports (height: 100dvh) {\n  :root {", "@supports (height: 100dvh) {\n  :root { --nested-orphan: 0;"), files).unused, ["--nested-orphan"]);
+  assert.deepEqual(evaluate(`${css}\n@supports (height: 100dvh) { :root { --nested-orphan: 0; } }`, files).unused, ["--nested-orphan"]);
 });
 
 test("var() and theme utilities in CSS and static class strings count as references", () => {
