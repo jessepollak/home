@@ -17,6 +17,7 @@ export function createBalancesHandler(dependencies: {
     owner: BalancesAddress,
     region: RegionId,
     signal?: AbortSignal,
+    requestStartedAtMs?: number,
   ) => Promise<BalancesSnapshot>;
   ensureAddressSubscribed?: (address: BalancesAddress) => Promise<void>;
   log?: (event: ObservabilityEvent) => unknown;
@@ -25,6 +26,7 @@ export function createBalancesHandler(dependencies: {
   const subscriptionAttempts = new Set<string>();
 
   return async function GET(request: Request): Promise<Response> {
+    const startedAt = Date.now();
     const region = readRegion(request);
     if (!region) {
       return privateError("INVALID_REGION", "A supported balances region is required.", 400);
@@ -50,6 +52,7 @@ export function createBalancesHandler(dependencies: {
         address,
         region,
         request.signal,
+        startedAt,
       );
     } catch {
       emitFailure(log, {

@@ -37,7 +37,7 @@ import {
 } from "@/shared/balances/math";
 import type { FxQuote, NativeEthQuote, PriceQuote } from "@/shared/balances/quotes";
 import { assembleBorrow, borrowPricingPairs } from "./borrow";
-import { getCoinbaseExchangeRates } from "./fx-coinbase";
+import { COINBASE_FX_TIMEOUT_MS, getCoinbaseExchangeRates } from "./fx-coinbase";
 import { BALANCES_READ_DEADLINE_MS } from "./read";
 import type { BalancesRead, ReadHolding } from "./types";
 import {
@@ -52,6 +52,7 @@ const PRICE_BATCH_SIZE = 25;
 export const BALANCES_PRICE_CONCURRENCY = 4;
 export const BALANCES_PRICE_BUDGET_MS = BALANCES_READ_DEADLINE_MS;
 export const BALANCES_PRICE_REFRESH_MS = 60_000;
+export const BALANCES_REFRESH_RESERVE_MS = 3_000;
 export const STOCK_REFERENCE_REFRESH_MS = 30_000;
 export const STOCK_REFERENCE_MAX_AGE_MS = 5 * 60_000;
 export const BALANCES_NEGATIVE_UNAVAILABLE_MS = 60_000;
@@ -80,6 +81,7 @@ type Dependencies = {
   nowMs?: () => number;
   schedule?: (task: Promise<unknown> | (() => Promise<unknown>)) => void;
   priceBudgetMs?: number;
+  refreshWindowMs?: number;
 };
 
 type RefreshWork = {
@@ -111,8 +113,12 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     region: RegionId,
     mode: ValuationMode = "bootstrap",
     signal?: AbortSignal,
+    requestStartedAtMs?: number,
   ): Promise<PriceBalancesResult> {
     const startedStore = nowMs();
+    const refreshDeadline = dependencies.refreshWindowMs === undefined
+      ? undefined
+      : (requestStartedAtMs ?? startedStore) + dependencies.refreshWindowMs - BALANCES_REFRESH_RESERVE_MS;
     const currentTime = now();
     const quoteCurrency = presentationRegions[region].currency.code;
     const borrowPairs = borrowPricingPairs(read.borrow);
@@ -151,21 +157,21 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
         fxKeys: work.fxKeys.filter((key) => !safeObservation(storedByKey.get(key), currentTime)),
       };
       if (bootstrapWork.tokenInputs.length > 0 || bootstrapWork.fxKeys.length > 0) {
-        const provider = await runRefresh(bootstrapWork, currentTime, durationMs, { signal });
+        const provider = await runRefresh(bootstrapWork, currentTime, durationMs, { signal, budgetMs: priceBudgetMs, checkpoint: false });
         bootstrapQuotes = provider.quotes;
         for (const observation of provider.observations) storedByKey.set(observation.assetKey, observation);
         if (provider.uncompletedInputs.length > 0 && !signal?.aborted) {
           bootstrapRevalidating = true;
-          scheduleRefresh({ tokenInputs: provider.uncompletedInputs, fxKeys: [] });
+          scheduleRefresh({ tokenInputs: provider.uncompletedInputs, fxKeys: [] }, refreshDeadline);
         }
       }
       const bootstrapKeys = new Set(bootstrapWork.tokenInputs.map(({ assetKey }) => assetKey));
       if (!signal?.aborted) scheduleRefresh({
         tokenInputs: work.tokenInputs.filter(({ assetKey }) => !bootstrapKeys.has(assetKey)),
         fxKeys: work.fxKeys.filter((key) => !bootstrapWork.fxKeys.includes(key)),
-      });
+      }, refreshDeadline);
     } else if (!signal?.aborted && (work.tokenInputs.length > 0 || work.fxKeys.length > 0)) {
-      scheduleRefresh(work);
+      scheduleRefresh(work, refreshDeadline);
     }
 
     const referencesDue = stockFeeds.length > 0 && (stockReferenceAttemptAt === null || nowMs() - stockReferenceAttemptAt >= STOCK_REFERENCE_REFRESH_MS);
@@ -250,7 +256,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     }
   }
 
-  function scheduleRefresh(work: RefreshWork): void {
+  function scheduleRefresh(work: RefreshWork, deadline?: number): void {
     const tokenInputs = work.tokenInputs.filter(({ assetKey }) => !refreshing.has(assetKey));
     const fxKeys = work.fxKeys.filter((key) => !refreshing.has(key));
     if (tokenInputs.length === 0 && fxKeys.length === 0) return;
@@ -258,8 +264,20 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     for (const key of keys) refreshing.add(key);
     const task = async () => {
       const durations = { store: 0, codex: 0, coinbase: 0 };
-      let outcome: "ok" | "failed" = "ok";
-      try { await runRefresh({ tokenInputs, fxKeys }, now(), durations); }
+      let outcome: "ok" | "failed" | "skipped" = "ok";
+      let tokenRead = tokenInputs.length > 0;
+      let fxRead = fxKeys.length > 0;
+      const budgetMs = deadline === undefined ? undefined : deadline - nowMs();
+      try {
+        if (budgetMs !== undefined && budgetMs <= 0) {
+          outcome = "skipped";
+          tokenRead = false;
+          fxRead = false;
+        } else {
+          ({ fxRead } = await runRefresh({ tokenInputs, fxKeys }, now(), durations, { budgetMs, checkpoint: true }));
+          if (!tokenRead && !fxRead) outcome = "skipped";
+        }
+      }
       catch { outcome = "failed"; }
       finally {
         for (const key of keys) refreshing.delete(key);
@@ -267,7 +285,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
           route: "/api/balances",
           code: "VALUATION_BACKGROUND_REFRESH",
           outcome,
-          provider: tokenInputs.length > 0 && fxKeys.length > 0 ? "codex-coinbase" : tokenInputs.length > 0 ? "codex" : "coinbase",
+          ...(tokenRead || fxRead ? { provider: tokenRead && fxRead ? "codex-coinbase" : tokenRead ? "codex" : "coinbase" } : {}),
           durationMs: durations.store + durations.codex + durations.coinbase,
         });
       }
@@ -279,23 +297,29 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     }
   }
 
-  async function runRefresh(work: RefreshWork, attemptTime: Date, durations: PriceBalancesResult["durationMs"], request?: { signal?: AbortSignal }) {
+  async function runRefresh(work: RefreshWork, attemptTime: Date, durations: PriceBalancesResult["durationMs"], options: { signal?: AbortSignal; budgetMs?: number; checkpoint: boolean }) {
     const observations: PriceObservation[] = [];
     const attempts: ValuationAttempt[] = [];
     const providerQuotes: PriceQuote[] = [];
     let uncompletedInputs: CodexRawQuoteInput[] = [];
+    const fxTask = options.checkpoint && work.fxKeys.length > 0 &&
+      (options.budgetMs === undefined || options.budgetMs >= COINBASE_FX_TIMEOUT_MS)
+      ? refreshFx()
+      : undefined;
     if (work.tokenInputs.length > 0) {
       const started = nowMs();
       const storeBefore = durations.store;
-      const fetched = await fetchPriceInputs(readPrices, work.tokenInputs, request
-        ? { signal: request.signal, budgetMs: priceBudgetMs }
-        : { onCompleted: async (quotes) => {
+      const fetched = await fetchPriceInputs(readPrices, work.tokenInputs, {
+        signal: options.signal,
+        budgetMs: options.budgetMs,
+        onCompleted: options.checkpoint ? async (quotes) => {
           await persistOutcomes(
             quotes.flatMap((quote) => { const observation = observationFromPrice(quote); return observation ? [observation] : []; }),
             quotes.map((quote) => ({ assetKey: quote.assetKey, attemptAt: attemptTime.toISOString(), status: quote.status })),
             durations,
           );
-        } });
+        } : undefined,
+      });
       providerQuotes.push(...fetched.quotes);
       uncompletedInputs = fetched.uncompletedInputs;
       durations.codex += Math.max(0, nowMs() - started - (durations.store - storeBefore));
@@ -305,9 +329,16 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
         if (observation) observations.push(observation);
       }
     }
-    const checkpointedObservations = request ? 0 : observations.length;
-    const checkpointedAttempts = request ? 0 : attempts.length;
-    if (work.fxKeys.length > 0 && !request?.signal?.aborted) {
+    let fxRead = fxTask !== undefined;
+    if (options.checkpoint) await fxTask;
+    else {
+      fxRead = work.fxKeys.length > 0 && !options.signal?.aborted;
+      if (fxRead) await refreshFx();
+      await persistOutcomes(observations, attempts, durations, options.signal);
+    }
+    return { observations: newestObservations(observations), attempts, quotes: providerQuotes, uncompletedInputs, fxRead };
+
+    async function refreshFx() {
       const started = nowMs();
       let rates: ExchangeRates | null = null;
       try { rates = await readExchangeRates(); } catch { rates = null; }
@@ -315,10 +346,8 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
       const mapped = coinbaseOutcomes(work.fxKeys, rates, attemptTime);
       observations.push(...mapped.observations);
       attempts.push(...mapped.attempts);
+      if (options.checkpoint) await persistOutcomes(mapped.observations, mapped.attempts, durations);
     }
-    const currentObservations = newestObservations(observations);
-    await persistOutcomes(observations.slice(checkpointedObservations), attempts.slice(checkpointedAttempts), durations, request?.signal);
-    return { observations: currentObservations, attempts, quotes: providerQuotes, uncompletedInputs };
   }
 
   function persistOutcomes(observations: readonly PriceObservation[], attempts: readonly ValuationAttempt[], durations: PriceBalancesResult["durationMs"], signal?: AbortSignal): Promise<void> {
