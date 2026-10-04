@@ -15,6 +15,728 @@ describe("no-silent-catch", () => {
     silent: "Caught failures and rejection handlers must be rethrown, returned as a typed error result, or passed to an approved reporting helper.",
   };
 
+  it("accepts applicable owner dispositions and rejects stale-only owner dispositions", async () => {
+    const cases = {
+      prefix: ["const sequence = ++attempts.current;", "sequence === attempts.current"],
+      postfix: ["const sequence = attempts.current++;", "sequence !== attempts.current"],
+      decrement: ["const sequence = --attempts.current;", "attempts.current === sequence"],
+      postDecrement: ["const sequence = attempts.current--;", "attempts.current !== sequence"],
+      loose: ["const sequence = attempts.current;", "sequence == attempts.current"],
+      looseReverse: ["const sequence = attempts.current;", "attempts.current != sequence"],
+      computedUpdate: ["const sequence = ++attempts['current'];", "sequence === attempts['current']"],
+      identifier: ["const owner = currentOwner;", "owner === currentOwner"],
+      protocol: ["const generation = fence.capture();", "fence.isCurrent(generation)"],
+      composed: ["const generation = fence.capture();", "!(signal?.aborted || !fence.isCurrent(generation)) && mounted.current"],
+    };
+    const fixtures = {};
+    for (const [name, [capture, test]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${capture} try { await run(); } catch { if (${test}) setError('failed'); } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${capture} await run().catch(() => { if (${test}) setError('failed'); }); }`;
+    }
+    fixtures.guardTry = `async function handle() {
+      const sequence = ++attempts.current;
+      try { await run(); } catch { if (sequence !== attempts.current) return; setError('failed'); }
+    }`;
+    fixtures.guardPromise = `async function handle() {
+      const generation = fence.capture();
+      await run().catch(() => { if (signal.aborted || !fence.isCurrent(generation)) return; setError('failed'); });
+    }`;
+    fixtures.elseTry = `async function handle() {
+      const owner = currentOwner;
+      try { await run(); } catch { if (owner !== currentOwner) return; else setError('failed'); }
+    }`;
+    fixtures.elsePromise = `async function handle() {
+      const owner = currentOwner;
+      await run().catch(() => { if (owner !== currentOwner) return; else setError('failed'); });
+    }`;
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    const rejected = new Set(["postfixTry", "postfixPromise", "postDecrementTry", "postDecrementPromise", "looseReverseTry", "looseReversePromise"]);
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(rejected.has(name) ? 1 : 0);
+  }, budgetMs);
+
+  it("rejects owner guards without an immutable pre-region capture and an applicable disposition", async () => {
+    const cases = {
+      noCapture: ["", "if (retries < 3) setError('failed');"],
+      currentOnly: ["", "if (attempts.current) setError('failed');"],
+      abortedOnly: ["", "if (!signal.aborted) setError('failed');"],
+      skipsOnly: ["const sequence = attempts.current;", "if (sequence === attempts.current) return;"],
+      nonDisposing: ["const sequence = attempts.current;", "if (sequence !== attempts.current) return; ignore();"],
+      wrongSource: ["const sequence = attempts.current;", "if (sequence === other.current) setError('failed');"],
+      wrongProperty: ["const sequence = attempts.current;", "if (sequence === attempts.previous) setError('failed');"],
+      reassigned: ["let sequence = attempts.current; sequence = other.current;", "if (sequence === attempts.current) setError('failed');"],
+      lateCapture: ["", "const sequence = attempts.current; if (sequence === attempts.current) setError('failed');"],
+      arbitraryLeaf: ["const sequence = attempts.current;", "if (sequence === attempts.current && ready) setError('failed');"],
+      computedCapture: ["const sequence = attempts['current'];", "if (sequence === attempts.current) setError('failed');"],
+      resourceCapture: ["using sequence = attempts.current;", "if (sequence === attempts.current) setError('failed');"],
+      wrongProtocol: ["const generation = fence.capture();", "if (other.isCurrent(generation)) setError('failed');"],
+      optionalProtocol: ["const generation = fence.capture();", "if (fence?.isCurrent(generation)) setError('failed');"],
+      optionalCapture: ["const generation = fence?.capture();", "if (fence.isCurrent(generation)) setError('failed');"],
+      protocolComparison: ["const generation = fence.capture();", "if (generation === fence.current) setError('failed');"],
+    };
+    const fixtures = {};
+    for (const [name, [capture, body]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${capture} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${capture} await run().catch(() => { ${body} }); }`;
+    }
+    fixtures.afterTry = `async function handle() {
+      try { await run(); } catch { if (sequence === attempts.current) setError('failed'); }
+      const sequence = attempts.current;
+    }`;
+    fixtures.afterPromise = `async function handle() {
+      await run().catch(() => { if (sequence === attempts.current) setError('failed'); });
+      const sequence = attempts.current;
+    }`;
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("derives return-only fence-helper polarity and rejects stale-only or mixed-polarity handling", async () => {
+    const helpers = {
+      declaration: `function owns(owner) { return ref.current.queryOwnerKey === owner && ref.current.active; }`,
+      concise: `const owns = (owner) => owner !== ref.current.queryOwnerKey || !ref.current.active;`,
+      arrowBlock: `let owns = (owner) => { return !(owner == ref.current.queryOwnerKey) || ref.current.active; };`,
+      expression: `const owns = function(owner) { return ref.current.queryOwnerKey != owner && ref.current.active; };`,
+      multiple: `function owns(owner, generation) { return owner === ref.current.owner && generation === ref.current.generation; }`,
+    };
+    const fixtures = {};
+    for (const [name, helper] of Object.entries(helpers)) {
+      const setup = `${helper} const owner = currentOwner; const generation = fence.capture();`;
+      const call = name === "multiple" ? "owns(owner, generation)" : "owns(owner)";
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { if (${call}) setError('failed'); } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { if (!${call}) return; setError('failed'); }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    const rejected = new Set(["conciseTry", "concisePromise", "arrowBlockTry", "arrowBlockPromise", "expressionTry", "expressionPromise"]);
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(rejected.has(name) ? 1 : 0);
+  }, budgetMs);
+
+  it("uses a helper body's skip branch in catches and inline rejection callbacks", async () => {
+    const cases = {
+      equal: ["owner === ref.current.owner", false],
+      looseEqual: ["ref.current.owner == owner", false],
+      unequal: ["owner !== ref.current.owner", true],
+      looseUnequal: ["ref.current.owner != owner", true],
+      negatedEqual: ["!(owner === ref.current.owner)", true],
+      negatedUnequal: ["!(owner !== ref.current.owner)", false],
+      currentAnd: ["owner === ref.current.owner && ref.current.active", false],
+      currentOr: ["owner === ref.current.owner || ref.current.active", false],
+      staleAnd: ["owner !== ref.current.owner && !ref.current.active", true],
+      staleOr: ["owner !== ref.current.owner || !ref.current.active", true],
+      composed: ["!(owner !== ref.current.owner || !ref.current.active)", false],
+      doubleNegation: ["!!(owner !== ref.current.owner)", true],
+      mixedAnd: ["owner !== ref.current.owner && ref.current.active", null],
+      mixedOr: ["owner === ref.current.owner || !ref.current.active", null],
+      mixedComparisons: ["owner === ref.current.owner && token !== ref.current.token", null],
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, [expression, skipBranch]] of Object.entries(cases)) {
+      for (const [form, helper] of [
+        ["declaration", `function owns(token, owner) { return ${expression}; }`],
+        ["concise", `const owns = (token, owner) => ${expression};`],
+      ]) {
+        const setup = `${helper} const token = tokenRef.current; const owner = currentOwner;`;
+        for (const [branch, body] of [
+          ["write", "if (owns(token, owner)) setError('failed');"],
+          ["guard", "if (owns(token, owner)) return; setError('failed');"],
+        ]) {
+          const key = `${name}${form}${branch}`;
+          fixtures[`${key}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+          fixtures[`${key}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+          expected[`${key}Try`] = expected[`${key}Promise`] = skipBranch === null || skipBranch !== (branch === "guard") ? 1 : 0;
+        }
+      }
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("rejects async fence helpers while preserving synchronous derived polarity", async () => {
+    const helpers = {
+      declaration: (prefix) => `${prefix}function stale(owner) { return owner !== ref.current.owner; }`,
+      expression: (prefix) => `const stale = ${prefix}function(owner) { return owner !== ref.current.owner; };`,
+      concise: (prefix) => `const stale = ${prefix}(owner) => owner !== ref.current.owner;`,
+      arrowBlock: (prefix) => `const stale = ${prefix}(owner) => { return owner !== ref.current.owner; };`,
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, helper] of Object.entries(helpers)) {
+      for (const [kind, prefix] of [["async", "async "], ["sync", ""]]) {
+        const setup = `${helper(prefix)} const owner = currentOwner;`;
+        for (const [branch, body] of [
+          ["guard", "if (stale(owner)) return; setError('failed');"],
+          ["write", "if (stale(owner)) setError('failed');"],
+        ]) {
+          const key = `${name}${kind}${branch}`;
+          fixtures[`${key}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+          fixtures[`${key}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+          fixtures[`${key}Then`] = `async function handle() { ${setup} await run().then(null, () => { ${body} }); }`;
+          expected[`${key}Try`] = expected[`${key}Promise`] = expected[`${key}Then`] = kind === "async" || branch === "write" ? 1 : 0;
+        }
+      }
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("rejects fence-helper aliases, shadows, reassignments, non-captures, and unproved bodies", async () => {
+    const cases = {
+      alias: ["function actual(owner) { return owner === ref.current.owner; } const owns = actual;", "owns(owner)"],
+      reassigned: ["let owns = (owner) => owner === ref.current.owner; owns = other;", "owns(owner)"],
+      varHelper: ["var owns = (owner) => owner === ref.current.owner;", "owns(owner)"],
+      extraStatement: ["function owns(owner) { read(); return owner === ref.current.owner; }", "owns(owner)"],
+      generator: ["function* owns(owner) { return owner === ref.current.owner; }", "owns(owner)"],
+      truthinessOnly: ["function owns(owner) { return ref.current.active; }", "owns(owner)"],
+      wrongComparison: ["function owns(owner) { return owner === currentOwner; }", "owns(owner)"],
+      callLeaf: ["function owns(owner) { return owner === ref.current.owner && ready(); }", "owns(owner)"],
+      nonCapture: ["function owns(owner) { return owner === ref.current.owner; }", "owns(input)"],
+      memberArgument: ["function owns(owner) { return owner === ref.current.owner; }", "owns(ref.current.owner)"],
+      optionalCall: ["function owns(owner) { return owner === ref.current.owner; }", "owns?.(owner)"],
+      emptyArguments: ["function owns(owner) { return owner === ref.current.owner; }", "owns()"],
+      omittedParameter: ["function owns(unused, owner) { return owner === ref.current.owner; }", "owns(owner)"],
+      spreadArgument: ["function owns(owner) { return owner === ref.current.owner; }", "owns(...owner)"],
+      shadow: ["function outer(owns) { return owns; } const owns = makePredicate();", "owns(owner)"],
+    };
+    const fixtures = {};
+    for (const [name, [helper, call]] of Object.entries(cases)) {
+      const setup = `${helper} const owner = currentOwner;`;
+      fixtures[`${name}Try`] = `async function handle(input) { ${setup} try { await run(); } catch { if (${call}) setError('failed'); } }`;
+      fixtures[`${name}Promise`] = `async function handle(input) { ${setup} await run().catch(() => { if (${call}) setError('failed'); }); }`;
+    }
+    fixtures.parameterShadow = `function owns(owner) { return owner === ref.current.owner; }
+      async function handle(owns) { const owner = currentOwner; try { await run(); } catch { if (owns(owner)) setError('failed'); } }`;
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("rejects unread outer member recovery writes, including behind captured owner fences", async () => {
+    const results = await lint({
+      tryWrite: `async function handle() { let mounted = useRef(true); try { await run(); } catch { mounted.current = false; } }`,
+      promiseWrite: `async function handle() { let mounted = useRef(true); await run().catch(() => { mounted.current = false; }); }`,
+      fencedTry: `async function handle() {
+        const version = versionRef.current; const retryRef = useRef(true);
+        try { await run(); } catch { if (version === versionRef.current) retryRef.current = false; }
+      }`,
+      fencedPromise: `async function handle() {
+        const version = versionRef.current; const retryRef = useRef(true);
+        await run().catch(() => { if (version === versionRef.current) retryRef.current = false; });
+      }`,
+    }, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("rejects write-target and self-assignment reads as observing recovery state", async () => {
+    const cases = {
+      logicalOr: ["let ignored = false;", "ignored ||= true;"],
+      logicalAnd: ["let ignored = false;", "ignored &&= true;"],
+      logicalNullish: ["let ignored = null;", "ignored ??= true;"],
+      selfAssignment: ["let ignored = false;", "ignored = !ignored;"],
+      wrappedSelfAssignment: ["let ignored = false;", "(ignored as boolean) = !(ignored as boolean);"],
+      nestedAssignment: ["const ignored = {}; ignored.child.flag = false;", "ignored.flag = true;"],
+      nestedLogical: ["const ignored = {}; ignored.child.flag ||= false;", "ignored.flag = true;"],
+      nestedUpdate: ["const ignored = {}; ignored.child.flag++;", "ignored.flag = true;"],
+      nestedDelete: ["const ignored = {}; delete ignored.child.flag;", "ignored.flag = true;"],
+      wrappedAssignment: ["const ignored = {}; (ignored as any).child.flag = false;", "ignored.flag = true;"],
+      wrappedUpdate: ["const ignored = {}; ((ignored as any).child.flag as number)++;", "ignored.flag = true;"],
+      wrappedDelete: ["const ignored = {}; delete (ignored!.child as any).flag;", "ignored.flag = true;"],
+      memberSelfAssignment: ["const ignored = {}; ignored.flag = !ignored.flag;", "ignored.flag = true;"],
+      nestedMemberSelfAssignment: ["const ignored = {}; ignored.child.flag = !ignored.flag;", "ignored.flag = true;"],
+    };
+    const fixtures = {};
+    for (const [name, [setup, body]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("rejects iteration write-only targets unless the object also has an observing read", async () => {
+    const targets = { direct: "obj.flag", nested: "obj.child.flag", pattern: "[obj.flag]" };
+    const fixtures = {};
+    const expected = {};
+    for (const [loop, header] of [["of", "of [true]"], ["in", "in {}"]]) {
+      for (const [name, target] of Object.entries(targets)) {
+        for (const [kind, read] of [["writeOnly", ""], ["observed", "consume(obj.flag);"]]) {
+          const setup = `const obj = { child: {} }; for (${target} ${header}) {} ${read}`;
+          const key = `${loop}${name}${kind}`;
+          fixtures[`${key}Try`] = `async function handle() { ${setup} try { await run(); } catch { obj.flag = true; } }`;
+          fixtures[`${key}Promise`] = `async function handle() { ${setup} await run().catch(() => { obj.flag = true; }); }`;
+          fixtures[`${key}Then`] = `async function handle() { ${setup} await run().then(null, () => { obj.flag = true; }); }`;
+          expected[`${key}Try`] = expected[`${key}Promise`] = expected[`${key}Then`] = kind === "writeOnly" ? 1 : 0;
+        }
+      }
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("rejects logical recovery assignments even when the member or operation state is observed", async () => {
+    const cases = {
+      logicalAnd: ["const obj = { flag: false }; consume(obj.flag);", "obj.flag &&= true;", 1],
+      logicalOr: ["const obj = { flag: false }; consume(obj.flag);", "obj.flag ||= false;", 1],
+      logicalNullish: ["const obj = { flag: false }; consume(obj.flag);", "obj.flag ??= true;", 1],
+      stateAnd: ["let pending = false; function next() { if (pending) return; }", "pending &&= true;", 1],
+      plain: ["const obj = { flag: false }; consume(obj.flag);", "obj.flag = true;", 0],
+      compound: ["const obj = { flag: 0 }; consume(obj.flag);", "obj.flag += 1;", 0],
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, [setup, body, count]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+      fixtures[`${name}Then`] = `async function handle() { ${setup} await run().then(null, () => { ${body} }); }`;
+      expected[`${name}Try`] = expected[`${name}Promise`] = expected[`${name}Then`] = count;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("rejects dispositions on a logical assignment RHS while preserving unconditional assignment RHS handling", async () => {
+    const cases = {
+      plainMember: ["const obj = { flag: false }; consume(obj.flag);", "obj.flag = true;", 0],
+      plainState: ["let pending = false; function next() { consume(pending); }", "pending = true;", 0],
+      plainReport: ["let result;", "result = reportClientError(e);", 0],
+      compoundReport: ["let result = 0;", "result += reportClientError(e);", 0],
+    };
+    for (const [name, operator, initial] of [["And", "&&=", "false"], ["Or", "||=", "true"], ["Nullish", "??=", "false"]]) {
+      cases[`member${name}`] = [
+        `const obj = { flag: ${initial} }; consume(obj.flag);`,
+        `obj.flag ${operator} (obj.flag = true);`,
+        1,
+      ];
+      cases[`state${name}`] = [
+        `let pending = ${initial}; function next() { consume(pending); }`,
+        `pending ${operator} (pending = true);`,
+        1,
+      ];
+      cases[`report${name}`] = [`let result = ${initial};`, `result ${operator} reportClientError(e);`, 1];
+    }
+    const fixtures = {};
+    const expected = {};
+    const reportingImport = 'import { reportClientError } from "@/client/observability/client-reporter";';
+    for (const [name, [setup, body, count]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `${reportingImport} async function handle() { ${setup} try { await run(); } catch (e) { ${body} } }`;
+      fixtures[`${name}Promise`] = `${reportingImport} async function handle() { ${setup} await run().catch((e) => { ${body} }); }`;
+      fixtures[`${name}Then`] = `${reportingImport} async function handle() { ${setup} await run().then(null, (e) => { ${body} }); }`;
+      expected[`${name}Try`] = expected[`${name}Promise`] = expected[`${name}Then`] = count;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("rejects destructuring write-only targets unless the object also has an observing read", async () => {
+    const targets = {
+      array: "[obj.a.b] = [true];",
+      object: "({ value: obj.a.b } = input);",
+      arrayRest: "[...obj.a.b] = input;",
+      objectRest: "({ ...obj.a.b } = input);",
+      wrapped: "[(obj!.a as any).b] = [true];",
+      defaultLeft: "[obj.a.b = true] = input;",
+      objectDefaultLeft: "({ value: obj.a.b = true } = input);",
+      nested: "({ value: [obj.a.b] } = input);",
+      computedTarget: "[obj[key]] = input;",
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, target] of Object.entries(targets)) {
+      for (const [kind, read] of [["writeOnly", ""], ["observed", "consume(obj.flag);"]]) {
+        const setup = `const obj = {}; ${target} ${read}`;
+        const key = `${name}${kind}`;
+        fixtures[`${key}Try`] = `async function handle() { ${setup} try { await run(); } catch { obj.flag = true; } }`;
+        fixtures[`${key}Promise`] = `async function handle() { ${setup} await run().catch(() => { obj.flag = true; }); }`;
+        fixtures[`${key}Then`] = `async function handle() { ${setup} await run().then(null, () => { obj.flag = true; }); }`;
+        expected[`${key}Try`] = expected[`${key}Promise`] = expected[`${key}Then`] = kind === "writeOnly" ? 1 : 0;
+      }
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("preserves observing reads in destructuring computed keys and default values", async () => {
+    const reads = {
+      memberKey: "[other[obj.key]] = input;",
+      propertyKey: "({ [obj.key]: other.value } = input);",
+      arrayDefault: "[other.value = obj.flag] = input;",
+      objectDefault: "({ value: other.value = obj.flag } = input);",
+      sameObjectDefault: "[obj.value = obj.flag] = input;",
+      wrappedDefault: "[(obj as any).value = (obj!.flag as boolean)] = input;",
+    };
+    const fixtures = {};
+    for (const [name, read] of Object.entries(reads)) {
+      const setup = `const obj = {}; const other = {}; ${read}`;
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { obj.flag = true; } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { obj.flag = true; }); }`;
+      fixtures[`${name}Then`] = `async function handle() { ${setup} await run().then(null, () => { obj.flag = true; }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(0);
+  }, budgetMs);
+
+  it("accepts recovery writes with observing guards and reads of a different assignment binding", async () => {
+    const cases = {
+      stateGuard: ["let settled = false; if (settled) return;", "settled = true;"],
+      memberGuard: ["const ref = useRef(true); if (ref.current) consume();", "ref.current = false;"],
+      wrappedGuard: ["const ref = useRef(true); if ((ref as any).current) consume();", "ref.current = false;"],
+      differentState: ["let settled = false; let other = false; other = settled;", "settled = true;"],
+      differentMember: ["const ref = useRef(true); const other = {}; other.flag = ref.current;", "ref.current = false;"],
+      shadowedAssignment: ["let settled = false; const read = () => settled; { let settled; settled = read; }", "settled = true;"],
+    };
+    const fixtures = {};
+    for (const [name, [setup, body]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects catch-local, undefined, nested-root, and aux-only guarded member writes", async () => {
+    const cases = {
+      local: ["", "const mounted = useRef(true); mounted.current = false;"],
+      undefined: ["const mounted = useRef(true);", "mounted.current = undefined as boolean | undefined;"],
+      nestedRoot: ["const mounted = { ref: useRef(true) };", "mounted.ref.current = false;"],
+      callRoot: ["", "readRef().current = false;"],
+      undeclared: ["", "mounted.current = false;"],
+      auxGuard: ["const mounted = useRef(true);", "if (mounted.current) mounted.current = false;"],
+    };
+    const fixtures = {};
+    for (const [name, [setup, body]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("accepts observed operation-state fences and writes but rejects unread recovery writes", async () => {
+    const cases = {
+      boolean: ["let active = true; active = false;", "if (!active) return; setError('failed');"],
+      sameLiteral: ["let active = true; active = true;", "if (active) setError('failed');"],
+      null: ["let operation = null; operation = start();", "if (operation) setError('failed');"],
+      absent: ["let operation; operation = start();", "if (operation === undefined) return; setError('failed');"],
+      reverse: ["var operation; operation = start();", "if (undefined !== operation) setError('failed');"],
+      composed: ["let active = true; let settled = false; active = false; settled = true;", "if (!active || settled) return; setError('failed');"],
+      assignment: ["let settled = false;", "settled = true;"],
+      helper: ["let settled = false; const finish = () => { if (settled) return; settled = true; };", "finish(); return;"],
+    };
+    const fixtures = {};
+    for (const [name, [setup, body]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(name.startsWith("assignment") ? 1 : 0);
+  }, budgetMs);
+
+  it("rejects operation-state guards without the declaration, write, and disposition proofs", async () => {
+    const cases = {
+      unwritten: ["let active = true;", "if (!active) return; setError('failed');"],
+      constant: ["const active = true;", "if (!active) return; setError('failed');"],
+      local: ["", "let active = true; active = false; if (!active) return; setError('failed');"],
+      localWrite: ["", "let active = false; active = true;"],
+      wrongInitializer: ["let active = start(); active = false;", "if (!active) return; setError('failed');"],
+      undefinedInitializer: ["let active = undefined; active = false;", "if (!active) return; setError('failed');"],
+      nonDisposing: ["let active = true; active = false;", "if (!active) return; ignore();"],
+      undefinedWrite: ["let active = true;", "active = undefined;"],
+      mixedAtom: ["let active = true; active = false;", "if (active && ready) setError('failed');"],
+      looseUndefined: ["let active; active = start();", "if (active != undefined) setError('failed');"],
+    };
+    const fixtures = {};
+    for (const [name, [setup, body]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("accepts retry-loop continuation in catches and lexically enclosed rejection callbacks", async () => {
+    const fixtures = {};
+    for (const [name, header, tail] of [
+      ["for", "for (let attempt = 0; ; attempt += 1)", ""],
+      ["while", "while (true)", ""],
+      ["do", "do", "while (true);"],
+    ]) {
+      fixtures[`${name}Try`] = `async function handle() { ${header} {
+        try { return await run(); } catch (error) { if (exhausted || !(error instanceof RetryableError)) throw error; }
+      } ${tail} }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${header} { await run().catch(() => {}); } ${tail} }`;
+    }
+    fixtures.nestedFunction = `async function handle() { for (;;) {
+      function nested() { while (true) { break; } return; }
+      try { await run(); } catch {}
+    } }`;
+    fixtures.unlabeledContinue = `async function handle() { for (;;) {
+      try { await run(); } catch {} continue;
+    } }`;
+    for (const [name, prefix] of Object.entries({ statement: "", awaited: "await ", discarded: "void " })) {
+      for (const [callbackName, callback] of Object.entries({ arrow: "() => {}", expression: "function() {}" })) {
+        fixtures[`${name}${callbackName}Promise`] = `async function handle() { for (;;) { ${prefix}run().catch(${callback}); } }`;
+        fixtures[`${name}${callbackName}Then`] = `async function handle() { for (;;) { ${prefix}run().then(null, ${callback}); } }`;
+      }
+    }
+    for (const [name, body] of Object.entries({
+      switchThrow: "switch (ready) { case true: throw error; }",
+      switchValueReturn: "switch (ready) { case true: return failure; }",
+      nestedDeclaration: "function nested() { return; }",
+      nestedArrow: "const nested = () => { return; };",
+      nestedExpression: "const nested = function() { return; };",
+    })) {
+      fixtures[`${name}Try`] = `async function handle() { for (;;) { try { await run(); } catch (error) { ${body} } } }`;
+      fixtures[`${name}Promise`] = `async function handle() { for (;;) { await run().catch((error) => { ${body} }); } }`;
+      fixtures[`${name}Then`] = `async function handle() { for (;;) { await run().then(null, (error) => { ${body} }); } }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects bounded retry loops and loops with escaping exits", async () => {
+    const fixtures = {};
+    for (const [name, header, tail, exit] of [
+      ["bounded", "for (let i = 0; i < limit; i += 1)", "", ""],
+      ["trueForTest", "for (; true;)", "", ""],
+      ["break", "for (;;)", "", "if (done) break;"],
+      ["return", "while (true)", "", "return;"],
+      ["labeledContinue", "outer: for (;;)", "", "continue outer;"],
+      ["falseWhile", "while (ready)", "", ""],
+      ["falseDo", "do", "while (ready);", ""],
+      ["forOf", "for (const item of items)", "", ""],
+    ]) {
+      fixtures[`${name}Try`] = `async function handle() { ${header} { try { await run(); } catch {} ${exit} } ${tail} }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${header} { await run().catch(() => {}); ${exit} } ${tail} }`;
+    }
+    fixtures.nearestBoundedTry = `async function handle() { for (;;) { for (let i = 0; i < limit; i += 1) { try { await run(); } catch {} } } }`;
+    fixtures.nearestBoundedPromise = `async function handle() { for (;;) { for (let i = 0; i < limit; i += 1) { await run().catch(() => {}); } } }`;
+    fixtures.headerTry = `async function handle() { for (await run().catch(() => {}); ;) {} }`;
+    fixtures.catchBreak = `async function handle() { for (;;) { try { await run(); } catch { break; } } }`;
+    for (const [name, wrap] of Object.entries({
+      declaration: (body) => `async function nested() { ${body} } nested();`,
+      expression: (body) => `(async function() { ${body} })();`,
+      arrow: (body) => `(async () => { ${body} })();`,
+    })) {
+      fixtures[`${name}Try`] = `async function handle() { for (;;) { ${wrap("try { await run(); } catch {} ")} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { for (;;) { ${wrap("await run().catch(() => {});")} } }`;
+      fixtures[`${name}Then`] = `async function handle() { for (;;) { ${wrap("await run().then(null, () => {});")} } }`;
+    }
+    for (const exit of ["return", "throw"]) {
+      fixtures[`${exit}ExpressionTry`] = `async function handle() { for (;;) { ${exit} (async () => { try { await run(); } catch {} })(); } }`;
+      for (const [name, prefix] of Object.entries({ statement: "", awaited: "await ", discarded: "void " })) {
+        fixtures[`${exit}${name}Promise`] = `async function handle() { for (;;) { ${exit} ${prefix}run().catch(() => {}); } }`;
+        fixtures[`${exit}${name}Then`] = `async function handle() { for (;;) { ${exit} ${prefix}run().then(null, () => {}); } }`;
+      }
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("accepts uninitialized recovery bindings written once from Promise settlement parameters", async () => {
+    const fixtures = {};
+    for (const [name, parameter, binding] of [["resolve", "resolve", "resolveResult"], ["reject", "reject", "rejectResult"]]) {
+      const parameters = parameter === "resolve" ? "resolve" : "resolve, reject";
+      const setup = `let ${binding}!: () => void; const result = new Promise<void>((${parameters}) => { ${binding} = ${parameter} as () => void; });`;
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${binding}(); } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${binding}(); }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(0);
+  }, budgetMs);
+
+  it("rejects settlement bindings written twice, from non-executors, or with non-call initializers", async () => {
+    const cases = {
+      doubleWrite: `let resolveResult; new Promise((resolve) => { resolveResult = resolve; resolveResult = resolve; });`,
+      nonExecutor: `let resolveResult; function setup(resolve) { resolveResult = resolve; }`,
+      arbitraryValue: `let resolveResult; resolveResult = supplied;`,
+      nonCallInitializer: `let resolveResult = false; new Promise((resolve) => { resolveResult = resolve; });`,
+      shadowPromise: `const Promise = makePromise(); let resolveResult; new Promise((resolve) => { resolveResult = resolve; });`,
+      reassignedResolve: `let resolveResult!: () => void; const result = new Promise((resolve) => { resolve = () => {}; resolveResult = resolve; });`,
+      reassignedReject: `let resolveResult!: () => void; const result = new Promise((resolve, reject) => { reject = () => {}; resolveResult = reject; });`,
+    };
+    const fixtures = {};
+    for (const [name, setup] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle(supplied) { ${setup} try { await run(); } catch { resolveResult(); } }`;
+      fixtures[`${name}Promise`] = `async function handle(supplied) { ${setup} await run().catch(() => { resolveResult(); }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("requires an observing read for module-scope self-assignments and compound recovery writes", async () => {
+    const cases = {
+      self: ["ignored = !ignored;", "", 1],
+      compound: ["ignored += 1;", "", 1],
+      logicalAnd: ["ignored &&= true;", "", 1],
+      logicalOr: ["ignored ||= true;", "", 1],
+      logicalNullish: ["ignored ??= true;", "", 1],
+      observedPlain: ["ignored = true;", "function next() { consume(ignored); }", 0],
+      observedSelf: ["ignored = !ignored;", "function next() { consume(ignored); }", 0],
+      observedCompound: ["ignored += 1;", "function next() { consume(ignored); }", 0],
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, [body, read, count]] of Object.entries(cases)) {
+      const setup = `export {}; let ignored = false; ${read}`;
+      fixtures[`${name}Try`] = `${setup} async function handle() { try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `${setup} async function handle() { await run().catch(() => { ${body} }); }`;
+      fixtures[`${name}Then`] = `${setup} async function handle() { await run().then(null, () => { ${body} }); }`;
+      expected[`${name}Try`] = expected[`${name}Promise`] = expected[`${name}Then`] = count;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("accepts module-scope recovery writes with reads anywhere in the module", async () => {
+    const results = await lint({
+      tryWrite: `export {}; let scheduled = false;
+        function next() { if (scheduled) return; }
+        function schedule() { try { run(); } catch { scheduled = false; } }`,
+      promiseWrite: `export {}; let scheduled = 'ready';
+        function next() { consume(scheduled); }
+        function schedule() { run().catch(() => { scheduled = 'failed'; }); }`,
+    }, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(0);
+  }, budgetMs);
+
+  it("requires read-after proof for block-local recovery and rejects undefined or unread module writes", async () => {
+    const results = await lint({
+      blockTry: `export {}; function schedule() { let scheduled = 'ready'; consume(scheduled); try { run(); } catch { scheduled = 'failed'; } }`,
+      blockPromise: `export {}; function schedule() { let scheduled = 'ready'; run().catch(() => { scheduled = 'failed'; }); consume(scheduled); }`,
+      undefinedTry: `export {}; let scheduled = 'ready'; function next() { consume(scheduled); } function schedule() { try { run(); } catch { scheduled = undefined; } }`,
+      undefinedPromise: `export {}; let scheduled = 'ready'; function next() { consume(scheduled); } function schedule() { run().catch(() => { scheduled = undefined; }); }`,
+      unreadTry: `export {}; let scheduled = 'ready'; function schedule() { try { run(); } catch { scheduled = 'failed'; } }`,
+      unreadPromise: `export {}; let scheduled = 'ready'; function schedule() { run().catch(() => { scheduled = 'failed'; }); }`,
+    }, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("does not treat new recovery writes as telemetry or finalizer-report proofs", async () => {
+    const results = await lint({
+      memberTelemetry: `import { observeSafely } from '@/server/observability/log';
+        const mounted = useRef(true);
+        try { run(); } catch { observeSafely(() => { mounted.current = false; }); }`,
+      stateTelemetry: `import { observeSafely } from '@/server/observability/log';
+        let settled = false;
+        try { run(); } catch { observeSafely(() => { settled = true; }); }`,
+      memberFinalizer: `const mounted = useRef(true);
+        try { run(); } catch { try { risky(); } finally { mounted.current = false; } }`,
+      stateFinalizer: `let settled = false;
+        try { run(); } catch { try { risky(); } finally { settled = true; } }`,
+    }, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("rejects handlers that abandon or diverge inside otherwise qualifying retry loops", async () => {
+    const cases = {
+      bareReturn: "return;",
+      conditionalReturn: "if (ready) return;",
+      switchReturn: "switch (ready) { case true: return; }",
+      nestedSwitchReturn: "if (ready) { switch (status) { case 'done': return; } }",
+      boundedLoopReturn: "for (const item of items) { if (item) return; }",
+      divergent: "while (true) {}",
+      conditionalDivergence: "if (ready) { while (true) {} }",
+    };
+    const fixtures = {};
+    for (const [name, body] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { for (;;) { try { await run(); } catch { ${body} } } }`;
+      fixtures[`${name}Promise`] = `async function handle() { for (;;) { await run().catch(() => { ${body} }); } }`;
+      fixtures[`${name}Then`] = `async function handle() { for (;;) { await run().then(null, () => { ${body} }); } }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("filters only the skip branch of known-polarity owner fences", async () => {
+    const cases = {
+      equalReturn: ["if (captured === attempts.current) return; setError('failed');", 1],
+      unequalReturn: ["if (captured !== attempts.current) return; setError('failed');", 0],
+      equalWrite: ["if (captured === attempts.current) setError('failed');", 0],
+      unequalWrite: ["if (captured !== attempts.current) setError('failed');", 1],
+      reverseEqual: ["if (attempts.current == captured) return; setError('failed');", 1],
+      reverseUnequal: ["if (attempts.current != captured) return; setError('failed');", 0],
+      negatedEqual: ["if (!(captured === attempts.current)) return; setError('failed');", 0],
+      negatedUnequal: ["if (!(captured !== attempts.current)) return; setError('failed');", 1],
+      applicableFallthrough: ["if (captured === attempts.current) ignore(); else return; setError('failed');", 0],
+      disposingSkip: ["if (captured === attempts.current) return; else setError('failed');", 1],
+      mixedOr: ["if (signal.aborted || captured === attempts.current) return; setError('failed');", 1],
+      mixedAnd: ["if (mounted.current && captured !== attempts.current) return; setError('failed');", 1],
+      staleOr: ["if (signal.aborted || captured !== attempts.current) return; setError('failed');", 0],
+      currentAnd: ["if (mounted.current && captured === attempts.current) setError('failed');", 0],
+      mixedOperation: ["if (settled || captured !== attempts.current) return; setError('failed');", 1],
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, [body, count]] of Object.entries(cases)) {
+      const setup = "const captured = attempts.current; let settled = false; settled = true;";
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+      expected[`${name}Try`] = count;
+      expected[`${name}Promise`] = count;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("rejects current-owner abandonment in protocol and helper fences", async () => {
+    const cases = {
+      protocol: ["const captured = fence.capture();", "fence.isCurrent(captured)"],
+      helper: ["function owns(value) { return value === ref.current.owner; } const captured = currentOwner;", "owns(captured)"],
+    };
+    const fixtures = {};
+    for (const [name, [setup, test]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { if (${test}) return; setError('failed'); } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { if (${test}) return; setError('failed'); }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("rejects captures checked against a shadowed same-name source", async () => {
+    const cases = {
+      member: ["attempts", "const captured = attempts.current;", "const attempts = other;", "captured === attempts.current"],
+      identifier: ["currentOwner", "const captured = currentOwner;", "const currentOwner = other;", "captured === currentOwner"],
+      protocol: ["fence", "const captured = fence.capture();", "const fence = other;", "fence.isCurrent(captured)"],
+    };
+    const fixtures = {};
+    for (const [name, [parameter, capture, shadow, test]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle(${parameter}) { ${capture} try { await run(); } catch { ${shadow} if (${test}) setError('failed'); } }`;
+      fixtures[`${name}Promise`] = `async function handle(${parameter}) { ${capture} await run().catch(() => { ${shadow} if (${test}) setError('failed'); }); }`;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
+  it("requires an observing read for operation-state and outer-object recovery writes", async () => {
+    const cases = {
+      unreadState: ["let ignored = false;", "ignored = true;", 1],
+      writeOnlyState: ["let ignored = false; ignored = true;", "ignored = false;", 1],
+      unreadObject: ["const local = {};", "local.flag = true;", 1],
+      writeOnlyObject: ["const local = {}; local.flag = false;", "local.flag = true;", 1],
+      guardedState: ["let settled = false; function next() { if (settled) return; }", "settled = true;", 0],
+      readObject: ["const ref = useRef(true); function next() { consume(ref.current); }", "ref.current = false;", 0],
+      fencedObject: ["const captured = attempts.current; const ref = useRef(true); consume(ref.current);", "if (captured === attempts.current) ref.current = false;", 0],
+    };
+    const fixtures = {};
+    const expected = {};
+    for (const [name, [setup, body, count]] of Object.entries(cases)) {
+      fixtures[`${name}Try`] = `async function handle() { ${setup} try { await run(); } catch { ${body} } }`;
+      fixtures[`${name}Promise`] = `async function handle() { ${setup} await run().catch(() => { ${body} }); }`;
+      expected[`${name}Try`] = count;
+      expected[`${name}Promise`] = count;
+    }
+    const results = await lint(fixtures, { rule: "no-silent-catch", options });
+    for (const [name, result] of Object.entries(results)) expect(result).toHaveLength(expected[name]);
+  }, budgetMs);
+
+  it("rejects direct calls to reassigned Promise settlement parameters", async () => {
+    const results = await lint({
+      resolveTry: `new Promise((resolve) => { resolve = () => {}; try { run(); } catch { resolve(); } });`,
+      rejectTry: `new Promise((resolve, reject) => { reject = () => {}; try { run(); } catch { reject(); } });`,
+      resolvePromise: `new Promise((resolve) => { resolve = () => {}; run().catch(() => { resolve(); }); });`,
+      rejectPromise: `new Promise((resolve, reject) => { reject = () => {}; run().catch(() => { reject(); }); });`,
+    }, { rule: "no-silent-catch", options });
+    for (const result of Object.values(results)) expect(result).toHaveLength(1);
+  }, budgetMs);
+
   it("rejects empty, comment-only, and bare-return catches", async () => {
     const results = await lint({
       fixture1: `

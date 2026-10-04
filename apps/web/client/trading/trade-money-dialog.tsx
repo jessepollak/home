@@ -181,7 +181,7 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
           : "The quote did not match this account or trade. Get a new quote.");
       setPrepared(action); setServerExpiredId(null); changeAttempted(false); setNow(Date.now()); setStep("confirm");
       setBusy(null);
-    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded quotes are fenced; current failures are shown as typed recovery states
+    } catch (caught) {
       if (generation !== preparation.current) return;
       setError(messageForTradeError(caught, direction, conversion));
       setStep(requote ? "confirm" : "amount");

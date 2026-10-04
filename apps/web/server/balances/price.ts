@@ -245,7 +245,7 @@ export function createBalancesPricer(dependencies: Dependencies = {}) {
     };
     try {
       schedule(run);
-    } catch { // oxlint-disable-line home/no-silent-catch -- a synchronous schedule failure releases the scheduled flag so the next pass retries
+    } catch {
       stockReferenceScheduled = false;
     }
   }

@@ -219,7 +219,7 @@ export function useHomeRegion({
           setRegionId(presentedRegionId(stored, offer));
         }
       })
-      .catch(() => { // oxlint-disable-line home/no-silent-catch -- a failed preference adoption resets the retry flag only for the current selection
+      .catch(() => {
         if (mounted.current && version === selectionVersion.current && identity === currentIdentity.current) {
           adoptionAttempted.current = false;
         }
