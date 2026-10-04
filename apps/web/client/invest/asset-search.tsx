@@ -98,7 +98,7 @@ export function AssetSearch({ initialQuery, initialScrollTop = 0, initialResultI
     <div ref={scrollRef} hidden={!present} tabIndex={-1} data-asset-search-scroll="" className={`${styles.assetSearchResults} relative min-h-0 flex-1 overflow-y-auto overscroll-contain`}
       onScroll={() => { if (restoreRef.current) restoreRef.current = null; }}>
       <div className={`${shellFrameClassName} py-4 sm:py-6`}><AssetSearchResults query={query} composing={composing} search={{ ...search, results }}
-        markets={markets} assetMarkResolution={assetMarkResolution} onOpenAsset={(asset) => onOpenAsset(asset.id, query, scrollRef.current?.scrollTop ?? 0)} /></div>
+        markets={markets} assetMarkResolution={assetMarkResolution} onOpenAsset={(asset) => onOpenAsset(asset.id, normalizeInvestSearchQuery(query) ?? query, scrollRef.current?.scrollTop ?? 0)} /></div>
     </div>
     <ShellSearchBar
       field={<ShellSearchField inputRef={inputRef} onInputReady={onInputReady} query={query} onQueryChange={(next) => { restoreRef.current = null; setQuery(next); if (scrollRef.current) scrollRef.current.scrollTop = 0; }}
