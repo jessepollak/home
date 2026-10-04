@@ -22,7 +22,7 @@ import { PayoutMethodMarks } from "@/components/payout-method-marks";
 import { useReactiveExpiry } from "@/client/actions/expiry";
 import { cashoutQuoteFromLegacy, type CashoutQuote } from "@/shared/funding/cash-out-quote";
 import { atomicToDecimal } from "@/shared/formatting/atomic";
-import { formatAddress, formatUsdStablecoinAmount } from "@/shared/formatting";
+import { formatAddress, formatExactPresentationTokenAmount, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { presentationRegions, type RegionId } from "@/config/regions";
 import type { FundingOfframpBinding } from "@/shared/funding/contracts/providers";
@@ -463,8 +463,8 @@ export function SendDialog({
 
   const confirmAmount = request ? formatSendConfirmAmount(request.amountBaseUnits, request.assetId)
     : cashout ? (cashout.symbol === "USDC"
-      ? formatUsdStablecoinAmount(cashout.amountBaseUnits, cashout.decimals)
-      : `${atomicToDecimal(cashout.amountBaseUnits, cashout.decimals)} ${cashout.symbol}`) : "";
+      ? formatUsdStablecoinAmount(cashout.amountBaseUnits, cashout.decimals, regionId)
+      : formatExactPresentationTokenAmount(cashout.amountBaseUnits, cashout.decimals, cashout.symbol, { regionId })) : "";
   const requestAsset = request ? getTransferAsset(request.assetId) : selectedAsset;
   const offrampName = cashout?.providerName ?? selectedOfframp?.displayName;
   const busy = step === "pending" || preparing;

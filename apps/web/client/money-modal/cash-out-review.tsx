@@ -1,6 +1,7 @@
 "use client";
 
 import { CircleAlertIcon } from "lucide-react";
+import { usePresentationRegionId } from "@/client/invest/presentation-quote";
 import { PayoutDestination } from "@/components/payout-destination";
 import { Alert, AlertDescription, AlertIcon } from "@/components/ui/alert";
 import { formatExactPresentationTokenAmount } from "@/shared/formatting";
@@ -21,19 +22,20 @@ export function CashOutReview({ action, amount, quote, providerName, platform, p
   onEdit: () => void;
   notice?: { tone: "neutral" | "error"; text: string } | null;
 }) {
+  const regionId = usePresentationRegionId();
   const spend = action.amounts.find((item) => item.direction === "spend");
   const networkFee = action.networkFee?.payment === "usdc" ? action.networkFee : null;
-  const providerNetwork = quote.fees.network && formatCashoutFee(quote.fees.network) !== "None" ? quote.fees.network : null;
-  const operator = quote.fees.operator && formatCashoutFee(quote.fees.operator) !== "None" ? quote.fees.operator : null;
+  const providerNetwork = quote.fees.network && formatCashoutFee(quote.fees.network, regionId) !== "None" ? quote.fees.network : null;
+  const operator = quote.fees.operator && formatCashoutFee(quote.fees.operator, regionId) !== "None" ? quote.fees.operator : null;
   const rate = formatCashoutRate(quote.rate);
   const rows: MoneyConfirmRow[] = [
-    ...(spend ? [{ label: "You send", value: <bdi dir="ltr">{formatExactPresentationTokenAmount(spend.amountBaseUnits, spend.decimals, spend.symbol)}</bdi> }] : []),
-    { label: `${providerName} fee`, value: <bdi dir="ltr">{formatCashoutFee(quote.fees.provider)}</bdi> },
-    ...(networkFee ? [{ label: "Network fee", value: <bdi dir="ltr"><NetworkFeeReview fee={networkFee} /></bdi> }] : []),
-    ...(providerNetwork ? [{ label: networkFee ? "Provider network fee" : "Network fee", value: <bdi dir="ltr">{formatCashoutFee(providerNetwork)}</bdi> }] : []),
-    ...(operator ? [{ label: "Service fee", value: <bdi dir="ltr">{formatCashoutFee(operator)}</bdi> }] : []),
+    ...(spend ? [{ label: "You send", value: <bdi dir="ltr">{formatExactPresentationTokenAmount(spend.amountBaseUnits, spend.decimals, spend.symbol, { regionId })}</bdi> }] : []),
+    { label: `${providerName} fee`, value: <bdi dir="ltr">{formatCashoutFee(quote.fees.provider, regionId)}</bdi> },
+    ...(networkFee ? [{ label: "Network fee", value: <bdi dir="ltr"><NetworkFeeReview fee={networkFee} tokenRegionId={regionId} /></bdi> }] : []),
+    ...(providerNetwork ? [{ label: networkFee ? "Provider network fee" : "Network fee", value: <bdi dir="ltr">{formatCashoutFee(providerNetwork, regionId)}</bdi> }] : []),
+    ...(operator ? [{ label: "Service fee", value: <bdi dir="ltr">{formatCashoutFee(operator, regionId)}</bdi> }] : []),
     ...(rate ? [{ label: "Rate", value: <bdi dir="ltr">{rate}</bdi> }] : []),
-    { label: "You receive", value: <bdi>{formatCashoutReceive(quote.receive, platformLabel)}</bdi> },
+    { label: "You receive", value: <bdi>{formatCashoutReceive(quote.receive, platformLabel, regionId)}</bdi> },
     { label: "Arrives", value: formatCashoutArrival(quote.arrival) },
   ];
   const estimate = quote.receive.approximate

@@ -14,7 +14,7 @@ Percent labels follow the same presentation region. The savings APY labels — t
 
 Native-currency denomination is distinct from valuation. A balance denominated in BRL can lead with reais; USDC valued in BRL belongs to a separately labeled estimated total. No silent FX conversion or assumption that all tokens sell/redeem at par. Keep quote fees/minimum received accurate; show a material peg/valuation discrepancy where it affects the balance or action. Currency formatting does not imply a bank deposit or guaranteed redemption.
 
-`formatFiatAmount` has no default locale: each caller passes the customer's presentation `regionId`, or `currencyNative: true` for an amount quoted in a provider's own currency (funding quotes, fees and payment instructions, cash-out payout quotes) that should read in that currency's home format. Exploration fixtures without a customer also use `currencyNative: true`.
+`formatFiatAmount` has no default locale: each caller passes the customer's presentation `regionId`, or `currencyNative: true` for an amount quoted in a provider's own currency (funding quotes, fees and payment instructions) that should read in that currency's home format. Cash-out payout quotes and fees use the customer's presentation region while keeping their quoted currency, so a review or Activity card reads in one format. Exploration fixtures without a customer also use `currencyNative: true`.
 
 ## Country resolution
 
