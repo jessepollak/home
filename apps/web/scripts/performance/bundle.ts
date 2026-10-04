@@ -3,6 +3,8 @@ import { ready } from "./navigation";
 import { twoFrames, type Session } from "./browser";
 import { type PaintKind } from "./config";
 import { observedPaintSample, type PaintSample } from "./evaluate";
+import { decodeOwnerCache } from "../../client/query/owner-cache-codec";
+import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "../../tests/browser/fixtures/owner-cache";
 
 async function readPaintMarks(session: Session, path: string, kind: PaintKind) {
   const waitMs = 15_000;
@@ -24,16 +26,13 @@ async function settlePersistedBalances(session: Session, path: string) {
   let previousQueries: string | null = null;
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
-    const queries = await session.page.evaluate(() => {
-      const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
-      if (!key) return null;
-      const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
-        clientState?: { queries?: Array<{ queryKey?: unknown[] }> };
-      } | null;
-      const queries = persisted?.clientState?.queries;
-      if (!queries?.some((query) => query.queryKey?.[1] === "balances")) return null;
-      return JSON.stringify(queries);
-    });
+    const value = await readIndexedOwnerCache(session.page);
+    const persisted = value ? JSON.parse(await decodeOwnerCache(value)) as {
+      clientState?: { queries?: Array<{ queryKey?: unknown[] }> };
+    } : null;
+    const persistedQueries = persisted?.clientState?.queries;
+    const queries = persistedQueries?.some((query) => query.queryKey?.[1] === "balances")
+      ? JSON.stringify(persistedQueries) : null;
     if (queries !== null && queries === previousQueries) return;
     previousQueries = queries;
     await new Promise<void>((resolve) => setTimeout(resolve, 300));
@@ -45,17 +44,16 @@ async function measurePersistedPaint(session: Session, path: string) {
   const fixtures = session.fixtures;
   if (!fixtures) throw new Error(`${path} persisted paint requires API fixtures`);
   await settlePersistedBalances(session, path);
-  await session.page.evaluate(() => {
-    const key = Object.keys(localStorage).find((candidate) => candidate.startsWith("home.query.v1:"));
-    if (!key) throw new Error("Persisted owner cache is missing");
-    const persisted = JSON.parse(localStorage.getItem(key) ?? "null") as {
-      clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
-    };
-    for (const query of persisted.clientState?.queries ?? []) {
-      if (query.state) query.state.dataUpdatedAt = Date.now() - 60_000;
-    }
-    localStorage.setItem(key, JSON.stringify(persisted));
-  });
+  const value = await readIndexedOwnerCache(session.page);
+  if (!value) throw new Error("Persisted owner cache is missing");
+  const persisted = JSON.parse(await decodeOwnerCache(value)) as {
+    clientState?: { queries?: Array<{ state?: { dataUpdatedAt?: number } }> };
+  };
+  const staleAt = await session.page.evaluate(() => Date.now() - 60_000);
+  for (const query of persisted.clientState?.queries ?? []) {
+    if (query.state) query.state.dataUpdatedAt = staleAt;
+  }
+  await replaceIndexedOwnerCache(session.page, value, JSON.stringify(persisted));
   void fixtures.delayNextSession();
   void fixtures.delayNextBalances();
   try {
