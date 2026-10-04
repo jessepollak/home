@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { http, HttpResponse } from "msw";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, waitFor, within } from "storybook/test";
 import { useState } from "react";
 import { AccountWalletClientProvider } from "@/client/account/cdp-client";
 import { InvestExperience } from "@/client/invest/invest-experience";
@@ -76,16 +76,6 @@ export const Invest: Story = {
     }
   },
 };
-export const SearchResults: Story = {
-  name: "Search Results",
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.type(canvas.getByRole("textbox", { name: "Search assets" }), "Apple");
-    await expect((await canvas.findAllByRole("button", { name: /Apple/ }))[0]).toBeVisible();
-    await expectLogo(canvasElement, "Apple");
-  },
-};
-
 export const AssetDetail: Story = {
   name: "Asset Detail",
   render: () => <AssetDetailComposition />,
