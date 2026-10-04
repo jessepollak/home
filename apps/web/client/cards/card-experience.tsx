@@ -10,11 +10,10 @@ import { useHomeToast } from "@/client/home/use-home-toast";
 import { MoneyModal, MoneyModalBody, MoneyModalHeader, MoneyModalStep } from "@/client/money-modal";
 import { reportClientError } from "@/client/observability/client-reporter";
 import { LoadErrorCard } from "@/components/load-error";
-import { Alert, AlertDescription, AlertIcon, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription, AlertIcon, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { FeatureIntro } from "@/components/ui/feature-intro";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { StatusStep, StatusSteps, type StepStatus } from "@/components/ui/status-step";
@@ -95,26 +94,6 @@ function CardProgress({ state, action }: {
         </Button>
       ) : null}
     </section>
-  );
-}
-
-function CardNotice({ title, action }: { title: string; action?: { label: string; pending: boolean; onClick: () => void } }) {
-  return (
-    <Card>
-      <CardContent>
-        <Empty>
-          <EmptyHeader>
-            <EmptyMedia variant="icon"><CreditCard aria-hidden="true" /></EmptyMedia>
-            <EmptyTitle>{title}</EmptyTitle>
-          </EmptyHeader>
-          {action ? (
-            <EmptyContent>
-              <Button size="touch" loading={action.pending} disabled={action.pending} onClick={action.onClick}>{action.label}</Button>
-            </EmptyContent>
-          ) : null}
-        </Empty>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -299,11 +278,13 @@ export function CardScreen({ cards, commands, onRetry, onOpenVerification, revea
           label: "Create your card", pending: pending === "issue", onClick: () => issue("Couldn't create your card. Try again."),
         }} />
       ) : null}
-      {state === "ineligible" ? <CardNotice title="Card isn't available for your account" /> : null}
+      {state === "ineligible" ? <Alert role="status"><AlertIcon><CreditCard aria-hidden="true" /></AlertIcon><AlertTitle>Card isn&apos;t available for your account</AlertTitle></Alert> : null}
       {state === "canceled" ? (
-        <CardNotice title="Your card was canceled" action={{
-          label: "Get a new card", pending: pending === "issue", onClick: () => issue("Couldn't create a new card. Try again."),
-        }} />
+        <Alert role="status">
+          <AlertIcon><CreditCard aria-hidden="true" /></AlertIcon>
+          <AlertTitle>Your card was canceled</AlertTitle>
+          <AlertAction><Button size="touch" loading={pending === "issue"} disabled={pending === "issue"} onClick={() => issue("Couldn't create a new card. Try again.")}>Get a new card</Button></AlertAction>
+        </Alert>
       ) : null}
       {state === "restricted" && !live.length ? <HoldAlert description="You can't create a card right now." /> : null}
       {state === "restricted" && live.length > 1 ? <HoldAlert description="New purchases are declined." /> : null}

@@ -3,8 +3,7 @@
 import { BorrowOverview } from "./borrow-overview";
 import type { HomeMoneySummary } from "@/shared/balances/present";
 import { leadingBorrowOffer } from "@/shared/borrowing/offer";
-import { CircleAlertIcon } from "lucide-react";
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   presentPortfolioAssetMark,
@@ -29,7 +28,7 @@ import {
   useHomeQueryClient,
 } from "@/client/query/query-client";
 import { ownerQuery } from "@/client/query/query-options";
-import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import { LoadErrorCard } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -180,7 +179,7 @@ function BorrowExperienceInner({
 
   return (
     <>
-      {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
+      {!session?.smartAccount && !sessionSettling ? <Alert role="status"><AlertTitle>Sign in to view Borrow</AlertTitle></Alert> : null}
       {session?.smartAccount && overviewView === "failed-with-data" && overview.data ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow data could not be refreshed"
           description={`Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`}
@@ -241,7 +240,7 @@ function BorrowDirectMarket({
         <h2 className="text-2xl font-semibold tracking-tight" id="borrow-direct-title">Borrow</h2>
         <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
       </div>
-      {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
+      {!session?.smartAccount && !sessionSettling ? <Alert role="status"><AlertTitle>Sign in to view Borrow</AlertTitle></Alert> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detailView === "loading") ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && (detailView === "failed" || detailView === "failed-with-data") ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
@@ -382,16 +381,6 @@ export function LiquidationBufferMeter({
 
 function BorrowOverviewLoading() {
   return <Card aria-busy="true"><CardContent><div className="space-y-3 py-5"><Skeleton className="h-5 w-36" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><span className="sr-only">Loading Borrow overview</span></div></CardContent></Card>;
-}
-
-export function BorrowNotice({ children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {
-  return (
-    <Alert role={role} variant={tone === "error" ? "destructive" : "default"} {...props}>
-      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
-      {title ? <AlertTitle>{title}</AlertTitle> : null}
-      {children ? <AlertDescription>{children}</AlertDescription> : null}
-    </Alert>
-  );
 }
 
 function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountResource?: FetchAccountResource) {

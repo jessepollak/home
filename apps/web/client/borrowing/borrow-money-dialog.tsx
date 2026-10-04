@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CircleAlertIcon } from "lucide-react";
+import { Alert, AlertIcon, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { LoadErrorCard } from "@/components/load-error";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -52,7 +54,6 @@ import { networkFeeErrorMessage } from "@/shared/money-actions/network-fee";
 import { TransferExecutionError } from "@/shared/transfers/types";
 import { borrowOperationLabels, buildBorrowPreparedIntent } from "./borrow-ui";
 import {
-  BorrowNotice,
   LiquidationBufferMeter,
   formatToken,
   formatCash,
@@ -340,9 +341,12 @@ export function BorrowMoneyFlow({
                   <LoadErrorCard tone="destructive" role="alert" title="Couldn't check the network fee." onRetry={retryReserve} />
                 ) : null}
                 {fixedMaximumOperation || isFullRepayAmount(amount, snapshot.position.debtAssetsRaw, maximumRepayBaseUnits, snapshot.market.loanToken.decimals) ? (
-                  <BorrowNotice title="Maximum repayment">
-                    Current debt is {formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)}. The actual repayment is determined by current borrow shares and cannot exceed the amount you review.
-                  </BorrowNotice>
+                  <Alert role="status">
+                    <AlertTitle>Maximum repayment</AlertTitle>
+                    <AlertDescription>
+                      Current debt is {formatToken(snapshot.position.debtAssetsRaw, snapshot.market.loanToken, regionId)}. The actual repayment is determined by current borrow shares and cannot exceed the amount you review.
+                    </AlertDescription>
+                  </Alert>
                 ) : null}
               </MoneyAmountDisplay>
             )}
@@ -350,9 +354,9 @@ export function BorrowMoneyFlow({
         ) : null}
 
         {preparedAction && step !== "amount" && step !== "result" ? <BorrowPreparedReview action={preparedAction} snapshot={snapshot} regionId={regionId} /> : null}
-        {error ? <BorrowNotice tone="error" role="alert" title="Borrow action unavailable">{error}</BorrowNotice> : null}
+        {error ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertTitle>Borrow action unavailable</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
         {preparedExpired && !attempted && step === "confirm" && !error ? (
-          <BorrowNotice tone="error" role="alert" title="Borrow review expired">Go back and prepare this action again.</BorrowNotice>
+          <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertTitle>Borrow review expired</AlertTitle><AlertDescription>Go back and prepare this action again.</AlertDescription></Alert>
         ) : null}
       </MoneyModalBody>}
       {step === "amount" ? (
@@ -445,11 +449,14 @@ function BorrowPreparedReview({ action, snapshot, regionId }: { action: Prepared
         />
       ) : null}
       {action.warnings.length > 0 ? (
-        <BorrowNotice title="Review warnings">
-          <ul className="list-disc space-y-1 pl-4">
-            {[...new Set(action.warnings)].map((warning) => <li key={warning}>{warning}</li>)}
-          </ul>
-        </BorrowNotice>
+        <Alert role="status">
+          <AlertTitle>Review warnings</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc space-y-1 pl-4">
+              {[...new Set(action.warnings)].map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          </AlertDescription>
+        </Alert>
       ) : null}
     </div>
   );
