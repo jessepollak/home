@@ -72,7 +72,7 @@ export function fundingAbandonStoreContract(createStore: () => FundingOrderStore
       const { store, input, order } = await pending();
       const abandoned = required(await store.abandon(input.id, input.owner, { expectedVersion: order.version, reason: "owner", updatedAt: at(2) }));
       const observed = required(await store.applyObservation(input.id, { state, providerStatus: state, expectedVersion: abandoned.version, updatedAt: at(3) }));
-      expect(observed).toMatchObject({ state, instructions: null, updatedAt: at(3), checkedAt: at(3), version: abandoned.version + 1 });
+      expect(observed).toMatchObject({ state, abandonReason: null, instructions: null, updatedAt: at(3), checkedAt: at(3), version: abandoned.version + 1 });
       if (["expired", "failed", "cancelled", "refunded"].includes(state)) {
         expect(await store.applyObservation(input.id, { state: "sent-unverified", providerStatus: "late", expectedVersion: observed.version, updatedAt: at(4) })).toBeNull();
         expect(await store.getOwned(input.id, input.owner)).toEqual(observed);
@@ -84,7 +84,7 @@ export function fundingAbandonStoreContract(createStore: () => FundingOrderStore
     const { store, input, order } = await pending();
     const abandoned = required(await store.abandon(input.id, input.owner, { expectedVersion: order.version, reason: "owner", updatedAt: at(2) }));
     const received = await store.claimReceipt(input.id, { transactionHash: `0x${"5".repeat(64)}`, logIndex: 1, expectedVersion: abandoned.version, updatedAt: at(3) });
-    expect(received).toMatchObject({ state: "received", instructions: null, version: abandoned.version + 1 });
+    expect(received).toMatchObject({ state: "received", abandonReason: null, instructions: null, version: abandoned.version + 1 });
     const next = await pending();
     const sent = required(await next.store.applyObservation(next.input.id, { state: "sent-unverified", providerStatus: "COMPLETE", expectedVersion: next.order.version, updatedAt: at(3) }));
     expect(await next.store.applyObservation(next.input.id, { state: "sent", providerStatus: "COMPLETE", expectedVersion: sent.version, updatedAt: at(4) })).toMatchObject({ state: "sent", version: sent.version + 1 });

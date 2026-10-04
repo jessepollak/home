@@ -255,6 +255,7 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
     if (!material) return clone(order);
     Object.assign(order, {
       state,
+      abandonReason: state === "abandoned" ? order.abandonReason : null,
       providerStatus: input.providerStatus,
       ...(input.providerTransactionHash ? { providerTransactionHash: input.providerTransactionHash } : {}),
       ...(input.expectedTokenAmountAtomic ? { expectedTokenAmountAtomic: input.expectedTokenAmountAtomic } : {}),
@@ -278,6 +279,7 @@ export class MemoryFundingOrderStore implements FundingOrderStore {
       logIndex: input.logIndex,
       updatedAt: input.updatedAt,
       state: "received" as const,
+      abandonReason: null,
       instructions: null,
       version: order.version + 1,
     });
