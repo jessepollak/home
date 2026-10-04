@@ -11,6 +11,7 @@ import { CurrencyMark } from "@/components/currency-mark";
 import { compactFinancialValue } from "@/components/compact-financial-value";
 import { BalanceRow } from "@/components/finance-rows";
 import { MoneyTicker } from "@/components/money-ticker";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -63,10 +64,6 @@ export function amountLabel(value: ExactDecimal, snapshot: BalancesSnapshot) {
 
 export function unavailableValue() {
   return <><span aria-hidden="true">—</span><span className="sr-only">Value unavailable</span></>;
-}
-
-export function RefreshFailedNotice({ onRetry }: { onRetry: () => void }) {
-  return <div className="flex items-center gap-2 text-sm"><span className="text-muted-foreground">Couldn&apos;t refresh</span><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetry}>Try again</Button></div>;
 }
 
 function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
@@ -136,13 +133,13 @@ export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed
         </div>}
         {summary && summary.status !== "complete" ? <p className="text-sm text-muted-foreground">Some values are unavailable</p> : null}
         {failed ? <p className="text-sm text-muted-foreground">Couldn&apos;t load your balance. Check your connection.</p> : null}
-        {refreshFailed && active ? <RefreshFailedNotice onRetry={onRetryBalances} /> : null}
+        {refreshFailed && active ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription><AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryBalances}>Try again</Button></AlertAction></Alert> : null}
       </div>
       {failed ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}><RotateCw aria-hidden="true" />Try again</Button> : null}
     </CardContent></Card>
     {listLoading || rowsFailed || rows.length > 0 ? <section key={active ? `${active.owner.address}:${active.region}` : "unavailable"} aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
       <div style={{ minHeight: rowsPending ? "var(--investment-list-height, 0px)" : undefined }}>
-      {rowsFailed ? <RefreshFailedNotice onRetry={onRetryRows ?? onRetryBalances} /> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul ref={measureRows} className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
+      {rowsFailed ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription><AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryRows ?? onRetryBalances}>Try again</Button></AlertAction></Alert> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul ref={measureRows} className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
         const context = ownedQuantity(row, active!);
         const unreadable = ownedBalanceUnreadable(row);
         const value = row.amount ? amountLabel(row.amount, active!) : null;

@@ -264,32 +264,112 @@ function splitClassToken(token) {
   return { variants: parts.slice(0, -1), utility: parts.at(-1) };
 }
 
-function isArbitraryModifier(value) {
-  if (!value.startsWith("[") || value.length <= 2) return false;
-  let bracketDepth = 0;
-  let parenthesisDepth = 0;
-  let quote = null;
+function segmentBalanced(value) {
+  const stack = [];
   for (let i = 0; i < value.length; i += 1) {
     const ch = value[i];
-    if (ch === "\\") {
-      i += 1;
+    if (ch === "\\") { i += 1; continue; }
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      while (++i < value.length) {
+        if (value[i] === "\\") { i += 1; continue; }
+        if (value[i] === quote) break;
+      }
       continue;
     }
-    if (quote) {
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === "'" || ch === '"') quote = ch;
-    else if (ch === "[" && parenthesisDepth === 0) bracketDepth += 1;
-    else if (ch === "(") parenthesisDepth += 1;
-    else if (ch === ")") {
-      parenthesisDepth = Math.max(0, parenthesisDepth - 1);
-    } else if (ch === "]" && parenthesisDepth === 0) {
-      bracketDepth -= 1;
-      if (bracketDepth === 0) return i === value.length - 1;
-    }
+    if (ch === "(") stack.push(")");
+    else if (ch === "[") stack.push("]");
+    else if (ch === "{") stack.push("}");
+    else if ((ch === ")" || ch === "]" || ch === "}") && stack.length > 0 && stack[stack.length - 1] === ch) stack.pop();
   }
-  return false;
+  return stack.length === 0;
+}
+
+const MODIFIER_SEPARATORS = new Set([":", ",", "=", ">", "<", "\n", " ", "\t"]);
+
+function decodeModifierValue(input) {
+  const ast = [];
+  const stack = [];
+  let parent = null;
+  let buffer = "";
+  const pushNode = (node) => { (parent ? parent.nodes : ast).push(node); };
+  const flushWord = () => { if (buffer.length > 0) { pushNode({ name: null, text: buffer }); buffer = ""; } };
+  for (let i = 0; i < input.length; i += 1) {
+    const ch = input[i];
+    if (ch === "\\") { buffer += input[i] + (input[i + 1] ?? ""); i += 1; continue; }
+    if (ch === "'" || ch === '"') {
+      const start = i;
+      const quote = ch;
+      while (++i < input.length) {
+        if (input[i] === "\\") { i += 1; continue; }
+        if (input[i] === quote) break;
+      }
+      buffer += input.slice(start, i + 1);
+      continue;
+    }
+    if (MODIFIER_SEPARATORS.has(ch)) {
+      flushWord();
+      const start = i;
+      while (i + 1 < input.length && MODIFIER_SEPARATORS.has(input[i + 1])) i += 1;
+      pushNode({ name: null, text: input.slice(start, i + 1) });
+      continue;
+    }
+    if (ch === "/") {
+      flushWord();
+      pushNode({ name: null, text: "/" });
+      continue;
+    }
+    if (ch === "(") {
+      const node = { name: buffer, nodes: [] };
+      buffer = "";
+      pushNode(node);
+      stack.push(node);
+      parent = node;
+      continue;
+    }
+    if (ch === ")") {
+      const tail = stack.pop() ?? null;
+      if (buffer.length > 0) { if (tail) tail.nodes.push({ name: null, text: buffer }); buffer = ""; }
+      parent = stack.length > 0 ? stack[stack.length - 1] : null;
+      continue;
+    }
+    buffer += ch;
+  }
+  flushWord();
+  const toCss = (nodes) => nodes.map((node) => (node.name === null ? node.text : `${node.name}(${toCss(node.nodes)})`)).join("");
+  return toCss(ast);
+}
+
+function isValidArbitraryValue(value) {
+  const stack = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    if (ch === "\\") { i += 1; continue; }
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      while (++i < value.length) {
+        if (value[i] === "\\") { i += 1; continue; }
+        if (value[i] === quote) break;
+      }
+      continue;
+    }
+    if (ch === "(") stack.push(")");
+    else if (ch === "[") stack.push("]");
+    else if (ch === ")" || ch === "]" || ch === "}") {
+      if (stack.length === 0) return false;
+      if (stack[stack.length - 1] === ch) stack.pop();
+    } else if (ch === ";" && stack.length === 0) return false;
+  }
+  return true;
+}
+
+// Mirrors Tailwind 4.3.3 parseModifier, segment, decodeArbitraryValue and isValidArbitrary.
+function isArbitraryModifier(value) {
+  if (value.length <= 2 || value[0] !== "[" || value[value.length - 1] !== "]") return false;
+  if (!segmentBalanced(value)) return false;
+  const inner = value.slice(1, -1);
+  const decoded = inner.includes("(") ? decodeModifierValue(inner) : inner;
+  return isValidArbitraryValue(decoded) && decoded.trim().length > 0;
 }
 
 // Tailwind's source scanner starts a candidate at the token start or after a

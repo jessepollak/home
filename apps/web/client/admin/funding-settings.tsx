@@ -157,24 +157,6 @@ function LegacyNotices({ view }: { view: FundingOfferingView }) {
   ));
 }
 
-function UnknownSavedNotice({ view }: { view: FundingOfferingView }) {
-  if (view.unknownSaved.length === 0) return null;
-  return (
-    <Alert role="note">
-      <AlertIcon><CircleAlert /></AlertIcon>
-      <AlertTitle>Saved corridors this version no longer offers</AlertTitle>
-      <AlertDescription>
-        <ul className="grid gap-0.5">
-          {view.unknownSaved.map(({ providerId, region, direction }) => (
-            <li key={`${providerId}:${region}:${direction}`}><code>{providerId}</code> · {region} · {directionLabels[direction]}</li>
-          ))}
-        </ul>
-        <p>They have no effect. Saving removes them.</p>
-      </AlertDescription>
-    </Alert>
-  );
-}
-
 function corridorState(corridor: FundingCorridorView, on: boolean): string {
   if (corridor.connection === "not-connected") return on ? "Not connected · On when credentials are set" : "Not connected";
   return on ? "On" : "Connected, off";
@@ -563,7 +545,20 @@ export function FundingSettings({ view, operator }: { view: FundingOfferingView;
         )}
         <SourceBanner view={effectiveView} />
         <LegacyNotices view={effectiveView} />
-        <UnknownSavedNotice view={effectiveView} />
+        {effectiveView.unknownSaved.length > 0 ? (
+          <Alert role="note">
+            <AlertIcon><CircleAlert /></AlertIcon>
+            <AlertTitle>Saved corridors this version no longer offers</AlertTitle>
+            <AlertDescription>
+              <ul className="grid gap-0.5">
+                {effectiveView.unknownSaved.map(({ providerId, region, direction }) => (
+                  <li key={`${providerId}:${region}:${direction}`}><code>{providerId}</code> · {region} · {directionLabels[direction]}</li>
+                ))}
+              </ul>
+              <p>They have no effect. Saving removes them.</p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </div>
 
       <section aria-labelledby="funding-corridors-heading" className="grid gap-5">

@@ -17,6 +17,7 @@ import {
   ItemTitle,
 } from "@/components/ui/item";
 import { RadioGroup, RadioGroupSegment } from "@/components/ui/radio-group";
+import { supportUnreadLabel } from "@/components/profile-mark";
 import { CopyableValue } from "@/components/copyable-value";
 import { CountrySelect } from "@/components/country-select";
 import { CurrencyMark } from "@/components/currency-mark";
@@ -231,11 +232,11 @@ export function AccountSettings({
               <Item className="min-w-0">
                 <ItemContent className="min-w-0">
                   <ItemTitle>Support</ItemTitle>
-                  <ItemDescription>Message us</ItemDescription>
+                  <ItemDescription>{support.summaryStatus === "checking" ? "Checking messages" : "Message us"}</ItemDescription>
                 </ItemContent>
                 {support.unreadCount !== null && support.unreadCount > 0 ? (
                   <ItemActions>
-                    <span className="text-sm text-muted-foreground tabular-nums">{support.unreadCount} unread</span>
+                    <span className="text-sm text-muted-foreground tabular-nums">{support.unreadCount} unread{support.summaryFailed ? " · may be out of date" : ""}</span>
                   </ItemActions>
                 ) : null}
               </Item>
@@ -245,7 +246,7 @@ export function AccountSettings({
                     variant="outline"
                     size="touch"
                     className="w-full justify-start"
-                    aria-label={support.unreadCount !== null && support.unreadCount > 0 ? `Support, ${support.unreadCount} unread ${support.unreadCount === 1 ? "message" : "messages"}` : "Support"}
+                    aria-label={supportUnreadLabel("Support", support.unreadCount, support.summaryStatus)}
                     onClick={() => support.openSupport()}
                   >
                     Message support

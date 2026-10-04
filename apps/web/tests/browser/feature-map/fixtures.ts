@@ -251,7 +251,8 @@ export function fixtureRoutes({
       ? [[`**/api/borrow/markets/${entry.market.id}`, entry.availability.snapshot] as const]
       : []),
     ["**/api/client-performance**", { ok: true }],
-    ["**/api/funding/providers**", fundingProvidersBody],
+    ["**/api/funding/providers?*direction=onramp*", fundingProvidersBody],
+    ["**/api/funding/providers?*direction=offramp*", { ...fundingProvidersBody, direction: "offramp" as const }],
     ["**/api/transfers/recipient-name**", { version: 1, name: "example.base.eth", address: recentRecipient }],
     ["**/api/transfers/recent-recipients**", {
       version: 1, recipients: [{ address: recentRecipient, name: "example.base.eth" }],

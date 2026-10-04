@@ -349,8 +349,9 @@ function RailAccountButton({
   onOpenAccount?: (opener: HTMLButtonElement) => void;
 }) {
   const ready = account?.status === "ready";
-  const supportUnreadCount = useOptionalSupport()?.unreadCount ?? null;
-  const unreadCount = ready ? supportUnreadCount : null;
+  const support = useOptionalSupport();
+  const unreadCount = ready ? support?.unreadCount ?? null : null;
+  const summaryStatus = ready ? support?.summaryStatus : undefined;
   const profile = useBasenameProfile({
     ownerKey: account?.ownerKey,
     address: account?.address,
@@ -365,7 +366,7 @@ function RailAccountButton({
       variant="ghost"
       size="lg"
       className={`relative h-11 justify-start gap-1 overflow-hidden px-0 ${collapsed ? "w-11" : "w-full"}`}
-      aria-label={supportUnreadLabel(basename ? `Account settings ${basename}` : "Account settings", unreadCount)}
+      aria-label={supportUnreadLabel(basename ? `Account settings ${basename}` : "Account settings", unreadCount, summaryStatus)}
       aria-current={current ? "page" : undefined}
       disabled={account?.disabled}
       onClick={(event) => { if (!current) onOpenAccount?.(event.currentTarget); }}
@@ -375,7 +376,7 @@ function RailAccountButton({
     >
       {current ? <span className="absolute start-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" /> : null}
       <span className="relative grid size-11 shrink-0 place-items-center" aria-hidden="true">
-        <SupportUnreadDot unreadCount={unreadCount} />
+        <SupportUnreadDot unreadCount={unreadCount} status={summaryStatus} />
         <span className={`grid size-8 place-items-center rounded-full bg-muted text-sm font-semibold lowercase text-foreground ${ready ? "" : "animate-pulse"}`} data-shimmer={ready ? undefined : "profile"}>
           {glyph}
         </span>

@@ -17,7 +17,8 @@ import { logAtLatest, newestVisibleMessageId } from "@/client/support/log-visibi
 type Filter = "open" | "resolved" | "all";
 type GenerationError = { generation: number; message: string; source?: "handler" };
 type InboxProps = { conversationId?: string; transport?: OperatorSupportTransport; initialList?: OperatorSupportListResponse; initialConversation?: OperatorSupportConversationResponse };
-type InboxList = OperatorSupportListResponse & { firstPageIds?: string[] };
+type InboxList = OperatorSupportListResponse & { firstPageIds?: string[]; loadedPages?: number; pageCursors?: string[] };
+const maxInboxPages = 100;
 function needsReply(item: OperatorSupportListItem): boolean {
   return item.handler === "operator" && item.status === "open" && item.lastAuthorType === "customer";
 }
@@ -41,6 +42,9 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
   const [actionError, setActionError] = useState<GenerationError | null>(null);
   const readMessage = useRef("");
   const listSeq = useRef(0);
+  const listPending = useRef<number | null>(null);
+  const listRef = useRef(list);
+  useLayoutEffect(() => { listRef.current = list; }, [list]);
   const detailSeq = useRef(0);
   const detailTag = useRef<{ id: string; etag: string | null } | null>(null);
   const detailPending = useRef<number | null>(null);
@@ -94,30 +98,52 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
 
   const loadList = useCallback(async (status: Filter, before?: string, resetPages = false) => {
     const seq = ++listSeq.current;
+    listPending.current = seq;
+    const previous = listRef.current;
+    const active = () => mounted.current && seq === listSeq.current && status === filterRef.current;
     try {
+      if (before && (previous?.loadedPages ?? 1) >= maxInboxPages) throw new Error("Too many support pages. Switch filters to refresh the inbox.");
       const result = await transport.list(status, before);
-      if (seq !== listSeq.current) return;
-      if (status !== filterRef.current) return;
-      setList((previous) => {
-        if (!previous) return { ...result, firstPageIds: result.conversations.map((row) => row.id) };
-        if (before) {
-          const seen = new Set(previous.conversations.map((row) => row.id));
-          return { ...result, firstPageIds: previous.firstPageIds, conversations: [...previous.conversations, ...result.conversations.filter((row) => !seen.has(row.id))].sort(byNewest), nextCursor: result.nextCursor };
+      if (!active()) return;
+      const firstPageIds = result.conversations.map((row) => row.id);
+      const priorIds = previous?.firstPageIds ?? previous?.conversations.map((row) => row.id);
+      const firstPageChanged = !priorIds || firstPageIds.length !== priorIds.length || firstPageIds.some((id, index) => id !== priorIds[index]);
+      let next: InboxList;
+      if (before && previous) {
+        const pageCursors = [...(previous.pageCursors ?? []), before];
+        if (result.nextCursor && pageCursors.includes(result.nextCursor)) throw new Error("Couldn't refresh support pages. Try again.");
+        const seen = new Set(previous.conversations.map((row) => row.id));
+        next = { ...result, firstPageIds: previous.firstPageIds, loadedPages: (previous.loadedPages ?? 1) + 1, pageCursors, conversations: [...previous.conversations, ...result.conversations.filter((row) => !seen.has(row.id))].sort(byNewest) };
+      } else {
+        const depth = resetPages || firstPageChanged ? 1 : previous?.loadedPages ?? 1;
+        if (depth > maxInboxPages) throw new Error("Too many support pages. Switch filters to refresh the inbox.");
+        const conversations = [...result.conversations];
+        const seenIds = new Set(firstPageIds);
+        const seenCursors = new Set<string>();
+        let cursor = result.nextCursor;
+        let loadedPages = 1;
+        while (cursor && loadedPages < depth) {
+          if (seenCursors.has(cursor)) throw new Error("Couldn't refresh support pages. Try again.");
+          seenCursors.add(cursor);
+          const page = await transport.list(status, cursor);
+          if (!active()) return;
+          for (const row of page.conversations) {
+            if (!seenIds.has(row.id)) { conversations.push(row); seenIds.add(row.id); }
+          }
+          cursor = page.nextCursor;
+          ++loadedPages;
         }
-        const firstPageIds = result.conversations.map((row) => row.id);
-        const priorIds = previous.firstPageIds ?? previous.conversations.map((row) => row.id);
-        const firstPageChanged = firstPageIds.length !== priorIds.length || firstPageIds.some((id, index) => id !== priorIds[index]);
-        if (resetPages || firstPageChanged) return { ...result, firstPageIds };
-        const refreshed = new Set(firstPageIds);
-        const oldestRefreshed = result.conversations.at(-1);
-        const retained = oldestRefreshed
-          ? previous.conversations.filter((row) => !refreshed.has(row.id) && byNewest(row, oldestRefreshed) > 0)
-          : [];
-        return { ...result, firstPageIds, conversations: [...result.conversations, ...retained].sort(byNewest), nextCursor: retained.length > 0 ? previous.nextCursor ?? result.nextCursor : result.nextCursor };
-      });
+        if (cursor && seenCursors.has(cursor)) throw new Error("Couldn't refresh support pages. Try again.");
+        next = { ...result, firstPageIds, loadedPages, pageCursors: [...seenCursors], conversations: conversations.sort(byNewest), nextCursor: cursor };
+      }
+      if (!active()) return;
+      listRef.current = next;
+      setList(next);
       setListError("");
     } catch (error) {
-      setListError((previous) => seq === listSeq.current && status === filterRef.current ? error instanceof Error ? error.message : "Couldn't load support. Try again." : previous);
+      setListError((previous) => seq === listSeq.current && status === filterRef.current && mounted.current ? error instanceof Error ? error.message : "Couldn't load support. Try again." : previous);
+    } finally {
+      if (listPending.current === seq) listPending.current = null;
     }
   }, [transport]);
 
@@ -148,7 +174,7 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
 
   useEffect(() => {
     const initial = window.setTimeout(() => void loadList(filter), 0);
-    const poll = () => { if (!document.hidden) void loadList(filter); };
+    const poll = () => { if (!document.hidden && listPending.current === null) void loadList(filter); };
     const onVisibility = () => { if (!document.hidden) void loadList(filter, undefined, true); };
     const timer = window.setInterval(poll, 15_000);
     document.addEventListener("visibilitychange", onVisibility);
@@ -289,7 +315,7 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
   return <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,1fr)]">
     <section aria-label="Conversations" className={conversationId ? "hidden min-w-0 lg:block" : "min-w-0"}>
       <div role="group" aria-label="Conversation status" className="mb-4 flex flex-wrap gap-2">
-        {(["open", "resolved", "all"] as const).map((status) => <Button key={status} variant={filter === status ? "secondary" : "ghost"} size="touch" aria-pressed={filter === status} onClick={() => { filterRef.current = status; setFilter(status); setList(null); }}>{status[0].toUpperCase() + status.slice(1)}</Button>)}
+        {(["open", "resolved", "all"] as const).map((status) => <Button key={status} variant={filter === status ? "secondary" : "ghost"} size="touch" aria-pressed={filter === status} onClick={() => { ++listSeq.current; filterRef.current = status; listRef.current = null; setFilter(status); setList(null); setListError(""); }}>{status[0].toUpperCase() + status.slice(1)}</Button>)}
       </div>
       {listError && <div role="alert" className="grid gap-2"><p>{listError}</p><Button variant="outline" size="touch" onClick={() => void loadList(filter)}>Try again</Button></div>}
       {!list && !listError && <Skeleton className="h-24 w-full" />}

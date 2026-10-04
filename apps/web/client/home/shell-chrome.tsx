@@ -145,7 +145,7 @@ function HeaderAccountAction({
   onSignOut: () => void;
   onOpenSettings: (opener: HTMLButtonElement) => void;
 }) {
-  const unreadCount = useOptionalSupport()?.unreadCount ?? null;
+  const support = useOptionalSupport();
   if (status === "signout-error") {
     return <Button className="h-11" onClick={onSignOut}>Retry sign out</Button>;
   }
@@ -159,7 +159,8 @@ function HeaderAccountAction({
           ownerKey={ownerKey}
           address={address}
           disabled={checking}
-          supportUnreadCount={signedIn ? unreadCount : null}
+          supportUnreadCount={signedIn ? support?.unreadCount ?? null : null}
+          supportSummaryStatus={signedIn ? support?.summaryStatus : undefined}
           onClick={signedIn && !checking ? onOpenSettings : undefined}
         />
       );

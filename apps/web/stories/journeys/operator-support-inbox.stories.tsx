@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useRef } from "react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { OperatorSupportInbox } from "@/client/operator-support/operator-support-inbox";
 import { SupportAssistantSettings } from "@/client/operator-support/assistant-settings";
 import { SupportConflictError, type OperatorSupportTransport } from "@/client/operator-support/api";
@@ -82,3 +82,139 @@ export const SettingsUnavailable: Story = { args: { empty: true, settings: "unav
 export const SettingsUnavailableDesktop: Story = { ...SettingsUnavailable, parameters: { viewport: { defaultViewport: "desktop" } } };
 export const SettingsConfigured: Story = { args: { empty: true, settings: "configured" }, play: async ({ canvasElement }) => { const canvas = within(canvasElement); const settings = await canvas.findByRole("region", { name: "Support assistant" }); await expect(await within(settings).findByText("Configured · ends in 9f2c")).toBeVisible(); await expect(within(settings).queryByText("Assistant unavailable")).toBeNull(); await expect(within(settings).getByRole("button", { name: "Replace key" })).toBeVisible(); await expect(within(settings).getByRole("button", { name: "Remove key" })).toBeVisible(); } };
 export const SettingsConfiguredDesktop: Story = { ...SettingsConfigured, parameters: { viewport: { defaultViewport: "desktop" } } };
+
+let pollInbox: () => void = () => {};
+let refreshPhase = false;
+let requestedPages: string[] = [];
+let heldPage: (() => void) | null = null;
+let heldRefresh: (() => void) | null = null;
+function controlledPoll() {
+  const browserWindow: Window = window;
+  const original = browserWindow.setInterval;
+  refreshPhase = false;
+  requestedPages = [];
+  heldPage = null;
+  heldRefresh = null;
+  browserWindow.setInterval = (callback, delay, ...args) => {
+    if (delay === 15_000 && typeof callback === "function") { pollInbox = () => { Reflect.apply(callback, undefined, args); }; return 987654; }
+    return original(callback, delay, ...args);
+  };
+  return () => { browserWindow.setInterval = original; pollInbox = () => {}; };
+}
+function PaginatedInbox({ scenario = "refresh" }: { scenario?: "refresh" | "failure" | "cycle" | "race" | "filter" | "slow" }) {
+  const pageRow = (page: number): OperatorSupportListItem => ({ ...row, id: `page-${page}`, customerLabel: `Customer page ${page}`, lastMessageAt: `2026-09-${27 - page}T12:00:00.000Z`, preview: refreshPhase ? "Refreshed preview" : "Original preview" });
+  const transport: OperatorSupportTransport = {
+    list: async (filter, before) => {
+      const page = before ? Number(before) : 1;
+      requestedPages.push(`${filter}:${page}`);
+      if (scenario === "race" && page === 2 && !refreshPhase) await new Promise<void>((resolve) => { heldPage = resolve; });
+      if (refreshPhase && (scenario === "slow" || scenario === "race" && page === 1)) await new Promise<void>((resolve) => { heldRefresh = resolve; });
+      if (refreshPhase && scenario === "failure" && page === 3) throw new Error("Deeper page unavailable");
+      if (filter === "resolved") return { version: 2, conversations: [], nextCursor: null };
+      return { version: 2, conversations: refreshPhase && (scenario === "refresh" || scenario === "slow") && page === 2 ? [] : [pageRow(page)], nextCursor: refreshPhase && scenario === "cycle" && page === 2 ? "2" : page < (scenario === "slow" ? 21 : 4) ? String(page + 1) : null };
+    },
+    conversation: async () => ({ detail: fixture, etag: null }), read: async () => {},
+    reply: async () => ({ detail: fixture, etag: null }), status: async () => ({ detail: fixture, etag: null }), handler: async () => ({ detail: fixture, etag: null }),
+  };
+  return <main className="p-4"><h1>Support</h1><OperatorSupportInbox transport={transport} /></main>;
+}
+const paginationStory = { render: () => <PaginatedInbox />, beforeEach: controlledPoll };
+async function loadPages(canvasElement: HTMLElement, depth: number) {
+  const canvas = within(canvasElement);
+  await canvas.findByRole("link", { name: /Customer page 1/ });
+  for (let page = 2; page <= depth; page++) {
+    await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
+    await canvas.findByRole("link", { name: new RegExp(`Customer page ${page}`) });
+  }
+  return canvas;
+}
+export const PollRevalidatesDeeperRows: Story = { ...paginationStory, play: async ({ canvasElement }) => {
+  const canvas = await loadPages(canvasElement, 2);
+  refreshPhase = true;
+  pollInbox();
+  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
+  await expect(canvas.getByRole("link", { name: /Customer page 1/ })).toHaveTextContent("Refreshed preview");
+  await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
+  await canvas.findByRole("link", { name: /Customer page 3/ });
+  pollInbox();
+  await waitFor(() => expect(requestedPages.slice(-3)).toEqual(["open:1", "open:2", "open:3"]));
+  await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
+  await canvas.findByRole("link", { name: /Customer page 4/ });
+  await expect(canvas.queryByRole("button", { name: "Load more" })).toBeNull();
+} };
+export const FailedDeepPollIsAtomic: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="failure" />, play: async ({ canvasElement }) => {
+  const canvas = await loadPages(canvasElement, 3);
+  refreshPhase = true;
+  pollInbox();
+  await expect(await canvas.findByRole("alert")).toHaveTextContent("Deeper page unavailable");
+  for (const page of [1, 2, 3]) await expect(canvas.getByRole("link", { name: new RegExp(`Customer page ${page}`) })).toHaveTextContent("Original preview");
+  refreshPhase = false;
+  await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+  await waitFor(() => expect(canvas.queryByRole("alert")).toBeNull());
+} };
+export const CursorCycleRetainsRows: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="cycle" />, play: async ({ canvasElement }) => {
+  const canvas = await loadPages(canvasElement, 3);
+  const count = requestedPages.length;
+  refreshPhase = true;
+  pollInbox();
+  await expect(await canvas.findByRole("alert")).toHaveTextContent("Couldn't refresh support pages");
+  await expect(requestedPages.length - count).toBe(2);
+  await expect(canvas.getByRole("link", { name: /Customer page 3/ })).toHaveTextContent("Original preview");
+} };
+export const VisibilityFencesInterleavedLoad: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="race" />, play: async ({ canvasElement }) => {
+  const canvas = await loadPages(canvasElement, 1);
+  await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
+  await waitFor(() => expect(heldPage).not.toBeNull());
+  pollInbox();
+  await expect(requestedPages).toEqual(["open:1", "open:2"]);
+  refreshPhase = true;
+  document.dispatchEvent(new Event("visibilitychange"));
+  await waitFor(() => expect(heldRefresh).not.toBeNull());
+  heldPage?.();
+  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
+  pollInbox();
+  await expect(requestedPages).toEqual(["open:1", "open:2", "open:1"]);
+  heldRefresh?.();
+  await waitFor(() => expect(canvas.getByRole("link", { name: /Customer page 1/ })).toHaveTextContent("Refreshed preview"));
+  await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
+  await canvas.findByRole("link", { name: /Customer page 2/ });
+  await expect(requestedPages).toEqual(["open:1", "open:2", "open:1", "open:2"]);
+} };
+export const SlowDepthPollPublishesAtomically: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="slow" />, play: async ({ canvasElement }) => {
+  const canvas = await loadPages(canvasElement, 20);
+  const count = requestedPages.length;
+  refreshPhase = true;
+  pollInbox();
+  for (let page = 1; page <= 20; page++) {
+    await waitFor(() => expect(heldRefresh).not.toBeNull());
+    await expect(requestedPages.slice(count)).toEqual(Array.from({ length: page }, (_, index) => `open:${index + 1}`));
+    pollInbox();
+    await expect(requestedPages.length).toBe(count + page);
+    await expect(canvas.getAllByRole("link")).toHaveLength(20);
+    for (const link of canvas.getAllByRole("link")) await expect(link).toHaveTextContent("Original preview");
+    const release = heldRefresh;
+    heldRefresh = null;
+    release?.();
+  }
+  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2\b/ })).toBeNull());
+  await expect(canvas.getAllByRole("link")).toHaveLength(19);
+  for (const link of canvas.getAllByRole("link")) await expect(link).toHaveTextContent("Refreshed preview");
+  refreshPhase = false;
+  await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
+  await canvas.findByRole("link", { name: /Customer page 21/ });
+  await expect(requestedPages.at(-1)).toBe("open:21");
+  pollInbox();
+  await waitFor(() => expect(requestedPages.length).toBe(count + 42));
+  await expect(requestedPages.slice(count + 21)).toEqual(Array.from({ length: 21 }, (_, index) => `open:${index + 1}`));
+} };
+export const FilterRoundTripFencesLoad: Story = { ...paginationStory, render: () => <PaginatedInbox scenario="race" />, play: async ({ canvasElement }) => {
+  const canvas = await loadPages(canvasElement, 1);
+  await userEvent.click(canvas.getByRole("button", { name: "Load more" }));
+  await waitFor(() => expect(heldPage).not.toBeNull());
+  await userEvent.click(canvas.getByRole("button", { name: "Resolved" }));
+  await canvas.findByText("No resolved conversations.");
+  await userEvent.click(canvas.getByRole("button", { name: "Open" }));
+  await canvas.findByRole("link", { name: /Customer page 1/ });
+  heldPage?.();
+  await waitFor(() => expect(canvas.queryByRole("link", { name: /Customer page 2/ })).toBeNull());
+} };
