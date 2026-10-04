@@ -416,7 +416,6 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
-      OPERATOR_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
       ACTION_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
       FUNDING_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
       BALANCES_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
@@ -435,7 +434,7 @@ jobs:
       - name: Apply the Home database schema
         run: bun run --cwd apps/web db:migrate
 
-      - name: Test actions, funding, balances, and operator stores against disposable PostgreSQL
+      - name: Test actions, funding, and balances stores against disposable PostgreSQL
         run: |
           tests=()
           while IFS= read -r -d '' file; do tests+=("$file"); done < <(git ls-files -z -- 'apps/web/**/*postgres*.test.ts')

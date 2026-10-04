@@ -1,5 +1,5 @@
-import type { RegionId } from "@/config/regions";
-import { CURRENCY_REGISTRY } from "./registry";
+import type { FiatCurrencyCode, RegionId } from "@/config/regions";
+import { approvedCashCurrencies, marketPriceAssetIdFor, CURRENCY_REGISTRY } from "./registry";
 import { CONVERT_PAIR_MAX_AGE_DAYS, CONVERT_PROVIDER, CONVERT_QUOTE_ASSET_ID, type ConvertPairRecord, type ConvertPairResolution, type ConvertUnavailableReason, type CurrencyRepresentation } from "./types";
 import { isRegistryVerificationDate } from "./verification-date";
 
@@ -15,6 +15,7 @@ function shippedPair(id: string, from: string, to: string): ConvertPairRecord {
   });
 }
 
+/** @public Published Convert pair inventory; exercised by convert.test.ts and drift.test.ts. */
 export const CONVERT_PAIRS: readonly ConvertPairRecord[] = Object.freeze([
   shippedPair("usdc-eurc", CONVERT_QUOTE_ASSET_ID, "base:eurc"),
   shippedPair("eurc-usdc", "base:eurc", CONVERT_QUOTE_ASSET_ID),
@@ -63,4 +64,21 @@ export function convertPairListed(input: { from: string; to: string; regionId?: 
 export function convertCurrencyListed(id: string, data: ConvertAdmissionData = {}, regionId?: RegionId): boolean {
   return convertPairListed({ from: id, to: CONVERT_QUOTE_ASSET_ID, regionId }, data) &&
     convertPairListed({ from: CONVERT_QUOTE_ASSET_ID, to: id, regionId }, data);
+}
+
+
+/** @public Convert picker capability source, exercised by convert.test.ts. */
+export function convertPickerEntries(
+  options: { regionId?: RegionId } = {},
+  data: ConvertAdmissionData = {},
+): readonly { id: string; name: string; symbol: string; displayCurrency: FiatCurrencyCode; marketPriceAssetId: string }[] {
+  const records = data.records ?? CURRENCY_REGISTRY;
+  return approvedCashCurrencies(records).filter((record) => convertCurrencyListed(record.id, data, options.regionId))
+    .map((record) => ({
+      id: record.id,
+      name: record.name,
+      symbol: record.symbol,
+      displayCurrency: record.displayCurrency,
+      marketPriceAssetId: marketPriceAssetIdFor(record),
+    }));
 }
