@@ -1,12 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { cleanupSteps, loopbackPort, shellQuote } from "./clip-core.mjs";
-import { CommandError, run, save, stopChild, until, type ClipState } from "./clip-runtime";
+import { CommandError, commandTerminationGrace, run, save, stopChild, until, type ClipState } from "./clip-runtime";
+
+export const remoteTimeouts = { tunnel: 30000, pin: 90000, start: 180000, status: 15000 };
+const statusAttempts = 2;
+export const remoteStartTimeout = remoteTimeouts.tunnel + remoteTimeouts.pin + remoteTimeouts.start + statusAttempts * remoteTimeouts.status + (2 + statusAttempts) * commandTerminationGrace + 10000;
 
 export function remoteCommand(state: ClipState, args: string[]) {
   const directory = state.remoteDir!;
   const path = directory.startsWith("~/") ? `"$HOME"/${shellQuote(directory.slice(2))}` : shellQuote(directory);
-  return `export PATH=/opt/homebrew/bin:$HOME/.bun/bin:$PATH; cd ${path} && bun run --silent clip ${args.map(shellQuote).join(" ")}`;
+  return `if [ -d /opt/homebrew/bin ]; then export PATH=/opt/homebrew/bin:$PATH; fi; export PATH="$HOME/.bun/bin:$PATH"; cd ${path} && bun run --silent clip ${args.map(shellQuote).join(" ")}`;
 }
 export function sshArgs(state: ClipState, command: string) {
   return ["-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ConnectTimeout=30", "-S", state.socket!, state.remoteHost!, command];
@@ -27,6 +31,16 @@ export function remoteTarget(state: ClipState, directory: string, dependencies: 
       throw error;
     }
   };
+  async function status() {
+    for (let attempt = 1; ; attempt++) {
+      checkTunnel();
+      let remoteState;
+      try { remoteState = JSON.parse(await ssh(remoteCommand(state, ["__status", state.session]), remoteTimeouts.status)); }
+      catch (error) { if (attempt < statusAttempts) continue; throw error; }
+      if (remoteState.error) throw new Error(remoteState.error);
+      return remoteState;
+    }
+  }
   return {
     async start() {
       const host = process.env.HOME_CLIP_REMOTE, checkout = process.env.HOME_CLIP_REMOTE_DIR;
@@ -46,10 +60,10 @@ export function remoteTarget(state: ClipState, directory: string, dependencies: 
       await until(async () => {
         checkTunnel();
         return run("ssh", ["-S", state.socket!, "-O", "check", host], { timeout: 2000 }).then(() => true).catch(() => false);
-      });
+      }, remoteTimeouts.tunnel);
       const pin = (await import("../../package.json")).default.devDependencies["agent-browser"];
       const pinCommand = remoteCommand(state, []).replace(/bun run --silent clip $/, `bun -e ${shellQuote('console.log(require("./package.json").devDependencies["agent-browser"])')}`);
-      const remotePin = await ssh(pinCommand);
+      const remotePin = await ssh(pinCommand, remoteTimeouts.pin);
       if (remotePin !== pin) throw new Error(`Remote checkout agent-browser pin differs: expected ${pin}, found ${remotePin}`);
       const flags = ["start", "--target", state.target, "--session", state.session];
       if (state.url) flags.push("--url", state.url);
@@ -60,16 +74,15 @@ export function remoteTarget(state: ClipState, directory: string, dependencies: 
       remoteActive = true;
       state.remoteStarted = true; state.remoteOutput = remoteOutput;
       await save(join(directory, "state.json"), state);
-      await ssh(remoteCommand(state, flags), 180000);
-      const remoteState = JSON.parse(await ssh(remoteCommand(state, ["__status", state.session]), 15000));
+      await ssh(remoteCommand(state, flags), remoteTimeouts.start);
+      const remoteState = await status();
       Object.assign(state, { css: remoteState.css, emulator: remoteState.emulator, model: remoteState.model, chromeVersion: remoteState.chromeVersion });
       await save(join(directory, "state.json"), state);
     },
     async monitor(force = false) {
       checkTunnel();
       if (force || now() - lastCheck >= 1000) {
-        const remoteState = JSON.parse(await ssh(remoteCommand(state, ["__status", state.session]), 15000));
-        if (remoteState.error) throw new Error(remoteState.error);
+        await status();
         lastCheck = now();
       }
       checkTunnel();

@@ -28,7 +28,7 @@ export interface ClipTarget {
 export function localTarget(state: ClipState, directory: string, recover = false, dependencies: Partial<typeof defaults> = {}): ClipTarget {
   const { spawn, acquireDeviceLock, connectCdp, browser, exists, run, save, stopChild, until, readFile, rm, freePort, fetch, now } = { ...defaults, ...dependencies };
   if (state.target === "ios") return {
-    async start() { throw new Error("iOS clip recording is not implemented yet; use Chromium or Android"); },
+    async start() { throw new Error("iOS Simulator clips are not supported yet; see https://github.com/jessepollak/home/issues/1927"); },
     async stop() {}, async cleanup() {}, async monitor() {},
   };
   let attached = recover && Boolean(state.browserAttached || state.cdpPort || state.recorderPid), recording = recover && Boolean(state.recordingIntent || state.deviceRecorderPid || state.recorderPid);
@@ -256,7 +256,18 @@ export function localTarget(state: ClipState, directory: string, recover = false
         ["fixture tab", async () => {
           guardCdp?.close(); guardCdp = undefined;
           if (!state.ownTarget || !state.cdpPort) return;
-          const cdp = await connectCdp(state.cdpPort);
+          const mapping = `${serial} tcp:${state.cdpPort} localabstract:chrome_devtools_remote`;
+          if (!(await runAdb(["forward", "--list"])).split("\n").some((line) => line.trim() === mapping)) return;
+          const cdp = await connectCdp(state.cdpPort).catch((error) => {
+            const refused = (error: unknown): boolean => {
+              if (!error || typeof error !== "object") return false;
+              if ("code" in error && ["ECONNREFUSED", "ConnectionRefused"].includes(String(error.code))) return true;
+              return "cause" in error && refused(error.cause);
+            };
+            if (refused(error)) return undefined;
+            throw error;
+          });
+          if (!cdp) return;
           try {
             const { targetInfos } = await cdp.command("Target.getTargets") as { targetInfos: { targetId: string }[] };
             if (targetInfos.some((target) => target.targetId === state.ownTarget)) await cdp.command("Target.closeTarget", { targetId: state.ownTarget });

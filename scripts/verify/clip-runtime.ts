@@ -61,6 +61,20 @@ export async function until(check: () => Promise<boolean>, timeout = 30000) {
     await wait(100);
   }
 }
+export async function waitForResult(directory: string, session: string, dependencies: Partial<{ exists: typeof exists; load: typeof load; workerAlive: typeof workerAlive; until: typeof until }> = {}) {
+  const deps = { exists, load, workerAlive, until, ...dependencies };
+  const result = join(directory, "result.json");
+  await deps.until(async () => {
+    if (await deps.exists(result)) return true;
+    const worker = await deps.load<WorkerIdentity>(join(directory, "worker.json")).catch(() => undefined);
+    if (!await deps.workerAlive(worker)) {
+      if (await deps.exists(result)) return true;
+      throw new Error(`Clip worker is no longer running. Run: bun run clip cleanup --session ${session}`);
+    }
+    return false;
+  }, 600000);
+}
+export const commandTerminationGrace = 5000;
 export class CommandError extends Error {
   constructor(message: string, public exitCode: number | null) { super(message); }
 }
@@ -74,7 +88,7 @@ export async function run(file: string, args: string[], options: { timeout?: num
   options.signal?.addEventListener("abort", terminate, { once: true });
   if (options.signal?.aborted) terminate();
   const timer = setTimeout(() => { timedOut = true; terminate(); }, options.timeout ?? 60000);
-  const force = setTimeout(() => { child.kill("SIGKILL"); }, (options.timeout ?? 60000) + 5000);
+  const force = setTimeout(() => { child.kill("SIGKILL"); }, (options.timeout ?? 60000) + commandTerminationGrace);
   try {
     const code = await new Promise<number | null>((done, reject) => { child.once("error", reject); child.once("close", done); });
     if (options.signal?.aborted) throw new Error("Clip interrupted");

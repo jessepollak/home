@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { activateRecordedPage, assertBrowserArgs, assertFixtureNavigation, assertFixtureTargets, assertSessionAge, chromiumGeometry, measureCalibration, cleanupSteps, dndMode, loopbackPort, normalizationArgs, parseClipArgs, parseViewport, previewLabel, selectAndroidDevice, shellQuote, targetFlags, validateChromiumViewport } from "../../verify/clip-core.mjs";
 
 test("clip parses the three commands and target-specific options", () => {
@@ -100,8 +98,9 @@ test("Android activates the exact driven tab and detaches every temporary CDP se
 
 test("physical origin enforcement grandfathers only pre-existing background targets", () => {
   const state = { target: "android", url: "http://127.0.0.1:3199/home" };
-  for (const args of [["open", "https://example.com"], ["tab", "new", state.url], ["tab", "t1"], ["tab", "list", "--activate"], ["tab", "close"], ["connect", "9222"], ["batch", "[]"], ["--no-pin-tab", "snapshot"]]) assert.throws(() => { assertBrowserArgs(args); assertFixtureNavigation(state, args); });
-  assert.doesNotThrow(() => assertFixtureNavigation(state, ["open", "http://127.0.0.1:3199/other"]));
+  for (const args of [["open", "https://example.com"], ["goto", "https://example.com"], ["navigate", "example.com"], ["open", "example.com"], ["open", "/other"], ["open", "127.0.0.1:3199/other"], ["open"], ["tab", "new", state.url], ["tab", "t1"], ["tab", "list", "--activate"], ["tab", "close"], ["connect", "9222"], ["batch", "[]"], ["--no-pin-tab", "snapshot"]]) assert.throws(() => { assertBrowserArgs(args); assertFixtureNavigation(state, args); });
+  for (const command of ["open", "goto", "navigate"]) assert.doesNotThrow(() => assertFixtureNavigation(state, [command, "http://127.0.0.1:3199/other"]));
+  assert.doesNotThrow(() => assertFixtureNavigation({ ...state, url: "https://example.com/home" }, ["goto", "example.com/other"]));
   assert.doesNotThrow(() => assertFixtureNavigation({ ...state, emulator: true }, ["open", "https://example.com"]));
   const own = { type: "page", targetId: "own", url: state.url }, old = { type: "page", targetId: "old", url: "https://example.com" };
   for (const targets of [[], null, [{ ...own, url: "about:blank" }], [own, { ...old, targetId: "new" }]]) assert.throws(() => assertFixtureTargets(targets, state.url, ["old"], "own"));
@@ -123,9 +122,4 @@ test("session expiry applies to every target and Android leaves cleanup margin",
 test("viewport rejects narrow capture geometry before recording", () => {
   for (const width of [100, 166]) assert.throws(() => parseViewport(`${width}x844`));
   assert.deepEqual(parseViewport("167x844"), { width: 167, height: 844 });
-});
-
-test("clip target and recovery behavior with stubbed external resources", () => {
-  const result = spawnSync("bun", ["test", fileURLToPath(new URL("../../verify/clip-resources.test.ts", import.meta.url))], { encoding: "utf8", timeout: 60000 });
-  assert.equal(result.status, 0, result.stdout + result.stderr);
 });

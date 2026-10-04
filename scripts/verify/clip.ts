@@ -3,8 +3,8 @@ import { mkdir, open, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { assertFixtureNavigation, assertSessionAge, chromiumGeometry, measureCalibration, normalizationArgs, parseClipArgs, previewLabel, targetFlags } from "./clip-core.mjs";
 import { localTarget } from "./clip-targets";
-import { remoteCommand, remoteTarget, sshArgs } from "./clip-remote";
-import { CommandError, browser, load, probeVideo, privateDirectory, removeSession, repository, run, save, sessionDirectory, until, verifyDirectory, workerAlive, workerIdentity, type ClipState, type WorkerIdentity } from "./clip-runtime";
+import { remoteCommand, remoteStartTimeout, remoteTarget, sshArgs } from "./clip-remote";
+import { CommandError, browser, load, probeVideo, privateDirectory, removeSession, repository, run, save, sessionDirectory, until, verifyDirectory, waitForResult, workerAlive, workerIdentity, type ClipState, type WorkerIdentity } from "./clip-runtime";
 
 type Request = { out?: string; cancel?: boolean };
 type Result = { error?: string; cleanupError?: boolean; out?: string; width?: number; height?: number; label?: string };
@@ -77,7 +77,7 @@ async function main() {
   process.on("SIGINT", interrupted); process.on("SIGTERM", interrupted); process.on("SIGHUP", interrupted);
   async function finish(request: Request) {
     await save(join(directory, "request.json"), request);
-    await until(async () => Bun.file(join(directory, "result.json")).exists(), 600000);
+    await waitForResult(directory, args.session);
     const result = await load<Result>(join(directory, "result.json"));
     if (result.cleanupError) { owned = false; throw new Error(`${result.error}\nCleanup remains pending. Run: bun run clip cleanup --session ${args.session}`); }
     await removeSession(directory);
@@ -106,7 +106,7 @@ async function main() {
         }
         if (child.exitCode !== null || child.signalCode !== null) throw new Error("Clip worker exited before recording; inspect its private worker.log");
         return Bun.file(join(directory, "ready.json")).exists();
-      }, args.remote ? 240000 : 120000);
+      }, args.remote ? remoteStartTimeout : 120000);
       const ready = await load<ClipState>(join(directory, "state.json"));
       console.log(`Started ${args.session}${ready.remote ? " (remote)" : ""}`);
       if (!ready.remote) console.log(`Preview: ${previewLabel(ready)}`);

@@ -58,8 +58,11 @@ export function assertFixtureNavigation(state, args) {
   if (state.target !== "android" || state.emulator) return;
   if (args[0] === "connect") throw new Error("Physical Android recordings cannot change the CDP connection");
   if (["tab", "batch", "run", "addscript", "addinitscript", "removeinitscript", "set", "cookies", "storage", "state"].includes(args[0]) || args.includes("--new-tab")) throw new Error("Physical Android recordings drive only their own pinned fixture tab");
-  const url = args[0] === "open" ? args[1] : undefined;
-  if (args[0] === "open" && (!url || new URL(url, state.url).origin !== new URL(state.url).origin)) throw new Error("Physical Android recordings allow only the session's fixture origin");
+  if (["open", "goto", "navigate"].includes(args[0])) {
+    const url = args[1];
+    const target = url && (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(url) || /^(about|data|file):/.test(url) ? url : `https://${url}`);
+    if (!target || new URL(target).origin !== new URL(state.url).origin) throw new Error("Physical Android recordings allow only the session's fixture origin");
+  }
 }
 
 export function assertFixtureTargets(targets, url, preexisting = [], ownTarget, foregroundTarget = ownTarget) {

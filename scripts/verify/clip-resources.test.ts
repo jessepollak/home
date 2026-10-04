@@ -5,8 +5,8 @@ import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { localTarget } from "./clip-targets";
-import { remoteCommand, remoteTarget, sshArgs } from "./clip-remote";
-import { CommandError, load, privateDirectory, removeSession, save, sessionDirectory, workerAlive, workerIdentity, type ClipState } from "./clip-runtime";
+import { remoteCommand, remoteStartTimeout, remoteTarget, remoteTimeouts, sshArgs } from "./clip-remote";
+import { CommandError, commandTerminationGrace, load, privateDirectory, removeSession, save, sessionDirectory, waitForResult, workerAlive, workerIdentity, type ClipState } from "./clip-runtime";
 
 const stateFor = (target: ClipState["target"] = "android"): ClipState => ({ session: "resource-test", target, viewport: { width: 390, height: 844 }, raw: "/tmp/raw.mp4", url: "http://127.0.0.1:3199/home", createdAt: 1000, maxAge: 600, workerNonce: "resource-nonce" });
 const immediate = async (check: () => Promise<boolean>) => { if (!await check()) throw new Error("stubbed timeout"); };
@@ -122,6 +122,7 @@ function androidStart(options: { discoveryAlias?: boolean; transition?: string; 
       if (command.includes("ro.product.model")) return "Pixel";
       if (command.includes("ro.kernel.qemu")) return "0";
       if (command.includes("dumpsys package")) return "versionName=123";
+      if (command.endsWith("forward --list")) return "device-test tcp:9222 localabstract:chrome_devtools_remote";
       if (command.includes("settings get global zen_mode")) return calls.findLast((call) => call.includes("set_dnd"))?.includes("none") ? "2" : "1";
       if (command.endsWith("cat /data/local/tmp/home-clip-resource-test.pid")) return "123";
       if (command.endsWith("cat /proc/123/cmdline")) return recorderCommand;
@@ -214,9 +215,35 @@ test("Android recovery closes only its persisted owned tab before removing CDP f
     acquireDeviceLock: async () => async () => { calls.push("release"); },
     connectCdp: async () => ({ command: async (method: string, params: { targetId?: string } = {}) => { calls.push(`${method} ${params.targetId ?? ""}`.trim()); return method === "Target.getTargets" ? { targetInfos: [{ targetId: "owned" }, { targetId: "old" }] } : {}; }, close() {} }) as never,
     browser: async () => { calls.push("disconnect"); return ""; },
-    run: async () => { calls.push("device files"); return ""; },
+    run: async (_file, args) => { if (args.includes("--list")) return "device-test tcp:9222 localabstract:chrome_devtools_remote"; calls.push("device files"); return ""; },
   }).cleanup();
   expect(calls).toEqual(["Target.getTargets", "Target.closeTarget owned", "disconnect", "device files", "release"]);
+});
+
+test("Android cleanup retries complete when forwarding or Chrome is gone without swallowing protocol errors", async () => {
+  for (const failure of [undefined, Object.assign(new Error("refused"), { code: "ECONNREFUSED" }), Object.assign(new Error("refused"), { code: "ConnectionRefused" }), new Error("fetch failed", { cause: Object.assign(new Error("refused"), { code: "ECONNREFUSED" }) }), new Error("protocol failure")]) {
+    const state = { ...stateFor(), serial: "device-test", ownTarget: "owned", cdpPort: 9222, forwardCreated: true, browserAttached: true, previousDnd: "1" };
+    let mapped = failure !== undefined, connections = 0, restores = 0, releases = 0;
+    const target = localTarget(state, "/private-state", true, {
+      readFile: (async () => "") as typeof import("node:fs/promises").readFile,
+      acquireDeviceLock: async () => async () => { releases++; },
+      connectCdp: async () => { connections++; throw failure; },
+      browser: async () => "",
+      run: async (_file, args) => {
+        const command = args.slice(2).join(" ");
+        if (command === "forward --list") return mapped ? "device-test tcp:9222 localabstract:chrome_devtools_remote" : "";
+        if (command === "forward --remove tcp:9222") mapped = false;
+        if (command === "shell cmd notification set_dnd priority") restores++;
+        return command === "shell settings get global zen_mode" ? "1" : "";
+      },
+    });
+    if (failure?.message === "protocol failure") await expect(target.cleanup()).rejects.toThrow("protocol failure");
+    else await target.cleanup();
+    expect(mapped).toBe(false);
+    await target.cleanup();
+    expect(connections).toBe(failure ? 1 : 0);
+    expect(restores).toBe(2); expect(releases).toBe(2);
+  }
 });
 
 test("remote recovery cleans the remote recorder, then output, then its tunnel", async () => {
@@ -279,6 +306,27 @@ test("remote startup propagates emulator state and watches tunnel exit after rea
   }
 });
 
+test("remote status retries one transient SSH failure or non-JSON response, but not a recorder error", async () => {
+  for (const failure of [new CommandError("ssh failed", 255), "login banner"]) {
+    let attempts = 0;
+    const target = remoteTarget({ ...stateFor(), remoteDir: "~/runner", remoteHost: "runner-test", socket: "/private-state/s" }, "/private-state", {
+      run: async () => { attempts++; if (attempts === 1) { if (failure instanceof Error) throw failure; return failure; } return "{}"; },
+    });
+    await target.monitor(true); expect(attempts).toBe(2);
+  }
+  for (const response of ["banner", JSON.stringify({ error: "recorder ended" })]) {
+    let attempts = 0;
+    const target = remoteTarget({ ...stateFor(), remoteDir: "~/runner", remoteHost: "runner-test", socket: "/private-state/s" }, "/private-state", { run: async () => { attempts++; return response; } });
+    await expect(target.monitor(true)).rejects.toThrow();
+    expect(attempts).toBe(response === "banner" ? 2 : 1);
+  }
+});
+
+test("remote start budget covers component timeouts, a status retry and process termination grace", () => {
+  const components = Object.values(remoteTimeouts).reduce((sum, timeout) => sum + timeout, 0);
+  expect(remoteStartTimeout).toBeGreaterThan(components + remoteTimeouts.status + 4 * commandTerminationGrace);
+});
+
 test("remote shell quoting preserves metacharacters in checkout paths and browser arguments", async () => {
   const home = await mkdtemp(join(tmpdir(), "clip-quote-"));
   try {
@@ -292,6 +340,19 @@ test("remote shell quoting preserves metacharacters in checkout paths and browse
     }
     expect(sshArgs({ ...stateFor(), socket: "/tmp/path ' ;$x", remoteHost: "runner-test" }, "echo '$x' ; false")).toEqual(["-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ConnectTimeout=30", "-S", "/tmp/path ' ;$x", "runner-test", "echo '$x' ; false"]);
   } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+test("remote PATH includes Homebrew only when its bin directory exists", async () => {
+  const root = await mkdtemp(join(tmpdir(), "clip-path-"));
+  try {
+    const bin = join(root, "bin"); await mkdir(bin);
+    for (const directory of [bin, join(root, "missing")]) {
+      const command = remoteCommand({ ...stateFor(), remoteDir: "/" }, []).replaceAll("/opt/homebrew/bin", directory).replace(/bun run --silent clip $/, "printf '%s' \"$PATH\"");
+      const result = spawnSync("/bin/sh", ["-c", command], { env: { HOME: "/tmp/clip-home", PATH: "/usr/bin:/bin" }, encoding: "utf8" });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe(`/tmp/clip-home/.bun/bin:${directory === bin ? `${bin}:` : ""}/usr/bin:/bin`);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("session reads reject unsafe directories and cleanup removes an empty owned directory", async () => {
@@ -311,4 +372,17 @@ test("worker identity rejects a matching pid with the wrong nonce or start time"
   const identity = await workerIdentity(process.pid, "not-in-command-line");
   expect(await workerAlive(identity)).toBe(false);
   expect(await workerAlive({ ...identity, started: "different start" })).toBe(false);
+});
+
+test("result waiting detects a dead worker immediately and accepts a result written during its exit", async () => {
+  let aliveChecks = 0;
+  await expect(waitForResult("/private-state", "resource-test", { exists: async () => false, load: async () => undefined as never, workerAlive: async () => { aliveChecks++; return false; }, until: immediate })).rejects.toThrow("Clip worker is no longer running");
+  expect(aliveChecks).toBe(1);
+  let existsChecks = 0;
+  await waitForResult("/private-state", "resource-test", { exists: async () => ++existsChecks > 1, load: async () => undefined as never, workerAlive: async () => false, until: immediate });
+  await waitForResult("/private-state", "resource-test", { exists: async () => true, workerAlive: async () => { throw new Error("should not check an already completed worker"); }, until: immediate });
+});
+
+test("iOS stub reports the tracked Simulator limitation", async () => {
+  await expect(localTarget(stateFor("ios"), "/private-state").start()).rejects.toThrow("iOS Simulator clips are not supported yet; see https://github.com/jessepollak/home/issues/1927");
 });
