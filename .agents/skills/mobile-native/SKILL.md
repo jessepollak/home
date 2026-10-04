@@ -5,7 +5,7 @@ license: MIT
 metadata:
   source: https://github.com/emilkowalski/skills/tree/85e8e2363b713506e1d5b6e07a0eb2da66be1bc3/skills/mobile-native
   adapted-for: jessepollak/home
-  adaptation: Home mobile-web scope, existing Playwright, and device checks
+  adaptation: Home mobile-web scope, existing Playwright, device checks, and a condensed symptom reference
 ---
 
 # Mobile-native Home UI
@@ -24,7 +24,7 @@ Apply the smallest platform-correct change to the named mobile-web surface. Home
 ## Review sequence
 
 1. Use the Home browser-iteration skill and repository-pinned `agent-browser` to trace the interaction at a narrow viewport, including focus, software keyboard, scrolling, back navigation, and final state.
-2. Inspect the viewport export and global styles before proposing local work.
+2. Inspect the `viewport` export in `apps/web/app/layout.tsx` (if any) and `apps/web/app/globals.css` before proposing local work.
 3. Check each applicable platform contract:
    - edge-to-edge content pairs `viewport-fit=cover` with safe-area padding on fixed chrome;
    - app-height surfaces use dynamic viewport units; stable first-screen marketing uses small viewport units;
@@ -37,6 +37,33 @@ Apply the smallest platform-correct change to the named mobile-web surface. Home
    - fixed bottom UI and dialogs remain reachable with safe areas and the software keyboard.
 4. Verify URL-addressable shell and browser-back behavior from `docs/architecture.md`; do not replace native history with local-only state.
 5. Check existing tests and issues before asking for new work.
+
+## Reference
+
+Match the observed symptom, confirm the cause in code, and apply the fix only where its reason applies.
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Hover state sticks after a tap | Touch fakes `:hover` until the next tap elsewhere | Gate hover styles behind `@media (hover: hover) and (pointer: fine)`; give touch an `:active` state instead |
+| Gray or blue flash on tap | Mobile browsers paint a tap highlight on clickable elements | `-webkit-tap-highlight-color: transparent` once on `html`, then confirm every tappable control has its own `:active` state |
+| Bottom-pinned UI sits under the URL bar | `100vh` is the largest viewport, with browser chrome collapsed | `100dvh` for app shells, drawers and pinned UI; `100svh` for stable first screens |
+| Page zooms into a focused input and stays zoomed | iOS zooms inputs under 16px | 16px minimum where `(pointer: coarse)` applies; never `maximum-scale` or `user-scalable=no` |
+| Wrong keyboard or return key | Missing input hints | `inputmode="decimal"` for amounts, `inputmode="numeric"` for codes, `enterkeyhint`, and `autocapitalize="none"`/`autocorrect="off"` on codes and addresses |
+| Taps feel late | Double-tap-zoom delay, or feedback only on `click` | `touch-action: manipulation` on controls; press feedback on `:active` or `pointerdown` at 100–160ms ease-out using existing motion tokens |
+| Scrolling a sheet or list moves the page behind it | Scroll chains to the document at the container's edge | `overscroll-behavior: contain` on the inner scroller; never a `touchmove` + `preventDefault()` listener |
+| Content under the notch or home indicator, or insets read as zero | `env(safe-area-inset-*)` is `0` without `viewport-fit=cover` | Add `viewportFit: "cover"` to the Next.js `viewport` export in `apps/web/app/layout.tsx` (create it if absent), then pad fixed chrome with `env(safe-area-inset-*, 0px)` |
+| Long-press selects a control's label or opens a callout | Control text is selectable | `user-select: none` and `-webkit-touch-callout: none` on controls only; addresses, amounts, errors and links that are content stay selectable |
+| Swipe carousel jitters the page vertically | The browser cannot tell which axis the element owns | `touch-action` names what the browser keeps: `pan-y` on a horizontal gesture, `none` only where the element owns every axis; prefer native `scroll-snap` over a custom gesture |
+| Keyboard covers a bottom-pinned input on Android | Android Chrome resizes only the visual viewport by default | `interactiveWidget: "resizes-content"` in the same `viewport` export, verified with the keyboard open |
+| Text grows in landscape | Mobile font inflation | `-webkit-text-size-adjust: 100%` on `html` |
+| Status bar color mismatches the theme | One static `theme-color` | Home updates the tag on theme change in `apps/web/client/appearance/`; change `appearanceThemeColors`, not the meta tag |
+
+Home-specific cautions:
+
+- Home owns pull-to-refresh (`apps/web/components/ui/pull-to-refresh.tsx`). Do not add `overscroll-behavior: none` to `html` or `body` without proving that surface still works.
+- Do not apply `user-select: none` to every link or to `body`; scope it to controls.
+
+Never ship: disabled zoom, ungated `:hover`, `100vh` on app height, `touchmove` + `preventDefault()` to stop overscroll, `touch-action: none` on content the user must scroll past, safe-area insets without `viewport-fit=cover`, user-agent touch detection, or a mobile fix declared done from emulation alone.
 
 ## Proof
 
