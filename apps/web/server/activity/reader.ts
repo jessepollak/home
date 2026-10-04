@@ -224,6 +224,7 @@ export const getRecentBaseActivity: ActivityReader = async (
           auth: createCdpSqlAuthFromEnv(),
           timeoutMs: 20_000,
         }),
+        sqlBudgetMs: 20_000,
       });
   return createActivityReader((input) => history.listTransfers(input))(
     account,
