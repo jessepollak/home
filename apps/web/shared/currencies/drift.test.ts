@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { getAddress } from "viem";
 import { CURRENCY_REGISTRY } from "./registry";
-import { CONVERT_PAIRS } from "./convert";
+import { CONVERT_PAIRS, resolveConvertPair } from "./convert";
+import { cashConversionInventory, cashConversionTrade, cashConversionDestinations } from "@/shared/trading/cash-conversion";
 import { currencyRegistryDrift } from "./drift";
 import { CONVERT_PROVIDER, type ConvertPairRecord, type CurrencyRepresentation } from "./types";
 
@@ -29,6 +30,27 @@ const codes = (records: readonly CurrencyRepresentation[], pairs: readonly Conve
 describe("currency registry drift", () => {
   test("the actual registry has no findings", () => {
     expect(currencyRegistryDrift({ records: CURRENCY_REGISTRY, pairs: CONVERT_PAIRS })).toEqual([]);
+  });
+  test("admits exactly the verified USD local topology with exact execution identities", () => {
+    const inventory = cashConversionInventory();
+    const locals = [
+      ["ARS", "base:wars", "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d"],
+      ["BRL", "base:wbrl", "0xd76f5faf6888e24d9f04bf92a0c8b921fe4390e0"],
+      ["COP", "base:wcop", "0x8a1d45e102e886510e891d2ec656a708991e2d76"],
+    ] as const;
+    expect(CONVERT_PAIRS).toHaveLength(10);
+    expect(CONVERT_PAIRS.every((entry) => entry.from === "base:usdc" || entry.to === "base:usdc")).toBe(true);
+    for (const [currency, id, address] of locals) {
+      expect(inventory.find((entry) => entry.code === currency)).toMatchObject({ convertOffered: true, address, decimals: 18, tradeAssetId: `base:${address}` });
+      expect(requiredRecord(id)).toMatchObject({ chainId: 8453, contractAddress: currency === "BRL" ? getAddress(address) : address, decimals: 18 });
+      expect(cashConversionTrade("USD", currency)).toEqual({ assetId: `base:${address}`, direction: "buy" });
+      expect(cashConversionTrade(currency, "USD")).toEqual({ assetId: `base:${address}`, direction: "sell" });
+      expect(cashConversionDestinations(currency).map((entry) => entry.code)).toEqual(["USD"]);
+      for (const endpoints of [{ from: "base:usdc", to: id }, { from: id, to: "base:usdc" }]) {
+        expect(resolveConvertPair({ ...endpoints, now: new Date("2026-10-04T12:00:00Z") }).status).toBe("eligible");
+      }
+      for (const [other] of locals) if (other !== currency) expect(cashConversionTrade(currency, other)).toBeNull();
+    }
   });
   test("reports silent funding omissions", () => {
     expect(codes(CURRENCY_REGISTRY.filter((record) => record !== wars))).toEqual(["missing-funding-record"]);

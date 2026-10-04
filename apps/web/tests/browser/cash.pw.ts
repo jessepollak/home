@@ -1,6 +1,6 @@
 import { expect, test, type Route } from "@playwright/test";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
-import { sessionBody } from "./fixtures/bodies";
+import { sessionBody, tradeAvailabilityBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
 import { expectNavigation } from "./fixtures/navigation-budget";
 import { buildBalancesSnapshotFixture, ready, priced, pricedCash, requiredLocalCashAsset } from "../../shared/balances/fixtures";
@@ -342,7 +342,7 @@ test("legacy Save redirects to Savings with the Deposit sheet and refresh preser
 });
 
 for (const width of [390, 1280]) {
-  test(`Cash lists six currencies and guards unavailable Convert destinations at ${width}px`, async ({ page }) => {
+  test(`Cash lists six currencies and enables verified Convert destinations at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });
     await seedSignedInSession(page);
     await installApiFixtures(page, { balances: buildBalancesSnapshotFixture({ registry: {
@@ -353,15 +353,9 @@ for (const width of [390, 1280]) {
       [requiredLocalCashAsset("BRL").id]: { balance: ready("23450000000000000000"), value: priced("USD", "5000"), cashValue: pricedCash("BRL", "2345") },
       [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
     } }) });
-    const unavailableIds = new Set(cashConversionCurrencies.filter((currency) => !currency.convertOffered).map((currency) => currency.tradeAssetId));
-    const tradeRequests: string[] = [];
-    page.on("request", (request) => {
-      const url = new URL(request.url());
-      if (url.pathname === "/api/trades") tradeRequests.push(url.searchParams.get("assetId") ?? "");
-      if (url.pathname === "/api/actions/prepare" && request.method() === "POST") {
-        const body = request.postDataJSON() as { kind?: string; params?: { assetId?: string } };
-        if (body.kind === "trade") tradeRequests.push(body.params?.assetId ?? "");
-      }
+    await page.route("**/api/trades?*", (route) => {
+      const assetId = new URL(route.request().url()).searchParams.get("assetId");
+      return assetId ? json(route, tradeAvailabilityBody(assetId)) : route.fallback();
     });
     await page.goto("/home");
     await page.getByRole("region", { name: "Your money" }).getByRole("button", { name: /^Cash/ }).click();
@@ -373,28 +367,26 @@ for (const width of [390, 1280]) {
     await page.getByRole("region", { name: "Cash", exact: true }).getByRole("button", { name: "Convert" }).click();
     const picker = page.getByRole("dialog", { name: "Convert to" });
     await expect(picker.getByRole("listitem")).toHaveCount(5);
-    for (const name of ["Euro", "Rupiah", "Argentine peso", "Brazilian real", "Colombian peso"]) await expect(picker.getByText(name)).toBeVisible();
+    for (const name of ["Euro", "Rupiah", "Argentine peso", "Brazilian real", "Colombian peso"]) await expect(picker.getByText(name, { exact: true })).toBeVisible();
     await expect(picker.getByText("US dollar")).toHaveCount(0);
     await picker.getByRole("textbox", { name: "Search currencies" }).fill("wbrl");
     await expect(picker.getByRole("listitem")).toHaveCount(1);
-    await expect(picker.getByText("Brazilian real")).toBeVisible();
+    await expect(picker.getByText("Brazilian real", { exact: true })).toBeVisible();
     await picker.getByRole("button", { name: "Clear search" }).click();
     await expect(picker.getByRole("listitem")).toHaveCount(5);
     for (const name of ["Argentine peso", "Brazilian real", "Colombian peso"]) {
-      const row = picker.getByText(name).locator("xpath=ancestor::li");
-      await expect(row).toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
-      await expect(row.getByRole("button")).toHaveCount(0);
+      const row = picker.getByText(name, { exact: true }).locator("xpath=ancestor::li");
+      await expect(row).not.toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
+      await expect(row.getByRole("button")).toBeEnabled();
     }
-    await picker.getByText("Argentine peso").click();
-    await expect(picker).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Amount" })).toHaveCount(0);
-    await picker.getByRole("button", { name: "Close conversion" }).click();
+    await picker.getByRole("button", { name: /^Argentine peso/ }).click();
+    await expect(page.getByRole("textbox", { name: "Amount" })).toBeVisible();
+    await page.getByRole("button", { name: "Close conversion" }).click();
     await currencies.getByRole("button", { name: /^Argentine peso/ }).click();
     const detail = page.getByRole("dialog", { name: "Argentine peso" });
     await expect(detail).toContainText("$123.45");
-    await expect(detail).toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
-    await expect(detail.getByRole("button", { name: "Convert" })).toHaveCount(0);
-    expect(tradeRequests.filter((id) => unavailableIds.has(id))).toEqual([]);
+    await expect(detail).not.toContainText(CASH_CONVERSION_UNAVAILABLE_REASON);
+    await expect(detail.getByRole("button", { name: "Convert" })).toBeEnabled();
   });
   test(`Cash Convert opens EUR review and EUR row detail in one sheet at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 });

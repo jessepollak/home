@@ -124,8 +124,8 @@ describe("trade confirmation", () => {
     ["sell", "base:eurc", "pair-paused"],
     ["buy", "base:eurc", "pair-withdrawn"],
     ["sell", "base:eurc", "pair-withdrawn"],
-    ["buy", "base:wars", null],
-    ["sell", "base:wars", null],
+    ["buy", "base:wars", "pair-missing"],
+    ["sell", "base:wars", "pair-missing"],
   ] as const)("rejects a registry currency %s for %s with %s before confirming", async (direction, recordId, reason) => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
     const record = CURRENCY_REGISTRY.find((entry) => entry.id === recordId);

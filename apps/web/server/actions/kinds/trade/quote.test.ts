@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { encodeAbiParameters, encodeFunctionData, hashTypedData, keccak256, parseAbi, parseAbiParameters, stringToHex, toFunctionSelector, type AbiParameter } from "viem";
+import { encodeAbiParameters, encodeFunctionData, hashTypedData, isHex, keccak256, parseAbi, parseAbiParameters, stringToHex, toFunctionSelector, type AbiParameter } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
+import { isRecord } from "@/shared/guards";
 import type { Address, Hex } from "@/shared/trading/server-types";
 import type { SwapQuote } from "./cdp-swaps";
 import { PERMIT2_ADDRESS, TradePreparationError } from "./permit2";
@@ -473,12 +474,12 @@ describe("swap quote review", () => {
       actionsVerified: false, inputSpend: null,
     });
   });
-  test("keeps unknown selectors outer-compatible but unverified", () => {
+  test("accepts unknown swap actions bounded by the exact Permit2 input", () => {
     const quote = fixture();
     quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), "0xaabbccdd"] });
     quote.fees.protocolFee = null;
-    expect(swapExecutionMatches(request, quote, TARGET)).toEqual({ targetMatchesRouter: true, calldataMatches: true, actionSelectors: ["0xc1fb425e", "0xaabbccdd"], actionsVerified: false, inputSpend: null });
-    expect(() => validate(quote)).toThrow("unverified-actions");
+    expect(swapExecutionMatches(request, quote, TARGET)).toEqual({ targetMatchesRouter: true, calldataMatches: true, actionSelectors: ["0xc1fb425e", "0xaabbccdd"], actionsVerified: true, inputSpend: "unmodeled" });
+    expect(validate(quote).swapCall.data).toBe(quote.transaction.data);
   });
   function setWord(data: Hex, byteOffset: number, value: bigint): Hex {
     const start = 2 + byteOffset * 2;
@@ -510,6 +511,78 @@ describe("swap quote review", () => {
     change(quote);
     expect(swapExecutionMatches(request, quote, TARGET)).toMatchObject({ calldataMatches: false, actionSelectors: null, actionsVerified: false });
     expect(() => validate(quote)).toThrow("quote-rejected");
+  });
+  function changeUnknownPermit(quote: FullQuote, field: string, value: string) {
+    const typed = quote.permit2?.eip712;
+    if (!isRecord(typed) || !isRecord(typed.message) || !isRecord(typed.message.permitted)) throw new Error("Invalid test permit");
+    typed.message.permitted[field] = value;
+  }
+  function unknownQuote() {
+    const quote = fixture();
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), "0xaf72634f"] });
+    quote.fees.protocolFee = null;
+    return quote;
+  }
+  test.each([
+    ["recipient", (q: FullQuote) => { q.transaction.data = setWord(q.transaction.data, 4, BigInt(POOL)); }],
+    ["buy token", (q: FullQuote) => { q.transaction.data = setWord(q.transaction.data, 36, BigInt(POOL)); }],
+    ["minimum", (q: FullQuote) => { q.transaction.data = setWord(q.transaction.data, 68, BigInt(0)); }],
+    ["different minimum", (q: FullQuote) => { q.transaction.data = setWord(q.transaction.data, 68, BigInt(989)); }],
+    ["router", (q: FullQuote) => { q.transaction.to = POOL; }],
+    ["gas", (q: FullQuote) => { q.transaction.gas = BigInt(3_000_001); }],
+    ["permit token", (q: FullQuote) => { changeUnknownPermit(q, "token", POOL); }],
+    ["permit amount", (q: FullQuote) => { changeUnknownPermit(q, "amount", "1000001"); }],
+    ["known rejected action", (q: FullQuote) => { q.transaction.data = settlerData(q.toToken, { actions: [transfer(request), "0xaf72634f", v3(request, TAKER)] }); }],
+    ["forbidden BASIC call", (q: FullQuote) => { q.transaction.data = settlerData(q.toToken, { actions: [transfer(request), "0xaf72634f", action("0x38c9c147", basicAbi, [q.fromToken, BigInt(1_000_000), POOL, BigInt(36), `0x095ea7b3${addressWord(POOL)}${word(123)}`])] }); }],
+  ] as const)("unknown actions cannot bypass %s", (_label, change) => {
+    const quote = unknownQuote();
+    change(quote);
+    expect(() => validate(quote)).toThrow();
+  });
+  function vip(input: SwapReviewRequest, minBuyAmount = BigInt(0)) {
+    const fills: Hex = `0x${"12".repeat(73)}`;
+    const abi = parseAbiParameters("address recipient, ((address token,uint256 amount) permitted,uint256 nonce,uint256 deadline) permit, bool feeOnTransfer, uint256 hashMul, uint256 hashMod, bytes fills, bytes sig, uint256 amountOutMin");
+    const encoded = action("0x931997d3", abi, [TARGET, { permitted: { token: swapTokens(input.direction, TOKEN).fromToken, amount: input.fromAmount }, nonce: BigInt(4), deadline: BigInt(Math.floor(NOW.getTime() / 1000) + 900) }, false, BigInt(2), BigInt(3), fills, "0x", minBuyAmount]);
+    const unsigned = encoded.slice(0, -64);
+    if (!isHex(unsigned)) throw new Error("Invalid test VIP");
+    return unsigned;
+  }
+  test("decodes sell UNISWAPV4_VIP with the existing execute header and rewrites its inner minimum", () => {
+    const input: SwapReviewRequest = { ...request, direction: "sell" };
+    const quote = fixture(input);
+    quote.fees.protocolFee = null;
+    quote.transaction.data = settlerData(quote.toToken, { actions: [vip(input, BigInt(980))] });
+    expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({ calldataMatches: true, actionsVerified: true, inputSpend: "exact", actionSelectors: ["0x931997d3"] });
+    const reviewed = validate(quote, input);
+    expect(reviewed.swapCall.data).toBe(settlerData(quote.toToken, { actions: [vip(input)] }));
+    expect(reviewed.executionDeadline).toBe(BigInt(Math.floor(NOW.getTime() / 1000) + 900));
+  });
+  test("VIP sells retain the outer recipient, receive token and minimum binding", () => {
+    const input: SwapReviewRequest = { ...request, direction: "sell" };
+    for (const field of ["recipient", "buyToken", "minAmountOut"]) {
+      const quote = fixture(input);
+      quote.fees.protocolFee = null;
+      quote.transaction.data = settlerData(quote.toToken, { actions: [vip(input)],
+        ...(field === "recipient" ? { recipient: POOL } : field === "buyToken" ? { buyToken: POOL } : { minAmountOut: BigInt(0) }) });
+      expect(swapExecutionMatches(input, quote, TARGET)).toMatchObject({ calldataMatches: false, actionsVerified: false });
+      expect(() => validate(quote, input)).toThrow("quote-rejected");
+    }
+  });
+  test.each([4, 36, 68, 100, 132, 164, 260, 292, 324, 356, 483])("rejects invalid VIP field at byte %s", (offset) => {
+    const input: SwapReviewRequest = { ...request, direction: "sell" };
+    const quote = fixture(input);
+    quote.fees.protocolFee = null;
+    const first = vip(input);
+    const mutated = offset === 483 ? setByte(first, offset, "01") : setWord(first, offset, BigInt(1_000_001));
+    quote.transaction.data = settlerData(quote.toToken, { actions: [mutated] });
+    expect(() => validate(quote, input)).toThrow();
+  });
+  test("unknown actions do not skip RFQ maker deadlines or authorizations", () => {
+    const quote = unknownQuote();
+    const rfq = rfqLeg(quote, request.fromAmount, BigInt(5), BigInt(500));
+    quote.transaction.data = settlerData(quote.toToken, { actions: [transfer(request), "0xaf72634f", rfq] });
+    expect(validate(quote).executionDeadline).toBe(BigInt(Math.floor(NOW.getTime() / 1000) + 300));
+    expect(rfqMakerAuthorizations(request, quote, TARGET)).toHaveLength(1);
   });
   const actionRejections: Array<[string, (quote: FullQuote) => void]> = [
     ["transfer token", (q) => { q.transaction.data = settlerData(q.toToken, { actions: [transfer(request, TARGET, q.toToken), v3(request)] }); q.fees.protocolFee = null; }],
