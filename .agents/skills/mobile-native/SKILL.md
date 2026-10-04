@@ -45,17 +45,17 @@ Match the observed symptom, confirm the cause in code, and apply the fix only wh
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Hover state sticks after a tap | Touch fakes `:hover` until the next tap elsewhere | Gate hover styles behind `@media (hover: hover) and (pointer: fine)`; give touch an `:active` state instead |
-| Gray or blue flash on tap | Mobile browsers paint a tap highlight on clickable elements | `-webkit-tap-highlight-color: transparent` once on `html`, then confirm every tappable control has its own `:active` state |
+| Gray or blue flash on tap | Mobile browsers paint a tap highlight on clickable elements | Tailwind v4 preflight already sets `-webkit-tap-highlight-color: transparent` on `html`; confirm every tappable control has its own `:active` state |
 | Bottom-pinned UI sits under the URL bar | `100vh` is the largest viewport, with browser chrome collapsed | `100dvh` for app shells, drawers and pinned UI; `100svh` for stable first screens |
 | Page zooms into a focused input and stays zoomed | iOS zooms inputs under 16px | 16px minimum where `(pointer: coarse)` applies; never `maximum-scale` or `user-scalable=no` |
 | Wrong keyboard or return key | Missing input hints | `inputmode="decimal"` for amounts, `inputmode="numeric"` for codes, `enterkeyhint`, and `autocapitalize="none"`/`autocorrect="off"` on codes and addresses |
-| Taps feel late | Double-tap-zoom delay, or feedback only on `click` | `touch-action: manipulation` on controls; press feedback on `:active` or `pointerdown` at 100–160ms ease-out using existing motion tokens |
+| Taps feel late | Double-tap-zoom delay, or feedback only on `click` | `touch-action: manipulation`, already on interactive elements in `apps/web/app/globals.css`; press feedback on `:active` or `pointerdown` at 100–160ms ease-out using existing motion tokens |
 | Scrolling a sheet or list moves the page behind it | Scroll chains to the document at the container's edge | `overscroll-behavior: contain` on the inner scroller; never a `touchmove` + `preventDefault()` listener |
 | Content under the notch or home indicator, or insets read as zero | `env(safe-area-inset-*)` is `0` without `viewport-fit=cover` | Add `viewportFit: "cover"` to the Next.js `viewport` export in `apps/web/app/layout.tsx` (create it if absent), then pad fixed chrome with `env(safe-area-inset-*, 0px)` |
 | Long-press selects a control's label or opens a callout | Control text is selectable | `user-select: none` and `-webkit-touch-callout: none` on controls only; addresses, amounts, errors and links that are content stay selectable |
 | Swipe carousel jitters the page vertically | The browser cannot tell which axis the element owns | `touch-action` names what the browser keeps: `pan-y` on a horizontal gesture, `none` only where the element owns every axis; prefer native `scroll-snap` over a custom gesture |
-| Keyboard covers a bottom-pinned input on Android | Android Chrome resizes only the visual viewport by default | `interactiveWidget: "resizes-content"` in the same `viewport` export, verified with the keyboard open |
-| Text grows in landscape | Mobile font inflation | `-webkit-text-size-adjust: 100%` on `html` |
+| Keyboard covers a bottom-pinned input on Android | Android Chrome resizes only the visual viewport by default | Home measures the keyboard as `innerHeight` minus the visual viewport (`apps/web/components/visual-viewport.ts`, used by the drawer and primary navigation); keep the default resize behavior unless that measurement changes in the same PR |
+| Text grows in landscape | Mobile font inflation | Tailwind v4 preflight already sets `-webkit-text-size-adjust: 100%`; do not override it |
 | Status bar color mismatches the theme | One static `theme-color` | Home updates the tag on theme change in `apps/web/client/appearance/`; change `appearanceThemeColors`, not the meta tag |
 
 Home-specific cautions:
