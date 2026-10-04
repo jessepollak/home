@@ -113,11 +113,11 @@ The bot-dedicated Home account is configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not
 
 ## PR evidence and media
 
-Lead the PR body with `## What changes` (at most 200 words), written for a reader who has not seen the issue or the diff. It is two bullets, `- **Before:** …` and `- **After:** …`, followed by a `| Who notices | Decide | Risk |` table with one row of answers, as in the template:
+Lead the PR body with `## What changes` (at most 200 words), written for a reader who has not seen the issue or the diff. It is one `| | Summary |` table with **Before**, **After**, **Who notices**, **Your call**, and **Risk** rows, as in the template:
 
 - **Before** and **After**: one to three plain sentences each describing behavior, naming the concrete thing that changes (screen, route, command, CI job, table). Non-user-facing changes say what a developer, CI run, or operator now sees differently; a pure refactor says behavior is unchanged and what got simpler.
 - **Who notices**: users, developers (name the command or job), operators, or nobody.
-- **Decide**: a choice made without Jesse that he might reverse, including issue deviations; otherwise "none". An unmet required verification rung, a skipped `## Real money` check, or a pending `## Operator action required` always appears here as "approve without …".
+- **Your call**: a choice made without Jesse that he might reverse, including issue deviations; otherwise "none". An unmet required verification rung, a skipped `## Real money` check, or a pending `## Operator action required` always appears here as "approve without …".
 - **Risk**: the single most likely way this goes wrong; otherwise "none". Known gaps and deferred follow-ups go to the area's debt issue, not a list here.
 
 Do not narrate mechanics visible in the diff, catalog edge cases, enumerate tests, or name review passes, heads, or rungs. Use only the template's `## ` sections; `## State transitions` is added only for a [lifecycle change](architecture.md#state-changes). Put durable rationale in commits, docs, or the issue. Rewrite the body for the current head on every push; never append history such as rebases, earlier-head runs, or thread IDs.

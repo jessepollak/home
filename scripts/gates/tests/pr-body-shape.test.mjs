@@ -5,20 +5,13 @@ import test from "node:test";
 import { prBodyShapeFindings } from "../pr-body-shape.mjs";
 
 const title = "feat(home): change behavior";
-const bulletLabels = ["Before", "After"];
-const labels = [...bulletLabels, "Who notices", "Decide", "Risk"];
-const tableLabels = labels.slice(2);
-const lineFor = (label, value = "none") => `- **${label}:** ${value}`;
-const makeSection = (values = {}) => {
-  const value = (label) => values[label] ?? "none";
-  return `${lineFor("Before", value("Before"))}\n${lineFor("After", value("After"))}\n\n| Who notices | Decide | Risk |\n| --- | --- | --- |\n| ${tableLabels.map(value).join(" | ")} |`;
-};
+const labels = ["Before", "After", "Who notices", "Your call", "Risk"];
+const rowFor = (label, value = "none") => `| **${label}** | ${value} |`;
+const makeSection = (values = {}, omit = []) => `| | Summary |\n| --- | --- |\n${labels.filter((label) => !omit.includes(label)).map((label) => rowFor(label, values[label] ?? "none")).join("\n")}`;
 const section = makeSection();
 const body = `## What changes\n${section}`;
-const findingFor = (label) => bulletLabels.includes(label)
-  ? `## What changes needs a \`- **${label}:** …\` bullet with text that is not a template placeholder.`
-  : `## What changes needs a ${label} answer in the table that is not a template placeholder.`;
-const missingTable = "## What changes needs a `| Who notices | Decide | Risk |` table with one row of answers.";
+const findingFor = (label) => `## What changes needs a \`| **${label}** | … |\` row with text that is not a template placeholder.`;
+const missingTable = "## What changes needs a `| | Summary |` table with Before, After, Who notices, Your call, and Risk rows.";
 
 for (const type of ["product", "design", "feat", "fix", "test", "ops", "dx", "docs", "chore"]) {
   for (const scope of ["", "(home)"]) {
@@ -78,25 +71,16 @@ test("recognizes Markdown heading indentation, tabs, trailing whitespace and clo
   assert.deepEqual(prBodyShapeFindings(title, `${body}\n## `), ["Disallowed level-two heading: (empty)."]);
 });
 
-for (const label of bulletLabels) {
-  for (const [name, replacement] of [
-    ["missing", ""],
-    ["empty", lineFor(label, " \t ")],
-    ["comment-only", lineFor(label, "<!-- none -->")],
-    ["fenced", `~~~\n${lineFor(label)}\n~~~`],
-    ["prose-prefixed", `Answer: ${lineFor(label)}`],
-    ["old bold-line", `**${label}:** none`],
+for (const label of labels) {
+  for (const [name, value] of [
+    ["missing", `## What changes\n${makeSection({}, [label])}`],
+    ["empty", `## What changes\n${makeSection({ [label]: " \t " })}`],
+    ["comment-only", `## What changes\n${makeSection({ [label]: "<!-- none -->" })}`],
+    ["old bold-line", `## What changes\n${makeSection({}, [label])}\n\n**${label}:** none`],
+    ["bullet", `## What changes\n${makeSection({}, [label])}\n\n- **${label}:** none`],
   ]) {
-    test(`rejects a ${name} ${label} line`, () => {
-      assert.deepEqual(prBodyShapeFindings(title, body.replace(lineFor(label), replacement)), [findingFor(label)]);
-    });
-  }
-}
-
-for (const label of tableLabels) {
-  for (const [name, value] of [["empty", " "], ["comment-only", "<!-- none -->"]]) {
-    test(`rejects a ${name} ${label} table answer`, () => {
-      assert.deepEqual(prBodyShapeFindings(title, `## What changes\n${makeSection({ [label]: value })}`), [findingFor(label)]);
+    test(`rejects a ${name} ${label} row`, () => {
+      assert.deepEqual(prBodyShapeFindings(title, value), [findingFor(label)]);
     });
   }
 }
@@ -106,28 +90,27 @@ test("rejects the template Who notices placeholder", () => {
   assert.deepEqual(prBodyShapeFindings(title, value), [findingFor("Who notices")]);
 });
 
-test("rejects a missing, reordered, or answerless Who notices / Decide / Risk table", () => {
-  const [bullets] = section.split("\n\n");
-  assert.deepEqual(prBodyShapeFindings(title, `## What changes\n${bullets}`), [missingTable]);
-  assert.deepEqual(prBodyShapeFindings(title, body.replace("| Who notices | Decide | Risk |", "| Risk | Decide | Who notices |")), [missingTable]);
-  assert.deepEqual(prBodyShapeFindings(title, body.replace(/\n\| none \| none \| none \|$/, "")), tableLabels.map(findingFor));
-  assert.deepEqual(prBodyShapeFindings(title, body.replace("| --- | --- | --- |\n", "")), tableLabels.map(findingFor));
-  assert.deepEqual(prBodyShapeFindings(title, body.replace("| none | none | none |", "| none | none |")), [findingFor("Risk")]);
+test("rejects a missing or malformed Summary table and rows after it ends", () => {
+  assert.deepEqual(prBodyShapeFindings(title, "## What changes\nprose only"), [missingTable]);
+  assert.deepEqual(prBodyShapeFindings(title, body.replace("| | Summary |", "| Field | Value |")), [missingTable]);
+  assert.deepEqual(prBodyShapeFindings(title, body.replace("| --- | --- |\n", "")), [missingTable]);
+  assert.deepEqual(prBodyShapeFindings(title, body.replace(rowFor("Before"), `${rowFor("Before")}\n`)), labels.slice(1).map(findingFor));
+  assert.deepEqual(prBodyShapeFindings(title, `## What changes\n${makeSection()}`.replace(/\n/g, "\r\n")), []);
 });
 
 for (const placeholder of ["What happens today, in plain words.", "What happens once this merges."]) {
   test(`rejects the template placeholder: ${placeholder}`, () => {
-    assert.deepEqual(prBodyShapeFindings(title, body.replace(lineFor("Before"), lineFor("Before", `${placeholder}  `))), [findingFor("Before")]);
+    assert.deepEqual(prBodyShapeFindings(title, `## What changes\n${makeSection({ Before: `${placeholder}  ` })}`), [findingFor("Before")]);
   });
 }
 
 test("required lines must be inside What changes, but deeper subsections do not end it", () => {
-  assert.deepEqual(prBodyShapeFindings(title, `## What changes\n## Preview\n${section}`), [...bulletLabels.map(findingFor), missingTable]);
+  assert.deepEqual(prBodyShapeFindings(title, `## What changes\n## Preview\n${section}`), [missingTable]);
   assert.deepEqual(prBodyShapeFindings(title, `## What changes\n### Details\n${section}`), []);
 });
 
 test("accepts 200 visible words and rejects 201, counting labels and prose but not table markup", () => {
-  const words = 11;
+  const words = 13;
   const atLimit = `${body}\n${Array(200 - words).fill("word").join(" ")}`;
   assert.deepEqual(prBodyShapeFindings(title, atLimit), []);
   assert.deepEqual(prBodyShapeFindings(title, `${atLimit} extra`), ["## What changes has 201 words; the limit is 200."]);
@@ -138,8 +121,8 @@ test("comments and fenced code cannot change the first heading, section boundary
   const hidden = `${Array(200).fill("hidden").join(" ")}\n## Failure modes`;
   const value = `<!-- ${hidden} -->\n\`\`\`md\n${hidden}\n\`\`\`\n${body}\n<!-- ${hidden} -->\n~~~md\n${hidden}\n~~~\n## Preview`;
   assert.deepEqual(prBodyShapeFindings(title, value.replace(/\n/g, "\r\n")), []);
-  const missingBefore = body.replace(lineFor("Before"), `<!-- ${lineFor("Before")} -->\n<!-- ## Preview -->`);
-  assert.deepEqual(prBodyShapeFindings(title, missingBefore), [findingFor("Before")]);
+  const commentedRisk = `## What changes\n${makeSection({}, ["Risk"])}\n<!-- ${rowFor("Risk")} -->`;
+  assert.deepEqual(prBodyShapeFindings(title, commentedRisk), [findingFor("Risk")]);
 });
 
 test("the real template fails only for placeholders and passes when they are filled in", () => {

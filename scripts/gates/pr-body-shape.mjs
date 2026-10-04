@@ -6,13 +6,10 @@ const factoryTitle = /^(?:product|design|feat|fix|test|ops|dx|docs|chore)(?:\([^
 const allowedHeadings = new Set([
   "What changes", "Preview", "Verification", "State transitions", "Test plan", "Review", "Real money", "Operator action required",
 ]);
-const bulletLabels = ["Before", "After"];
-const tableLabels = ["Who notices", "Decide", "Risk"];
-const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const bulletLine = (label) => new RegExp(`^[-*][ \\t]+\\*\\*${escape(label)}:\\*\\*(.*)$`);
-const tableHeader = /^\|?[ \t]*Who notices[ \t]*\|[ \t]*Decide[ \t]*\|[ \t]*Risk[ \t]*\|?[ \t]*$/;
-const tableCells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+const labels = ["Before", "After", "Who notices", "Your call", "Risk"];
+const tableHeader = /^\|[ \t]*\|[ \t]*Summary[ \t]*\|?[ \t]*$/;
 const tableSeparator = /^\|?[ \t:|-]+\|?[ \t]*$/;
+const tableRow = /^\|[ \t]*\*\*([^*|]+)\*\*[ \t]*\|(.*?)\|?[ \t]*$/;
 const placeholders = new Set([
   "What happens today, in plain words.",
   "What happens once this merges.",
@@ -34,27 +31,23 @@ export function prBodyShapeFindings(title, body) {
     if (section !== headings[0]) findings.push("## What changes must be the first level-two heading.");
     const next = headings.find((heading) => heading.index > section.index);
     const content = lines.slice(section.index + 1, next?.index ?? lines.length);
-    const prose = content.filter((line) => !tableSeparator.test(line)).join("\n").replace(/^[-*][ \t]+/gm, "").replace(/\|/g, " ");
+    const prose = content.filter((line) => !tableSeparator.test(line)).join("\n").replace(/\|/g, " ");
     const words = prose.match(/\S+/g)?.length ?? 0;
     if (words > 200) findings.push(`## What changes has ${words} words; the limit is 200.`);
-    const filled = (pattern) => content.some((line) => {
-      const value = pattern.exec(line)?.[1]?.trim();
-      return Boolean(value) && !placeholders.has(value);
-    });
-    for (const label of bulletLabels) {
-      if (!filled(bulletLine(label))) findings.push(`## What changes needs a \`- **${label}:** …\` bullet with text that is not a template placeholder.`);
-    }
     const header = content.findIndex((line) => tableHeader.test(line));
-    if (header === -1) {
-      findings.push("## What changes needs a `| Who notices | Decide | Risk |` table with one row of answers.");
+    if (header === -1 || !tableSeparator.test(content[header + 1] ?? "")) {
+      findings.push("## What changes needs a `| | Summary |` table with Before, After, Who notices, Your call, and Risk rows.");
     } else {
-      const cells = tableSeparator.test(content[header + 1] ?? "") && content[header + 2]?.trim().startsWith("|")
-        ? tableCells(content[header + 2])
-        : [];
-      tableLabels.forEach((label, index) => {
-        const value = cells[index];
-        if (!value || placeholders.has(value)) findings.push(`## What changes needs a ${label} answer in the table that is not a template placeholder.`);
-      });
+      const rows = new Map();
+      for (const line of content.slice(header + 2)) {
+        const match = tableRow.exec(line.trim());
+        if (!match) break;
+        rows.set(match[1].trim(), match[2].trim());
+      }
+      for (const label of labels) {
+        const value = rows.get(label);
+        if (!value || placeholders.has(value)) findings.push(`## What changes needs a \`| **${label}** | … |\` row with text that is not a template placeholder.`);
+      }
     }
   }
   for (const heading of headings) {
