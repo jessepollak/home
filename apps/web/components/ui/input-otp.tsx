@@ -38,7 +38,7 @@ function InputOTPSlot({ index, className, ...props }: React.ComponentProps<"div"
       data-active={isActive}
       aria-hidden="true"
       className={cn(
-        "relative flex h-11 min-w-0 flex-1 items-center justify-center rounded-lg border border-input bg-background text-center text-xl font-medium tabular-nums",
+        "relative flex aspect-square w-12 min-w-0 shrink items-center justify-center rounded-lg border border-input bg-background text-center text-xl font-medium tabular-nums",
         "data-[active=true]:z-10 data-[active=true]:border-ring data-[active=true]:ring-3 data-[active=true]:ring-ring/50",
         "group-has-[[aria-invalid=true]]/otp:border-destructive group-has-[[aria-invalid=true]]/otp:ring-3 group-has-[[aria-invalid=true]]/otp:ring-destructive/20",
         "dark:group-has-[[aria-invalid=true]]/otp:ring-destructive/40",
