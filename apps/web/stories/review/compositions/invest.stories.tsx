@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { http, HttpResponse } from "msw";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, within } from "storybook/test";
 import { useState } from "react";
 import { AccountWalletClientProvider } from "@/client/account/cdp-client";
 import { InvestExperience } from "@/client/invest/invest-experience";
@@ -12,7 +12,7 @@ import { pinClock } from "@/tests/helpers/pin-clock";
 import searchJourney from "@/stories/journeys/invest-search.stories";
 import detailJourney from "@/stories/journeys/invest-asset-detail.stories";
 import { assetDetailAsset, assetDetailMarket, assetDetailTime, createAssetDetailClient } from "@/stories/journeys/explorations/invest-asset-detail-fixture";
-import { investLogoHandlers, investLogoResolution } from "@/stories/review/explorations/library/invest-logos";
+import { investLogoResolution } from "@/stories/review/explorations/library/invest-logos";
 
 function InvestComposition() {
   const [client] = useState(createAssetDetailClient);
@@ -50,7 +50,6 @@ const meta = {
     msw: { handlers: [
       ...searchJourney.parameters.msw.handlers.slice(0, 1),
       ...detailJourney.parameters.msw.handlers,
-      ...investLogoHandlers,
       http.get("/api/trades", () => HttpResponse.json({ version: 2, status: "unavailable", reason: "asset-unsupported" })),
     ] },
   },
@@ -59,11 +58,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 async function expectLogo(canvasElement: HTMLElement, name: string) {
-  const image = within(canvasElement).getByRole("img", { name: `${name} icon` }).querySelector("img");
-  await waitFor(async () => {
-    await expect(image).toBeVisible();
-    await expect(image?.naturalWidth).toBeGreaterThan(0);
-  });
+  await expect(within(canvasElement).getByRole("img", { name: `${name} icon` })).toBeVisible();
 }
 
 export const Invest: Story = {

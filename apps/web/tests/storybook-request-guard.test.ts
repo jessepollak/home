@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isAssetImageRequest,
   isStorybookRuntimeRequest,
   isVercelToolbarRequest,
   rejectUnexpectedStoryRequest,
@@ -54,5 +55,15 @@ describe("Storybook unexpected-request guard", () => {
     expect(isVercelToolbarRequest(new Request(`${ORIGIN}/api/balances`), ORIGIN)).toBeFalse();
     expect(() => rejectUnexpectedStoryRequest(new Request("https://vercel.live/_next-live/feedback/instrument.js"), ORIGIN)).not.toThrow();
     expect(() => rejectUnexpectedStoryRequest(new Request("https://api.example.com/x"), ORIGIN)).toThrow();
+  });
+  test("lets production asset logos load live from their image hosts only", () => {
+    expect(isAssetImageRequest(new Request("https://token-media.defined.fi/8453_0xb2_small_fc53.png"))).toBeTrue();
+    expect(isAssetImageRequest(new Request("https://media.thegrid.id/1125/7/image-1773923530.png", { method: "HEAD" }))).toBeTrue();
+    expect(isAssetImageRequest(new Request("https://token-media.defined.fi/8453_0xb2_small_fc53.png", { method: "POST" }))).toBeFalse();
+    expect(isAssetImageRequest(new Request("https://token-media.defined.fi/api/tokens"))).toBeFalse();
+    expect(isAssetImageRequest(new Request("http://token-media.defined.fi/logo.png"))).toBeFalse();
+    expect(isAssetImageRequest(new Request("https://evil.token-media.defined.fi/logo.png"))).toBeFalse();
+    expect(isAssetImageRequest(new Request("https://media.thegrid.id.example.com/logo.png"))).toBeFalse();
+    expect(() => rejectUnexpectedStoryRequest(new Request("https://token-media.defined.fi/a.png"), ORIGIN)).not.toThrow();
   });
 });

@@ -1,4 +1,3 @@
-import { http, HttpResponse } from "msw";
 import { assetKeyForInvestAsset, type AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { investAssets } from "@/config/invest-assets";
 
@@ -23,9 +22,3 @@ export const investLogoResolution: AssetMarkResolution = {
   })),
   pending: false,
 };
-
-export const investLogoHandlers = Object.entries(images).map(([id, image]) => http.get(image, async () => {
-  const response = await fetch(`/asset-marks/invest/${id}.png`);
-  if (!response.ok) throw new Error(`Missing ${id} logo fixture`);
-  return new HttpResponse(await response.arrayBuffer(), { headers: { "content-type": "image/png" } });
-}));

@@ -49,8 +49,17 @@ export function isVercelToolbarRequest(request: Request, storybookOrigin: string
     VERCEL_TOOLBAR_HOSTS.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
 }
 
+const ASSET_IMAGE_HOSTS = ["token-media.defined.fi", "media.thegrid.id"] as const;
+
+export function isAssetImageRequest(request: Request): boolean {
+  const url = new URL(request.url);
+  return url.protocol === "https:" && (request.method === "GET" || request.method === "HEAD") &&
+    ASSET_IMAGE_HOSTS.some((host) => url.hostname === host) && /\.(?:png|jpe?g|webp|svg)$/.test(url.pathname);
+}
+
 export function rejectUnexpectedStoryRequest(request: Request, storybookOrigin: string): void {
-  if (isStorybookRuntimeRequest(request, storybookOrigin) || isVercelToolbarRequest(request, storybookOrigin)) return;
+  if (isStorybookRuntimeRequest(request, storybookOrigin) || isVercelToolbarRequest(request, storybookOrigin) ||
+    isAssetImageRequest(request)) return;
 
   throw new Error(
     `[Storybook request guard] Unexpected ${request.method} request to ${request.url}. `
