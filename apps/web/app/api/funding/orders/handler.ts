@@ -244,7 +244,7 @@ function cancellationMessage(code: string): string {
   if (code === "ORDER_NOT_FOUND") return "Funding order not found.";
   if (code === "ORDER_NOT_CANCELLABLE") return "This deposit can no longer be cancelled.";
   if (code === "ORDER_STATE_CHANGED") return "This deposit changed before it could be cancelled. Check its latest status.";
-  return "Home couldn't check this deposit with the provider. Try again.";
+  return "Home couldn't cancel this deposit right now. Try again.";
 }
 
 function resolutionMessage(code: string, availableAt?: string): string {

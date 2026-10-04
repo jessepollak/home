@@ -1,4 +1,5 @@
 import { formatUnits } from "viem";
+import { cancelledCheckoutCopy } from "@/client/funding/checkout-copy";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import { getDirectPortfolioAssets, assetKeyForErc20 } from "@/config/portfolio-assets";
 import type { RegionId } from "@/config/regions";
@@ -426,10 +427,12 @@ function fundingItem(order: ActivityFundingOrder, options: Options): ActivityLed
       ? { secondaryAction: { kind: "cancel-order" as const, label: "Cancel deposit" } } : {}),
     ...(cancelledByOwner || timedOut ? { ownerSentence: {
       title: cancelledByOwner ? "Deposit cancelled" : "Checkout timed out",
-      description: "If you already paid, the money will still show up here when it arrives.",
+      description: cancelledByOwner ? cancelledCheckoutCopy(order.providerName)
+        : "If you already paid, the money will still show up here when it arrives.",
     } } : {}),
     ...(order.stage === "unconfirmed" && !order.clearableAt ? { ownerSentence: {
-      title: `Checking with ${order.providerName}`, description: "Don't pay again while Home checks.",
+      title: `Checking with ${order.providerName}`,
+      description: `Home will update this when ${order.providerName} confirms it.`,
     } } : {}),
     ...(steps ? { steps } : {}), ...(nextAction ? { nextAction } : {}),
     ...(order.status === "ambiguous" && order.stage === "unconfirmed" && order.clearableAt && Date.parse(order.clearableAt) > (options.now ?? Date.now())

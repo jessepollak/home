@@ -35,7 +35,5 @@ export function cancellationNeedsRefetch(error: unknown): boolean {
 }
 
 export function cancellationErrorCopy(error: unknown): string {
-  if (typeof error === "object" && error !== null && "serverMessage" in error &&
-    typeof error.serverMessage === "string" && error.serverMessage) return error.serverMessage;
-  return "Couldn't cancel this deposit. Try again.";
+  return readFundingFailure(error)?.message ?? "Couldn't cancel this deposit. Try again.";
 }

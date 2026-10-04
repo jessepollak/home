@@ -981,10 +981,10 @@ function readOrderId(value: unknown): string {
   return orderId;
 }
 
-function readExpiry(value: unknown): string {
+function readExpiry(value: unknown): string | null {
   const expiry = readBoundedString(value, 128);
   if (!Number.isFinite(Date.parse(expiry))) throw new Error("Invalid IDRX expiry.");
-  return expiry;
+  return /(?:Z|[+-]\d{2}:?\d{2})$/.test(expiry) ? expiry : null;
 }
 
 function readDecimal(value: unknown): string {

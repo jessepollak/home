@@ -231,6 +231,40 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     });
   });
 
+  for (const state of ["cancelled", "expired"] as const) {
+    test(`provider ${state} after abandonment clears the persisted reason`, async () => {
+      const input = reservation();
+      await store.reserve(input);
+      const dispatched = await store.completeDispatch(input.id, dispatch);
+      const abandoned = await store.abandon(input.id, input.owner, { expectedVersion: dispatched.version, reason: "owner", updatedAt: "2026-09-12T00:00:02.000Z" });
+      expect(abandoned).toMatchObject({ state: "abandoned", abandonReason: "owner" });
+      if (!abandoned) throw new Error("Expected abandoned order");
+      expect(await store.applyObservation(input.id, { state, providerStatus: state, expectedVersion: abandoned.version, updatedAt: "2026-09-12T00:00:03.000Z" })).toMatchObject({ state, abandonReason: null });
+      expect(await store.getOwned(input.id, input.owner)).toMatchObject({ state, abandonReason: null });
+      const { rows } = await sql.query<{ abandon_reason: string | null }>("SELECT abandon_reason FROM funding_orders WHERE id=$1", [input.id]);
+      expect(rows).toEqual([{ abandon_reason: null }]);
+    });
+  }
+
+  test("a receipt after abandonment clears the persisted reason", async () => {
+    const input = reservation();
+    await store.reserve(input);
+    const dispatched = await store.completeDispatch(input.id, dispatch);
+    const abandoned = await store.abandon(input.id, input.owner, { expectedVersion: dispatched.version, reason: "timed-out", updatedAt: "2026-09-12T00:00:02.000Z" });
+    if (!abandoned) throw new Error("Expected abandoned order");
+    expect(await store.claimReceipt(input.id, { transactionHash: `0x${"6".repeat(64)}`, logIndex: 3, expectedVersion: abandoned.version, updatedAt: "2026-09-12T00:00:03.000Z" })).toMatchObject({ state: "received", abandonReason: null });
+    const { rows } = await sql.query<{ abandon_reason: string | null }>("SELECT abandon_reason FROM funding_orders WHERE id=$1", [input.id]);
+    expect(rows).toEqual([{ abandon_reason: null }]);
+  });
+
+  test("reads normalize an older non-abandoned row with a stale abandonment reason", async () => {
+    const input = reservation();
+    await store.reserve(input);
+    await store.completeDispatch(input.id, dispatch);
+    await sql.query("UPDATE funding_orders SET state='expired', abandon_reason='owner', instructions=NULL WHERE id=$1", [input.id]);
+    expect(await store.getOwned(input.id, input.owner)).toMatchObject({ state: "expired", abandonReason: null });
+  });
+
   test("CAS rejects stale observations and terminal states cannot reopen", async () => {
     const input = reservation();
     await store.reserve(input);

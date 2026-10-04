@@ -20,6 +20,7 @@ for (const path of ["/activity", "/home"]) {
     await sheet.getByRole("button", { name: "Cancel deposit" }).click();
     await expect(sheet.getByText("Cancelled", { exact: true })).toBeVisible();
     await expect(sheet.getByText("Deposit cancelled", { exact: true })).toBeVisible();
+    await expect(sheet.getByText("Home won't show this checkout as pending. Don't complete it in Coinbase. If you already paid, the money will still show up here when it arrives.", { exact: true })).toBeVisible();
     await expect(sheet.getByRole("button", { name: "Cancel deposit" })).toHaveCount(0);
     expect(writes).toEqual(["/api/funding/orders/fixture-funding-pending/cancel"]);
     await sheet.getByRole("button", { name: "Close Add money details" }).click();
