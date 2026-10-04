@@ -29,7 +29,7 @@ A funding-backed record takes its id, chain, contract, decimals, symbol and disp
 
 `ConvertPairRecord` carries directional `from` and `to`, provider, region set (`"all"` or explicit region ids), `status`, `verifiedAt`, `evidence`, and a `reason` when not verified. Both endpoints must be Cash-approved representations. A verified pair requires its reverse to be verified as well, and must use `regions: "all"` until availability, preparation and the picker can evaluate a trusted region. Its verification date must be a real, non-future `YYYY-MM-DD` date.
 
-A pair is admitted for at most 180 days (`CONVERT_PAIR_MAX_AGE_DAYS`) before it must be re-verified. Two rules read the same records: **admitting resolution** (`resolveConvertPair`, `convertDirectionAdmitted` and `convertCurrencyTradeable` in `shared/trading/assets.ts`) applies identity, status, region and the dated rule against the server clock, and gates trade availability, preparation and first confirmation; **presentation listing** (`convertPairListed`, `convertCurrencyListed`, `convertPickerEntries`) applies identity, lifecycle, region and pair status only, and the Cash Convert entry, its picker and the recorded-conversion classification never read a clock, so a wrong local clock can neither hide nor invent a conversion there. The invest trade entry points resolve eligibility through the admitting rule, where a device clock behind a pair's verification date hides the action rather than inventing one. Staleness fails the drift check and stops new quotes and first confirmations on the server, while a paused or withdrawn pair removes the Cash Convert entry itself.
+A pair is admitted for at most 180 days (`CONVERT_PAIR_MAX_AGE_DAYS`) before it must be re-verified. Two rules read the same records: **admitting resolution** (`resolveConvertPair`, `convertDirectionAdmitted` and `convertCurrencyTradeable` in `shared/trading/assets.ts`) applies identity, status, region and the dated rule against the server clock, and gates trade availability, preparation and first confirmation; **presentation listing** (`convertPairListed`, `convertCurrencyListed`) applies identity, lifecycle, region and pair status only, and the Cash Convert entry, its picker and the recorded-conversion classification never read a clock, so a wrong local clock can neither hide nor invent a conversion there. The invest trade entry points resolve eligibility through the admitting rule, where a device clock behind a pair's verification date hides the action rather than inventing one. Staleness stops new quotes and first confirmations on the server, while a paused or withdrawn pair removes the Cash Convert entry itself.
 
 The published records today are the two conversions that shipped with Cash Convert (USD ↔ EUR and USD ↔ IDR), recorded from the date that route went live: they admit what is already executable rather than activating anything new, and every further pair needs its own dated check.
 
@@ -54,9 +54,9 @@ Only checked capabilities become actionable. Check, do not assume:
 - **Exact execution path** — the pair's route is the reviewed one (source asset, destination asset, spender and calldata), never a runtime-discovered route.
 - **Error, recovery and rollback** — the failure and retry states, and the pause path below, are exercised before promotion.
 
-## Drift checks
+## Registry review
 
-`apps/web/shared/currencies/drift.ts` validates records and pairs; `apps/web/shared/currencies/drift.test.ts` runs it over the published registry and over synthetic fixtures for each finding. Findings:
+Review records and pairs for these findings:
 
 - `missing-funding-record` — a funding asset with no registry disposition.
 - `unknown-funding-id` — a record's funding id is unknown, or its identity differs from the funding registry's.
@@ -82,7 +82,7 @@ Only checked capabilities become actionable. Check, do not assume:
 |---|---|---|---|
 | Pair verified | Pair paused | Convert for that currency; first confirmation re-evaluates admission from stored metadata and fails closed; already-confirmed actions replay stored calls | Visible; no exit change |
 | Pair verified | Pair withdrawn | Convert for that currency; first confirmation re-evaluates admission from stored metadata and fails closed; already-confirmed actions replay stored calls | Visible; no exit change |
-| Pair verified | Untouched, 180 days old | New quotes and first confirmations (`pair-stale`) on the server; the dated evidence is refreshed before CI passes | Visible |
+| Pair verified | Untouched, 180 days old | New quotes and first confirmations (`pair-stale`) on the server; refresh the dated evidence before promotion | Visible |
 | Cash approved | Cash paused or withdrawn | Cash grouping and new acquisition | Still in the portfolio inventory for exit |
 | Any record | Record removed | Cash grouping and Convert; a prepared trade refuses its first confirmation (`ACTION_EXPIRED`) from the stored currency identity | Shown through catalog/wallet discovery; the promotion is reverted; an already-confirmed action replays its stored calls |
 

@@ -240,8 +240,8 @@ const fixtures = {
   "client/mock-rejected.test.tsx": 'import { mock } from "bun:test"; const name="x"; mock.module("other",()=>({})); mock.module(name,()=>({}));',
   "client/mock-bindings-rejected.test.tsx": 'import { mock as bunMock } from "bun:test"; import * as bunTest from "bun:test"; const alias=bunMock; bunMock.module("other",()=>({})); bunTest.mock.module("other",()=>({})); alias.module("other",()=>({})); bunMock["module"]("other",()=>({}));',
   "client/mock-unrelated-clean.test.tsx": 'const mock={module(_name:string,_factory:()=>object){}}; const bunTest={mock}; mock.module("other",()=>({})); bunTest.mock["module"]("other",()=>({}));',
-  "client/funding/funding-actions.test.tsx": 'import { mock } from "bun:test"; void mock.module("next/navigation",()=>({}));',
-  "nested/client/funding/funding-actions.test.tsx": 'import { mock } from "bun:test"; mock.module("next/navigation",()=>({}));',
+  "app/api/savings/vaults/route.test.ts": 'import { mock } from "bun:test"; void mock.module("next/server",()=>({}));',
+  "nested/app/api/savings/vaults/route.test.ts": 'import { mock } from "bun:test"; mock.module("next/server",()=>({}));',
   "tests/server-only-preload.ts": 'import { mock } from "bun:test"; mock.module("server-only",()=>({}));',
   "tests/unreviewed-preload.ts": 'import { mock } from "bun:test"; mock.module("server-only",()=>({}));',
   "app/shadcn.tsx": 'import { Button } from "@/components/ui/button"; export function A(){ return <Button className="rounded-full">x</Button> }',
@@ -285,19 +285,14 @@ const fixtures = {
   "client/unsafe-test-argument.test.ts": 'declare function consume(value: string): void; export function run(): void { consume(JSON.parse("null")); }',
   "client/unsafe-story-member.stories.tsx": 'declare function readSdk(): any; export const address = readSdk().address;',
   "client/account/base-account-connector.ts": 'declare function readSdk(): any; export const value: string = JSON.parse("null"); export function read(): string { return JSON.parse("null"); } export const address = readSdk().address; export function run(): void { readSdk()(); }',
-  "server/actions/follow-through.test.ts": unsafeTestPacket,
   "server/actions/handler.trade.test.ts": unsafeTestPacket,
-  "server/actions/kinds/trade/cdp-swaps.test.ts": unsafeTestPacket,
   "server/actions/kinds/trade/prepare.test.ts": unsafeTestPacket,
-  "server/funding/cash-out-progress.test.ts": unsafeTestPacket,
-  "server/funding/core/customer-service.test.ts": unsafeTestPacket,
   "server/funding/core/service.test.ts": unsafeTestPacket,
   "server/funding/core/user-token-rotation.test.ts": unsafeTestPacket,
   "server/funding/core/user-token-service.test.ts": unsafeTestPacket,
   "client/account/base-account-eip5792-recovery.test.ts": unsafeTestPacket,
   "client/account/cdp-money-action-execution.test.ts": unsafeTestPacket,
   "client/account/owner-fence.test.tsx": unsafeTestPacket,
-  "client/account/restore-stage.test.tsx": unsafeTestPacket,
   "server/actions/included-control.test.ts": unsafeTestPacket,
   "server/funding/included-control.test.ts": unsafeTestPacket,
   "client/account/included-control.test.tsx": unsafeTestPacket,
@@ -585,9 +580,9 @@ const contracts = [
   ["mock.module policy rejects unlisted and dynamic modules", () => assertHits("client/mock-rejected.test.tsx", "home(exact-mock-modules)", 2)],
   ["mock.module policy resolves aliased, namespace, immutable, and computed Bun bindings", () => assertHits("client/mock-bindings-rejected.test.tsx", "home(exact-mock-modules)", 4)],
   ["mock.module policy ignores unrelated local lookalikes", () => assertClean("client/mock-unrelated-clean.test.tsx")],
-  ["mock.module policy keeps reviewed canonical test and preload paths", () => { assertClean("client/funding/funding-actions.test.tsx"); assertHits("tests/server-only-preload.ts", "home(exact-mock-modules)", 0); }],
+  ["mock.module policy keeps reviewed canonical test and preload paths", () => { assertClean("app/api/savings/vaults/route.test.ts"); assertHits("tests/server-only-preload.ts", "home(exact-mock-modules)", 0); }],
   ["Bun test types keep floating mock setup visible to Oxlint", () => assertHits("tests/server-only-preload.ts", "typescript(no-floating-promises)")],
-  ["mock.module policy rejects nested suffix collisions", () => assertHits("nested/client/funding/funding-actions.test.tsx", "home(exact-mock-modules)")],
+  ["mock.module policy rejects nested suffix collisions", () => assertHits("nested/app/api/savings/vaults/route.test.ts", "home(exact-mock-modules)")],
   ["mock.module policy covers test support files without a test suffix", () => assertHits("tests/unreviewed-preload.ts", "home(exact-mock-modules)")],
   ["owned-component rule rejects appearance changes in every product layer", () => { assertHits("app/shadcn.tsx", "home(no-restyle)"); assertHits("client/shadcn.tsx", "home(no-restyle)"); assertHits("components/shadcn.tsx", "home(no-restyle)"); }],
   ["owned-component rule allows layout", () => { assertClean("client/shadcn-clean.tsx"); assertClean("client/shadcn-relative-clean.tsx"); }],
@@ -613,7 +608,7 @@ const contracts = [
   ["test and story rules keep assignment and argument production-only", () => { assertHits("client/unsafe-values.test.ts", "typescript(no-unsafe-assignment)", 0); assertClean("client/unsafe-test-argument.test.ts"); }],
   ["the account session boundary stays on the assignment and return gate", () => { assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-assignment)", 2); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-return)", 1); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-member-access)", 0); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-call)", 0); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-argument)", 0); }],
   ["action, funding and account test packets stay outside the test gate", () => {
-    for (const file of ["server/actions/follow-through.test.ts", "server/actions/handler.trade.test.ts", "server/actions/kinds/trade/cdp-swaps.test.ts", "server/actions/kinds/trade/prepare.test.ts", "server/funding/cash-out-progress.test.ts", "server/funding/core/customer-service.test.ts", "server/funding/core/service.test.ts", "server/funding/core/user-token-rotation.test.ts", "server/funding/core/user-token-service.test.ts", "client/account/base-account-eip5792-recovery.test.ts", "client/account/cdp-money-action-execution.test.ts", "client/account/owner-fence.test.tsx", "client/account/restore-stage.test.tsx"]) assertClean(file);
+    for (const file of ["server/actions/handler.trade.test.ts", "server/actions/kinds/trade/prepare.test.ts", "server/funding/core/service.test.ts", "server/funding/core/user-token-rotation.test.ts", "server/funding/core/user-token-service.test.ts", "client/account/base-account-eip5792-recovery.test.ts", "client/account/cdp-money-action-execution.test.ts", "client/account/owner-fence.test.tsx"]) assertClean(file);
     for (const file of ["server/actions/included-control.test.ts", "server/actions/kinds/trade/included-control.test.ts", "server/funding/included-control.test.ts", "server/funding/core/included-control.test.ts", "client/account/included-control.test.tsx"]) {
       assertHits(file, "typescript(no-unsafe-member-access)", 1);
       assertHits(file, "typescript(no-unsafe-call)", 1);

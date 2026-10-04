@@ -1,8 +1,6 @@
 import type { FiatCurrencyCode, RegionId } from "@/config/regions";
 import type { FundingAssetId } from "@/shared/assets/base";
 
-/** @public Versioned currency-registry schema, exercised by registry.test.ts. */
-export const CURRENCY_REGISTRY_VERSION = 1 as const;
 export const CONVERT_PROVIDER = "cdp-swaps" as const;
 export const CONVERT_QUOTE_ASSET_ID = "base:usdc" as const;
 export const CONVERT_PAIR_MAX_AGE_DAYS = 180 as const;

@@ -109,7 +109,3 @@ export function recordsWithPreservedHoldings(records: readonly CurrencyRepresent
     (record.cash.state === "approved" && record.lifecycle !== "active")
   );
 }
-
-export function marketPriceAssetIdFor(record: CurrencyRepresentation): `base:${string}` {
-  return `base:${record.contractAddress.toLowerCase()}`;
-}

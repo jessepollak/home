@@ -39,7 +39,6 @@ The focused tests lock the following contract:
 | Abuse behavior | Five sends per page; 30 accepted read attempts/minute per server instance | Excess reports shed with `429`; rejected origin/type/declared-size requests are not read |
 | Failure isolation | Sink/network/installation failures are swallowed | Application startup, hydration, and endpoint success never depend on reporting |
 
-Tests: `shared/observability/scrub.test.ts`, `client/observability/client-reporter.test.ts`, `server/observability/schema.test.ts`, `server/observability/log.test.ts`, `server/observability/on-request-error.test.ts`, `app/api/client-errors/route.test.ts`, and `app/error.test.tsx`.
 
 ## OpenTelemetry posture
 

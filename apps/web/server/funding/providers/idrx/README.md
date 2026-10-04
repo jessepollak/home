@@ -88,4 +88,4 @@ Run by IDRX engineering with a real Base Account smart wallet and a real hosted-
 
 ## Fixtures and proof
 
-Fixtures in `fixtures/` marked `source: "synthetic"` exercise parsing and conformance only. `history-minted-qris.live.json` is a sanitized capture of the production order above (payment-instrument and personal fields removed). No provider request is made by the test suite.
+`fixtures/history-minted-qris.live.json` is a sanitized capture of the production order above (payment-instrument and personal fields removed).

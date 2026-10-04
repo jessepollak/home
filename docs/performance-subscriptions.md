@@ -33,12 +33,6 @@ caches. React may discard this performance memo without changing correctness.
 
 ## Boundaries and evidence
 
-`client/balances/balances-subscriptions.test.tsx` observes two simultaneous data
-subscribers alongside a full refresh subscriber. Fetch-only transitions cause no
-data-observer renders, requests deduplicate, failure remains stale, and new data
-recovers both consumers. It covers owner A→B→A, held-region change, sign-out,
-provisional failure after verification, shared derivation count and mismatched
-provider fallback. Existing Cash/APY/AssetPosition tests cover their semantics.
 
 This does not promise zero component renders: PortfolioHome, account context,
 routing and clocks can still render descendants. Existing consumer memoization
