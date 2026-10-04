@@ -1,13 +1,14 @@
-## Review
+## What changes
 
-**Changes for the user:**
-- User-visible change
+| | Summary |
+| --- | --- |
+| **Before** | What happens today, in plain words. |
+| **After** | What happens once this merges. |
+| **Who notices** | users / developers (name the command, job, or file) / operators / nobody (refactor) |
+| **Your call** | none |
+| **Risk** | none |
 
-**Your call:** none
-
-**Not verified / risk:** none
-
-<!-- Keep Review at 150 words or fewer. On every push rewrite for the current head; never append history, implementation narration, or test inventories. Put durable rationale in commits, docs, or the issue. -->
+<!-- Write for someone who has not read the issue or the diff. Name the concrete thing that changes (screen, route, command, CI job, table) and describe behavior, not mechanics. At most 200 words; keep each cell on one line. Your call: a choice you made that Jesse might reverse, else "none"; an unmet required verification rung, a skipped Real money check, or a pending operator action always goes here as "approve without …". Risk: the one thing most likely to go wrong, else "none"; known gaps belong in the area's debt issue, not here. No edge-case catalogs, review-pass names, head/rung jargon, or history. Rewrite on every push. Use only this template's `## ` sections; add `## State transitions` only for a lifecycle change. -->
 
 ## Preview
 
@@ -28,17 +29,24 @@
 | --- | --- | --- | --- |
 | N/A | 0 | N/A | none |
 
-<!-- Add a row for each mapped surface and a Verified: <surface> rung <n> or Not verified: <surface> rung <n> — <reason> line. Keep browser observations, console/errors, exact fixture cleanup, limitations, and any separate Severity | Evidence | Judgment / action findings table here. -->
+<!-- Add a row for each mapped surface and a Verified: <surface> rung <n> or Not verified: <surface> rung <n> — <reason> line. Keep browser observations, console/errors, exact fixture cleanup, and limitations here. -->
 
 ## Test plan
 
 - [ ] `bun check` / CI green
 - [ ] Smoke the changed surface (or N/A — say why)
 
+<!-- List commands with their result, plus one line per manual check. Do not enumerate the cases the tests cover. -->
+
 Failure-cases: <tested>/<dependency calls>
 <!-- Count external reads and writes the diff adds or touches, and how many have a rejection, timeout, or partial-result test; see the test policy's "Choose the case, then the layer". Use N/A: <reason> only for docs-only and CI-only PRs. -->
 <!-- Scoped fix(...) PRs: add one visible `Caught-by: <lint|bot|review|browser|production>` line outside comments and fenced code. Identical repeats count once; different detectors fail CI. -->
 <!-- Optional for new Playwright declarations: Playwright-rung: <layout|scrolling|focus|history|persisted-state|media-query|hydration|dispatch|journey> -->
+
+## Review
+
+Review: <n> findings fixed, none open
+<!-- Add a Severity | Evidence | Judgment / action table only for findings that are declined, deferred, or still open. Fixed findings are counted, not listed. -->
 
 ## Real money
 

@@ -60,4 +60,4 @@ A follow-up is filed only when all of these hold:
 - it names its `Area:` lines and its ordering (`Depends on #<n>`) relative to open work in that area;
 - it states acceptance that can be checked.
 
-Everything else goes in the PR description under **Not verified / risk**, into the area's debt issue, or nowhere. Deferred review findings of low severity join the area's debt issue rather than a new one. A follow-up in an area with an open change is not queued until that change merges.
+Everything else goes into the area's debt issue or nowhere; the PR description's one-line **Risk** names only the most likely failure of the change itself. Deferred review findings of low severity join the area's debt issue rather than a new one. A follow-up in an area with an open change is not queued until that change merges.
