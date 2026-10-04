@@ -69,6 +69,7 @@ export function remoteTarget(state: ClipState, directory: string, dependencies: 
       if (state.url) flags.push("--url", state.url);
       if (state.device) flags.push("--device", state.device);
       if (state.serial) flags.push("--serial", state.serial);
+      if (state.keepStatusBar) flags.push("--keep-status-bar");
       if (state.target === "chromium") flags.push("--viewport", `${state.viewport.width}x${state.viewport.height}`);
       flags.push("--max-age", String(state.maxAge));
       remoteActive = true;
@@ -76,7 +77,7 @@ export function remoteTarget(state: ClipState, directory: string, dependencies: 
       await save(join(directory, "state.json"), state);
       await ssh(remoteCommand(state, flags), remoteTimeouts.start);
       const remoteState = await status();
-      Object.assign(state, { css: remoteState.css, emulator: remoteState.emulator, model: remoteState.model, chromeVersion: remoteState.chromeVersion });
+      Object.assign(state, { css: remoteState.css, emulator: remoteState.emulator, model: remoteState.model, chromeVersion: remoteState.chromeVersion, statusBarHeight: remoteState.statusBarHeight, androidScreen: remoteState.androidScreen });
       await save(join(directory, "state.json"), state);
     },
     async monitor(force = false) {

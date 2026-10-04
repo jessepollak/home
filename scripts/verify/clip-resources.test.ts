@@ -79,8 +79,9 @@ test("partial Chromium start persists daemon intent before creating a browser an
   expect(calls).toEqual(["persist true", "set", "close"]);
 });
 
-function androidStart(options: { discoveryAlias?: boolean; transition?: string; extraBlank?: boolean } = {}) {
+function androidStart(options: { discoveryAlias?: boolean; transition?: string; extraBlank?: boolean; insets?: string; keepStatusBar?: boolean; emulator?: boolean } = {}) {
   const state = stateFor();
+  state.keepStatusBar = options.keepStatusBar;
   const calls: string[] = [];
   const recorder = child();
   let recorderCommand = "screenrecord /sdcard/home-clip-resource-test.mp4";
@@ -120,8 +121,10 @@ function androidStart(options: { discoveryAlias?: boolean; transition?: string; 
       const command = args.join(" "); calls.push(command);
       if (command === "devices -l") return "List of devices attached\ndevice-test device model:Pixel\n";
       if (command.includes("ro.product.model")) return "Pixel";
-      if (command.includes("ro.kernel.qemu")) return "0";
+      if (command.includes("ro.kernel.qemu")) return options.emulator ? "1" : "0";
       if (command.includes("dumpsys package")) return "versionName=123";
+      if (command.includes("dumpsys window displays")) return options.insets ?? "Display: mDisplayId=0\n  mDisplayFrame=Rect(0, 0 - 1080, 2400)\n  InsetsSource id=10000 type=statusBars frame=[0,0][1080,118] visible=true";
+      if (command.includes("dumpsys activity")) return "mDebugApp=null/orig=null";
       if (command.endsWith("forward --list")) return "device-test tcp:9222 localabstract:chrome_devtools_remote";
       if (command.includes("settings get global zen_mode")) return calls.findLast((call) => call.includes("set_dnd"))?.includes("none") ? "2" : "1";
       if (command.endsWith("cat /data/local/tmp/home-clip-resource-test.pid")) return "123";
@@ -136,6 +139,33 @@ function androidStart(options: { discoveryAlias?: boolean; transition?: string; 
     eventHide: () => listeners.get("Runtime.bindingCalled")?.({ name: "homeClipVisibility", payload: "hidden" }),
   };
 }
+
+test("Android persists measured status bar geometry before capture for phones and emulators", async () => {
+  for (const emulator of [false, true]) {
+    const { target, state, calls } = androidStart({ emulator });
+    await target.start();
+    expect(state.statusBarHeight).toBe(118);
+    expect(state.androidScreen).toEqual({ width: 1080, height: 2400 });
+    expect(calls.indexOf("-s device-test shell dumpsys window displays")).toBeLessThan(calls.indexOf("spawn screenrecord"));
+    await target.cleanup();
+  }
+});
+
+test("unknown Android status bar geometry fails before recording unless explicitly retained", async () => {
+  for (const emulator of [false, true]) {
+    const failed = androidStart({ emulator, insets: "unavailable" });
+    await expect(failed.target.start()).rejects.toThrow("--keep-status-bar");
+    expect(failed.calls).not.toContain("spawn screenrecord");
+    await failed.target.cleanup();
+    if (!emulator) expect(failed.calls).toContain("-s device-test shell cmd notification set_dnd priority");
+    const retained = androidStart({ emulator, insets: "unavailable", keepStatusBar: true });
+    await retained.target.start();
+    expect(retained.calls).toContain("spawn screenrecord");
+    expect(retained.calls).not.toContain("-s device-test shell dumpsys window displays");
+    expect(retained.state.statusBarHeight).toBeUndefined();
+    await retained.target.cleanup();
+  }
+});
 
 test("physical startup snapshots discovery-only targets before opening and permits only its own blank transition", async () => {
   const { target, state, calls } = androidStart({ discoveryAlias: true });
@@ -274,32 +304,37 @@ test("remote startup propagates emulator state and watches tunnel exit after rea
   const oldHost = process.env.HOME_CLIP_REMOTE, oldDir = process.env.HOME_CLIP_REMOTE_DIR;
   process.env.HOME_CLIP_REMOTE = "runner-test"; process.env.HOME_CLIP_REMOTE_DIR = "~/runner";
   try {
-    const state = stateFor(); const tunnel = child(); const budgets: number[] = []; const cleanup: string[] = [];
-    let masterReady = false;
-    const target = remoteTarget(state, "/private-state", {
-      now: () => 2000, until: immediate, save: async () => {},
-      spawn: ((_file: string, args: string[]) => { expect(args).toContain("ControlPersist=no"); return tunnel; }) as typeof import("node:child_process").spawn,
-      stopChild: async () => { cleanup.push("tunnel child"); },
-      run: async (_file, args, options) => {
-        const command = args.at(-1)!;
-        if (args.includes("check")) masterReady = true;
-        else if (!args.includes("exit")) { expect(masterReady).toBe(true); expect(args).toContain(state.socket!); }
-        if (command.includes("bun -e")) return "0.38.1";
-        if (command.includes("'start'")) budgets.push(options?.timeout ?? 0);
-        if (command.includes("'__status'")) return JSON.stringify({ emulator: true, css: { width: 412, height: 811 } });
-        if (command.includes("'cleanup'")) cleanup.push("remote cleanup");
-        if (command.startsWith("rm -f")) cleanup.push("remote output");
-        if (args.includes("exit")) cleanup.push("control exit");
-        return "";
-      },
-    });
-    await target.start();
-    expect(state.emulator).toBe(true); expect(budgets).toEqual([180000]);
-    tunnel.exitCode = 255;
-    await expect(target.monitor()).rejects.toThrow("SSH tunnel dropped");
-    await expect(target.stop("/tmp/out.mp4")).rejects.toThrow("SSH tunnel dropped");
-    await target.cleanup();
-    expect(cleanup).toEqual(["remote cleanup", "remote output", "tunnel child", "control exit"]);
+    for (const keepStatusBar of [false, true]) {
+      const state = stateFor(); const tunnel = child(); const budgets: number[] = []; const cleanup: string[] = [];
+      state.keepStatusBar = keepStatusBar;
+      let masterReady = false;
+      const target = remoteTarget(state, "/private-state", {
+        now: () => 2000, until: immediate, save: async () => {},
+        spawn: ((_file: string, args: string[]) => { expect(args).toContain("ControlPersist=no"); return tunnel; }) as typeof import("node:child_process").spawn,
+        stopChild: async () => { cleanup.push("tunnel child"); },
+        run: async (_file, args, options) => {
+          const command = args.at(-1)!;
+          if (args.includes("check")) masterReady = true;
+          else if (!args.includes("exit")) { expect(masterReady).toBe(true); expect(args).toContain(state.socket!); }
+          if (command.includes("bun -e")) return "0.38.1";
+          if (command.includes("'start'")) { budgets.push(options?.timeout ?? 0); expect(command.includes("'--keep-status-bar'")).toBe(keepStatusBar); }
+          if (command.includes("'__status'")) return JSON.stringify({ emulator: true, css: { width: 412, height: 811 }, statusBarHeight: keepStatusBar ? undefined : 118, androidScreen: keepStatusBar ? undefined : { width: 1080, height: 2400 } });
+          if (command.includes("'cleanup'")) cleanup.push("remote cleanup");
+          if (command.startsWith("rm -f")) cleanup.push("remote output");
+          if (args.includes("exit")) cleanup.push("control exit");
+          return "";
+        },
+      });
+      await target.start();
+      expect(state.emulator).toBe(true); expect(budgets).toEqual([180000]);
+      expect(state.statusBarHeight).toBe(keepStatusBar ? undefined : 118);
+      expect(state.androidScreen).toEqual(keepStatusBar ? undefined : { width: 1080, height: 2400 });
+      tunnel.exitCode = 255;
+      await expect(target.monitor()).rejects.toThrow("SSH tunnel dropped");
+      await expect(target.stop("/tmp/out.mp4")).rejects.toThrow("SSH tunnel dropped");
+      await target.cleanup();
+      expect(cleanup).toEqual(["remote cleanup", "remote output", "tunnel child", "control exit"]);
+    }
   } finally {
     if (oldHost === undefined) delete process.env.HOME_CLIP_REMOTE; else process.env.HOME_CLIP_REMOTE = oldHost;
     if (oldDir === undefined) delete process.env.HOME_CLIP_REMOTE_DIR; else process.env.HOME_CLIP_REMOTE_DIR = oldDir;

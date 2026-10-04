@@ -1,9 +1,9 @@
-export const usage = "bun run clip start --target chromium|ios|android --session <name> [--url <url>] [--device <name>|--serial <serial>] [--viewport WxH] [--max-age <seconds>] [--remote]\nbun run clip ab --session <name> -- <browser args...>\nbun run clip stop --session <name> --out <path.mp4>\nbun run clip cleanup --session <name>";
+export const usage = "bun run clip start --target chromium|ios|android --session <name> [--url <url>] [--device <name>|--serial <serial>] [--viewport WxH] [--max-age <seconds>] [--remote] [--keep-status-bar]\nbun run clip ab --session <name> -- <browser args...>\nbun run clip stop --session <name> --out <path.mp4>\nbun run clip cleanup --session <name>";
 
 export function parseClipArgs(args) {
   const [command, ...rest] = args;
   if (!["start", "ab", "stop", "cleanup"].includes(command)) throw new Error(usage);
-  const allowed = command === "start" ? ["target", "session", "url", "device", "serial", "viewport", "max-age", "remote"] : command === "stop" ? ["session", "out"] : ["session"];
+  const allowed = command === "start" ? ["target", "session", "url", "device", "serial", "viewport", "max-age", "remote", "keep-status-bar"] : command === "stop" ? ["session", "out"] : ["session"];
   const flags = {};
   let browserArgs = [];
   for (let i = 0; i < rest.length; i++) {
@@ -11,7 +11,7 @@ export function parseClipArgs(args) {
     if (arg === "--" && command === "ab") { browserArgs = rest.slice(i + 1); break; }
     const key = arg.startsWith("--") ? arg.slice(2) : "";
     if (!allowed.includes(key) || Object.hasOwn(flags, key)) throw new Error(`Unexpected or duplicate option: ${arg}`);
-    if (key === "remote") flags[key] = true;
+    if (["remote", "keep-status-bar"].includes(key)) flags[key] = true;
     else {
       const value = rest[++i];
       if (!value || value.startsWith("--")) throw new Error(`--${key} requires a value`);
@@ -28,6 +28,8 @@ export function parseClipArgs(args) {
     if (flags.target !== "chromium" && rest.includes("--viewport")) throw new Error("--viewport is supported only by chromium; device recordings keep the real screen");
     if (flags.target === "chromium" && flags.device) throw new Error("--device requires ios or android");
     if (flags.serial && flags.target !== "android") throw new Error("--serial requires android");
+    if (flags["keep-status-bar"] && flags.target !== "android") throw new Error("--keep-status-bar requires android");
+    if (flags["keep-status-bar"]) { flags.keepStatusBar = true; delete flags["keep-status-bar"]; }
     if (flags.serial && flags.device) throw new Error("Use either --serial or --device, not both");
     if (flags.url) {
       const url = new URL(flags.url);
@@ -108,6 +110,27 @@ export function chromiumGeometry(raw, viewport, markerWidth) {
   return { ...output, restoredWidth, filter: restoredWidth === output.width ? null : `scale=${restoredWidth}:${output.height},crop=${output.width}:${output.height}:0:0,setsar=1` };
 }
 
+export function androidStatusBar(dump) {
+  const failure = () => { throw new Error("Could not determine Android status bar height in device pixels; use --keep-status-bar to retain it explicitly"); };
+  const display = dump.split(/(?=^\s*Display: mDisplayId=)/m).find((part) => /^\s*Display: mDisplayId=0\b/m.test(part));
+  if (!display) return failure();
+  const frame = /mDisplayFrame=Rect\(0,\s*0\s*-\s*(\d+),\s*(\d+)\)/.exec(display);
+  const bars = [...display.matchAll(/\btype=statusBars\s+frame=\[(\d+),(\d+)\]\[(\d+),(\d+)\]/g)];
+  if (!frame || !bars.length) return failure();
+  const width = Number(frame[1]), height = Number(frame[2]);
+  const heights = bars.map((bar) => Number(bar[4]));
+  if (width < 2 || height < 2 || bars.some((bar) => Number(bar[1]) !== 0 || Number(bar[2]) !== 0 || Number(bar[3]) !== width) || heights.some((value) => value < 1 || value >= height / 2 || value !== heights[0])) return failure();
+  return { width, height, statusBarHeight: heights[0] };
+}
+
+export function androidGeometry(raw, screen, statusBarHeight) {
+  if (!screen || ![raw.width, raw.height, screen.width, screen.height, statusBarHeight].every((value) => Number.isSafeInteger(value) && value > 0) || raw.width !== screen.width || raw.height !== screen.height || statusBarHeight >= raw.height / 2) throw new Error("Android capture does not match the measured status bar geometry; refusing to guess (use --keep-status-bar at start to retain it)");
+  const top = Math.ceil(statusBarHeight / 2) * 2;
+  const width = Math.floor(raw.width / 2) * 2, height = Math.floor((raw.height - top) / 2) * 2;
+  if (width < 2 || height < 2) throw new Error("Invalid Android crop dimensions");
+  return { width, height, top, filter: `crop=${width}:${height}:0:${top},setsar=1` };
+}
+
 export function measureCalibration(pixels, width, rows = 16, fps = 30) {
   const frameSize = width * rows * 3;
   const matches = [];
@@ -143,7 +166,7 @@ export function shellQuote(value) { return `'${String(value).replaceAll("'", "'\
 
 export function previewLabel(state) {
   const size = `${state.css.width}×${state.css.height} CSS px`;
-  if (state.target === "android") return `Android Chrome ${state.chromeVersion} (${state.model}${state.emulator ? " emulator" : ""}) ${size}`;
+  if (state.target === "android") return `Android Chrome ${state.chromeVersion} (${state.model}${state.emulator ? " emulator" : ""}) ${size}${state.keepStatusBar ? " — status bar retained" : state.statusBarHeight ? " — status bar cropped" : ""}`;
   if (state.target === "ios") return `iOS Simulator ${state.model} Safari ${size}`;
   return `Chromium ${size}`;
 }

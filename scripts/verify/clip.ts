@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, open, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { assertFixtureNavigation, assertSessionAge, chromiumGeometry, measureCalibration, normalizationArgs, parseClipArgs, previewLabel, targetFlags } from "./clip-core.mjs";
+import { androidGeometry, assertFixtureNavigation, assertSessionAge, chromiumGeometry, measureCalibration, normalizationArgs, parseClipArgs, previewLabel, targetFlags } from "./clip-core.mjs";
 import { localTarget } from "./clip-targets";
 import { remoteCommand, remoteStartTimeout, remoteTarget, sshArgs } from "./clip-remote";
 import { CommandError, browser, load, probeVideo, privateDirectory, removeSession, repository, run, save, sessionDirectory, until, verifyDirectory, waitForResult, workerAlive, workerIdentity, type ClipState, type WorkerIdentity } from "./clip-runtime";
@@ -52,6 +52,7 @@ async function worker(directory: string) {
         filter = chromiumGeometry(raw, state.css!, calibration.markerWidth).filter;
         trim = calibration.trim;
       }
+      if (state.target === "android" && !state.keepStatusBar) filter = androidGeometry(raw, state.androidScreen, state.statusBarHeight).filter;
       const temporary = join(directory, "normalized.mp4");
       await run("ffmpeg", normalizationArgs(state.raw, temporary, filter, trim), { timeout: 180000 });
       await Bun.write(out, Bun.file(temporary));
@@ -92,7 +93,7 @@ async function main() {
         throw error;
       });
       owned = true;
-      const state: ClipState = { session: args.session, target: args.target, viewport: args.viewport, url: args.url, device: args.device, serial: args.serial, remote: args.remote, raw: join(directory, args.target === "chromium" ? "raw.webm" : "raw.mp4"), maxAge: args.maxAge, createdAt: Date.now(), workerNonce: crypto.randomUUID() };
+      const state: ClipState = { session: args.session, target: args.target, viewport: args.viewport, url: args.url, device: args.device, serial: args.serial, remote: args.remote, keepStatusBar: args.keepStatusBar, raw: join(directory, args.target === "chromium" ? "raw.webm" : "raw.mp4"), maxAge: args.maxAge, createdAt: Date.now(), workerNonce: crypto.randomUUID() };
       await save(join(directory, "state.json"), state);
       const log = await open(join(directory, "worker.log"), "a", 0o600);
       const child = spawn(process.execPath, [join(repository, "scripts/verify/clip.ts"), "__worker", directory, state.workerNonce], { cwd: repository, detached: true, stdio: ["ignore", log.fd, log.fd] });
@@ -192,6 +193,6 @@ try {
     const state = await load<ClipState>(join(directory, "state.json"));
     const result = await load<Result>(join(directory, "result.json")).catch(() => undefined);
     const identity = await load<WorkerIdentity>(join(directory, "worker.json")).catch(() => undefined);
-    console.log(JSON.stringify({ css: state.css, emulator: state.emulator, model: state.model, chromeVersion: state.chromeVersion, error: result?.error ?? (!await workerAlive(identity) ? "Remote clip worker is no longer running" : undefined) }));
+    console.log(JSON.stringify({ css: state.css, emulator: state.emulator, model: state.model, chromeVersion: state.chromeVersion, statusBarHeight: state.statusBarHeight, androidScreen: state.androidScreen, error: result?.error ?? (!await workerAlive(identity) ? "Remote clip worker is no longer running" : undefined) }));
   } else await main();
 } catch (error) { console.error(String(error)); process.exitCode = 1; }

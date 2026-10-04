@@ -18,6 +18,7 @@ export type ClipState = {
   previousDnd?: string; chromeConfigured?: boolean; previousChromeCommand?: string | null; previousDebugApp?: string | null;
   remoteStarted?: boolean; remoteOutput?: string;
   preexistingTargets?: string[]; ownTarget?: string;
+  keepStatusBar?: boolean; statusBarHeight?: number; androidScreen?: { width: number; height: number };
 };
 export const sessionDirectory = (name: string) => join(tmpdir(), `hc-${process.getuid!()}-${createHash("sha256").update(name).digest("hex").slice(0, 16)}`);
 export const exists = async (path: string) => Bun.file(path).exists();

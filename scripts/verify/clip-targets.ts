@@ -7,7 +7,7 @@ import { createServer } from "node:net";
 import { acquireDeviceLock } from "../../apps/web/scripts/device-profile/device-lock";
 import { activateTarget, connectCdp } from "../../apps/web/scripts/device-profile/cdp";
 import { CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, isEmulatorDevice, parseAdbDevices, safeName } from "../../apps/web/scripts/device-profile/model";
-import { activateRecordedPage, assertFixtureTargets, validateChromiumViewport, cleanupSteps, dndMode, loopbackPort, selectAndroidDevice, targetFlags } from "./clip-core.mjs";
+import { activateRecordedPage, androidStatusBar, assertFixtureTargets, validateChromiumViewport, cleanupSteps, dndMode, loopbackPort, selectAndroidDevice, targetFlags } from "./clip-core.mjs";
 import { alive, browser, exists, run, save, stopChild, until, type ClipState } from "./clip-runtime";
 
 async function freePort() {
@@ -212,6 +212,12 @@ export function localTarget(state: ClipState, directory: string, recover = false
       } finally { if (!guardCdp) cdp.close(); }
       await viewport();
       await fixtureGuard();
+      if (!state.keepStatusBar) {
+        const dump = await runAdb(["shell", "dumpsys", "window", "displays"]).catch(() => { throw new Error("Could not read Android status bar geometry; use --keep-status-bar to retain it explicitly"); });
+        const { width, height, statusBarHeight } = androidStatusBar(dump);
+        state.androidScreen = { width, height }; state.statusBarHeight = statusBarHeight;
+        await persist();
+      }
       await runAdb(["shell", "rm", "-f", devicePidFile, deviceRaw]);
       state.recordingIntent = true; state.recordingAt = now(); recording = true; await persist();
       recorder = spawn(adb, ["-s", serial, "shell", "sh", "-c", `'echo $$ > ${devicePidFile}; exec screenrecord --time-limit 180 ${deviceRaw}'`], { stdio: ["ignore", "ignore", "pipe"] });
