@@ -8,6 +8,7 @@ const testName = /(?:\.test\.|_test\.|\.spec\.|_spec\.)/;
 const countNames = ["tests", "assertions", "failures", "skipped", "time"] as const;
 const valueFlags = new Set(["-t", "--test-name-pattern", "--timeout", "--retry", "--rerun-each", "--seed", "--path-ignore-patterns"]);
 export const DEFAULT_BATCH_SIZE = 25;
+const DEFAULT_DOM_BATCH_SIZE = 5;
 export const DEFAULT_MAX_RSS_MB = 3072;
 const unsupportedFlags = ["--watch", "--hot", "--bail"];
 
@@ -161,13 +162,14 @@ export async function run(args = Bun.argv.slice(2), options: { cwd?: string; env
   const files = filterTests(await discoverTests(cwd), filters);
   if (!files.length) throw new Error(`No unit test files match: ${filters.join(", ") || "discovery"}`);
   const size = positiveInteger(env.HOME_UNIT_TEST_BATCH_SIZE, DEFAULT_BATCH_SIZE, "HOME_UNIT_TEST_BATCH_SIZE");
+  const domSize = positiveInteger(env.HOME_UNIT_TEST_BATCH_SIZE, DEFAULT_DOM_BATCH_SIZE, "HOME_UNIT_TEST_BATCH_SIZE");
   const dom = new Set<string>();
   for (const file of files) {
     if (isDomTestSource(await readFile(join(cwd, file), "utf8"), file)) dom.add(file);
   }
   const batches = ([
     ...batchTests(files.filter((file) => !dom.has(file)), size).map((files) => ({ files, partition: "non-dom" as const })),
-    ...batchTests(files.filter((file) => dom.has(file)), size).map((files) => ({ files, partition: "dom" as const })),
+    ...batchTests(files.filter((file) => dom.has(file)), domSize).map((files) => ({ files, partition: "dom" as const })),
   ]);
   const maxRssBytes = positiveInteger(env.HOME_UNIT_TEST_MAX_RSS_MB, DEFAULT_MAX_RSS_MB, "HOME_UNIT_TEST_MAX_RSS_MB") * 1024 ** 2;
   await mkdir(join(output, "batches"), { recursive: true });
