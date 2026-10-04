@@ -99,6 +99,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   frameSource: "story" | "blank";
 }) {
   const compositions = useMemo(() => compositionEntries(index), [index]);
+  const compositionGroups = new Set(compositions.map((entry) => entry.title)).size;
   const [original] = useState(() => restoredLibraryUrl(catalog, compositions));
   const [selected, setSelected] = useState(original.selected);
   const overview = selected === OVERVIEW;
@@ -199,7 +200,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   });
   const count = entries.length === 1 ? "1 story" : `${entries.length} stories`;
   return <div className={styles.library} data-review-library="workspace">
-    <LibrarySidebar catalog={catalog} compositions={compositions.length}
+    <LibrarySidebar catalog={catalog} compositions={compositionGroups}
       selected={overview || composing ? selected : foundation ?? item.id} onSelect={select} onPreload={preload} />
     <main className={styles.surface} aria-label={overview ? "Library overview" : composing ? "Library compositions" : foundation
       ? `${foundationPages.find((page) => page.id === foundation)!.name} foundations` : `${item.name} preview`}>
@@ -221,7 +222,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
           <CompositionsSheet entries={compositions} root={root} theme={theme} focused={focused} annotating={annotating}
             frameSource={frameSource} onToggle={toggle} onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} />
         </div>
-        <figcaption className={styles.caption}>Compositions · {compositionCount(compositions.length)}</figcaption>
+        <figcaption className={styles.caption}>Compositions · {compositionCount(compositionGroups)}</figcaption>
       </figure>
         : foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <figure className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>

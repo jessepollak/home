@@ -228,8 +228,9 @@ export const Compositions: Story = {
     const window = canvasElement.ownerDocument.defaultView;
     if (!window) throw new Error("Library window is missing");
     const historyLength = window.history.length;
-    await userEvent.click(canvas.getByRole("option", { name: "Compositions, 3 compositions" }));
+    await userEvent.click(canvas.getByRole("option", { name: "Compositions, 2 compositions" }));
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
+    await expect(within(surface).getByText("Compositions · 2 compositions")).toBeVisible();
     await expect(search(canvasElement).get("component")).toBe("compositions");
     await expect(window.history.length).toBe(historyLength + 1);
     for (const name of ["Home", "Deposit to Savings", "Deposit Submitted"]) {

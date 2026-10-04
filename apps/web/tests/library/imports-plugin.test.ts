@@ -30,6 +30,11 @@ test("comments, strings and type-only imports are not executable import edges", 
   `, "probe.tsx")).toEqual({ specifiers: [], nonLiteralDynamic: false, lexFailure: false });
 });
 
+test("inline type-only imports retain their executable side-effect edge for isolation", async () => {
+  expect(await lexLibraryImports('import { type Dialog } from "./dialog";', "probe.tsx"))
+    .toEqual({ specifiers: ["./dialog"], nonLiteralDynamic: false, lexFailure: false });
+});
+
 test("TS and JSX are stripped without removing unused executable imports", async () => {
   const result = await lexLibraryImports('import Dialog from "./dialog"; const node: unknown = <span />;', "probe.tsx");
   expect(result.specifiers).toContain("./dialog");

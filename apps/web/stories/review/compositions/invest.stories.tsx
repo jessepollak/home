@@ -79,7 +79,7 @@ function AssetDetail({ asset }: { asset: Asset }) {
     <Card>
       <CardHeader>
         <CardTitle><h2 id="composition-invest-asset">{asset.name}</h2></CardTitle>
-        <CardAction><Badge variant={asset.gain ? "secondary" : "destructive"}>{asset.change}</Badge></CardAction>
+        <CardAction><Badge variant={asset.gain ? "secondary" : "outline"}>{asset.change}</Badge></CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div>
@@ -250,5 +250,9 @@ export const Invest: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "1 week" }));
     await expect(canvas.getByRole("group", { name: "1 week price history" })).toBeVisible();
     input.blur();
+    await userEvent.click(canvas.getByRole("button", { name: /^Orbit, 0x3333/ }));
+    const detail = within(canvas.getByRole("region", { name: "Orbit" }));
+    await expect(detail.getByText("−12.0%")).toBeVisible();
+    await expect(detail.getByText("$0.04")).toBeVisible();
   },
 };

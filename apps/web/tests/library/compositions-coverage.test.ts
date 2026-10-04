@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compositionUiImports } from "../../.storybook/library-imports-plugin";
+import { compositionUiImports, lexCompositionUiImports } from "../../.storybook/library-imports-plugin";
 import type { ReviewBuild, StoryIndexEntry } from "@/stories/review/explorations/board/review-build";
 import { libraryCatalog } from "@/stories/review/explorations/library/catalog";
 
@@ -39,6 +39,23 @@ describe("library compositions", () => {
     const components = new Map([["button", "ui-button"], ["input", "ui-input"]]);
     expect(() => requireCompositionCoverage(components, [["button"]])).toThrow("Uncovered catalog components: ui-input");
   });
+
+  for (const [name, source, covered] of [
+    ["inline type-only", 'import { type InputOTP } from "@/components/ui/input-otp";', false],
+    ["all inline type-only", 'import { type InputOTP, type InputOTPGroup } from "@/components/ui/input-otp";', false],
+    ["statement type-only", 'import type { InputOTP } from "@/components/ui/input-otp";', false],
+    ["default type-only", 'import type InputOTP from "@/components/ui/input-otp";', false],
+    ["mixed default", 'import InputOTP, { type InputOTPGroup } from "@/components/ui/input-otp";', true],
+    ["mixed named", 'import { type InputOTPGroup, InputOTP } from "@/components/ui/input-otp";', true],
+    ["namespace", 'import * as OTP from "@/components/ui/input-otp";', true],
+    ["multiline commented", 'import { /* type */ InputOTP,\n type InputOTPGroup } from\n "@/components/ui/input-otp";', true],
+    ["empty", 'import {} from "@/components/ui/input-otp";', false],
+    ["side effect", 'import "@/components/ui/input-otp";', false],
+  ] as const) {
+    test(`coverage counts value bindings only: ${name}`, async () => {
+      expect(await lexCompositionUiImports(source, "probe.stories.tsx")).toEqual(covered ? ["input-otp"] : []);
+    });
+  }
 
   test("render each composition in its own frame", async () => {
     const files = [...new Bun.Glob("stories/review/compositions/*.stories.tsx").scanSync({ cwd: root })].sort();

@@ -9,14 +9,18 @@ const virtualId = "virtual:library-imports";
 const resolvedId = `\0${virtualId}`;
 const webRoot = fileURLToPath(new URL("../", import.meta.url));
 
+function transformLibrarySource(source: string, filename: string) {
+  return transformWithEsbuild(source, filename, {
+    loader: filename.endsWith(".tsx") ? "tsx" : "ts",
+    jsx: "automatic",
+    target: "esnext",
+    tsconfigRaw: { compilerOptions: { verbatimModuleSyntax: true } },
+  });
+}
+
 export async function lexLibraryImports(source: string, filename: string): Promise<ImportEntry> {
   try {
-    const { code } = await transformWithEsbuild(source, filename, {
-      loader: filename.endsWith(".tsx") ? "tsx" : "ts",
-      jsx: "automatic",
-      target: "esnext",
-      tsconfigRaw: { compilerOptions: { verbatimModuleSyntax: true } },
-    });
+    const { code } = await transformLibrarySource(source, filename);
     await init;
     const [imports] = parse(code);
     return {
@@ -29,14 +33,29 @@ export async function lexLibraryImports(source: string, filename: string): Promi
   }
 }
 
+export async function lexCompositionUiImports(source: string, filename: string): Promise<string[]> {
+  const { code } = await transformLibrarySource(source, filename);
+  await init;
+  const [imports] = parse(code);
+  const specifiers = imports.flatMap((entry) => {
+    if (entry.d !== -1 || entry.n === undefined) return [];
+    const clause = /^import\s+([\s\S]+?)\s+from\s*["']/.exec(code.slice(entry.ss, entry.se))?.[1];
+    if (!clause || !clause.replace(/[{},\s]/g, "")) return [];
+    return entry.n.match(/^@\/components\/ui\/([^/]+)$/)?.[1] ?? [];
+  });
+  return [...new Set(specifiers)];
+}
+
 export async function compositionUiImports(root = webRoot): Promise<Record<string, string[]>> {
   const directory = join(root, "stories/review/compositions");
   const files = (await readdir(directory)).filter((name) => name.endsWith(".stories.tsx")).sort();
   return Object.fromEntries(await Promise.all(files.map(async (name) => {
     const file = join(directory, name);
-    const { specifiers, lexFailure } = await lexLibraryImports(await readFile(file, "utf8"), file);
-    if (lexFailure) throw new Error(`Couldn't read composition imports: ${name}`);
-    return [name, specifiers.flatMap((specifier) => specifier.match(/^@\/components\/ui\/([^/]+)$/)?.[1] ?? [])];
+    try {
+      return [name, await lexCompositionUiImports(await readFile(file, "utf8"), file)];
+    } catch {
+      throw new Error(`Couldn't read composition imports: ${name}`);
+    }
   })));
 }
 
