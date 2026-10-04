@@ -168,6 +168,223 @@ test("a partial revalidation keeps its fresh card purchases when the remaining r
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
+type FixtureCardRow = ReturnType<typeof activityResponse>["cards"]["rows"][number];
+
+function cardRow(rows: FixtureCardRow[], index: number): FixtureCardRow {
+  const row = rows[index];
+  if (!row) throw new Error(`Missing fixture card row ${index}`);
+  return row;
+}
+
+async function refreshWithNewerCards(page: Page, options: {
+  supersede?: boolean;
+  remainingRetriesFail?: boolean;
+  revalidationCardsUnavailable?: boolean;
+  revalidationCompletesCard?: boolean;
+  revalidationRemovesAuthorization?: boolean;
+  authorizationPersistedLate?: boolean;
+  revalidationOnchainUnavailable?: boolean;
+} = {}) {
+  const { feed, rows } = await setup(page);
+  let firstWindow: string | undefined;
+  let currentWindowReads = 0;
+  let newerWindowReads = 0;
+  let releaseFirstRead = () => {};
+  const firstReadHeld = new Promise<void>((resolve) => { releaseFirstRead = resolve; });
+  await page.route("**/api/activity*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/activity") return route.fallback();
+    const to = url.searchParams.get("to");
+    if (!to) return route.fallback();
+    firstWindow ??= to;
+    const newer = Date.parse(to) > Date.parse(firstWindow);
+    if (newer) newerWindowReads++;
+    else currentWindowReads++;
+    if (currentWindowReads === 1 && !newer) await firstReadHeld;
+    if (newer && options.remainingRetriesFail && newerWindowReads > 1) {
+      return route.fulfill({
+        status: 502,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "ACTIVITY_UPSTREAM", message: "Recent Base activity could not be loaded." } }),
+      });
+    }
+    const response = activityResponse(url, newer || (options.revalidationOnchainUnavailable === true && currentWindowReads > 1), newer);
+    if (!newer && options.revalidationCardsUnavailable && currentWindowReads > 1) {
+      response.cards.status = "unavailable";
+    }
+    if (options.revalidationCompletesCard) {
+      const completed = !newer && currentWindowReads > 1;
+      response.cards.rows[0] = {
+        ...cardRow(response.cards.rows, 0),
+        status: completed ? "completed" : "pending",
+        createdAt: new Date(Date.parse(firstWindow) - 30 * 60_000).toISOString(),
+        updatedAt: new Date(Date.parse(firstWindow) - (completed ? 30_000 : 60_000)).toISOString(),
+      };
+    }
+    if (options.supersede && !newer) {
+      response.cards.rows[0] = { ...cardRow(response.cards.rows, 0), id: "iauth_fixturerecovery1", kind: "authorization", status: "pending" };
+    }
+    if (newer) {
+      const fresh = cardRow(response.cards.rows, 1);
+      const createdAt = new Date(Date.parse(firstWindow) + 1).toISOString();
+      response.cards.rows[1] = { ...fresh, createdAt, updatedAt: createdAt };
+      if (options.supersede) {
+        const captureCreatedAt = new Date(Date.parse(firstWindow) + 2).toISOString();
+        response.cards.rows[0] = { ...cardRow(response.cards.rows, 0), createdAt: captureCreatedAt, updatedAt: captureCreatedAt };
+      }
+    }
+    if (options.revalidationRemovesAuthorization && (newer || (currentWindowReads === 1 && !options.authorizationPersistedLate))) {
+      const createdAt = new Date(Date.parse(firstWindow) - 30 * 60_000).toISOString();
+      response.cards.rows.push({
+        ...cardRow(response.cards.rows, 0), id: "iauth_fixturerecovery2", kind: "authorization", status: "pending",
+        merchantName: "Fixture Market", createdAt, updatedAt: createdAt,
+      });
+    }
+    return json(route, response);
+  });
+  await page.goto("/home");
+  await expect.poll(() => currentWindowReads).toBeGreaterThan(0);
+  await page.clock.pauseAt(new Date(FIXED_NOW + 60_000));
+  releaseFirstRead();
+  await expect.poll(async () => {
+    await page.clock.runFor(100);
+    return rows.count();
+  }, { timeout: 10_000 }).toBe(3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
+  if (options.supersede) await expect(feed.getByRole("list", { name: "Pending", exact: true }).getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toBeVisible();
+  if (options.authorizationPersistedLate) await expect(feed.getByRole("button", { name: /^Fixture Market/ })).toHaveCount(0);
+  await page.clock.runFor(1_000);
+  await page.getByLabel("Refresh Home").evaluate((element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Refresh Home is not an element");
+    element.click();
+  });
+  await expect.poll(async () => {
+    await page.clock.runFor(500);
+    return newerWindowReads;
+  }, { timeout: 15_000 }).toBe(3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  return { feed, rows, currentWindowReads: () => currentWindowReads };
+}
+
+for (const remainingRetriesFail of [false, true]) {
+  test(`a newer-window partial refresh shows new card purchases and keeps healthy transfers${remainingRetriesFail ? " when remaining retries fail" : ""}`, async ({ page }) => {
+    const { feed, rows } = await refreshWithNewerCards(page, { remainingRetriesFail });
+    await expect(rows).toHaveCount(3);
+    await expect(feed.getByText(warning)).toHaveCount(0);
+  });
+}
+
+test("a newer-window partial snapshot replaces a superseded authorization with its transaction", async ({ page }) => {
+  const { feed, rows } = await refreshWithNewerCards(page, { supersede: true });
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("healthy same-window revalidation preserves the newer-window card snapshot", async ({ page }) => {
+  const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page);
+  await page.clock.fastForward(11_000);
+  const readsBeforeRevalidation = currentWindowReads();
+  await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
+  await page.clock.runFor(100);
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("healthy same-window revalidation completes a shared pending card without losing newer-only cards", async ({ page }) => {
+  const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, { revalidationCompletesCard: true });
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toBeVisible();
+  await page.clock.fastForward(11_000);
+  const readsBeforeRevalidation = currentWindowReads();
+  await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
+  await expect.poll(async () => {
+    await page.clock.runFor(100);
+    return feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) }).count();
+  }).toBe(1);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("healthy same-window revalidation removes a missing authorization without losing newer-only cards", async ({ page }) => {
+  const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, { revalidationRemovesAuthorization: true });
+  const authorization = feed.getByRole("button", { name: /^Fixture Market.*Pending/ });
+  await expect(authorization).toBeVisible();
+  await page.clock.fastForward(11_000);
+  const readsBeforeRevalidation = currentWindowReads();
+  await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
+  await expect.poll(async () => {
+    await page.clock.runFor(100);
+    return feed.getByRole("button", { name: /^Fixture Market/ }).count();
+  }).toBe(0);
+  await expect(feed.getByRole("button", { name: /^Fixture Market/ })).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("partial same-window revalidation removes a missing authorization without losing newer-only cards or transfers", async ({ page }) => {
+  const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, {
+    revalidationRemovesAuthorization: true,
+    revalidationOnchainUnavailable: true,
+  });
+  await expect(feed.getByRole("button", { name: /^Fixture Market.*Pending/ })).toBeVisible();
+  await page.clock.fastForward(11_000);
+  const readsBeforeRevalidation = currentWindowReads();
+  await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
+  await expect.poll(async () => {
+    await page.clock.runFor(500);
+    return feed.getByRole("button", { name: /^Fixture Market/ }).count();
+  }, { timeout: 15_000 }).toBe(0);
+  expect(currentWindowReads()).toBeGreaterThanOrEqual(readsBeforeRevalidation + 3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("partial same-window revalidation removes a late-persisted authorization when cards match the old-window cache", async ({ page }) => {
+  const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, {
+    revalidationRemovesAuthorization: true,
+    authorizationPersistedLate: true,
+    revalidationOnchainUnavailable: true,
+  });
+  await expect(feed.getByRole("button", { name: /^Fixture Market.*Pending/ })).toBeVisible();
+  await page.clock.fastForward(11_000);
+  const readsBeforeRevalidation = currentWindowReads();
+  await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
+  await expect.poll(async () => {
+    await page.clock.runFor(500);
+    return feed.getByRole("button", { name: /^Fixture Market/ }).count();
+  }, { timeout: 15_000 }).toBe(0);
+  expect(currentWindowReads()).toBeGreaterThanOrEqual(readsBeforeRevalidation + 3);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("older-window card-source failure keeps newer cards and shows its warning", async ({ page }) => {
+  const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, { revalidationCardsUnavailable: true });
+  await page.clock.fastForward(11_000);
+  const readsBeforeRevalidation = currentWindowReads();
+  await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
+  await expect.poll(async () => {
+    await page.clock.runFor(100);
+    return feed.getByText("Card purchases may be out of date.").count();
+  }).toBe(1);
+  await expect(feed.getByText("Card purchases may be out of date.")).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+});
+
 test("a transient first read recovers automatically", async ({ page }) => {
   const { feed, rows } = await setup(page);
   let reads = 0;
