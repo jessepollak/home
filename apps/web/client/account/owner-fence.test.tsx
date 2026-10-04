@@ -487,6 +487,68 @@ describe("owner generation fence", () => {
     expect(signOutCalls).toBe(1);
   });
 
+  test("a second retrySessionValidation aborts the in-flight retry and keeps the newest status", async () => {
+    const pending: Array<{ resolve: (response: Response) => void; reject: (error: unknown) => void; signal: AbortSignal }> = [];
+    const sessionFetch = async (_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+      if (!init?.signal) throw new Error("Validation request must have an abort signal.");
+      pending.push({ resolve, reject, signal: init.signal });
+    });
+    render(
+      <AccountWalletSessionOwner sdk={sdk()} sessionFetch={sessionFetch}>
+        <ClientProbe />
+      </AccountWalletSessionOwner>,
+    );
+    await waitFor(() => expect(pending).toHaveLength(1));
+    expect(currentClient().status).toBe("validating");
+
+    const request = (index: number) => {
+      const entry = pending[index];
+      if (!entry) throw new Error(`Validation request ${index} was not started.`);
+      return entry;
+    };
+    let firstRetry = Promise.resolve();
+    act(() => { firstRetry = currentClient().retrySessionValidation(); });
+    await waitFor(() => expect(pending).toHaveLength(2));
+    expect(request(0).signal.aborted).toBe(true);
+    expect(request(1).signal.aborted).toBe(false);
+
+    let secondRetry = Promise.resolve();
+    act(() => { secondRetry = currentClient().retrySessionValidation(); });
+    await waitFor(() => expect(pending).toHaveLength(3));
+    expect(request(1).signal.aborted).toBe(true);
+    expect(request(2).signal.aborted).toBe(false);
+
+    await act(async () => { request(1).resolve(Response.json(session("cdp-embedded"))); });
+    expect(currentClient().status).toBe("validating");
+    expect(currentClient().session).toBeNull();
+    expect(currentClient().message).toBeNull();
+    expect(currentClient().verification).toBeNull();
+
+    await act(async () => {
+      request(2).resolve(Response.json(session("cdp-embedded")));
+      await firstRetry;
+      await secondRetry;
+    });
+    expect(currentClient().status).toBe("verified");
+    expect(currentClient().session).toEqual(session("cdp-embedded"));
+    expect(currentClient().message).toBeNull();
+  });
+
+  test("a non-Error token rejection reports the generic message", async () => {
+    render(
+      <AccountWalletSessionOwner
+        sdk={sdk({ getAccessToken: () => Promise.reject("provider unavailable") })}
+        sessionFetch={async () => { throw new Error("Session fetch must not run"); }}
+      >
+        <ClientProbe />
+      </AccountWalletSessionOwner>,
+    );
+    await waitFor(() => expect(currentClient().status).toBe("unavailable"));
+    expect(currentClient().message).toBe("Account verification is unavailable.");
+    expect(currentClient().session).toBeNull();
+    expect(currentClient().verification).toBeNull();
+  });
+
   test("advances the owner fence before sign-out cleanup settles", async () => {
     let finishSignOut!: () => void;
     const signOutPending = new Promise<void>((resolve) => { finishSignOut = resolve; });
