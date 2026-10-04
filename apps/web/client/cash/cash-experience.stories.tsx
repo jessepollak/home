@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, fn, userEvent, waitFor, within } from "storybook/test";
 import { HttpResponse, http } from "msw";
@@ -6,6 +6,8 @@ import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { canonicalUsdcAsset } from "@/config/portfolio-assets";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { HomeMoneySummary } from "@/client/home/home-overview";
+import { ProductOfferingProvider } from "@/client/home/product-offering";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { ShellHeader } from "@/client/home/shell-chrome";
 import { CashExperience } from "./cash-experience";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
@@ -165,6 +167,7 @@ type SurfaceProps = {
   reducedMotion?: boolean;
   ticking?: boolean;
   snapshotToggle?: boolean;
+  saveMode?: "on" | "exit-only";
   failPreparation?: boolean;
   balanceStale?: boolean;
   balanceActionStale?: boolean;
@@ -175,14 +178,21 @@ type SurfaceProps = {
   regionId?: RegionId;
 };
 
-function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, failPreparation = false, balanceStale = false, balanceActionStale = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
+function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, saveMode = "on", failPreparation = false, balanceStale = false, balanceActionStale = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
   const [view, setView] = useState(initialView);
   const clock = useRef(nowMs);
   const now = useCallback(() => clock.current, []);
   const [snapshotUnavailable, setSnapshotUnavailable] = useState(false);
   const [snapshotEntryUnavailable, setSnapshotEntryUnavailable] = useState(false);
   const [snapshotFunded, setSnapshotFunded] = useState(false);
+  const [snapshotEmpty, setSnapshotEmpty] = useState(false);
   const [balancesFailed, setBalancesFailed] = useState(false);
+  const [savePaused, setSavePaused] = useState(false);
+  const offering = useMemo(() => {
+    const value = resolveProductOffering({ kind: "deployment" });
+    value.products.save = savePaused ? "exit-only" : saveMode;
+    return value;
+  }, [saveMode, savePaused]);
   const balanceStatus = balancesFailed ? "failed" : initialBalanceStatus;
   useEffect(() => {
     if (!ticking) return;
@@ -208,18 +218,24 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
       setSnapshotFunded(true);
     };
     const failed = () => setBalancesFailed(true);
+    const pauseSave = () => setSavePaused(true);
+    const empty = () => setSnapshotEmpty(true);
     snapshotChanges.addEventListener("unavailable", unavailable);
     snapshotChanges.addEventListener("entry-unavailable", entryUnavailable);
     snapshotChanges.addEventListener("funded", funded);
     snapshotChanges.addEventListener("failed", failed);
+    snapshotChanges.addEventListener("save-exit-only", pauseSave);
+    snapshotChanges.addEventListener("empty", empty);
     return () => {
       snapshotChanges.removeEventListener("unavailable", unavailable);
       snapshotChanges.removeEventListener("entry-unavailable", entryUnavailable);
       snapshotChanges.removeEventListener("funded", funded);
       snapshotChanges.removeEventListener("failed", failed);
+      snapshotChanges.removeEventListener("save-exit-only", pauseSave);
+      snapshotChanges.removeEventListener("empty", empty);
     };
   }, [snapshotToggle]);
-  const cachedSnapshot = snapshotToggle && snapshotEntryUnavailable ? unfundedUsdcUnavailableSnapshot : snapshotToggle && snapshotUnavailable ? usdcUnavailableSnapshot : snapshotToggle && snapshotFunded ? fundedSnapshot : ticking && snapshot ? { ...snapshot, block: { ...snapshot.block, timestamp: String(Math.floor(NOW / 1000) - 120) } } : snapshot;
+  const cachedSnapshot = snapshotToggle && snapshotEmpty ? emptySnapshot : snapshotToggle && snapshotEntryUnavailable ? unfundedUsdcUnavailableSnapshot : snapshotToggle && snapshotUnavailable ? usdcUnavailableSnapshot : snapshotToggle && snapshotFunded ? fundedSnapshot : ticking && snapshot ? { ...snapshot, block: { ...snapshot.block, timestamp: String(Math.floor(NOW / 1000) - 120) } } : snapshot;
   const liveSnapshot = balanceStatus === "failed" ? null : cachedSnapshot;
   const prepareMoneyAction = async (endpoint: string, input: unknown) => {
     journey.prepared.push({ endpoint, input });
@@ -243,6 +259,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
   const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale} balanceActionStale={balanceActionStale} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
   return (
     <PresentationRegionProvider regionId={regionId}>
+      <ProductOfferingProvider value={offering}>
       <SavingsDialogFixtureProvider value={{ motion: reducedMotion ? "reduced" : "system" }}>
         <MoneyMotionProvider reducedMotion={reducedMotion ? true : undefined}>
         <div className="min-h-svh bg-muted/50">
@@ -258,6 +275,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
         </div>
         </MoneyMotionProvider>
       </SavingsDialogFixtureProvider>
+      </ProductOfferingProvider>
     </PresentationRegionProvider>
   );
 }
@@ -851,6 +869,46 @@ export const SavingsFirstUsePartial: Story = { args: { snapshot: { ...cashOnlySn
   await expect(screen.queryByRole("heading", { name: "Earn on your savings" })).toBeNull();
   await expect(screen.queryByRole("button", { name: "Start saving" })).toBeNull();
   await expect(screen.queryByRole("button", { name: "Deposit" })).toBeNull();
+} };
+export const CashSavingsHiddenWhileSavePaused: Story = { args: { snapshot: cashOnlySnapshot, saveMode: "exit-only" }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  await expect(await screen.findByRole("region", { name: "Currencies" })).toBeVisible();
+  await expect(screen.queryByRole("region", { name: "Savings" })).toBeNull();
+  await expect(screen.queryByText(/APY/)).toBeNull();
+} };
+export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const body = within(canvasElement.ownerDocument.body);
+  await userEvent.click(await screen.findByRole("button", { name: "Start saving" }));
+  const picker = await body.findByRole("dialog", { name: "Choose where to save" });
+  await userEvent.click(within(picker).getByRole("button", { name: /^Gauntlet USDC Prime/, description: "Deposit to Gauntlet USDC Prime" }));
+  const dialog = await body.findByRole("dialog", { name: "Deposit" });
+  await userEvent.type(within(dialog).getByRole("textbox", { name: "Amount" }), "25");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
+  const confirm = await body.findByRole("dialog", { name: "Confirm" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Deposit $25.00" }));
+  await waitFor(() => expect(journey.executed).toHaveLength(1));
+  await userEvent.click(body.getByRole("button", { name: "Done" }));
+  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await expect(await within(screen.getByLabelText("Savings balance")).findByRole("img", { name: "$25.00" })).toBeVisible();
+  snapshotChanges.dispatchEvent(new Event("save-exit-only"));
+  await userEvent.click(within(canvasElement).getByRole("button", { name: "Back" }));
+  const savings = within(await screen.findByRole("region", { name: "Savings" }));
+  const row = savings.getByRole("button", { description: "Open savings" });
+  await expect(row).toBeEnabled();
+  await expect(within(row).getByText("Pending")).toBeVisible();
+  await expect(within(row).getByRole("img", { name: "$25.00" })).toBeVisible();
+  await expect(savings.queryByRole("img", { name: "$0.00" })).toBeNull();
+  snapshotChanges.dispatchEvent(new Event("empty"));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Currencies" })).toBeNull());
+  await expect(screen.getByRole("region", { name: "Savings" })).toBeVisible();
+  await expect(within(row).getByText("Pending")).toBeVisible();
+  await expect(within(row).getByRole("img", { name: "$25.00" })).toBeVisible();
+  await userEvent.click(row);
+  const pendingSavings = within(await screen.findByRole("region", { name: "Your savings" }));
+  await expect(pendingSavings.getByText("Pending")).toBeVisible();
+  await expect(pendingSavings.getByRole("img", { name: "$25.00" })).toBeVisible();
+  await expect(screen.queryByRole("region", { name: "More ways to save" })).toBeNull();
 } };
 export const SavingsFirstDepositTransition: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
