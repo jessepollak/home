@@ -1,13 +1,16 @@
 import { spawn } from "node:child_process";
 import { mkdir, open, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { androidGeometry, assertFixtureNavigation, assertSessionAge, chromiumGeometry, measureCalibration, normalizationArgs, parseClipArgs, previewLabel, targetFlags } from "./clip-core.mjs";
+import { androidGeometry, assertFixtureNavigation, assertSessionAge, chromiumGeometry, webkitGeometry, measureCalibration, normalizationArgs, parseClipArgs, previewLabel, targetFlags } from "./clip-core.mjs";
 import { localTarget } from "./clip-targets";
 import { remoteCommand, remoteStartTimeout, remoteTarget, sshArgs } from "./clip-remote";
 import { CommandError, browser, load, probeVideo, privateDirectory, removeSession, repository, run, save, sessionDirectory, until, verifyDirectory, waitForResult, workerAlive, workerIdentity, type ClipState, type WorkerIdentity } from "./clip-runtime";
+import { validateWebkitCommand, webkitDevice } from "../../apps/web/scripts/clip-webkit";
 
 type Request = { out?: string; cancel?: boolean };
 type Result = { error?: string; cleanupError?: boolean; out?: string; width?: number; height?: number; label?: string };
+type DriveRequest = { id: string; args: string[] };
+type DriveResult = { id: string; value?: unknown; error?: string };
 
 async function worker(directory: string) {
   const state = await load<ClipState>(join(directory, "state.json"));
@@ -17,6 +20,8 @@ async function worker(directory: string) {
   const result: Result = {};
   let interrupted = false;
   const cancel = () => { interrupted = true; };
+  let driving: Promise<void> | undefined;
+  let driveError: unknown;
   process.on("SIGINT", cancel); process.on("SIGTERM", cancel); process.on("SIGHUP", cancel);
   try {
     assertSessionAge(state, Date.now());
@@ -31,6 +36,18 @@ async function worker(directory: string) {
       if (interrupted) throw new Error("Clip interrupted");
       assertSessionAge(state, Date.now());
       await target.monitor();
+      if (driveError) throw driveError;
+      if (state.target === "webkit" && !driving) {
+        const drive = await load<DriveRequest>(join(directory, "drive.json")).catch(() => undefined);
+        if (drive) {
+          await rm(join(directory, "drive.json"), { force: true });
+          driving = (async () => {
+            const response: DriveResult = { id: drive.id };
+            try { response.value = await target.command!(drive.args); } catch (error) { response.error = String(error); }
+            await save(join(directory, "drive-result.json"), response);
+          })().catch((error) => { driveError = error; }).finally(() => { driving = undefined; });
+        }
+      }
       request = await load<Request>(join(directory, "request.json")).catch(() => undefined);
       return Boolean(request);
     }, Infinity);
@@ -52,6 +69,7 @@ async function worker(directory: string) {
         filter = chromiumGeometry(raw, state.css!, calibration.markerWidth).filter;
         trim = calibration.trim;
       }
+      if (state.target === "webkit") filter = webkitGeometry(raw, state.viewport).filter;
       if (state.target === "android" && !state.keepStatusBar) filter = androidGeometry(raw, state.androidScreen, state.statusBarHeight).filter;
       const temporary = join(directory, "normalized.mp4");
       await run("ffmpeg", normalizationArgs(state.raw, temporary, filter, trim), { timeout: 180000 });
@@ -62,6 +80,7 @@ async function worker(directory: string) {
   } catch (error) { result.error = String(error); }
   finally {
     try { await target.cleanup(); } catch (error) { result.cleanupError = true; result.error = [result.error, String(error)].filter(Boolean).join("\n"); }
+    await driving?.catch((error) => { result.error = [result.error, String(error)].filter(Boolean).join("\n"); });
     process.off("SIGINT", cancel); process.off("SIGTERM", cancel); process.off("SIGHUP", cancel);
     await rm(state.raw, { force: true });
     await rm(join(directory, "normalized.mp4"), { force: true });
@@ -88,12 +107,13 @@ async function main() {
   }
   try {
     if (args.command === "start") {
+      if (args.target === "webkit") webkitDevice(args.device);
       await privateDirectory(directory).catch((error) => {
         if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`Clip session ${args.session} already exists; stop it first`);
         throw error;
       });
       owned = true;
-      const state: ClipState = { session: args.session, target: args.target, viewport: args.viewport, url: args.url, device: args.device, serial: args.serial, remote: args.remote, keepStatusBar: args.keepStatusBar, raw: join(directory, args.target === "chromium" ? "raw.webm" : "raw.mp4"), maxAge: args.maxAge, createdAt: Date.now(), workerNonce: crypto.randomUUID() };
+      const state: ClipState = { session: args.session, target: args.target, viewport: args.viewport, url: args.url, device: args.device, fixture: args.fixture, serial: args.serial, remote: args.remote, keepStatusBar: args.keepStatusBar, raw: join(directory, ["chromium", "webkit"].includes(args.target) ? "raw.webm" : "raw.mp4"), maxAge: args.maxAge, createdAt: Date.now(), workerNonce: crypto.randomUUID() };
       await save(join(directory, "state.json"), state);
       const log = await open(join(directory, "worker.log"), "a", 0o600);
       const child = spawn(process.execPath, [join(repository, "scripts/verify/clip.ts"), "__worker", directory, state.workerNonce], { cwd: repository, detached: true, stdio: ["ignore", log.fd, log.fd] });
@@ -145,7 +165,27 @@ async function main() {
       operation = true; owned = true;
       if (args.command === "ab") {
         assertFixtureNavigation(state, args.browserArgs);
-        if (state.remote) {
+        if (state.target === "webkit") {
+          validateWebkitCommand(args.browserArgs);
+          const id = crypto.randomUUID();
+          await save(join(directory, "drive.json"), { id, args: args.browserArgs });
+          let response: DriveResult | undefined;
+          await until(async () => {
+            if (controller.signal.aborted) throw new Error("Clip interrupted");
+            const failure = await load<Result>(join(directory, "result.json")).catch(() => undefined);
+            if (failure) throw new Error(failure.error ?? "Clip session has ended");
+            if (!await workerAlive(worker)) {
+              const ended = await load<Result>(join(directory, "result.json")).catch(() => undefined);
+              throw new Error(ended?.error ?? `Clip worker is no longer running. Run: bun run clip cleanup --session ${args.session}`);
+            }
+            response = await load<DriveResult>(join(directory, "drive-result.json")).catch(() => undefined);
+            return response?.id === id;
+          }, Math.max(60000, state.maxAge * 1000));
+          await rm(join(directory, "drive-result.json"), { force: true });
+          if (response!.error) throw new Error(response!.error);
+          const value = response!.value;
+          console.log(typeof value === "string" ? value : JSON.stringify(value) ?? "OK");
+        } else if (state.remote) {
           try { await run("ssh", sshArgs(state, remoteCommand(state, ["ab", "--session", args.session, "--", ...args.browserArgs])), { inherit: true, signal: controller.signal, timeout: 90000 }); }
           catch (error) {
             if (error instanceof CommandError && error.exitCode === 255) throw new Error(`Remote is unreachable: ${String(error)}. If cleanup cannot connect, retry: bun run clip cleanup --session ${args.session}`);

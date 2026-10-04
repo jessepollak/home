@@ -1,9 +1,9 @@
-export const usage = "bun run clip start --target chromium|ios|android --session <name> [--url <url>] [--device <name>|--serial <serial>] [--viewport WxH] [--max-age <seconds>] [--remote] [--keep-status-bar]\nbun run clip ab --session <name> -- <browser args...>\nbun run clip stop --session <name> --out <path.mp4>\nbun run clip cleanup --session <name>";
+export const usage = "bun run clip start --target chromium|webkit|ios|android --session <name> [--url <url>] [--device <name>|--serial <serial>] [--fixture send|savings-deposit|savings-withdraw] [--viewport WxH] [--max-age <seconds>] [--remote] [--keep-status-bar]\nbun run clip ab --session <name> -- <browser args...>\nbun run clip stop --session <name> --out <path.mp4>\nbun run clip cleanup --session <name>";
 
 export function parseClipArgs(args) {
   const [command, ...rest] = args;
   if (!["start", "ab", "stop", "cleanup"].includes(command)) throw new Error(usage);
-  const allowed = command === "start" ? ["target", "session", "url", "device", "serial", "viewport", "max-age", "remote", "keep-status-bar"] : command === "stop" ? ["session", "out"] : ["session"];
+  const allowed = command === "start" ? ["target", "session", "url", "device", "serial", "fixture", "viewport", "max-age", "remote", "keep-status-bar"] : command === "stop" ? ["session", "out"] : ["session"];
   const flags = {};
   let browserArgs = [];
   for (let i = 0; i < rest.length; i++) {
@@ -20,13 +20,16 @@ export function parseClipArgs(args) {
   }
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,47}$/.test(flags.session ?? "")) throw new Error("--session requires 1–48 letters, digits, underscores or hyphens");
   if (command === "start") {
-    if (!["chromium", "ios", "android"].includes(flags.target)) throw new Error("--target requires chromium, ios or android");
+    if (!["chromium", "webkit", "ios", "android"].includes(flags.target)) throw new Error("--target requires chromium, webkit, ios or android");
+    if (flags.target === "webkit" && flags.remote) throw new Error("--remote is not supported by webkit");
+    if (flags.fixture && flags.target !== "webkit") throw new Error("--fixture is supported only by webkit; use fixture-session for other targets");
+    if (flags.fixture && !["send", "savings-deposit", "savings-withdraw"].includes(flags.fixture)) throw new Error("--fixture requires send, savings-deposit or savings-withdraw");
     flags.viewport = parseViewport(flags.viewport ?? "390x844");
     flags.maxAge = Number(flags["max-age"] ?? 600);
     delete flags["max-age"];
     if (!Number.isSafeInteger(flags.maxAge) || flags.maxAge < 1) throw new Error("--max-age requires a positive integer number of seconds");
     if (flags.target !== "chromium" && rest.includes("--viewport")) throw new Error("--viewport is supported only by chromium; device recordings keep the real screen");
-    if (flags.target === "chromium" && flags.device) throw new Error("--device requires ios or android");
+    if (flags.target === "chromium" && flags.device) throw new Error("--device requires webkit, ios or android");
     if (flags.serial && flags.target !== "android") throw new Error("--serial requires android");
     if (flags["keep-status-bar"] && flags.target !== "android") throw new Error("--keep-status-bar requires android");
     if (flags["keep-status-bar"]) { flags.keepStatusBar = true; delete flags["keep-status-bar"]; }
@@ -110,6 +113,13 @@ export function chromiumGeometry(raw, viewport, markerWidth) {
   return { ...output, restoredWidth, filter: restoredWidth === output.width ? null : `scale=${restoredWidth}:${output.height},crop=${output.width}:${output.height}:0:0,setsar=1` };
 }
 
+export function webkitGeometry(raw, viewport) {
+  if (![raw.width, raw.height, viewport.width, viewport.height].every((value) => Number.isSafeInteger(value) && value > 0)) throw new Error("Invalid WebKit capture geometry");
+  if (raw.width !== Math.floor(viewport.width / 2) * 2 || raw.height !== Math.floor(viewport.height / 2) * 2) throw new Error("WebKit raw frame does not match the even-rounded CSS viewport; recording discarded");
+  const width = viewport.width * 2, height = viewport.height * 2;
+  return { width, height, filter: `scale=${width}:${height}:flags=lanczos,setsar=1` };
+}
+
 export function androidStatusBar(dump) {
   const failure = () => { throw new Error("Could not determine Android status bar height in device pixels; use --keep-status-bar to retain it explicitly"); };
   const display = dump.split(/(?=^\s*Display: mDisplayId=)/m).find((part) => /^\s*Display: mDisplayId=0\b/m.test(part));
@@ -143,10 +153,10 @@ export function measureCalibration(pixels, width, rows = 16, fps = 30) {
     }
     if (markerWidth > width / 4) matches.push({ frame, width: markerWidth });
   }
-  if (matches.length < 3) throw new Error("Chromium calibration marker not found in at least three frames; recording discarded");
+  if (matches.length < 3) throw new Error("Capture calibration marker not found in at least three frames; recording discarded");
   const widths = matches.map((match) => match.width).sort((a, b) => a - b);
   const markerWidth = widths[Math.floor(widths.length / 2)];
-  if (widths.at(-1) - widths[0] > 2) throw new Error("Chromium calibration geometry changed during capture; recording discarded");
+  if (widths.at(-1) - widths[0] > 2) throw new Error("Capture calibration geometry changed during capture; recording discarded");
   return { markerWidth, trim: (matches.at(-1).frame + 2) / fps };
 }
 
@@ -167,6 +177,7 @@ export function shellQuote(value) { return `'${String(value).replaceAll("'", "'\
 export function previewLabel(state) {
   const size = `${state.css.width}×${state.css.height} CSS px`;
   if (state.target === "android") return `Android Chrome ${state.chromeVersion} (${state.model}${state.emulator ? " emulator" : ""}) ${size}${state.keepStatusBar ? " — status bar retained" : state.statusBarHeight ? " — status bar cropped" : ""}`;
+  if (state.target === "webkit") return `WebKit ${state.webkitVersion} (Playwright ${state.device} profile) ${size}`;
   if (state.target === "ios") return `iOS Simulator ${state.model} Safari ${size}`;
   return `Chromium ${size}`;
 }

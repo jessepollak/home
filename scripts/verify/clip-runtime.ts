@@ -7,8 +7,9 @@ import { setTimeout as wait } from "node:timers/promises";
 
 export const repository = resolve(import.meta.dir, "../..");
 export type ClipState = {
-  session: string; target: "chromium" | "ios" | "android"; remote?: boolean;
+  session: string; target: "chromium" | "webkit" | "ios" | "android"; remote?: boolean;
   url?: string; device?: string; serial?: string; viewport: { width: number; height: number };
+  fixture?: "send" | "savings-deposit" | "savings-withdraw"; webkitVersion?: string;
   raw: string; recorderPid?: number; deviceRecorderPid?: number; cdpPort?: number;
   css?: { width: number; height: number; outerWidth: number; dpr: number };
   model?: string; chromeVersion?: string; emulator?: boolean; startedAt?: number; recordingAt?: number;

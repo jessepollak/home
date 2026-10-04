@@ -9,6 +9,7 @@ import { activateTarget, connectCdp } from "../../apps/web/scripts/device-profil
 import { CHROME_COMMAND_LINE, chromeCommandLineArgs, chromeCommandLineSnapshot, debugAppFrom, isEmulatorDevice, parseAdbDevices, safeName } from "../../apps/web/scripts/device-profile/model";
 import { activateRecordedPage, androidStatusBar, assertFixtureTargets, validateChromiumViewport, cleanupSteps, dndMode, loopbackPort, selectAndroidDevice, targetFlags } from "./clip-core.mjs";
 import { alive, browser, exists, run, save, stopChild, until, type ClipState } from "./clip-runtime";
+import { webkitTarget } from "../../apps/web/scripts/clip-webkit";
 
 async function freePort() {
   const server = createServer();
@@ -24,9 +25,11 @@ export interface ClipTarget {
   stop(): Promise<void>;
   cleanup(): Promise<void>;
   monitor(): Promise<void>;
+  command?(args: string[]): Promise<unknown>;
 }
 export function localTarget(state: ClipState, directory: string, recover = false, dependencies: Partial<typeof defaults> = {}): ClipTarget {
   const { spawn, acquireDeviceLock, connectCdp, browser, exists, run, save, stopChild, until, readFile, rm, freePort, fetch, now } = { ...defaults, ...dependencies };
+  if (state.target === "webkit") return webkitTarget(state, directory);
   if (state.target === "ios") return {
     async start() { throw new Error("iOS Simulator clips are not supported yet; see https://github.com/jessepollak/home/issues/1927"); },
     async stop() {}, async cleanup() {}, async monitor() {},

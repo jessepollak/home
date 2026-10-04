@@ -52,6 +52,7 @@
     "scripts/activity-scroll-profile.ts!",
     "scripts/modal-open-profile.ts!",
     "scripts/navigation-profile.ts!",
+    "scripts/clip-webkit.ts!",
     "scripts/performance/budget.ts!",
     "scripts/performance/seeds-check.ts!",
     "scripts/device-profile/cli.ts!",
