@@ -40,7 +40,7 @@
 
 Failure-cases: <tested>/<dependency calls>
 <!-- Count money-path external reads and writes the diff adds or touches, and how many have a rejection, timeout, or partial-result test; see the test policy's "Choose the case, then the layer". Use N/A: <reason> only for docs-only and CI-only PRs. -->
-<!-- Scoped fix(...) PRs: add one visible `Caught-by: <lint|bot|review|browser|production>` line outside comments and fenced code. Identical repeats count once; different detectors fail CI. -->
+<!-- Scoped fix(...) PRs: add one visible `Caught-by: <lint|unit|bot|review|browser|production>` line outside comments and fenced code. Identical repeats count once; different detectors fail CI. -->
 <!-- Optional for new Playwright declarations: Playwright-rung: <layout|scrolling|focus|history|persisted-state|media-query|hydration|dispatch|journey> -->
 
 ## Review

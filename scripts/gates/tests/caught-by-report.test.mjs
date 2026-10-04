@@ -147,6 +147,7 @@ test("classifies scoped fixes by their deduped Caught-by trailer", () => {
   ]);
   assert.deepEqual(summary.detectors.map((row) => [row.detector, row.count, row.share]), [
     ["lint", 1, 1 / 5],
+    ["unit", 0, 0],
     ["bot", 0, 0],
     ["review", 0, 0],
     ["browser", 1, 1 / 5],
@@ -161,6 +162,21 @@ test("classifies scoped fixes by their deduped Caught-by trailer", () => {
   ]);
 });
 
+test("counts unit detections from trailers and PR bodies in reports", () => {
+  const summary = summarizeFixCommits([
+    commit_("1".repeat(40), "fix(amounts): reject invalid amount", "Caught-by: unit\nCaught-by: unit"),
+    commit_("2".repeat(40), "fix(amounts): reject invalid amount (#12)"),
+  ], { pullRequestBody: () => "Caught-by: unit" });
+  assert.deepEqual(summary.fixes.map(({ detector, detectorSource }) => [detector, detectorSource]), [
+    ["unit", "trailer"], ["unit", "pr-body"],
+  ]);
+  assert.deepEqual(summary.detectors.find(({ detector }) => detector === "unit"), { detector: "unit", count: 2, share: 1 });
+  assert.equal(summary.scopes[0].counts.unit, 2);
+  const markdown = renderMarkdown({ ...summarizeReport(2), ...summary });
+  assert.ok(markdown.includes("| lint | unit | bot | review | browser | production | mixed | unknown |"));
+  assert.ok(markdown.includes("| unit | 2 | 100.0% |"));
+});
+
 test("excludes fixes marked pre-policy from detector counts and shares", () => {
   const prePolicySha = "1".repeat(40);
   const summary = summarizeFixCommits([
@@ -170,6 +186,7 @@ test("excludes fixes marked pre-policy from detector counts and shares", () => {
   assert.deepEqual(summary.fixes.map((fix) => fix.prePolicy), [true, false]);
   assert.deepEqual(summary.detectors.map((row) => [row.detector, row.count, row.share]), [
     ["lint", 0, 0],
+    ["unit", 0, 0],
     ["bot", 1, 1],
     ["review", 0, 0],
     ["browser", 0, 0],
@@ -257,6 +274,7 @@ test("defaults to the last 30 days on the current branch", () => {
   assert.equal(report.total, 6, "the 35-day-old lint fix is outside the window");
   assert.deepEqual(report.detectors.map((row) => [row.detector, row.count, row.share]), [
     ["lint", 0, 0],
+    ["unit", 0, 0],
     ["bot", 1, 1 / 6],
     ["review", 1, 1 / 6],
     ["browser", 1, 1 / 6],
@@ -265,9 +283,9 @@ test("defaults to the last 30 days on the current branch", () => {
     ["unknown", 1, 1 / 6],
   ]);
   assert.deepEqual(report.scopes.map((row) => [row.scope, row.total, row.counts]), [
-    ["balances", 3, { lint: 0, bot: 0, review: 1, browser: 1, production: 0, mixed: 1, unknown: 0 }],
-    ["access", 2, { lint: 0, bot: 1, review: 0, browser: 0, production: 0, mixed: 0, unknown: 1 }],
-    ["home", 1, { lint: 0, bot: 0, review: 0, browser: 0, production: 1, mixed: 0, unknown: 0 }],
+    ["balances", 3, { lint: 0, unit: 0, bot: 0, review: 1, browser: 1, production: 0, mixed: 1, unknown: 0 }],
+    ["access", 2, { lint: 0, unit: 0, bot: 1, review: 0, browser: 0, production: 0, mixed: 0, unknown: 1 }],
+    ["home", 1, { lint: 0, unit: 0, bot: 0, review: 0, browser: 0, production: 1, mixed: 0, unknown: 0 }],
   ]);
 });
 
@@ -303,8 +321,8 @@ test("renders detector shares, scope columns, and candidate files as markdown", 
     "| lint | 0 | 0.0% |",
     "| mixed | 1 | 16.7% |",
     "| unknown | 1 | 16.7% |",
-    "| balances | 3 | 0 | 0 | 1 | 1 | 0 | 1 | 0 |",
-    "| access | 2 | 0 | 1 | 0 | 0 | 0 | 0 | 1 |",
+    "| balances | 3 | 0 | 0 | 0 | 1 | 1 | 0 | 1 | 0 |",
+    "| access | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 1 |",
     `- \`${shas.production.slice(0, 12)}\` fix(home): restore redirect state — \`apps/web/redirect.ts\``,
     `- \`${shas.bot.slice(0, 12)}\` fix(access): repair session restore — \`apps/web/cookie.ts\`, \`apps/web/session.ts\``,
   ]) {
@@ -315,13 +333,13 @@ test("renders detector shares, scope columns, and candidate files as markdown", 
 test("renders an empty corpus without rows or candidates", () => {
   const markdown = renderMarkdown(summarizeReport(0));
   assert.ok(markdown.includes("Fix commits: 0"));
-  assert.ok(markdown.includes("| _(none)_ | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"));
+  assert.ok(markdown.includes("| _(none)_ | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |"));
   assert.ok(markdown.includes("None in this range."));
   assert.ok(!markdown.includes("Detectors recovered from pull request bodies:"));
 });
 
 function summarizeReport(total, candidates = []) {
-  const detectors = ["lint", "bot", "review", "browser", "production", "mixed", "unknown"].map((detector) => ({ detector, count: 0, share: 0 }));
+  const detectors = ["lint", "unit", "bot", "review", "browser", "production", "mixed", "unknown"].map((detector) => ({ detector, count: 0, share: 0 }));
   return { range: null, since: "30.days", total, prePolicyTotal: 0, policyStart: null, detectors, scopes: [], candidates, fixes: [] };
 }
 
