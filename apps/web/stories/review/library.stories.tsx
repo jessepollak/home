@@ -210,7 +210,7 @@ export const OverviewGrid: Story = {
 };
 
 const compositionsIndex = indexOf([
-  ...fixtureEntries,
+  ...Object.values(fullOverviewIndex),
   story("compositions-home--home", "Compositions/Home", "Home", "./stories/review/compositions/home.stories.tsx"),
   story("compositions-deposit-to-savings--deposit-to-savings", "Compositions/Deposit to Savings", "Deposit to Savings",
     "./stories/review/compositions/deposit-to-savings.stories.tsx"),
@@ -231,6 +231,9 @@ export const Compositions: Story = {
     await userEvent.click(canvas.getByRole("option", { name: "Compositions, 2 compositions" }));
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
     await expect(within(surface).getByText("Compositions · 2 compositions")).toBeVisible();
+    await expect(await within(surface).findByRole("link", { name: "Button Group" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
+    await expect(within(surface).getByRole("link", { name: "Dialog" })).toBeVisible();
+    await expect(within(surface).getByText(/^Not used in any product screen:/)).toHaveTextContent("Not used in any product screen: Button Group, Dialog, Kbd, Progress");
     await expect(search(canvasElement).get("component")).toBe("compositions");
     await expect(window.history.length).toBe(historyLength + 1);
     for (const name of ["Home", "Deposit to Savings", "Deposit Submitted"]) {

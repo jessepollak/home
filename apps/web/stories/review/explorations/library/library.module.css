@@ -353,6 +353,16 @@
   color: var(--muted-foreground);
   font-size: 11px;
 }
+.unusedComponents {
+  margin: 0 0 24px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+.unusedComponents a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
 .caption, .viewportCaption {
   flex: none;
   color: var(--muted-foreground);

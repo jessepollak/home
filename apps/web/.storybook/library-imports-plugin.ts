@@ -41,6 +41,9 @@ async function lexCompositionImports(source: string, filename: string): Promise<
   await init;
   const [imports] = parse(code);
   return [...new Set(imports.flatMap((entry) => {
+    if (entry.d >= 0 && entry.n === undefined) {
+      throw new Error(`Nonliteral dynamic composition import in ${filename} at offset ${entry.ss}`);
+    }
     if (entry.n === undefined) return [];
     if (entry.d >= 0) return [entry.n];
     const statement = code.slice(entry.ss, entry.se);

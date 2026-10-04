@@ -18,6 +18,7 @@ const meta = {
   },
   parameters: {
     layout: "fullscreen",
+    a11y: { test: "error" },
     library: { render: "frame", order: 8 },
     viewport: { viewports: { desktop1280: { name: "1280 × 800", styles: { width: "1280px", height: "800px" } } }, defaultViewport: "desktop1280" },
   },

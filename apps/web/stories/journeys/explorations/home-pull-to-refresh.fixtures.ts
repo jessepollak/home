@@ -35,5 +35,6 @@ export const wallet: AccountWalletClient = {
 export const homeShellHandlers = [
   http.get("/api/support/summary", () => HttpResponse.json({ version: SUPPORT_CONTRACT_VERSION, unreadCount: 0 })),
   http.get("/api/actions", () => HttpResponse.json({ actions: [] })),
+  http.post("/api/client-performance", () => HttpResponse.json({ ok: true })),
   http.get("https://api.ensideas.com/*", () => HttpResponse.json({ name: null, avatar: null })),
 ];

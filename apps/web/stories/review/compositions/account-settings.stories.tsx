@@ -36,6 +36,7 @@ const meta = {
   component: AccountSettingsComposition,
   parameters: {
     layout: "fullscreen",
+    a11y: { test: "error" },
     library: { render: "frame", order: 7 },
     viewport: { viewports: { phone390: { name: "390 × 844", styles: { width: "390px", height: "844px" } } }, defaultViewport: "phone390" },
     msw: accountJourney.parameters.msw,
@@ -58,10 +59,11 @@ export const AccountSettings: Story = {
     await expect(await canvas.findByRole("button", { name: /Copy invite link/ })).toBeVisible();
   },
 };
-export const InviteLoading: Story = { args: { inviteState: "loading" } };
-export const InviteUnavailable: Story = { args: { inviteState: "unavailable" } };
+export const InviteLoading: Story = { args: { inviteState: "loading" }, parameters: { a11y: { test: "todo" } } };
+export const InviteUnavailable: Story = { args: { inviteState: "unavailable" }, parameters: { a11y: { test: "todo" } } };
 export const InviteError: Story = {
   args: { inviteState: "error" },
+  parameters: { a11y: { test: "todo" } },
   play: async ({ canvasElement }) => {
     await expect(await within(canvasElement).findByRole("button", { name: "Try again" })).toBeVisible();
   },

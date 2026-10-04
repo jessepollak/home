@@ -5,6 +5,7 @@ import { InvestExperience } from "@/client/invest/invest-experience";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { shellContentFrameClassName } from "@/components/shell-layout";
 import { searchFixture } from "@/tests/browser/feature-map/search-fixtures";
+import { investMarketHandlers } from "./explorations/invest-market.fixtures";
 
 function InvestSearchJourney() {
   return <main className={`${shellContentFrameClassName} py-4`}><InvestExperience /></main>;
@@ -21,7 +22,7 @@ const meta = {
         const query = new URL(request.url).searchParams.get("q") ?? "";
         return query === "unavailable" ? new HttpResponse(null, { status: 503 }) : HttpResponse.json(searchFixture(query));
       }),
-      http.get("/api/market-prices/history", () => HttpResponse.json({ version: 1, provider: "codex", assetId: "base:0x1111111111111111111111111111111111111111", range: "1W", currency: "USD", fetchedAt: null, status: "empty", points: [] })),
+      ...investMarketHandlers,
     ] },
   },
 } satisfies Meta<typeof InvestSearchJourney>;

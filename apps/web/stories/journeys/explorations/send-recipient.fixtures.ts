@@ -2,7 +2,8 @@ import { HttpResponse, http } from "msw";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
-import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
+import { FUNDING_OPEN_ORDER_VERSION } from "@/shared/funding/contracts/open-order";
+import { fundingProvidersBody } from "@/tests/browser/fixtures/bodies";
 
 export const ACCOUNT: `0x${string}` = "0x1111111111111111111111111111111111111111";
 export const RECIPIENT: `0x${string}` = "0x2211d1D0020DAEA8039E46Cf1367962070d77DA9";
@@ -28,9 +29,12 @@ export function recipientResources(mode: Mode): AccountWalletClient["fetchAccoun
   return async (url) => {
     if (url.startsWith("/api/funding/providers")) {
       if (mode === "providers-error") throw new Error("Providers unavailable");
-      return { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [] };
+      const direction = new URL(url, "https://home.test").searchParams.get("direction") ?? "offramp";
+      if (direction !== "onramp" && direction !== "offramp") throw new Error(`Unexpected funding direction: ${direction}`);
+      return { ...fundingProvidersBody, direction };
     }
     if (url.startsWith("/api/funding/offramp/orders")) return { version: 3, recoveryEligible: false, orders: [] };
+    if (url.startsWith("/api/funding/orders")) return { version: FUNDING_OPEN_ORDER_VERSION, order: null };
     if (url.startsWith("/api/transfers/recent-recipients")) return { version: 1, recipients: mode === "recent" ? recent : [] };
     if (url.startsWith("/api/actions/network-fee")) return { version: 1, usdcReserveBaseUnits: null };
     if (url.startsWith("/api/transfers/recipient-name")) {
@@ -46,7 +50,7 @@ export function recipientResources(mode: Mode): AccountWalletClient["fetchAccoun
 }
 
 export const sendRecipientHandlers = [
-  ...["/api/funding/providers", "/api/funding/offramp/orders", "/api/transfers/recent-recipients", "/api/actions/network-fee", "/api/transfers/recipient-name"].map((path) =>
+  ...["/api/funding/providers", "/api/funding/orders", "/api/funding/offramp/orders", "/api/transfers/recent-recipients", "/api/actions/network-fee", "/api/transfers/recipient-name"].map((path) =>
     http.get(path, async ({ request }) => {
       const path = request.url.replace(new URL(request.url).origin, "");
       if (path.startsWith("/api/transfers/recipient-name") && new URL(request.url).searchParams.get("name") !== "example.base.eth") {

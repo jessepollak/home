@@ -37,6 +37,22 @@ describe("Storybook unexpected-request guard", () => {
     }
   });
 
+  test("allows fixture source modules without opening other tests or network requests", () => {
+    const entry = `${ORIGIN}/tests/browser/fixtures/bodies.ts?t=1`;
+    expect(() => rejectUnexpectedStoryRequest(new Request(entry), ORIGIN)).not.toThrow();
+    expect(isStorybookRuntimeRequest(new Request(entry, { method: "HEAD" }), ORIGIN)).toBeTrue();
+    for (const request of [
+      new Request(`${ORIGIN}/tests/browser/other.ts`),
+      new Request(`${ORIGIN}/tests/browser/fixtures/bodies.json`),
+      new Request(entry, { method: "POST" }),
+      new Request(`${ORIGIN}/tests/browser/fixtures/..%2fprivate.ts`),
+      new Request("https://provider.example.invalid/tests/browser/fixtures/bodies.ts"),
+    ]) {
+      expect(isStorybookRuntimeRequest(request, ORIGIN)).toBeFalse();
+      expect(() => rejectUnexpectedStoryRequest(request, ORIGIN)).toThrow("[Storybook request guard]");
+    }
+  });
+
   test("fails visibly for unexpected component, API, and external requests", () => {
     for (const request of [
       new Request(`${ORIGIN}/api/balances`),

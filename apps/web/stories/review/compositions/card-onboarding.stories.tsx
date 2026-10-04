@@ -13,7 +13,7 @@ function CardOnboardingComposition({ initial = "not-enrolled" }: { initial?: Car
   const cards: CardScreenData = initial === "loading" || initial === "failed" ? { status: initial } : { status: "ready", response };
   return (
     <div className="flex h-svh flex-col bg-muted">
-      <main className={`min-h-0 flex-1 overflow-y-auto ${shellNavigationClearanceClassName}`}>
+      <main id="navigation-panel" className={`min-h-0 flex-1 overflow-y-auto ${shellNavigationClearanceClassName}`}>
         <div className={`${shellContentFrameClassName} py-4`}>
           <CardScreen cards={cards} onRetry={() => {}} onOpenVerification={() => setResponse(cardsBody("ready-to-issue"))}
             commands={{
@@ -34,6 +34,7 @@ const meta = {
   component: CardOnboardingComposition,
   parameters: {
     layout: "fullscreen",
+    a11y: { test: "error" },
     library: { render: "frame", order: 6 },
     viewport: { viewports: { phone390: { name: "390 × 844", styles: { width: "390px", height: "844px" } } }, defaultViewport: "phone390" },
   },

@@ -29,6 +29,7 @@ export function isStorybookRuntimeRequest(request: Request, storybookOrigin: str
   if (request.method !== "GET" && request.method !== "HEAD") return false;
 
   return STORYBOOK_RUNTIME_EXACT_PATHS.some((path) => url.pathname === path) ||
+    /^\/tests\/browser\/fixtures\/(?:[\w-]+\/)*[\w-]+\.(?:ts|tsx|js|mjs)$/.test(url.pathname) ||
     STORYBOOK_RUNTIME_PATHS.some((path) => url.pathname.startsWith(path));
 }
 

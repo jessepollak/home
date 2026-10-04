@@ -225,13 +225,13 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
       {overview ? <OverviewSurface items={catalog.items} onSelect={select} />
         : composing ? <figure className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
-          {notUsedInProduct.length > 0 && <p className={styles.caption}>
+          {notUsedInProduct.length > 0 && <p className={styles.unusedComponents}>
             Not used in any product screen: {notUsedInProduct.map((name, ordinal) => {
               const target = catalog.items.find((candidate) =>
                 componentStories(index, candidate.title).some((entry) => entry.importPath.endsWith(`/ui/${name}.stories.tsx`)));
               return target ? <span key={name}>{ordinal > 0 ? ", " : ""}<a
                 href={writeLibraryUrl(new URL(location.href), { component: target.id, story: undefined, props: {} }).href}
-                onClick={(event) => { event.preventDefault(); select(target.id); }}>{name}</a></span> : null;
+                onClick={(event) => { event.preventDefault(); select(target.id); }}>{target.name}</a></span> : null;
             })}
           </p>}
           <CompositionsSheet entries={compositions} root={root} theme={theme} focused={focused} annotating={annotating}

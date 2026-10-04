@@ -31,6 +31,7 @@ const meta = {
   },
   parameters: {
     layout: "fullscreen",
+    a11y: { test: "error" },
     library: { render: "frame", order: 5 },
     viewport: { viewports: { desktop1280: { name: "1280 × 800", styles: { width: "1280px", height: "800px" } } }, defaultViewport: "desktop1280" },
     msw: { handlers: [
@@ -57,6 +58,21 @@ export const SearchResults: Story = {
     await expect(await canvas.findAllByRole("button", { name: /Orbit/ })).toHaveLength(3);
   },
 };
+export const SearchToOrbitDetail: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByRole("textbox", { name: "Search assets" }), "ORB");
+    const [orbit] = await canvas.findAllByRole("button", { name: /Orbit/ });
+    if (!orbit) throw new globalThis.Error("Missing Orbit search result");
+    await userEvent.click(orbit);
+    await expect(await canvas.findByRole("heading", { name: "Orbit" })).toBeVisible();
+    await expect(await canvas.findByRole("status", { name: "No price history for this range." })).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Back" }));
+    await expect(canvas.getByRole("textbox", { name: "Search assets" })).toHaveValue("ORB");
+    await userEvent.click((await canvas.findAllByRole("button", { name: /Orbit/ }))[0] ?? orbit);
+    await expect(await canvas.findByRole("heading", { name: "Orbit" })).toBeVisible();
+  },
+};
 export const AssetDetail: Story = {
   args: { detail: true },
   play: async ({ canvasElement }) => {
@@ -66,7 +82,7 @@ export const AssetDetail: Story = {
   },
 };
 export const Loading: Story = {
-  parameters: { msw: { handlers: [http.get("/api/invest/search", async () => { await delay("infinite"); })] } },
+  parameters: { a11y: { test: "todo" }, msw: { handlers: [http.get("/api/invest/search", async () => { await delay("infinite"); })] } },
   play: async ({ canvasElement }) => {
     await userEvent.type(within(canvasElement).getByRole("textbox", { name: "Search assets" }), "ORB");
   },

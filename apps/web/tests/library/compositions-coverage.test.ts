@@ -100,6 +100,14 @@ describe("library compositions", () => {
     await expect(productUiImports("/fixture", ["widget.tsx"])).rejects.toThrow("No product route entries");
   });
 
+  test("fail closed on nonliteral dynamic imports with their file and position", async () => {
+    const source = 'const modulePath = "@/components/ui/button"; import(modulePath);';
+    await expect(lexCompositionUiImports(source, "probe.stories.tsx"))
+      .rejects.toThrow(/Nonliteral dynamic composition import in probe\.stories\.tsx at offset \d+/);
+    await expect(walkCompositionUiImports("story.tsx", "/fixture", async () => source))
+      .rejects.toThrow(/Nonliteral dynamic composition import in \/fixture\/story\.tsx at offset \d+/);
+  });
+
   test("fail rather than report missing or invalid local source as unused", async () => {
     const graph = new Map([["/fixture/story.tsx", 'import { Missing } from "@/client/missing";']]);
     await expect(walkCompositionUiImports("story.tsx", "/fixture", async (file) => graph.get(file)))
