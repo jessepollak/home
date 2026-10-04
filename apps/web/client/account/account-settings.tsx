@@ -280,7 +280,7 @@ export function AccountSettings({
                 <Item className="min-w-0">
                   <ItemContent className="min-w-0">
                     {accountAddress && basenameProfile.isPending ? (
-                      <Skeleton className="h-4 w-28" aria-label="Loading Basename" />
+                      <Skeleton className="h-4 w-28" role="status" aria-label="Loading Basename" />
                     ) : (
                       <ItemTitle tone={basename ? "default" : "muted"}>
                         {basename ? basename : <span className="font-normal">Base account</span>}
@@ -329,7 +329,7 @@ export function AccountSettings({
                 ) : (
                   <ItemContent className="min-w-0">
                     {inviteLink.isPending ? (
-                      <Skeleton className="h-5 w-full" aria-label="Loading invite link" />
+                      <Skeleton className="h-5 w-full" role="status" aria-label="Loading invite link" />
                     ) : inviteLink.isError ? (
                       <>
                         <ItemDescription>Couldn&apos;t load your invite link.</ItemDescription>
