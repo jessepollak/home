@@ -21,7 +21,7 @@ function transformLibrarySource(source: string, filename: string) {
   });
 }
 
-export async function lexLibraryImports(source: string, filename: string): Promise<ImportEntry> {
+async function lexLibraryImports(source: string, filename: string): Promise<ImportEntry> {
   try {
     const { code } = await transformLibrarySource(source, filename);
     await init;
@@ -53,10 +53,6 @@ async function lexCompositionImports(source: string, filename: string): Promise<
   }))];
 }
 
-export async function lexCompositionUiImports(source: string, filename: string): Promise<string[]> {
-  return [...new Set((await lexCompositionImports(source, filename)).flatMap((specifier) =>
-    specifier.match(/^@\/components\/ui\/([^/.]+)(?:\.[cm]?[jt]sx?|\/index(?:\.[cm]?[jt]sx?)?)?$/)?.[1] ?? []))].sort();
-}
 
 type CompositionSource = (file: string) => Promise<string | undefined>;
 const sourceExtensions = [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs", ".cts", ".cjs"];
@@ -137,7 +133,7 @@ export async function productUiImports(root = webRoot, files?: string[], readSou
   return walkCompositionUiImports(routes, root, readSource, isProductSource);
 }
 
-export async function compositionNotUsedInProduct(root = webRoot): Promise<string[]> {
+async function compositionNotUsedInProduct(root = webRoot): Promise<string[]> {
   const used = new Set(await productUiImports(root));
   const uiRoot = join(root, "components/ui");
   const files = (await readdir(uiRoot)).filter((name) => name.endsWith(".stories.tsx"));

@@ -231,6 +231,13 @@ export const Compositions: Story = {
     const window = canvasElement.ownerDocument.defaultView;
     if (!window) throw new Error("Library window is missing");
     const historyLength = window.history.length;
+    await userEvent.click(canvas.getByRole("button", { name: "Dark" }));
+    await waitFor(() => expect(search(canvasElement).get("theme")).toBe("dark"));
+    await userEvent.click(canvas.getByRole("option", { name: /^Button,/ }));
+    await canvas.findByRole("main", { name: "Button preview" });
+    await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT });
+    await userEvent.click(section(canvas, "Default"));
+    await waitFor(() => expect(search(canvasElement).get("story")).toBe("ui-button--default"));
     await userEvent.click(canvas.getByRole("option", { name: "Compositions, 5 compositions" }));
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
     await expect(within(surface).getByText("Compositions · 5 compositions")).toBeVisible();
@@ -238,7 +245,7 @@ export const Compositions: Story = {
     await expect(within(surface).getByRole("link", { name: "Dialog" })).toBeVisible();
     await expect(within(surface).getByText(/^Not used in any product screen:/)).toHaveTextContent("Not used in any product screen: Button Group, Dialog, Kbd, Progress");
     await expect(search(canvasElement).get("component")).toBe("compositions");
-    await expect(window.history.length).toBe(historyLength + 1);
+    await expect(window.history.length).toBe(historyLength + 2);
     for (const name of ["Home", "Home Loading", "Invest", "Orbit Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
       await expect(await within(surface).findByRole("heading", { name }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     }
@@ -252,7 +259,21 @@ export const Compositions: Story = {
     await expect(within(surface).getByRole("link", { name: /^1440 × 900/ })).toBeVisible();
     await userEvent.click(section(canvas, "Card Onboarding"));
     await expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding");
-    await expect(window.history.length).toBe(historyLength + 1);
+    await expect(window.history.length).toBe(historyLength + 2);
+    window.history.back();
+    await canvas.findByRole("main", { name: "Button preview" });
+    await expect(await canvas.findByRole("form", { name: "Button · Default props" })).toBeVisible();
+    window.history.back();
+    await canvas.findByRole("main", { name: "Library overview" });
+    await expect(search(canvasElement).has("story")).toBe(false);
+    window.history.forward();
+    await canvas.findByRole("main", { name: "Button preview" });
+    await expect(await canvas.findByRole("form", { name: "Button · Default props" })).toBeVisible();
+    window.history.forward();
+    await canvas.findByRole("main", { name: "Library compositions" });
+    await waitFor(() => expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding"));
+    await expect(canvas.getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await expect(search(canvasElement).get("theme")).toBe("dark");
   },
 };
 
