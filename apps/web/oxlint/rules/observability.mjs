@@ -206,7 +206,7 @@ function assignsOuterValue(state, node) {
   if (!variable) return false;
   const declaredInside = variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause));
   return !declaredInside && variable.references.some((reference) =>
-    observesOuterValue(state, reference, state.catchClause));
+    variable.scope?.type === "module" ? isObservingRead(reference) : observesOuterValue(state, reference, state.catchClause));
 }
 
 function walkAssignments(node, visit) {
@@ -278,6 +278,218 @@ function findValueVariable(state, identifier) {
   return null;
 }
 
+function protectedRegionStart(state) {
+  if (state.rejectionCall) return state.rejectionCall.start;
+  return state.catchClause.parent?.type === "TryStatement"
+    ? state.catchClause.parent.block.start : state.catchClause.start;
+}
+
+function capturedValueSource(state, node) {
+  const identifier = unwrapTransparent(node);
+  if (identifier?.type !== "Identifier") return null;
+  const variable = findValueVariable(state, identifier);
+  if (!variable) return null;
+  const definitions = valueDefinitions(variable);
+  if (definitions.length !== 1) return null;
+  const [definition] = definitions;
+  if (definition.type !== "Variable" || definition.node?.type !== "VariableDeclarator"
+    || !["const", "let", "var"].includes(definition.node.parent?.kind)
+    || !(definition.node.start < protectedRegionStart(state))
+    || variable.references.some((reference) => reference.isWrite()
+      && reference.identifier.start !== definition.name?.start)) return null;
+  const init = unwrapTransparent(definition.node.init);
+  const member = init?.type === "UpdateExpression" ? unwrapTransparent(init.argument) : init;
+  if (member?.type === "MemberExpression" && member.object.type === "Identifier"
+    && (init.type === "UpdateExpression" || !member.computed) && staticMemberName(member) !== null) {
+    return { kind: "member", base: member.object.name, variable: findValueVariable(state, member.object), property: staticMemberName(member) };
+  }
+  if (init?.type === "CallExpression" && !init.optional) {
+    const callee = unwrapTransparent(init.callee);
+    if (callee?.type === "MemberExpression" && !callee.optional && callee.object.type === "Identifier"
+      && staticMemberName(callee) === "capture") return { kind: "protocol", base: callee.object.name, variable: findValueVariable(state, callee.object) };
+  }
+  return init?.type === "Identifier" ? { kind: "identifier", name: init.name, variable: findValueVariable(state, init) } : null;
+}
+
+function sourceVariableMatches(state, source, identifier) {
+  const variable = findValueVariable(state, identifier);
+  return variable === source.variable || ((!variable || variable.defs.length === 0)
+    && (!source.variable || source.variable.defs.length === 0));
+}
+
+function capturedSourceMatches(state, captured, sourceNode) {
+  const source = capturedValueSource(state, captured);
+  const node = unwrapTransparent(sourceNode);
+  if (source?.kind === "identifier") return node?.type === "Identifier" && node.name === source.name
+    && sourceVariableMatches(state, source, node);
+  return source?.kind === "member" && node?.type === "MemberExpression"
+    && node.object.type === "Identifier" && node.object.name === source.base
+    && staticMemberName(node) === source.property && sourceVariableMatches(state, source, node.object);
+}
+
+function memberChainRootedAtIdentifier(expression) {
+  const node = unwrapTransparent(expression);
+  if (node?.type !== "MemberExpression") return false;
+  let current = node;
+  while (current?.type === "MemberExpression") current = unwrapTransparent(current.object);
+  return current?.type === "Identifier";
+}
+
+function booleanFenceProof(expression, atom) {
+  const node = unwrapTransparent(expression);
+  if (!node) return null;
+  if (node.type === "UnaryExpression" && node.operator === "!") return booleanFenceProof(node.argument, atom);
+  if (node.type === "LogicalExpression" && (node.operator === "&&" || node.operator === "||")) {
+    const left = booleanFenceProof(node.left, atom);
+    const right = booleanFenceProof(node.right, atom);
+    return left === null || right === null ? null : left || right;
+  }
+  return atom(node);
+}
+
+const fenceComparisons = new Set(["===", "!==", "==", "!="]);
+
+function fenceHelperCall(state, node) {
+  const callee = unwrapTransparent(node.callee);
+  if (node.optional || callee?.type !== "Identifier" || node.arguments.length === 0
+    || !node.arguments.every((argument) => argument.type === "Identifier" && capturedValueSource(state, argument))) return null;
+  const variable = findValueVariable(state, callee);
+  if (!variable) return null;
+  const definitions = valueDefinitions(variable);
+  if (definitions.length !== 1) return null;
+  const [definition] = definitions;
+  if (definition.type === "Variable" && !["const", "let"].includes(definition.node.parent?.kind)) return null;
+  const entries = state.localFunctions.get(callee.name) ?? [];
+  const entry = entries.find((candidate) => candidate.node === definition.node);
+  if (!entry || variable.references.some((reference) => reference.isWrite()
+    && reference.identifier.start !== definition.name?.start)) return null;
+  const fn = definition.type === "FunctionName" ? entry.node : unwrapTransparent(entry.node.init);
+  if (!fn || fn.async || fn.generator) return null;
+  const parameters = new Map(fn.params.flatMap((parameter, index) => parameter.type === "Identifier" ? [[parameter.name, index]] : []));
+  const suppliedParameter = (parameter) => parameter?.type === "Identifier" && parameters.has(parameter.name)
+    && node.arguments[parameters.get(parameter.name)]?.type === "Identifier";
+  const body = entry.body;
+  const expression = body.type === "BlockStatement"
+    ? body.body.length === 1 && body.body[0].type === "ReturnStatement" ? body.body[0].argument : null
+    : body;
+  const proof = fencePolarityProof(expression, (atom) => {
+    if (atom.type === "BinaryExpression" && fenceComparisons.has(atom.operator)) {
+      const left = unwrapTransparent(atom.left);
+      const right = unwrapTransparent(atom.right);
+      return (suppliedParameter(left) && memberChainRootedAtIdentifier(right))
+        || (suppliedParameter(right) && memberChainRootedAtIdentifier(left))
+        ? { captured: true, skipBranch: atom.operator === "!==" || atom.operator === "!=" } : null;
+    }
+    return memberChainRootedAtIdentifier(atom) ? { captured: false, skipBranch: false } : null;
+  });
+  return proof?.captured ? proof : null;
+}
+
+function ownerFenceAtom(state, node) {
+  if (node.type === "BinaryExpression" && fenceComparisons.has(node.operator)) {
+    return capturedSourceMatches(state, node.left, node.right) || capturedSourceMatches(state, node.right, node.left)
+      ? { captured: true, skipBranch: node.operator === "!==" || node.operator === "!=" } : null;
+  }
+  if (node.type === "CallExpression" && !node.optional) {
+    const callee = unwrapTransparent(node.callee);
+    if (callee?.type === "MemberExpression" && !callee.optional && callee.object.type === "Identifier"
+      && staticMemberName(callee) === "isCurrent" && node.arguments.length === 1) {
+      const source = capturedValueSource(state, node.arguments[0]);
+      if (source?.kind === "protocol" && source.base === callee.object.name
+        && sourceVariableMatches(state, source, callee.object)) return { captured: true, skipBranch: false };
+    }
+    const helperProof = fenceHelperCall(state, node);
+    if (helperProof) return helperProof;
+  }
+  if (node.type === "MemberExpression" && (staticMemberName(node) === "aborted"
+    || (staticMemberName(node) === "current" && node.object.type === "Identifier"))) {
+    return { captured: false, skipBranch: staticMemberName(node) === "aborted" };
+  }
+  return null;
+}
+
+function fencePolarityProof(expression, atom) {
+  const node = unwrapTransparent(expression);
+  if (!node) return null;
+  if (node.type === "UnaryExpression" && node.operator === "!") {
+    const proof = fencePolarityProof(node.argument, atom);
+    return proof && { ...proof, skipBranch: !proof.skipBranch };
+  }
+  if (node.type === "LogicalExpression" && (node.operator === "&&" || node.operator === "||")) {
+    const left = fencePolarityProof(node.left, atom);
+    const right = fencePolarityProof(node.right, atom);
+    return left && right && left.skipBranch === right.skipBranch
+      ? { captured: left.captured || right.captured, skipBranch: left.skipBranch } : null;
+  }
+  return atom(node);
+}
+
+function ownerFenceProof(state, expression) {
+  return fencePolarityProof(expression, (atom) => ownerFenceAtom(state, atom));
+}
+
+function isObservingRead(reference) {
+  if (!reference.isRead()) return false;
+  let target = reference.identifier;
+  while (target.parent && ((target.parent.type === "MemberExpression" && target.parent.object === target)
+    || (transparentWrappers.has(target.parent.type) && target.parent.expression === target)
+    || (target.parent.type === "ArrayPattern" && target.parent.elements.includes(target))
+    || (target.parent.type === "ObjectPattern" && target.parent.properties.includes(target))
+    || (target.parent.type === "Property" && target.parent.parent?.type === "ObjectPattern" && target.parent.value === target)
+    || (target.parent.type === "RestElement" && target.parent.argument === target)
+    || (target.parent.type === "AssignmentPattern" && target.parent.left === target))) target = target.parent;
+  const parent = target.parent;
+  if ((parent?.type === "AssignmentExpression" && parent.left === target)
+    || ((parent?.type === "ForOfStatement" || parent?.type === "ForInStatement") && parent.left === target)
+    || (parent?.type === "UpdateExpression" && parent.argument === target)
+    || (parent?.type === "UnaryExpression" && parent.operator === "delete" && parent.argument === target)) return false;
+  for (let current = reference.identifier; current.parent; current = current.parent) {
+    const assignment = current.parent;
+    if (assignment.type !== "AssignmentExpression" || assignment.right !== current) continue;
+    let left = unwrapTransparent(assignment.left);
+    while (left?.type === "MemberExpression") left = unwrapTransparent(left.object);
+    if (reference.resolved?.references.some((candidate) => candidate.identifier === left)) return false;
+  }
+  return true;
+}
+
+function stateFenceBinding(state, node) {
+  if (node?.type !== "Identifier") return false;
+  const variable = findValueVariable(state, node);
+  if (!variable) return false;
+  const definitions = valueDefinitions(variable);
+  if (definitions.length !== 1) return false;
+  const [definition] = definitions;
+  if (definition.type !== "Variable" || definition.node?.type !== "VariableDeclarator"
+    || !["let", "var"].includes(definition.node.parent?.kind)
+    || !(definition.node.start < protectedRegionStart(state))) return false;
+  const init = unwrapTransparent(definition.node.init);
+  return (!init || (init.type === "Literal" && (typeof init.value === "boolean" || init.value === null)))
+    && variable.references.some((reference) => reference.isWrite() && reference.identifier.start !== definition.name?.start)
+    && variable.references.some(isObservingRead);
+}
+
+function stateFenceAtom(state, node) {
+  if (node.type === "Identifier") return stateFenceBinding(state, node) ? true : null;
+  if (node.type === "BinaryExpression" && (node.operator === "===" || node.operator === "!==")) {
+    const left = unwrapTransparent(node.left);
+    const right = unwrapTransparent(node.right);
+    return (left?.type === "Identifier" && left.name === "undefined" && stateFenceBinding(state, right))
+      || (right?.type === "Identifier" && right.name === "undefined" && stateFenceBinding(state, left)) ? true : null;
+  }
+  return null;
+}
+
+function assignsOuterMember(state, node) {
+  const member = node.left;
+  if (member.type !== "MemberExpression" || member.optional || member.object.type !== "Identifier"
+    || isUndefinedValue(node.right)) return false;
+  const variable = findValueVariable(state, member.object);
+  return Boolean(variable && valueDefinitions(variable).length > 0
+    && !variable.identifiers.some((identifier) => isWithin(identifier, state.catchClause))
+    && variable.references.some(isObservingRead));
+}
+
 function isUndeclared(state, identifier) {
   const variable = findValueVariable(state, identifier);
   return !variable || variable.defs.length === 0;
@@ -286,6 +498,9 @@ function isUndeclared(state, identifier) {
 function isPromiseSettlementParameter(state, fn, identifier) {
   if (![0, 1].some((index) => fn?.params?.[index]?.type === "Identifier"
     && fn.params[index].start === identifier.start)) return false;
+  const variable = findValueVariable(state, identifier);
+  if (!variable || variable.references.some((reference) => reference.isWrite()
+    && reference.identifier.start !== identifier.start)) return false;
   let current = fn;
   while (current.parent && transparentWrappers.has(current.parent.type)) current = current.parent;
   const parent = current.parent;
@@ -301,6 +516,16 @@ function boundRecoveryCallee(state, callee) {
   if (definitions.length !== 1) return false;
   const [definition] = definitions;
   const writes = variable.references.filter((reference) => reference.isWrite());
+  if (definition.type === "Variable" && definition.node?.type === "VariableDeclarator" && !definition.node.init) {
+    if (writes.length !== 1) return false;
+    const assignment = writes[0].identifier.parent;
+    if (assignment?.type !== "AssignmentExpression" || assignment.operator !== "="
+      || assignment.left !== writes[0].identifier) return false;
+    const source = unwrapTransparent(assignment.right);
+    if (source?.type !== "Identifier") return false;
+    return valueDefinitions(findValueVariable(state, source) ?? { defs: [] }).some((parameter) =>
+      parameter.type === "Parameter" && isPromiseSettlementParameter(state, parameter.node, parameter.name));
+  }
   if (writes.length > 1 || writes.some((reference) => reference.identifier.start !== definition.name?.start)) return false;
   if (definition.type === "ImportBinding") return true;
   if (definition.type === "Parameter") return isPromiseSettlementParameter(state, definition.node, definition.name);
@@ -534,9 +759,14 @@ function surfacedTelemetryWrite(node) {
   return false;
 }
 
+const conditionalAssignments = new Set(["&&=", "||=", "??="]);
+
 function expressionHasDisposition(state, node) {
   if (!node) return false;
-  if (!state.requireTelemetrySink && !state.requireReport && node.type === "AssignmentExpression" && assignsOuterValue(state, node)) return true;
+  if (!state.requireTelemetrySink && !state.requireReport && node.type === "AssignmentExpression"
+    && !conditionalAssignments.has(node.operator)
+    && (assignsOuterValue(state, node) || assignsOuterMember(state, node)
+      || (node.left.type === "Identifier" && !isUndefinedValue(node.right) && stateFenceBinding(state, node.left)))) return true;
   if (node.type === "CallExpression" || node.type === "NewExpression") {
     const name = callName(node);
     const imported = node.type === "CallExpression" ? importedReportingHelper(state, node) : null;
@@ -580,7 +810,7 @@ function expressionHasDisposition(state, node) {
         && node.operator === "??" && node.left.type === "Literal" && node.left.value == null);
   }
   if (node.type === "AssignmentExpression") {
-    return expressionHasDisposition(state, node.right);
+    return !conditionalAssignments.has(node.operator) && expressionHasDisposition(state, node.right);
   }
   if (node.type === "BinaryExpression") {
     return expressionHasDisposition(state, node.left) || expressionHasDisposition(state, node.right);
@@ -702,6 +932,20 @@ function computeStatementOutcomes(state, node, inHelper) {
     if (expressionHasDisposition(state, node.test)) return 0;
     const consequent = statementOutcomes(state, node.consequent, inHelper);
     const alternate = node.alternate ? statementOutcomes(state, node.alternate, inHelper) : fallsThrough;
+    const ownerFence = ownerFenceProof(state, node.test);
+    const consequentSkips = consequent === fallsThrough || consequent === exitsWithoutDisposition;
+    const alternateSkips = alternate === fallsThrough || alternate === exitsWithoutDisposition;
+    if (ownerFence?.captured) {
+      const skipArm = ownerFence.skipBranch ? consequent : alternate;
+      const applicableArm = ownerFence.skipBranch ? alternate : consequent;
+      if (skipArm === fallsThrough || skipArm === exitsWithoutDisposition) {
+        if (applicableArm === 0) return 0;
+        if (applicableArm === fallsThrough) return fallsThrough;
+      }
+    } else if (booleanFenceProof(node.test, (atom) => stateFenceAtom(state, atom)) === true) {
+      if ((consequent === 0 && alternateSkips) || (alternate === 0 && consequentSkips)) return 0;
+      if (consequentSkips && alternateSkips) return fallsThrough;
+    }
     return consequent | alternate;
   }
   if (node.type === "LabeledStatement" || node.type === "WithStatement") {
@@ -800,11 +1044,45 @@ function armAbruptCompletion(node) {
   });
 }
 
+function retryLoopHasExit(node, catchClause) {
+  if (!node || typeof node !== "object" || isFunctionNode(node)) return false;
+  if (node.type === "BreakStatement" || (node.type === "ContinueStatement" && node.label)
+    || (node.type === "ReturnStatement" && !node.argument && !isWithin(node, catchClause))) return true;
+  return Object.entries(node).some(([key, value]) => {
+    if (key === "parent" || !value) return false;
+    return Array.isArray(value) ? value.some((child) => retryLoopHasExit(child, catchClause))
+      : typeof value === "object" && retryLoopHasExit(value, catchClause);
+  });
+}
+
+function handlerHasBareReturn(node) {
+  if (!node || typeof node !== "object" || isFunctionNode(node)) return false;
+  if (node.type === "ReturnStatement" && !node.argument) return true;
+  return Object.entries(node).some(([key, value]) => {
+    if (key === "parent" || !value) return false;
+    return Array.isArray(value) ? value.some(handlerHasBareReturn)
+      : typeof value === "object" && handlerHasBareReturn(value);
+  });
+}
+
+function retryLoopContinues(catchClause) {
+  if (handlerHasBareReturn(catchClause.body)) return false;
+  for (let current = catchClause.parent; current; current = current.parent) {
+    if (isFunctionNode(current) || current.type === "ReturnStatement" || current.type === "ThrowStatement") return false;
+    if (!["ForStatement", "WhileStatement", "DoWhileStatement", "ForInStatement", "ForOfStatement"].includes(current.type)) continue;
+    const unbounded = (current.type === "ForStatement" && !current.test)
+      || (["WhileStatement", "DoWhileStatement"].includes(current.type) && current.test?.type === "Literal" && current.test.value === true);
+    return unbounded && isWithin(catchClause, current.body) && !retryLoopHasExit(current.body, catchClause);
+  }
+  return false;
+}
+
 function catchHasDisposition(state, node) {
   const outcomes = blockOutcomes(state, node.body, false);
   return outcomes === 0
     || (!(outcomes & diverges)
-      && retainsPreInitializedFallback(state, node.parent?.type === "TryStatement" ? node.parent.block : null, node.parent));
+      && retainsPreInitializedFallback(state, node.parent?.type === "TryStatement" ? node.parent.block : null, node.parent))
+    || (outcomes === fallsThrough && retryLoopContinues(node));
 }
 
 const cleanupReceivers = new Set(["body", "iterator", "reader", "stream"]);
@@ -937,7 +1215,8 @@ export const noSilentCatch = {
           };
           const outcomes = blockOutcomes(state, node.body, false);
           if (outcomes === 0
-            || (!(outcomes & diverges) && retainsPreInitializedFallback(state, protectedRegion, statementSpan))) continue;
+            || (!(outcomes & diverges) && retainsPreInitializedFallback(state, protectedRegion, statementSpan))
+            || (outcomes === fallsThrough && retryLoopContinues(node))) continue;
           context.report({ node, messageId: node.body.body.length === 0 ? "empty" : "silent" });
         }
       },

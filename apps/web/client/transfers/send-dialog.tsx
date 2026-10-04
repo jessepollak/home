@@ -374,7 +374,7 @@ export function SendDialog({
       });
       if (!isCurrentPrepare(token, startedOwner)) return;
       setCashout(next.cashout); setRequest(null); setPreparing(false); showPreparedReview(next.prepared);
-    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- superseded cash-out preparations cannot overwrite the edited destination
+    } catch (caught) {
       if (isCurrentPrepare(token, startedOwner)) {
         setPreparing(false); setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("handle");
       }
@@ -411,7 +411,7 @@ export function SendDialog({
       setCashout(next.cashout); setPreparing(false);
       setQuoteNotice(changed ? "The quote changed. Check what you receive before you cash out." : null);
       showPreparedReview(next.prepared);
-    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a superseded requote cannot overwrite a newer review
+    } catch (caught) {
       if (isCurrentPrepare(token, startedOwner)) {
         setPreparing(false); setError(networkFeeErrorMessage(caught) ?? serverCashoutMessage(caught)); setStep("error");
       }

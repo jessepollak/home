@@ -53,7 +53,7 @@ async function persistWrite(writer: ScopedWriter, body: WriteBody, wait: Wait): 
     if (!writer.stillCurrentOwner()) return false;
     try {
       if (parseEmailRequestWriteResponse(await writer.send(body))) return true;
-    } catch { // oxlint-disable-line home/no-silent-catch -- a failed write retries from memory and never re-prompts the wallet
+    } catch {
     }
     if (attempt >= SAVE_RETRY_DELAYS_MS.length) return false;
     await wait(SAVE_RETRY_DELAYS_MS[attempt]);

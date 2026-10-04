@@ -360,7 +360,7 @@ export function AccountWalletSessionOwner({
       setVerification("server");
       setStatus("verified");
       setMessage(null);
-    } catch (error) { // oxlint-disable-line home/no-silent-catch -- an aborted or superseded verification must not overwrite the newer attempt's state
+    } catch (error) {
       if (controller.signal.aborted || !fence.isCurrent(generation)) return;
       if (error instanceof AccountRestoreStageTimeoutError) stageTimedOutRef.current = true;
       const missingBaseConnection = error instanceof BaseAccountConnectorError &&
@@ -371,8 +371,7 @@ export function AccountWalletSessionOwner({
         error.reason === "provider-disabled"
       );
       if (missingBaseConnection || sessionIdentityGone) {
-        await signOutLostIdentity(validationProvider);
-        return;
+        return signOutLostIdentity(validationProvider);
       }
       await disconnectBase();
       fence.advance();

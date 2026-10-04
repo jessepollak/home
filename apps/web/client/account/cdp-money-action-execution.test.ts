@@ -61,6 +61,90 @@ function fakeClock() {
   };
 }
 
+describe("resolution recovery", () => {
+  test("a rejected status check stays pending and retries on the next interval", async () => {
+    const fake = fakeClock();
+    let checks = 0;
+    let settled = false;
+    const hashes: string[] = [];
+    const poller = pollTransactionResolution({
+      generation: 1, fence: { assertCurrent: () => {} }, clock: fake.clock,
+      check: async () => {
+        if (++checks === 1) throw new Error("status unavailable");
+        return { status: "complete", transactionHash };
+      },
+      recordTransactionHash: async (hash) => { hashes.push(hash); },
+      onFailedWithoutHash: () => { throw new Error("unexpected failure"); },
+    });
+    void poller.result.then(() => { settled = true; });
+    await fake.advance(1_500);
+    expect(checks).toBe(1);
+    expect(settled).toBe(false);
+    expect(hashes).toEqual([]);
+    expect(fake.pending()).toBe(1);
+    await fake.advance(2_499);
+    expect(checks).toBe(1);
+    expect(settled).toBe(false);
+    await fake.advance(1);
+    await poller.result;
+    expect(checks).toBe(2);
+    expect(hashes).toEqual([transactionHash]);
+    expect(fake.pending()).toBe(0);
+  });
+
+  test("an owner change during a complete status check finishes without recording its hash", async () => {
+    const fake = fakeClock();
+    let generation = 1;
+    const hashes: string[] = [];
+    let assertions = 0;
+    const poller = pollTransactionResolution({
+      generation: 1, clock: fake.clock,
+      fence: { assertCurrent: (expected) => {
+        assertions += 1;
+        if (expected !== generation) throw new TransferExecutionError("stale-session");
+      } },
+      check: async () => { generation = 2; return { status: "complete", transactionHash }; },
+      recordTransactionHash: async (hash) => { hashes.push(hash); },
+      onFailedWithoutHash: () => { throw new Error("unexpected failure"); },
+    });
+    await fake.advance(1_500);
+    await poller.result;
+    expect(assertions).toBe(2);
+    expect(hashes).toEqual([]);
+    expect(fake.pending()).toBe(0);
+  });
+
+  test("a rejected hash record stays pending and retries instead of settling", async () => {
+    const fake = fakeClock();
+    let checks = 0;
+    let settled = false;
+    const records: string[] = [];
+    const poller = pollTransactionResolution({
+      generation: 1, fence: { assertCurrent: () => {} }, clock: fake.clock,
+      check: async () => { checks += 1; return { status: "complete", transactionHash }; },
+      recordTransactionHash: async (hash) => {
+        records.push(hash);
+        if (records.length === 1) throw new Error("record unavailable");
+      },
+      onFailedWithoutHash: () => { throw new Error("unexpected failure"); },
+    });
+    void poller.result.then(() => { settled = true; });
+    await fake.advance(1_500);
+    await fake.advance(0);
+    expect(settled).toBe(false);
+    expect(records).toEqual([transactionHash]);
+    expect(fake.pending()).toBe(1);
+    await fake.advance(2_499);
+    expect(checks).toBe(1);
+    expect(settled).toBe(false);
+    await fake.advance(1);
+    await poller.result;
+    expect(checks).toBe(2);
+    expect(records).toEqual([transactionHash, transactionHash]);
+    expect(fake.pending()).toBe(0);
+  });
+});
+
 describe("thin action dispatch", () => {
   test("does not confirm or call a provider when the prepared generation is stale", async () => {
     let serverPosts = 0;
