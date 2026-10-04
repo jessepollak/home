@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { refreshCardPurchases } from "./transaction-refresh";
 import type { StripePurchase } from "./stripe/transactions";
+import { parseCardPurchases } from "@/shared/cards/transactions-contract";
 
 const purchase: StripePurchase = { id: "iauth_synthetic", cardId: "ic_synthetic", authorizationId: "iauth_synthetic", kind: "authorization",
   amountMinor: "100", currency: "USD", merchantName: "Synthetic Cafe", merchantCategory: "5812", status: "pending", declineReasonCode: null,
@@ -21,6 +22,29 @@ function setup(overrides: { list?: Client["list"]; read?: Client["read"]; pendin
 }
 
 describe("card purchase bounded refresh", () => {
+  test("malformed targeted detail remains pending even when a list contains the purchase", async () => {
+    const malformed: StripePurchase = JSON.parse('{"id":"iauth_synthetic","cardId":"ic_synthetic"}');
+    const { store, client, writes } = setup({ read: async () => malformed });
+    expect(await refreshCardPurchases("owner-uuid", "sandbox", store, client))
+      .toEqual({ version: 1, status: "unavailable", rows: [purchase] });
+    expect(writes).toEqual([]);
+  });
+  test("malformed lists preserve valid targeted writes and durable Activity rows", async () => {
+    for (const payload of [null, { rows: [purchase], partial: "false" }, { rows: [{ id: "iauth_bad" }], partial: false }]) {
+      const malformed: Awaited<ReturnType<Client["list"]>> = JSON.parse(JSON.stringify(payload));
+      const { store, client, writes } = setup({ list: async () => malformed });
+      expect(await refreshCardPurchases("owner-uuid", "sandbox", store, client))
+        .toEqual({ version: 1, status: "unavailable", rows: [purchase] });
+      expect(writes).toEqual(["iauth_synthetic"]);
+    }
+  });
+
+  test("round-trips the actual refresh response through the purchases parser", async () => {
+    const { store, client } = setup();
+    const result = await refreshCardPurchases("owner-uuid", "sandbox", store, client);
+    expect(result.version).toBe(1);
+    expect(parseCardPurchases(JSON.parse(JSON.stringify(result)))).toEqual(result);
+  });
   test("reads fresh detail and both lists, deduplicates identities and retains durable rows", async () => {
     const { store, client, writes } = setup();
     const result = await refreshCardPurchases("owner-uuid", "sandbox", store, client);
@@ -32,7 +56,7 @@ describe("card purchase bounded refresh", () => {
     for (const error of [new Error("rejected"), new DOMException("timeout", "TimeoutError")]) {
       const failedList = setup({ list: async () => { throw error; } });
       const result = await refreshCardPurchases("owner-uuid", "sandbox", failedList.store, failedList.client);
-      expect(result).toEqual({ status: "unavailable", rows: [purchase] });
+      expect(result).toEqual({ version: 1, status: "unavailable", rows: [purchase] });
       expect(failedList.writes).toEqual(["iauth_synthetic"]);
     }
     const failedDetail = setup({ read: async () => { throw new Error("detail failed"); } });

@@ -145,7 +145,7 @@ describe("consolidated route authorization", () => {
       },
     }));
     expect(sessionResponse.status).toBe(200);
-    expect(await sessionResponse.json()).toEqual(CDP_SESSION);
+    expect(await sessionResponse.json()).toEqual({ ...CDP_SESSION, version: 1 });
   });
 
   test("same-origin logout clears native and render-session cookies", async () => {

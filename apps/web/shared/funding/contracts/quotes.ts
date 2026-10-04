@@ -2,7 +2,7 @@ import * as z from "zod/mini";
 
 export const FUNDING_QUOTE_VERSION = 1 as const;
 
-const fundingQuoteSchema = z.object({
+export const fundingQuoteSchema = z.object({
   providerQuoteId: z.optional(z.string()),
   fiatAmount: z.string(),
   tokenAmountAtomic: z.string(),

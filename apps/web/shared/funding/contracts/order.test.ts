@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isFundingOrderSummary, readFundingOrder, type FundingOrderSummary } from "./order";
+import { isFundingOrderSummary, readFundingOrder, readFundingOrderResponse, type FundingOrderSummary } from "./order";
 import { FUNDING_ORDER_RESOLUTION_VERSION, readResolveFundingOrderResponse } from "./order-resolution";
 
 const fullOrder = {
@@ -65,6 +65,7 @@ test.each([
   const order = { ...fullOrder, ...override };
   expect(isFundingOrderSummary(order)).toBe(false);
   expect(readFundingOrder(response(order))).toBeNull();
+  expect(readFundingOrderResponse(response(order))).toBeNull();
   expect(readResolveFundingOrderResponse(response(order))).toBeNull();
 });
 
@@ -88,6 +89,7 @@ test.each([
   const order = { ...fullOrder, quote: { ...fullOrder.quote, ...override } };
   expect(isFundingOrderSummary(order)).toBe(false);
   expect(readFundingOrder(response(order))).toBeNull();
+  expect(readFundingOrderResponse(response(order))).toBeNull();
   expect(readResolveFundingOrderResponse(response(order))).toBeNull();
 });
 
@@ -102,4 +104,14 @@ test("rejects undefined required summary fields", () => {
   for (const field of ["id", "providerId", "state", "fiatAmount", "providerStatus", "instructions"]) {
     expect(isFundingOrderSummary({ ...fullOrder, [field]: undefined })).toBe(false);
   }
+});
+
+
+test("strict order envelopes require version 1 while cached summaries and other envelopes stay permissive", () => {
+  expect(readFundingOrderResponse({ version: 1, order: fullOrder })).toEqual(fullOrder);
+  for (const envelope of [{ order: fullOrder }, { version: 7, order: fullOrder }, { version: "1", order: fullOrder }]) {
+    expect(readFundingOrder(envelope)).toBe(fullOrder);
+    expect(readFundingOrderResponse(envelope)).toBeNull();
+  }
+  expect(readFundingOrderResponse({ version: 1, order: null })).toBeNull();
 });

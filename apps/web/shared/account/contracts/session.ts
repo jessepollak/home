@@ -1,61 +1,20 @@
+import * as z from "zod/mini";
+import { BASE_CHAIN_ID } from "@/shared/account/session-types";
+import { parseAddress, type Address } from "@/shared/chain/hex";
 
-import {
-  BASE_CHAIN_ID,
+export const SESSION_VERSION = 1 as const;
 
-  type VerifiedAccountSession,
-} from "@/shared/account/session-types";
-import { parseAddress } from "@/shared/chain/hex";
+const addressSchema = z.pipe(z.transform(parseAddress), z.custom<Address>((value) => value !== null));
+const sessionResponseSchema = z.object({
+  version: z.literal(SESSION_VERSION),
+  user: z.object({ subject: z.string().check(z.refine((value) => value.trim().length > 0)) }),
+  smartAccount: z.nullable(z.object({ address: addressSchema, chainId: z.literal(BASE_CHAIN_ID) })),
+  accountProvider: z.enum(["cdp-embedded", "base-account"]),
+}).check(z.refine((value) => value.accountProvider !== "base-account" || value.smartAccount !== null));
 
-export type SessionResponse = VerifiedAccountSession;
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
+export type SessionResponse = z.output<typeof sessionResponseSchema>;
 
 export function parseSession(value: unknown): SessionResponse | null {
-  if (!isRecord(value) || !isRecord(value.user)) {
-    return null;
-  }
-
-  const subject = value.user.subject;
-  if (typeof subject !== "string" || subject.trim().length === 0) {
-    return null;
-  }
-
-  const accountProvider = value.accountProvider;
-  if (
-    accountProvider !== "cdp-embedded" &&
-    accountProvider !== "base-account"
-  ) {
-    return null;
-  }
-
-  if (value.smartAccount === null) {
-    if (accountProvider === "base-account") {
-      return null;
-    }
-    return {
-      user: { subject },
-      smartAccount: null,
-      accountProvider,
-    };
-  }
-
-  if (!isRecord(value.smartAccount)) {
-    return null;
-  }
-
-  const { address, chainId } = value.smartAccount;
-  const parsedAddress = parseAddress(address);
-  if (!parsedAddress || chainId !== BASE_CHAIN_ID) {
-    return null;
-  }
-
-  return {
-    user: { subject },
-    smartAccount: {
-      address: parsedAddress,
-      chainId: BASE_CHAIN_ID,
-    },
-    accountProvider,
-  };
+  const result = sessionResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

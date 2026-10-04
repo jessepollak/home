@@ -1,80 +1,80 @@
+import * as z from "zod/mini";
+
 export const CARDS_CONTRACT_VERSION = 1 as const;
 
-export type CardState = "not-enrolled" | "verification-required" | "verification-pending" | "ineligible" |
-  "ready-to-issue" | "active" | "frozen" | "restricted" | "canceled" | "unavailable";
-export type CardSource = "available" | "unavailable" | "not-requested";
-export type CardsResponse = Readonly<{
-  version: typeof CARDS_CONTRACT_VERSION;
-  state: CardState;
-  cards: ReadonlyArray<Readonly<{ id: string; status: "active" | "frozen" | "restricted" | "canceled"; last4: string }>>;
-  provenance: Readonly<{ bridge: CardSource; stripe: CardSource; fetchedAt: string }>;
-}>;
-export type CardsError = Readonly<{ version: typeof CARDS_CONTRACT_VERSION; error: Readonly<{ code: "CARDS_UNAVAILABLE" }> }>;
-export type CardWriteErrorCode = "CARDS_UNAVAILABLE" | "CARD_NOT_READY" | "CARD_CONFLICT" | "CARD_NOT_FOUND" | "INVALID_CARD_REQUEST" | "CROSS_ORIGIN";
-export type CardWriteError = Readonly<{ version: typeof CARDS_CONTRACT_VERSION; error: Readonly<{ code: CardWriteErrorCode }> }>;
-export type CardEnrollmentResponse = Readonly<{ version: typeof CARDS_CONTRACT_VERSION; kycUrl: string }>;
-export type CardWriteResponse = Readonly<{ version: typeof CARDS_CONTRACT_VERSION; card: Readonly<{ id: string; status: "active" | "frozen" }> }>;
-export type CardEphemeralKeyRequest = Readonly<{ nonce: string }>;
-export type CardEphemeralKeyResponse = Readonly<{ version: typeof CARDS_CONTRACT_VERSION; cardId: string; ephemeralKeySecret: string }>;
+const cardStateSchema = z.custom<"not-enrolled" | "verification-required" | "verification-pending" | "ineligible" | "ready-to-issue" | "active" | "frozen" | "restricted" | "canceled" | "unavailable">((value) =>
+  typeof value === "string" && ["not-enrolled", "verification-required", "verification-pending", "ineligible", "ready-to-issue", "active", "frozen", "restricted", "canceled", "unavailable"].includes(value));
+const cardSourceSchema = z.custom<"available" | "unavailable" | "not-requested">((value) =>
+  typeof value === "string" && ["available", "unavailable", "not-requested"].includes(value));
+const cardStatusSchema = z.custom<"active" | "frozen" | "restricted" | "canceled">((value) =>
+  typeof value === "string" && ["active", "frozen", "restricted", "canceled"].includes(value));
+const cardWriteErrorCodeSchema = z.custom<"CARDS_UNAVAILABLE" | "CARD_NOT_READY" | "CARD_CONFLICT" | "CARD_NOT_FOUND" | "INVALID_CARD_REQUEST" | "CROSS_ORIGIN">((value) =>
+  typeof value === "string" && ["CARDS_UNAVAILABLE", "CARD_NOT_READY", "CARD_CONFLICT", "CARD_NOT_FOUND", "INVALID_CARD_REQUEST", "CROSS_ORIGIN"].includes(value));
+const cardIdSchema = z.string().check(z.regex(/^ic_[A-Za-z0-9]+$/));
+const ephemeralKeySecretSchema = z.string().check(z.regex(/^ek_(test|live)_[A-Za-z0-9_-]{10,2048}$/));
+const cardsResponseSchema = z.readonly(z.looseObject({
+  version: z.literal(CARDS_CONTRACT_VERSION),
+  state: cardStateSchema,
+  cards: z.readonly(z.array(z.readonly(z.looseObject({ id: cardIdSchema, status: cardStatusSchema, last4: z.string().check(z.regex(/^\d{4}$/)) })))),
+  provenance: z.readonly(z.looseObject({ bridge: cardSourceSchema, stripe: cardSourceSchema, fetchedAt: z.string().check(z.refine((value) => Number.isFinite(Date.parse(value)))) })),
+}));
+const cardsErrorSchema = z.readonly(z.looseObject({ version: z.literal(CARDS_CONTRACT_VERSION), error: z.readonly(z.looseObject({ code: z.literal("CARDS_UNAVAILABLE") })) }));
+const cardWriteErrorSchema = z.readonly(z.looseObject({ version: z.literal(CARDS_CONTRACT_VERSION), error: z.readonly(z.looseObject({ code: cardWriteErrorCodeSchema })) }));
+const cardEnrollmentResponseSchema = z.readonly(z.looseObject({
+  version: z.literal(CARDS_CONTRACT_VERSION),
+  kycUrl: z.string().check(z.refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "bridge.withpersona.com" && !url.username && !url.password && !url.hash;
+    } catch { return false; }
+  })),
+}));
+const cardWriteResponseSchema = z.readonly(z.looseObject({ version: z.literal(CARDS_CONTRACT_VERSION), card: z.readonly(z.looseObject({ id: cardIdSchema, status: z.enum(["active", "frozen"]) })) }));
+const cardEphemeralKeyRequestSchema = z.strictObject({ nonce: z.string().check(z.regex(/^[A-Za-z0-9_-]{8,256}$/)) });
+const cardEphemeralKeyResponseSchema = z.readonly(z.looseObject({ version: z.literal(CARDS_CONTRACT_VERSION), cardId: cardIdSchema, ephemeralKeySecret: ephemeralKeySecretSchema }));
+
+export type CardState = z.output<typeof cardStateSchema>;
+export type CardsResponse = z.output<typeof cardsResponseSchema>;
+export type CardsError = z.output<typeof cardsErrorSchema>;
+export type CardWriteErrorCode = z.output<typeof cardWriteErrorCodeSchema>;
+export type CardWriteError = z.output<typeof cardWriteErrorSchema>;
+export type CardEnrollmentResponse = z.output<typeof cardEnrollmentResponseSchema>;
+export type CardWriteResponse = z.output<typeof cardWriteResponseSchema>;
+export type CardEphemeralKeyRequest = Readonly<z.output<typeof cardEphemeralKeyRequestSchema>>;
+export type CardEphemeralKeyResponse = z.output<typeof cardEphemeralKeyResponseSchema>;
+
+const originalCardsResponseSchema = z.custom<CardsResponse>((value) => cardsResponseSchema.safeParse(value).success);
+const originalCardWriteErrorSchema = z.custom<CardWriteError>((value) => cardWriteErrorSchema.safeParse(value).success);
+const originalCardEnrollmentResponseSchema = z.custom<CardEnrollmentResponse>((value) => cardEnrollmentResponseSchema.safeParse(value).success);
+const originalCardWriteResponseSchema = z.custom<CardWriteResponse>((value) => cardWriteResponseSchema.safeParse(value).success);
+const originalCardEphemeralKeyResponseSchema = z.custom<CardEphemeralKeyResponse>((value) => cardEphemeralKeyResponseSchema.safeParse(value).success);
 
 export function parseCardEphemeralKeyRequest(value: unknown): CardEphemeralKeyRequest | null {
-  if (typeof value !== "object" || !value || Array.isArray(value)) return null;
-  const input = value as Record<string, unknown>;
-  return Object.keys(input).length === 1 && typeof input.nonce === "string" && /^[A-Za-z0-9_-]{8,256}$/.test(input.nonce)
-    ? { nonce: input.nonce } : null;
+  const result = cardEphemeralKeyRequestSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function parseCardEphemeralKeyResponse(value: unknown): CardEphemeralKeyResponse | null {
-  if (typeof value !== "object" || !value || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  return response.version === CARDS_CONTRACT_VERSION && typeof response.cardId === "string" && /^ic_[A-Za-z0-9]+$/.test(response.cardId) &&
-    typeof response.ephemeralKeySecret === "string" && /^ek_(test|live)_[A-Za-z0-9_-]{10,2048}$/.test(response.ephemeralKeySecret)
-    ? response as CardEphemeralKeyResponse : null;
+  const result = originalCardEphemeralKeyResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
-
 export function parseCardEnrollmentResponse(value: unknown): CardEnrollmentResponse | null {
-  if (typeof value !== "object" || !value || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  if (response.version !== CARDS_CONTRACT_VERSION || typeof response.kycUrl !== "string") return null;
-  try {
-    const url = new URL(response.kycUrl);
-    if (url.protocol !== "https:" || url.hostname !== "bridge.withpersona.com" || url.username || url.password || url.hash) return null;
-  } catch { return null; }
-  return response as CardEnrollmentResponse;
+  const result = originalCardEnrollmentResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function parseCardWriteResponse(value: unknown): CardWriteResponse | null {
-  if (typeof value !== "object" || !value || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  if (response.version !== CARDS_CONTRACT_VERSION || typeof response.card !== "object" || !response.card || Array.isArray(response.card)) return null;
-  const card = response.card as Record<string, unknown>;
-  return typeof card.id === "string" && /^ic_[A-Za-z0-9]+$/.test(card.id) &&
-    (card.status === "active" || card.status === "frozen") ? response as CardWriteResponse : null;
+  const result = originalCardWriteResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function parseCardWriteError(value: unknown): CardWriteError | null {
-  if (typeof value !== "object" || !value || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  if (response.version !== CARDS_CONTRACT_VERSION || typeof response.error !== "object" || !response.error || Array.isArray(response.error)) return null;
-  return ["CARDS_UNAVAILABLE", "CARD_NOT_READY", "CARD_CONFLICT", "CARD_NOT_FOUND", "INVALID_CARD_REQUEST", "CROSS_ORIGIN"].includes(String((response.error as Record<string, unknown>).code)) ? response as CardWriteError : null;
+  const result = originalCardWriteErrorSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function parseCardsResponse(value: unknown): CardsResponse | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const response = value as Record<string, unknown>;
-  if (response.version !== CARDS_CONTRACT_VERSION ||
-      !["not-enrolled", "verification-required", "verification-pending", "ineligible", "ready-to-issue", "active", "frozen", "restricted", "canceled", "unavailable"].includes(String(response.state)) ||
-      !Array.isArray(response.cards) || !response.cards.every((card: unknown) => {
-        if (typeof card !== "object" || !card || Array.isArray(card)) return false;
-        const item = card as Record<string, unknown>;
-        return typeof item.id === "string" && /^ic_[A-Za-z0-9]+$/.test(item.id) &&
-          ["active", "frozen", "restricted", "canceled"].includes(String(item.status)) &&
-          typeof item.last4 === "string" && /^\d{4}$/.test(item.last4);
-      }) || typeof response.provenance !== "object" || !response.provenance || Array.isArray(response.provenance)) return null;
-  const source = response.provenance as Record<string, unknown>;
-  if (!["available", "unavailable", "not-requested"].includes(String(source.bridge)) ||
-      !["available", "unavailable", "not-requested"].includes(String(source.stripe)) ||
-      typeof source.fetchedAt !== "string" || !Number.isFinite(Date.parse(source.fetchedAt))) return null;
-  return response as CardsResponse;
+  const result = originalCardsResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

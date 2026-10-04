@@ -1,102 +1,57 @@
-import type { ExactDecimal } from "@/shared/balances/types";
-import {
-  resolveMarketPriceAssetIdentity,
-  type MarketPriceAssetId,
-} from "./market-price-history";
+import * as z from "zod/mini";
+import { resolveMarketPriceAssetIdentity } from "./market-price-history";
 
 export const MARKET_STATS_VERSION = 1 as const;
 
-export type MarketStats = {
-  marketCapUsd?: ExactDecimal;
-  volume24hUsd?: ExactDecimal;
-  liquidityUsd?: ExactDecimal;
-};
+const exactDecimalSchema = z.object({
+  atoms: z.string().check(z.regex(/^(?:0|[1-9]\d*)$/)),
+  scale: z.number().check(z.refine((value) => Number.isSafeInteger(value) && value >= 0 && value <= 36)),
+});
+const marketStatsSchema = z.object({
+  marketCapUsd: z.optional(exactDecimalSchema),
+  volume24hUsd: z.optional(exactDecimalSchema),
+  liquidityUsd: z.optional(exactDecimalSchema),
+});
+const assetIdSchema = z.pipe(
+  z.string(),
+  z.transform((value, context) => {
+    const identity = resolveMarketPriceAssetIdentity(value);
+    if (identity) return identity.assetId;
+    context.issues.push({ code: "custom", input: value, message: "Unknown market asset" });
+    return z.NEVER;
+  }),
+);
+const marketStatsResponseSchema = z.pipe(z.object({
+  version: z.literal(MARKET_STATS_VERSION),
+  provider: z.literal("codex"),
+  assetId: z.nullable(assetIdSchema),
+  currency: z.literal("USD"),
+  fetchedAt: z.nullable(z.string().check(z.refine((value) => Number.isFinite(Date.parse(value))))),
+  status: z.enum(["ready", "unavailable", "error"]),
+  stats: z.pipe(marketStatsSchema, z.transform((stats) => ({
+    ...(stats.marketCapUsd !== undefined ? { marketCapUsd: stats.marketCapUsd } : {}),
+    ...(stats.volume24hUsd !== undefined ? { volume24hUsd: stats.volume24hUsd } : {}),
+    ...(stats.liquidityUsd !== undefined ? { liquidityUsd: stats.liquidityUsd } : {}),
+  }))),
+  unavailableReason: z.optional(z.enum(["not-configured", "unknown-asset", "unsupported-asset"])),
+}).check(
+  z.refine((response) => response.status === "ready" || Object.keys(response.stats).length === 0),
+  z.refine((response) => response.unavailableReason === undefined || response.status === "unavailable"),
+), z.transform((response) => ({
+  version: response.version,
+  provider: response.provider,
+  assetId: response.assetId,
+  currency: response.currency,
+  fetchedAt: response.fetchedAt,
+  status: response.status,
+  stats: response.stats,
+  ...(response.unavailableReason !== undefined ? { unavailableReason: response.unavailableReason } : {}),
+})));
 
-export type MarketStatsResponse = {
-  version: typeof MARKET_STATS_VERSION;
-  provider: "codex";
-  assetId: MarketPriceAssetId | null;
-  currency: "USD";
-  fetchedAt: string | null;
-  status: "ready" | "unavailable" | "error";
-  stats: MarketStats;
-  unavailableReason?: "not-configured" | "unknown-asset" | "unsupported-asset";
-};
-
-const STAT_KEYS = ["marketCapUsd", "volume24hUsd", "liquidityUsd"] as const;
-const UNAVAILABLE_REASONS = new Set(["not-configured", "unknown-asset", "unsupported-asset"]);
+export type MarketStats = z.output<typeof marketStatsSchema>;
+export type MarketStatsResponse = z.output<typeof marketStatsResponseSchema>;
 
 export function parseMarketStatsResponse(value: unknown): MarketStatsResponse | null {
-  const record = readRecord(value);
-  if (
-    !record ||
-    record.version !== MARKET_STATS_VERSION ||
-    record.provider !== "codex" ||
-    record.currency !== "USD" ||
-    !(record.status === "ready" || record.status === "unavailable" || record.status === "error") ||
-    !(record.fetchedAt === null || isIsoDate(record.fetchedAt))
-  ) {
-    return null;
-  }
-  const assetId = record.assetId === null
-    ? null
-    : typeof record.assetId === "string"
-      ? resolveMarketPriceAssetIdentity(record.assetId)?.assetId
-      : undefined;
-  if (assetId === undefined) return null;
-  const statsRecord = readRecord(record.stats);
-  if (!statsRecord) return null;
-  const stats: MarketStats = {};
-  for (const key of STAT_KEYS) {
-    const raw = statsRecord[key];
-    if (raw === undefined) continue;
-    const decimal = readExactDecimal(raw);
-    if (!decimal) return null;
-    stats[key] = decimal;
-  }
-  if (record.status !== "ready" && Object.keys(stats).length > 0) return null;
-  if (
-    record.unavailableReason !== undefined &&
-    (record.status !== "unavailable" || !UNAVAILABLE_REASONS.has(record.unavailableReason as string))
-  ) {
-    return null;
-  }
-  return {
-    version: MARKET_STATS_VERSION,
-    provider: "codex",
-    assetId,
-    currency: "USD",
-    fetchedAt: record.fetchedAt as string | null,
-    status: record.status,
-    stats,
-    ...(record.unavailableReason !== undefined
-      ? { unavailableReason: record.unavailableReason as NonNullable<MarketStatsResponse["unavailableReason"]> }
-      : {}),
-  };
-}
-
-function readExactDecimal(value: unknown): ExactDecimal | null {
-  const record = readRecord(value);
-  if (
-    !record ||
-    typeof record.atoms !== "string" ||
-    !/^(?:0|[1-9]\d*)$/.test(record.atoms) ||
-    typeof record.scale !== "number" ||
-    !Number.isSafeInteger(record.scale) ||
-    record.scale < 0 ||
-    record.scale > 36
-  ) {
-    return null;
-  }
-  return { atoms: record.atoms, scale: record.scale };
-}
-
-function isIsoDate(value: unknown): value is string {
-  return typeof value === "string" && Number.isFinite(Date.parse(value));
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
+  const result = marketStatsResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

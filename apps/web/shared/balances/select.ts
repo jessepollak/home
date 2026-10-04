@@ -2,6 +2,7 @@ import { canonicalUsdcAsset, verifiedLocalCashAsset, type DirectPortfolioAsset }
 import { presentationRegions, type CandidateVerificationStatus, type FiatCurrencyCode } from "@/config/regions";
 import { exactDecimalToFraction } from "@/shared/balances/math";
 import { getTransferAsset } from "@/shared/transfers/transfer-helpers";
+import { MORPHO_API_VERSION, parseVaultPosition } from "@/shared/savings/contracts/positions";
 import type { TransferAsset } from "@/shared/transfers/types";
 import type {
   BalancesSnapshot,
@@ -41,16 +42,29 @@ export function selectBalanceBaseUnits(snapshot: BalancesSnapshot, id: string): 
   return holding?.balance.status === "ready" ? holding.balance.baseUnits : null;
 }
 
-export function selectVaultPositions(snapshot: Pick<BalancesSnapshot, "holdings">): Array<{
+export function selectVaultPositions(snapshot: Pick<BalancesSnapshot, "holdings" | "owner" | "fetchedAt" | "block">): Array<{
   vaultAddress: string;
   position: { assetsRaw: string } | null;
 }> {
   return snapshot.holdings.flatMap((holding) => {
     if (holding.kind !== "vault-share" || !holding.contractAddress) return [];
+    const position = holding.balance.status === "ready" && holding.underlyingBalance?.status === "ready"
+      ? parseVaultPosition({
+          version: MORPHO_API_VERSION,
+          accountAddress: snapshot.owner.address,
+          vaultAddress: holding.contractAddress,
+          assetsRaw: holding.underlyingBalance.baseUnits,
+          sharesRaw: holding.balance.baseUnits,
+          indexedAt: snapshot.fetchedAt,
+          source: { provider: "Base JSON-RPC", blockNumber: snapshot.block.number, fetchedAt: snapshot.fetchedAt },
+          withdrawableRaw: null,
+          withdrawableNote: "",
+        })
+      : null;
     return [{
       vaultAddress: holding.contractAddress,
-      position: holding.underlyingBalance?.status === "ready"
-        ? { assetsRaw: holding.underlyingBalance.baseUnits }
+      position: position?.assetsRaw !== null && position?.assetsRaw !== undefined
+        ? { assetsRaw: position.assetsRaw }
         : null,
     }];
   });

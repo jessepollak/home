@@ -1,3 +1,4 @@
+import * as z from "zod/mini";
 import { normalizeCountryCode, type CountryCode } from "@/config/regions";
 import type { AccountProvider } from "@/shared/account/session-types";
 
@@ -9,41 +10,43 @@ export type CountryPreferenceSeed = {
   regionId: CountryCode | null;
 };
 
-export type CountryPreferenceRequest = {
-  version: typeof COUNTRY_PREFERENCE_VERSION;
-  regionId: CountryCode;
-  adopt?: boolean;
-};
+const countryCodeSchema = z.pipe(
+  z.string(),
+  z.pipe(z.transform((value: string) => normalizeCountryCode(value)), z.custom<CountryCode>((value) => value !== null)),
+);
+const countryPreferenceRequestSchema = z.pipe(z.object({
+  version: z.literal(COUNTRY_PREFERENCE_VERSION),
+  regionId: countryCodeSchema,
+  adopt: z.optional(z.boolean()),
+}), z.transform((value) => ({
+  version: value.version,
+  regionId: value.regionId,
+  ...(value.adopt === undefined ? {} : { adopt: value.adopt }),
+})));
+const countryPreferenceResponseSchema = z.object({
+  version: z.literal(COUNTRY_PREFERENCE_VERSION),
+  regionId: countryCodeSchema,
+});
+const countryPreferenceReadResponseSchema = z.object({
+  version: z.literal(COUNTRY_PREFERENCE_VERSION),
+  regionId: z.nullable(countryCodeSchema),
+});
 
-export type CountryPreferenceResponse = {
-  version: typeof COUNTRY_PREFERENCE_VERSION;
-  regionId: CountryCode;
-};
-
-export type CountryPreferenceReadResponse = {
-  version: typeof COUNTRY_PREFERENCE_VERSION;
-  regionId: CountryCode | null;
-};
+export type CountryPreferenceRequest = z.output<typeof countryPreferenceRequestSchema>;
+export type CountryPreferenceResponse = z.output<typeof countryPreferenceResponseSchema>;
+export type CountryPreferenceReadResponse = z.output<typeof countryPreferenceReadResponseSchema>;
 
 export function parseCountryPreferenceRequest(value: unknown): CountryPreferenceRequest | null {
-  if (!isRecord(value) || value.version !== COUNTRY_PREFERENCE_VERSION || typeof value.regionId !== "string" ||
-    (value.adopt !== undefined && typeof value.adopt !== "boolean")) return null;
-  const regionId = normalizeCountryCode(value.regionId);
-  return regionId ? { version: COUNTRY_PREFERENCE_VERSION, regionId, ...(value.adopt === undefined ? {} : { adopt: value.adopt }) } : null;
+  const result = countryPreferenceRequestSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function parseCountryPreferenceResponse(value: unknown): CountryPreferenceResponse | null {
-  if (!isRecord(value) || value.version !== COUNTRY_PREFERENCE_VERSION || typeof value.regionId !== "string") return null;
-  const regionId = normalizeCountryCode(value.regionId);
-  return regionId ? { version: COUNTRY_PREFERENCE_VERSION, regionId } : null;
+  const result = countryPreferenceResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function parseCountryPreferenceReadResponse(value: unknown): CountryPreferenceReadResponse | null {
-  if (!isRecord(value) || value.version !== COUNTRY_PREFERENCE_VERSION) return null;
-  if (value.regionId === null) return { version: COUNTRY_PREFERENCE_VERSION, regionId: null };
-  return parseCountryPreferenceResponse(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  const result = countryPreferenceReadResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

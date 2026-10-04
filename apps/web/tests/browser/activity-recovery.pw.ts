@@ -40,7 +40,7 @@ function activityResponse(url: URL, partial: boolean, freshCard = false) {
       blockTimestamp: new Date(Date.parse(to) - minute * 60_000).toISOString(),
       valuation: { status: "unpriced", currency, reason: "quote-unavailable" },
     })),
-    cards: { status: "ready", rows: [{
+    cards: { version: 1, status: "ready", rows: [{
       id: "ipi_fixturerecovery1",
       kind: "transaction",
       amountMinor: "450",

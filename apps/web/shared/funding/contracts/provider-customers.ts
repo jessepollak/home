@@ -1,36 +1,61 @@
+import * as z from "zod/mini";
+
 export const FUNDING_PROVIDER_CUSTOMERS_VERSION = 1 as const;
-export type FundingProviderCustomerSummary = {
-  providerId: string;
-  region: string;
-  state: "reserving" | "pending" | "verified" | "rejected" | "dispatch-ambiguous";
-  verificationStartedAt: string | null;
-  updatedAt: string;
-};
+
+const providerCustomerSchema = z.object({
+  providerId: z.string(),
+  region: z.string(),
+  state: z.enum(["reserving", "pending", "verified", "rejected", "dispatch-ambiguous"]),
+  verificationStartedAt: z.nullable(z.string()),
+  updatedAt: z.string(),
+});
+const providerCustomersEnvelopeSchema = z.object({ customers: z.array(z.unknown()) });
+const providerCustomerEnvelopeSchema = z.object({ customer: providerCustomerSchema });
+const providerCustomersResponseSchema = z.object({
+  version: z.literal(FUNDING_PROVIDER_CUSTOMERS_VERSION),
+  customers: z.array(providerCustomerSchema),
+});
+const verificationHandoffResponseSchema = z.object({
+  version: z.literal(FUNDING_PROVIDER_CUSTOMERS_VERSION),
+  handoff: z.object({ url: z.string().check(z.maxLength(4096)) }),
+});
+const verificationResponseSchema = z.object({
+  version: z.literal(FUNDING_PROVIDER_CUSTOMERS_VERSION),
+  customer: providerCustomerSchema,
+  handoff: z.optional(z.object({ url: z.string().check(z.maxLength(4096)) })),
+});
+
+export type FundingProviderCustomerSummary = z.output<typeof providerCustomerSchema>;
+
 export function assertFundingProviderCustomersResponse(value: unknown, region: string): asserts value is { version: typeof FUNDING_PROVIDER_CUSTOMERS_VERSION; customers: unknown[] } {
-  if (!record(value) || value.version !== FUNDING_PROVIDER_CUSTOMERS_VERSION || !Array.isArray(value.customers) || !value.customers.every((customer) => isCustomer(customer) && customer.region === region)) {
+  const result = providerCustomersResponseSchema.safeParse(value);
+  if (!result.success || !result.data.customers.every((customer) => customer.region === region)) {
     throw new Error("Invalid funding provider customers response");
   }
 }
 
 /** @public validates a parsed customer list against the requested region, for restored and cached values */
 export function isFundingCustomerListFor(value: unknown, region: string): value is ReadonlyArray<FundingProviderCustomerSummary> {
-  if (!Array.isArray(value)) return false;
-  const customers = readFundingProviderCustomers({ customers: value });
-  return customers.length === value.length && customers.every((customer) => customer.region === region);
+  const result = z.array(providerCustomerSchema).safeParse(value);
+  return result.success && result.data.every((customer) => customer.region === region);
 }
 
 export function readFundingProviderCustomers(value: unknown): ReadonlyArray<FundingProviderCustomerSummary> {
-  if (!record(value) || !Array.isArray(value.customers)) return [];
-  return value.customers.filter(isCustomer);
+  const result = providerCustomersEnvelopeSchema.safeParse(value);
+  if (!result.success) return [];
+  return result.data.customers.filter((customer): customer is FundingProviderCustomerSummary => providerCustomerSchema.safeParse(customer).success);
+}
+function isProviderCustomerEnvelope(value: unknown): value is { customer: FundingProviderCustomerSummary } {
+  return providerCustomerEnvelopeSchema.safeParse(value).success;
 }
 export function readFundingProviderCustomer(value: unknown): FundingProviderCustomerSummary | null {
-  return record(value) && isCustomer(value.customer) ? value.customer : null;
+  return isProviderCustomerEnvelope(value) ? value.customer : null;
 }
 export function readVerificationHandoff(value: unknown): string | null {
-  if (!record(value) || !record(value.handoff) || typeof value.handoff.url !== "string" || value.handoff.url.length > 4096) return null;
-  return value.handoff.url;
+  const result = verificationHandoffResponseSchema.safeParse(value);
+  return result.success ? result.data.handoff.url : null;
 }
-function isCustomer(value: unknown): value is FundingProviderCustomerSummary {
-  return record(value) && typeof value.providerId === "string" && typeof value.region === "string" && typeof value.state === "string" && ["reserving","pending","verified","rejected","dispatch-ambiguous"].includes(value.state) && (value.verificationStartedAt === null || typeof value.verificationStartedAt === "string") && typeof value.updatedAt === "string";
+export function readFundingVerificationResponse(value: unknown): { customer: FundingProviderCustomerSummary; handoff: { url: string } | null } | null {
+  const result = verificationResponseSchema.safeParse(value);
+  return result.success ? { customer: result.data.customer, handoff: result.data.handoff ?? null } : null;
 }
-function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

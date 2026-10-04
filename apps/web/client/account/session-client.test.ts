@@ -35,6 +35,7 @@ describe("session validation boundary", () => {
       capturedInput = input;
       capturedInit = init;
       return jsonResponse({
+        version: 1,
         user: { subject: "cdp:test-subject" },
         smartAccount: { address: TEST_ADDRESS, chainId: 8453 },
         accountProvider: "cdp-embedded",
@@ -63,6 +64,7 @@ describe("session validation boundary", () => {
     const fetchFixture: SessionFetch = async (_input, init) => {
       capturedHeaders = new Headers(init?.headers);
       return jsonResponse({
+        version: 1,
         user: { subject: "cdp:siwe-subject" },
         smartAccount: {
           address: "0x2222222222222222222222222222222222222222",
@@ -92,6 +94,7 @@ describe("session validation boundary", () => {
     const fetchFixture: SessionFetch = async (_input, init) => {
       capturedProvider = new Headers(init?.headers).get(ACCOUNT_PROVIDER_HEADER);
       return jsonResponse({
+        version: 1,
         user: { subject: "cdp:siwe-subject" },
         smartAccount: { address: TEST_ADDRESS, chainId: 8453 },
         accountProvider: "base-account",
@@ -112,6 +115,7 @@ describe("session validation boundary", () => {
   test("accepts a verified session whose smart account is not ready", async () => {
     const fetchFixture: SessionFetch = async () =>
       jsonResponse({
+        version: 1,
         user: { subject: "cdp:test-subject" },
         smartAccount: null,
         accountProvider: "cdp-embedded",
@@ -129,6 +133,7 @@ describe("session validation boundary", () => {
   test("treats an invalid expected address as a mismatch even without a smart account", async () => {
     const fetchFixture: SessionFetch = async () =>
       jsonResponse({
+        version: 1,
         user: { subject: "cdp:test-subject" },
         smartAccount: null,
         accountProvider: "cdp-embedded",
@@ -224,6 +229,7 @@ describe("session validation boundary", () => {
       );
     const malformedFetch: SessionFetch = async () =>
       jsonResponse({
+        version: 1,
         user: { subject: "cdp:test-subject" },
         smartAccount: { address: TEST_ADDRESS, chainId: 1 },
         accountProvider: "cdp-embedded",

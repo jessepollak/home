@@ -7,6 +7,7 @@ import {
   type AccountProviderRequest,
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
+import { SESSION_VERSION, parseSession } from "@/shared/account/contracts/session";
 import { parseAddress } from "@/shared/chain/hex";
 import {
   isHomeSessionConfigured,
@@ -174,6 +175,12 @@ function jsonResponse(body: unknown, status: number, cookies: string[] = []): Re
   });
 }
 
+function sessionResponseBody(session: VerifiedAccountSession) {
+  const body = parseSession({ ...session, version: SESSION_VERSION });
+  if (!body) throw new Error("Invalid account session response");
+  return body;
+}
+
 function unauthenticatedResponse(): Response {
   return jsonResponse(
     {
@@ -289,7 +296,7 @@ export function createSessionHandler({
     }
     if (nativeSession.kind === "valid") {
       if (accountProvider === "cdp-embedded") return invalidProviderResponse();
-      const response = jsonResponse(nativeSession.session, 200, verifiedCookies?.(request) ?? []);
+      const response = jsonResponse(sessionResponseBody(nativeSession.session), 200, verifiedCookies?.(request) ?? []);
       try { await onVerifiedSession?.(nativeSession.session, { request, email: null }); } catch { return response; }
       return response;
     }
@@ -308,7 +315,7 @@ export function createSessionHandler({
       const session = normalizeVerifiedEndUser(verifiedEndUser, selectedProvider);
 
       const response = jsonResponse(
-        session,
+        sessionResponseBody(session),
         200,
         [...(session.smartAccount ? issueCookies?.(session, request) ?? [] : []), ...(verifiedCookies?.(request) ?? [])],
       );

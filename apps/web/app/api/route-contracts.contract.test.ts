@@ -11,37 +11,30 @@ const acceptedGaps = {
     "actions/prepare/route.ts": ["shared/actions/contracts/prepare.ts"],
     "actions/route.ts": ["shared/actions/contracts/list.ts"],
     "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
-    "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-    "session/route.ts": ["shared/account/contracts/session.ts"],
   },
   unversionedContracts: new Set([
-    "shared/account/contracts/base-verify.ts", "shared/account/contracts/session.ts",
     "shared/actions/contracts/confirm.ts", "shared/actions/contracts/get.ts",
     "shared/actions/contracts/handle.ts", "shared/actions/contracts/list.ts",
-    "shared/actions/contracts/prepare.ts", "shared/cards/transactions-contract.ts", "shared/fees/contract.ts",
-    "shared/funding/contracts/errors.ts", "shared/funding/contracts/order.ts",
+    "shared/actions/contracts/prepare.ts", "shared/fees/contract.ts",
+    "shared/funding/contracts/errors.ts",
     "shared/funding/provider-contract.ts",
   ]),
   parserlessContracts: new Set([
     "shared/actions/contracts/handle.ts", "shared/actions/contracts/trade-pending.ts",
-    "shared/funding/provider-contract.ts", "shared/savings/contracts/positions.ts",
+    "shared/funding/provider-contract.ts",
   ]),
-  handlerUnlinked: new Set([
-    "auth/base/verify/route.ts -> shared/account/contracts/base-verify.ts",
-    "session/route.ts -> shared/account/contracts/session.ts",
-  ]),
+  handlerUnlinked: new Set<string>(),
   undeclaredHandlerContracts: {
     "actions/[id]/confirm/route.ts": ["shared/actions/contracts/prepare.ts", "shared/cards/allowance-contract.ts"],
     "actions/[id]/retry/route.ts": ["shared/cards/allowance-contract.ts"],
     "actions/prepare/route.ts": ["shared/trading/contract.ts"],
     "auth/base/verify/route.ts": ["shared/account/contracts/base-nonce.ts"],
-    "funding/provider-customers/verification/route.ts": ["shared/funding/contracts/errors.ts"],
     "market-prices/stats/route.ts": ["shared/invest/contracts/market-price-history.ts"],
   },
   clientUnlinked: {
     "access/route.ts": ["shared/access/contract.ts"],
     "actions/[id]/handle/route.ts": ["shared/actions/contracts/handle.ts"],
-    "activity/route.ts": ["shared/activity/contract.ts"],
+    "activity/route.ts": ["shared/activity/contract.ts", "shared/cards/transactions-contract.ts"],
   },
 };
 
@@ -89,13 +82,11 @@ test("accepts only frozen baseline identities", () => {
   verifyFrozenGaps(manifest.baseline);
 });
 
-test("method allowances are frozen to the reviewed compatibility responses", () => {
+test("funding methods require versioned parsers without compatibility allowances", () => {
   const routes: Parameters<typeof inventoryRouteContracts>[0]["manifest"]["routes"] = manifest.routes;
   expect(Object.fromEntries(Object.entries(routes).flatMap(([path, entry]) =>
     Object.entries(entry.methods ?? {}).flatMap(([method, classification]) =>
       classification.allowance ? [[`${path} ${method}`, classification.allowance.kind]] : [])))).toEqual({
-    "funding/orders/[id]/route.ts GET": "unversioned-compatibility",
-    "funding/orders/route.ts POST": "unversioned-compatibility",
   });
 });
 
@@ -103,8 +94,9 @@ test("a versioned GET parser cannot cover an unversioned POST without an allowan
   const modified: Parameters<typeof inventoryRouteContracts>[0]["manifest"] = structuredClone(manifest);
   modified.routes["funding/orders/route.ts"].methods = {
     GET: { contracts: ["shared/funding/contracts/open-order.ts"] },
-    POST: { contracts: ["shared/funding/contracts/order.ts"] },
+    POST: { contracts: ["shared/funding/contracts/errors.ts"] },
   };
+  modified.routes["funding/orders/route.ts"].contracts?.push("shared/funding/contracts/errors.ts");
   const root = join(import.meta.dir, "../..");
   expect(inventoryRouteContracts({ root, manifest: modified })).toContainEqual({
     code: "method-unversioned",
@@ -139,9 +131,9 @@ function fixturePost(modified: Manifest) {
 }
 
 function fixtureAllowance(modified: Manifest) {
-  const allowance = fixturePost(modified).allowance;
-  if (!allowance) throw new Error("Fixture funding order POST allowance is missing");
-  return allowance;
+  const post = fixturePost(modified);
+  post.allowance = { kind: "unversioned-compatibility", reason: "Fixture response intentionally omits its contract version for compatibility." };
+  return post.allowance;
 }
 
 function invalidMethodMap(methods: unknown) {
@@ -222,7 +214,9 @@ test.each(invalidMethodClassifications)("rejects $name", ({ code, path, mutate }
 test("retired baseline identities cannot be reinstated without editing the frozen set", () => {
   expect(() => verifyFrozenGaps({ ...manifest.baseline, clientUnlinked: {} })).toThrow();
   expect(() => verifyFrozenGaps({ ...manifest.baseline, routesWithoutVersionedParser: {} })).toThrow();
-  expect(() => verifyFrozenGaps({ ...manifest.baseline, handlerUnlinked: {} })).toThrow();
+  expect(() => verifyFrozenGaps({ ...manifest.baseline, handlerUnlinked: {
+    "session/route.ts": ["shared/account/contracts/session.ts"],
+  } })).toThrow();
   expect(() => verifyFrozenGaps({ ...manifest.baseline, undeclaredHandlerContracts: {} })).toThrow();
 });
 
