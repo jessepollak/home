@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import type { SupportSummaryStatus } from "@/components/profile-mark";
 import type { SupportContextRef } from "@/shared/support/contract";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
 import { useSupportSummary, type SupportFetch, type SupportStreamFetch } from "./use-support";
@@ -12,6 +13,7 @@ type SupportActions = {
   openSupport: (context?: SupportContextRef) => void;
   unreadCount: number | null;
   summaryFailed: boolean;
+  summaryStatus: SupportSummaryStatus;
   retrySummary: () => void;
 };
 
@@ -42,6 +44,7 @@ export function SupportProvider({ ownerKey, fetchAccountResource, fetchAccountRe
     openSupport: (context) => setSelection({ ownerKey, ...(context ? { context } : {}) }),
     unreadCount,
     summaryFailed,
+    summaryStatus: summaryFailed ? "unavailable" : unreadCount === null ? "checking" : "ready",
     retrySummary: () => { void refetch(); },
   } : null, [ownerKey, refetch, summaryFailed, unreadCount]);
   return (
