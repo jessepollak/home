@@ -175,7 +175,7 @@ test("add-money method rows contain their full descriptions and loading geometry
   }
 });
 
-test("coverage native selects keep a mobile-zoom-safe font size", async ({ page }) => {
+test("coverage native selects keep a mobile-zoom-safe font size and fit their value", async ({ page }) => {
   for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     await page.goto("/coverage");
@@ -186,6 +186,13 @@ test("coverage native selects keep a mobile-zoom-safe font size", async ({ page 
         nodes.map((node) => Number.parseFloat(getComputedStyle(node).fontSize)));
       return fontSizes.length >= 4 && fontSizes.every(Number.isFinite) ? Math.min(...fontSizes) : 0;
     }).toBeGreaterThanOrEqual(16);
+    const spare = await selects.evaluateAll((nodes) => nodes.map((node) => {
+      const style = getComputedStyle(node);
+      const content = node.clientHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
+      return content - Number.parseFloat(style.lineHeight);
+    }));
+    expect(spare.length).toBeGreaterThanOrEqual(4);
+    expect(Math.min(...spare)).toBeGreaterThanOrEqual(0);
   }
 });
 
