@@ -133,6 +133,11 @@ export function sheetStories(module: StoryModule, entries: StoryIndexEntry[], th
   return stories;
 }
 
+export async function loadNotUsedInProduct(): Promise<string[]> {
+  const { notUsedInProduct } = await import("virtual:composition-coverage");
+  return notUsedInProduct;
+}
+
 export const COMPOSITION_TITLE = "Compositions/";
 const COMPOSITION_STORY = /^(?:\.\/)?(?:apps\/web\/)?stories\/review\/compositions\/[^/]+\.stories\.[^/]+$/;
 const PHONE_VIEWPORT: FrameViewport = { width: 390, height: 844 };

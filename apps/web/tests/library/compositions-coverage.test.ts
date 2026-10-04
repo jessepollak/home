@@ -1,17 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { requireStoryMeta } from "./fixtures/story-meta";
-import { compositionUiImports, lexCompositionUiImports } from "../../.storybook/library-imports-plugin";
+import { compositionNotUsedInProduct, compositionUiImports, lexCompositionUiImports, libraryImportsPlugin, walkCompositionUiImports } from "../../.storybook/library-imports-plugin";
 import type { ReviewBuild, StoryIndexEntry } from "@/stories/review/explorations/board/review-build";
 import { libraryCatalog } from "@/stories/review/explorations/library/catalog";
 
 const root = `${import.meta.dir}/../..`;
 const build: ReviewBuild = { revision: "fixture", deployment: "", branch: "", repo: null, pr: null, changedFiles: null };
+const expectedNotUsedInProduct: string[] = [];
 
-function requireCompositionCoverage(components: Map<string, string>, compositions: string[][]): number {
-  const covered = new Set(compositions.flat().flatMap((name) => components.get(name) ?? []));
-  const uncovered = [...components.values()].filter((id) => !covered.has(id)).sort();
+function requireCompositionCoverage(components: Map<string, string>, compositions: string[][], notUsed: string[] = []): number {
+  const covered = new Set(compositions.flat().filter((name) => components.has(name)));
+  const listed = new Set(notUsed);
+  const invalid = notUsed.filter((name) => !components.has(name));
+  if (invalid.length) throw new Error(`Unknown unused components: ${invalid.join(", ")}`);
+  const used = notUsed.filter((name) => covered.has(name));
+  if (used.length) throw new Error(`Listed components are used: ${used.join(", ")}`);
+  const uncovered = [...components].filter(([name]) => !covered.has(name) && !listed.has(name)).map(([, id]) => id).sort();
   if (uncovered.length) throw new Error(`Uncovered catalog components: ${uncovered.join(", ")}`);
-  return covered.size;
+  return covered.size + listed.size;
 }
 
 async function catalogComponents(): Promise<Map<string, string>> {
@@ -28,17 +35,85 @@ async function catalogComponents(): Promise<Map<string, string>> {
 }
 
 describe("library compositions", () => {
-  test("cover every catalog component", async () => {
+  test("cover every catalog component or explicitly report it unused", async () => {
     const components = await catalogComponents();
     const compositions = Object.values(await compositionUiImports());
     expect(components.size).toBeGreaterThan(0);
     expect(compositions.length).toBeGreaterThan(0);
-    expect(requireCompositionCoverage(components, compositions)).toBe(components.size);
+    expect(await compositionNotUsedInProduct()).toEqual(expectedNotUsedInProduct);
+    expect(requireCompositionCoverage(components, compositions, expectedNotUsedInProduct)).toBe(components.size);
   });
 
   test("fail when a catalog component is uncovered", () => {
     const components = new Map([["button", "ui-button"], ["input", "ui-input"]]);
     expect(() => requireCompositionCoverage(components, [["button"]])).toThrow("Uncovered catalog components: ui-input");
+  });
+
+  test("fail when an unused component is reached or is absent from the catalog", () => {
+    const components = new Map([["button", "ui-button"], ["input", "ui-input"]]);
+    expect(requireCompositionCoverage(components, [["button"]], ["input"])).toBe(2);
+    expect(() => requireCompositionCoverage(components, [["button", "input"]], ["input"]))
+      .toThrow("Listed components are used: input");
+    expect(() => requireCompositionCoverage(components, [["button", "input"]], ["missing"]))
+      .toThrow("Unknown unused components: missing");
+  });
+
+  test("walk transitive value imports, aliases, relative paths, index files and cycles without following packages", async () => {
+    const graph = new Map([
+      ["/fixture/story.stories.tsx", 'import { Screen } from "@/client/screen"; import { Remote } from "package-name"; import type { Missing } from "./missing";'],
+      ["/fixture/client/screen.tsx", 'import { Group } from "./group"; import { type Missing } from "./missing"; import "./side-effect";'],
+      ["/fixture/client/group/index.ts", 'export { Button } from "../../components/ui/button.js"; export * from "../screen"; const input = import("@/components/ui/input");'],
+      ["/fixture/components/ui/button.tsx", 'import { Label } from "./label"; import {} from "./empty"; export type { Missing } from "./missing";'],
+      ["/fixture/components/ui/label/index.tsx", 'import { Button } from "../button";'],
+      ["/fixture/components/ui/input.tsx", 'export const Input = 1;'],
+      ["/fixture/node_modules/package-name/index.ts", 'import { Remote } from "@/components/ui/remote";'],
+    ]);
+    const reads: string[] = [];
+    const read = async (file: string) => { reads.push(file); return graph.get(file); };
+    expect(await walkCompositionUiImports("story.stories.tsx", "/fixture", read)).toEqual(["button", "input", "label"]);
+    expect(reads.some((file) => file.includes("node_modules") || file.includes("missing") || file.includes("side-effect") || file.endsWith("empty.tsx"))).toBe(false);
+    expect(reads.filter((file) => file === "/fixture/client/screen.tsx")).toHaveLength(1);
+  });
+
+  test("fail rather than report missing or invalid local source as unused", async () => {
+    const graph = new Map([["/fixture/story.tsx", 'import { Missing } from "@/client/missing";']]);
+    await expect(walkCompositionUiImports("story.tsx", "/fixture", async (file) => graph.get(file)))
+      .rejects.toThrow("Couldn't resolve composition import");
+    await expect(walkCompositionUiImports("story.tsx", "/fixture", async () => 'import { from "./invalid";'))
+      .rejects.toThrow();
+  });
+
+  test("the virtual module exports the same computed unused list as the coverage check", async () => {
+    const plugin = libraryImportsPlugin();
+    if (typeof plugin.resolveId !== "function" || typeof plugin.load !== "function") throw new Error("Missing virtual module hooks");
+    const id = Reflect.apply(plugin.resolveId, undefined, ["virtual:composition-coverage"]);
+    expect(id).toBe("\u0000virtual:composition-coverage");
+    expect(await Reflect.apply(plugin.load, { addWatchFile() {} }, [id]))
+      .toBe(`export const notUsedInProduct = ${JSON.stringify(await compositionNotUsedInProduct())};`);
+  });
+
+  test("real source edits and composition additions invalidate the coverage module, then unsubscribe", () => {
+    const plugin = libraryImportsPlugin("/fixture");
+    const watcher = Object.assign(new EventEmitter(), { add: (_path: unknown) => {} });
+    const node = {};
+    const invalidated: unknown[] = [];
+    const messages: unknown[] = [];
+    const server = { watcher, moduleGraph: {
+      getModuleById: (id: string) => id === "\u0000virtual:composition-coverage" ? node : undefined,
+      invalidateModule: (value: unknown) => { invalidated.push(value); },
+    }, ws: { send: (message: unknown) => { messages.push(message); } } };
+    if (typeof plugin.configureServer !== "function" || typeof plugin.closeBundle !== "function") throw new Error("Missing watcher hooks");
+    Reflect.apply(plugin.configureServer, undefined, [server]);
+    watcher.emit("change", "/fixture/client/home.tsx");
+    watcher.emit("add", "/fixture/stories/review/compositions/new.stories.tsx");
+    watcher.emit("unlink", "/fixture/components/ui/input.tsx");
+    watcher.emit("change", "/elsewhere/client/home.tsx");
+    watcher.emit("change", "/fixture/node_modules/package/index.ts");
+    expect(invalidated).toEqual([node, node, node]);
+    expect(messages).toEqual(Array(3).fill({ type: "full-reload" }));
+    Reflect.apply(plugin.closeBundle, undefined, []);
+    watcher.emit("change", "/fixture/client/home.tsx");
+    expect(invalidated).toHaveLength(3);
   });
 
   for (const [name, source, covered] of [
@@ -52,7 +127,7 @@ describe("library compositions", () => {
     ["multiline commented", 'import { /* type */ InputOTP,\n type InputOTPGroup } from\n "@/components/ui/input-otp";', true],
     ["empty", 'import {} from "@/components/ui/input-otp";', false],
     ["side effect", 'import "@/components/ui/input-otp";', false],
-  ] as const) {
+  ] satisfies [string, string, boolean][]) {
     test(`coverage counts value bindings only: ${name}`, async () => {
       expect(await lexCompositionUiImports(source, "probe.stories.tsx")).toEqual(covered ? ["input-otp"] : []);
     });

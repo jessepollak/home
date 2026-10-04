@@ -17,7 +17,7 @@ import { PropsBar } from "./props-bar";
 import { VariantSheet } from "./sheet";
 import { restoredFocus, toggleFocus } from "./sheet-state";
 import { LibrarySidebar } from "./sidebar";
-import { compositionEntries, loadStoryModule, peekStoryModule, sheetStories, type StoryModule } from "./stories";
+import { compositionEntries, loadNotUsedInProduct, loadStoryModule, peekStoryModule, sheetStories, type StoryModule } from "./stories";
 import { loadLibraryIndex } from "./story-index";
 import { readLibraryUrl, writeLibraryUrl } from "./url-state";
 import styles from "./library.module.css";
@@ -99,6 +99,12 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   frameSource: "story" | "blank";
 }) {
   const compositions = useMemo(() => compositionEntries(index), [index]);
+  const [notUsedInProduct, setNotUsedInProduct] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    loadNotUsedInProduct().then((names) => { if (live) setNotUsedInProduct(names); }, () => undefined);
+    return () => { live = false; };
+  }, []);
   const compositionGroups = new Set(compositions.map((entry) => entry.title)).size;
   const [original] = useState(() => restoredLibraryUrl(catalog, compositions));
   const [selected, setSelected] = useState(original.selected);
@@ -219,6 +225,15 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
       {overview ? <OverviewSurface items={catalog.items} onSelect={select} />
         : composing ? <figure className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
+          {notUsedInProduct.length > 0 && <p className={styles.caption}>
+            Not used in any product screen: {notUsedInProduct.map((name, ordinal) => {
+              const target = catalog.items.find((candidate) =>
+                componentStories(index, candidate.title).some((entry) => entry.importPath.endsWith(`/ui/${name}.stories.tsx`)));
+              return target ? <span key={name}>{ordinal > 0 ? ", " : ""}<a
+                href={writeLibraryUrl(new URL(location.href), { component: target.id, story: undefined, props: {} }).href}
+                onClick={(event) => { event.preventDefault(); select(target.id); }}>{name}</a></span> : null;
+            })}
+          </p>}
           <CompositionsSheet entries={compositions} root={root} theme={theme} focused={focused} annotating={annotating}
             frameSource={frameSource} onToggle={toggle} onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} />
         </div>
