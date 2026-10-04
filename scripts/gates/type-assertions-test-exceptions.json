@@ -1,36 +1,6 @@
 {
   "exceptions": [
     {
-      "path": "apps/web/client/actions/money-action-outcome.test.tsx",
-      "kind": "nonNull",
-      "count": 3,
-      "reason": "Three non-null cache reads of the balances-action marker with getQueryData<BalanceActionMarker>(key)!, following this file's existing non-null cache read of the recent-actions payload."
-    },
-    {
-      "path": "apps/web/client/balances/use-balances.test.tsx",
-      "kind": "nonNull",
-      "count": 11,
-      "reason": "Eleven definite-assignment locals that capture a value a callback assigns after declaration (let state!: ..., let finish!: ...), the deferred-resolver harness pattern this file already uses."
-    },
-    {
-      "path": "apps/web/client/cash/cash-experience.test.tsx",
-      "kind": "assertion",
-      "count": 4,
-      "reason": "Four casts read a rendered amount field or a Continue button's disabled state (two as HTMLInputElement for .value, two as HTMLButtonElement for .disabled), the casts this file already uses at those assertions."
-    },
-    {
-      "path": "apps/web/client/cash/cash-experience.test.tsx",
-      "kind": "nonNull",
-      "count": 1,
-      "reason": "One non-null fixture lookup of the vault holding in the fallback test where the snapshot carries no withdrawal limit."
-    },
-    {
-      "path": "apps/web/server/balances/price.test.ts",
-      "kind": "assertion",
-      "count": 1,
-      "reason": "One usdc.key as eip155:8453/erc20 template cast building a vault's underlying asset key, matching the vault holding already built above it in this file."
-    },
-    {
       "path": "apps/web/server/balances/read.test.ts",
       "kind": "assertion",
       "count": 1,
@@ -47,78 +17,6 @@
       "kind": "suppression",
       "count": 1,
       "reason": "The Playwright fixed-date shim advances the pinned page clock by real elapsed time across reloads, so it reads the native clock once through a helper."
-    },
-    {
-      "path": "apps/web/client/operator-support/api.test.ts",
-      "kind": "assertion",
-      "count": 6,
-      "reason": "Each counted cast is a stub function typed as typeof fetch to stand in for globalThis.fetch, the same boundary the existing client API suites use"
-    },
-    {
-      "path": "apps/web/client/operator-support/assistant-settings-api.test.ts",
-      "kind": "assertion",
-      "count": 3,
-      "reason": "A literal operator address takes the template-literal address type the settings API accepts, the fetch stub takes typeof fetch, and a caught error is narrowed to its conflict type to read the server's current value"
-    },
-    {
-      "path": "apps/web/client/operator-support/assistant-settings.test.tsx",
-      "kind": "assertion",
-      "count": 7,
-      "reason": "A literal operator address and two typed call-log arrays are fixtures, and four DOM reads narrow getByLabelText/findByLabelText results to HTMLInputElement and HTMLTextAreaElement"
-    },
-    {
-      "path": "apps/web/client/operator-support/operator-support-inbox.test.tsx",
-      "kind": "assertion",
-      "count": 22,
-      "reason": "Eight HTMLElement, two HTMLTextAreaElement, two DOMRect and one KeyboardEvent read narrow DOM results, four string arrays type the call log, and the matchMedia, setInterval and visibility stubs take the browser types they replace"
-    },
-    {
-      "path": "apps/web/client/operator-support/operator-support-inbox.test.tsx",
-      "kind": "nonNull",
-      "count": 4,
-      "reason": "Three deferred store handles (resolveReply twice, markStarted, release) are assigned in a fixture and released after the awaited step"
-    },
-    {
-      "path": "apps/web/client/support/support-chat.test.tsx",
-      "kind": "assertion",
-      "count": 9,
-      "reason": "Four read-receipt bodies, two HTMLTextAreaElement reads, one DOMRect and one HTMLElement read narrow DOM and request results, and the parsed request body takes its contract type"
-    },
-    {
-      "path": "apps/web/client/support/support-chat.test.tsx",
-      "kind": "nonNull",
-      "count": 2,
-      "reason": "The deferred stream handle is assigned in the fixture and released after the awaited step"
-    },
-    {
-      "path": "apps/web/server/operator-settings/audit.test.ts",
-      "kind": "assertion",
-      "count": 2,
-      "reason": "A fake SQL executor standing in for the audit query is cast to the executor type it implements"
-    },
-    {
-      "path": "apps/web/server/support/handlers.test.ts",
-      "kind": "assertion",
-      "count": 66,
-      "reason": "The suite stubs the support store and the assistant store with narrow fakes (as unknown as SupportStore and as unknown as SupportAssistantStore), with literal operator addresses and the typed event and stream payloads the fakes receive"
-    },
-    {
-      "path": "apps/web/server/support/handlers.test.ts",
-      "kind": "nonNull",
-      "count": 7,
-      "reason": "Six definite-assignment handles for deferred fake-store responses (release, claimReleased, claimStarted, completeClaim, started and a second release) plus one read of the streamed response body"
-    },
-    {
-      "path": "apps/web/server/support/store.postgres.test.ts",
-      "kind": "assertion",
-      "count": 12,
-      "reason": "Three literal operator addresses, two Bun.SQL handles each counted twice through as unknown as Admin, two Object.create stand-ins cast to SupportStore, two fake assistant stores, and one pg_stat_activity transaction-probe row shape"
-    },
-    {
-      "path": "apps/web/server/support/store.postgres.test.ts",
-      "kind": "nonNull",
-      "count": 115,
-      "reason": "One definite-assignment waiter handle plus 114 reads of values the suite just created through the store (a response's conversation, its last message id, a session, the test connection string or a fixture handle); a null would fail that test immediately rather than assert"
     },
     {
       "path": "apps/web/stories/journeys/operator-support-inbox.stories.tsx",

@@ -76,12 +76,10 @@ No funded authorization was performed.
 ## Validation
 
 ```sh
-bun test apps/web/server/funding/providers/coinbase/adapter.test.ts
 bun test apps/web/server/funding apps/web/shared/funding apps/web/client/funding
 bun check
 ```
 
-Tests lock contact-field omission, exact purchase amount, one create, generic status GET, embedded payment-link acceptance, sandbox query/reference behavior, account-provider eligibility, `userAuthToken` containment, iframe attributes, trusted messages, and receipt-gated completion.
 
 ## Acceptance
 

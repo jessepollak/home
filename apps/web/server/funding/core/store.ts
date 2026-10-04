@@ -107,7 +107,7 @@ export function isTerminalFundingState(state: OrderState): boolean {
   return terminalStates.has(state);
 }
 
-/** @public exercised by server/funding/core/customer-service.test.ts */
+/** @public exercised by server/funding/core/service.test.ts */
 export class MemoryFundingOrderStore implements FundingOrderStore {
   private readonly orders = new Map<string, FundingOrder>();
   private readonly intents = new Map<string, string>();

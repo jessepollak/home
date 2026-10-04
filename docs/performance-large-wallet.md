@@ -6,7 +6,7 @@ The cache holds one immutable snapshot. A changed snapshot discards the prior se
 
 ## Regression coverage
 
-`client/investments/investments-experience.test.tsx` uses 100, 1,000 and 10,000 priced catalog holdings to verify zero valuation work for an unopened list, stable row identity and work counts across detail/Back, one selection on a new snapshot, and clearing on null, owner and region changes. These deterministic checks do not impose machine-dependent timing thresholds. Existing overview and browser investment tests cover incremental reveal, quantity precision and row focus restoration.
+Browser investment tests cover incremental reveal, quantity precision and row focus restoration.
 
 The existing `perf:budget` default run additionally records 100, 1,000 and 10,000 owned investments with mobile viewport and the harness CPU throttle:
 
@@ -42,4 +42,4 @@ Top-k selection would still have to value every holding before knowing the highe
 
 The wallet harness now waits until the Home Investments button is visible and enabled before starting first-entry/refreshed-entry timing, and ends only after a holding row is visible and two animation frames have run. This excludes initial button availability and includes actual list readiness; values are not directly comparable to the older header-only metric.
 
-Deterministic tests bound valuation reads per batch and across 100/1,000/10,000 holdings, verify exact large-number and rounding order, and exercise cancellation, owner replacement, computation failure/retry and asynchronous Back focus/scroll. The DOM integration tests explicitly deliver observer callbacks; browser CI remains responsible for real observer delivery and rendering behavior. Physical-device tap latency and 60 fps remain unverified.
+Browser CI remains responsible for real observer delivery and rendering behavior. Physical-device tap latency and 60 fps remain unverified.

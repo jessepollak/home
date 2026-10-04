@@ -128,7 +128,7 @@ export function createMorphoVaultCandidatesReader(fetchImpl: FetchLike) {
   };
 }
 
-let sharedVaultCandidatesReader = createMorphoVaultCandidatesReader(fetch);
+const sharedVaultCandidatesReader = createMorphoVaultCandidatesReader(fetch);
 
 export async function getMorphoVaultCandidates(options?: {
   fetchImpl?: FetchLike;
@@ -263,9 +263,4 @@ function readRecord(value: unknown, label: string): Record<string, unknown> {
     throw new MorphoSchemaError(`${label} must be an object.`);
   }
   return value as Record<string, unknown>;
-}
-
-/** @public exercised by server/morpho/client.test.ts */
-export function clearMorphoCacheForTests() {
-  sharedVaultCandidatesReader = createMorphoVaultCandidatesReader(fetch);
 }
