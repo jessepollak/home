@@ -3,9 +3,14 @@ import "@/client/account/dom-test-harness";
 import { afterEach, beforeEach, describe, expect, jest, spyOn, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { nextScrollOwner, scopedSavedScroll, useShellDocumentScrollRestoration } from "./use-shell-document-scroll-restoration";
+import { isRecord } from "@/shared/guards";
 
 const scrollKey = "__homeShellScrollY";
 const ownerKey = "__homeShellScrollOwner";
+
+function isTimerCallback(value: TimerHandler): value is () => void {
+  return typeof value === "function";
+}
 
 describe("shell scroll restoration owner scope", () => {
   test("restores only a saved scroll owned by the current verified owner", () => {
@@ -46,7 +51,7 @@ describe("shell pending scroll lifecycle", () => {
     Object.defineProperty(window, "scrollY", { configurable: true, value: 0 });
     spyOn(performance, "now").mockImplementation(() => now);
     const scheduleTimer = (callback: TimerHandler, delay?: number) => {
-      if (typeof callback !== "function") throw new Error("Expected timer callback");
+      if (!isTimerCallback(callback)) throw new Error("Expected timer callback");
       const id = ++nextId;
       timers.set(id, { callback: () => callback(), at: now + Number(delay ?? 0) });
       return id;
@@ -113,6 +118,12 @@ describe("shell pending scroll lifecycle", () => {
     window.dispatchEvent(new Event("scrollend"));
   }
 
+  function historyState(): Record<string, unknown> {
+    const state: unknown = window.history.state;
+    if (!isRecord(state)) throw new Error("Expected history state");
+    return state;
+  }
+
   function installNavigation(entries?: () => { key: string }[]) {
     const navigation = Object.assign(new EventTarget(), { currentEntry: { key: "home" }, entries });
     Object.defineProperty(window, "navigation", { configurable: true, value: navigation });
@@ -140,10 +151,10 @@ describe("shell pending scroll lifecycle", () => {
     hook.rerender({ path: "/home", owner: "A" });
     flushFrames();
     expect(window.scrollY).toBe(280);
-    expect(window.history.state[scrollKey]).toBe(40);
+    expect(historyState()[scrollKey]).toBe(40);
     expect(replace).toHaveBeenCalledTimes(2);
     persistAt(280);
-    expect(window.history.state[scrollKey]).toBe(280);
+    expect(historyState()[scrollKey]).toBe(280);
     expect(replace).toHaveBeenCalledTimes(3);
   });
 
@@ -256,7 +267,7 @@ describe("shell pending scroll lifecycle", () => {
     hook.rerender({ path: "/home", owner: "A" });
     flushFrames();
     expect(window.scrollY).toBe(280);
-    expect(window.history.state[scrollKey]).toBe(40);
+    expect(historyState()[scrollKey]).toBe(40);
     expect(timers.size).toBe(0);
   });
 
@@ -326,7 +337,7 @@ describe("shell pending scroll lifecycle", () => {
     flushFrames();
     expect(timers.size).toBe(0);
     persistAt(100);
-    expect(window.history.state[scrollKey]).toBe(100);
+    expect(historyState()[scrollKey]).toBe(100);
   });
 
   test("short or unavailable content expires without mutation and persists its bounded position", () => {
@@ -334,11 +345,11 @@ describe("shell pending scroll lifecycle", () => {
     pop();
     flushFrames();
     persistAt(100);
-    expect(window.history.state[scrollKey]).toBe(5_000);
+    expect(historyState()[scrollKey]).toBe(5_000);
     advance(4_999);
-    expect(window.history.state[scrollKey]).toBe(5_000);
+    expect(historyState()[scrollKey]).toBe(5_000);
     advance(1);
-    expect(window.history.state[scrollKey]).toBe(100);
+    expect(historyState()[scrollKey]).toBe(100);
     expect(frames.size).toBe(0);
     expect(timers.size).toBe(0);
   });
@@ -349,7 +360,7 @@ describe("shell pending scroll lifecycle", () => {
     flushFrames();
     hook.rerender({ path: "/activity", owner: "A" });
     persistAt(100);
-    expect(window.history.state[scrollKey]).toBe(5_000);
+    expect(historyState()[scrollKey]).toBe(5_000);
     expect(timers.size).toBe(1);
     maximum = 6_000;
     flushFrames();
@@ -366,11 +377,11 @@ describe("shell pending scroll lifecycle", () => {
     expect(timers.size).toBe(0);
     expect(frames.size).toBe(0);
     persistAt(100);
-    expect(window.history.state[scrollKey]).toBe(100);
+    expect(historyState()[scrollKey]).toBe(100);
     window.scrollTo(0, 200);
     lateTimeout();
-    expect(window.history.state[scrollKey]).toBe(100);
-    expect(window.history.state.keep).toBe(true);
+    expect(historyState()[scrollKey]).toBe(100);
+    expect(historyState().keep).toBe(true);
   });
 
   test("browser path departure cancels a queued retry before React catches up", () => {
@@ -380,7 +391,7 @@ describe("shell pending scroll lifecycle", () => {
     flushFrames();
     expect(timers.size).toBe(0);
     persistAt(100);
-    expect(window.history.state[scrollKey]).toBe(100);
+    expect(historyState()[scrollKey]).toBe(100);
   });
 
   test("replacement pop keeps its own deadline despite a late callback from the first restore", () => {
@@ -392,11 +403,11 @@ describe("shell pending scroll lifecycle", () => {
     expect(timers.size).toBe(1);
     lateTimeout();
     persistAt(100);
-    expect(window.history.state[scrollKey]).toBe(6_000);
+    expect(historyState()[scrollKey]).toBe(6_000);
     advance(4_999);
-    expect(window.history.state[scrollKey]).toBe(6_000);
+    expect(historyState()[scrollKey]).toBe(6_000);
     advance(1);
-    expect(window.history.state[scrollKey]).toBe(100);
+    expect(historyState()[scrollKey]).toBe(100);
   });
 
   test("owner switch cancels pending frames and deadline without letting a late timer write", () => {
@@ -409,8 +420,8 @@ describe("shell pending scroll lifecycle", () => {
     expect(frames.size).toBe(0);
     persistAt(100);
     lateTimeout();
-    expect(window.history.state[ownerKey]).toBe("B");
-    expect(window.history.state[scrollKey]).toBe(100);
+    expect(historyState()[ownerKey]).toBe("B");
+    expect(historyState()[scrollKey]).toBe(100);
   });
 
   test.each(["wheel", "touchstart", "pointerdown", "keydown"])("user %s cancels pending work", (event) => {
@@ -423,7 +434,7 @@ describe("shell pending scroll lifecycle", () => {
     expect(frames.size).toBe(0);
     persistAt(100);
     lateTimeout();
-    expect(window.history.state[scrollKey]).toBe(100);
+    expect(historyState()[scrollKey]).toBe(100);
   });
 
   test("unmount cancels all pending work and removes persistence listeners", () => {
@@ -437,6 +448,6 @@ describe("shell pending scroll lifecycle", () => {
     expect(window.history.scrollRestoration).toBe(previous);
     persistAt(100);
     lateTimeout();
-    expect(window.history.state[scrollKey]).toBe(5_000);
+    expect(historyState()[scrollKey]).toBe(5_000);
   });
 });

@@ -15,6 +15,7 @@ import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
 import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 import { FUNDING_PROVIDER_CUSTOMERS_VERSION } from "@/shared/funding/contracts/provider-customers";
 import { fundingProvidersQuery } from "./funding-queries";
+import { isRecord } from "@/shared/guards";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { FundingExperienceForWallet: RenderFundingExperienceForWallet } = await import("./funding-experience");
@@ -77,7 +78,11 @@ function FundingExperienceForWallet(props: Parameters<typeof RenderFundingExperi
     const response = await props.wallet.fetchAccountResource(path, options);
     if (path.startsWith("/api/funding/providers?") && response !== null && typeof response === "object" &&
       !Array.isArray(response) && "providers" in response && Array.isArray(response.providers) && !("version" in response)) {
-      return { ...response, version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: response.providers.map((binding) => ({ direction: "onramp", ...binding })) };
+      const providers: unknown[] = response.providers;
+      return { ...response, version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: providers.map((binding) => {
+        if (!isRecord(binding)) throw new Error("Expected a provider binding object");
+        return { direction: "onramp", ...binding };
+      }) };
     }
     return response;
   };

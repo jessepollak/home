@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { isRecord } from "@/shared/guards";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 import { decodeOwnerCache } from "../../client/query/owner-cache-codec";
 import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owner-cache";
@@ -332,7 +333,8 @@ test("summary-only reload retains rate subtitles without pulsing placeholders", 
   const settled = await visibleBalanceRowLayout(page);
   const value = await readIndexedOwnerCache(page);
   if (!value) throw new Error("Owner cache missing");
-  const envelope = JSON.parse(await decodeOwnerCache(value));
+  const envelope: unknown = JSON.parse(await decodeOwnerCache(value));
+  if (!isRecord(envelope) || !isRecord(envelope.clientState)) throw new Error("Owner cache missing client state");
   envelope.clientState.queries = [];
   await replaceIndexedOwnerCache(page, value, JSON.stringify(envelope));
   await page.addInitScript((expected) => {

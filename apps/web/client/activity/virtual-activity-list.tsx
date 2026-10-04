@@ -81,9 +81,12 @@ export const VirtualActivityList = memo(forwardRef<ActivityListHandle, Props>(fu
   const pendingCorrection = useRef<Anchor | null>(null);
   const [initialMeasurements] = useState<VirtualItem[]>(() => {
     if (typeof window === "undefined") return [];
-    const stored: unknown = window.history.state?.[shellVirtualMeasurementsKey];
+    const state: unknown = window.history.state;
+    const stored = typeof state === "object" && state !== null && shellVirtualMeasurementsKey in state
+      ? state[shellVirtualMeasurementsKey] : undefined;
     if (!Array.isArray(stored)) return [];
-    return stored.filter((entry): entry is VirtualItem => {
+    const entries: unknown[] = stored;
+    return entries.filter((entry): entry is VirtualItem => {
       if (!isRecord(entry)) return false;
       const item = entry;
       const indexed = typeof item.index === "number" && Number.isInteger(item.index) && item.index >= 0

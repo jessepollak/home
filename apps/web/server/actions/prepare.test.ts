@@ -159,7 +159,7 @@ describe("prepare action handler", () => {
     }) : request(kind);
     const blocked = await handler(true)(input());
     expect(blocked.status).toBe(409);
-    expect((await blocked.json()).error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(parseProductNotOfferedPrepareErrorResponse(await blocked.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
     expect(prepared).toBe(0);
     const allowed = await handler(false)(input());
     expect(allowed.status).toBe(kind === "trade" ? 422 : 201);
@@ -210,7 +210,7 @@ describe("prepare action handler", () => {
       body: JSON.stringify({ kind: "borrow", params: { marketId: MARKET.marketId, operation: "borrow", amountBaseUnits: "100" } }) });
     const blocked = await handler(true)(input());
     expect(blocked.status).toBe(409);
-    expect((await blocked.json()).error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(parseProductNotOfferedPrepareErrorResponse(await blocked.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
     const allowed = await handler(false)(input());
     expect(allowed.status).toBe(201);
     expect(inserts).toHaveLength(1);

@@ -149,7 +149,10 @@ const originalHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "o
 function mockRowHeight() {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() { return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0; },
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
+      return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0;
+    },
   });
 }
 afterEach(() => {

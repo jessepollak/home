@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { expect, userEvent, waitFor, within } from "storybook/test";
+import type { queries } from "storybook/test";
 import { Button } from "@/components/ui/button";
 import { SendDialog } from "@/client/transfers/send-dialog";
 import { deferSheet } from "@/client/money-modal/deferred-sheet";
@@ -99,7 +100,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-type Screen = ReturnType<typeof within>;
+type Screen = ReturnType<typeof within<typeof queries>>;
 
 function storyScreen(canvasElement: HTMLElement) {
   return within(canvasElement.ownerDocument.body);
@@ -111,8 +112,8 @@ async function openAmount(screen: Screen) {
   const dialog = await screen.findByRole("dialog", { name: "Send" });
   const amount = within(dialog).getByRole("textbox", { name: "Amount" });
   await waitFor(() => expect(amount).toHaveFocus());
-  const popup = dialog.closest("[data-money-sheet]") as HTMLElement | null;
-  if (!popup) throw new Error("Money sheet popup missing");
+  const popup = dialog.closest("[data-money-sheet]");
+  if (!(popup instanceof HTMLElement)) throw new Error("Money sheet popup missing");
   return { trigger, dialog, amount, popup };
 }
 

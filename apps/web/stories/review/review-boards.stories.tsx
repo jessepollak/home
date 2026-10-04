@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import type { queries } from "storybook/test";
 import { ReviewBoardView } from "./explorations/board/board";
 import { parseBoard } from "./explorations/board/manifest";
 import { readReviewBuild, type ReviewBuild } from "./explorations/board/review-build";
@@ -87,7 +88,7 @@ function ChromeFixture() {
     <ReviewBoardView board={fixture} build={fixtureBuild} frameSource="blank" narrow={narrow} />
   </div>;
 }
-async function interactOnMobile(screen: ReturnType<typeof within>) {
+async function interactOnMobile(screen: ReturnType<typeof within<typeof queries>>) {
   const action = screen.getByRole("button", { name: "Interact" });
   await waitFor(() => expect(action).toBeEnabled());
   await userEvent.click(action);
