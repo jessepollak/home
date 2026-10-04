@@ -30,6 +30,7 @@ function CardOnboardingComposition({ initial = "not-enrolled" }: { initial?: Ext
 }
 
 const meta = {
+  id: "compositions-card-onboarding",
   title: "Compositions/Card Onboarding",
   component: CardOnboardingComposition,
   parameters: {

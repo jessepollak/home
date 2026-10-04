@@ -35,6 +35,7 @@ function AssetDetailComposition() {
 }
 
 const meta = {
+  id: "compositions-invest",
   title: "Compositions/Invest",
   component: InvestComposition,
   beforeEach: () => {

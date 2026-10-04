@@ -6,6 +6,7 @@ import { coverageRegistry } from "@/config/coverage";
 
 type CoverageArgs = { search: string; issuer: string; priority: string; home: string; sort: string };
 const meta = {
+  id: "compositions-coverage",
   title: "Compositions/Coverage",
   args: { search: "", issuer: "", priority: "", home: "", sort: "gdp" },
   loaders: [async ({ args }: { args: CoverageArgs }) => ({ page: await CoveragePage({

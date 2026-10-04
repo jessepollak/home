@@ -35,6 +35,7 @@ function HomeComposition({ state }: { state: State }) {
 }
 
 const meta = {
+  id: "compositions-home",
   title: "Compositions/Home",
   component: HomeComposition,
   args: { state: "ready" },
