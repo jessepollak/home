@@ -224,6 +224,8 @@ export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "saving
     }],
     ["**/api/basename-profile**", basenameProfileBody],
     [`**/api/invest/asset?assetId=base%3A${nonTrendingAddress}`, assetResolutionFixture(`base:${nonTrendingAddress}`)],
+    ...["0x2222222222222222222222222222222222222222", "0x3333333333333333333333333333333333333333"].map((address) =>
+      [`**/api/invest/asset?assetId=base%3A${address}`, assetResolutionFixture(`base:${address}`)] as const),
     ...[...new Set(["BTC", "Bitcoin", "cbBTC", "AAPL", "Apple", "AAPLc", "ORB", "Orbit", nonTrendingAddress, "nothing-found", "partial"].flatMap((query) => [query, query.toLowerCase()]))].map((query) => [`**/api/invest/search?q=${query}`, searchFixture(query)] as const),
   ] as const;
 }

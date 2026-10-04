@@ -6,7 +6,6 @@ import { investAssets } from "@/config/invest-assets";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { INVEST_HIDE_ALL } from "@/shared/operator-settings/invest";
 import { searchFixture } from "@/tests/browser/feature-map/search-fixtures";
-import { isRecord } from "@/shared/guards";
 
 test("categories left on with every asset hidden show the empty state instead of empty shelves", () => {
   const hiddenAssets = investAssets.filter((asset) => asset.category !== "meme").map((asset) => asset.id);
@@ -17,12 +16,12 @@ test("categories left on with every asset hidden show the empty state instead of
   expect(page().queryByRole("textbox", { name: "Search assets" })).toBeNull();
 });
 
-test("an emptied category keeps the visible categories and search available", () => {
+test("an emptied category keeps the visible categories without embedded search", () => {
   const hiddenAssets = investAssets.filter((asset) => asset.category === "stock").map((asset) => asset.id);
   render(<InvestExperience investVisibility={{ hiddenCategories: [], hiddenAssets }} />);
   expect(page().queryByRole("region", { name: "Stocks" })).toBeNull();
   expect(page().queryByRole("region", { name: "Crypto" })).toBeTruthy();
-  expect(page().getByRole("textbox", { name: "Search assets" })).toBeTruthy();
+  expect(page().queryByRole("textbox", { name: "Search assets" })).toBeNull();
 });
 
 test("a deep link to an emptied category renders the hub", () => {
@@ -39,13 +38,14 @@ test("hiding every listed meme keeps the memes shelf because its rows come from 
   const hiddenAssets = investAssets.filter((asset) => asset.category === "meme").map((asset) => asset.id);
   render(<InvestExperience investVisibility={{ hiddenCategories: [], hiddenAssets }} />);
   expect(page().getByRole("region", { name: "Memes" })).toBeTruthy();
-  expect(page().getByRole("textbox", { name: "Search assets" })).toBeTruthy();
+  expect(page().queryByRole("textbox", { name: "Search assets" })).toBeNull();
 });
 
 
 
-const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
+const { cleanup, render, waitFor, within } = await import("@testing-library/react");
 const { InvestExperience } = await import("./invest-experience");
+const { AssetSearch } = await import("./asset-search");
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
@@ -63,7 +63,7 @@ test("hidden shelves and assets disappear, while the stock preview fills visible
   const crypto = within(page().getByRole("region", { name: "Crypto" }));
   expect(crypto.queryByRole("button", { name: /Bitcoin/ })).toBeNull();
   expect(crypto.getByRole("button", { name: /Cardano/ })).toBeTruthy();
-  expect(page().getByRole("textbox", { name: "Search assets" })).toBeTruthy();
+  expect(page().queryByRole("textbox", { name: "Search assets" })).toBeNull();
 });
 
 test("a visible category excludes individually hidden assets", () => {
@@ -81,22 +81,9 @@ test("a hidden category deep link renders the hub, not the category list", () =>
     investVisibility={{ hiddenCategories: ["stock"], hiddenAssets: [] }} />);
   expect(page().queryByRole("region", { name: "Stocks" })).toBeNull();
   expect(page().getByRole("region", { name: "Crypto" })).toBeTruthy();
-  expect(page().getByRole("textbox", { name: "Search assets" })).toBeTruthy();
+  expect(page().queryByRole("textbox", { name: "Search assets" })).toBeNull();
 });
 
-test("hidden category hub persists search and restores it on remount", () => {
-  window.history.replaceState(null, "", "/invest/stocks");
-  const props = { initialView: { screen: "category" as const, shelfId: "stocks" as const },
-    investVisibility: { hiddenCategories: ["stock" as const], hiddenAssets: [] } };
-  const first = render(<InvestExperience {...props} />);
-  fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "BTC" } });
-  const searchState: unknown = window.history.state;
-  if (!isRecord(searchState)) throw new Error("Expected search history state");
-  expect(searchState.investSearchQuery).toBe("BTC");
-  first.unmount();
-  render(<InvestExperience {...props} />);
-  expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("BTC");
-});
 
 test("when all shelves are hidden the owned empty state replaces shelves and search", () => {
   render(<InvestExperience investVisibility={INVEST_HIDE_ALL} />);
@@ -113,8 +100,7 @@ test("client search drops hidden configured assets and dynamic memes even if the
     { kind: "configured", assetId: "aaplc", match: "partial" },
     ...searchFixture("ORB").results,
   ] })) as unknown as typeof fetch;
-  render(<InvestExperience investVisibility={{ hiddenCategories: ["meme"], hiddenAssets: ["cbbtc"] }} />);
-  fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "ORB" } });
+  render(<AssetSearch initialQuery="ORB" onInputReady={() => {}} onClose={() => {}} onQueryCommit={() => {}} onOpenAsset={() => {}} investVisibility={{ hiddenCategories: ["meme"], hiddenAssets: ["cbbtc"] }} />);
   const results = await page().findByRole("region", { name: "Search results" });
   await waitFor(() => expect(within(results).getByRole("button", { name: /Apple/ })).toBeTruthy());
   expect(within(results).queryByRole("button", { name: /Bitcoin|Orbit/ })).toBeNull();

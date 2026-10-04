@@ -555,8 +555,15 @@ describe("useActivity pagination", () => {
     expect(view.getByTestId("ids").textContent).toBe("event-30");
     expect(view.getByTestId("cursor").textContent).toBe("cursor-1");
     expect(view.getByTestId("continuing").textContent).toBe("false");
-    fireEvent.click(view.getByText("sentinel visible"));
-    expect(queries).toHaveLength(4);
+    for (let notification = 0; notification < 3; notification += 1) {
+      fireEvent.click(view.getByText("sentinel hidden"));
+      fireEvent.click(view.getByText("sentinel visible"));
+      fireEvent.click(view.getByText("sentinel visible"));
+      await advanceContinuation(10_000);
+      expect(queries).toHaveLength(4);
+      expect(view.getByTestId("load-more-error").textContent).toBe("true");
+      expect(view.getByTestId("continuing").textContent).toBe("false");
+    }
     fireEvent.click(view.getByText("manual retry"));
     await advanceContinuation(0);
     await settleContinuation();

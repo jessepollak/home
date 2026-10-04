@@ -98,6 +98,17 @@ afterEach(() => {
   getHomeQueryClient().clear();
 });
 
+test("Invest and asset search share the same in-flight market price read and cached response", async () => {
+  let calls = 0;
+  const options = { fetchImpl: async () => { calls += 1; return Response.json(responseWithSnapshot(TIME)); } };
+  const view = render(<><HookProbe options={options} /><HookProbe options={options} /></>);
+  await waitFor(() => expect(view.getAllByTestId("stock-status").map((node) => node.textContent)).toEqual(["ready", "ready"]));
+  expect(calls).toBe(1);
+  view.rerender(<><HookProbe options={options} /><HookProbe options={options} /><HookProbe options={options} /></>);
+  expect(view.getAllByTestId("stock-status").map((node) => node.textContent)).toEqual(["ready", "ready", "ready"]);
+  expect(calls).toBe(1);
+});
+
 describe("useMarketPrices", () => {
   test("keeps a recently checked weekend close but expires an unchecked classification", () => {
     const asOf = "2026-09-25T20:00:00.000Z";

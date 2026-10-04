@@ -45,27 +45,25 @@ afterEach(() => {
   window.history.replaceState(null, "", "/invest");
 });
 
-test("browser back and forward restore Invest's query, view, and detail origin", () => {
-  window.history.replaceState({ investSearchQuery: "saved" }, "", "/invest");
+test("browser traversal restores Invest category and detail origin without embedded search", () => {
+  window.history.replaceState(null, "", "/invest");
   render(<RoutingFixture />);
-  expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("saved");
+  expect(page().queryByRole("textbox", { name: "Search assets" })).toBeNull();
 
-  navigate("/invest/crypto", { investSearchQuery: "saved" });
+  navigate("/invest/crypto", {});
   expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
 
-  navigate("/invest/cbbtc", { investSearchQuery: "saved", investDetailFrom: "crypto" });
+  navigate("/invest/cbbtc", { investDetailFrom: "crypto" });
   expect(page().getByRole("button", { name: "Back" })).toBeTruthy();
   fireEvent.click(page().getByRole("button", { name: "Back" }));
   expect(window.location.pathname).toBe("/invest/crypto");
   expect(page().getByRole("button", { name: "Back to Invest" })).toBeTruthy();
 
-  navigate("/invest", { investSearchQuery: "restored" });
-  expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("restored");
-  fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "edited" } });
-  expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("edited");
+  navigate("/invest", {});
+  expect(page().getByRole("region", { name: "Stocks" })).toBeTruthy();
 
-  navigate("/invest/cbbtc", { investSearchQuery: "restored", investDetailFrom: "hub" });
+  navigate("/invest/cbbtc", { investDetailFrom: "hub" });
   fireEvent.click(page().getByRole("button", { name: "Back" }));
   expect(window.location.pathname).toBe("/invest");
-  expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("restored");
+  expect(page().getByRole("region", { name: "Stocks" })).toBeTruthy();
 });

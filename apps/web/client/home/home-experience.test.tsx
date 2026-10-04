@@ -16,7 +16,7 @@ import { parseActivityPage } from "@/shared/activity/contract";
 import type { InvestmentsContentProps } from "./home-types";
 import { BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import { ProductOfferingProvider } from "./product-offering";
-import { resolveProductOffering } from "@/shared/operator-settings/products";
+import { deploymentProductSettings, resolveProductOffering } from "@/shared/operator-settings/products";
 import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
 import { readClientHistoryFlag } from "@/config/shell-location";
 import { isRecord } from "@/shared/guards";
@@ -126,6 +126,8 @@ const { AccountWalletSessionOwner } = await import("@/client/account/cdp-session
 const { BASE_CHAIN_ID } = await import("@/client/account/session-client");
 const { useNestedAppChrome } = await import("@/components/app-chrome");
 const { InvestExperience } = await import("@/client/invest/invest-experience");
+const { AssetSearch } = await import("@/client/invest/asset-search");
+const { assetResolutionFixture, searchFixture } = await import("@/tests/browser/feature-map/search-fixtures");
 const { parseShellLocation } = await import("@/config/shell-location");
 const { DashboardShell } = await import("./shell");
 const { CashExperience } = await import("@/client/cash/cash-experience");
@@ -478,6 +480,209 @@ describe("DashboardShell flow opener provenance", () => {
     fireEvent.click(page().getByRole("button", { name: "Programmatic funding" }));
     await page().findByRole("dialog", { name: "Add money" });
     expect(observe.mock.calls.at(-1)?.[0] === null).toBe(true);
+  });
+});
+
+describe("shell search return edges", () => {
+  function mockSearchRequests() {
+    const paths: string[] = [];
+    globalThis.fetch = Object.assign(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      paths.push(url.pathname);
+      if (url.pathname === "/api/invest/search") return Response.json(searchFixture(url.searchParams.get("q") ?? ""));
+      if (url.pathname === "/api/invest/asset") return Response.json(assetResolutionFixture(url.searchParams.get("assetId") ?? ""));
+      return nativeFetch(input);
+    }, { preconnect: nativeFetch.preconnect });
+    return paths;
+  }
+  const searchContent: NonNullable<DashboardHarnessProps["searchContent"]> = (props) => <AssetSearch {...props} />;
+  function searchOpener() {
+    const group = tabsNavigation().parentElement;
+    if (!group) throw new Error("Expected mobile navigation group");
+    return within(group).getByRole("button", { name: "Search assets" });
+  }
+
+  test("shell search sizing matches visible navigation when Invest is exit-only", async () => {
+    render(<ProductOfferingProvider value={resolveProductOffering({ kind: "saved", value: {
+      ...deploymentProductSettings(),
+      products: { ...deploymentProductSettings().products, invest: "exit-only" },
+    } })}>
+      <HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} />
+    </ProductOfferingProvider>);
+    await waitForVerifiedShell();
+    const shell = page().getByRole("main").closest("[data-shell-navigation-items]");
+    const navigationItemCount = tabsNavigation().getAttribute("data-navigation-items");
+    expect(shell?.getAttribute("data-shell-navigation-items")).toBe(navigationItemCount);
+    expect(navigationItemCount).toBe("1");
+  });
+
+  test("Search is not offered or opened while Invest is exit-only", async () => {
+    syncLocation("/home?search=ORB"); historyEntries = ["/home?search=ORB"];
+    render(<ProductOfferingProvider value={resolveProductOffering({ kind: "saved", value: {
+      ...deploymentProductSettings(),
+      products: { ...deploymentProductSettings().products, invest: "exit-only" },
+    } })}>
+      <HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} searchContent={searchContent} />
+    </ProductOfferingProvider>);
+    await waitForVerifiedShell();
+    expect(page().queryAllByRole("button", { name: "Search assets" })).toHaveLength(0);
+    expect(page().queryByRole("dialog", { name: "Search assets" })).toBeNull();
+  });
+
+  test("the desktop rail is inert while search is open", async () => {
+    mockSearchRequests(); syncLocation("/home"); historyEntries = ["/home"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} searchContent={searchContent} />);
+    await waitForVerifiedShell();
+    const rail = document.getElementById("desktop-rail");
+    if (!rail) throw new Error("Expected desktop rail");
+    expect(rail.closest("[inert]")).toBeNull();
+    fireEvent.click(searchOpener());
+    expect(rail.closest("[inert]")).not.toBeNull();
+    fireEvent.click(page().getByRole("button", { name: "Close search" }));
+    await waitFor(() => expect(rail.closest("[inert]")).toBeNull());
+  });
+
+  test("cross-route detail uses the selected search cache on its first render", async () => {
+    const paths = mockSearchRequests();
+    syncLocation("/home"); historyEntries = ["/home"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} searchContent={searchContent} investContent={<InvestExperience />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(searchOpener());
+    fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "ORB" } });
+    const result = (await page().findAllByRole("button", { name: /Orbit/ }))[0];
+    if (!result) throw new Error("Expected Orbit result");
+    fireEvent.click(result);
+    await waitFor(() => expect(document.querySelector("[data-shell-header-title]")?.textContent).toBe("Orbit"));
+    const detailState: unknown = window.history.state;
+    if (!isRecord(detailState)) throw new Error("Expected detail history state");
+    expect(detailState.investDetailFrom).toBe("search");
+    expect(paths).not.toContain("/api/invest/asset");
+  });
+
+  test("selecting the current detail again returns Back to its same-path search entry", async () => {
+    mockSearchRequests();
+    syncLocation("/invest/cbbtc"); historyEntries = ["/invest/cbbtc"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} searchContent={searchContent} investContent={<InvestExperience />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(searchOpener());
+    fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "BTC" } });
+    const result = (await page().findAllByRole("button", { name: /Bitcoin/ }))[0];
+    if (!result) throw new Error("Expected Bitcoin result");
+    fireEvent.click(result);
+    const detailState: unknown = window.history.state;
+    if (!isRecord(detailState)) throw new Error("Expected detail history state");
+    expect(detailState.investDetailFrom).toBe("search");
+    fireEvent.click(page().getByRole("button", { name: /^Back$/ }));
+    await waitFor(() => expect(window.location.search).toBe("?search=BTC"));
+    expect(window.location.pathname).toBe("/invest/cbbtc");
+    expect(page().getByRole("textbox", { name: "Search assets" }).getAttribute("value")).toBe("BTC");
+  });
+
+  test.each(["popstate", "competing navigation"])("pending same-path search detail is fenced after %s", async (cancel) => {
+    mockSearchRequests();
+    syncLocation("/invest/cbbtc"); historyEntries = ["/invest/cbbtc"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} searchContent={searchContent} investContent={<InvestExperience />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(searchOpener());
+    fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "BTC" } });
+    const result = (await page().findAllByRole("button", { name: /Bitcoin/ }))[0];
+    if (!result) throw new Error("Expected Bitcoin result");
+    let pendingHref: string | null = null;
+    const push = spyOn(router, "push").mockImplementation((href) => { pendingHref = href; });
+    try {
+      fireEvent.click(result);
+      const delayedHref = pendingHref;
+      if (!delayedHref) throw new Error("Expected delayed detail push");
+      if (cancel === "popstate") act(() => popHistory());
+      else {
+        const rail = document.getElementById("desktop-rail");
+        if (!rail) throw new Error("Expected desktop navigation");
+        fireEvent.click(within(within(rail).getByRole("navigation", { hidden: true })).getByRole("button", { name: /^Home$/, hidden: true }));
+      }
+      const pendingState: unknown = window.history.state;
+      if (!isRecord(pendingState)) throw new Error("Expected pending history state");
+      expect(pendingState.investDetailFrom).toBeUndefined();
+      act(() => pushHistory(delayedHref));
+      const delayedState: unknown = window.history.state;
+      if (!isRecord(delayedState)) throw new Error("Expected delayed history state");
+      expect(delayedState.investDetailFrom).toBeUndefined();
+      expect(delayedState.assetSearchDetailQuery).toBeUndefined();
+    } finally { push.mockRestore(); }
+  });
+
+  test("matching pathname without the pushed entry token cannot inherit search detail origin", async () => {
+    mockSearchRequests();
+    syncLocation("/invest/cbbtc"); historyEntries = ["/invest/cbbtc"];
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} searchContent={searchContent} investContent={<InvestExperience />} />);
+    await waitForVerifiedShell();
+    fireEvent.click(searchOpener());
+    fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "BTC" } });
+    const result = (await page().findAllByRole("button", { name: /Bitcoin/ }))[0];
+    if (!result) throw new Error("Expected Bitcoin result");
+    const push = spyOn(router, "push").mockImplementation(() => {});
+    try {
+      fireEvent.click(result);
+      act(() => pushHistory("/invest/cbbtc"));
+      const pushedState: unknown = window.history.state;
+      if (!isRecord(pushedState)) throw new Error("Expected pushed history state");
+      expect(pushedState.investDetailFrom).toBeUndefined();
+    } finally { push.mockRestore(); }
+  });
+
+  test.each(["Escape", "Close", "focus takeover", "route change", "reopen", "Account overlay", "owner change"])("%s respects pending keyboard-hidden Search focus restoration", async (close) => {
+    const viewportDescriptor = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    const heightDescriptor = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    const viewport = new EventTarget();
+    let height = 800;
+    Object.defineProperties(viewport, { height: { get: () => height }, offsetTop: { value: 0 }, scale: { value: 1 } });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    const rects = spyOn(HTMLElement.prototype, "getClientRects").mockImplementation(function (this: HTMLElement) {
+      const list = this.closest("#desktop-rail") ? [] : [new DOMRect(0, 0, 62, 62)];
+      return Object.assign(list, { item: (index: number) => list[index] ?? null });
+    });
+    const frames = controlAnimationFrames();
+    try {
+      mockSearchRequests(); syncLocation("/home"); historyEntries = ["/home"];
+      const view = render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })} searchContent={searchContent} />);
+      await waitForVerifiedShell();
+      act(() => frames.flush());
+      fireEvent.click(searchOpener());
+      const input = page().getByRole("textbox", { name: "Search assets" });
+      height = 500; viewport.dispatchEvent(new Event("resize"));
+      act(() => frames.flush());
+      expect(document.documentElement.dataset.shellKeyboard).toBe("open");
+      if (close === "Escape") fireEvent.keyDown(input, { key: "Escape" });
+      else fireEvent.click(page().getByRole("button", { name: "Close search" }));
+      expect(document.activeElement === input).toBe(false);
+      const opener = [...view.container.querySelectorAll<HTMLButtonElement>('[data-shell-search-opener]')].find((button) => !button.closest("#desktop-rail"));
+      if (!opener) throw new Error("Expected mobile Search opener");
+      expect(opener.closest("[inert]")).not.toBeNull();
+      expect(document.activeElement === opener).toBe(false);
+      if (close === "focus takeover") page().getByRole("button", { name: "Account" }).focus();
+      if (close === "route change") act(() => pushHistory("/invest"));
+      if (close === "reopen") fireEvent.click(opener);
+      if (close === "Account overlay") fireEvent.click(page().getByRole("button", { name: "Account" }));
+      if (close === "owner change") view.rerender(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER_B })} searchContent={searchContent} />);
+      viewport.dispatchEvent(new Event("resize"));
+      act(() => frames.flush());
+      if (close === "Escape" || close === "Close") {
+        expect(opener.closest("[inert]")).toBeNull();
+        expect(document.activeElement === opener).toBe(true);
+        act(() => frames.flush());
+        expect(document.activeElement === opener).toBe(true);
+      } else {
+        act(() => frames.flush());
+        expect(document.activeElement === opener).toBe(false);
+        if (close === "reopen") expect(document.activeElement === input).toBe(true);
+        if (close === "focus takeover") expect(document.activeElement?.getAttribute("aria-label")).toBe("Account");
+      }
+    } finally {
+      cleanup(); frames.restore(); rects.mockRestore();
+      if (viewportDescriptor) Object.defineProperty(window, "visualViewport", viewportDescriptor);
+      else Reflect.deleteProperty(window, "visualViewport");
+      if (heightDescriptor) Object.defineProperty(window, "innerHeight", heightDescriptor);
+    }
   });
 });
 

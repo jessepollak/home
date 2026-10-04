@@ -77,17 +77,13 @@
   --payout-monzo: #14233c; --payout-monzo-foreground: #ffffff;
   --payout-revolut: #000000; --payout-revolut-foreground: #ffffff;
   --shell-safe-area-bottom: 0px;
-  --shell-navigation-offset: max(calc(var(--shell-safe-area-bottom) - 0.75rem), 0.75rem);
+  --shell-bottom-control-offset: max(calc(var(--shell-safe-area-bottom) - 0.75rem), 0.75rem);
+  --shell-navigation-offset: var(--shell-bottom-control-offset);
   --shell-navigation-clearance: calc(var(--spacing-shell-mobile-navigation) + var(--shell-navigation-offset) + 1rem);
-  --shell-viewport-overhang: 0px;
+  --shell-viewport-inset-bottom: 0px;
   --overlay: oklch(0.145 0 0 / 10%);
 }
 
-@supports (height: 100dvh) {
-  :root {
-    --shell-viewport-overhang: calc(100dvh - 100svh);
-  }
-}
 
 @media (display-mode: standalone) {
   :root {
@@ -119,8 +115,8 @@
 
 @layer base {
   * { @apply border-border outline-ring/50; }
-  body { @apply bg-background text-foreground; }
-  html { @apply font-sans; }
+  body { @apply bg-muted text-foreground; }
+  html { @apply bg-muted font-sans; }
   a[href], button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [role="option"]:not([aria-disabled="true"]), [role="radio"]:not([aria-disabled="true"]), summary { cursor: pointer; }
 }
 

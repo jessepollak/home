@@ -1,7 +1,7 @@
 "use client";
 
 import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { ChartNoAxesCombined, CreditCard, House, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChartNoAxesCombined, CreditCard, House, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { profileGlyph } from "@/client/account/basename-profile";
 import { useBasenameProfile } from "@/client/account/use-basename-profile";
 import { HomeMark } from "@/components/home-mark";
@@ -27,8 +27,9 @@ import {
   type ShellPanelId,
 } from "@/config/navigation";
 import { useProductOffering } from "@/client/home/product-offering";
-import { visualViewportKeyboardInset } from "./visual-viewport";
+import { useShellKeyboardOpen, useShellViewportGeometry } from "./visual-viewport";
 import styles from "./primary-navigation.module.css";
+import { ShellSearchControl } from "./shell-search-controls";
 
 type PrimaryNavigationProps = {
   layout?: "tabs" | "rail";
@@ -44,6 +45,8 @@ type PrimaryNavigationProps = {
     disabled: boolean;
   };
   onOpenAccount?: (opener: HTMLButtonElement) => void;
+  onOpenSearch?: (opener: HTMLButtonElement) => void;
+  searchOpen?: boolean;
 };
 
 const navigationIcons = {
@@ -106,21 +109,24 @@ export function PrimaryNavigation({
   isAccountSettingsOpen = false,
   account,
   onOpenAccount,
+  onOpenSearch,
+  searchOpen = false,
 }: PrimaryNavigationProps) {
   const { products } = useProductOffering();
-  const visibleItems = useMemo(() => visibleNavigationItems({ cardsEnabled }).filter((item) => item.id !== "invest" || products.invest === "on"), [cardsEnabled, products.invest]);
+  const visibleItems = useMemo(() => visibleNavigationItems({ cardsEnabled, investOffered: products.invest === "on" }), [cardsEnabled, products.invest]);
   const collapsed = useSyncExternalStore(subscribeRail, readCollapsed, () => false);
   const prefersReducedMotion = useReducedMotion();
   const [animated, setAnimated] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const [direction, setDirection] = useState("ltr");
   const [motionReady, setMotionReady] = useState(false);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  useShellViewportGeometry(layout === "tabs");
+  const keyboardOpen = useShellKeyboardOpen(layout === "tabs");
   const NavLens = useNavLens();
   const navigationLens = visibleItems.length > 1 ? NavLens : null;
   const [lensReady, setLensReady] = useState(false);
 
-  const activeIndex = isAccountSettingsOpen && layout === "rail" ? -1 : visibleItems.findIndex((item) =>
+  const activeIndex = (isAccountSettingsOpen || searchOpen) && layout === "rail" ? -1 : visibleItems.findIndex((item) =>
     activeNavigation === item.id ||
     (item.id === "home" && isHomeNestedPanelId(activeNavigation)));
   const pillOffStart = activeIndex > 0;
@@ -133,31 +139,6 @@ export function PrimaryNavigation({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  useEffect(() => {
-    if (layout === "rail") return;
-    const viewport = window.visualViewport;
-    const update = () => {
-      const target = document.activeElement;
-      setKeyboardOpen(window.matchMedia("(max-width: 63.9375rem)").matches &&
-        target instanceof HTMLElement && !!target.closest("#navigation-panel") &&
-        (target.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])") || target.isContentEditable) &&
-        !!viewport && visualViewportKeyboardInset(window.innerHeight, viewport) > 0);
-    };
-    const deferUpdate = () => requestAnimationFrame(update);
-    update();
-    document.addEventListener("focusin", update);
-    document.addEventListener("focusout", deferUpdate);
-    window.addEventListener("resize", update);
-    viewport?.addEventListener("resize", update);
-    viewport?.addEventListener("scroll", update);
-    return () => {
-      document.removeEventListener("focusin", update);
-      document.removeEventListener("focusout", deferUpdate);
-      window.removeEventListener("resize", update);
-      viewport?.removeEventListener("resize", update);
-      viewport?.removeEventListener("scroll", update);
-    };
-  }, [layout]);
 
   const toggle = () => {
     setAnimated(true);
@@ -173,6 +154,9 @@ export function PrimaryNavigation({
     Icon: navigationIcons[item.id],
   })), [labels, visibleItems]);
   const navigationStyle: NavigationStyle = { "--navigation-items": visibleItems.length };
+  useLayoutEffect(() => {
+    if (layout === "rail") document.documentElement.style.setProperty("--shell-rail-width", collapsed ? "4rem" : "15rem");
+  }, [layout, collapsed]);
 
   if (layout === "rail") {
     const ToggleIcon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -211,6 +195,11 @@ export function PrimaryNavigation({
                 </Button>
               );
             })}
+            {onOpenSearch ? <Button variant="navigation" size="lg" className={`h-11 justify-start gap-3 px-3 ${collapsed ? "w-11" : "w-full"}`}
+              aria-label="Search assets" aria-expanded={searchOpen} aria-controls="asset-search-surface" data-shell-search-opener="" data-breakpoint-peer="asset-search"
+              onClick={(event) => { if (!searchOpen) onOpenSearch(event.currentTarget); }}>
+              <Search className="size-5 shrink-0" aria-hidden="true" /><span aria-hidden={collapsed} className={railLabelClassName(collapsed, animated)}>Search</span>
+            </Button> : null}
           </nav>
           <div className="mt-auto">
             <div className="px-2.5 pb-2">
@@ -236,7 +225,8 @@ export function PrimaryNavigation({
   }
 
   return (
-    <div className={`contents lg:hidden ${shellChromeCompensationClassName}`}>
+    <div aria-hidden={keyboardOpen ? true : undefined} inert={keyboardOpen} data-keyboard-hidden={keyboardOpen ? "true" : undefined}
+      className={`${onOpenSearch ? `${styles.group} fixed inset-x-0 z-30 flex items-center justify-center gap-2` : "contents"} lg:hidden ${shellChromeCompensationClassName}`}>
       <nav
         ref={navRef}
         aria-label="Main navigation"
@@ -246,7 +236,7 @@ export function PrimaryNavigation({
         data-navigation-items={visibleItems.length}
         data-lens={navigationLens && lensReady ? "ready" : undefined}
         style={navigationStyle}
-        className={`${shellWidthClassName} ${styles.navigation} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100`}
+        className={`${shellWidthClassName} ${styles.navigation} ${onOpenSearch ? styles.withSearch : ""} ${motionReady && !prefersReducedMotion ? styles.motionReady : ""} fixed inset-x-0 z-30 grid rounded-full p-1 opacity-100`}
       >
         <span aria-hidden="true" data-navigation-floor="" className={`${styles.floor} pointer-events-none absolute inset-0 rounded-full`} />
         <span
@@ -282,6 +272,8 @@ export function PrimaryNavigation({
           createElement(navigationLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onReadyChange: setLensReady })
         ) : null}
       </nav>
+      {onOpenSearch ? <ShellSearchControl data-shell-search-opener="" data-breakpoint-peer="asset-search" aria-expanded={searchOpen} aria-controls="asset-search-surface"
+        onClick={(event) => onOpenSearch(event.currentTarget)} /> : null}
     </div>
   );
 }

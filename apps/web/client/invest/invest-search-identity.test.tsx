@@ -1,11 +1,21 @@
 import "@/client/account/dom-test-harness";
 import { afterEach, expect, test } from "bun:test";
+import { useState } from "react";
 import { page } from "@/tests/helpers/dom";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { assetResolutionFixture, nonTrendingAddress, searchFixture } from "@/tests/browser/feature-map/search-fixtures";
+import { parseInvestSearchResponse } from "@/shared/invest/contracts/search";
 const { cleanup, fireEvent, render, waitFor, within } = await import("@testing-library/react");
 const { InvestExperience } = await import("./invest-experience");
+const { AssetSearch } = await import("./asset-search");
+function SearchJourney() {
+  const [assetId, setAssetId] = useState<string | null>(null);
+  return assetId ? <InvestExperience initialView={{ screen: "detail", assetId, from: "search" }} />
+    : <AssetSearch initialQuery={nonTrendingAddress} onInputReady={() => {}} onClose={() => {}} onQueryCommit={() => {}} onOpenAsset={(id, query) => {
+      window.history.replaceState({ ...window.history.state, assetSearchDetailQuery: query }, ""); setAssetId(id);
+    }} />;
+}
 const originalFetch = globalThis.fetch;
 afterEach(() => { cleanup(); getHomeQueryClient().clear(); globalThis.fetch = originalFetch; window.history.replaceState(null, "", "/invest"); });
 
@@ -23,8 +33,10 @@ const trendingMarket = {
 };
 
 function mockMarketRequests(imageUrl?: string) {
+  const paths: string[] = [];
   globalThis.fetch = (async (input) => {
     const url = new URL(String(input), "http://localhost");
+    paths.push(url.pathname);
     if (url.pathname === "/api/invest/search") {
       const fixture = searchFixture(url.searchParams.get("q") ?? "");
       return Response.json({ ...fixture, results: fixture.results.map((result) => result.kind === "dynamic" && imageUrl ? { ...result, asset: { ...result.asset, imageUrl } } : result) });
@@ -38,6 +50,7 @@ function mockMarketRequests(imageUrl?: string) {
       currency: "USD", fetchedAt: null, status: "empty", points: [],
     });
   }) as typeof fetch;
+  return paths;
 }
 
 test("a trending meme opened from the Memes shelf retains its trending price", async () => {
@@ -58,20 +71,25 @@ test("a trending meme deep link retains its trending price without search result
   await waitFor(() => expect(page().getByText("$7.35")).toBeTruthy());
 });
 
-test("a search-only asset detail shows its search price", async () => {
-  mockMarketRequests();
-  render(<InvestExperience />);
+test("a search-only detail uses its selected query price, not another cached query or a new resolution read", async () => {
+  const paths = mockMarketRequests();
+  const oldPage = parseInvestSearchResponse({ ...searchFixture(nonTrendingAddress), query: "OLD", snapshots: searchFixture(nonTrendingAddress).snapshots.map((snapshot) => ({ ...snapshot, displayPrice: "$99.00" })) });
+  if (!oldPage) throw new Error("Invalid cached search fixture");
+  getHomeQueryClient().setQueryData(["unauthenticated", "invest-search", "/api/invest/search", "OLD"], { pages: [oldPage], pageParams: [0] });
+  render(<SearchJourney />);
   fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), {
     target: { value: nonTrendingAddress },
   });
   fireEvent.click((await page().findAllByRole("button", { name: /Orbit/ }))[0]!);
   await waitFor(() => expect(page().getByText("$1.25")).toBeTruthy());
+  expect(paths).not.toContain("/api/invest/asset");
+  expect(page().queryByText("$99.00")).toBeNull();
 });
 
 test("a search-only result displays its provider image in the row and detail", async () => {
   const imageUrl = "https://example.com/orbit.png";
   mockMarketRequests(imageUrl);
-  render(<InvestExperience />);
+  render(<SearchJourney />);
   fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: nonTrendingAddress } });
   const row = (await page().findAllByRole("button", { name: /Orbit/ }))[0]!;
   expect(within(row).getByRole("img", { name: "Orbit icon" }).querySelector("img")?.getAttribute("src")).toBe(imageUrl);
@@ -82,7 +100,7 @@ test("a search-only result displays its provider image in the row and detail", a
 
 test("a search-only result without an image falls back to initials", async () => {
   mockMarketRequests();
-  render(<InvestExperience />);
+  render(<SearchJourney />);
   fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: nonTrendingAddress } });
   const row = (await page().findAllByRole("button", { name: /Orbit/ }))[0]!;
   const mark = within(row).getByRole("img", { name: "Orbit icon" });

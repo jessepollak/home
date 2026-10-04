@@ -49,7 +49,7 @@ test("production: warm Home, Cash and Invest taps avoid document and RSC request
   await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
   const destinations = {
     Cash: { path: "/cash", ready: page.getByRole("region", { name: "Cash", exact: true }) },
-    Invest: { path: "/invest", ready: page.getByRole("textbox", { name: "Search assets" }) },
+    Invest: { path: "/invest", ready: page.getByRole("heading", { name: "Stocks" }) },
     Home: { path: "/home", ready: page.getByRole("heading", { name: "Your money" }) },
   };
   const navigate = async (target: keyof typeof destinations) => {

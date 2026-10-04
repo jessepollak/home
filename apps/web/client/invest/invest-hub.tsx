@@ -11,7 +11,6 @@ import {
   type MemeShelfStatus,
 } from "./discover";
 import { DiscoverShelf } from "./discover-shelf";
-import { InvestSearch, type InvestSearchState } from "./invest-search";
 
 export type InvestHubProps = {
   stockMarket: MarketDataState;
@@ -21,11 +20,6 @@ export type InvestHubProps = {
   memeStatus?: MemeShelfStatus;
   assetMarkResolution?: AssetMarkResolution;
   investVisibility?: InvestSettings;
-  query?: string;
-  onQueryChange?: (query: string) => void;
-  composing?: boolean;
-  onComposingChange?: (composing: boolean) => void;
-  search?: InvestSearchState;
   onSeeAll: (shelfId: DiscoverShelfId) => void;
   onOpenAsset: (asset: InvestAsset, from: "hub") => void;
 };
@@ -38,20 +32,10 @@ export function InvestHub({
   memeStatus = "empty",
   assetMarkResolution = {},
   investVisibility = INVEST_SETTINGS_DEFAULTS,
-  query = "",
-  onQueryChange = () => {},
-  composing = false,
-  onComposingChange = () => {},
-  search,
   onSeeAll,
   onOpenAsset,
 }: InvestHubProps) {
   const hosted = Boolean(useOptionalAppChrome());
-  const markets = {
-    stockMarket,
-    cryptoMarket: cryptoMarket ?? unavailableMarketData,
-    memeMarket,
-  };
   const shelfMarkets = {
     stock: stockMarket,
     crypto: cryptoMarket ?? unavailableMarketData,
@@ -72,20 +56,7 @@ export function InvestHub({
           </h2>
         </header>
       )}
-      {search && visibleShelves.length > 0 ? (
-        <InvestSearch
-          query={query}
-          onQueryChange={onQueryChange}
-          composing={composing}
-          onComposingChange={onComposingChange}
-          search={search}
-          markets={markets}
-          assetMarkResolution={assetMarkResolution}
-          onOpenAsset={(asset) => onOpenAsset(asset, "hub")}
-        />
-      ) : null}
-      {!query.trim() || visibleShelves.length === 0 ? (
-        <div className={search && visibleShelves.length > 0 ? "mt-4 space-y-4" : "space-y-4"}>
+      <div className="space-y-4">
           {visibleShelves.map((shelf) => (
             <DiscoverShelf
               key={shelf.id}
@@ -102,7 +73,6 @@ export function InvestHub({
             <Empty><EmptyHeader><EmptyTitle>Nothing to invest in right now.</EmptyTitle></EmptyHeader></Empty>
           ) : null}
         </div>
-      ) : null}
     </section>
   );
 }

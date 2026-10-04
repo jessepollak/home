@@ -19,6 +19,11 @@ const noop = () => undefined;
 const NOW = Date.parse("2026-09-15T13:00:00.000Z");
 beforeEach(() => setSystemTime(new Date(NOW)));
 
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Expected a test fixture value");
+  return value;
+}
+
 function transfer(id: string, minute: number): ActivityTransfer {
   return {
     id: `8453:${TOKEN}:${id}`,
@@ -777,6 +782,107 @@ describe("combined Activity panel", () => {
     expect(retryLoadMore).toHaveBeenCalledTimes(1);
     expect(view.container.querySelector("[data-activity-sentinel]")).toBe(sentinel);
   });
+
+  test("coalesces viewport resizes, reconnects the sentinel, and cancels observation on unmount", () => {
+    const originalObserver = globalThis.IntersectionObserver;
+    const originalRequest = window.requestAnimationFrame;
+    const originalCancel = window.cancelAnimationFrame;
+    const originalHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    const observers: Observer[] = [];
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrame = 0;
+    class Observer implements IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin: string;
+      readonly thresholds = [0];
+      readonly observe = mock((_target: Element) => undefined);
+      readonly unobserve = mock((_target: Element) => undefined);
+      readonly disconnect = mock(() => undefined);
+      readonly takeRecords = (): IntersectionObserverEntry[] => [];
+
+      constructor(readonly callback: IntersectionObserverCallback, options: IntersectionObserverInit = {}) {
+        this.rootMargin = required(options.rootMargin);
+        observers.push(this);
+      }
+    }
+    globalThis.IntersectionObserver = Observer;
+    window.requestAnimationFrame = (callback) => { frames.set(++nextFrame, callback); return nextFrame; };
+    window.cancelAnimationFrame = (id) => { frames.delete(id); };
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 600 });
+    try {
+      const setSentinelVisible = mock(() => undefined);
+      const activity = { ...ready([transfer("transfer-2", 2)], "cursor-1"), setSentinelVisible };
+      const view = render(<ActivityPanelView activity={activity} />);
+      const sentinel = required(view.container.querySelector("[data-activity-sentinel]"));
+      expect(observers).toHaveLength(1);
+      const firstObserver = required(observers[0]);
+      expect(firstObserver.observe).toHaveBeenCalledWith(sentinel);
+      const notify = (index: number) => {
+        const observer = required(observers[index]);
+        const bounds = sentinel.getBoundingClientRect();
+        const entry: IntersectionObserverEntry = {
+          boundingClientRect: bounds, intersectionRatio: 1, intersectionRect: bounds,
+          isIntersecting: true, rootBounds: null, target: sentinel, time: 0,
+        };
+        act(() => observer.callback([entry], observer));
+      };
+      notify(0);
+      expect(setSentinelVisible).toHaveBeenLastCalledWith(true);
+
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+      act(() => { window.dispatchEvent(new Event("resize")); window.dispatchEvent(new Event("resize")); });
+      expect(observers).toHaveLength(1);
+      expect(frames.size).toBe(1);
+      const frame = required([...frames.values()][0]);
+      frames.clear();
+      act(() => frame(0));
+      expect(observers).toHaveLength(2);
+      const secondObserver = required(observers[1]);
+      expect(firstObserver.disconnect).toHaveBeenCalledTimes(1);
+      expect(secondObserver.observe).toHaveBeenCalledWith(sentinel);
+      expect(parseFloat(required(secondObserver.rootMargin.split(" ")[2]))).toBeGreaterThan(parseFloat(required(firstObserver.rootMargin.split(" ")[2])));
+      expect(setSentinelVisible).not.toHaveBeenCalledWith(false);
+      setSentinelVisible.mockClear();
+      notify(0);
+      expect(setSentinelVisible).not.toHaveBeenCalled();
+      notify(1);
+      expect(setSentinelVisible).toHaveBeenLastCalledWith(true);
+
+      act(() => { window.dispatchEvent(new Event("resize")); });
+      view.unmount();
+      expect(frames.size).toBe(0);
+      expect(secondObserver.disconnect).toHaveBeenCalledTimes(1);
+      expect(setSentinelVisible).toHaveBeenLastCalledWith(false);
+      setSentinelVisible.mockClear();
+      notify(1);
+      window.dispatchEvent(new Event("resize"));
+      expect(setSentinelVisible).not.toHaveBeenCalled();
+      expect(frames.size).toBe(0);
+    } finally {
+      cleanup();
+      globalThis.IntersectionObserver = originalObserver;
+      window.requestAnimationFrame = originalRequest;
+      window.cancelAnimationFrame = originalCancel;
+      if (originalHeight) Object.defineProperty(window, "innerHeight", originalHeight);
+      else Reflect.deleteProperty(window, "innerHeight");
+    }
+  });
+
+  for (const density of ["page", "feed"] as const) {
+    test(`replaces the ${density} continuation box with an end marker only at exhaustion`, () => {
+      const rows = [transfer("transfer-2", 2)];
+      const view = render(<ActivityPanelView activity={ready(rows, "cursor-1")} density={density} />);
+      expect(view.container.querySelector("[data-activity-continuation]")).not.toBeNull();
+      expect(view.queryByText("End of activity")).toBeNull();
+
+      view.rerender(<ActivityPanelView activity={ready(rows)} density={density} />);
+      expect(view.getByRole("status").textContent).toBe("End of activity");
+      expect(view.container.querySelector("[data-activity-continuation]")).toBeNull();
+      expect(view.container.querySelector("[data-activity-sentinel]")).toBeNull();
+      expect(view.container.querySelector("[data-activity-loader]")).toBeNull();
+      expect(view.getByRole("button", { description: /transaction details/ })).toBeTruthy();
+    });
+  }
 
   test("retries an older page from the Home feed without a red alert", () => {
     const retryLoadMore = mock(() => undefined);

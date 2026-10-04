@@ -3,13 +3,14 @@ import { getBorrowMarketRef, type BorrowMarketId } from "@/shared/borrowing/conf
 import { resolveMarketPriceAssetIdentity } from "@/shared/invest/contracts/market-price-history";
 import { erc20AssetKey, nativeAssetKey, type AssetKey } from "@/shared/balances/types";
 import { isRecord } from "@/shared/guards";
+import { INVEST_SEARCH_QUERY_MAX_LENGTH } from "@/shared/invest/contracts/search";
 
-// The pathname is authoritative for page state. Only the ephemeral account and
-// flow overlays below may appear as query keys; obsolete `panel`, `shelf`,
-// `asset`, `group`, and `market` query values never select a page.
+// The pathname selects pages; account, flow and asset search are ephemeral
+// query overlays. Obsolete page-routing query keys never select a page.
 export const SHELL_ACCOUNT_PARAM = "account";
 export const SHELL_FLOW_PARAM = "flow";
 export const SHELL_ACTION_PARAM = "action";
+export const SHELL_SEARCH_PARAM = "search";
 
 export type ShellAccount = "signin" | "settings";
 export type ShellFlow =
@@ -177,6 +178,7 @@ function parseHolding(segment: string): AssetKey | null {
 }
 
 export type ShellOverlayIntent = {
+  search: string | null;
   account: ShellAccount | null;
   returnedFromFunding: boolean;
   fundingReturn: "funding" | "verification" | null;
@@ -193,7 +195,9 @@ export function parseShellOverlayIntent(
   const action = readSearchValue(search, SHELL_ACTION_PARAM);
   const returnValue = readSearchValue(search, "return");
   const fundingReturn = returnValue === "funding" || returnValue === "verification" ? returnValue : null;
+  const searchQuery = readSearchValue(search, SHELL_SEARCH_PARAM);
   return {
+    search: searchQuery === undefined ? null : searchQuery.slice(0, INVEST_SEARCH_QUERY_MAX_LENGTH),
     account: readShellAccountParam(search),
     returnedFromFunding: fundingReturn !== null,
     fundingReturn,
@@ -351,17 +355,17 @@ export function commitClientUrl(
   href: string,
   mode: "push" | "replace" = "push",
   extraState?: Record<string, unknown>,
+  notifyRouter = false,
 ): void {
   if (typeof window === "undefined") return;
+  const currentState: unknown = window.history.state;
+  const state = { ...(isRecord(currentState) ? currentState : {}), ...extraState };
+  if (notifyRouter) { delete state.__NA; delete state._N; }
   if (mode === "replace") {
-    window.history.replaceState(extraState
-      ? { ...window.history.state, ...extraState }
-      : window.history.state, "", href);
+    window.history.replaceState(notifyRouter ? state : extraState
+      ? { ...window.history.state, ...extraState } : window.history.state, "", href);
   } else {
-    window.history.pushState({
-      ...window.history.state,
-      ...extraState,
-    }, "", href);
+    window.history.pushState(state, "", href);
   }
 }
 

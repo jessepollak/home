@@ -3,7 +3,7 @@
 }
 
 @media (max-width: 63.9375rem) {
-  .navigation {
+  .navigation, .glass {
     --glass-tint-top: color-mix(in oklch, var(--background) 12%, transparent);
     --glass-tint-bottom: color-mix(in oklch, var(--background) 22%, transparent);
     --glass-tone: saturate(150%) brightness(1.08);
@@ -23,15 +23,20 @@
     --glass-lens-specular: oklch(1 0 0 / 85%);
     --glass-lens-shine: oklch(1 0 0 / 90%);
     --glass-lens-lift-shadow: 0 0 0 .5px color-mix(in oklch, var(--foreground) 12%, transparent), 0 1px 2px oklch(0 0 0 / 8%), 0 6px 14px -4px oklch(0 0 0 / 18%);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .navigation {
     width: calc(6rem * var(--navigation-items, 2));
     max-width: calc(100% - 2rem);
     height: var(--spacing-shell-mobile-navigation);
-    bottom: calc(var(--shell-navigation-offset) + var(--shell-viewport-overhang));
+    bottom: var(--shell-navigation-offset);
+    transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
     box-shadow: var(--glass-shadow);
-    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), transform 150ms cubic-bezier(.4, 0, .2, 1);
+    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1);
   }
 
-  :global(.dark) .navigation {
+  :global(.dark) .navigation, :global(.dark) .glass {
     --glass-tint-top: color-mix(in oklch, var(--secondary) 14%, transparent);
     --glass-tint-bottom: color-mix(in oklch, var(--secondary) 24%, transparent);
     --glass-tone: saturate(170%) brightness(.78);
@@ -50,6 +55,20 @@
     --glass-lens-lift-shadow: 0 0 0 .5px oklch(0 0 0 / 40%), 0 6px 14px -4px oklch(0 0 0 / 45%);
   }
 
+  .navigation.withSearch {
+    width: calc(6rem * var(--navigation-items, 2));
+    max-width: calc(100% - 2rem - var(--spacing-shell-mobile-navigation) - .5rem);
+    margin-inline: 0;
+    position: relative;
+    inset: auto;
+    transform: none;
+    flex-shrink: 1;
+  }
+
+  .group {
+    bottom: var(--shell-navigation-offset);
+    transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
+  }
   .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
 
   .pill {
@@ -93,7 +112,8 @@
 
   .content { transition: scale 140ms ease-out; }
   .navigation :active > .content { scale: .95; transition-duration: 0ms; }
-  .navigation[data-keyboard-hidden="true"] { opacity: 0; transform: translateY(.5rem); pointer-events: none; }
+  .navigation[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
+  .group[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
 }
 
 @media (max-width: 63.9375rem) and (hover: hover) {
@@ -103,7 +123,6 @@
 @media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
   .navigation, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
   .navigation :active > .content { scale: 1; }
-  .navigation[data-keyboard-hidden="true"] { transform: none; }
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-transparency: reduce) {
@@ -136,4 +155,23 @@
   .navigation :is(span, svg) { color: CanvasText; }
   .pill { background: Highlight; }
   .navigation [aria-current="page"] :is(span, svg) { color: HighlightText; }
+}
+
+.assetSearchBar {
+  width: calc(6rem * var(--shell-navigation-items, 2) + var(--spacing-shell-mobile-navigation) + .5rem);
+  max-width: calc(100% - 2rem);
+  margin-inline: auto;
+  bottom: var(--shell-bottom-control-offset);
+  transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
+}
+.assetSearchResults {
+  padding-bottom: calc(var(--spacing-shell-mobile-navigation) + var(--shell-bottom-control-offset) + 1rem + var(--shell-viewport-inset-bottom));
+}
+.shellSearchField { height: var(--spacing-shell-mobile-navigation); }
+.shellSearchField:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (min-width: 64rem) {
+  .assetSearchSurface { inset-inline-start: var(--shell-rail-width, 15rem); }
+  .assetSearchBar { position: relative; inset: auto; transform: none; order: -1; width: 100%; max-width: 73rem; padding: 1.5rem; }
+  .assetSearchResults { padding-bottom: 1.5rem; }
+  .shellSearchField { background: var(--background); border: 1px solid var(--border); }
 }
