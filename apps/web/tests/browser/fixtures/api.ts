@@ -293,7 +293,7 @@ export async function installApiFixtures(
         return isRecord(body) && body.version === 1;
       };
       if (order?.kind !== "funding" || order.stage !== "awaiting-payment" || !matchesVersion()) {
-        return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ code: "ORDER_NOT_CANCELLABLE" }) });
+        return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: { code: "ORDER_NOT_CANCELLABLE", message: "This deposit can no longer be cancelled." } }) });
       }
       activityOrders.orders = activityOrders.orders.map((entry) => entry.id === id && entry.kind === "funding"
         ? { ...entry, stage: "cancelled", abandonReason: "owner", status: "failed", resumable: false, instruction: null } : entry);
