@@ -54,6 +54,8 @@ const rootFiles = rootSourceFiles(paths);
 const exemptions = JSON.parse(await readFile(new URL("../exploration-boundary-exemptions.json", import.meta.url), "utf8"));
 const boundary = evaluateBoundaryExemptions({ directories, rootFiles, exemptions });
 
+const unsafeTestPacket = 'export const value = JSON.parse("null").field; export function run(): void { JSON.parse("null")(); } export function read(): string { return JSON.parse("null"); }';
+
 const fixtures = {
   "app/comment.mjs": "export const value = 1; // unexplained",
   "client/comment.ts": "export const value = 1; /* narrative */",
@@ -175,7 +177,8 @@ const fixtures = {
   "shared/base-ui.ts": 'import x from "@base-ui/react"; export { x };',
   "server/no-marker.ts": 'export const x = 1;',
   "server/instrumentation-unsafe.ts": 'import "server-only"; import { sendHomeStartupReport } from "@/client/observability/perf-marks"; sendHomeStartupReport(report);',
-  "server/instrumentation-safe.ts": 'import "server-only"; import { emitServerEvent } from "@/server/observability/log"; emitServerEvent("kind", fields);',
+  "server/instrumentation-safe.ts": 'import "server-only"; import { emitServerEvent } from "@/server/observability/log"; declare const fields: Record<string, unknown>; emitServerEvent("kind", fields);',
+  "server/observability/log.ts": 'import "server-only"; export function emitServerEvent(kind: string, fields: Record<string, unknown>): void { void kind; void fields; }',
   "server/late-marker.ts": 'import x from "x"; import "server-only"; export { x };',
   "server/clean.ts": 'import "server-only"; export const x = 1;',
   "client/format.tsx": 'export const a = new Intl.NumberFormat(); export const b = new Intl.DateTimeFormat(); export const c = (x: number) => x.toLocaleString(); export const d = (x: Date) => x.toLocaleDateString(); export const e = (x: Date) => x.toLocaleTimeString(); export const f = (x: number) => x.toFixed(2);',
@@ -194,12 +197,13 @@ const fixtures = {
   "app/silent-catch.ts": 'try { run(); } catch {}',
   "app/handled-catch.ts": 'declare function run(): unknown; export function read(){ try { return run(); } catch { return { ok: false }; } }',
   "client/silent-catch.ts": 'export function read(){ try { run(); } catch {} }',
-  "client/handled-catch.ts": 'function unsupported(): never { throw new Error("unsupported"); } export function read(){ try { run(); } catch { unsupported(); } }',
+  "client/handled-catch.ts": 'declare function run(): void; function unsupported(): never { throw new Error("unsupported"); } export function read(){ try { run(); } catch { unsupported(); } }',
   "server/silent-catch.ts": 'import "server-only"; export function read(){ try { run(); } catch {} }',
   "client/policy.ts": 'export const policy = "frame-ancestors none"; export const readHeader = () => "frame-ancestors none";',
   "client/policy.test.ts": 'import { expect, test } from "bun:test"; import { policy } from "./policy"; test("x", () => { expect(readHeader()).toBe(policy); });',
   "client/policy-clean.test.ts": 'import { expect, test } from "bun:test"; import { policy, readHeader } from "./policy"; test("x", () => { expect(readHeader()).toBe("frame-ancestors none"); expect(policy).toBe("frame-ancestors none"); });',
   "client/constant-pin.test.ts": 'import { expect, test } from "bun:test"; import { TUNING_LIMIT } from "./limits"; test("x", () => { expect(TUNING_LIMIT).toBe(10); });',
+  "client/limits.ts": 'export const BASE_CHAIN_ID = 8453; export function readLimit(): number { return 10; }',
   "client/constant-pin-clean.test.ts": 'import { expect, test } from "bun:test"; import { BASE_CHAIN_ID, readLimit } from "./limits"; test("x", () => { expect(BASE_CHAIN_ID).toBe(8453); expect(readLimit()).toBe(10); });',
 
   "client/raw.tsx": 'export function A(){ return <><button>go</button><input/><select/></> }',
@@ -212,9 +216,9 @@ const fixtures = {
   "tests/helpers/migrations.ts": 'import { readFile } from "node:fs/promises"; Bun.sleep(1); export { readFile };',
   "tests/well-known/apple-pay-domain-association.test.ts": 'import { readFile } from "node:fs/promises"; export function x(e: Element){ return [readFile, e.className] }',
   "client/waits.test.tsx": 'setTimeout(()=>{},51); setInterval(()=>{},52); Bun.sleep(1); waitFor(()=>{}, {timeout:2001});',
-  "client/waits-clean.test.tsx": 'setTimeout(()=>{},50); setInterval(()=>{},50); waitFor(()=>{}, {timeout:2000});',
+  "client/waits-clean.test.tsx": 'declare function waitFor(callback: () => void, options?: { timeout?: number }): void; setTimeout(()=>{},50); setInterval(()=>{},50); waitFor(()=>{}, {timeout:2000}); export {};',
   "tests/browser/waits.pw.ts": 'page.waitForTimeout(1); frame.waitForTimeout(1); new Promise(resolve=>setTimeout(resolve, delay));',
-  "tests/browser/waits-clean.pw.ts": 'await expect.poll(readStatus).toBe("ready"); await page.getByRole("button").waitFor();',
+  "tests/browser/waits-clean.pw.ts": 'declare const page: { getByRole(role: string): { waitFor(): Promise<void> } }; declare const expect: { poll(read: () => string): { toBe(value: string): Promise<void> } }; declare const readStatus: string; await expect.poll(() => readStatus).toBe("ready"); await page.getByRole("button").waitFor(); export {};',
   "tests/browser/request-only.pw.ts": 'import { test } from "@playwright/test"; test("x", async ({ request }) => { await request.get("/"); });',
   "tests/browser/request-only-clean.pw.ts": 'import { test } from "@playwright/test"; test("x", async ({ page, request }) => { await page.goto("/"); await request.get("/"); });',
   "client/classes.test.tsx": 'export function x(e: Element){ const a=e.className; const b=e.classList.contains("x"); const c=e.getAttribute("class"); return [a,b,c] }',
@@ -270,6 +274,35 @@ const fixtures = {
   "client/unsafe-boundary-clean.ts": 'export function read(): string | null { const value: unknown = JSON.parse("null"); return typeof value === "string" ? value : null; }',
   "client/unsafe-values.test.ts": 'export const value: string = JSON.parse("null"); export function read(): string { return JSON.parse("null"); }',
   "client/unsafe-values.stories.tsx": 'export const value: string = JSON.parse("null"); export function read(): string { return JSON.parse("null"); }',
+  "client/unsafe-extra.ts": 'declare function readSdk(): any; declare function consume(value: string): void; export const address = readSdk().address; export function run(): void { readSdk()(); } export function send(): void { consume(readSdk()); }',
+  "app/unsafe-extra.ts": 'declare function readSdk(): any; declare function consume(value: string): void; export const address = readSdk().address; export function run(): void { readSdk()(); } export function send(): void { consume(readSdk()); }',
+  "server/unsafe-extra.ts": 'import "server-only"; declare function readSdk(): any; declare function consume(value: string): void; export const address = readSdk().address; export function run(): void { readSdk()(); } export function send(): void { consume(readSdk()); }',
+  "client/unsafe-extra-clean.ts": 'declare function consume(value: string): void; export function send(value: unknown): void { if (typeof value === "string") consume(value); }',
+  "client/unsafe-widened-array.ts": 'declare const value: unknown; export function read(): unknown { if (!Array.isArray(value)) return undefined; const first = value[0]; return first.brand; }',
+  "client/unsafe-widened-array-clean.ts": 'declare const value: unknown; export function read(): unknown { if (!Array.isArray(value)) return undefined; const entries: unknown[] = value; const first = entries[0]; return typeof first === "object" && first !== null && "brand" in first ? first.brand : undefined; }',
+  "client/unsafe-test-member.test.ts": 'declare function readSdk(): any; export const address = readSdk().address;',
+  "client/unsafe-test-call.test.ts": 'declare function readSdk(): any; export function run(): void { readSdk()(); }',
+  "client/unsafe-test-argument.test.ts": 'declare function consume(value: string): void; export function run(): void { consume(JSON.parse("null")); }',
+  "client/unsafe-story-member.stories.tsx": 'declare function readSdk(): any; export const address = readSdk().address;',
+  "client/account/base-account-connector.ts": 'declare function readSdk(): any; export const value: string = JSON.parse("null"); export function read(): string { return JSON.parse("null"); } export const address = readSdk().address; export function run(): void { readSdk()(); }',
+  "server/actions/follow-through.test.ts": unsafeTestPacket,
+  "server/actions/handler.trade.test.ts": unsafeTestPacket,
+  "server/actions/kinds/trade/cdp-swaps.test.ts": unsafeTestPacket,
+  "server/actions/kinds/trade/prepare.test.ts": unsafeTestPacket,
+  "server/funding/cash-out-progress.test.ts": unsafeTestPacket,
+  "server/funding/core/customer-service.test.ts": unsafeTestPacket,
+  "server/funding/core/service.test.ts": unsafeTestPacket,
+  "server/funding/core/user-token-rotation.test.ts": unsafeTestPacket,
+  "server/funding/core/user-token-service.test.ts": unsafeTestPacket,
+  "client/account/base-account-eip5792-recovery.test.ts": unsafeTestPacket,
+  "client/account/cdp-money-action-execution.test.ts": unsafeTestPacket,
+  "client/account/owner-fence.test.tsx": unsafeTestPacket,
+  "client/account/restore-stage.test.tsx": unsafeTestPacket,
+  "server/actions/included-control.test.ts": unsafeTestPacket,
+  "server/funding/included-control.test.ts": unsafeTestPacket,
+  "client/account/included-control.test.tsx": unsafeTestPacket,
+  "server/actions/kinds/trade/included-control.test.ts": unsafeTestPacket,
+  "server/funding/core/included-control.test.ts": unsafeTestPacket,
   "server/cdp/sdk-any.ts": 'import "server-only"; declare function readSdk(): any; export const address = readSdk().address;',
   "server/cdp/sdk-typed-clean.ts": 'import "server-only"; declare function readSdk(): { address: string }; export const address = readSdk().address;',
   "server/cdp/sdk-boundary-clean.ts": 'import "server-only"; declare const value: unknown; export function address(){ if (!value || typeof value !== "object" || !("address" in value)) return null; return value.address; }',
@@ -573,7 +606,20 @@ const contracts = [
   ["production client rejects unsafe assignment and return with exact rule counts", () => { assertHits("client/unsafe-assignment.ts", "typescript(no-unsafe-assignment)", 1); assertHits("client/unsafe-return.ts", "typescript(no-unsafe-return)", 1); }],
   ["production app and server reject unsafe assignment and return", () => { for (const file of ["app/unsafe-values.ts", "server/unsafe-values.ts"]) { assertHits(file, "typescript(no-unsafe-assignment)", 1); assertHits(file, "typescript(no-unsafe-return)", 1); } }],
   ["production unsafe rules accept typed and parsed unknown values", () => { assertClean("client/unsafe-typed-clean.ts"); assertClean("client/unsafe-boundary-clean.ts"); }],
-  ["production unsafe rules exclude test and story fixtures", () => { assertClean("client/unsafe-values.test.ts"); assertClean("client/unsafe-values.stories.tsx"); }],
+  ["production argument, call and member-access rules reject unsafe SDK flows", () => { for (const file of ["app/unsafe-extra.ts", "client/unsafe-extra.ts", "server/unsafe-extra.ts"]) { assertHits(file, "typescript(no-unsafe-argument)", 1); assertHits(file, "typescript(no-unsafe-call)", 1); assertHits(file, "typescript(no-unsafe-member-access)", 1); } }],
+  ["production argument, call and member-access rules accept narrowed values", () => { assertClean("client/unsafe-extra-clean.ts"); assertClean("client/unsafe-widened-array-clean.ts"); }],
+  ["widened array boundaries require an unknown local before member flow", () => assertHits("client/unsafe-widened-array.ts", "typescript(no-unsafe-member-access)", 1)],
+  ["test and story rules reject member access, calls and returns", () => { assertHits("client/unsafe-test-member.test.ts", "typescript(no-unsafe-member-access)", 1); assertHits("client/unsafe-test-call.test.ts", "typescript(no-unsafe-call)", 1); assertHits("client/unsafe-values.test.ts", "typescript(no-unsafe-return)", 1); assertHits("client/unsafe-values.stories.tsx", "typescript(no-unsafe-return)", 1); assertHits("client/unsafe-story-member.stories.tsx", "typescript(no-unsafe-member-access)", 1); }],
+  ["test and story rules keep assignment and argument production-only", () => { assertHits("client/unsafe-values.test.ts", "typescript(no-unsafe-assignment)", 0); assertClean("client/unsafe-test-argument.test.ts"); }],
+  ["the account session boundary stays on the assignment and return gate", () => { assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-assignment)", 2); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-return)", 1); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-member-access)", 0); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-call)", 0); assertHits("client/account/base-account-connector.ts", "typescript(no-unsafe-argument)", 0); }],
+  ["action, funding and account test packets stay outside the test gate", () => {
+    for (const file of ["server/actions/follow-through.test.ts", "server/actions/handler.trade.test.ts", "server/actions/kinds/trade/cdp-swaps.test.ts", "server/actions/kinds/trade/prepare.test.ts", "server/funding/cash-out-progress.test.ts", "server/funding/core/customer-service.test.ts", "server/funding/core/service.test.ts", "server/funding/core/user-token-rotation.test.ts", "server/funding/core/user-token-service.test.ts", "client/account/base-account-eip5792-recovery.test.ts", "client/account/cdp-money-action-execution.test.ts", "client/account/owner-fence.test.tsx", "client/account/restore-stage.test.tsx"]) assertClean(file);
+    for (const file of ["server/actions/included-control.test.ts", "server/actions/kinds/trade/included-control.test.ts", "server/funding/included-control.test.ts", "server/funding/core/included-control.test.ts", "client/account/included-control.test.tsx"]) {
+      assertHits(file, "typescript(no-unsafe-member-access)", 1);
+      assertHits(file, "typescript(no-unsafe-call)", 1);
+      assertHits(file, "typescript(no-unsafe-return)", 1);
+    }
+  }],
   ["type-aware SDK boundary rejects unsafe member flow", () => assertHits("server/cdp/sdk-any.ts", "typescript(no-unsafe-member-access)")],
   ["type-aware SDK boundary accepts typed and parsed values", () => { assertClean("server/cdp/sdk-typed-clean.ts"); assertClean("server/cdp/sdk-boundary-clean.ts"); }],
   ["inline request JSON parsing is rejected outside the approved helpers", () => { assertHits("server/request-json-inline.ts", "home(no-inline-request-json)"); assertHits("server/request-json-clean.ts", "home(no-inline-request-json)", 0); assertHits("shared/http/request-json-helper.ts", "home(no-inline-request-json)", 0); assertHits("client/request-json-inline.ts", "home(no-inline-request-json)", 0); }],

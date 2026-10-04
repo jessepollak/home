@@ -95,6 +95,9 @@ async function paginatedFeed(page: Page, context: BrowserContext, host: "main" |
     if (!main || !scroller || !list) throw new Error("missing feed fixture");
     const target = selected === "main" ? main : window;
     let next = 2;
+    function isPageLoadedCallback(value: unknown): value is (pageNumber: number) => unknown {
+      return typeof value === "function";
+    }
     target.addEventListener("scroll", () => {
       if (next > 3 || scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 5) return;
       for (let i = 0; i < 25; i++) {
@@ -110,7 +113,7 @@ async function paginatedFeed(page: Page, context: BrowserContext, host: "main" |
         list.after(end);
       }
       const notify: unknown = Reflect.get(window, "feedPageLoaded");
-      if (typeof notify === "function") void notify(next++);
+      if (isPageLoadedCallback(notify)) void notify(next++);
     });
   }, host);
   const session: Session = { page, context, cdp: await context.newCDPSession(page), cpu: { requested: 4, applied: 1 } };

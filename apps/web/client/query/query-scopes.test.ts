@@ -48,7 +48,10 @@ test("after-action marks only its owner's balances before invalidating without i
   client.setQueryData(ownerQueryKey(owner, "balances", "US"), { fetchedAt: new Date(observedAt).toISOString(), total: 1 });
   let markerAtInvalidation: unknown;
   const unsubscribe = client.getQueryCache().subscribe((event) => {
-    if (event.query.queryKey[1] === "balances" && event.query.state.isInvalidated) {
+    const queryKey: unknown = event.query.queryKey;
+    if (!Array.isArray(queryKey)) return;
+    const parts: unknown[] = queryKey;
+    if (parts[1] === "balances" && event.query.state.isInvalidated) {
       markerAtInvalidation = client.getQueryData(markerKey);
     }
   });

@@ -1,7 +1,18 @@
 import { expect, test } from "bun:test";
+import { isRecord } from "@/shared/guards";
 import { makeDirectory, readFixture, withUnitTestFixture, writeFixture } from "./unit-tests-fixture";
 import { parseJunit } from "../../../scripts/gates/test-runtime.mjs";
 import { DEFAULT_BATCH_SIZE, batchTests, classifyBatch, discoverTests, filterTests, isDomTestSource, mergeJunit, normalizeRss, run, splitArgs, summarize, type Command } from "./unit-tests";
+
+async function readMemoryBatches(cwd: string) {
+  const memory: unknown = JSON.parse(await readFixture(cwd, "unit-test-results/memory.json"));
+  if (!isRecord(memory) || !Array.isArray(memory.batches)) throw new Error("Missing memory batches");
+  const batches: unknown[] = memory.batches;
+  return batches.map((batch) => {
+    if (!isRecord(batch)) throw new Error("Invalid memory batch");
+    return batch;
+  });
+}
 
 const xml = (name: string, failures = 0) => `<?xml version="1.0" encoding="UTF-8"?>
 <testsuites name="bun test" tests="1" assertions="2" failures="${failures}" skipped="0" time="0.2">
@@ -73,8 +84,8 @@ test("runner separates DOM tests and preloads only their batches", async () => {
     expect(seen).toHaveLength(2);
     expect(seen[0]).not.toContain("--preload");
     expect(seen[1]).toContain("./client/account/dom-test-harness.ts");
-    const memory = JSON.parse(await readFixture(cwd, "unit-test-results/memory.json"));
-    expect(memory.batches.map((batch: { partition: string }) => batch.partition)).toEqual(["non-dom", "dom"]);
+    const batches = await readMemoryBatches(cwd);
+    expect(batches.map((batch) => batch.partition)).toEqual(["non-dom", "dom"]);
   });
 });
 
@@ -132,9 +143,9 @@ test("runner continues past failures, records RSS ceiling and merges available J
     };
     expect(await run([], { cwd, env: { HOME_UNIT_TEST_BATCH_SIZE: "1", HOME_UNIT_TEST_MAX_RSS_MB: "2" }, command, log: (message) => logs.push(message) })).toBe(1);
     expect(invoked).toBe(2);
-    const memory = JSON.parse(await readFixture(cwd, "unit-test-results/memory.json"));
-    expect(memory.batches.map((batch: { status: string }) => batch.status)).toEqual(["test failures", "runtime crash"]);
-    expect(memory.batches[0].overLimit).toBe(true);
+    const batches = await readMemoryBatches(cwd);
+    expect(batches.map((batch) => batch.status)).toEqual(["test failures", "runtime crash"]);
+    expect(batches[0].overLimit).toBe(true);
     expect(parseJunit(await readFixture(cwd, "unit-test-results/junit.xml")).tests).toHaveLength(1);
     expect(logs.join("\n")).toContain("Bun runtime crash, not a test failure");
     expect(logs.join("\n")).toContain("RSS ceiling exceeded");
@@ -152,8 +163,8 @@ test("a batch report with no failing testcase is a runtime error, not a test fai
       return { exit: 1, signal: null, seconds: 0.1 };
     };
     expect(await run([], { cwd, command, log: (message) => logs.push(message) })).toBe(1);
-    const memory = JSON.parse(await readFixture(cwd, "unit-test-results/memory.json"));
-    expect(memory.batches.map((batch: { status: string }) => batch.status)).toEqual(["runtime error"]);
+    const batches = await readMemoryBatches(cwd);
+    expect(batches.map((batch) => batch.status)).toEqual(["runtime error"]);
     expect(logs.join("\n")).toContain("Bun runtime error, not a test failure");
     expect(parseJunit(await readFixture(cwd, "unit-test-results/junit.xml")).tests).toHaveLength(1);
   });
@@ -168,9 +179,9 @@ test("real spawned SIGSEGV is classified as a runtime crash", async () => {
     };
     const logs: string[] = [];
     expect(await run(["one.test.ts"], { cwd, command, log: (line) => logs.push(line) })).toBe(1);
-    const memory = JSON.parse(await readFixture(cwd, "unit-test-results/memory.json"));
-    expect(memory.batches[0].status).toBe("runtime crash");
-    expect(memory.batches[0].signal).toBe("SIGSEGV");
+    const batches = await readMemoryBatches(cwd);
+    expect(batches[0].status).toBe("runtime crash");
+    expect(batches[0].signal).toBe("SIGSEGV");
     expect(logs.join("\n")).toContain("Bun runtime crash, not a test failure");
   });
 });

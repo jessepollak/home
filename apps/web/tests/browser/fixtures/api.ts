@@ -8,6 +8,7 @@ import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../..
 import { FUNDING_OPEN_ORDER_VERSION } from "../../../shared/funding/contracts/open-order";
 import { FUNDING_PROVIDERS_VERSION } from "../../../shared/funding/contracts/providers";
 import { activityOrdersFixture, fundingOrderCancellationFixture } from "../feature-map/fixtures";
+import { isRecord } from "../../../shared/guards";
 import {
   actionsBody,
   basenameProfileBody,
@@ -287,7 +288,11 @@ export async function installApiFixtures(
     if (path.endsWith("/cancel") && path.startsWith("/api/funding/orders/") && request.method() === "POST") {
       const id = path.split("/").at(-2);
       const order = activityOrders.orders.find((entry) => entry.kind === "funding" && entry.id === id);
-      if (order?.kind !== "funding" || order.stage !== "awaiting-payment" || request.postDataJSON()?.version !== 1) {
+      const matchesVersion = () => {
+        const body: unknown = request.postDataJSON();
+        return isRecord(body) && body.version === 1;
+      };
+      if (order?.kind !== "funding" || order.stage !== "awaiting-payment" || !matchesVersion()) {
         return route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ code: "ORDER_NOT_CANCELLABLE" }) });
       }
       activityOrders.orders = activityOrders.orders.map((entry) => entry.id === id && entry.kind === "funding"

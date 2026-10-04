@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import type { queries } from "storybook/test";
 import { SendDialog } from "@/client/transfers/send-dialog";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { formatAddress } from "@/shared/formatting";
@@ -85,7 +86,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-type Screen = ReturnType<typeof within>;
+type Screen = ReturnType<typeof within<typeof queries>>;
 
 async function enterAmount(screen: Screen, amount: string) {
   const dialog = await screen.findByRole("dialog", { name: "Send" });

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { isRecord } from "@/shared/guards";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { sessionBody } from "./fixtures/bodies";
 import { FIXED_NOW } from "./fixtures/fixed-time";
@@ -318,8 +319,13 @@ async function pendingBackToActivity(page: Page) {
   await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
 }
 
-function storedScroll(page: Page) {
-  return page.evaluate(() => Number(history.state?.__homeShellScrollY ?? -1));
+async function storedScroll(page: Page) {
+  const state = await page.evaluate(() => {
+    const current: unknown = history.state;
+    return current;
+  });
+  if (!isRecord(state)) return -1;
+  return Number(state.__homeShellScrollY ?? -1);
 }
 
 async function persistScroll(page: Page, y: number) {
@@ -349,7 +355,11 @@ for (const mode of ["unavailable", "failed", "short"] as const) {
     });
     await page.clock.runFor(1);
     expect(await storedScroll(page)).toBe(actual);
-    expect(await page.evaluate(() => Reflect.get(window, "__restoreMutations").count)).toBe(0);
+    expect(await page.evaluate(() => {
+      const mutations: unknown = Reflect.get(window, "__restoreMutations");
+      if (typeof mutations !== "object" || mutations === null || !("count" in mutations)) throw new Error("Missing restore mutation counter");
+      return mutations.count;
+    })).toBe(0);
     const next = await persistScroll(page, 200);
     expect(await storedScroll(page)).toBe(next);
   });

@@ -9,7 +9,7 @@ beforeEach(() => {
   globalThis.MessageChannel = class extends originalChannel {
     constructor() {
       super();
-      this.port2.postMessage = () => queued.push(() => this.port1.onmessage?.(new MessageEvent("message")));
+      this.port2.postMessage = () => queued.push(() => { this.port1.onmessage?.(new MessageEvent("message")); });
     }
   };
 });

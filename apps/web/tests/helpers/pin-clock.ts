@@ -6,7 +6,9 @@ function installClock(instant: string, advancing: boolean): { set(epochMs: numbe
   const current = () => fixed + (advancing ? performance.now() - started : 0);
   function PinnedDate(this: unknown, ...args: unknown[]) {
     if (!new.target) return new NativeDate(current()).toString();
-    return args.length === 0 ? new NativeDate(current()) : Reflect.construct(NativeDate, args);
+    const date: unknown = args.length === 0 ? new NativeDate(current()) : Reflect.construct(NativeDate, args);
+    if (!(date instanceof NativeDate)) throw new TypeError("Date construction did not return a Date");
+    return date;
   }
   Object.setPrototypeOf(PinnedDate, NativeDate);
   PinnedDate.prototype = NativeDate.prototype;

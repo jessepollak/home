@@ -252,7 +252,10 @@ describe("useHomeRefresh", () => {
     await waitFor(() => expect(marketReads).toBe(1));
     const fetchedScopes = new Set<unknown>();
     const unsubscribe = getHomeQueryClient().getQueryCache().subscribe((event) => {
-      if (event.type === "updated" && event.action.type === "fetch") fetchedScopes.add(event.query.queryKey[1]);
+      if (event.type === "updated" && event.action.type === "fetch") {
+        const queryKey: readonly unknown[] = event.query.queryKey;
+        fetchedScopes.add(queryKey[1]);
+      }
     });
     try {
       await act(async () => { expect(await f.current().refresh()).toEqual({ phase: "complete" }); });

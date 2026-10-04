@@ -42,11 +42,13 @@ export function priceObservationStoreContract(options: {
         fetchedAt: "2026-09-13T12:01:01.000Z",
       }]);
 
-      expect(await store.getMany([ASSET_KEY])).toEqual([expect.objectContaining({
+      const stored = await store.getMany([ASSET_KEY]);
+      expect(stored).toMatchObject([{
         unitPrice: { atoms: "2", scale: 0 },
         asOf: "2026-09-13T12:00:00.000Z",
         fetchedAt: "2026-09-13T12:01:01.000Z",
-      })]);
+      }]);
+      expect(stored[0]?.unitPrice).toEqual({ atoms: "2", scale: 0 });
     });
 
     test("returns only requested observations", async () => {

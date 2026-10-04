@@ -52,7 +52,7 @@ function mount({ prepare = async () => action, execute = async () => ({ id: acti
   return within(document.body);
 }
 
-async function review(body: ReturnType<typeof within>) {
+async function review(body: ReturnType<typeof mount>) {
   const dialog = within(await body.findByRole("dialog", { name: "Borrow" }));
   fireEvent.change(dialog.getByRole("textbox", { name: "Amount" }), { target: { value: "1" } });
   fireEvent.click(dialog.getByRole("button", { name: "Continue" }));

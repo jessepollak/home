@@ -19,6 +19,7 @@ import { ProductOfferingProvider } from "./product-offering";
 import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
 import { readClientHistoryFlag } from "@/config/shell-location";
+import { isRecord } from "@/shared/guards";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -402,7 +403,10 @@ beforeEach(() => setSystemTime(new Date(NOW)));
 function mockActivityLayout() {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() { return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0; },
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
+      return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0;
+    },
   });
 }
 
@@ -1097,7 +1101,9 @@ describe("Home shell routing and intents", () => {
     expect(window.location.pathname).toBe("/invest/crypto");
     fireEvent.click(page().getByRole("button", { name: /Bitcoin/ }));
     expect(window.location.pathname).toBe("/invest/cbbtc");
-    expect(window.history.state.investDetailFrom).toBe("crypto");
+    const detailState: unknown = window.history.state;
+    if (!isRecord(detailState)) throw new Error("Expected detail history state");
+    expect(detailState.investDetailFrom).toBe("crypto");
 
     fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Invest" }));

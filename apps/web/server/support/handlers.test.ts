@@ -8,6 +8,7 @@ import { AdminAuditLog } from "@/server/operator-settings/audit";
 import { createCustomerSupportChatHandler, createCustomerSupportHandoffHandler, createCustomerSupportHandlers, createOperatorSupportConversationHandler, createOperatorSupportHandlerHandler, createOperatorSupportListHandler, createOperatorSupportReplyHandler, createSupportCredentialHandlers } from "./handlers";
 import type { SupportAssistantStore } from "./assistant";
 import type { SupportStore } from "./store";
+import { isRecord } from "@/shared/guards";
 
 const actor = `0x${"1".repeat(40)}` as `0x${string}`;
 const other = `0x${"2".repeat(40)}` as `0x${string}`;
@@ -62,6 +63,14 @@ function setup(mode: "operator" | "assistant" | "hybrid" = "hybrid", owner = ali
   return { options, calls, handoffs, store, assistant };
 }
 const model = () => new MockLanguageModelV3({ doStream: async () => ({ stream: simulateReadableStream({ chunks: [{ type: "text-start" as const, id: "t" }, { type: "text-delta" as const, id: "t", delta: "Welcome" }, { type: "text-end" as const, id: "t" }, { type: "finish" as const, finishReason: { unified: "stop" as const, raw: undefined }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } }] }) }) });
+
+function readStreamEvent(line: string): { type: string; messageId?: string; data?: unknown } {
+  const value: unknown = JSON.parse(line.slice(6));
+  if (!isRecord(value) || typeof value.type !== "string" || (value.messageId !== undefined && typeof value.messageId !== "string")) {
+    throw new Error("Expected a support stream event");
+  }
+  return { type: value.type, messageId: value.messageId, data: value.data };
+}
 
 const streamReplyWithoutToken = () => simulateReadableStream({ chunks: [{ type: "abort" as const } as never] });
 describe("support v2 contract", () => {
@@ -563,7 +572,7 @@ expect(calls).not.toContain(`handoff:${bob}:false`);
     fixture.store.ownsAssistantRun = async () => false;
     const counted = () => new MockLanguageModelV3({ doStream: async () => { modelCalls += 1; return { stream: simulateReadableStream({ chunks: [] }) }; } });
     const response = await createCustomerSupportChatHandler({ ...fixture.options, model: counted })(request("support/chat", "POST", chat));
-    const events: Array<{ type: string }> = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)));
+    const events: Array<{ type: string }> = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map(readStreamEvent);
     expect(modelCalls).toBe(0);
     expect(events.some((event) => event.type === "error" || event.type === "text-delta")).toBe(false);
     expect(fixture.calls.some((call) => call.startsWith("saved:"))).toBe(false);
@@ -572,7 +581,7 @@ expect(calls).not.toContain(`handoff:${bob}:false`);
     const fixture = setup("assistant");
     fixture.store.saveAssistant = async () => { throw new Error("database unavailable"); };
     const response = await createCustomerSupportChatHandler({ ...fixture.options, model })(request("support/chat", "POST", chat));
-    const events: Array<{ type: string; messageId?: string; data?: unknown }> = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map((line) => JSON.parse(line.slice(6)));
+    const events: Array<{ type: string; messageId?: string; data?: unknown }> = (await response.text()).split("\n").filter((line) => line.startsWith("data: {")).map(readStreamEvent);
     const streamedId = events.find((event) => event.type === "start")?.messageId;
     expect(streamedId).toBeDefined();
     expect(events.some((event) => event.type === "error")).toBe(true);

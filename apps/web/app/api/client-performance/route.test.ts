@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { isRecord } from "@/shared/guards";
 import { parseClientPerformanceReport } from "@/shared/observability/client-performance.contract";
 import { normalizeObservabilityEvent, type ObservabilityEvent } from "@/server/observability/schema";
 import {
@@ -65,7 +66,10 @@ function request(
         },
       });
   const bodyKind = typeof body === "string" ? (() => {
-    try { return JSON.parse(body).kind as string | undefined; } catch { return undefined; }
+    try {
+      const parsed: unknown = JSON.parse(body);
+      return isRecord(parsed) && typeof parsed.kind === "string" ? parsed.kind : undefined;
+    } catch { return undefined; }
   })() : undefined;
   return {
     url: `${endpoint}?${query ?? `kind=${bodyKind ?? "home-startup"}`}`,

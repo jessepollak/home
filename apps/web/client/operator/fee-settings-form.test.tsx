@@ -2,6 +2,7 @@ import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
 import type { FeeSettingsState } from "./fee-settings-form";
+import { isRecord } from "@/shared/guards";
 
 const { cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { FeeSettingsForm } = await import("./fee-settings-form");
@@ -124,7 +125,9 @@ describe("FeeSettingsForm", () => {
     save();
     expect(await view.findByText("Saved. New quotes use these settings.")).toBeTruthy();
     expect(view.queryByRole("heading", { name: "Confirm revenue destination" })).toBeNull();
-    expect(JSON.parse(String(calls[0].init.body)).value).toEqual({ trade: { bps: 120, recipient: stored.value.trade.recipient } });
+    const request: unknown = JSON.parse(String(calls[0].init.body));
+    if (!isRecord(request)) throw new Error("Expected a settings request object");
+    expect(request.value).toEqual({ trade: { bps: 120, recipient: stored.value.trade.recipient } });
   });
 
   test("loads the latest settings after a revision conflict", async () => {
@@ -141,7 +144,9 @@ describe("FeeSettingsForm", () => {
     save();
     await view.findByText("Saved. New quotes use these settings.");
     expect(calls).toHaveLength(1);
-    expect(JSON.parse(String(retry[0].init.body)).expectedRevision).toBe(5);
+    const request: unknown = JSON.parse(String(retry[0].init.body));
+    if (!isRecord(request)) throw new Error("Expected a settings request object");
+    expect(request.expectedRevision).toBe(5);
   });
 
   test("discards a draft when the signed-in operator changes at the same revision", async () => {

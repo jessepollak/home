@@ -142,6 +142,14 @@ function echoStored(init: RequestInit | undefined) {
   return storedResponse(settings.corridors, revision);
 }
 
+function readSaveRequest(init: RequestInit | undefined) {
+  const parsed: unknown = JSON.parse(String(init?.body));
+  if (!isRecord(parsed)) throw new Error("expected the save request body to be a JSON object");
+  const value = parseFundingSettings(parsed.value);
+  if (!value) throw new Error("expected the save request to carry valid funding settings");
+  return { ...parsed, version: parsed.version, value, operator: parsed.operator, expectedRevision: parsed.expectedRevision };
+}
+
 for (const connection of ["connected", "not-connected"] as const) {
   for (const selected of [true, false]) {
     test(`${connection} and ${selected ? "on" : "off"} shows the selection and allows only safe changes`, () => {
@@ -180,7 +188,7 @@ test("turning a corridor on requires review and does not save until Confirm", as
 
   await waitFor(() => expect(page.getByRole("status").textContent).toBe("Saved."));
   expect(requests).toHaveLength(1);
-  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({
+  expect(readSaveRequest(requests[0]?.init)).toEqual({
     version: 1,
     expectedRevision: 7,
     operator,
@@ -209,7 +217,7 @@ test("a disconnected off corridor cannot be turned on or saved on by another cha
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
 
   expect(requests).toHaveLength(1);
-  expect(JSON.parse(String(requests[0]?.init?.body)).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
+  expect(readSaveRequest(requests[0]?.init).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
 });
 
 test("a disconnected saved-on corridor can be paused, named in review, and saved off", async () => {
@@ -232,7 +240,7 @@ test("a disconnected saved-on corridor can be paused, named in review, and saved
 
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
   expect(requests).toHaveLength(1);
-  expect(JSON.parse(String(requests[0]?.init?.body)).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
+  expect(readSaveRequest(requests[0]?.init).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
 });
 
 test("one multi-method corridor renders once and saves one parseable key", async () => {
@@ -247,7 +255,7 @@ test("one multi-method corridor renders once and saves one parseable key", async
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
 
   expect(requests).toHaveLength(1);
-  const sent = JSON.parse(String(requests[0]?.init?.body));
+  const sent = readSaveRequest(requests[0]?.init);
   const parsed = parseFundingSettings(sent.value);
   if (!parsed) throw new Error("expected funding settings to parse");
   const keys = parsed.corridors.map(({ providerId, region, direction }) => `${providerId}:${region}:${direction}`);
@@ -287,7 +295,7 @@ test("pausing only confirms, then PUTs every corridor with the expected revision
   expect(requests[0]?.url).toBe("/api/admin/settings/funding");
   expect(requests[0]?.init?.method).toBe("PUT");
   expect(new Headers(requests[0]?.init?.headers).get("content-type")).toBe("application/json");
-  expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({
+  expect(readSaveRequest(requests[0]?.init)).toEqual({
     version: 1,
     expectedRevision: 7,
     operator,
@@ -323,7 +331,7 @@ const wrap = (view: FundingOfferingView) => <AppRouterContext.Provider value={ro
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
 
   expect(requests).toHaveLength(1);
-  expect(JSON.parse(String(requests[0]?.init?.body)).value.corridors).toContainEqual({ providerId: "coinbase", region: "MX", direction: "onramp", offered: false });
+  expect(readSaveRequest(requests[0]?.init).value.corridors).toContainEqual({ providerId: "coinbase", region: "MX", direction: "onramp", offered: false });
 });
 
 test("a corridor that disappears then returns disconnected and stored off clears its pending activation before saving", async () => {
@@ -350,7 +358,7 @@ const wrap = (view: FundingOfferingView) => <AppRouterContext.Provider value={ro
   expect(page.queryByRole("heading", { name: "On without credentials" })).toBeNull();
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
   expect(requests).toHaveLength(1);
-  expect(JSON.parse(String(requests[0]?.init?.body)).value.corridors).toContainEqual({ providerId: "coinbase", region: "MX", direction: "onramp", offered: false });
+  expect(readSaveRequest(requests[0]?.init).value.corridors).toContainEqual({ providerId: "coinbase", region: "MX", direction: "onramp", offered: false });
 });
 
 test("a revision change resets a pending activation without a credential-loss notice", () => {
@@ -417,8 +425,8 @@ const wrap = (view: FundingOfferingView) => <AppRouterContext.Provider value={ro
   expect(toggle.getAttribute("aria-checked")).toBe("false");
   fireEvent.click(page.getByRole("button", { name: "Save" }));
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
-  expect(JSON.parse(String(requests[0]?.init?.body)).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
-  expect(JSON.parse(String(requests[0]?.init?.body)).expectedRevision).toBe(8);
+  expect(readSaveRequest(requests[0]?.init).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
+  expect(readSaveRequest(requests[0]?.init).expectedRevision).toBe(8);
 });
 
 test("a pending pause on a disconnected selected corridor survives a same-revision refresh", async () => {
@@ -435,7 +443,7 @@ page.rerender(<AppRouterContext.Provider value={router}><FundingSettings view={s
   expect(page.queryByText(/lost its credentials/)).toBeNull();
   fireEvent.click(page.getByRole("button", { name: "Save" }));
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
-  expect(JSON.parse(String(requests[0]?.init?.body)).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
+  expect(readSaveRequest(requests[0]?.init).value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: false });
 });
 
 test("a successful save before a stale same-revision view keeps the saved-on credential-loss notice", async () => {
@@ -523,7 +531,7 @@ test("a submitted activation's notice changes from in-flight to saved when its r
   fireEvent.click(page.getByRole("button", { name: "Review and save" }));
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
   expect(save.requests).toHaveLength(1);
-  expect(JSON.parse(String(save.requests[0]?.body)).value.corridors).toContainEqual({ providerId: "coinbase", region: "MX", direction: "onramp", offered: true });
+  expect(readSaveRequest(save.requests[0]).value.corridors).toContainEqual({ providerId: "coinbase", region: "MX", direction: "onramp", offered: true });
 
 page.rerender(<AppRouterContext.Provider value={router}><FundingSettings view={savedView([onramp, { ...mexicoOnramp, connection: "not-connected", missingEnv: ["COINBASE_MX_KEY"] }])} operator={operator} /></AppRouterContext.Provider>);
   expect(page.getByRole("switch", { name: "Add money with Coinbase in Mexico" }).getAttribute("aria-checked")).toBe("false");
@@ -700,7 +708,7 @@ test("a save whose refreshed revision never arrives adopts the response and cann
   ], 9)), 1); });
 
   expect(save.requests).toHaveLength(2);
-  expect(JSON.parse(String(save.requests[1]?.body)).expectedRevision).toBe(8);
+  expect(readSaveRequest(save.requests[1]).expectedRevision).toBe(8);
   expect(page.queryByText("Someone else changed these settings")).toBeNull();
   expect(page.getByRole("status").textContent).toBe("Saved.");
   expect(page.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
@@ -738,7 +746,7 @@ test("a definite failure keeps the adopted revision so the next retry is not a s
     { providerId: "coinbase", region: "US", direction: "onramp", offered: false },
     { providerId: "coinbase", region: "MX", direction: "onramp", offered: true },
   ], 9)), 2); });
-  expect(JSON.parse(String(save.requests[2]?.body)).expectedRevision).toBe(8);
+  expect(readSaveRequest(save.requests[2]).expectedRevision).toBe(8);
   expect(page.queryByText("Someone else changed these settings")).toBeNull();
   expect(refreshes).toHaveLength(2);
 });
@@ -846,7 +854,7 @@ const wrap = (next: FundingOfferingView) => <AppRouterContext.Provider value={ro
   fireEvent.click(page.getByRole("switch", { name: "Add money with Coinbase in Mexico" }));
   fireEvent.click(page.getByRole("button", { name: "Save" }));
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
-  expect(JSON.parse(String(save.requests[2]?.body)).expectedRevision).toBe(9);
+  expect(readSaveRequest(save.requests[2]).expectedRevision).toBe(9);
   await act(async () => { save.resolve(Response.json(storedResponse([
     { providerId: "coinbase", region: "US", direction: "onramp", offered: false },
     { providerId: "coinbase", region: "MX", direction: "onramp", offered: false },
@@ -879,7 +887,7 @@ const wrap = (next: FundingOfferingView) => <AppRouterContext.Provider value={ro
   fireEvent.click(page.getByRole("switch", { name: "Add money with Coinbase in United States" }));
   fireEvent.click(page.getByRole("button", { name: "Save" }));
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
-  expect(JSON.parse(String(save.requests[1]?.body)).value.corridors).toEqual([
+  expect(readSaveRequest(save.requests[1]).value.corridors).toEqual([
     { providerId: "coinbase", region: "US", direction: "onramp", offered: false },
     { providerId: "coinbase", region: "MX", direction: "onramp", offered: false },
   ]);
@@ -933,7 +941,7 @@ const wrap = (next: FundingOfferingView) => <AppRouterContext.Provider value={ro
 
   fireEvent.click(page.getByRole("button", { name: "Save" }));
   await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
-  expect(JSON.parse(String(save.requests[1]?.body)).value.corridors).toContainEqual({ providerId: "coinbase", region: "US", direction: "onramp", offered: false });
+  expect(readSaveRequest(save.requests[1]).value.corridors).toContainEqual({ providerId: "coinbase", region: "US", direction: "onramp", offered: false });
   await act(async () => { save.resolve(Response.json(storedResponse([
     { providerId: "coinbase", region: "US", direction: "onramp", offered: false },
     { providerId: "coinbase", region: "MX", direction: "onramp", offered: true },
@@ -1120,7 +1128,7 @@ for (const source of ["saved", "deployment"] as const) {
 
     await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
     expect(requests).toHaveLength(1);
-    const sent = JSON.parse(String(requests[0]?.init?.body));
+    const sent = readSaveRequest(requests[0]?.init);
     expect(sent.operator).toBe(operator);
     expect(sent.value.corridors).toContainEqual({ providerId: "peer", region: "US", direction: "offramp", offered: true });
     expect(sent.value.corridors).toContainEqual({ providerId: "coinbase", region: "US", direction: "onramp", offered: source === "deployment" });
@@ -1177,7 +1185,7 @@ for (const source of ["saved", "deployment"] as const) {
     await act(async () => { fireEvent.click(page.getByRole("button", { name: "Confirm" })); });
 
     expect(requests).toHaveLength(1);
-    const sent = JSON.parse(String(requests[0]?.init?.body));
+    const sent = readSaveRequest(requests[0]?.init);
     expect(sent.value.corridors.map(({ providerId, region, direction, offered }: { providerId: string; region: string; direction: string; offered: boolean }) => ({
       key: `${providerId}:${region}:${direction}`, checked: offered,
     }))).toEqual(rendered);

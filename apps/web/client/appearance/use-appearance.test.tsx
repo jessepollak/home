@@ -43,7 +43,9 @@ function installSystemAppearance(initial: boolean) {
 }
 
 function runBoot(storage: Pick<Storage, "getItem">, matchMedia?: (query: string) => { matches: boolean }) {
-  new Function("window", "document", appearanceBootScript)({ localStorage: storage, matchMedia }, document);
+  const boot: unknown = new Function("window", "document", appearanceBootScript);
+  if (typeof boot !== "function") throw new Error("Expected a callable boot script");
+  Reflect.apply(boot, undefined, [{ localStorage: storage, matchMedia }, document]);
 }
 
 afterEach(() => {
