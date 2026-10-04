@@ -146,7 +146,7 @@ Balances are a read pipeline, not a flow: enumerate (CDP) ∥ read (pinned regis
 
 ## State changes
 
-Before changing a lifecycle—an action, order, cash-out, identity review, receipt observation, held selection, or cached query—write a state table and include it under Evidence in the PR. List every state and transition. For each transition, state what happens when a read or write is unavailable, fails, times out, or returns partial data; when a second tab or request races it; and when the owner signs out or switches. Mark inapplicable cases explicitly. Name the test for each row and add a test for each changed behavior. Unavailable is not zero or empty.
+Before changing a lifecycle—an action, order, cash-out, identity review, receipt observation, held selection, or cached query—write a state table and include it under Evidence in the PR. List every state and transition. For each transition, state what happens when a read or write is unavailable, fails, times out, or returns partial data; when a second tab or request races it; and when the owner signs out or switches. Mark inapplicable cases explicitly. For each row, name the check that would catch a break: a unit test only when the row falls in a protected [test policy](#test-policy) category, otherwise a Chromium smoke path, a story `play` function, a type or lint rule, or `none`. Unavailable is not zero or empty.
 
 ## Client
 
