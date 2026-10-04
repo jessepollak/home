@@ -99,7 +99,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   frameSource: "story" | "blank";
 }) {
   const compositions = useMemo(() => compositionEntries(index), [index]);
-  const [notUsedInProduct, setNotUsedInProduct] = useState<string[]>([]);
+  const [productUsage, setProductUsage] = useState<string[] | "failed" | null>(null);
   const compositionGroups = new Set(compositions.map((entry) => entry.title)).size;
   const [original] = useState(() => restoredLibraryUrl(catalog, compositions));
   const [selected, setSelected] = useState(original.selected);
@@ -108,7 +108,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
   useEffect(() => {
     if (!composing) return;
     let live = true;
-    loadNotUsedInProduct().then((names) => { if (live) setNotUsedInProduct(names); }, () => undefined);
+    loadNotUsedInProduct().then((names) => { if (live) setProductUsage(names); }, () => { if (live) setProductUsage("failed"); });
     return () => { live = false; };
   }, [composing]);
   const foundation = isFoundation(selected) ? selected : null;
@@ -226,8 +226,11 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
       {overview ? <OverviewSurface items={catalog.items} onSelect={select} />
         : composing ? <figure className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
-          {notUsedInProduct.length > 0 && <p className={styles.unusedComponents}>
-            Not used in any product screen: {notUsedInProduct.map((name, ordinal) => {
+          {productUsage === "failed" && <p className={styles.unusedComponents} role="alert">
+            Couldn&apos;t read product usage, so unused components can&apos;t be listed.
+          </p>}
+          {Array.isArray(productUsage) && productUsage.length > 0 && <p className={styles.unusedComponents}>
+            Not used in any product screen: {productUsage.map((name, ordinal) => {
               const target = catalog.items.find((candidate) =>
                 componentStories(index, candidate.title).some((entry) => entry.importPath.endsWith(`/ui/${name}.stories.tsx`)));
               return target ? <span key={name}>{ordinal > 0 ? ", " : ""}<a

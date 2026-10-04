@@ -354,8 +354,12 @@ export const Foundations: Story = {
     await expect(easing).toHaveTextContent("cubic-bezier(0.22, 1, 0.36, 1)");
     await expect(within(surface).getByRole("heading", { name: /^Tokens/ })).toBeVisible();
     await userEvent.click(within(surface).getAllByRole("button", { name: /^Play / })[0]);
+    const motionSheet = within(surface).getByRole("region", { name: "Motion reference" });
+    motionSheet.scrollTop = motionSheet.scrollHeight;
+    await waitFor(() => expect(motionSheet.scrollTop).toBeGreaterThan(0));
 
     await userEvent.click(within(foundations).getByRole("option", { name: /^Type, / }));
+    await expect(within(surface).getByRole("region", { name: "Type reference" }).scrollTop).toBe(0);
     const leading = within(surface).getByText("leading-none").closest("li");
     if (!leading) throw new Error("Leading reference is missing");
     await expect(leading).toHaveTextContent(/16px · \d+ occurrences/);

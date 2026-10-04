@@ -14,7 +14,7 @@ export function FoundationsSurface({ page, theme }: { page: FoundationId; theme:
   });
   const name = foundationPages.find((entry) => entry.id === page)!.name;
   return <div className={styles.surface} data-foundation={page} data-foundation-theme={theme}>
-    <div className={styles.sheet} role="region" aria-label={`${name} reference`}
+    <div key={page} className={styles.sheet} role="region" aria-label={`${name} reference`}
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Scrollable references need keyboard access.
       tabIndex={0}>
       <article className={styles.article} aria-labelledby="foundation-title">
