@@ -84,6 +84,66 @@ test("production: warm Home, Cash and Invest taps avoid document and RSC request
   }
 });
 
+test("rapid Home to Invest to Home taps settle on the last selected tab", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  const { promise: investRequested, resolve: observeInvest } = Promise.withResolvers<void>();
+  const { promise: investReleased, resolve: releaseInvest } = Promise.withResolvers<void>();
+  await page.route("**/invest?**", async (route) => {
+    if (route.request().headers()["rsc"] === "1") {
+      observeInvest();
+      await investReleased;
+    }
+    await route.continue();
+  });
+  await page.goto("/home");
+  await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Main navigation" }).locator('[data-navigation-lens="ready"]')).toBeVisible();
+  await mainNavigation(page, "Invest").click();
+  await investRequested;
+  await mainNavigation(page, "Home").click();
+  const investFinished = page.waitForEvent("requestfinished", {
+    predicate: (request) => new URL(request.url()).pathname === "/invest" && request.headers()["rsc"] === "1",
+  });
+  releaseInvest();
+  await investFinished;
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expectNavigation(page, "/home");
+  await expect(mainNavigation(page, "Home")).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
+  await mainNavigation(page, "Invest").click();
+  await expectNavigation(page, "/invest");
+  await expect(page.getByRole("heading", { name: "Stocks" })).toBeVisible();
+  await mainNavigation(page, "Home").click();
+  await expectNavigation(page, "/home");
+  await expect(mainNavigation(page, "Home")).toHaveAttribute("aria-current", "page");
+});
+
+test("Back and Forward after transitioned Invest navigation restore route, selection and panel focus", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/home");
+  await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
+  const entries = await page.evaluate(() => window.history.length);
+  await mainNavigation(page, "Invest").click();
+  await expectNavigation(page, "/invest");
+  await expect(page.getByRole("heading", { name: "Stocks" })).toBeVisible();
+  await expect(page.locator("#navigation-panel")).toBeFocused();
+  expect(await page.evaluate(() => window.history.length)).toBe(entries + 1);
+  await page.goBack();
+  await expectNavigation(page, "/home");
+  await expect(mainNavigation(page, "Home")).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "Your money" })).toBeVisible();
+  await expect(page.locator("#navigation-panel")).toBeFocused();
+  await page.goForward();
+  await expectNavigation(page, "/invest");
+  await expect(mainNavigation(page, "Invest")).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("heading", { name: "Stocks" })).toBeVisible();
+  expect(await page.evaluate(() => window.history.length)).toBe(entries + 1);
+});
+
 test("a left Savings page makes no vault requests while hidden for two fake minutes", async ({ page }) => {
   await seedSignedInSession(page);
   await installApiFixtures(page);

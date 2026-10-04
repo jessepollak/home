@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { AnimatePresence } from "motion/react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -16,7 +16,7 @@ import { SHELL_SEARCH_PARAM, backClientHistory, commitClientUrl, commitFlowUrl, 
 import { AppChromeProvider, useOptionalAppChrome, type NestedAppChrome } from "@/components/app-chrome";
 import { LoadErrorCard } from "@/components/load-error";
 import { useBreakpointFocusHandoff } from "@/components/breakpoint-focus";
-import { PrimaryNavigation } from "@/components/primary-navigation";
+import { ShellNavigation } from "./shell-navigation";
 import { useShellKeyboardOpen } from "@/components/visual-viewport";
 import { shellFrameClassName, shellNavigationClearanceClassName, shellDesktopContentClassName } from "@/components/shell-layout";
 import { markHomePerformance, markHomeStartupOutcome, startHomePerformance } from "@/client/observability/perf-marks";
@@ -129,6 +129,7 @@ function DashboardShellBody({
   const holdingRestoreRef = useRef<(() => void) | null>(null);
   const [investmentsReturnHolding, setInvestmentsReturnHolding] = useState<AssetKey | null>(null);
   const pendingOriginRef = useRef<{ origin: string; target: string } | null>(null);
+  const pendingNavigationRef = useRef<string | null>(null);
   const activityReturnRef = useRef<ActivityDetailReturn | null>(null);
   const [activityReturn, setActivityReturnState] = useState<ActivityDetailReturn | null>(null);
   useBreakpointFocusHandoff();
@@ -197,6 +198,7 @@ function DashboardShellBody({
   }, [isSignedOut, router]);
   useEffect(() => {
     const onPop = () => {
+      pendingNavigationRef.current = null;
       searchDetailTargetRef.current = null;
       setSearchEntry(assetSearchEntry());
       const pending = activityReturnRef.current;
@@ -213,6 +215,9 @@ function DashboardShellBody({
     document.addEventListener("visibilitychange", onVisibility);
     return () => { window.removeEventListener("popstate", onPop); document.removeEventListener("visibilitychange", onVisibility); discardHomeInteractionSamples(); };
   }, []);
+  useLayoutEffect(() => {
+    pendingNavigationRef.current = null;
+  }, [pathname, rootRequest]);
   useLayoutEffect(() => {
     const pending = pendingOriginRef.current;
     if (pending === null) return;
@@ -316,20 +321,25 @@ function DashboardShellBody({
   const sendOffered = products.send === "on";
   const navigateTo = useCallback((panel: ShellPanelId) => {
     if (panel === "invest" && !investOffered) return;
-    searchDetailTargetRef.current = null;
-    setFlowOrigin(null);
-    setAccountOpener(null);
-    setInvestmentsReturnHolding(null);
-    takeHomeHistoryTraversal(null);
-    if (panel !== activeNavigation) beginHomeNavigation({ from: startupRoutes[activeNavigation], to: startupRoutes[panel], cache: "first-visit", trigger: "in-app" });
-    activityReturnRef.current = null;
-    setActivityReturnState(null);
-    setUrlSearchOverride(null);
-    setRootRequest((current) => ({ panel, revision: (current?.revision ?? 0) + 1 }));
-    setSettingsRequested(false);
-    const href = shellHref({ panel });
-    if (window.location.pathname === href) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    if (`${window.location.pathname}${window.location.search}` !== href) pushRoute(href);
+    startTransition(() => {
+      searchDetailTargetRef.current = null;
+      setFlowOrigin(null);
+      setAccountOpener(null);
+      setInvestmentsReturnHolding(null);
+      takeHomeHistoryTraversal(null);
+      if (panel !== activeNavigation) beginHomeNavigation({ from: startupRoutes[activeNavigation], to: startupRoutes[panel], cache: "first-visit", trigger: "in-app" });
+      activityReturnRef.current = null;
+      setActivityReturnState(null);
+      setUrlSearchOverride(null);
+      setRootRequest((current) => ({ panel, revision: (current?.revision ?? 0) + 1 }));
+      setSettingsRequested(false);
+      const href = shellHref({ panel });
+      if (window.location.pathname === href) window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      if (`${window.location.pathname}${window.location.search}` !== href || pendingNavigationRef.current !== null) {
+        pendingNavigationRef.current = href;
+        pushRoute(href);
+      }
+    });
   }, [pushRoute, activeNavigation, investOffered, setUrlSearchOverride, setFlowOrigin, setAccountOpener]);
   const setFlow = useCallback((flow: ShellFlow, options: { actionId?: string | null; mode?: "push" | "replace"; opener?: HTMLElement | null } = {}) => {
     searchDetailTargetRef.current = null;
@@ -541,7 +551,7 @@ function DashboardShellBody({
     <div ref={shellRef} className="flex min-h-dvh flex-col bg-muted [--shell-scrollbar-width:0px] lg:flex-row"
       style={shellNavigationStyle} data-shell-navigation-items={navigationItemCount}>
       {!isSignedOut ? <div className="contents" inert={searchOpen} aria-hidden={searchOpen ? true : undefined}>
-        <PrimaryNavigation layout="rail" cardsEnabled={cardsEnabled} activeNavigation={activeNavigation} onNavigate={navigateTo}
+        <ShellNavigation layout="rail" cardsEnabled={cardsEnabled} activeNavigation={activeNavigation} onNavigate={navigateTo}
           onOpenSearch={searchAvailable ? openSearch : undefined} searchOpen={searchOpen}
           isAccountSettingsOpen={isAccountSettingsOpen} account={isAccountRailBusy || isSignedInAccount ? {
             status: isAccountRailBusy ? "loading" : "ready", ownerKey: account.ownerKey,
@@ -591,7 +601,7 @@ function DashboardShellBody({
               </section>}
           </div>
         </main>
-        {!isSignedOut ? <PrimaryNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} onOpenSearch={searchAvailable ? openSearch : undefined} searchOpen={searchOpen} /> : null}
+        {!isSignedOut ? <ShellNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} onOpenSearch={searchAvailable ? openSearch : undefined} searchOpen={searchOpen} /> : null}
         <AnimatePresence key={`${pathname}:${account.ownerKey}:${searchAvailable}:${isSignedOut}`}>
           {searchOpen && searchContent ? <ShellSearchSlot key="search" content={searchContent} initialQuery={overlay.search ?? ""} initialScrollTop={searchEntry?.state.assetSearchScrollTop ?? 0} initialResultId={searchEntry?.state.assetSearchResult ?? null} onInputReady={onSearchInputReady} onClose={closeSearch} onQueryCommit={commitSearchQuery} onOpenAsset={openSearchAsset} /> : null}
         </AnimatePresence>
