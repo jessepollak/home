@@ -213,7 +213,7 @@ export function AccountSignInSheet({
       if (sequence !== uiAttemptSequence.current) return;
       setFlowId(result.flowId);
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
-    } catch { // oxlint-disable-line home/no-silent-catch -- a superseded send attempt must not overwrite the newer attempt's error state
+    } catch {
       if (sequence === uiAttemptSequence.current) {
         setAuthError("We could not send a code. Check the address and try again.");
       }
@@ -247,7 +247,7 @@ export function AccountSignInSheet({
       await verifyEmailCode(flowId, otp);
       if (sequence !== uiAttemptSequence.current) return;
       setCompletedAttemptSequence(sequence);
-    } catch (error) { // oxlint-disable-line home/no-silent-catch -- a superseded verify attempt must not overwrite the newer attempt's error state
+    } catch (error) {
       if (sequence === uiAttemptSequence.current) {
         setAuthError(messageForCodeError(error));
         setCodeRejected(classifyEmailCodeError(error) !== "unavailable");
@@ -277,7 +277,7 @@ export function AccountSignInSheet({
         if (sequence === uiAttemptSequence.current) setBaseAccountPhase(phase);
       });
       if (sequence === uiAttemptSequence.current) setCompletedAttemptSequence(sequence);
-    } catch (error) { // oxlint-disable-line home/no-silent-catch -- a superseded Base Account attempt must not overwrite the newer attempt's error state
+    } catch (error) {
       if (sequence !== uiAttemptSequence.current) return;
       setBaseAccountPhase(null);
       setAuthError(messageForBaseAccountError(error));

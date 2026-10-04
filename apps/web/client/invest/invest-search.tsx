@@ -107,7 +107,7 @@ export function InvestSearch({
         <section aria-label="Search results" className="mt-4 space-y-3">
           <span className="sr-only" role="status" aria-live="polite">{summary}</span>
           {loading ? (
-            <div aria-label="Loading search results" className="space-y-3 py-3">
+            <div aria-hidden="true" className="space-y-3 py-3">
               {[0, 1, 2].map((index) => <Skeleton key={index} className="h-16 w-full" />)}
             </div>
           ) : search.status === "error" && search.results.length === 0 ? (

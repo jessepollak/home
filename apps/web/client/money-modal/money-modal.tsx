@@ -50,6 +50,8 @@ const UNSETTLED_POPUP_STATES = ["data-starting-style", "data-ending-style", "dat
 
 type HeightTrack = { animation?: Animation; last: number; maxHeight: string };
 
+const POPUP_RESIZING_ATTRIBUTE = "data-money-resizing";
+
 function prefersReducedMotion() {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 }
@@ -78,18 +80,23 @@ function acceptsHandoffHeight(popup: HTMLElement) {
 function easePopupHeight(popup: HTMLElement, track: HeightTrack, from: number, measuredHeight?: number) {
   cancelAnimation(track.animation);
   track.animation = undefined;
+  popup.removeAttribute(POPUP_RESIZING_ATTRIBUTE);
   const to = measuredHeight ?? popup.offsetHeight;
   track.last = to;
   if (from <= 0 || Math.abs(to - from) < 1 || typeof popup.animate !== "function" || prefersReducedMotion()) return;
   const animation = popup.animate([{ height: `${from}px` }, { height: `${to}px` }], { duration: MONEY_MODAL_STEP_DURATION_MS, easing: MONEY_MODAL_STEP_EASING });
   track.animation = animation;
+  popup.setAttribute(POPUP_RESIZING_ATTRIBUTE, "");
   animation.onfinish = () => {
     track.animation = undefined;
+    popup.removeAttribute(POPUP_RESIZING_ATTRIBUTE);
     if (popupSettled(popup)) easePopupHeight(popup, track, to);
     else track.last = popup.offsetHeight;
   };
   animation.oncancel = () => {
-    if (track.animation === animation) track.animation = undefined;
+    if (track.animation !== animation) return;
+    track.animation = undefined;
+    popup.removeAttribute(POPUP_RESIZING_ATTRIBUTE);
   };
 }
 
@@ -152,6 +159,7 @@ function MoneyModalStepHost({ carriedHeight, releaseHeight, children }: { carrie
       observer?.disconnect();
       host.removeEventListener("focusin", onFocusIn);
       stopAnimations();
+      popup?.removeAttribute(POPUP_RESIZING_ATTRIBUTE);
       releaseHeight(popup, track.last);
       previous.current = null;
     };
@@ -376,7 +384,7 @@ export function MoneyModalHeader(props: MoneyModalHeaderProps) {
 
 export function MoneyModalBody({ children, className = "", hasFooter = false }: { children: ReactNode; className?: string; hasFooter?: boolean }) {
   return (
-    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto px-4 ${hasFooter ? "pb-4!" : "pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))]!"} ${className}`.trim()}>
+    <div data-slot="money-modal-body" className={`flex min-h-0 flex-1 flex-col overflow-auto group-data-money-resizing/drawer-popup:overflow-hidden px-4 ${hasFooter ? "pb-4!" : "pb-[max(1rem,calc(env(safe-area-inset-bottom)_-_var(--sheet-keyboard-inset,0px)))]!"} ${className}`.trim()}>
       {children}
     </div>
   );

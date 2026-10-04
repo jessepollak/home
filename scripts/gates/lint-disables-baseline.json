@@ -4,16 +4,13 @@
       "nextjs/no-html-link-for-pages": 1
     },
     "apps/web/client/account/account-screen.tsx": {
-      "home/no-silent-catch": 4
-    },
-    "apps/web/client/account/action-resolution.ts": {
-      "home/no-silent-catch": 4
+      "home/no-silent-catch": 1
     },
     "apps/web/client/account/base-account-connector.ts": {
       "home/no-silent-catch": 2
     },
     "apps/web/client/account/cdp-session-lifecycle.tsx": {
-      "home/no-silent-catch": 2
+      "home/no-silent-catch": 1
     },
     "apps/web/client/account/cdp-wallet-provider-capabilities.ts": {
       "home/no-silent-catch": 4
@@ -22,9 +19,6 @@
       "home/no-silent-catch": 2
     },
     "apps/web/client/account/email-request-flow.ts": {
-      "home/no-silent-catch": 2
-    },
-    "apps/web/client/account/native-base-bridge.tsx": {
       "home/no-silent-catch": 1
     },
     "apps/web/client/activity/activity-ledger-sheet.tsx": {
@@ -47,13 +41,9 @@
       "home/no-silent-catch": 2
     },
     "apps/web/client/home/portfolio-home-experience.tsx": {
-      "home/no-silent-catch": 1,
       "react/no-unstable-nested-components": 2
     },
     "apps/web/client/home/shell.tsx": {
-      "home/no-silent-catch": 1
-    },
-    "apps/web/client/home/use-home-region.ts": {
       "home/no-silent-catch": 1
     },
     "apps/web/client/money-modal/amount-input.ts": {
@@ -76,12 +66,6 @@
     },
     "apps/web/client/query/query-client.tsx": {
       "home/no-silent-catch": 1
-    },
-    "apps/web/client/trading/trade-money-dialog.tsx": {
-      "home/no-silent-catch": 1
-    },
-    "apps/web/client/transfers/send-dialog.tsx": {
-      "home/no-silent-catch": 2
     },
     "apps/web/components/address-field.tsx": {
       "home/no-silent-catch": 1
@@ -131,21 +115,18 @@
       "home/no-silent-catch": 1
     },
     "apps/web/server/balances/price.ts": {
-      "home/no-silent-catch": 3
+      "home/no-silent-catch": 2
     },
     "apps/web/server/chain/rpc.ts": {
       "home/no-silent-catch": 1
     },
     "apps/web/server/db/sql.ts": {
-      "home/no-silent-catch": 2
+      "home/no-silent-catch": 1
     },
     "apps/web/server/funding/cash-out-progress.ts": {
       "home/no-silent-catch": 1
     },
     "apps/web/server/funding/core/base-receipt.ts": {
-      "home/no-silent-catch": 1
-    },
-    "apps/web/server/morpho/client.ts": {
       "home/no-silent-catch": 1
     },
     "apps/web/server/savings/prepare.ts": {
@@ -198,11 +179,18 @@
       "reason": "Fixture server tests read only their own system-temp state and log files to verify the recorded group, its leader, and the freed port."
     },
     {
-      "path": "apps/web/client/savings/savings-journey-step.tsx",
+      "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
+      "rule": "home/no-real-waits",
+      "count": 1,
+      "issue": "#1338",
+      "reason": "The Playwright fixed-date shim advances the pinned page clock by real elapsed time across reloads, so it reads the native clock once through a helper."
+    },
+    {
+      "path": "apps/web/server/scheduling/after-schedule.ts",
       "rule": "home/no-silent-catch",
-      "count": 2,
-      "issue": "#1318",
-      "reason": "Two reviewed home/no-silent-catch disables moved unchanged out of savings-actions.tsx with the lazily loaded amount/confirm step: a stale preparation and a stale dispatch fenced by a newer journey generation have no state to report."
+      "count": 1,
+      "issue": "#1755",
+      "reason": "Recovery-named callees now need a provable binding; the retention-failure catch calls the caller-injected onUnavailable reporter, and every caller passes an emitServerEvent callback."
     },
     {
       "path": "apps/web/stories/review/explorations/library/foundations/foundations.tsx",
@@ -217,27 +205,6 @@
       "count": 1,
       "issue": "#1632",
       "reason": "Foundations reference scroll regions have no focusable content; axe scrollable-region-focusable requires keyboard focus"
-    },
-    {
-      "path": "apps/web/tests/browser/fixtures/fixed-time.ts",
-      "rule": "home/no-real-waits",
-      "count": 1,
-      "issue": "#1338",
-      "reason": "The Playwright fixed-date shim advances the pinned page clock by real elapsed time across reloads, so it reads the native clock once through a helper."
-    },
-    {
-      "path": "apps/web/client/observability/interaction-performance.ts",
-      "rule": "home/no-silent-catch",
-      "count": 2,
-      "issue": "#1755",
-      "reason": "Recovery-named callees now need a provable binding; the two catches that cancel a pending navigation sample call a local cleanup helper whose nothing-pending guard the rule cannot prove, and a telemetry failure has nothing further to report."
-    },
-    {
-      "path": "apps/web/server/scheduling/after-schedule.ts",
-      "rule": "home/no-silent-catch",
-      "count": 1,
-      "issue": "#1755",
-      "reason": "Recovery-named callees now need a provable binding; the retention-failure catch calls the caller-injected onUnavailable reporter, and every caller passes an emitServerEvent callback."
     }
   ]
 }

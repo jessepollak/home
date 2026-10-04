@@ -30,6 +30,7 @@ const MAX_IDRX_DECIMAL_LENGTH = "1000000000.00".length;
 const orderIdPattern = /^[\x21-\x7e]{1,128}$/;
 const accountNumberPattern = /^[0-9]{8,32}$/;
 const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
+const expiryWithOffsetPattern = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -981,10 +982,12 @@ function readOrderId(value: unknown): string {
   return orderId;
 }
 
-function readExpiry(value: unknown): string {
+/** @public exercised by the IDRX adapter expiry test */
+export function readExpiry(value: unknown): string | null {
   const expiry = readBoundedString(value, 128);
-  if (!Number.isFinite(Date.parse(expiry))) throw new Error("Invalid IDRX expiry.");
-  return expiry;
+  const parsed = Date.parse(expiry);
+  if (!Number.isFinite(parsed)) throw new Error("Invalid IDRX expiry.");
+  return expiryWithOffsetPattern.test(expiry) ? new Date(parsed).toISOString() : null;
 }
 
 function readDecimal(value: unknown): string {

@@ -169,9 +169,13 @@ export function ActivityPanelView({
   useEffect(() => {
     const now = Date.now();
     const deadline = orders.reduce((earliest, order) => {
-      if (order.kind !== "funding" || order.status !== "ambiguous" || order.stage !== "unconfirmed" || order.clearableAt === null) return earliest;
-      const clearableAt = Date.parse(order.clearableAt);
-      return clearableAt > now ? Math.min(earliest, clearableAt) : earliest;
+      if (order.kind !== "funding") return earliest;
+      const candidate = order.status === "ambiguous" && order.stage === "unconfirmed" && order.clearableAt !== null
+        ? Date.parse(order.clearableAt)
+        : order.stage === "awaiting-payment" && order.expiresAt !== null
+          ? Date.parse(order.expiresAt)
+          : Number.NaN;
+      return Number.isFinite(candidate) && candidate > now ? Math.min(earliest, candidate) : earliest;
     }, Infinity);
     if (deadline === Infinity) return;
     const timeout = setTimeout(() => setClock((value) => value + 1), Math.min(deadline - Date.now(), 2 ** 31 - 1));

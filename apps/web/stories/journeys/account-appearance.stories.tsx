@@ -37,6 +37,7 @@ const meta = {
   title: "Journeys/Account appearance",
   component: AccountAppearanceJourney,
   parameters: {
+    a11y: { test: "error" },
     viewport: { defaultViewport: "mobile" },
     msw: { handlers: [
       http.get("https://api.ensideas.com/*", () => HttpResponse.json({ name: "appearance.base.eth" })),

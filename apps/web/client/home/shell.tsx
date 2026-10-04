@@ -189,6 +189,9 @@ function DashboardShellBody({
     return () => window.removeEventListener("resize", syncWidth);
   }, []);
   useEffect(() => {
+    shellRef.current?.setAttribute("data-hydrated", "true");
+  }, []);
+  useEffect(() => {
     if (isAccountSettingsOpen) {
       wasSettingsOpenRef.current = true;
       settingsRegionRef.current?.focus({ preventScroll: true });

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { installApiFixtures, seedSignedInSession } from "./fixtures/api";
 import { trackHydrationErrors } from "./fixtures/hydration-errors";
 import { expectNavigation } from "./fixtures/navigation-budget";
+import { waitForShellHydration } from "./fixtures/shell-hydration";
 
 type Theme = "light" | "dark";
 
@@ -147,6 +148,7 @@ test("Account appearance applies immediately, overrides the OS, persists and ret
   const hydrationErrors = trackHydrationErrors(page);
   await page.emulateMedia({ colorScheme: "light" });
   await page.goto("/home?account=settings");
+  await waitForShellHydration(page);
   const appearance = page.getByRole("radiogroup", { name: "Appearance" });
   await expect(appearance.getByRole("radio", { name: "System" })).toBeChecked();
 
@@ -159,6 +161,7 @@ test("Account appearance applies immediately, overrides the OS, persists and ret
   await expectTheme(page, "dark");
 
   await page.reload();
+  await waitForShellHydration(page);
   await expect(page.getByRole("radiogroup", { name: "Appearance" }).getByRole("radio", { name: "Dark" })).toBeChecked();
   await expectTheme(page, "dark");
 

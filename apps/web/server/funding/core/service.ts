@@ -537,12 +537,21 @@ export class FundingCore {
     const lookup = () => providerId
       ? this.deps.store.getOpenForProvider(ownerFor(session), region, providerId, paymentMethod, assetId)
       : this.deps.store.getOpen(ownerFor(session), region);
-    const order = await lookup();
-    if (!order) return null;
-    const refreshed = await this.refresh(order);
-    if (refreshed.state !== "abandoned") return publicOrder(refreshed);
-    const next = await lookup();
-    return next ? publicOrder(next) : null;
+    let attempts = 0;
+    for (;;) {
+      const order = await lookup();
+      if (!order) return null;
+      const refreshed = attempts < 3
+        ? await this.refresh(order)
+        : await this.abandonTimedOut(order, "/api/funding/orders", Date.now());
+      attempts += 1;
+      if (refreshed.state === "abandoned") continue;
+      if (refreshed.state === "awaiting-payment" && this.now().getTime() >= checkoutDeadline(refreshed)) {
+        if (refreshed.version === order.version) throw new Error("Open funding order lookup exhausted");
+        continue;
+      }
+      return publicOrder(refreshed);
+    }
   }
 
   async cancelOrder(session: VerifiedAccountSession, id: string) {
@@ -557,9 +566,6 @@ export class FundingCore {
     if (observed.advanced) throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
     if (order.state === "abandoned") return publicOrder(order);
     if (order.state !== "awaiting-payment") throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
-    if (!observed.definite && !(this.now().getTime() >= checkoutDeadline(order))) {
-      throw new FundingCoreError("ORDER_STATUS_UNAVAILABLE", 503);
-    }
     for (let attempt = 0; attempt < 2; attempt++) {
       const abandoned = await this.deps.store.abandon(id, owner, { expectedVersion: order.version, reason: "owner", updatedAt: this.now().toISOString() });
       if (abandoned) {
@@ -668,7 +674,7 @@ export class FundingCore {
     refreshRoute: FundingOrderTransitionEvent["route"] = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id",
   ): Promise<{ order: FundingOrder; definite: boolean; advanced?: boolean }> {
     if (isTerminalFundingState(order.state) || order.state === "reserving" || !order.providerOrderId || !order.expectedTokenAmountAtomic) return { order, definite: false };
-    if (!force && this.now().getTime() - Date.parse(order.checkedAt ?? order.updatedAt) < REFRESH_COOLDOWN_MS) return { order, definite: false };
+    if (!force && this.now().getTime() - Date.parse(order.checkedAt ?? order.updatedAt) < REFRESH_COOLDOWN_MS) return { order: await this.abandonTimedOut(order, refreshRoute, Date.now()), definite: false };
     const provider = this.provider(order.providerId);
     const binding = provider ? findBinding(provider, order.region, "onramp", order.paymentMethod, order.assetId) : null;
     const onramp = provider ? provider.onramp : null;
@@ -855,7 +861,7 @@ export class FundingCoreError extends Error {
 }
 
 export function publicOrder(order: FundingOrder) {
-  return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, sandbox: order.sandbox, state: order.state, abandonReason: order.abandonReason, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
+  return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, sandbox: order.sandbox, state: order.state, abandonReason: order.abandonReason, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt !== null && Date.parse(order.expiresAt) === checkoutDeadline(order) ? order.expiresAt : null, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
 }
 function ownerFor(session: VerifiedAccountSession): FundingOrderOwner { return { subject: session.user.subject, accountProvider: session.accountProvider }; }
 function findBinding(
