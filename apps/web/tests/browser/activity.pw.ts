@@ -533,3 +533,39 @@ for (const width of [390, 1280]) {
     expect(await mark.evaluate((node) => node.getBoundingClientRect().width)).toBe(32);
   });
 }
+
+test("Activity renders seeded card purchases across all statuses and decline reasons", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page);
+  await page.goto("/activity");
+
+  const activity = page.locator('section[aria-label="Activity"]').last();
+  const pending = activity.getByRole("list", { name: "Pending" });
+  const pendingCard = pending.getByRole("button", { name: /^Blue Bottle Coffee / });
+  await expect(pendingCard).toBeVisible();
+  await expect(pendingCard).toContainText("Pending");
+  await expect(pendingCard).toContainText("−$6.50");
+
+  const recent = activity.getByRole("list", { name: "Recent" });
+  for (const { merchant, label, amount } of [
+    { merchant: "Lyft", label: "Declined · card inactive", amount: "$18.20" },
+    { merchant: "Whole Foods Market", label: "Declined · insufficient funds", amount: "$64.10" },
+    { merchant: "Whole Foods Market", label: "Completed", amount: "−$42.18" },
+    { merchant: "Grand Hotel", label: "Reversed", amount: "$100.00" },
+    { merchant: "Apple", label: "Refunded", amount: "+$9.99" },
+  ]) {
+    const row = recent.getByRole("button", { name: new RegExp(`^${merchant} `) }).filter({ hasText: label });
+    await expect.poll(async () => {
+      if (await row.count()) {
+        await row.scrollIntoViewIfNeeded();
+        return row.isVisible();
+      }
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight / 2));
+      return false;
+    }).toBe(true);
+    await expect(row).toContainText(merchant);
+    await expect(row).toContainText(label);
+    await expect(row).toContainText(amount);
+  }
+});

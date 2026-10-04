@@ -29,8 +29,8 @@ trap cleanup EXIT
 trap fail ERR
 printf '%s\n' 'sessionStorage.setItem("home:playwright-smoke:signed-in","1");localStorage.setItem("home.country.v2","US");' > "$init"
 chmod 600 "$init"
-env -i HOME="$HOME" PATH="$PATH" HOME_FIXTURE_PREPARE="$prepare" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; console.log(JSON.stringify(fixtureRoutes({prepare: process.env.HOME_FIXTURE_PREPARE as "send" | "savings-deposit" | "savings-withdraw"}).map(([pattern, body]) => ["network", "route", pattern, "--body", JSON.stringify(body)])));' > "$routes"
 browser_command open --init-script "$init" >/dev/null
+env -i HOME="$HOME" PATH="$PATH" HOME_FIXTURE_PREPARE="$prepare" bun -e 'import {fixtureRoutes} from "./tests/browser/feature-map/fixtures.ts"; const activityWindowEnd = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString(); console.log(JSON.stringify(fixtureRoutes({activityWindowEnd, prepare: process.env.HOME_FIXTURE_PREPARE as "send" | "savings-deposit" | "savings-withdraw"}).map(([pattern, body]) => ["network", "route", pattern, "--body", JSON.stringify(body)])));' > "$routes"
 browser_command batch --bail < "$routes" >/dev/null
 browser_command open "http://127.0.0.1:${HOME_FIXTURE_PORT:-3199}/home" >/dev/null
 browser_command wait --fn "Boolean(document.querySelector('[data-app-main-authenticated]'))" >/dev/null
