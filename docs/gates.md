@@ -292,3 +292,17 @@ Audited 2026-10-03 for #1915. The census found 50 ordinary `home/no-silent-catch
 | `apps/web/server/scheduling/after-schedule.ts:14` | intentional ignore | The detached task rejection is consumed after onUnavailable reports. |
 
 Achieved counts: 32 ordinary + 1 linked-exception occurrence = 33 combined (was 50 + 5 = 55), a reduction of 22 with no new suppression, no baseline raise and no rule severity change. Focused recovery tests cover the affected fences, retries, abort/late-rejection, best-effort storage/clipboard/cleanup, optional telemetry, rollback preservation and partial-reader fallbacks; the rule counterfixtures pin the recognition boundaries.
+
+## no-self-referential-expectation suppression audit
+
+Audited 2026-10-04 for #1916. The census at issue time found 15 ordinary `home/no-self-referential-expectation` disables across 11 test files. The unit-test cut in #1924 removed eight of those files before this work started: `sdk-activation.test.ts`, `client-reporter.test.ts`, `token-metadata-rpc.test.ts`, `codex/history.test.ts`, `codex/raw-quotes.test.ts`, `codex/recognized-catalog.test.ts`, `codex/token-lookup.test.ts` and `codex/trending.test.ts`, which held ten disables in suites that no longer exist. The remaining five disables in three files were replaced with independent assertions:
+
+| Site | Class | Disposition |
+| --- | --- | --- |
+| `apps/web/server/auth/cdp-render-session.test.ts` | published identity | The issued session cookie is asserted against the canonical literal `home-cdp-session=`, so a rename fails the test instead of following the constant. |
+| `apps/web/server/auth/cdp-render-session.test.ts` | published identity | The issued liveness cookie is asserted against the canonical literal `home-cdp-live=`. |
+| `apps/web/server/balances/enumerate-cdp.test.ts` | bound | Provider-call count, reported page count, row partitioning, truncation and the retained continuation token are asserted from the stub's own served rows; the fixture offers more pages than the budget so an unbounded client returns a complete result and fails. |
+| `apps/web/server/balances/enumerate-cdp.test.ts` | bound | Every served row is returned in order with no truncation inside a page. |
+| `apps/web/shared/observability/scrub.test.ts` | published identity | The canonical `[REDACTED]` marker is asserted as a literal alongside the adjacent-punctuation expectations. |
+
+Achieved counts: 0 `home/no-self-referential-expectation` disables (was 15 at issue time, 5 at this branch's base). No new suppression, no baseline raise, no rule change and no test-scope change; the rule's own suite pins the accepted identity-literal and behavior shapes and the rejected subject-import form.
