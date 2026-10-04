@@ -7,7 +7,7 @@ import { savingsPrepareFixture } from "../feature-map/savings-fixture";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
 import { FUNDING_OPEN_ORDER_VERSION } from "../../../shared/funding/contracts/open-order";
 import { FUNDING_PROVIDERS_VERSION } from "../../../shared/funding/contracts/providers";
-import { activityOrdersFixture, fundingOrderCancellationFixture } from "../feature-map/fixtures";
+import { activityOrdersFixture, cardPurchasesFixture, fundingOrderCancellationFixture } from "../feature-map/fixtures";
 import { isRecord } from "../../../shared/guards";
 import {
   actionsBody,
@@ -68,6 +68,7 @@ function activityPageBody(windowEnd: string | null, currency: string) {
         }
         : { status: "unpriced", currency, reason: "fx-unavailable" },
     }],
+    cards: { status: "ready", rows: cardPurchasesFixture(to) },
     nextCursor: null,
     source: {
       provider: "cdp-sql",

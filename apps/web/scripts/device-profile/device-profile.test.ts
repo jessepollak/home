@@ -65,7 +65,7 @@ test("fixture glob routing distinguishes exact path and query and preserves orde
   expect(matches("**/api/actions", "http://localhost:4199/api/actions?x=1")).toBe(false);
   expect(matches("**/api/balances**", "http://localhost:4199/api/balances?region=US")).toBe(true);
   const url = (path: string) => new URL(`http://localhost:4199${path}`);
-  expect((fixtureBody(url("/api/activity/orders"), 20, 100000) as { orders: unknown[] }).orders).toEqual([]);
+  expect((fixtureBody(url("/api/activity/orders"), 20, 100000) as { orders: readonly unknown[] }).orders).toEqual([]);
   const second = fixtureBody(url("/api/activity?cursor=page-1"), 100, 100000) as { transfers: { tokenImageUrl: string | null }[] };
   expect(second.transfers).toHaveLength(25);
   expect(second.transfers.every((transfer) => transfer.tokenImageUrl === null)).toBe(true);

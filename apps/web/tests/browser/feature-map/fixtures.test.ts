@@ -3,8 +3,10 @@ import { parseCardSpendingResponse } from "../../../shared/cards/allowance-contr
 import { FIXED_NOW } from "../fixtures/fixed-time";
 import { fixtureRoutes } from "./fixtures";
 import { matches } from "../../../scripts/device-profile/proxy";
+import { parseActivityPage } from "../../../shared/activity/contract";
 import { parseActivityOrders } from "../../../shared/activity/contract-orders";
 import { sessionBody } from "../fixtures/bodies";
+import { parseAddress } from "../../../shared/chain/hex";
 
 test("Activity query and bare fixtures cannot shadow the owner-fenced orders route", () => {
   const routes = fixtureRoutes();
@@ -25,5 +27,29 @@ test("card spending fixture parses with the shared response contract", () => {
   if (response?.status === "available") {
     expect(response.fetchedAt).toBe(new Date(FIXED_NOW).toISOString());
     expect(response.availableBaseUnits).toBe("25000000");
+  }
+});
+
+test("activity fixtures parse with all card purchase statuses and common decline reasons", () => {
+  const routes = fixtureRoutes();
+  const body = routes.find(([route]) => route === "**/api/activity")?.[1];
+  if (!body || !("window" in body)) throw new Error("Missing activity fixture");
+  expect(routes.find(([route]) => route === "**/api/activity?**")?.[1]).toBe(body);
+  expect(body.window.to).toBe(new Date(Math.floor(FIXED_NOW / 60_000) * 60_000).toISOString());
+  const address = parseAddress(sessionBody.smartAccount.address);
+  if (!address) throw new Error("Invalid fixture smart account address");
+  const session = { user: sessionBody.user, accountProvider: "cdp-embedded" as const,
+    smartAccount: { address, chainId: 8453 as const } };
+  const page = parseActivityPage(body, session, body.window.to, "USD");
+  expect(page.cards?.status).toBe("ready");
+  expect(page.cards?.rows.map((row) => row.status)).toEqual([
+    "pending", "declined", "declined", "completed", "reversed", "refunded",
+  ]);
+  expect(page.cards?.rows.map((row) => row.declineReasonCode)).toEqual([
+    null, "card_inactive", "insufficient_funds", null, null, null,
+  ]);
+  for (const row of page.cards?.rows ?? []) {
+    expect(Date.parse(row.createdAt)).toBeGreaterThanOrEqual(Date.parse(page.window.from));
+    expect(Date.parse(row.createdAt)).toBeLessThan(Date.parse(page.window.to));
   }
 });

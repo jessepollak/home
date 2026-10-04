@@ -22,6 +22,7 @@ import {
   savingsVaultsBody,
 } from "../fixtures/bodies";
 import type { TradeDirection } from "../../../shared/trading/contract";
+import type { CardPurchase } from "../../../shared/cards/transactions-contract";
 import type { ActivityOrdersResponse } from "../../../shared/activity/contract-orders";
 import { FUNDING_ORDER_RESOLUTION_VERSION, type ResolveFundingOrderResponse } from "../../../shared/funding/contracts/order-resolution";
 import { FUNDING_ORDER_CANCELLATION_VERSION, type CancelFundingOrderResponse } from "../../../shared/funding/contracts/order-cancellation";
@@ -33,6 +34,35 @@ const syntheticUsdc = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as const;
 const syntheticBtc = "0x2222222222222222222222222222222222222222" as const;
 export const syntheticDegen = "0x3333333333333333333333333333333333333333" as const;
 export const degenAssetId = `base:${syntheticDegen}` as const;
+
+export function cardPurchasesFixture(windowEnd: string): CardPurchase[] {
+  const rows: Array<Pick<CardPurchase, "id" | "kind" | "amountMinor" | "merchantName" | "status" | "declineReasonCode">> = [
+    { id: "iauth_fixturebluebottle", kind: "authorization", amountMinor: "650", merchantName: "Blue Bottle Coffee", status: "pending", declineReasonCode: null },
+    { id: "iauth_fixturelyft", kind: "authorization", amountMinor: "1820", merchantName: "Lyft", status: "declined", declineReasonCode: "card_inactive" },
+    { id: "iauth_fixturewholefoodsdeclined", kind: "authorization", amountMinor: "6410", merchantName: "Whole Foods Market", status: "declined", declineReasonCode: "insufficient_funds" },
+    { id: "ipi_fixturewholefoods", kind: "transaction", amountMinor: "4218", merchantName: "Whole Foods Market", status: "completed", declineReasonCode: null },
+    { id: "ipi_fixturegrandhotel", kind: "transaction", amountMinor: "10000", merchantName: "Grand Hotel", status: "reversed", declineReasonCode: null },
+    { id: "ipi_fixtureapple", kind: "transaction", amountMinor: "999", merchantName: "Apple", status: "refunded", declineReasonCode: null },
+  ];
+  return rows.map((row, index) => {
+    const timestamp = new Date(Date.parse(windowEnd) - (index + 1) * 10 * 60_000).toISOString();
+    return { ...row, currency: "USD", merchantCategory: null, createdAt: timestamp, updatedAt: timestamp };
+  });
+}
+
+export function activityPageFixture(windowEnd: string) {
+  return {
+    version: 1,
+    walletAddress: sessionBody.smartAccount.address.toLowerCase(),
+    chainId: 8453,
+    currency: "USD",
+    window: { from: new Date(Date.parse(windowEnd) - 24 * 60 * 60_000).toISOString(), to: windowEnd },
+    transfers: [],
+    cards: { status: "ready", rows: cardPurchasesFixture(windowEnd) },
+    nextCursor: null,
+    source: { provider: "cdp-sql", cached: false, stale: false, executionTimestamp: windowEnd, executionTimeMs: 1, fetchedAt: windowEnd },
+  } as const;
+}
 
 export function activityOrdersFixture(): ActivityOrdersResponse {
   const createdAt = new Date(FIXED_NOW - 600_000).toISOString();
@@ -152,7 +182,11 @@ export function priceHistoryFixture(assetId: string, now = new Date(FIXED_NOW)):
   };
 }
 
-export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "savings-deposit" | "savings-withdraw" } = {}) {
+export function fixtureRoutes({
+  prepare = "send",
+  activityWindowEnd = new Date(Math.floor(FIXED_NOW / 60_000) * 60_000).toISOString(),
+}: { prepare?: "send" | "savings-deposit" | "savings-withdraw"; activityWindowEnd?: string } = {}) {
+  const activity = activityPageFixture(activityWindowEnd);
   const balances = balancesSnapshot("US", { stocks: true });
   const borrowOverview = borrowOverviewBody();
   const prepared = prepare === "send" ? preparedSendFixtureAction(recentRecipient)
@@ -207,8 +241,8 @@ export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "saving
     }],
     ["**/api/activity/orders", { version: 1, owner: { subject: sessionBody.user.subject, accountProvider: sessionBody.accountProvider }, orders: [] }],
     ["**/api/funding/orders/fixture-funding-pending/cancel", fundingOrderCancellationFixture("fixture-funding-pending")],
-    ["**/api/activity", {}],
-    ["**/api/activity?**", {}],
+    ["**/api/activity", activity],
+    ["**/api/activity?**", activity],
     ["**/api/savings/vaults", savingsVaultsBody(new Date(FIXED_NOW).toISOString(), new Date(FIXED_NOW).toISOString())],
     ["**/api/borrow", borrowOverview],
     ["**/api/cards", cardsBody()],
