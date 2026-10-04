@@ -250,7 +250,7 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div ref={attachLog} onScroll={(event) => { const latest = logAtLatest(event.currentTarget); atLatestRef.current = latest; setPinned(latest); setScrollRevision((revision) => revision + 1); }} role="log" aria-label="Support messages" aria-live="polite" aria-busy={busy} className="flex min-h-32 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
             {conversation.isPending && !conversation.data ? (
-              <div aria-label="Loading support messages" className="space-y-3"><Skeleton className="h-10 w-2/3" /><Skeleton className="ms-auto h-10 w-2/3" /></div>
+              <div role="status" aria-label="Loading support messages" className="space-y-3"><Skeleton className="h-10 w-2/3" /><Skeleton className="ms-auto h-10 w-2/3" /></div>
             ) : conversation.isError && !conversation.data ? (
               <div role="alert" className="grid justify-items-start gap-2 text-sm">Couldn&apos;t load support messages.<Button variant="outline" size="touch" onClick={() => void conversation.refetch()}>Try again</Button></div>
             ) : display.length === 0 && !busy ? (
