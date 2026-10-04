@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList, ComboboxTrigger } from "@/components/ui/combobox";
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { CoverageStatusPreview } from "@/components/ui/coverage-status-preview";
 import { CoverageTable, type CoverageTableRow } from "@/components/ui/coverage-table";
 import { DataTable } from "@/components/ui/data-table";
@@ -291,11 +291,7 @@ export const specimens: Record<string, Specimen> = {
   },
   "ui-combobox": {
     Render: () => <Combobox items={currencies} defaultValue={currencies[0]} aria-label="Currency">
-      <ComboboxInput aria-label="Currency" placeholder="Search currencies" className="w-60" showTrigger={false}>
-        <InputGroupAddon align="inline-end">
-          <InputGroupButton size="icon-xs" variant="ghost" render={<ComboboxTrigger aria-label="Show currencies" />} />
-        </InputGroupAddon>
-      </ComboboxInput>
+      <ComboboxInput aria-label="Currency" triggerLabel="Show currencies" placeholder="Search currencies" className="w-60" />
       <ComboboxContent>
         <ComboboxEmpty>No currencies found.</ComboboxEmpty>
         <ComboboxList>
