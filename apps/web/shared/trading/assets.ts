@@ -46,8 +46,7 @@ export function tradeMetadataTradeable(
   metadata: Pick<TradeMoneyActionMetadata, "direction" | "fromAsset" | "toAsset"> & { currencyRecordId?: unknown },
   deps: { convertPair?: typeof resolveConvertPair } = {},
 ): boolean {
-  const asset = metadata.direction === "buy" ? metadata.toAsset : metadata.fromAsset;
-  const normalized = parseAddress(asset?.address);
+  const normalized = tradedSideAddress(metadata);
   if (!normalized) return false;
   if (metadata.currencyRecordId !== undefined) {
     const record = typeof metadata.currencyRecordId === "string" ? currencyRecordById(metadata.currencyRecordId) : null;
@@ -56,6 +55,24 @@ export function tradeMetadataTradeable(
   }
   const record = currencyRecordForContract(normalized);
   return record === null || convertCurrencyTradeable(record.id, deps);
+}
+
+export function tradeMetadataDirection(
+  metadata: Pick<TradeMoneyActionMetadata, "direction" | "fromAsset" | "toAsset">,
+): TradeDirection | null {
+  if (metadata.direction === "buy" || metadata.direction === "sell") return metadata.direction;
+  const from = parseAddress(metadata.fromAsset?.address);
+  const to = parseAddress(metadata.toAsset?.address);
+  if (!from || !to || (from === usdcAddress) === (to === usdcAddress)) return null;
+  return from === usdcAddress ? "buy" : "sell";
+}
+
+function tradedSideAddress(
+  metadata: Pick<TradeMoneyActionMetadata, "direction" | "fromAsset" | "toAsset">,
+): Address | null {
+  const direction = tradeMetadataDirection(metadata);
+  if (!direction) return null;
+  return parseAddress((direction === "buy" ? metadata.toAsset : metadata.fromAsset)?.address);
 }
 
 export function resolveTradeAsset(
