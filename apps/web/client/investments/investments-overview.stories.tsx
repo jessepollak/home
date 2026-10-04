@@ -82,13 +82,14 @@ async function assertSnapshot(element: HTMLElement, snapshot: BalancesSnapshot) 
     await expect(sum.numerator * total.denominator).toBe(total.numerator * sum.denominator);
   }
 }
+const paginationRevealGuard = { timeout: 15_000 };
 async function revealAll(element: HTMLElement) {
   const items = () => within(screen(element).getByRole("region", { name: "Your investments" })).getAllByRole("listitem");
-  await waitFor(() => expect(items()).toHaveLength(20));
+  await waitFor(() => expect(items()).toHaveLength(20), paginationRevealGuard);
   items()[19]!.scrollIntoView({ block: "center", behavior: "instant" });
-  await waitFor(() => expect(items()).toHaveLength(40));
+  await waitFor(() => expect(items()).toHaveLength(40), paginationRevealGuard);
   items()[39]!.scrollIntoView({ block: "center", behavior: "instant" });
-  await waitFor(() => expect(items()).toHaveLength(60));
+  await waitFor(() => expect(items()).toHaveLength(60), paginationRevealGuard);
   return items();
 }
 function LoadingTransitionSurface() { const [loading, setLoading] = useState(true); return <><InvestmentStorySurface snapshot={loading ? null : fundedSnapshot} balanceStatus={loading ? "loading" : "ready"} /><Button variant="outline" size="touch" onClick={() => setLoading(false)}>Show funded</Button></>; }

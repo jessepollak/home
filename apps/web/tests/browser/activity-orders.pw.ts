@@ -48,6 +48,32 @@ for (const path of ["/activity", "/home"]) {
   });
 }
 
+test("/activity keeps a cancelled funding checkout when the orders refresh fails", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await seedSignedInSession(page);
+  await installApiFixtures(page, { activityOrders: true });
+  let cancelled = false;
+  page.on("requestfinished", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/cancel")) cancelled = true;
+  });
+  let failedRefreshes = 0;
+  await page.route("**/api/activity/orders", (route) => {
+    if (!cancelled) return route.fallback();
+    failedRefreshes += 1;
+    return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "unavailable" }) });
+  });
+  await page.goto("/activity");
+  const activity = page.locator("[data-app-main-authenticated]").getByRole("region", { name: "Activity" }).last();
+  await activity.getByRole("list", { name: "Pending" }).getByRole("button", { name: /Add money.*\+\$25/ }).click();
+  const sheet = page.getByRole("dialog", { name: "Add money" });
+  await sheet.getByRole("button", { name: "Cancel deposit" }).click();
+  await expect(page.locator("[data-activity-sources~='orders:error']").first()).toBeAttached();
+  expect(failedRefreshes).toBeGreaterThan(0);
+  await expect(sheet.getByText("Cancelled", { exact: true })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "Cancel deposit" })).toHaveCount(0);
+  await expect(sheet.getByRole("button", { name: "Continue with Coinbase" })).toHaveCount(0);
+});
+
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   for (const path of ["/activity", "/home"] as const) {
     test(`${path} shows funding orders and reconciled cash-out at ${viewport.width}px`, async ({ page }) => {
