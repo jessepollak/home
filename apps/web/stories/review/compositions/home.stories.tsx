@@ -23,7 +23,7 @@ function HomeComposition({ state }: { state: State }) {
         regionId: "US", resolutionSource: "persisted", isPreferenceReady: true, preferenceMessage: "",
         selectRegion: () => {}, offeredCountries: ["US"],
       }}>
-        <HomeOverview accountKey={wallet.ownerKey} assetBalances={assetBalances} cashRate={null} borrowOfferRate={null}
+        <HomeOverview accountKey={wallet.ownerKey} assetBalances={assetBalances} cashRate="4.20% APY" borrowOfferRate="5.10% APR"
           onRetryBalances={() => {}}
           destinations={{ onOpenCash: () => {}, onOpenInvestments: () => {}, onOpenBorrow: () => {} }}
           actions={<><FundingActions regionId="US" /><TransferActions availableAssets={availableAssets} regionId="US" /></>}

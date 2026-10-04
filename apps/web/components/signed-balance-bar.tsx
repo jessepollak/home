@@ -62,11 +62,9 @@ export function MoneyBreakdownLegend({ items, selectedId, onSelect }: BreakdownP
                 className="-mx-1.5 -my-1 flex w-full min-w-0 flex-col items-start gap-1 px-1.5 py-1 text-start"
               >
                 <span className="flex w-full min-w-0 items-start gap-1.5">
-                  <span
-                    className="size-1.5 shrink-0 rounded-xs"
-                    style={{ background: segmentFills[item.id] }}
-                    aria-hidden="true"
-                  />
+                  <span className="flex h-lh shrink-0 items-center" aria-hidden="true">
+                    <span className="size-1.5 rounded-xs" style={{ background: segmentFills[item.id] }} />
+                  </span>
                   <span className="min-w-0 text-balance @max-[15rem]:max-w-[5rem]">
                     {item.id === "pending-cash-out" ? <>Pending <span className="whitespace-nowrap">cash-out</span></> : item.label}
                   </span>

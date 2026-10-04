@@ -27,6 +27,17 @@ export const Default: Story = {
           <ItemTitle numeric>$123.46</ItemTitle>
         </ItemActions>
       </Item>
+      <Item variant="outline">
+        <ItemMedia variant="icon" aria-hidden="true">
+          <PiggyBank />
+        </ItemMedia>
+        <ItemContent>
+          <ItemTitle>Cash</ItemTitle>
+        </ItemContent>
+        <ItemActions>
+          <ItemTitle numeric>$12.34</ItemTitle>
+        </ItemActions>
+      </Item>
       <ItemSeparator />
       <Item variant="flush">
         <ItemContent>
