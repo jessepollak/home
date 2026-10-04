@@ -27,7 +27,7 @@ import { Progress } from "@/components/ui/progress";
 import { PromptInput, PromptInputSubmit, PromptInputTextarea } from "@/components/ui/prompt-input";
 import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } from "@/components/ui/pull-to-refresh";
 import { RadioGroup, RadioGroupOption } from "@/components/ui/radio-group";
-import { RailNavItem } from "@/components/ui/rail-nav";
+import { RailNav, RailNavItem } from "@/components/ui/rail-nav";
 import { ResultHeader } from "@/components/ui/result-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -235,12 +235,12 @@ function RadioGroupSpecimen() {
 
 function RailNavSpecimen() {
   const [current, setCurrent] = useState("overview");
-  return <nav aria-label="Admin" className="w-48">
+  return <RailNav aria-label="Admin" className="w-48">
     <RailNavItem href="#overview" label="Overview" icon={LayoutDashboard} current={current === "overview"}
       onClick={() => setCurrent("overview")} />
     <RailNavItem href="#activity" label="Activity" icon={Activity} current={current === "activity"}
       onClick={() => setCurrent("activity")} />
-  </nav>;
+  </RailNav>;
 }
 
 function SwitchSpecimen() {
