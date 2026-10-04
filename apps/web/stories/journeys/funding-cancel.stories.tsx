@@ -5,7 +5,8 @@ import { expect, userEvent, within } from "storybook/test";
 import { createHomeQueryClient } from "@/client/query/query-client";
 import { MoneyModal } from "@/client/money-modal";
 import { FundingOrderFlow } from "@/client/funding/order-flow";
-import type { FundingOrderSummary } from "@/shared/funding/contracts/order";
+import { FUNDING_ORDER_VERSION, type FundingOrderSummary } from "@/shared/funding/contracts/order";
+import { FUNDING_ORDER_CANCELLATION_VERSION } from "@/shared/funding/contracts/order-cancellation";
 import type { FundingBinding } from "@/shared/funding/contracts/providers";
 
 const binding: FundingBinding = {
@@ -27,7 +28,9 @@ function Journey({ order }: { order: FundingOrderSummary }) {
       <MoneyModal open={open} labelledBy="funding-story-title" onCancel={() => setOpen(false)} onClose={() => {}}>
         <FundingOrderFlow binding={binding} queryOwnerKey="funding-story-owner" initialOrder={order}
           titleId="funding-story-title" onBack={() => setOpen(false)} onOpenRedirect={() => {}}
-          fetchAccountResource={async (path) => ({ ...(path.endsWith("/cancel") ? { version: 1 } : {}), order: path.endsWith("/cancel") ? cancelled : order })} />
+          fetchAccountResource={async (path) => path.endsWith("/cancel")
+            ? { version: FUNDING_ORDER_CANCELLATION_VERSION, order: cancelled }
+            : { version: FUNDING_ORDER_VERSION, order }} />
       </MoneyModal>
     </main>
   </QueryClientProvider>;

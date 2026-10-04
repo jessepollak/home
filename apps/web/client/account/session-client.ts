@@ -157,5 +157,5 @@ export async function validateAccountSession(
     }
   }
 
-  return session;
+  return { user: session.user, smartAccount: session.smartAccount, accountProvider: session.accountProvider };
 }

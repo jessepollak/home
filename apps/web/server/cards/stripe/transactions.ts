@@ -1,5 +1,7 @@
 import "server-only";
 
+import { isRecord as record, isStringEnum, matchesId } from "../response-guards";
+import { parseCardPurchases, CARD_PURCHASES_VERSION } from "@/shared/cards/transactions-contract";
 import type { CardJourneyConfig } from "../bridge/journey-config";
 import { readProviderJson } from "../read-provider-json";
 import type { CardPurchase } from "@/shared/cards/transactions-contract";
@@ -49,37 +51,46 @@ export function createStripeTransactionClient(config: Pick<CardJourneyConfig, "s
 }
 
 function parseStripePurchase(value: unknown, kind: "authorization" | "transaction"): StripePurchase {
-  if (!record(value) || value.object !== `issuing.${kind}` || !ids[kind].test(String(value.id)) ||
-      !Number.isSafeInteger(value.amount) || Math.abs(value.amount as number) > 999_999_999_999_999 ||
+  if (!record(value) || value.object !== `issuing.${kind}` || !matchesId(value.id, ids[kind]) ||
+      typeof value.amount !== "number" || !Number.isSafeInteger(value.amount) || Math.abs(value.amount) > 999_999_999_999_999 ||
       typeof value.currency !== "string" || !/^[a-z]{3}$/.test(value.currency) ||
-      !Number.isSafeInteger(value.created) || (value.created as number) <= 0 ||
+      typeof value.created !== "number" || !Number.isSafeInteger(value.created) || value.created <= 0 ||
       !record(value.merchant_data) || typeof value.merchant_data.name !== "string" ||
       value.merchant_data.name.trim().length === 0 || value.merchant_data.name.length > 120 ||
-      !ids.card.test(String(record(value.card) ? value.card.id : value.card))) throw new Error("Invalid Stripe purchase");
-  const id = value.id as string;
-  const cardId = (record(value.card) ? value.card.id : value.card) as string;
+      !matchesId(record(value.card) ? value.card.id : value.card, ids.card)) throw new Error("Invalid Stripe purchase");
+  const id = value.id;
+  const cardId = record(value.card) ? value.card.id : value.card;
+  if (!matchesId(cardId, ids.card)) throw new Error("Invalid Stripe purchase");
   const merchant = value.merchant_data;
+  const merchantName = merchant.name;
+  if (typeof merchantName !== "string") throw new Error("Invalid Stripe purchase");
   const category = typeof merchant.category === "string" && merchant.category.length <= 80 ? merchant.category : null;
   let status: CardPurchase["status"];
   let reason: string | null = null;
   let authorizationId: string | null = null;
   if (kind === "authorization") {
-    if (typeof value.approved !== "boolean" || !["pending", "closed", "reversed"].includes(String(value.status))) throw new Error("Invalid Stripe authorization status");
+    if (typeof value.approved !== "boolean" || !isStringEnum(value.status, ["pending", "closed", "reversed"])) throw new Error("Invalid Stripe authorization status");
     status = !value.approved ? "declined" : value.status === "reversed" ? "reversed" : "pending";
     const history = value.request_history;
     const entry: unknown = Array.isArray(history) ? history.at(-1) : null;
     reason = !value.approved && record(entry) && typeof entry.reason === "string" && /^[a-z_]{1,64}$/.test(entry.reason) ? entry.reason : null;
     authorizationId = id;
   } else {
-    if (!["pending", "posted", "void"].includes(String(value.status)) || !["capture", "refund"].includes(String(value.type))) throw new Error("Invalid Stripe transaction status");
+    if (!isStringEnum(value.status, ["pending", "posted", "void"]) || !isStringEnum(value.type, ["capture", "refund"])) throw new Error("Invalid Stripe transaction status");
     status = value.status === "pending" ? "pending" : value.status === "void" ? "reversed" : value.type === "refund" ? "refunded" : "completed";
     const auth = record(value.authorization) ? value.authorization.id : value.authorization;
     authorizationId = typeof auth === "string" && ids.authorization.test(auth) ? auth : null;
   }
-  return { id, cardId, authorizationId, kind, amountMinor: String(Math.abs(value.amount as number)), currency: (value.currency as string).toUpperCase(),
-    merchantName: (merchant.name as string).trim(), merchantCategory: category, status, declineReasonCode: reason,
-    createdAt: new Date((value.created as number) * 1000).toISOString(), updatedAt: new Date().toISOString() };
+  return { id, cardId, authorizationId, kind, amountMinor: String(Math.abs(value.amount)), currency: value.currency.toUpperCase(),
+    merchantName: merchantName.trim(), merchantCategory: category, status, declineReasonCode: reason,
+    createdAt: new Date(value.created * 1000).toISOString(), updatedAt: new Date().toISOString() };
 }
-function record(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+
+export function isStripePurchase(value: unknown): value is StripePurchase {
+  if (!record(value) || typeof value.cardId !== "string" || !ids.card.test(value.cardId) ||
+      !(value.authorizationId === null || typeof value.authorizationId === "string" && ids.authorization.test(value.authorizationId))) return false;
+  try {
+    parseCardPurchases({ version: CARD_PURCHASES_VERSION, status: "ready", rows: [value] });
+    return true;
+  } catch { return false; }
 }

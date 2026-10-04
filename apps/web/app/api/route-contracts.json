@@ -15,7 +15,7 @@
     "actions/route.ts": { "contracts": ["shared/actions/contracts/list.ts"] },
     "actions/trade-pending/route.ts": { "contracts": ["shared/actions/contracts/trade-pending.ts"], "client": "No Home client fetcher consumes this pending trade compatibility response." },
     "activity/orders/route.ts": { "contracts": ["shared/activity/contract-orders.ts"] },
-    "activity/route.ts": { "contracts": ["shared/activity/contract.ts"] },
+    "activity/route.ts": { "contracts": ["shared/activity/contract.ts", "shared/cards/transactions-contract.ts"] },
     "admin/[...path]/route.ts": { "contracts": ["shared/operator/contract.ts"], "methods": { "GET": { "contracts": ["shared/operator/contract.ts"] }, "HEAD": { "contracts": ["shared/operator/contract.ts"] }, "POST": { "contracts": ["shared/operator/contract.ts"] }, "PUT": { "contracts": ["shared/operator/contract.ts"] }, "PATCH": { "contracts": ["shared/operator/contract.ts"] }, "DELETE": { "contracts": ["shared/operator/contract.ts"] }, "OPTIONS": { "contracts": ["shared/operator/contract.ts"] } }, "client": "The operator API fallback is not called by a Home client; admin pages render on the server." },
     "admin/audit/route.ts": { "contracts": ["shared/operator-settings/contract.ts"], "client": "The audit API has no Home client fetcher; admin pages render on the server." },
     "admin/session/route.ts": { "contracts": ["shared/operator/contract.ts"], "client": "The operator session API has no Home client fetcher; admin pages render on the server." },
@@ -48,8 +48,8 @@
     "client-performance/route.ts": { "contracts": ["shared/observability/client-performance.contract.ts"] },
     "funding/orders/[id]/cancel/route.ts": { "contracts": ["shared/funding/contracts/order-cancellation.ts"] },
     "funding/orders/[id]/resolve/route.ts": { "contracts": ["shared/funding/contracts/order-resolution.ts"] },
-    "funding/orders/[id]/route.ts": { "contracts": ["shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/order.ts"], "allowance": { "kind": "unversioned-compatibility", "reason": "The order-by-id GET keeps the compatibility order body that the permissive funding order reader validates without a version token." } } } },
-    "funding/orders/route.ts": { "contracts": ["shared/funding/contracts/open-order.ts", "shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/open-order.ts"] }, "POST": { "contracts": ["shared/funding/contracts/order.ts"], "allowance": { "kind": "unversioned-compatibility", "reason": "The create-order POST keeps the compatibility order body that the permissive funding order reader validates without a version token." } } } },
+    "funding/orders/[id]/route.ts": { "contracts": ["shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/order.ts"] } } },
+    "funding/orders/route.ts": { "contracts": ["shared/funding/contracts/open-order.ts", "shared/funding/contracts/order.ts"], "methods": { "GET": { "contracts": ["shared/funding/contracts/open-order.ts"] }, "POST": { "contracts": ["shared/funding/contracts/order.ts"] } } },
     "funding/provider-customers/route.ts": { "contracts": ["shared/funding/contracts/provider-customers.ts"] },
     "funding/provider-customers/verification/route.ts": { "contracts": ["shared/funding/contracts/provider-customers.ts"] },
     "funding/providers/route.ts": { "contracts": ["shared/funding/contracts/providers.ts"] },
@@ -86,45 +86,34 @@
       "actions/[id]/route.ts": ["shared/actions/contracts/get.ts"],
       "actions/prepare/route.ts": ["shared/actions/contracts/prepare.ts"],
       "actions/route.ts": ["shared/actions/contracts/list.ts"],
-      "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"],
-      "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-      "session/route.ts": ["shared/account/contracts/session.ts"]
+      "actions/trade-pending/route.ts": ["shared/actions/contracts/trade-pending.ts"]
     },
     "unversionedContracts": [
-      "shared/account/contracts/base-verify.ts",
-      "shared/account/contracts/session.ts",
       "shared/actions/contracts/confirm.ts",
       "shared/actions/contracts/get.ts",
       "shared/actions/contracts/handle.ts",
       "shared/actions/contracts/list.ts",
       "shared/actions/contracts/prepare.ts",
-      "shared/cards/transactions-contract.ts",
       "shared/fees/contract.ts",
       "shared/funding/contracts/errors.ts",
-      "shared/funding/contracts/order.ts",
       "shared/funding/provider-contract.ts"
     ],
     "parserlessContracts": [
       "shared/actions/contracts/handle.ts",
       "shared/actions/contracts/trade-pending.ts",
-      "shared/funding/provider-contract.ts",
-      "shared/savings/contracts/positions.ts"
+      "shared/funding/provider-contract.ts"
     ],
-    "handlerUnlinked": {
-      "auth/base/verify/route.ts": ["shared/account/contracts/base-verify.ts"],
-      "session/route.ts": ["shared/account/contracts/session.ts"]
-    },
+    "handlerUnlinked": {},
     "clientUnlinked": {
       "access/route.ts": ["shared/access/contract.ts"],
       "actions/[id]/handle/route.ts": ["shared/actions/contracts/handle.ts"],
-      "activity/route.ts": ["shared/activity/contract.ts"]
+      "activity/route.ts": ["shared/activity/contract.ts", "shared/cards/transactions-contract.ts"]
     },
     "undeclaredHandlerContracts": {
       "actions/[id]/confirm/route.ts": ["shared/actions/contracts/prepare.ts", "shared/cards/allowance-contract.ts"],
       "actions/[id]/retry/route.ts": ["shared/cards/allowance-contract.ts"],
       "actions/prepare/route.ts": ["shared/trading/contract.ts"],
       "auth/base/verify/route.ts": ["shared/account/contracts/base-nonce.ts"],
-      "funding/provider-customers/verification/route.ts": ["shared/funding/contracts/errors.ts"],
       "market-prices/stats/route.ts": ["shared/invest/contracts/market-price-history.ts"]
     }
   }

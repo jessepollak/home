@@ -13,7 +13,7 @@ import type { AddMoneyStep, ProvidersStatus } from "./add-money-dialog";
 import { addMoneySheetLoading } from "./method-skeleton";
 import { shouldPollFundingOrder } from "./order-polling";
 import { fundingOpenOrderPath, fundingOrderMatchesQuery, isCompleteFundingOrder, readFundingOpenOrderResponse } from "@/shared/funding/contracts/open-order";
-import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
+import { readFundingOrder, readFundingOrderResponse, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { isFundingBindingListFor, type FundingBinding } from "@/shared/funding/contracts/providers";
 import { isFundingCustomerListFor, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { browserHomeQueryClient, disabledQueryKey, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
@@ -374,7 +374,7 @@ function FundingExperienceBoundary({
       setCancellationError(cancellationErrorCopy(failure));
       if (cancellationNeedsRefetch(failure)) {
         try {
-          const latest = readFundingOrder(await wallet.fetchAccountResource(`/api/funding/orders/${encodeURIComponent(requested.id)}`));
+          const latest = readFundingOrderResponse(await wallet.fetchAccountResource(`/api/funding/orders/${encodeURIComponent(requested.id)}`));
           if (attempt !== cancelAttemptRef.current || !latest || latest.id !== requested.id) return;
           queryClient.setQueryData(fundingOrderKey(queryOwnerKey, requested), latest);
           setPromptOrder(latest);

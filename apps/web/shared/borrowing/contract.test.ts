@@ -82,3 +82,72 @@ test("borrow sources and owner canonicalize valid wire hex and reject invalid he
   expect(String(parseBorrowOverview(response, owner)?.owner.address)).toBe(owner.toLowerCase());
   expect(parseBorrowOverview({ ...response, owner: { ...response.owner, address: owner.replace("A", "a") } }, owner)).toBeNull();
 });
+
+describe("borrow missing values never become zero", () => {
+  const requiredFields = [
+    ["state", "oraclePriceRaw"], ["state", "borrowRatePerSecondWad"], ["state", "borrowAprWad"],
+    ["state", "totalSupplyAssetsRaw"], ["state", "totalBorrowAssetsRaw"], ["state", "totalBorrowSharesRaw"],
+    ["state", "liquidityAssetsRaw"], ["state", "lastUpdateTimestamp"],
+    ["wallet", "collateralBalanceRaw"], ["wallet", "loanBalanceRaw"], ["wallet", "collateralAllowanceRaw"], ["wallet", "loanAllowanceRaw"],
+    ["position", "collateralRaw"], ["position", "borrowSharesRaw"], ["position", "debtAssetsRaw"],
+    ["position", "rawBorrowCapacityAssetsRaw"], ["position", "borrowCapacityAssetsRaw"],
+    ["position", "rawWithdrawableCollateralRaw"], ["position", "withdrawableCollateralRaw"],
+  ] as const;
+
+  test("requires readable required decimals and preserves measured zero", () => {
+    for (const [group, field] of requiredFields) {
+      for (const invalid of [undefined, null, 0, "", "unavailable", "-1", "1.5"]) {
+        const snapshot = detail();
+        Object.assign(snapshot[group], { [field]: invalid });
+        if (invalid === undefined) Reflect.deleteProperty(snapshot[group], field);
+        expect(parseSnapshot(snapshot, OWNER)).toBeNull();
+        const value = overview();
+        value.opportunities[0].availability.snapshot = snapshot;
+        expect(parseBorrowOverview(value, OWNER)).toBeNull();
+      }
+      const snapshot = detail();
+      Object.assign(snapshot[group], { [field]: "0" });
+      expect(parseSnapshot(snapshot, OWNER)).toMatchObject({ [group]: { [field]: "0" } });
+    }
+  });
+
+  test.each(["healthFactorWad", "liquidationPriceRaw"] as const)("keeps unknown %s distinct from zero and rejects missing/unreadable data", (field) => {
+    const snapshot = detail();
+    expect(parseSnapshot(snapshot, OWNER)?.position[field]).toBeNull();
+    Object.assign(snapshot.position, { [field]: "0" });
+    expect(parseSnapshot(snapshot, OWNER)?.position[field]).toBe("0");
+    for (const invalid of [undefined, 0, "", "unknown", "-1"]) {
+      Object.assign(snapshot.position, { [field]: invalid });
+      if (invalid === undefined) Reflect.deleteProperty(snapshot.position, field);
+      expect(parseSnapshot(snapshot, OWNER)).toBeNull();
+    }
+  });
+});
+
+describe("borrow market identity validation", () => {
+  test("rejects malformed or divergent market identity in details, opportunities and positions", () => {
+    for (const invalid of [
+      { id: "0xdead" }, { id: `0x${"zz".repeat(32)}` }, { id: `0x${"00".repeat(32)}` },
+      { morpho: OWNER }, { oracle: "0xdead" }, { irm: OWNER }, { lltvWad: "1" }, { rank: 0 },
+      { loanToken: { ...market.loanToken, decimals: 0 } },
+      { collateralToken: { ...market.collateralToken, address: OWNER } },
+    ]) {
+      const snapshot = detail();
+      Object.assign(snapshot.market, invalid);
+      expect(parseSnapshot(snapshot, OWNER)).toBeNull();
+      const value = overview();
+      Object.assign(value.opportunities[0].market, invalid);
+      expect(parseBorrowOverview(value, OWNER)).toBeNull();
+      const positionOverview = { ...overview(), positions: [{ ...detail().position, market: snapshot.market, source: snapshot.source }] };
+      expect(parseBorrowOverview(positionOverview, OWNER)).toBeNull();
+    }
+  });
+
+  test("forbids snapshots on unavailable markets", () => {
+    const snapshot = detail();
+    const base = overview();
+    const unavailable = { ...base, discovery: { ...base.discovery, sourceBlock: null, verifiedCount: 0 }, opportunities: [{ market: snapshot.market, availability: { status: "unavailable", mode: "enabled", reason: "unreadable", source: null } }] };
+    expect(parseBorrowOverview(unavailable, OWNER)?.opportunities[0].availability).not.toHaveProperty("snapshot");
+    expect(parseBorrowOverview({ ...unavailable, opportunities: [{ ...unavailable.opportunities[0], availability: { ...unavailable.opportunities[0].availability, snapshot: undefined } }] }, OWNER)).toBeNull();
+  });
+});

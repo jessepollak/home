@@ -1,32 +1,20 @@
+import * as z from "zod/mini";
 import { parseAddress, type Address } from "@/shared/chain/hex";
+import { BASE_CHAIN_ID } from "@/shared/account/session-types";
 
-import {
-  BASE_CHAIN_ID,
-  type VerifiedAccountSession,
-} from "@/shared/account/session-types";
+export const NATIVE_BASE_VERIFY_VERSION = 1 as const;
 
+const addressSchema = z.pipe(z.transform(parseAddress), z.custom<Address>((value) => value !== null));
+const nativeBaseVerifyResponseSchema = z.object({
+  version: z.literal(NATIVE_BASE_VERIFY_VERSION),
+  user: z.object({ subject: z.string().check(z.minLength(1)) }),
+  smartAccount: z.object({ address: addressSchema, chainId: z.literal(BASE_CHAIN_ID) }),
+  accountProvider: z.literal("base-account"),
+});
 
-export type NativeBaseVerifyResponse = VerifiedAccountSession & {
-  accountProvider: "base-account";
-  smartAccount: NonNullable<VerifiedAccountSession["smartAccount"]> & { address: Address };
-};
+export type NativeBaseVerifyResponse = z.output<typeof nativeBaseVerifyResponseSchema>;
+
 export function parseNativeBaseSession(value: unknown): NativeBaseVerifyResponse | null {
-  if (!value || typeof value !== "object") return null;
-  const session = value as Partial<VerifiedAccountSession>;
-  const address = parseAddress(session.smartAccount?.address);
-  if (
-    session.accountProvider !== "base-account" ||
-    !session.user || typeof session.user.subject !== "string" || !session.user.subject ||
-    !session.smartAccount ||
-    !address ||
-    session.smartAccount.chainId !== BASE_CHAIN_ID
-  ) return null;
-  return {
-    user: { subject: session.user.subject },
-    smartAccount: {
-      address,
-      chainId: BASE_CHAIN_ID,
-    },
-    accountProvider: "base-account",
-  };
+  const result = nativeBaseVerifyResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }

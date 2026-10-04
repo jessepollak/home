@@ -9,6 +9,7 @@ import {
 } from "@/shared/account/session-types";
 import { parseNativeBaseChallenge, type NativeBaseChallenge } from "@/shared/account/contracts/base-nonce";
 import { parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
+import { parseSession } from "@/shared/account/contracts/session";
 
 type RestoreValidation = {
   session: VerifiedAccountSession;
@@ -38,6 +39,7 @@ export type NativeBaseFetch = (
 
 async function readSessionResponse(
   response: Response,
+  parse: typeof parseSession | typeof parseNativeBaseSession,
   accessNavigation?: AccessNavigation,
 ): Promise<VerifiedAccountSession> {
   if (await redirectOnAccessRequired(response, accessNavigation)) {
@@ -50,9 +52,11 @@ async function readSessionResponse(
   } catch {
     throw new Error("Native Base authentication failed.");
   }
-  const session = parseNativeBaseSession(value);
-  if (!session) throw new Error("Native Base authentication failed.");
-  return session;
+  const session = parse(value);
+  if (!session || session.accountProvider !== "base-account" || session.smartAccount === null) {
+    throw new Error("Native Base authentication failed.");
+  }
+  return { user: session.user, smartAccount: session.smartAccount, accountProvider: session.accountProvider };
 }
 
 export async function restoreNativeBaseSession(
@@ -81,7 +85,7 @@ export async function restoreNativeBaseSession(
     throw new Error("Deployment access is required.");
   }
   if (response.status === 401) return null;
-  const session = await readSessionResponse(response, accessNavigation);
+  const session = await readSessionResponse(response, parseSession, accessNavigation);
   if (restoreValidations === validationGeneration) restoreValidations.set(session, {
     session: { ...session, user: { ...session.user }, smartAccount: session.smartAccount ? { ...session.smartAccount } : null },
     ownerKey: nativeBaseOwnerKey(session),
@@ -133,7 +137,7 @@ export async function verifyNativeBaseChallenge(
     credentials: "same-origin",
     redirect: "error",
   });
-  const session = await readSessionResponse(response);
+  const session = await readSessionResponse(response, parseNativeBaseSession);
   if (session.smartAccount?.address !== address.toLowerCase()) {
     throw new Error("Native Base authentication failed.");
   }

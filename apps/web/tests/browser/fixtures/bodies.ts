@@ -1,3 +1,4 @@
+import { SESSION_VERSION } from "../../../shared/account/contracts/session";
 import { parseHash32 } from "@/shared/chain/hex";
 import { portfolioVaults, PORTFOLIO_USDC_ADDRESS } from "../../../config/portfolio-assets";
 import { investAssets } from "../../../config/invest-assets";
@@ -19,6 +20,7 @@ import { CARDS_CONTRACT_VERSION, type CardsResponse, type CardState } from "../.
 import { FIXED_NOW } from "./fixed-time";
 
 export const sessionBody = {
+  version: SESSION_VERSION,
   user: { subject: "playwright-smoke-subject" },
   smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 },
   accountProvider: "cdp-embedded",

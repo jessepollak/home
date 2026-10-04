@@ -1,8 +1,7 @@
-import { parseAddress, type Address } from "@/shared/chain/hex";
-import { parseAssetSnapshot } from "./asset-resolution";
+import * as z from "zod/mini";
+import { parseAddress } from "@/shared/chain/hex";
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
-import type { MarketSnapshot } from "@/shared/invest/invest-market";
-import { parseDynamicInvestAsset } from "./discover";
+import { assetSnapshotSchema, dynamicInvestAssetSchema, investAssetWireSchema } from "./discover";
 
 export const INVEST_SEARCH_VERSION = 1 as const;
 export const INVEST_SEARCH_QUERY_MAX_LENGTH = 64;
@@ -10,8 +9,10 @@ export const INVEST_SEARCH_PAGE_SIZE = 20;
 export const INVEST_SEARCH_MAX_OFFSET = 100;
 export const INVEST_SEARCH_MAX_CONFIGURED_RESULTS = 8;
 
-export type InvestSearchMatch = "contract" | "exact" | "prefix" | "partial";
-export type InvestSearchSource = "configured" | "indexed" | "onchain";
+const investSearchMatchSchema = z.enum(["contract", "exact", "prefix", "partial"]);
+const investSearchSourceSchema = z.enum(["configured", "indexed", "onchain"]);
+export type InvestSearchMatch = z.output<typeof investSearchMatchSchema>;
+export type InvestSearchSource = z.output<typeof investSearchSourceSchema>;
 
 export function investSearchRank(match: InvestSearchMatch, source: InvestSearchSource): number {
   if (match === "contract") return 0;
@@ -24,52 +25,88 @@ export function rankInvestSearchResults<T extends { match: InvestSearchMatch; so
     .map(({ result }) => result);
 }
 
-export type InvestSearchProviderStatus =
-  | "ok"
-  | "skipped"
-  | "unavailable"
-  | "error";
-
-export type InvestSearchWireResult =
-  | { kind: "configured"; assetId: string; match: InvestSearchMatch }
-  | {
-      kind: "dynamic";
-      asset: InvestAsset;
-      match: InvestSearchMatch;
-      source: Exclude<InvestSearchSource, "configured">;
-    };
-
-export type InvestSearchResponse = {
-  version: typeof INVEST_SEARCH_VERSION;
-  query: string;
-  offset: number;
-  results: readonly InvestSearchWireResult[];
-  snapshots: readonly MarketSnapshot[];
-  provider: InvestSearchProviderStatus;
-  coverage: "complete" | "partial";
-  nextOffset: number | null;
+const investSearchProviderSchema = z.enum(["ok", "skipped", "unavailable", "error"]);
+const configuredResultSchema = z.object({
+  kind: z.literal("configured"),
+  assetId: z.string(),
+  match: investSearchMatchSchema,
+});
+const investSearchWireResultSchema = z.discriminatedUnion("kind", [
+  configuredResultSchema,
+  z.object({
+    kind: z.literal("dynamic"),
+    asset: investAssetWireSchema,
+    match: investSearchMatchSchema,
+    source: z.enum(["indexed", "onchain"]),
+  }),
+]);
+const searchResponseFields = {
+  version: z.literal(INVEST_SEARCH_VERSION),
+  query: z.string(),
+  offset: z.number().check(z.refine((offset) => Number.isSafeInteger(offset) && offset >= 0)),
+  snapshots: z.readonly(z.array(assetSnapshotSchema)),
+  provider: investSearchProviderSchema,
+  coverage: z.enum(["complete", "partial"]),
+  nextOffset: z.nullable(z.number().check(z.refine(Number.isSafeInteger))),
 };
+const validSearchPage = (page: { offset: number; nextOffset: number | null; provider: InvestSearchProviderStatus; coverage: "complete" | "partial" }) =>
+  (page.nextOffset === null || (page.nextOffset > page.offset && page.nextOffset <= INVEST_SEARCH_MAX_OFFSET)) &&
+  ((page.provider !== "error" && page.provider !== "unavailable") || page.coverage === "partial");
+const investSearchResponseSchema = z.object({
+  ...searchResponseFields,
+  results: z.readonly(z.array(investSearchWireResultSchema)),
+}).check(z.refine(validSearchPage));
+const parsedSearchResultSchema = z.union([
+  z.pipe(configuredResultSchema, z.transform((result, ctx) => {
+    const asset = configuredById.get(result.assetId);
+    const address = parseAddress(asset?.contractAddress);
+    if (!asset || !address) {
+      ctx.issues.push({ code: "custom", input: result, message: "Unknown configured asset" });
+      return z.NEVER;
+    }
+    return { asset: { ...asset, contractAddress: address }, match: result.match, source: result.kind };
+  })),
+  z.pipe(z.object({
+    kind: z.literal("dynamic"),
+    asset: dynamicInvestAssetSchema,
+    match: investSearchMatchSchema,
+    source: z.enum(["indexed", "onchain"]),
+  }), z.transform(({ asset, match, source }) => ({ asset, match, source }))),
+]);
+const parsedSearchPageSchema = z.pipe(z.object({
+  ...searchResponseFields,
+  results: z.array(parsedSearchResultSchema),
+}).check(z.refine(validSearchPage)), z.transform(({ version: _version, ...page }) => {
+  const seen = new Set<string>();
+  const results = page.results.filter((result) => {
+    if (seen.has(result.asset.contractAddress)) return false;
+    seen.add(result.asset.contractAddress);
+    return true;
+  });
+  const dynamicIds = new Set(results.filter((result) => result.source !== "configured").map((result) => result.asset.id));
+  return { ...page, results, snapshots: page.snapshots.filter((snapshot) => dynamicIds.has(snapshot.assetId)) };
+}));
+const investSearchRequestSchema = z.object({
+  query: z.pipe(
+    z.string().check(z.maxLength(INVEST_SEARCH_QUERY_MAX_LENGTH * 4)),
+    z.pipe(z.transform((value: string) => normalizeInvestSearchQuery(value)), z.string().check(z.minLength(1))),
+  ),
+  offset: z.pipe(
+    z.nullable(z.string()).check(z.refine((offset) => offset === null || offset === "" || /^(?:0|[1-9]\d*)$/.test(offset))),
+    z.pipe(
+      z.transform((offset: string | null) => offset === null || offset === "" ? 0 : Number(offset)),
+      z.number().check(z.refine((offset) => Number.isSafeInteger(offset) && offset >= 0 && offset <= INVEST_SEARCH_MAX_OFFSET && offset % INVEST_SEARCH_PAGE_SIZE === 0)),
+    ),
+  ),
+});
 
-export type InvestSearchResult = {
-  asset: InvestAsset;
-  match: InvestSearchMatch;
-  source: InvestSearchSource;
-};
-
-export type ParsedInvestSearchResult = InvestSearchResult & { asset: InvestAsset & { contractAddress: Address } };
-export type ParsedInvestSearchPage = InvestSearchPage & { results: readonly ParsedInvestSearchResult[] };
-
-export type InvestSearchPage = {
-  query: string;
-  offset: number;
-  results: readonly InvestSearchResult[];
-  snapshots: readonly MarketSnapshot[];
-  provider: InvestSearchProviderStatus;
-  coverage: "complete" | "partial";
-  nextOffset: number | null;
-};
-
-export type InvestSearchRequest = { query: string; offset: number };
+export type InvestSearchProviderStatus = z.output<typeof investSearchProviderSchema>;
+export type InvestSearchWireResult = z.output<typeof investSearchWireResultSchema>;
+export type InvestSearchResponse = z.output<typeof investSearchResponseSchema>;
+export type ParsedInvestSearchPage = z.output<typeof parsedSearchPageSchema>;
+export type InvestSearchResult = { asset: InvestAsset; match: InvestSearchMatch; source: InvestSearchSource };
+export type InvestSearchPage = Omit<InvestSearchResponse, "version" | "results"> & { results: readonly InvestSearchResult[] };
+export type InvestSearchRequest = z.output<typeof investSearchRequestSchema>;
 
 const configuredById = new Map<string, InvestAsset>(
   investAssets.map((asset) => [asset.id, asset]),
@@ -87,30 +124,8 @@ export function isInvestSearchAddressQuery(query: string): boolean {
 export function parseInvestSearchRequest(
   params: URLSearchParams,
 ): InvestSearchRequest | null {
-  const rawQuery = params.get("q");
-  if (rawQuery === null || rawQuery.length > INVEST_SEARCH_QUERY_MAX_LENGTH * 4) {
-    return null;
-  }
-  const query = normalizeInvestSearchQuery(rawQuery);
-  if (query === null || query.length === 0) return null;
-  const rawOffset = params.get("offset");
-  const offset = rawOffset === null || rawOffset === "" ? 0 : Number(rawOffset);
-  if (
-    rawOffset !== null &&
-    rawOffset !== "" &&
-    !/^(?:0|[1-9]\d*)$/.test(rawOffset)
-  ) {
-    return null;
-  }
-  if (
-    !Number.isSafeInteger(offset) ||
-    offset < 0 ||
-    offset > INVEST_SEARCH_MAX_OFFSET ||
-    offset % INVEST_SEARCH_PAGE_SIZE !== 0
-  ) {
-    return null;
-  }
-  return { query, offset };
+  const result = investSearchRequestSchema.safeParse({ query: params.get("q"), offset: params.get("offset") });
+  return result.success ? result.data : null;
 }
 
 export function investSearchSearchParams({
@@ -125,93 +140,6 @@ export function investSearchSearchParams({
 export function parseInvestSearchResponse(
   value: unknown,
 ): ParsedInvestSearchPage | null {
-  const record = readRecord(value);
-  if (
-    !record ||
-    record.version !== INVEST_SEARCH_VERSION ||
-    typeof record.query !== "string" ||
-    typeof record.offset !== "number" ||
-    !Number.isSafeInteger(record.offset) ||
-    record.offset < 0 ||
-    !Array.isArray(record.results) ||
-    !Array.isArray(record.snapshots) ||
-    !isProviderStatus(record.provider) ||
-    (record.coverage !== "complete" && record.coverage !== "partial")
-  ) {
-    return null;
-  }
-  const nextOffset = record.nextOffset;
-  if (
-    nextOffset !== null &&
-    (typeof nextOffset !== "number" ||
-      !Number.isSafeInteger(nextOffset) ||
-      nextOffset <= record.offset ||
-      nextOffset > INVEST_SEARCH_MAX_OFFSET)
-  ) {
-    return null;
-  }
-
-  const results: ParsedInvestSearchResult[] = [];
-  const seen = new Set<string>();
-  for (const item of record.results) {
-    const result = parseResult(item);
-    if (!result) return null;
-    const key = result.asset.contractAddress;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    results.push(result);
-  }
-
-  const dynamicIds = new Set(
-    results.filter((result) => result.source !== "configured").map((result) => result.asset.id),
-  );
-  const snapshots: MarketSnapshot[] = [];
-  for (const item of record.snapshots) {
-    const snapshot = parseAssetSnapshot(item);
-    if (!snapshot) return null;
-    if (dynamicIds.has(snapshot.assetId)) snapshots.push(snapshot);
-  }
-
-  return {
-    query: record.query,
-    offset: record.offset,
-    results,
-    snapshots,
-    provider: record.provider,
-    coverage: record.coverage,
-    nextOffset,
-  };
-}
-
-function parseResult(value: unknown): ParsedInvestSearchResult | null {
-  const record = readRecord(value);
-  if (!record || !isMatch(record.match)) return null;
-  if (record.kind === "configured") {
-    const asset =
-      typeof record.assetId === "string" ? configuredById.get(record.assetId) : undefined;
-    const address = parseAddress(asset?.contractAddress);
-    return asset && address ? { asset: { ...asset, contractAddress: address }, match: record.match, source: "configured" } : null;
-  }
-  if (
-    record.kind !== "dynamic" ||
-    (record.source !== "indexed" && record.source !== "onchain")
-  ) {
-    return null;
-  }
-  const asset = parseDynamicInvestAsset(record.asset);
-  return asset ? { asset, match: record.match, source: record.source } : null;
-}
-
-function isMatch(value: unknown): value is InvestSearchMatch {
-  return value === "contract" || value === "exact" || value === "prefix" || value === "partial";
-}
-
-function isProviderStatus(value: unknown): value is InvestSearchProviderStatus {
-  return value === "ok" || value === "skipped" || value === "unavailable" || value === "error";
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+  const result = parsedSearchPageSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
