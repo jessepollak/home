@@ -244,7 +244,7 @@ export function NavLens({ items, target, reducedMotion, onReadyChange }: NavLens
     let suppressUntil = 0;
     let confirmed = false;
     const tabs = () => Array.from(nav.querySelectorAll<HTMLButtonElement>(":scope > button"));
-    const aim = (index: number | null) => index === null ? index : getComputedStyle(nav).direction === "rtl" ? -index : index;
+    const aim = (index: number | null) => index === null ? index : nav.matches(":dir(rtl)") ? -index : index;
     const show = (index: number | null) => {
       clearTimeout(hold);
       clearTimeout(glide);

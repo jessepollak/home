@@ -67,7 +67,7 @@ Apply this cleanup also on interruptions/failures, using the same `HOME_FIXTURE_
 
 ### Production warm navigation
 
-Ordinary `test:browser-smoke` stays on `next dev`, which refetches RSC payloads on navigation. The separate `chromium-production-navigation` project selects only the production warm-navigation assertion, with no skip or retry. Run it when shell routing, prefetch or router-cache behavior changes:
+Ordinary `test:browser-smoke` stays on `next dev`, which refetches RSC payloads on navigation. The separate `chromium-production-navigation` project selects the production warm-navigation assertion and the floating asset-search history cases at 390px and 1280px, with no skip or retry. Run it when shell routing, prefetch, router-cache or search-result history behavior changes:
 
 ```sh
 bun run --cwd apps/web test:browser-production-navigation
@@ -76,6 +76,8 @@ bun run --cwd apps/web test:browser-production-navigation
 The command sets `HOME_PLAYWRIGHT_PRODUCTION=1`; Playwright owns a pinned local `./node_modules/.bin/next build` then `next start` on an isolated fixture port and stops the server on completion/failure. It bypasses the migration-bearing app build script, enables `HOME_PLAYWRIGHT_SMOKE=1`, uses the existing signed-in session/API fixtures, and requires the pinned Playwright Chromium (`test:browser-install`). Like the [navigation profiler](navigation-performance.md), it writes `.next` in this worktree; run from a checkout without Next-loadable `.env` files or provider/database credentials. No admin warm-up runs in this project.
 
 Home → Cash → Invest → Home warms each destination, waiting for its visible content as well as its URL. Measured Home → Cash → Home → Invest → Home taps must issue zero document/navigation and RSC requests through destination visibility. Per-leg counts/URLs are logged and attached to the JSON report in `apps/web/test-results/production-navigation.json`; failures retain traces/video. API refresh traffic is not this assertion's budget.
+
+The asset-search cases verify a hashless detail URL with durable search-origin metadata, in-app Back restoring query/results/scroll/focused result, and detail Forward/reload retaining the return origin. These run against the optimized runtime because development effect timing can hide a router history overwrite.
 
 The separate **Production warm navigation** workflow runs on every push to `main` and `workflow_dispatch`, not pull requests or the required-check dependency graph. A build, startup or assertion failure fails that workflow; build/start/test total wall time appears in its step summary and results are uploaded even after failure.
 

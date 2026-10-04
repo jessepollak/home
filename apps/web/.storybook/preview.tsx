@@ -9,8 +9,11 @@ import {
   HomeQueryClientProvider,
 } from "@/client/query/query-client";
 import "@/app/globals.css";
+import { bridgeFramedKeyboard } from "./framed-keyboard";
 import { rejectUnexpectedStoryRequest } from "./request-guard";
 
+const disposeKeyboardBridge = bridgeFramedKeyboard();
+import.meta.hot?.dispose(() => disposeKeyboardBridge?.());
 const deploymentOffering = resolveProductOffering({ kind: "deployment" });
 
 const preview: Preview = {

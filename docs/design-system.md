@@ -7,6 +7,7 @@ Home is a shadcn app using the Base UI preset. The migration history and owner d
 - [Theme](design-system/theme.md)
 - [Rules](design-system/rules.md)
 - [Styling guards](design-system/styling-guards.md)
+- [Search focus](design-system/search-focus.md)
 - See [Home-owned product pieces](design-system/product-pieces/) for one file per product behavior.
 - See [Home section primitives](design-system/primitives/) for one file per primitive, each naming its production component and Storybook review story (#683).
 - [Testing](design-system/testing.md)
