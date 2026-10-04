@@ -214,7 +214,8 @@ const compositionsIndex = indexOf([
   story("compositions-home--home", "Compositions/Home", "Home", "./stories/review/compositions/home.stories.tsx"),
   story("compositions-home--home-loading", "Compositions/Home", "Home Loading", "./stories/review/compositions/home.stories.tsx"),
   story("compositions-invest--invest", "Compositions/Invest", "Invest", "./stories/review/compositions/invest.stories.tsx"),
-  story("compositions-invest--search-to-orbit-detail", "Compositions/Invest", "Orbit Detail", "./stories/review/compositions/invest.stories.tsx"),
+  story("compositions-invest--search-results", "Compositions/Invest", "Search Results", "./stories/review/compositions/invest.stories.tsx"),
+  story("compositions-invest--asset-detail", "Compositions/Invest", "Asset Detail", "./stories/review/compositions/invest.stories.tsx"),
   story("compositions-card-onboarding--card-onboarding", "Compositions/Card Onboarding", "Card Onboarding", "./stories/review/compositions/card-onboarding.stories.tsx"),
   story("compositions-card-onboarding--active", "Compositions/Card Onboarding", "Active", "./stories/review/compositions/card-onboarding.stories.tsx"),
   story("compositions-coverage--coverage", "Compositions/Coverage", "Coverage", "./stories/review/compositions/coverage.stories.tsx"),
@@ -246,7 +247,7 @@ export const Compositions: Story = {
     await expect(within(surface).getByText(/^Not used in any product screen:/)).toHaveTextContent("Not used in any product screen: Button Group, Dialog, Kbd, Progress");
     await expect(search(canvasElement).get("component")).toBe("compositions");
     await expect(window.history.length).toBe(historyLength + 2);
-    for (const name of ["Home", "Home Loading", "Invest", "Orbit Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
+    for (const name of ["Home", "Home Loading", "Invest", "Search Results", "Asset Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
       await expect(await within(surface).findByRole("heading", { name }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     }
     await userEvent.keyboard("{PageDown}");
@@ -255,7 +256,7 @@ export const Compositions: Story = {
       .toHaveAttribute("width", "390");
     await expect(within(surface).queryByRole("alert")).not.toBeInTheDocument();
     await expect(within(surface).getAllByRole("link", { name: /^390 × 844/ })).toHaveLength(4);
-    await expect(within(surface).getAllByRole("link", { name: /^1280 × 800/ })).toHaveLength(3);
+    await expect(within(surface).getAllByRole("link", { name: /^1280 × 800/ })).toHaveLength(4);
     await expect(within(surface).getByRole("link", { name: /^1440 × 900/ })).toBeVisible();
     await userEvent.click(section(canvas, "Card Onboarding"));
     await expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding");

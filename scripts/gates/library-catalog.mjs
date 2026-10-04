@@ -44,46 +44,43 @@ export function coverageFindings(components, compositions, product, notUsed) {
   return findings;
 }
 
-function mutatedBinding(binding) {
-  return binding.referencePaths.some((reference) => {
-    let path = reference;
-    while (path.parentPath?.isMemberExpression() && path.parentPath.node.object === path.node) path = path.parentPath;
-    const parent = path.parentPath;
-    return parent?.isAssignmentExpression() && parent.node.left === path.node || parent?.isUpdateExpression() ||
-      parent?.isUnaryExpression({ operator: "delete" });
-  });
-}
-
-function unwrap(node, scope, seen = new Set()) {
+function unwrap(node, scope, seen = new Set(), objects = new Set()) {
   while (node) {
     if (["TSAsExpression", "TSSatisfiesExpression", "TSTypeAssertion", "TSNonNullExpression", "ParenthesizedExpression"].includes(node.type)) {
       node = node.expression;
     } else if (t.isIdentifier(node) && node.name !== "undefined") {
       const binding = scope.getBinding(node.name);
-      if (!binding || !binding.constant || mutatedBinding(binding) || seen.has(binding) || !t.isVariableDeclarator(binding.path.node)) throw new Error(`Unmodeled a11y binding: ${node.name}`);
+      if (!binding || !binding.constant || seen.has(binding) || !t.isVariableDeclarator(binding.path.node) || !t.isIdentifier(binding.path.node.id)) throw new Error(`Unmodeled a11y binding: ${node.name}`);
       seen.add(binding);
       node = binding.path.node.init;
       scope = binding.path.scope;
+    } else if (t.isMemberExpression(node)) {
+      const key = node.computed ? t.isStringLiteral(node.property) ? node.property.value : null : node.property.name;
+      if (key === null) throw new Error("Unmodeled computed a11y reference");
+      const value = property(node.object, scope, key, new Set(), objects, seen);
+      if (value === missing) throw new Error(`Unmodeled a11y reference: ${key}`);
+      return value;
     } else break;
   }
   return { node, scope };
 }
 
-function property(node, scope, key, seen = new Set()) {
-  ({ node, scope } = unwrap(node, scope));
+function property(node, scope, key, seen = new Set(), objects = new Set(), bindings = new Set()) {
+  ({ node, scope } = unwrap(node, scope, bindings, objects));
   if (!t.isObjectExpression(node) || seen.has(node)) throw new Error(`Unmodeled a11y ${key} object`);
   seen.add(node);
+  objects.add(node);
   try {
     for (const field of [...node.properties].reverse()) {
       if (t.isSpreadElement(field)) {
-        const value = property(field.argument, scope, key, seen);
+        const value = property(field.argument, scope, key, seen, objects, bindings);
         if (value !== missing) return value;
       } else {
         if (field.computed) throw new Error(`Unmodeled computed a11y ${key} property`);
         const name = field.key.name ?? field.key.value;
         if (name === key) {
           if (!t.isObjectProperty(field)) throw new Error(`Unmodeled a11y ${key} property`);
-          return unwrap(field.value, scope);
+          return unwrap(field.value, scope, new Set(bindings), objects);
         }
       }
     }
@@ -91,17 +88,52 @@ function property(node, scope, key, seen = new Set()) {
   } finally { seen.delete(node); }
 }
 
-function a11yParameters(node, scope) {
-  const parameters = property(node, scope, "parameters");
+function a11yParameters(node, scope, objects) {
+  const parameters = property(node, scope, "parameters", new Set(), objects);
   if (parameters === missing) return {};
-  const a11y = property(parameters.node, parameters.scope, "a11y");
+  const a11y = property(parameters.node, parameters.scope, "a11y", new Set(), objects);
   if (a11y === missing) return {};
   if (t.isNullLiteral(a11y.node)) return { a11y: null };
-  const test = property(a11y.node, a11y.scope, "test");
+  const test = property(a11y.node, a11y.scope, "test", new Set(), objects);
   if (test === missing) return { a11y: {} };
   if (t.isStringLiteral(test.node)) return { a11y: { test: test.node.value } };
   if (t.isIdentifier(test.node, { name: "undefined" })) return { a11y: { test: undefined } };
   throw new Error("Unmodeled a11y.test value");
+}
+
+function rejectParameterMutations(ast, objects) {
+  const holdsObject = (node, scope) => {
+    try { return objects.has(unwrap(node, scope).node); } catch { return false; }
+  };
+  const targetsObject = (node, scope) => {
+    for (let target = node; target; target = t.isMemberExpression(target) ? target.object : null) {
+      if (holdsObject(target, scope)) return true;
+    }
+    return false;
+  };
+  const reject = () => { throw new Error("Unmodeled runtime a11y parameter mutation"); };
+  traverse(ast, {
+    AssignmentExpression({ node, scope }) {
+      if (targetsObject(node.left, scope) || holdsObject(node.right, scope)) reject();
+    },
+    UpdateExpression({ node, scope }) { if (targetsObject(node.argument, scope)) reject(); },
+    UnaryExpression({ node, scope }) {
+      if (node.operator === "delete" && targetsObject(node.argument, scope)) reject();
+    },
+    "CallExpression|NewExpression"({ node, scope }) { if (targetsObject(node.callee, scope)) reject(); },
+    TaggedTemplateExpression({ node, scope }) { if (targetsObject(node.tag, scope)) reject(); },
+    "Identifier|MemberExpression"(path) {
+      if (path.isIdentifier() && !path.isReferencedIdentifier() || !holdsObject(path.node, path.scope)) return;
+      while (["TSAsExpression", "TSSatisfiesExpression", "TSTypeAssertion", "TSNonNullExpression", "ParenthesizedExpression"].includes(path.parentPath?.node.type)) path = path.parentPath;
+      const parent = path.parentPath;
+      if (parent?.isTSTypeQuery() || parent?.isMemberExpression() && parent.node.object === path.node) return;
+      if (parent?.isVariableDeclarator() && parent.node.init === path.node &&
+        t.isIdentifier(parent.node.id) && parent.scope.getBinding(parent.node.id.name)?.constant) return;
+      if (parent?.isObjectProperty() && parent.node.value === path.node && objects.has(parent.parentPath.node) ||
+        parent?.isSpreadElement() && objects.has(parent.parentPath.node) || parent?.isExportDefaultDeclaration()) return;
+      reject();
+    },
+  });
 }
 
 function programScope(ast) {
@@ -122,28 +154,27 @@ export function compositionA11yFindings(files, previewSource, exemptions) {
   const previewScope = programScope(previewAst);
   const previewDefault = previewAst.program.body.find((node) => t.isExportDefaultDeclaration(node));
   if (!previewDefault) throw new Error("Missing Storybook preview default export");
-  const preview = a11yParameters(previewDefault.declaration, previewScope);
+  const previewObjects = new Set();
+  const preview = a11yParameters(previewDefault.declaration, previewScope, previewObjects);
+  rejectParameterMutations(previewAst, previewObjects);
   const seen = new Set();
   for (const { path, content } of files) {
     try {
       const csf = loadCsf(content, { fileName: path, makeTitle: (title) => title }).parse();
       const scope = programScope(csf._ast);
-      const meta = a11yParameters(csf._metaNode, scope);
-      // Runtime parameter mutations cannot be proved by a static catalog gate.
-      traverse(csf._ast, { AssignmentExpression({ node }) {
-        for (let target = node.left; t.isMemberExpression(target); target = target.object) {
-          if (target.computed || ["parameters", "a11y"].includes(target.property.name)) throw new Error("Unmodeled runtime a11y parameter assignment");
-        }
-      } });
+      const objects = new Set();
+      const meta = a11yParameters(csf._metaNode, scope, objects);
       for (const { exportName, __id: id } of csf.indexInputs) {
         seen.add(id);
         const declaration = csf._storyExports[exportName];
         const annotation = t.isVariableDeclarator(declaration) ? declaration.init : declaration;
-        const story = t.isFunction(annotation) ? {} : a11yParameters(annotation, scope);
+        const story = t.isFunction(annotation) ? {} : a11yParameters(annotation, scope, objects);
+        if (t.isFunction(annotation)) objects.add(annotation);
         const test = combineParameters(preview, meta, story).a11y?.test;
         const expected = exempt.has(id) ? "todo" : "error";
         if (test !== expected) findings.push(`${path}: ${id} resolves to a11y.test ${JSON.stringify(test)}, expected ${expected}`);
       }
+      rejectParameterMutations(csf._ast, objects);
     } catch (error) { findings.push(`${path}: ${error.message}`); }
   }
   if (!seen.size) findings.push("No composition stories found");

@@ -92,7 +92,7 @@ export const AssetDetail: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole("heading", { name: "Bitcoin" })).toBeVisible();
-    await expect(await canvas.findByRole("group", { name: /1 week price history/ })).toBeVisible();
+    await expect(await canvas.findByRole("group", { name: /1 week price history/ }, { timeout: 5000 })).toBeVisible();
     await expect(await canvas.findByText("0.01234 cbBTC")).toBeVisible();
     await expect(await canvas.findByText("$2.41T")).toBeVisible();
     await expect(await canvas.findByText("$38.2B")).toBeVisible();

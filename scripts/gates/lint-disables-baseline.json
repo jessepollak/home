@@ -93,7 +93,6 @@
       "react-hooks/incompatible-library": 1
     },
     "apps/web/components/ui/input-group.tsx": {
-      "jsx-a11y/click-events-have-key-events": 1,
       "jsx-a11y/no-noninteractive-element-interactions": 1
     },
     "apps/web/components/ui/label.tsx": {

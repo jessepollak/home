@@ -45,7 +45,26 @@ test("unmodeled a11y spreads, computed keys, and runtime mutations fail closed",
     `${strict} export const Demo = {}; Demo.parameters = {a11y:{test:'todo'}};`,
     `${strict} export const Demo = {}; Demo.parameters.a11y.test = 'todo';`,
     `const a11y = {test:'error'}; a11y.test = 'todo'; export default {title:'Compositions/Fixture', parameters:{a11y}}; export const Demo = {};`,
+    `const parameters = {a11y:{test:'error'}}; const alias = parameters.a11y; alias.test = 'todo'; export default {title:'Compositions/Fixture', parameters}; export const Demo = {};`,
+    `const a11y = {test:'error'}; const get = () => a11y; get().test = 'todo'; export default {title:'Compositions/Fixture', parameters:{a11y}}; export const Demo = {};`,
+    `const a11y = {test:'error'}; const wrapper = {a11y}; wrapper.a11y.test = 'todo'; export default {title:'Compositions/Fixture', parameters:{a11y}}; export const Demo = {};`,
+    `const a11y = {test:'error'}; let alias = a11y; Object.assign(alias, {test:'todo'}); alias = {}; export default {title:'Compositions/Fixture', parameters:{a11y}}; export const Demo = {};`,
+    `const a11y = {test:'error'}; delete a11y.test; export default {title:'Compositions/Fixture', parameters:{a11y}}; export const Demo = {};`,
   ]) assert.match(compositionA11yFindings([file(source)], preview, []).join("\n"), /Unmodeled/);
+});
+
+test("aliased a11y mutations fail closed", () => {
+  const source = `const a11y = {test:'error'}; const alias = a11y; alias.test = 'todo'; export default {title:'Compositions/Fixture', parameters:{a11y}}; export const Demo = {};`;
+  assert.match(compositionA11yFindings([file(source)], preview, []).join("\n"), /Unmodeled/);
+});
+
+test("Object.assign mutations of a11y objects fail closed", () => {
+  const source = `const parameters = {a11y:{test:'error'}}; Object.assign(parameters.a11y, {test:'todo'}); export default {title:'Compositions/Fixture', parameters}; export const Demo = {};`;
+  assert.match(compositionA11yFindings([file(source)], preview, []).join("\n"), /Unmodeled/);
+});
+
+test("unrelated computed assignments do not affect a11y parameters", () => {
+  assert.deepEqual(compositionA11yFindings([file(`${strict} const values = {}; values['selected'] = 1; export const Demo = {};`)], preview, []), []);
 });
 
 test("the plugin walker ignores type-only imports and follows transitive value imports and cycles", async () => {
