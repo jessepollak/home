@@ -75,6 +75,7 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
       FROM funding_orders WHERE id=$1 AND version=$5 AND state NOT IN (${TERMINAL_SQL})
     ) UPDATE funding_orders AS orders SET
       state=CASE WHEN observation.advances THEN $2 ELSE orders.state END,
+      abandon_reason=CASE WHEN observation.advances AND $2<>'abandoned' THEN NULL ELSE orders.abandon_reason END,
       provider_status=CASE WHEN observation.advances THEN $3 ELSE orders.provider_status END,
       provider_transaction_hash=CASE WHEN observation.advances THEN COALESCE($4,orders.provider_transaction_hash) ELSE orders.provider_transaction_hash END,
       expected_token_amount_atomic=CASE WHEN observation.advances THEN COALESCE($8,orders.expected_token_amount_atomic) ELSE orders.expected_token_amount_atomic END,
@@ -87,7 +88,7 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
   }
   async claimReceipt(id: string, input: Parameters<FundingOrderStore["claimReceipt"]>[1]) {
     try {
-      return await this.updatedOrNull(`UPDATE funding_orders SET state='received', transaction_hash=$2, log_index=$3, instructions=NULL, version=version+1, updated_at=$5 WHERE id=$1 AND version=$4 AND state NOT IN (${TERMINAL_SQL}) AND transaction_hash IS NULL AND log_index IS NULL RETURNING *`, [id, input.transactionHash.toLowerCase(), input.logIndex, input.expectedVersion, input.updatedAt]);
+      return await this.updatedOrNull(`UPDATE funding_orders SET state='received', abandon_reason=NULL, transaction_hash=$2, log_index=$3, instructions=NULL, version=version+1, updated_at=$5 WHERE id=$1 AND version=$4 AND state NOT IN (${TERMINAL_SQL}) AND transaction_hash IS NULL AND log_index IS NULL RETURNING *`, [id, input.transactionHash.toLowerCase(), input.logIndex, input.expectedVersion, input.updatedAt]);
     } catch (error) {
       if (isUniqueViolation(error)) return null;
       throw error;
@@ -109,7 +110,7 @@ export function createRuntimeFundingOrderStore(
 function fromRow(row: Row): FundingOrder {
   const json = <T>(value: unknown): T => typeof value === "string" ? JSON.parse(value) as T : value as T;
   const checkedAt = row.checked_at == null ? null : new Date(String(row.checked_at)).toISOString();
-  const abandonReason = row.abandon_reason == null ? null : row.abandon_reason;
+  const abandonReason = row.state !== "abandoned" || row.abandon_reason == null ? null : row.abandon_reason;
   if (abandonReason !== null && abandonReason !== "owner" && abandonReason !== "timed-out") throw new Error("invalid-funding-abandon-reason");
   return { checkedAt, abandonReason, id: String(row.id), owner: { subject: String(row.owner_subject), accountProvider: String(row.account_provider) as FundingOrderOwner["accountProvider"] }, destination: String(row.destination) as `0x${string}`, providerId: String(row.provider_id), region: String(row.region), assetId: String(row.asset_id), paymentMethod: String(row.payment_method), fiatAmount: String(row.fiat_amount), intentDigest: String(row.intent_digest), quote: json<Quote>(row.quote), quoteToken: String(row.quote_token), customerRef: row.customer_ref === null ? null : String(row.customer_ref), sandbox: row.sandbox === true, state: String(row.state) as FundingOrder["state"], creationBlock: String(row.creation_block), providerOrderId: row.provider_order_id === null ? null : String(row.provider_order_id), expectedTokenAmountAtomic: row.expected_token_amount_atomic === null ? null : String(row.expected_token_amount_atomic), fees: json<Quote["fees"]>(row.fees), expiresAt: row.expires_at === null ? null : new Date(String(row.expires_at)).toISOString(), instructions: row.instructions === null ? null : json<Instruction>(row.instructions), providerStatus: row.provider_status === null ? null : String(row.provider_status), providerTransactionHash: row.provider_transaction_hash === null ? null : String(row.provider_transaction_hash) as `0x${string}`, transactionHash: row.transaction_hash === null ? null : String(row.transaction_hash) as `0x${string}`, logIndex: row.log_index === null ? null : Number(row.log_index), version: Number(row.version), createdAt: new Date(String(row.created_at)).toISOString(), updatedAt: new Date(String(row.updated_at)).toISOString() };
 }

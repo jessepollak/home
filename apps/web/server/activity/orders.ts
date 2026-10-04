@@ -48,6 +48,7 @@ export function presentFundingOrder(order: FundingOrder, now: Date, resumable: b
       clearableAt = null;
     }
   }
+  const deadline = checkoutDeadline(order);
   const transactionHash = order.transactionHash === null ? null : parseHash32(order.transactionHash);
   if (order.transactionHash !== null && !transactionHash) return null;
   return {
@@ -59,7 +60,7 @@ export function presentFundingOrder(order: FundingOrder, now: Date, resumable: b
     fiatAmount: order.fiatAmount, fiatCurrency: binding?.currency ?? asset.fiatCurrency,
     asset: { id: asset.id, symbol: asset.symbol, decimals: asset.decimals },
     tokenAmountAtomic: order.expectedTokenAmountAtomic ?? order.quote.tokenAmountAtomic ?? null,
-    sandbox: order.sandbox, expiresAt: order.expiresAt, clearableAt,
+    sandbox: order.sandbox, expiresAt: order.expiresAt !== null && Date.parse(order.expiresAt) === deadline ? order.expiresAt : null, clearableAt,
     transactionHash, logIndex: order.logIndex === null ? null : String(order.logIndex),
     createdAt: order.createdAt, updatedAt: order.updatedAt,
     movedAt: fundingOrderActivityTime(order),

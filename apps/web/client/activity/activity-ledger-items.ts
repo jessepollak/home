@@ -1,4 +1,5 @@
 import { formatUnits } from "viem";
+import { cancelledCheckoutCopy } from "@/client/funding/checkout-copy";
 import { presentPortfolioAssetMark } from "@/client/asset-mark/presentation";
 import { getDirectPortfolioAssets, assetKeyForErc20 } from "@/config/portfolio-assets";
 import type { RegionId } from "@/config/regions";
@@ -397,7 +398,7 @@ function fundingItem(order: ActivityFundingOrder, options: Options): ActivityLed
   const created = { status: "complete" as const, title: "Order created", time: full(order.createdAt) };
   const received = { status: "complete" as const, title: "Payment received" };
   const steps = order.status !== "ambiguous" && ["waiting-customer", "waiting-provider", "waiting-chain", "waiting-home"].includes(order.status)
-    ? order.stage === "awaiting-payment" ? [created, { status: "current" as const, title: "Waiting for your payment", ...(order.expiresAt ? { time: `Pay by ${full(order.expiresAt)}` } : {}) }]
+    ? order.stage === "awaiting-payment" ? [created, { status: "current" as const, title: "Waiting for your payment", ...(order.expiresAt && Date.parse(order.expiresAt) > (options.now ?? Date.now()) ? { time: `Pay by ${full(order.expiresAt)}` } : {}) }]
       : order.stage === "provider-processing" ? [created, received, { status: "current" as const, title: `Waiting on ${order.providerName}` }]
         : order.stage === "arriving" ? [created, received, { status: "complete" as const, title: `Sent by ${order.providerName}` }, { status: "current" as const, title: "Arriving on Base" }]
           : undefined
@@ -426,10 +427,12 @@ function fundingItem(order: ActivityFundingOrder, options: Options): ActivityLed
       ? { secondaryAction: { kind: "cancel-order" as const, label: "Cancel deposit" } } : {}),
     ...(cancelledByOwner || timedOut ? { ownerSentence: {
       title: cancelledByOwner ? "Deposit cancelled" : "Checkout timed out",
-      description: "If you already paid, the money will still show up here when it arrives.",
+      description: cancelledByOwner ? cancelledCheckoutCopy(order.providerName)
+        : "If you already paid, the money will still show up here when it arrives.",
     } } : {}),
     ...(order.stage === "unconfirmed" && !order.clearableAt ? { ownerSentence: {
-      title: `Checking with ${order.providerName}`, description: "Don't pay again while Home checks.",
+      title: `Checking with ${order.providerName}`,
+      description: `Home will update this when ${order.providerName} confirms it.`,
     } } : {}),
     ...(steps ? { steps } : {}), ...(nextAction ? { nextAction } : {}),
     ...(order.status === "ambiguous" && order.stage === "unconfirmed" && order.clearableAt && Date.parse(order.clearableAt) > (options.now ?? Date.now())

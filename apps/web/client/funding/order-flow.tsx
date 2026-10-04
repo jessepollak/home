@@ -14,6 +14,7 @@ import { MoneyTicker } from "@/components/money-ticker";
 import { CopyableValue } from "@/components/copyable-value";
 import { isTerminalFundingOrderState as terminal } from "./order-polling";
 import { fundingOrderKey, fundingOrderQuery } from "./funding-queries";
+import { cancelledCheckoutCopy } from "./checkout-copy";
 import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "./cancel-order";
 import {
   formatFiatAmount,
@@ -982,7 +983,7 @@ function SandboxBadge() {
 function stateCopy(state: string, sandbox = false, displayName: string, abandonReason?: FundingOrderSummary["abandonReason"]) {
   if (state === "abandoned") return abandonReason === "timed-out"
     ? { title: "Checkout timed out", body: "This checkout wasn't paid in time. If you already paid, the money will still show up here when it arrives." }
-    : { title: "Deposit cancelled", body: `Home won't show this checkout as pending. Don't complete it in ${displayName}. If you already paid, the money will still show up here when it arrives.` };
+    : { title: "Deposit cancelled", body: cancelledCheckoutCopy(displayName) };
   if (state === "payment-received" || state === "settling") return {
     title: "Payment received", body: `${displayName} is processing your payment. Home will show the money when it arrives on Base.`,
   };
