@@ -23,6 +23,7 @@ const twoCards: CardsResponse = { ...cardsBody("frozen"), cards: [
 
 const spendingSpender = "0x2222222222222222222222222222222222222222";
 const retiredSpender = "0x3333333333333333333333333333333333333333";
+const otherRetiredSpender = "0x4444444444444444444444444444444444444444";
 const spendingReady: Extract<CardSpendingData, { status: "ready" }> = { status: "ready", response: {
   version: 1, status: "available", setEnabled: true, spender: spendingSpender, walletBaseUnits: "100000000", allowanceBaseUnits: "25000000", availableBaseUnits: "25000000", retired: [], blockNumber: "1", fetchedAt: "2026-09-28T12:00:00.000Z",
 } };
@@ -228,9 +229,12 @@ export const SpendingDisabled: Story = { args: { spending: { status: "ready", re
 export const SpendingNotConfigured: Story = { args: { spending: { status: "not-configured" } } };
 export const SpendingUnavailable: Story = { args: { spending: { status: "unavailable" } } };
 export const RetiredPermission: Story = {
-  args: { spending: { status: "ready", response: { ...spendingReady.response, retired: [{ spender: retiredSpender, allowanceBaseUnits: "10000000" }] } } },
+  args: { spending: { status: "ready", response: { ...spendingReady.response, retired: [{ spender: retiredSpender, allowanceBaseUnits: "10000000" }, { spender: otherRetiredSpender, allowanceBaseUnits: "10000000" }] } } },
   play: async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement).getByRole("button", { name: "Remove" }));
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: "Remove old card program 0x3333…333333" })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Remove old card program 0x4444…444444" })).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Remove old card program 0x3333…333333" }));
     const dialog = within(await within(document.body).findByRole("dialog"));
     await waitFor(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
     await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();
