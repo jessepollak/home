@@ -396,6 +396,12 @@ jobs:
           fi
           node scripts/gates/caught-by-report.mjs --range "origin/${GITHUB_BASE_REF}..HEAD" | tee -a "$GITHUB_STEP_SUMMARY"
 
+      - name: Report unit-test delta
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/gates/unit-test-delta.mjs
+
   postgres-store-contract:
     name: real PostgreSQL actions and funding contracts (PostgreSQL 14)
     runs-on: ubuntu-latest
