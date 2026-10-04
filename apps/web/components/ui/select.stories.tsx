@@ -20,7 +20,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   render: () => (
-    <Select defaultValue="usdc">
+    <Select defaultValue="usdc" items={[{ value: "usdc", label: "USDC" }, { value: "eurc", label: "EURC" }]}>
       <SelectTrigger aria-label="Asset" className="w-44">
         <SelectValue />
       </SelectTrigger>

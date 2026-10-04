@@ -104,7 +104,7 @@ export function RegionalPreferencesProposal({ initialCountry = "BR", initialPick
             }
           }}>
             <SelectTrigger aria-label="Display currency" className="min-h-11"><SelectValue>{currencyName}</SelectValue></SelectTrigger>
-            <SelectContent align="end" alignItemWithTrigger={false} className="w-auto min-w-(--anchor-width)">
+            <SelectContent align="end" alignItemWithTrigger={false}>
               <SelectItem value="country-default">Country default ({country.currency.name})</SelectItem>
               {currencies.filter((code) => code === currencySelection || code !== regionalDefaults[preferences.country].currency).map((code) => <SelectItem key={code} value={code}>
                 {presentationRegions[countries.find((id) => regionalDefaults[id].currency === code)!].currency.name}
