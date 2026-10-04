@@ -151,3 +151,12 @@ describe("funding query factories", () => {
     expect(client.getQueryData<readonly unknown[]>(second.queryKey)).toEqual([]);
   });
 });
+
+
+test.each([undefined, 0, 2, "1"])("order-by-id queries reject envelope version %p without replacing the cached order", async (version) => {
+  const client = createHomeQueryClient();
+  const query = fundingOrderQuery("owner-a", order, async () => ({ version, order: { ...order, state: "sent" } }));
+  client.setQueryData(query.queryKey, order, { updatedAt: 0 });
+  await expect(client.fetchQuery({ ...query, initialDataUpdatedAt: () => 0 })).rejects.toThrow("Funding order response is invalid.");
+  expect(client.getQueryData<typeof order>(query.queryKey)).toEqual(order);
+});

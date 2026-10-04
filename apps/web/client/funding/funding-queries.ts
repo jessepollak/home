@@ -4,21 +4,15 @@ import type { RegionId } from "@/config/regions";
 import { disabledQueryKey, ownerQueryKey, publicQueryKey } from "@/client/query/query-client";
 import { ownerQuery, publicQuery } from "@/client/query/query-options";
 import { assertFundingOpenOrderResponse, fundingOpenOrderPath } from "@/shared/funding/contracts/open-order";
-import { readFundingOrder, type FundingOrderSummary } from "@/shared/funding/contracts/order";
+import { readFundingOrder, readFundingOrderResponse, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { assertFundingProviderCustomersResponse, readFundingProviderCustomers, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { assertFundingProvidersResponse, readProviderBindings, type FundingBinding } from "@/shared/funding/contracts/providers";
 import { shouldPollFundingOrder } from "./order-polling";
 
 type FetchResource = AccountWalletClient["fetchAccountResource"];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseOrder(value: unknown): FundingOrderSummary | null {
-  if (!isRecord(value) || !("order" in value)) throw new Error("Funding order response is invalid.");
-  if (value.order === null) return null;
-  const order = readFundingOrder(value);
+function parseOrder(value: unknown): FundingOrderSummary {
+  const order = readFundingOrderResponse(value);
   if (!order) throw new Error("Funding order response is invalid.");
   return order;
 }

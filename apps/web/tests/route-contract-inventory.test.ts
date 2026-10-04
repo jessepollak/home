@@ -88,6 +88,20 @@ function analysisBudgetFixture(localFunctions: number) {
   return result;
 }
 
+function narrowThenBroadHelperFixture(budget: "functions" | "initializers", narrowFirst: boolean, keys = 1_000) {
+  const result = undeclaredFixture();
+  // Function keys: GET, helper, imported handle. Initializer keys: helper and helpers.
+  const paddingKeys = keys - (budget === "functions" ? 3 : 2);
+  const declarations = Array.from({ length: paddingKeys }, (_, index) =>
+    `const padding${index} = ${budget === "functions" ? "() => {}" : "{}"};`).join("\n");
+  const references = Array.from({ length: paddingKeys }, (_, index) =>
+    budget === "functions" ? `padding${index}();` : `void padding${index};`).join("\n");
+  const calls = narrowFirst ? "helpers.helper(); helper();" : "helper(); helpers.helper();";
+  result.write(`app/api/${route}`, `import { handle } from "./handler"; ${declarations} const helper = () => { void helper; void helpers; handle(); ${references} }; const helpers = { helper }; export const GET = () => { ${calls} };`);
+  result.write("app/api/items/handler.ts", 'import { parseItem } from "@/shared/items/contract"; import { parseOther } from "@/shared/other/contract"; export const handle = () => parseOther(parseItem({}));');
+  return result;
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -123,6 +137,31 @@ test("an analysis limit does not make a frozen handler contract gap stale", () =
     detail: "GET handler reference scan exceeded its analysis budget",
   }]);
 });
+
+for (const budget of ["functions", "initializers"] as const) {
+  for (const frozen of [false, true]) {
+    test(`a narrow-then-broad helper preserves a ${frozen ? "frozen" : "fresh"} gap in both scan orders at exactly 1,000 keys in the ${budget} budget`, () => {
+      const verdicts = [true, false].map((narrowFirst) => {
+        const { manifest, violations } = narrowThenBroadHelperFixture(budget, narrowFirst);
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        return violations();
+      });
+      const expected = frozen ? [] : [undeclaredViolation];
+      expect(verdicts).toEqual([expected, expected]);
+    });
+
+    test(`new ${budget} keys beyond the budget report an analysis limit for a ${frozen ? "frozen" : "fresh"} gap in both scan orders`, () => {
+      for (const narrowFirst of [true, false]) {
+        const { manifest, violations } = narrowThenBroadHelperFixture(budget, narrowFirst, 1_001);
+        if (frozen) manifest.baseline.undeclaredHandlerContracts[route] = [otherContract];
+        expect(violations()).toEqual([{
+          code: "handler-analysis-limit", path: route,
+          detail: "GET handler reference scan exceeded its analysis budget",
+        }]);
+      }
+    });
+  }
+}
 
 test("removing a contract declaration and method binding does not hide the handler reference", () => {
   const { manifest, methods, violations } = mixedMethodFixture();

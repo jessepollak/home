@@ -223,7 +223,7 @@ async function openBaseProvider(
       try {
         const walletClient = createWalletClient({
             chain: base,
-            transport: custom({
+            transport: custom<Pick<BaseAccountProvider, "request">>({
               request: async (args) => {
                 try {
                   const response = await provider.request(args);

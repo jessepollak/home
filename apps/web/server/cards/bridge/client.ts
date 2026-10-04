@@ -1,5 +1,6 @@
 import "server-only";
 
+import { isRecord, isStringEnum } from "../response-guards";
 import type { CardJourneyConfig } from "./journey-config";
 import { readProviderJson } from "../read-provider-json";
 
@@ -16,14 +17,14 @@ export type BridgeCustomer = Readonly<{
 }>;
 
 function object(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Bridge response");
-  return value as Record<string, unknown>;
+  if (!isRecord(value)) throw new Error("Invalid Bridge response");
+  return value;
 }
 
 export function parseBridgeCustomer(value: unknown): BridgeCustomer {
   const item = object(value);
   if (typeof item.id !== "string" || !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(item.id) ||
-      typeof item.status !== "string" || !["not_started", "incomplete", "awaiting_questionnaire", "awaiting_ubo", "under_review", "active", "rejected", "paused", "offboarded", "deposits_restricted"].includes(item.status) ||
+      typeof item.status !== "string" || !isStringEnum(item.status, ["not_started", "incomplete", "awaiting_questionnaire", "awaiting_ubo", "under_review", "active", "rejected", "paused", "offboarded", "deposits_restricted"]) ||
       !(item.stripe_cardholder_id === null || item.stripe_cardholder_id === undefined ||
         typeof item.stripe_cardholder_id === "string" && /^ich_[A-Za-z0-9]+$/.test(item.stripe_cardholder_id)) ||
       !Array.isArray(item.endorsements)) throw new Error("Invalid Bridge customer");
@@ -34,16 +35,16 @@ export function parseBridgeCustomer(value: unknown): BridgeCustomer {
   if (cards.length) {
     const endorsement = cards[0];
     const requirements = object(endorsement.requirements);
-    if (typeof endorsement.status !== "string" || !["approved", "incomplete", "revoked"].includes(endorsement.status) ||
+    if (typeof endorsement.status !== "string" || !isStringEnum(endorsement.status, ["approved", "incomplete", "revoked"]) ||
         !Array.isArray(requirements.pending) || !requirements.pending.every((v) => typeof v === "string") ||
         !(requirements.missing === null || typeof requirements.missing === "object" && !Array.isArray(requirements.missing)) ||
         !Array.isArray(requirements.issues) || !requirements.issues.every((v) => typeof v === "string" || typeof v === "object" && v !== null && !Array.isArray(v)))
       throw new Error("Invalid Bridge cards endorsement");
-    cardsEndorsement = { status: endorsement.status as NonNullable<BridgeCustomer["cardsEndorsement"]>["status"],
+    cardsEndorsement = { status: endorsement.status,
       pending: requirements.pending.length > 0, missing: requirements.missing !== null,
       issues: requirements.issues.length > 0 };
   }
-  return { id: item.id, status: item.status as BridgeCustomer["status"],
+  return { id: item.id, status: item.status,
     stripeCardholderId: typeof item.stripe_cardholder_id === "string" ? item.stripe_cardholder_id : null, cardsEndorsement };
 }
 
@@ -77,8 +78,8 @@ export function createBridgeClient(config: CardJourneyConfig, fetcher: typeof fe
         throw new Error("Invalid Bridge KYC return URL");
       const params = new URLSearchParams({ endorsement: "cards", redirect_uri: redirectUri });
       const value = await request(`/v0/customers/${encodeURIComponent(id)}/kyc_link?${params}`);
-      if (typeof value !== "object" || !value || Array.isArray(value)) throw new Error("Invalid Bridge KYC link");
-      const url = (value as Record<string, unknown>).url;
+      if (!isRecord(value)) throw new Error("Invalid Bridge KYC link");
+      const url = value.url;
       if (typeof url !== "string") throw new Error("Invalid Bridge KYC link");
       const parsed = new URL(url);
       if (parsed.protocol !== "https:" || parsed.hostname !== "bridge.withpersona.com" || parsed.username || parsed.password || parsed.hash) throw new Error("Invalid Bridge KYC link");

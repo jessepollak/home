@@ -1,69 +1,63 @@
-import { isFundingInstruction, type Instruction, type OrderState, type Quote } from "@/shared/funding/provider-contract";
-export type {
-  Instruction,
-} from "@/shared/funding/provider-contract";
+import * as z from "zod/mini";
+import { fundingQuoteSchema } from "./quotes";
+export type { Instruction } from "@/shared/funding/provider-contract";
 
-export type FundingOrderSummary = {
-  id: string;
-  providerId: string;
-  region?: string;
-  assetId?: string;
-  paymentMethod?: string;
-  state: OrderState | string;
-  fiatAmount: string;
-  quote?: Quote;
-  quoteToken?: string;
-  sandbox?: boolean;
-  expectedTokenAmountAtomic?: string | null;
-  fees?: ReadonlyArray<{ label: string; amount: string; currency: string }>;
-  expiresAt?: string | null;
-  providerStatus: string | null;
-  instructions: Instruction | null;
-  transactionHash?: `0x${string}` | null;
-  createdAt?: string;
-  updatedAt?: string;
-  abandonReason?: "owner" | "timed-out" | null;
-};
-const fiatAmountPattern = /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
-const atomicAmountPattern = /^(?:0|[1-9][0-9]*)$/;
+export const FUNDING_ORDER_VERSION = 1 as const;
+
+const fundingFeesSchema = z.readonly(z.array(z.object({ label: z.string(), amount: z.string(), currency: z.string() })));
+const omittedOptionalInstructionKeys = ["accountName", "bank", "alias", "reference"] as const;
+const fundingInstructionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("redirect"), url: z.string() }),
+  z.object({ kind: z.literal("embed"), url: z.string(), presentation: z.literal("apple-pay"), amount: z.string(), currency: z.string() }),
+  z.object({
+    kind: z.literal("bank-transfer"), rail: z.string(), accountNumber: z.string(),
+    accountName: z.optional(z.string()), bank: z.optional(z.string()), alias: z.optional(z.string()), reference: z.optional(z.string()),
+    amount: z.string(), currency: z.string(),
+  }).check(z.refine((value) => omittedOptionalInstructionKeys.every((key) =>
+    !Object.hasOwn(value, key) || value[key] !== undefined))),
+  z.object({ kind: z.literal("qr"), scheme: z.enum(["pix", "qris", "promptpay", "other"]), payload: z.string(), amount: z.string(), currency: z.string() }),
+  z.object({ kind: z.literal("payment-key"), scheme: z.string(), key: z.string(), amount: z.string(), currency: z.string() }),
+]);
+const fundingOrderSchema = z.object({
+  id: z.string(),
+  providerId: z.string(),
+  region: z.optional(z.string()),
+  assetId: z.optional(z.string()),
+  paymentMethod: z.optional(z.string()),
+  state: z.string(),
+  fiatAmount: z.string().check(z.regex(/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/)),
+  quote: z.optional(fundingQuoteSchema.check(z.refine((value) =>
+    (!Object.hasOwn(value, "providerQuoteId") || value.providerQuoteId !== undefined) &&
+    (!Object.hasOwn(value, "feesKnown") || value.feesKnown !== undefined)))),
+  quoteToken: z.optional(z.string()),
+  sandbox: z.optional(z.boolean()),
+  expectedTokenAmountAtomic: z.optional(z.nullable(z.string().check(z.regex(/^(?:0|[1-9][0-9]*)$/)))),
+  fees: z.optional(fundingFeesSchema),
+  expiresAt: z.optional(z.nullable(z.string())),
+  providerStatus: z.nullable(z.string()),
+  instructions: z.nullable(fundingInstructionSchema),
+  transactionHash: z.optional(z.nullable(z.templateLiteral(["0x", z.string()]).check(z.regex(/^0x[0-9a-fA-F]{64}$/)))),
+  createdAt: z.optional(z.string()),
+  updatedAt: z.optional(z.string()),
+  abandonReason: z.optional(z.nullable(z.enum(["owner", "timed-out"]))),
+});
+const fundingOrderEnvelopeSchema = z.object({ order: fundingOrderSchema });
+const fundingOrderResponseSchema = z.object({ version: z.literal(FUNDING_ORDER_VERSION), order: fundingOrderSchema });
+
+export type FundingOrderSummary = z.output<typeof fundingOrderSchema>;
+
 export function isFundingOrderSummary(value: unknown): value is FundingOrderSummary {
-  return record(value) && typeof value.id === "string" && typeof value.providerId === "string" && typeof value.state === "string" &&
-    typeof value.fiatAmount === "string" && fiatAmountPattern.test(value.fiatAmount) &&
-    (value.providerStatus === null || typeof value.providerStatus === "string") &&
-    (value.instructions === null || isFundingInstruction(value.instructions)) &&
-    ["region", "assetId", "paymentMethod", "quoteToken", "createdAt", "updatedAt"].every((key) => optionalString(value, key)) &&
-    optional(value, "quote", isFundingQuote) &&
-    optional(value, "sandbox", (sandbox) => typeof sandbox === "boolean") &&
-    optional(value, "expectedTokenAmountAtomic", (amount) => amount === null || (typeof amount === "string" && atomicAmountPattern.test(amount))) &&
-    optional(value, "fees", isFundingFees) &&
-    optional(value, "expiresAt", (expiresAt) => expiresAt === null || typeof expiresAt === "string") &&
-    optional(value, "abandonReason", (reason) => reason === null || reason === "owner" || reason === "timed-out") &&
-    optional(value, "transactionHash", (hash) => hash === null || (typeof hash === "string" && /^0x[0-9a-fA-F]{64}$/.test(hash)));
+  return fundingOrderSchema.safeParse(value).success;
+}
+function isFundingOrderEnvelope(value: unknown): value is { order: FundingOrderSummary } {
+  return fundingOrderEnvelopeSchema.safeParse(value).success;
+}
+function isFundingOrderResponseEnvelope(value: unknown): value is { order: FundingOrderSummary } {
+  return fundingOrderResponseSchema.safeParse(value).success;
 }
 export function readFundingOrder(value: unknown): FundingOrderSummary | null {
-  const candidate = record(value) && record(value.order) ? value.order : null;
-  return isFundingOrderSummary(candidate) ? candidate : null;
+  return isFundingOrderEnvelope(value) ? value.order : null;
 }
-function isFundingQuote(value: unknown): boolean {
-  return record(value) &&
-    (!Object.hasOwn(value, "providerQuoteId") || typeof value.providerQuoteId === "string") &&
-    (!Object.hasOwn(value, "feesKnown") || typeof value.feesKnown === "boolean") &&
-    typeof value.fiatAmount === "string" &&
-    typeof value.tokenAmountAtomic === "string" &&
-    typeof value.expiresAt === "string" &&
-    isFundingFees(value.fees);
+export function readFundingOrderResponse(value: unknown): FundingOrderSummary | null {
+  return isFundingOrderResponseEnvelope(value) ? value.order : null;
 }
-
-function isFundingFees(value: unknown): boolean {
-  return Array.isArray(value) && value.every((fee) => record(fee) && typeof fee.label === "string" && typeof fee.amount === "string" && typeof fee.currency === "string");
-}
-
-function optionalString(value: Record<string, unknown>, key: string): boolean {
-  return optional(value, key, (field) => typeof field === "string");
-}
-
-function optional(value: Record<string, unknown>, key: string, valid: (field: unknown) => boolean): boolean {
-  return value[key] === undefined || valid(value[key]);
-}
-
-function record(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }

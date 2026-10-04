@@ -1,12 +1,13 @@
+import * as z from "zod/mini";
 import { parseAddress, type Address } from "@/shared/chain/hex";
 import { OPERATOR_FEE_SETTINGS_DEFAULTS, parseOperatorFeeSettings } from "@/shared/fees/contract";
 import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, OPERATOR_BRANDING_SCHEMA_VERSION, parseBrandSettings } from "@/shared/operator-branding/contract";
-import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse } from "./envelope";
+import { OPERATOR_SETTINGS_CONTRACT_VERSION, parseSettingsResponse, settingsEntrySchema } from "./envelope";
 import { INVEST_SETTINGS_DEFAULTS, parseInvestSettings, parseInvestSettingsWrite } from "./invest";
 import { parseRegionSettings, parseRegionSettingsWrite, REGION_SETTINGS_DEFAULTS } from "./regions";
 import { deploymentProductSettings, parseProductSettings, productSettingsMatchCatalog, type ProductSettings } from "./products";
 
-export { OPERATOR_SETTINGS_CONTRACT_VERSION } from "./envelope";
+export { OPERATOR_SETTINGS_CONTRACT_VERSION, type SettingsEntry, type SettingsResponse } from "./envelope";
 /** @public parses settings responses for future administrator clients */
 export { parseSettingsResponse } from "./envelope";
 
@@ -21,59 +22,55 @@ export type DomainDefinition<T> = {
 
 export type DomainRegistry = Record<string, DomainDefinition<unknown>>;
 
-export type SupportSettings = { email: string | null; url: string | null };
-
-export function parseSupportSettings(value: unknown): SupportSettings | null {
-  if (!isObject(value) || !exactKeys(value, ["email", "url"])) return null;
-  const { email, url } = value;
-  if (email !== null && (typeof email !== "string" || email.length > 254 || email !== email.trim() || /\s/.test(email) || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email))) return null;
-  if (url !== null) {
-    if (typeof url !== "string" || url.length > 2048) return null;
+const supportSettingsSchema = z.strictObject({
+  email: z.nullable(z.string().check(z.maxLength(254), z.refine((email) =>
+    email === email.trim() && !/\s/.test(email) && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)))),
+  url: z.nullable(z.string().check(z.maxLength(2048), z.refine((url) => {
     try {
       const parsed = new URL(url);
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
+      return parsed.protocol === "https:" && !parsed.username && !parsed.password;
     } catch {
-      return null;
+      return false;
     }
-  }
-  return { email: email as string | null, url: url as string | null };
+  }))),
+});
+export type SupportSettings = z.output<typeof supportSettingsSchema>;
+
+export function parseSupportSettings(value: unknown): SupportSettings | null {
+  const result = supportSettingsSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
+
+const supportAssistantSettingsSchema = z.strictObject({
+  mode: z.enum(["operator", "assistant", "hybrid"]),
+  model: z.string().check(z.maxLength(100), z.refine((model) => model === "" || /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.\-]*$/.test(model))),
+  instructions: z.string().check(z.maxLength(2000), z.refine((instructions) => !/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(instructions))),
+}).check(z.refine((settings) => settings.mode === "operator" || settings.model !== ""));
+export type SupportAssistantSettings = z.output<typeof supportAssistantSettingsSchema>;
 export const SUPPORT_ASSISTANT_DEFAULTS: SupportAssistantSettings = { mode: "operator", model: "", instructions: "" };
 
-export type SupportAssistantSettings = { mode: "operator" | "assistant" | "hybrid"; model: string; instructions: string };
-
 export function parseSupportAssistantSettings(value: unknown): SupportAssistantSettings | null {
-  if (!isObject(value) || !exactKeys(value, ["mode", "model", "instructions"])) return null;
-  if (value.mode !== "operator" && value.mode !== "assistant" && value.mode !== "hybrid") return null;
-  if (typeof value.model !== "string" || value.model.length > 100 || (value.model !== "" && !/^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9.\-]*$/.test(value.model)) || (value.mode !== "operator" && !value.model)) return null;
-  if (typeof value.instructions !== "string" || value.instructions.length > 2000 || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(value.instructions)) return null;
-  return { mode: value.mode, model: value.model, instructions: value.instructions };
+  const result = supportAssistantSettingsSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
-
-
-export type FundingCorridorSetting = { providerId: string; region: string; direction: "onramp" | "offramp"; offered: boolean };
-export type FundingSettings = { corridors: FundingCorridorSetting[] };
 
 export const FUNDING_SETTINGS_MAX_CORRIDORS = 500;
 export const FUNDING_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
+const fundingCorridorSettingSchema = z.strictObject({
+  providerId: z.string().check(z.regex(FUNDING_PROVIDER_ID_PATTERN)),
+  region: z.string().check(z.regex(/^[A-Z]{2}$/)),
+  direction: z.enum(["onramp", "offramp"]),
+  offered: z.boolean(),
+});
+const fundingSettingsSchema = z.strictObject({
+  corridors: z.array(fundingCorridorSettingSchema).check(z.maxLength(FUNDING_SETTINGS_MAX_CORRIDORS),
+    z.refine((corridors) => new Set(corridors.map((entry) => `${entry.providerId}:${entry.region}:${entry.direction}`)).size === corridors.length)),
+});
+export type FundingSettings = z.output<typeof fundingSettingsSchema>;
 
 export function parseFundingSettings(value: unknown): FundingSettings | null {
-  if (!isObject(value) || !exactKeys(value, ["corridors"]) || !Array.isArray(value.corridors) || value.corridors.length > FUNDING_SETTINGS_MAX_CORRIDORS) return null;
-  const seen = new Set<string>();
-  const corridors: FundingCorridorSetting[] = [];
-  for (const entry of value.corridors) {
-    if (!isObject(entry) || !exactKeys(entry, ["providerId", "region", "direction", "offered"])) return null;
-    const { providerId, region, direction, offered } = entry;
-    if (typeof providerId !== "string" || !FUNDING_PROVIDER_ID_PATTERN.test(providerId)) return null;
-    if (typeof region !== "string" || !/^[A-Z]{2}$/.test(region)) return null;
-    if (direction !== "onramp" && direction !== "offramp") return null;
-    if (typeof offered !== "boolean") return null;
-    const key = `${providerId}:${region}:${direction}`;
-    if (seen.has(key)) return null;
-    seen.add(key);
-    corridors.push({ providerId, region, direction, offered });
-  }
-  return { corridors };
+  const result = fundingSettingsSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export const OPERATOR_SETTINGS_DOMAINS = {
@@ -87,77 +84,93 @@ export const OPERATOR_SETTINGS_DOMAINS = {
   products: { schemaVersion: 1, defaults: deploymentProductSettings(), parse: parseProductSettings, acceptsWrite: (value) => productSettingsMatchCatalog(value) } satisfies DomainDefinition<ProductSettings>,
 } satisfies DomainRegistry;
 
-export type SettingsEntry<T = unknown> = {
-  domain: string;
-  settings: { value: T; revision: number; source: "default" | "stored"; updatedAt: string | null; updatedBy: string | null };
-};
-export type SettingsResponse = SettingsEntry & { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION };
-export type AllSettingsResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; domains: SettingsEntry[] };
-export type PutSettingsRequest = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; expectedRevision: number; value: unknown; operator: `0x${string}` };
-export type ParsedPutSettingsRequest = Omit<PutSettingsRequest, "operator"> & { operator: Address };
-export type AuditEntry = {
-  id: string; occurredAt: string; actor: `0x${string}`;
-} & (
-  | { action: "settings.update"; target: { kind: "settings"; id: string }; before: unknown; after: unknown }
-  | { action: "support.credential.update"; target: { kind: "settings"; id: string }; before: unknown; after: unknown }
-  | { action: "support.credential.delete"; target: { kind: "settings"; id: string }; before: unknown; after: unknown }
-  | { action: "customer.read"; target: { kind: "customer"; id: string }; purpose: string }
+const addressSchema = z.pipe(
+  z.custom<`0x${string}`>((value) => parseAddress(value) !== null),
+  z.transform((value): Address => parseAddress(value) as Address),
 );
-export type AuditListResponse = { version: typeof OPERATOR_SETTINGS_CONTRACT_VERSION; entries: AuditEntry[]; nextCursor: string | null };
-export type ParsedAuditEntry = AuditEntry & { actor: Address };
-export type ParsedAuditListResponse = Omit<AuditListResponse, "entries"> & { entries: ParsedAuditEntry[] };
-export type OperatorSettingsErrorCode = "UNAUTHENTICATED" | "OPERATOR_FORBIDDEN" | "NOT_FOUND" | "INVALID_REQUEST" | "SETTINGS_CONFLICT" | "OPERATOR_CHANGED" | "CROSS_ORIGIN" | "SETTINGS_UNAVAILABLE";
-export type OperatorSettingsErrorResponse = { error: { code: OperatorSettingsErrorCode }; current?: SettingsResponse };
+const putSettingsRequestSchema = z.strictObject({
+  version: z.literal(OPERATOR_SETTINGS_CONTRACT_VERSION),
+  expectedRevision: z.number().check(z.refine((value) => Number.isSafeInteger(value) && value >= 0)),
+  value: z.unknown(),
+  operator: addressSchema,
+}).check(z.refine((request) => Object.hasOwn(request, "value")));
+const allSettingsResponseSchema = z.object({
+  version: z.literal(OPERATOR_SETTINGS_CONTRACT_VERSION),
+  domains: z.array(z.pipe(settingsEntrySchema, z.transform(({ domain, settings }) => ({ domain, settings })))),
+});
+const cursorSchema = z.string().check(z.regex(/^[1-9]\d*$/),
+  z.refine((value) => value.length < 19 || (value.length === 19 && value <= "9223372036854775807")));
+const auditFields = {
+  id: cursorSchema,
+  occurredAt: z.string().check(z.refine((value) => Number.isFinite(Date.parse(value)))),
+  actor: addressSchema,
+};
+const settingsAuditEntrySchema = <Action extends "settings.update" | "support.credential.update" | "support.credential.delete">(action: Action) => z.looseObject({
+  ...auditFields,
+  action: z.literal(action),
+  target: z.looseObject({ kind: z.literal("settings"), id: z.string() }),
+  before: z.unknown(),
+  after: z.unknown(),
+}).check(z.refine((entry) => "before" in entry && "after" in entry));
+const auditEntrySchema = z.union([
+  settingsAuditEntrySchema("settings.update"),
+  settingsAuditEntrySchema("support.credential.update"),
+  settingsAuditEntrySchema("support.credential.delete"),
+  z.looseObject({
+    ...auditFields,
+    action: z.literal("customer.read"),
+    target: z.looseObject({ kind: z.literal("customer"), id: z.string() }),
+    purpose: z.string(),
+  }),
+]);
+const auditListResponseSchema = z.object({
+  version: z.literal(OPERATOR_SETTINGS_CONTRACT_VERSION),
+  entries: z.array(auditEntrySchema),
+  nextCursor: z.nullable(cursorSchema),
+});
+const operatorSettingsErrorCodeSchema = z.enum([
+  "UNAUTHENTICATED", "OPERATOR_FORBIDDEN", "NOT_FOUND", "INVALID_REQUEST",
+  "SETTINGS_CONFLICT", "OPERATOR_CHANGED", "CROSS_ORIGIN", "SETTINGS_UNAVAILABLE",
+]);
+const operatorSettingsErrorResponseSchema = z.pipe(z.object({
+  error: z.object({ code: operatorSettingsErrorCodeSchema }),
+  current: z.optional(z.unknown()),
+}), z.transform((value) => ({
+  error: value.error,
+  ...(value.current ? { current: parseSettingsResponse(value.current) ?? undefined } : {}),
+})));
+
+export type AllSettingsResponse = z.output<typeof allSettingsResponseSchema>;
+export type PutSettingsRequest = z.input<typeof putSettingsRequestSchema>;
+export type ParsedPutSettingsRequest = z.output<typeof putSettingsRequestSchema>;
+export type AuditEntry = z.input<typeof auditEntrySchema>;
+export type ParsedAuditListResponse = z.output<typeof auditListResponseSchema>;
+export type OperatorSettingsErrorCode = z.output<typeof operatorSettingsErrorCodeSchema>;
+export type OperatorSettingsErrorResponse = z.output<typeof operatorSettingsErrorResponseSchema>;
 
 export function parsePutSettingsRequest(value: unknown): ParsedPutSettingsRequest | null {
-  if (!isObject(value) || !exactKeys(value, ["version", "expectedRevision", "value", "operator"])) return null;
-  if (value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Number.isSafeInteger(value.expectedRevision) || (value.expectedRevision as number) < 0) return null;
-  const operator = parseAddress(value.operator);
-  if (!operator) return null;
-  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, expectedRevision: value.expectedRevision as number, value: value.value, operator };
+  const result = putSettingsRequestSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 /** @public parses settings list responses for future administrator clients */
 export function parseAllSettingsResponse(value: unknown): AllSettingsResponse | null {
-  if (!isObject(value) || value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Array.isArray(value.domains)) return null;
-  const domains = value.domains.map((entry) => parseSettingsResponse({ ...entry, version: OPERATOR_SETTINGS_CONTRACT_VERSION }));
-  return domains.every((entry): entry is SettingsResponse => entry !== null)
-    ? { version: OPERATOR_SETTINGS_CONTRACT_VERSION, domains: domains.map(({ domain, settings }) => ({ domain, settings })) } : null;
+  const result = allSettingsResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 /** @public parses administrator audit responses for future clients */
 export function parseAuditListResponse(value: unknown): ParsedAuditListResponse | null {
-  if (!isObject(value) || value.version !== OPERATOR_SETTINGS_CONTRACT_VERSION || !Array.isArray(value.entries) || !(value.nextCursor === null || validCursor(value.nextCursor))) return null;
-  const entries: ParsedAuditEntry[] = [];
-  for (const entry of value.entries) {
-    if (!isObject(entry)) return null;
-    const actor = parseAddress(entry.actor);
-    if (!actor || !validCursor(entry.id) || typeof entry.occurredAt !== "string" || !Number.isFinite(Date.parse(entry.occurredAt)) || !isObject(entry.target) || typeof entry.target.id !== "string") return null;
-    if (entry.action === "settings.update" || entry.action === "support.credential.update" || entry.action === "support.credential.delete") {
-      if (entry.target.kind !== "settings" || !("before" in entry) || !("after" in entry)) return null;
-    } else if (entry.action === "customer.read") {
-      if (entry.target.kind !== "customer" || typeof entry.purpose !== "string") return null;
-    } else return null;
-    entries.push({ ...entry, actor } as ParsedAuditEntry);
-  }
-  return { version: OPERATOR_SETTINGS_CONTRACT_VERSION, entries, nextCursor: value.nextCursor };
+  const result = auditListResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 /** @public parses administrator settings errors for future clients */
 export function parseOperatorSettingsErrorResponse(value: unknown): OperatorSettingsErrorResponse | null {
-  if (!isObject(value) || !isObject(value.error)) return null;
-  const code = value.error.code;
-  if (code !== "UNAUTHENTICATED" && code !== "OPERATOR_FORBIDDEN" && code !== "NOT_FOUND" && code !== "INVALID_REQUEST" && code !== "SETTINGS_CONFLICT" && code !== "OPERATOR_CHANGED" && code !== "CROSS_ORIGIN" && code !== "SETTINGS_UNAVAILABLE") return null;
-  return { error: { code }, ...(value.current ? { current: parseSettingsResponse(value.current) ?? undefined } : {}) };
+  const result = operatorSettingsErrorResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function validCursor(value: unknown): value is string {
-  return typeof value === "string" && /^[1-9]\d*$/.test(value) && (value.length < 19 || (value.length === 19 && value <= "9223372036854775807"));
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function exactKeys(value: Record<string, unknown>, keys: string[]): boolean {
-  return Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+  return cursorSchema.safeParse(value).success;
 }

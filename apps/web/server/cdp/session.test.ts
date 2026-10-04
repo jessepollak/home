@@ -1,3 +1,4 @@
+import { parseSession } from "@/shared/account/contracts/session";
 import { readJson } from "@/tests/helpers/read-json";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
@@ -60,7 +61,14 @@ async function expectPrivateJson(
   expect(response.headers.get("vary")).toBe(
     `Cookie, Authorization, ${ACCOUNT_PROVIDER_HEADER}`,
   );
-  expect(await readJson(response)).toEqual(body);
+  const payload = await readJson(response);
+  if (status === 200) {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) throw new Error("Expected an object session body");
+    expect(payload).toEqual(parseSession(payload));
+    expect(payload).toEqual({ ...body, version: 1 });
+  } else {
+    expect(payload).toEqual(body);
+  }
 }
 
 const unauthenticatedBody = {

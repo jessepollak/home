@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { isRecord, isUnknownArray } from "@/shared/guards";
 import {
   BaseAccountConnectorError,
   connectWithBaseProvider,
@@ -83,9 +84,9 @@ class Eip5792ProviderFixture {
         return "0x2105";
       case "wallet_sendCalls": {
         if (this.sendCallsError) throw this.sendCallsError;
-        const params = Array.isArray(args.params) ? args.params[0] : null;
+        const params = isUnknownArray(args.params) ? args.params[0] : null;
         const requestId =
-          params && typeof params === "object" && "id" in params && typeof params.id === "string"
+          isRecord(params) && typeof params.id === "string"
             ? params.id
             : "";
         if (requestId && this.acceptedIds.has(requestId)) {
@@ -96,7 +97,7 @@ class Eip5792ProviderFixture {
       }
       case "wallet_getCallsStatus": {
         if (this.getCallsStatusError) throw this.getCallsStatusError;
-        const submissionId = Array.isArray(args.params) ? args.params[0] : null;
+        const submissionId = isUnknownArray(args.params) ? args.params[0] : null;
         const known =
           submissionId === WALLET_HEX_ID ||
           (this.mode === "echo-request-id" && this.acceptedIds.has(String(submissionId)));

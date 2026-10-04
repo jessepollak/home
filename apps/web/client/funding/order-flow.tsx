@@ -45,9 +45,9 @@ import {
   readQuoteDraft,
   type QuoteDraft,
 } from "@/shared/funding/contracts/quotes";
-import { readFundingProviderCustomer, readVerificationHandoff, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
+import { FUNDING_PROVIDER_CUSTOMERS_VERSION, readFundingProviderCustomer, readVerificationHandoff, type FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import {
-  readFundingOrder,
+  readFundingOrderResponse,
   type FundingOrderSummary,
   type Instruction,
 } from "@/shared/funding/contracts/order";
@@ -130,6 +130,7 @@ export function FundingOrderFlow({
       const value = await fetchAccountResource("/api/funding/provider-customers/verification", {
         method: "POST", body: { providerId: binding.providerId, region: binding.region, email },
       });
+      if (!value || typeof value !== "object" || !("version" in value) || value.version !== FUNDING_PROVIDER_CUSTOMERS_VERSION) throw new Error("verification");
       return { customer: readFundingProviderCustomer(value), handoff: readVerificationHandoff(value) };
     },
   }));
@@ -156,7 +157,7 @@ export function FundingOrderFlow({
     invalidates: [{ scope: "activity-orders" }],
     mutationFn: async (quoteToken: string) => {
       const value = await fetchAccountResource("/api/funding/orders", { method: "POST", body: { quoteToken } });
-      const next = readFundingOrder(value);
+      const next = readFundingOrderResponse(value);
       if (!next) throw new Error("order");
       return next;
     },

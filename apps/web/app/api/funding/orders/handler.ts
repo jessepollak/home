@@ -1,3 +1,4 @@
+import { FUNDING_ORDER_VERSION, readFundingOrderResponse } from "@/shared/funding/contracts/order";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
   authorizeFundingRequest,
@@ -78,14 +79,17 @@ export async function handleFundingOrderPost(
     return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
   }
   try {
-    return privateJson({
+    const response = {
+      version: FUNDING_ORDER_VERSION,
       order: await dependencies.createOrder(
         authorized.session,
         body,
         fundingRequestOrigin(request),
         request.headers,
       ),
-    }, 201);
+    };
+    if (!readFundingOrderResponse(response)) throw new Error("invalid-order-response");
+    return privateJson(response, 201);
   } catch (error) {
     if (error instanceof FundingCoreError) {
       return fundingError(error.code, error.publicMessage ?? "The funding order could not be created.", error.status);
@@ -147,7 +151,9 @@ export async function handleFundingOrderGetById(
     return privateError("ORDER_NOT_FOUND", "Funding order not found.", 404);
   }
   try {
-    return privateJson({ order: await dependencies.getOrder(authorized.session, id) });
+    const response = { version: FUNDING_ORDER_VERSION, order: await dependencies.getOrder(authorized.session, id) };
+    if (!readFundingOrderResponse(response)) throw new Error("invalid-order-response");
+    return privateJson(response);
   } catch (error) {
     if (error instanceof FundingCoreError) {
       return privateError(error.code, "Funding order not found.", error.status);

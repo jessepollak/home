@@ -689,7 +689,7 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
         if (deferredCallable(current)) {
           if (eager && !invoked) return;
           if (covered(visitedFunctions.get(current), followImportedCalls, eager)) return;
-          if (visitedFunctions.size >= 1_000) {
+          if (!visitedFunctions.has(current) && visitedFunctions.size >= 1_000) {
             limited = true;
             return;
           }
@@ -780,7 +780,7 @@ export function inventoryRouteContracts({ root, manifest }: { root: string; mani
           const resolved = value && resolveValue(module, value);
           const invokedValue = invoked || isCallCallee(current);
           if (resolved && !covered(visitedInitializers.get(resolved), followImportedCalls, eager) && !(eager && !invokedValue && deferredCallable(resolved))) {
-            if (visitedInitializers.size >= 1_000) limited = true;
+            if (!visitedInitializers.has(resolved) && visitedInitializers.size >= 1_000) limited = true;
             else {
               visitedInitializers.set(resolved, { followImportedCalls, eager });
               scan(resolved, module, followImportedCalls, eager, invokedValue);

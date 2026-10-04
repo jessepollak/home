@@ -176,7 +176,10 @@ describe("native Base authentication handlers", () => {
     expect(setCookies.some((value) => value.startsWith(`${HOME_CHALLENGE_COOKIE}=`) && value.includes("Max-Age=0"))).toBe(true);
     expect(setCookies.some((value) => value.startsWith(`${HOME_SESSION_COOKIE}=`))).toBe(true);
     expect(setCookies.every((value) => value.includes("HttpOnly"))).toBe(true);
-    expect(await readJson(verified)).toEqual({
+    const body = await readJson(verified);
+    expect(body).toEqual(parseNativeBaseSession(body));
+    expect(body).toEqual({
+      version: 1,
       user: { subject: expect.stringMatching(/^base-[0-9a-f]{32}$/) },
       smartAccount: { address: ADDRESS, chainId: 8453 },
       accountProvider: "base-account",

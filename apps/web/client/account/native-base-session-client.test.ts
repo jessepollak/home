@@ -1,7 +1,10 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { nativeBaseOwnerKey } from "./owner-keys";
 import { jsonResponse } from "@/tests/helpers/http";
+import { readJson } from "@/tests/helpers/read-json";
 import { ACCOUNT_PROVIDER_HEADER } from "@/shared/account/session-types";
+import { SESSION_VERSION } from "@/shared/account/contracts/session";
+import { NATIVE_BASE_VERIFY_VERSION } from "@/shared/account/contracts/base-verify";
 import {
   clearNativeBaseSession,
   requestNativeBaseChallenge,
@@ -23,7 +26,7 @@ function session() {
 
 describe("native Base session restoration", () => {
   test("hands a server-restored session to only the matching owner once", async () => {
-    const restored = await restoreNativeBaseSession(async () => jsonResponse(session()));
+    const restored = await restoreNativeBaseSession(async () => jsonResponse({ ...session(), version: SESSION_VERSION }));
     if (!restored) throw new Error("Expected restored session");
     const signal = new AbortController().signal;
     expect(takeNativeRestoreValidation({ ...restored }, nativeBaseOwnerKey(restored), signal)).toBeNull();
@@ -35,7 +38,7 @@ describe("native Base session restoration", () => {
     const pending = restoreNativeBaseSession(() => new Promise<Response>((resolve) => { finish = resolve; }));
     await clearNativeBaseSession(async () => new Response(null, { status: 204 }));
     if (!finish) throw new Error("Expected pending restoration");
-    finish(jsonResponse(session()));
+    finish(jsonResponse({ ...session(), version: SESSION_VERSION }));
     const restored = await pending;
     if (!restored) throw new Error("Expected restored result");
     expect(takeNativeRestoreValidation(restored, nativeBaseOwnerKey(restored), new AbortController().signal)).toBeNull();
@@ -43,7 +46,7 @@ describe("native Base session restoration", () => {
   test("expired restoration and render hints require fresh validation", async () => {
     const clock = spyOn(performance, "now").mockReturnValue(0);
     try {
-      const restored = await restoreNativeBaseSession(async () => jsonResponse(session()));
+      const restored = await restoreNativeBaseSession(async () => jsonResponse({ ...session(), version: SESSION_VERSION }));
       if (!restored) throw new Error("Expected native restore");
       clock.mockReturnValue(60_000);
       expect(takeNativeRestoreValidation(restored, nativeBaseOwnerKey(restored), new AbortController().signal)).toBeNull();
@@ -53,7 +56,7 @@ describe("native Base session restoration", () => {
   test.each(["owner-switch", "restore-abort", "validation-abort", "logout"] as const)("does not reuse restore proof after %s", async (invalidated) => {
     const restore = new AbortController();
     const validation = new AbortController();
-    const restored = await restoreNativeBaseSession(async () => jsonResponse(session()), restore.signal);
+    const restored = await restoreNativeBaseSession(async () => jsonResponse({ ...session(), version: SESSION_VERSION }), restore.signal);
     if (!restored) throw new Error("Expected restored session");
     if (invalidated === "restore-abort") restore.abort();
     if (invalidated === "validation-abort") validation.abort();
@@ -67,7 +70,7 @@ describe("native Base session restoration", () => {
     const fetchFixture: NativeBaseFetch = async (nextInput, nextInit) => {
       input = nextInput;
       init = nextInit;
-      return jsonResponse(session());
+      return jsonResponse({ ...session(), version: SESSION_VERSION });
     };
 
     expect(await restoreNativeBaseSession(fetchFixture)).toEqual(session());
@@ -76,6 +79,19 @@ describe("native Base session restoration", () => {
     expect(init?.credentials).toBe("same-origin");
     expect(init?.cache).toBe("no-store");
     expect(new Headers(init?.headers).get(ACCOUNT_PROVIDER_HEADER)).toBe("base-account");
+  });
+
+  test.each([
+    { accountProvider: "cdp-embedded" },
+    { accountProvider: "cdp-embedded", smartAccount: null },
+    { accountProvider: "unknown" },
+    { smartAccount: null },
+    { user: { subject: "  " } },
+    { version: SESSION_VERSION + 1 },
+  ])("rejects invalid native restore sessions: %j", async (invalid) => {
+    await expect(restoreNativeBaseSession(async () => jsonResponse({
+      ...session(), version: SESSION_VERSION, ...invalid,
+    }))).rejects.toThrow("Native Base authentication failed.");
   });
 
   test("distinguishes deployment access expiry, signed out, and unavailable restoration", async () => {
@@ -105,6 +121,16 @@ describe("native Base session restoration", () => {
 });
 
 describe("native Base challenge and verification", () => {
+  test("verification retains its own response contract", async () => {
+    const verify = (value: unknown) => verifyNativeBaseChallenge(
+      ADDRESS, "signed message", "0x1234", async () => jsonResponse(value),
+    );
+    await expect(verify({ ...session(), version: NATIVE_BASE_VERIFY_VERSION,
+      user: { subject: "  " } })).resolves.toEqual({ ...session(), user: { subject: "  " } });
+    await expect(verify({ ...session(), version: NATIVE_BASE_VERIFY_VERSION + 1 }))
+      .rejects.toThrow("Native Base authentication failed.");
+  });
+
   test("requests an address-independent challenge and verifies address, message, and signature", async () => {
     const challenge = {
       nonce: "a".repeat(48),
@@ -119,7 +145,7 @@ describe("native Base challenge and verification", () => {
     const requests: Array<{ input: string; init?: RequestInit }> = [];
     const fetchFixture: NativeBaseFetch = async (input, init) => {
       requests.push({ input: String(input), init });
-      return requests.length === 1 ? jsonResponse(challenge) : jsonResponse(session());
+      return requests.length === 1 ? jsonResponse(challenge) : jsonResponse({ ...session(), version: NATIVE_BASE_VERIFY_VERSION });
     };
 
     expect(await requestNativeBaseChallenge(fetchFixture)).toEqual(challenge);
@@ -133,7 +159,7 @@ describe("native Base challenge and verification", () => {
       fetchFixture,
     )).resolves.toEqual(session());
     expect(requests[1]?.input).toBe("/api/auth/base/verify");
-    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+    expect(await readJson(new Response(requests[1]?.init?.body))).toEqual({
       address: ADDRESS,
       message: "signed message",
       signature: "0x1234",

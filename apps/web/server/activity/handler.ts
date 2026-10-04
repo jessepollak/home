@@ -20,7 +20,7 @@ import type {
 import { privateError, privateJson } from "@/server/http/private-response";
 import { isActivityValuationCurrency } from "@/shared/activity/valuation";
 import type { ActivityReadRequest, ActivityReader } from "./types";
-import type { CardPurchases } from "@/shared/cards/transactions-contract";
+import { CARD_PURCHASES_VERSION, type CardPurchases } from "@/shared/cards/transactions-contract";
 import { ACTIVITY_WINDOW_DAYS } from "@/shared/activity/types";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 
@@ -113,7 +113,7 @@ export function createActivityHandler(dependencies: {
     const readCards = dependencies.readCards;
     const cardsPromise = activityRequest.cursor === null && readCards
       ? Promise.resolve().then(() => readCards(session, cardWindow))
-        .catch((): CardPurchases => ({ status: "unavailable", rows: [] }))
+        .catch((): CardPurchases => ({ version: CARD_PURCHASES_VERSION, status: "unavailable", rows: [] }))
       : null;
 
     let source: Exclude<ActivityReadSource, "none">;

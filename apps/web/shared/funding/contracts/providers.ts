@@ -1,127 +1,77 @@
-
+import * as z from "zod/mini";
 import type { FundingDirection } from "@/shared/funding/provider-contract";
 
 export const FUNDING_PROVIDERS_VERSION = 3 as const;
 
-type FundingBindingBase = {
-  providerId: string;
-  displayName: string;
-  region: string;
-  assetId: string;
-  assetSymbol: string;
-  assetDecimals: number;
-  currency: string;
+const bindingBase = {
+  providerId: z.string(),
+  displayName: z.string(),
+  region: z.string(),
+  assetId: z.string(),
+  assetSymbol: z.string(),
+  assetDecimals: z.int(),
+  currency: z.string(),
 };
+const onrampBindingSchema = z.object({
+  ...bindingBase,
+  direction: z._default(z.literal("onramp"), "onramp"),
+  paymentMethods: z.readonly(z.array(z.looseObject({ id: z.string(), label: z.string() }))),
+  quotes: z.boolean(),
+  customerSetup: z._default(z.nullable(z.strictObject({ hosted: z.literal(true) })), null),
+  resumeOnly: z.optional(z.boolean()),
+});
+const atomicAmountSchema = z.string().check(z.regex(/^(0|[1-9]\d*)$/));
+const offrampBindingSchema = z.object({
+  ...bindingBase,
+  direction: z.literal("offramp"),
+  paymentMethods: z.readonly(z.array(z.looseObject({
+    id: z.string(), label: z.string(), platform: z.string(), handleHint: z.string(),
+    minimumAmountAtomic: atomicAmountSchema, maximumAmountAtomic: z.nullable(atomicAmountSchema),
+    estimateSemantics: z.literal("approximate"), etaSemantics: z.literal("historical-not-guaranteed"),
+    corridorConfirmedBy: z.string(),
+  }))),
+  quotes: z.literal(false),
+  customerSetup: z._default(z.null(), null),
+});
+const offrampInputSchema = z.object({ ...offrampBindingSchema.shape, kyc: z.nullish(z.null()) });
+const bindingSchema = z.union([onrampBindingSchema, z.pipe(offrampInputSchema, z.transform((value: z.output<typeof offrampInputSchema>) => {
+  const { kyc: _kyc, ...binding } = value;
+  return binding;
+}))]);
+const providersEnvelopeSchema = z.object({ providers: z.array(z.unknown()) });
+const providersResponseSchema = z.object({
+  version: z.literal(FUNDING_PROVIDERS_VERSION),
+  direction: z.enum(["onramp", "offramp"]),
+  providers: z.array(bindingSchema),
+});
 
-export type FundingOnrampBinding = FundingBindingBase & {
-  direction: "onramp";
-  paymentMethods: ReadonlyArray<{ id: string; label: string }>;
-  quotes: boolean;
-  customerSetup: { hosted: true } | null;
-  resumeOnly?: boolean;
-};
+export type FundingOfframpBinding = z.output<typeof offrampBindingSchema>;
+export type FundingBinding = z.output<typeof bindingSchema>;
 
-export type FundingOfframpBinding = FundingBindingBase & {
-  direction: "offramp";
-  paymentMethods: ReadonlyArray<{
-    id: string;
-    label: string;
-    platform: string;
-    handleHint: string;
-    minimumAmountAtomic: string;
-    maximumAmountAtomic: string | null;
-    estimateSemantics: "approximate";
-    etaSemantics: "historical-not-guaranteed";
-    corridorConfirmedBy: string;
-  }>;
-  quotes: false;
-  customerSetup: null;
-};
-
-export type FundingBinding = FundingOnrampBinding | FundingOfframpBinding;
 export function assertFundingProvidersResponse(
   value: unknown,
   direction: FundingDirection,
   region: string,
 ): asserts value is { version: typeof FUNDING_PROVIDERS_VERSION; direction: FundingDirection; providers: unknown[] } {
-  if (!isRecord(value) || value.version !== FUNDING_PROVIDERS_VERSION || value.direction !== direction || !Array.isArray(value.providers)) {
-    throw new Error("Invalid funding providers response");
-  }
-  const bindings = readProviderBindings(value);
-  if (bindings.length !== value.providers.length || !bindings.every((binding) => binding.direction === direction && binding.region === region)) {
+  const result = providersResponseSchema.safeParse(value);
+  if (!result.success || result.data.direction !== direction ||
+    !result.data.providers.every((binding) => binding.direction === direction && binding.region === region)) {
     throw new Error("Invalid funding providers response");
   }
 }
 
 /** @public validates a parsed binding list against the requested region and direction, for restored and cached values */
 export function isFundingBindingListFor(value: unknown, direction: FundingDirection, region: string): value is ReadonlyArray<FundingBinding> {
-  if (!Array.isArray(value)) return false;
-  const bindings = readProviderBindings({ providers: value });
-  return bindings.length === value.length && bindings.every((binding) => binding.region === region && binding.direction === direction);
+  const result = z.array(bindingSchema).safeParse(value);
+  return result.success && result.data.every((binding) => binding.region === region && binding.direction === direction);
 }
 
 export function readProviderBindings(value: unknown): ReadonlyArray<FundingBinding> {
-  if (!isRecord(value) || !Array.isArray(value.providers)) return [];
-  const parsed: FundingBinding[] = [];
-  for (const item of value.providers) {
-    if (!isBaseBinding(item) || !Array.isArray(item.paymentMethods)) continue;
-    const direction = item.direction === undefined ? "onramp" : item.direction;
-    if (direction === "onramp") {
-      if (typeof item.quotes !== "boolean" || !(item.customerSetup === undefined || item.customerSetup === null || isCustomerSetup(item.customerSetup)) ||
-        !(item.resumeOnly === undefined || typeof item.resumeOnly === "boolean")) continue;
-      const paymentMethods = item.paymentMethods.filter(isPaymentMethod);
-      if (paymentMethods.length !== item.paymentMethods.length) continue;
-      parsed.push({
-        providerId: item.providerId, displayName: item.displayName, region: item.region,
-        assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
-        currency: item.currency, direction, paymentMethods, quotes: item.quotes,
-        customerSetup: (item.customerSetup ?? null) as FundingOnrampBinding["customerSetup"],
-        resumeOnly: item.resumeOnly === true,
-      });
-    } else if (direction === "offramp") {
-      const paymentMethods = item.paymentMethods.filter(isOfframpPaymentMethod);
-      if (paymentMethods.length !== item.paymentMethods.length || item.quotes !== false || !((item.customerSetup ?? item.kyc ?? null) === null)) continue;
-      parsed.push({
-        providerId: item.providerId, displayName: item.displayName, region: item.region,
-        assetId: item.assetId, assetSymbol: item.assetSymbol, assetDecimals: item.assetDecimals,
-        currency: item.currency, direction, paymentMethods, quotes: false, customerSetup: null,
-      });
-    }
-  }
-  return parsed;
-}
-
-function isBaseBinding(value: unknown): value is Record<string, unknown> & FundingBindingBase {
-  return isRecord(value) &&
-    typeof value.providerId === "string" &&
-    typeof value.displayName === "string" &&
-    typeof value.region === "string" &&
-    typeof value.assetId === "string" &&
-    typeof value.assetSymbol === "string" &&
-    Number.isSafeInteger(value.assetDecimals) &&
-    typeof value.currency === "string";
-}
-
-function isCustomerSetup(value: unknown): boolean {
-  return isRecord(value) && value.hosted === true && Object.keys(value).length === 1;
-}
-
-function isPaymentMethod(value: unknown): value is { id: string; label: string } {
-  return isRecord(value) && typeof value.id === "string" && typeof value.label === "string";
-}
-
-function isOfframpPaymentMethod(value: unknown): value is FundingOfframpBinding["paymentMethods"][number] {
-  if (!isRecord(value) || typeof value.id !== "string" || typeof value.label !== "string") return false;
-  return typeof value.platform === "string" &&
-    typeof value.handleHint === "string" &&
-    typeof value.minimumAmountAtomic === "string" &&
-    /^(0|[1-9]\d*)$/.test(value.minimumAmountAtomic) &&
-    (value.maximumAmountAtomic === null || (typeof value.maximumAmountAtomic === "string" && /^(0|[1-9]\d*)$/.test(value.maximumAmountAtomic))) &&
-    value.estimateSemantics === "approximate" &&
-    value.etaSemantics === "historical-not-guaranteed" &&
-    typeof value.corridorConfirmedBy === "string";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  const envelope = providersEnvelopeSchema.safeParse(value);
+  if (!envelope.success) return [];
+  return envelope.data.providers.flatMap((item) => {
+    const result = bindingSchema.safeParse(item);
+    if (!result.success) return [];
+    return [result.data.direction === "onramp" ? { ...result.data, resumeOnly: result.data.resumeOnly === true } : result.data];
+  });
 }
