@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { brand } from "@/config/brand";
 import { fetchOperatorSupportSummary } from "@/client/operator-support/api";
+import { reportPageClientError } from "@/client/observability/client-reporter";
 import { operatorNavigation } from "@/config/operator-navigation";
 
 function SectionLinks({ pathname, sectionRoute, onNavigate, supportUnread }: { pathname: string; sectionRoute: boolean; onNavigate?: (href: string) => void; supportUnread: number }) {
@@ -91,9 +92,21 @@ export function OperatorShell({ address, children }: { address: `0x${string}`; c
   const [supportUnread, setSupportUnread] = useState<number | null>(0);
   useEffect(() => {
     let active = true;
+    let summaryFailed = false;
     const poll = () => {
       if (document.hidden) return;
-      void fetchOperatorSupportSummary().then((summary) => { if (active) setSupportUnread(summary.unreadConversations); }).catch(() => { if (active) setSupportUnread(null); return null; });
+      void fetchOperatorSupportSummary().then((summary) => {
+        summaryFailed = false;
+        if (active) setSupportUnread(summary.unreadConversations);
+      }).catch((error) => {
+        if (!active) return null;
+        setSupportUnread(null);
+        if (!summaryFailed) {
+          summaryFailed = true;
+          reportPageClientError({ name: error instanceof Error ? error.name : "Error", message: "Support inbox summary failed", route: window.location.pathname });
+        }
+        return null;
+      });
     };
     poll();
     const timer = window.setInterval(poll, 30_000);

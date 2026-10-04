@@ -109,6 +109,16 @@ export function reportCaughtClientError(
   }
 }
 
+export function reportPageClientError(
+  report: ClientErrorReport,
+  send: ClientErrorTransport = (url, init) => fetch(url, init),
+): void {
+  try {
+    pageClientErrorReporter(send)(report);
+  } catch {
+  }
+}
+
 export function installClientErrorReporting(
   send: ClientErrorTransport = (url, init) => fetch(url, init),
 ): void {
