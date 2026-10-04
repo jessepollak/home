@@ -13,6 +13,13 @@ export function privateJson(body: unknown, status = 200): Response {
   return Response.json(body, { status, headers: privateResponseHeaders });
 }
 
+export function privateSerializedJson(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { ...privateResponseHeaders, "Content-Type": "application/json" },
+  });
+}
+
 export function privateError(code: string, message: string, status: number): Response {
   return privateJson({ error: { code, message } }, status);
 }

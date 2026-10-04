@@ -4,7 +4,7 @@ import { isRegionId, type RegionId } from "@/config/regions";
 import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authorize";
 import { observeSafely, writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
-import { privateError, privateJson } from "@/server/http/private-response";
+import { privateError, privateSerializedJson } from "@/server/http/private-response";
 import { parseBalancesSnapshot } from "@/shared/balances/contract";
 import type {
   BalancesAddress,
@@ -21,8 +21,10 @@ export function createBalancesHandler(dependencies: {
   ) => Promise<BalancesSnapshot>;
   ensureAddressSubscribed?: (address: BalancesAddress) => Promise<void>;
   log?: (event: ObservabilityEvent) => unknown;
+  nowMs?: () => number;
 }) {
   const log = dependencies.log ?? writeObservabilityEvent;
+  const nowMs = dependencies.nowMs ?? (() => performance.now());
   const subscriptionAttempts = new Set<string>();
 
   return async function GET(request: Request): Promise<Response> {
@@ -67,6 +69,7 @@ export function createBalancesHandler(dependencies: {
     }
 
     let parsed: BalancesSnapshot;
+    const validateStartedAt = nowMs();
     try {
       parsed = parseBalancesSnapshot(snapshot, {
         subject: session.user.subject,
@@ -82,7 +85,18 @@ export function createBalancesHandler(dependencies: {
       return privateError("BALANCES_UNAVAILABLE", "Balances are temporarily unavailable.", 502);
     }
 
-    return privateJson(parsed, 200);
+    const validate = Math.max(0, nowMs() - validateStartedAt);
+    const serializeStartedAt = nowMs();
+    const body = JSON.stringify(parsed);
+    const serialize = Math.max(0, nowMs() - serializeStartedAt);
+    const response = privateSerializedJson(body, 200);
+    observeSafely(() => log({
+      kind: "balances-response",
+      route: "/api/balances",
+      durationMs: { validate, serialize },
+      bytes: Buffer.byteLength(body, "utf8"),
+    }));
+    return response;
   };
 }
 
