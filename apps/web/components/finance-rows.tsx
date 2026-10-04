@@ -113,7 +113,8 @@ function FinanceRow({
   const hintId = useId();
   const activation = action ? undefined : onActivate;
   const hasValue = value !== undefined || valueContext !== undefined;
-  const rowContext = context === undefined && !reserveContext ? null : (
+  const reservesEmptyContext = context === undefined && reserveContext && labelSuffix === undefined;
+  const rowContext = context === undefined && (!reserveContext || reservesEmptyContext) ? null : (
     <ItemDescription lines={contextLines} tone={disclosure ? "disclosure" : undefined} className={cn(contextLines === 2 && "whitespace-normal", labelSuffix !== undefined && "order-4 mt-0.5 max-w-full shrink-0")} title={contextTitle}>
       {context ?? <span aria-hidden="true">{"\u00a0"}</span>}
     </ItemDescription>
@@ -174,7 +175,7 @@ function FinanceRow({
       </ItemMedia>
       <div className={cn("flex min-w-0 flex-1 items-start", labelSuffix === undefined ? cn("gap-3 @max-[14rem]/finance-row:flex-col @max-[14rem]/finance-row:gap-1", contextLines === 2 && "flex-wrap gap-y-1") : "flex-wrap gap-x-2 gap-y-0 @max-[14rem]/finance-row:order-3 @max-[14rem]/finance-row:basis-full")} data-slot="finance-row-body">
         {labelSuffix === undefined ? (
-          <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
+          <ItemContent className={cn("min-w-0 gap-0.5 @max-[14rem]/finance-row:w-full @max-[14rem]/finance-row:self-stretch", contextLines === 2 && "min-w-min", reservesEmptyContext && "min-h-[calc(2.875em+0.125rem)] justify-center", (context === undefined || value === undefined || valueContext === undefined) && "self-center")}>
             {labelAndContext}
           </ItemContent>
         ) : <div className="contents" data-slot="finance-row-label">{labelAndContext}</div>}
