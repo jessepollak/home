@@ -49,7 +49,10 @@ function AvailableTradeActions({ asset, layout }: { asset: InvestAsset; layout: 
       {investOffered ? <Button size="touch" disabled={!ready || availability.buy === "blocked" || trade.cash === null || trade.cash === "0"} {...moneySheetIntent(() => trade.intent(asset.id, "buy"))} onClick={(event) => trade.open(asset.id, "buy", event.currentTarget)}>Buy</Button> : null}
       <Button size="touch" variant="secondary" disabled={!ready || holding === null || BigInt(holding) === BigInt(0)} {...moneySheetIntent(() => trade.intent(asset.id, "sell"))} onClick={(event) => trade.open(asset.id, "sell", event.currentTarget)}>Sell</Button>
     </div>
-    {investOffered && (note || balancesNote || sellNote || buyNote) ? <p className="text-end text-sm text-muted-foreground" role="note">{note ?? balancesNote ?? sellNote ?? buyNote}</p> : !investOffered ? <p className="text-end text-sm text-muted-foreground" role="note">Buying is no longer offered. You can still sell.</p> : null}
+    {investOffered && (note || balancesNote || sellNote || buyNote) ? <p className="text-end text-sm text-muted-foreground" role="note">{note ?? balancesNote ?? sellNote ?? buyNote}</p> : !investOffered ? <>
+      <p className="text-end text-sm text-muted-foreground" role="note">Buying is no longer offered. You can still sell.</p>
+      {!ready && note ? <p className="text-end text-sm text-muted-foreground" role="note">{note}</p> : null}
+    </> : null}
     {trade.sheet}
   </div>;
 }

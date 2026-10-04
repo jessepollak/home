@@ -13,6 +13,8 @@ import { cashConversionCurrencies } from "@/shared/trading/cash-conversion";
 import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
+import { ProductOfferingProvider } from "@/client/home/product-offering";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import { TradeActions } from "./trade-actions";
 import { TradeMoneyDialog } from "./trade-money-dialog";
@@ -20,6 +22,7 @@ import { pinClock } from "@/tests/helpers/pin-clock";
 
 const TIME = "2026-09-28T12:00:00.000Z";
 const NOW = Date.parse(TIME);
+const deploymentOffering = resolveProductOffering({ kind: "deployment" });
 
 const wallet = "0x1111111111111111111111111111111111111111" as const;
 const usdc = parseAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913")!;
@@ -81,6 +84,7 @@ function withServiceFee(action: PreparedMoneyAction): PreparedMoneyAction {
 
 type StoryProps = {
   direction?: TradeDirection;
+  investOffered?: boolean;
   view?: "amount" | "review" | "expired" | "error" | "availability";
   availability?: "available" | "blocked" | "provider-unconfigured" | "signer-unsupported" | "token-unreadable" | "chain-unavailable" | "zero-balance";
   errorCode?: string;
@@ -90,7 +94,7 @@ type StoryProps = {
   conversion?: boolean;
   assetName?: string;
 };
-function TradeStory({ direction = "buy", view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN", conversion = false }: StoryProps) {
+function TradeStory({ direction = "buy", investOffered = true, view = "amount", availability = "available", errorCode, networkFee = "available", tinyPrice = false, serviceFee = false, assetName = "DEGEN", conversion = false }: StoryProps) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   const [preparations, setPreparations] = useState(0);
   const fetchAccountResource = async (path: string) => path.startsWith("/api/trades?")
@@ -111,13 +115,15 @@ function TradeStory({ direction = "buy", view = "amount", availability = "availa
     setPreparations((count) => count + 1);
     return result;
   };
+  const availabilityView = <AccountWalletClientProvider client={{
+    ...createBlockedAccountWalletClient("provider-unavailable"),
+    status: "verified", verification: "server", isSignedIn: true, ownerKey: dataOwnerKey(session), session,
+    fetchBalances: async () => balancesSnapshot("US"), fetchAccountResource,
+  }}><TradeActions asset={degen} /></AccountWalletClientProvider>;
   return <QueryClientProvider client={client}><PresentationRegionProvider regionId="US">
     <main className="mx-auto flex min-h-svh w-full max-w-2xl items-center justify-center p-4">
-      {view === "availability" ? <AccountWalletClientProvider client={{
-        ...createBlockedAccountWalletClient("provider-unavailable"),
-        status: "verified", verification: "server", isSignedIn: true, ownerKey: dataOwnerKey(session), session,
-        fetchBalances: async () => balancesSnapshot("US"), fetchAccountResource,
-      }}><TradeActions asset={degen} /></AccountWalletClientProvider> :
+      {view === "availability" ? investOffered ? availabilityView :
+        <ProductOfferingProvider value={{ ...deploymentOffering, products: { ...deploymentOffering.products, invest: "exit-only" } }}>{availabilityView}</ProductOfferingProvider> :
         <TradeMoneyDialog open direction={direction} session={session} token={conversion ? eurToken : token} assetName={conversion ? eur.name : assetName}
           conversion={conversion ? { from: usd, to: eur } : undefined}
           availableBaseUnits={direction === "buy" ? "10000000" : "100000000000000000000"}
@@ -180,6 +186,36 @@ export const ProviderUnavailable: Story = {
   },
 };
 export const ChainUnavailable: Story = { args: { view: "availability", availability: "chain-unavailable" } };
+export const ExitOnlyChainUnavailable: Story = {
+  args: { view: "availability", availability: "chain-unavailable", investOffered: false },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByText("Trading isn't available right now. Try again later.")).toHaveAttribute("role", "note");
+    await expect(await screen.findByRole("button", { name: "Sell" })).toBeDisabled();
+    await expect(screen.queryByRole("button", { name: "Buy" })).not.toBeInTheDocument();
+    await expect(await screen.findByText("Buying is no longer offered. You can still sell.")).toHaveAttribute("role", "note");
+  },
+};
+export const ExitOnlyTokenUnreadable: Story = {
+  args: { view: "availability", availability: "token-unreadable", investOffered: false },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByText("This token couldn't be read on Base. You can still send it.")).toHaveAttribute("role", "note");
+    await expect(await screen.findByRole("button", { name: "Sell" })).toBeDisabled();
+    await expect(screen.queryByRole("button", { name: "Buy" })).not.toBeInTheDocument();
+    await expect(await screen.findByText("Buying is no longer offered. You can still sell.")).toHaveAttribute("role", "note");
+  },
+};
+export const ExitOnly: Story = {
+  args: { view: "availability", investOffered: false },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await expect(await screen.findByRole("button", { name: "Sell" })).toBeEnabled();
+    await expect(screen.queryByRole("button", { name: "Buy" })).not.toBeInTheDocument();
+    await expect(await screen.findByRole("note")).toHaveTextContent("Buying is no longer offered. You can still sell.");
+    await expect(screen.getAllByRole("note")).toHaveLength(1);
+  },
+};
 export const TokenUnreadable: Story = { args: { view: "availability", availability: "token-unreadable" } };
 export const AccountUnsupported: Story = { args: { view: "availability", availability: "signer-unsupported" } };
 export const NothingToSell: Story = { args: { view: "availability", availability: "zero-balance" } };
