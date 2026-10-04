@@ -113,12 +113,11 @@ export function chromiumGeometry(raw, viewport, markerWidth) {
   return { ...output, restoredWidth, filter: restoredWidth === output.width ? null : `scale=${restoredWidth}:${output.height},crop=${output.width}:${output.height}:0:0,setsar=1` };
 }
 
-export function webkitGeometry(raw, viewport, markerWidth, expected = raw) {
-  if (![raw.width, raw.height, viewport.width, viewport.height, markerWidth].every((value) => Number.isFinite(value) && value > 0)) throw new Error("Invalid WebKit capture geometry");
-  const height = Math.round(markerWidth * viewport.height / viewport.width);
-  const captureWidth = Math.min(viewport.width, raw.width, viewport.width * raw.height / viewport.height);
-  if (raw.width !== expected.width || raw.height !== expected.height || markerWidth > raw.width || height > raw.height || Math.abs(markerWidth - captureWidth) > 2) throw new Error("WebKit calibration does not match the viewport; recording discarded");
-  return { filter: `crop=${markerWidth}:${height}:0:0:exact=1,scale=${raw.width}:${raw.height},setsar=1` };
+export function webkitGeometry(raw, viewport) {
+  if (![raw.width, raw.height, viewport.width, viewport.height].every((value) => Number.isSafeInteger(value) && value > 0)) throw new Error("Invalid WebKit capture geometry");
+  if (raw.width !== Math.floor(viewport.width / 2) * 2 || raw.height !== Math.floor(viewport.height / 2) * 2) throw new Error("WebKit raw frame does not match the even-rounded CSS viewport; recording discarded");
+  const width = viewport.width * 2, height = viewport.height * 2;
+  return { width, height, filter: `scale=${width}:${height}:flags=lanczos,setsar=1` };
 }
 
 export function androidStatusBar(dump) {

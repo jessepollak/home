@@ -5,7 +5,7 @@ import { androidGeometry, assertFixtureNavigation, assertSessionAge, chromiumGeo
 import { localTarget } from "./clip-targets";
 import { remoteCommand, remoteStartTimeout, remoteTarget, sshArgs } from "./clip-remote";
 import { CommandError, browser, load, probeVideo, privateDirectory, removeSession, repository, run, save, sessionDirectory, until, verifyDirectory, waitForResult, workerAlive, workerIdentity, type ClipState, type WorkerIdentity } from "./clip-runtime";
-import { validateWebkitCommand, webkitDevice, webkitVideoSize } from "../../apps/web/scripts/clip-webkit";
+import { validateWebkitCommand, webkitDevice } from "../../apps/web/scripts/clip-webkit";
 
 type Request = { out?: string; cancel?: boolean };
 type Result = { error?: string; cleanupError?: boolean; out?: string; width?: number; height?: number; label?: string };
@@ -61,14 +61,15 @@ async function worker(directory: string) {
       await (target as ReturnType<typeof localTarget>).stop();
       const raw = await probeVideo(state.raw);
       let filter = null, trim = 0;
-      if (["chromium", "webkit"].includes(state.target)) {
+      if (state.target === "chromium") {
         const sample = join(directory, "calibration.rgb");
         await run("ffmpeg", ["-y", "-i", state.raw, "-t", "5", "-vf", "fps=30,crop=iw:16:0:0", "-f", "rawvideo", "-pix_fmt", "rgb24", sample]);
         const calibration = measureCalibration(new Uint8Array(await Bun.file(sample).arrayBuffer()), raw.width);
         await rm(sample, { force: true });
-        filter = state.target === "webkit" ? webkitGeometry(raw, state.viewport, calibration.markerWidth, webkitVideoSize(state.viewport, state.css!.dpr)).filter : chromiumGeometry(raw, state.css!, calibration.markerWidth).filter;
+        filter = chromiumGeometry(raw, state.css!, calibration.markerWidth).filter;
         trim = calibration.trim;
       }
+      if (state.target === "webkit") filter = webkitGeometry(raw, state.viewport).filter;
       if (state.target === "android" && !state.keepStatusBar) filter = androidGeometry(raw, state.androidScreen, state.statusBarHeight).filter;
       const temporary = join(directory, "normalized.mp4");
       await run("ffmpeg", normalizationArgs(state.raw, temporary, filter, trim), { timeout: 180000 });

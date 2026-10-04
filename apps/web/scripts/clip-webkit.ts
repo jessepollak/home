@@ -9,19 +9,23 @@ export const defaultWebkitDevice = "iPhone 15";
 const supported = "open|goto <url>, click <selector>, fill|type <selector> <text>, press <key>, hover <selector>, scroll|swipe <up|down> [px], wait <ms|selector>, wait --fn <js>, eval <js>, snapshot, screenshot <path>, get url|title";
 
 export function webkitDevice(name = defaultWebkitDevice) {
-  if (!Object.hasOwn(devices, name)) throw new Error(`Unknown Playwright device: ${name}. Choices include: iPhone 15, iPhone 15 Pro, iPhone 15 Pro Max, iPhone 15 landscape`);
+  const valid = Object.keys(devices).filter((device) => {
+    const profile = devices[device]!;
+    return profile.defaultBrowserType === "webkit" && profile.hasTouch && profile.isMobile;
+  });
+  if (!valid.includes(name)) throw new Error(`Unsupported Playwright mobile WebKit device: ${name}. Valid devices: ${valid.join(", ")}`);
   return { name, profile: devices[name]! };
 }
 
-export function webkitVideoSize(viewport: { width: number; height: number }, dpr: number) {
-  if (![viewport.width, viewport.height, dpr].every((value) => Number.isFinite(value) && value > 0)) throw new Error("Invalid WebKit video geometry");
-  const scale = Math.min(dpr, 2160 / Math.max(viewport.width, viewport.height));
-  return { width: Math.max(2, Math.floor(viewport.width * scale / 2) * 2), height: Math.max(2, Math.floor(viewport.height * scale / 2) * 2) };
+export function webkitVideoSize(viewport: { width: number; height: number }) {
+  if (![viewport.width, viewport.height].every((value) => Number.isSafeInteger(value) && value > 0)) throw new Error("Invalid WebKit video geometry");
+  return { ...viewport };
 }
 
 export function validateWebkitCommand(args: string[]) {
   const [command, ...values] = args;
   const fail = () => { throw new Error(`Unsupported WebKit command or arguments. Supported: ${supported}. Selectors: CSS, text=…, role=button[name="…"]; no @eN refs. Recording, close and viewport changes belong to clip.`); };
+  if (values.some((value, index) => value.startsWith("--") && !(command === "wait" && index === 0 && value === "--fn"))) throw new Error("WebKit arguments cannot start with --; only wait --fn <js> supports a flag");
   const arity = { open: 1, goto: 1, click: 1, fill: 2, type: 2, press: 1, hover: 1, eval: 1, snapshot: 0, screenshot: 1, get: 1 };
   if (Object.hasOwn(arity, command)) {
     if (values.length !== arity[command as keyof typeof arity]) fail();
@@ -48,22 +52,40 @@ export async function driveWebkit(page: Page, args: string[]): Promise<unknown> 
     case "type": await page.locator(first).pressSequentially(second); break;
     case "press": await page.keyboard.press(first); break;
     case "hover": await page.locator(first).hover(); break;
-    case "scroll": await page.mouse.wheel(0, (first === "up" ? -1 : 1) * Number(second || 500)); break;
-    case "swipe":
-      await page.evaluate(({ direction, distance }) => {
-        const x = innerWidth / 2, y = innerHeight / 2;
-        const target = document.elementFromPoint(x, y) ?? document.body;
-        const delta = (direction === "up" ? -1 : 1) * distance;
-        const touch = (clientY: number) => new Touch({ identifier: 1, target, clientX: x, clientY });
-        const emit = (type: string, clientY: number, ended = false) => target.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches: ended ? [] : [touch(clientY)], targetTouches: ended ? [] : [touch(clientY)], changedTouches: [touch(clientY)] }));
-        emit("touchstart", y);
-        emit("touchmove", y - delta);
-        let scroller: Element | null = target;
-        while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) scroller = scroller.parentElement;
-        (scroller ?? document.scrollingElement)?.scrollBy({ top: delta, behavior: "smooth" });
-        emit("touchend", y - delta, true);
-      }, { direction: first, distance: Number(second || 500) });
+    case "scroll": case "swipe": {
+      const scroll = await page.evaluateHandle(({ direction, distance }) => {
+        const documentScroller = document.scrollingElement;
+        let scroller = documentScroller;
+        if (!scroller || scroller.scrollHeight <= scroller.clientHeight) {
+          let ancestor = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+          let largestArea = 0;
+          while (ancestor) {
+            const area = ancestor.clientWidth * ancestor.clientHeight;
+            if (ancestor.scrollHeight > ancestor.clientHeight && /auto|scroll/.test(getComputedStyle(ancestor).overflowY) && area > largestArea) {
+              scroller = ancestor;
+              largestArea = area;
+            }
+            ancestor = ancestor.parentElement;
+          }
+        }
+        if (!scroller) throw new Error("No scrolling element found");
+        const top = (direction === "up" ? -1 : 1) * (distance ?? Math.round(innerHeight * 0.65));
+        const start = scroller.scrollTop;
+        const target = Math.max(0, Math.min(start + top, scroller.scrollHeight - scroller.clientHeight));
+        scroller.scrollBy({ top, behavior: "smooth" });
+        return { scroller, last: start, stable: 0, moved: false, atEdge: target === start };
+      }, { direction: first, distance: second ? Number(second) : command === "scroll" ? 500 : null });
+      try {
+        await page.waitForFunction((state) => {
+          const top = state.scroller.scrollTop;
+          state.moved ||= top !== state.last;
+          state.stable = top === state.last ? state.stable + 1 : 0;
+          state.last = top;
+          return (state.moved || state.atEdge) && state.stable >= 6;
+        }, scroll, { polling: "raf" });
+      } finally { await scroll.dispose(); }
       break;
+    }
     case "wait":
       if (first === "--fn") await page.waitForFunction(second);
       else if (/^\d+$/.test(first)) await page.waitForTimeout(Number(first));
@@ -96,7 +118,7 @@ export function webkitTarget(state: ClipState, directory: string, dependencies: 
       state.url = url;
       browser = await deps.webkit.launch({ headless: true });
       state.webkitVersion = browser.version();
-      context = await browser.newContext({ ...profile, recordVideo: { dir: directory, size: webkitVideoSize(profile.viewport, profile.deviceScaleFactor) }, serviceWorkers: "block" });
+      context = await browser.newContext({ ...profile, recordVideo: { dir: directory, size: webkitVideoSize(profile.viewport) }, serviceWorkers: "block" });
       context.setDefaultTimeout(30000);
       context.setDefaultNavigationTimeout(60000);
       if (state.fixture) {
@@ -107,7 +129,6 @@ export function webkitTarget(state: ClipState, directory: string, dependencies: 
       }
       page = await context.newPage();
       if (!url) await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1">');
-      await page.evaluate('(async () => { const marker = document.createElement("div"); marker.style.cssText = "all:initial;position:fixed;left:0;top:0;width:100vw;height:64px;background:rgb(17,233,71);z-index:2147483647;pointer-events:none"; document.documentElement.append(marker); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); await new Promise(resolve => setTimeout(resolve, 600)); marker.remove(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); })()');
       if (url) await page.goto(url, { waitUntil: "domcontentloaded" });
       if (state.fixture) await page.locator("[data-app-main-authenticated]").waitFor({ state: "visible", timeout: 90000 });
       state.css = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, outerWidth, dpr: devicePixelRatio }));
