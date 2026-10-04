@@ -224,9 +224,10 @@ function PullToRefreshSpecimen() {
 
 function RadioGroupSpecimen() {
   const titleId = useId();
+  const [value, setValue] = useState("checking");
   return <div className="grid w-64 gap-3">
     <p id={titleId} className="text-sm font-medium">Pay with</p>
-    <RadioGroup aria-labelledby={titleId} defaultValue="checking">
+    <RadioGroup aria-labelledby={titleId} value={value} onValueChange={setValue}>
       <RadioGroupOption value="checking" label="Checking •••• 4821" />
       <RadioGroupOption value="savings" label="Savings •••• 1234" />
     </RadioGroup>
@@ -260,6 +261,21 @@ function ToastSpecimen() {
     <Button variant="outline" onClick={() => setShown((count) => count + 1)}>Show toast</Button>
     {shown > 0 && <Toaster />}
   </>;
+}
+
+function ToggleSpecimen() {
+  const [pressed, setPressed] = useState(false);
+  return <Toggle variant="outline" aria-label="Add to watchlist" pressed={pressed} onPressedChange={setPressed}>
+    <Star aria-hidden="true" />
+  </Toggle>;
+}
+
+function ToggleGroupSpecimen() {
+  const [value, setValue] = useState(["1W"]);
+  return <ToggleGroup value={value} onValueChange={setValue} aria-label="Price range" variant="outline" spacing={0} className="h-11 w-64">
+    {["1D", "1W", "1M", "1Y"].map((range) =>
+      <ToggleGroupItem key={range} value={range} className="h-full flex-1">{range}</ToggleGroupItem>)}
+  </ToggleGroup>;
 }
 
 export const specimens: Record<string, Specimen> = {
@@ -442,13 +458,6 @@ export const specimens: Record<string, Specimen> = {
     </Table>,
   },
   "ui-toast": { Render: ToastSpecimen },
-  "ui-toggle": {
-    Render: () => <Toggle variant="outline" aria-label="Add to watchlist"><Star aria-hidden="true" /></Toggle>,
-  },
-  "ui-toggle-group": {
-    Render: () => <ToggleGroup defaultValue={["1W"]} aria-label="Price range" variant="outline" spacing={0} className="h-11 w-64">
-      {["1D", "1W", "1M", "1Y"].map((range) =>
-        <ToggleGroupItem key={range} value={range} className="h-full flex-1">{range}</ToggleGroupItem>)}
-    </ToggleGroup>,
-  },
+  "ui-toggle": { Render: ToggleSpecimen },
+  "ui-toggle-group": { Render: ToggleGroupSpecimen },
 };

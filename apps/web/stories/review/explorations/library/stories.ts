@@ -184,5 +184,6 @@ export async function loadCompositionStories(entries: StoryIndexEntry[]): Promis
       frame: "Library override", portals: true, themePinned: false,
       viewport: declaredViewport(story.parameters, story.globals, 1) ?? PHONE_VIEWPORT,
     }];
-  });
+  }).toSorted((a, b) => Number((a.viewport?.width ?? PHONE_VIEWPORT.width) >= 768) -
+    Number((b.viewport?.width ?? PHONE_VIEWPORT.width) >= 768));
 }
