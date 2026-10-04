@@ -145,7 +145,8 @@ function normalizeDraft(draft: MoneyActionDraft, owner: `0x${string}`): MoneyAct
     if (!approval || approval.token !== BASE_USDC_ADDRESS.toLowerCase() ||
       approval.spender !== BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() ||
       approval.amountBaseUnits !== networkFee.maxFeeBaseUnits ||
-      draft.calls[0]?.value !== "0" || draft.calls[0]?.approval?.spender.toLowerCase() !== BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() ||
+      draft.calls[0]?.value !== "0" || typeof draft.calls[0]?.approval?.spender !== "string" ||
+      draft.calls[0].approval.spender.toLowerCase() !== BASE_USDC_PAYMASTER_ADDRESS.toLowerCase() ||
       draft.calls[0]?.approval?.assetId !== "usdc") throw new MoneyActionIssueError("invalid-draft");
   }
   if (warnings.length === 0 && networkFee?.payment !== "usdc") {

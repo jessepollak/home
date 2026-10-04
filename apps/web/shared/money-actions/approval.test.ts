@@ -16,3 +16,14 @@ test("approval calldata canonicalizes checksummed token and spender and rejects 
   const upperData = `0x095ea7b3${"0".repeat(24)}${spender.slice(2).toUpperCase()}${"0".repeat(63)}1` as const;
   expect(String(decodeMoneyActionApproval({ ...call, data: upperData })?.spender)).toBe(spender.toLowerCase());
 });
+
+test("approval calldata with a non-hex amount word fails closed", () => {
+  const token = getAddress("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913");
+  const spender = getAddress("0x940181a94a35a4569e4529a3cdfb74e38fd98631");
+  const call: MoneyActionCall = { to: token, data: "0x", value: "0", approval: { assetId: "token", spender } };
+  for (const tail of [`${"0".repeat(63)}g`, `${"0".repeat(62)} 1`, `x${"0".repeat(63)}`]) {
+    const data = `0x095ea7b3${"0".repeat(24)}${spender.slice(2)}${tail}` as const;
+    expect(data).toHaveLength(138);
+    expect(decodeMoneyActionApproval({ ...call, data })).toBeNull();
+  }
+});

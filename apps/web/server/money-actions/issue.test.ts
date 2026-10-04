@@ -249,6 +249,22 @@ describe("savings money action issuance", () => {
     draft.networkFee = { payment: "usdc", token: BASE_USDC_ADDRESS, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "100000", decimals: 6 };
     await expect(issueMoneyAction(session, draft)).rejects.toMatchObject({ reason: "invalid-draft" });
   });
+
+  test("rejects malformed paymaster approval calldata and spender as an invalid draft", async () => {
+    const approval = makePaymasterApproval(BigInt(100000));
+    const nonHexAmount: MoneyActionDraft["calls"][number] = { ...approval, data: `0x${approval.data.slice(2, 74)}${"z".repeat(64)}` };
+    const malformed = [
+      nonHexAmount,
+      { ...approval, ...JSON.parse('{"data":1}') },
+      { ...approval, ...JSON.parse('{"approval":{"assetId":"usdc","spender":1}}') },
+    ];
+    for (const call of malformed) {
+      const draft = savingsDraft("deposit");
+      draft.calls.unshift(call);
+      draft.networkFee = { payment: "usdc", token: BASE_USDC_ADDRESS, paymaster: BASE_USDC_PAYMASTER_ADDRESS, maxFeeBaseUnits: "100000", decimals: 6 };
+      await expect(issueMoneyAction(session, draft)).rejects.toMatchObject({ reason: "invalid-draft" });
+    }
+  });
 });
 
 function cardDraft(operation: "set-allowance" | "revoke-allowance" = "set-allowance", spender: `0x${string}` = CARD_SPENDER, amount = "25000000"): MoneyActionDraft {
