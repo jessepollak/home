@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 
-export const caughtByValues = ["lint", "bot", "review", "browser", "production"];
+export const caughtByValues = ["lint", "unit", "bot", "review", "browser", "production"];
 
 // The commit that introduced the trailer policy (#709, 2026-09-21). The report
 // marks fixes that do not descend from it as pre-policy.

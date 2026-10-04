@@ -72,11 +72,6 @@ export function readHomeAuthRestoreHint(): "none" | "cdp" | "base" {
   return hint === "base-account" || hint === "pending:base-account" ? "base" : "none";
 }
 
-/** @public exercised by client/account/cdp-wallet-provider-capabilities.test.ts */
-export function hasAccountProviderHint(): boolean {
-  return readAccountProviderHint() !== null || hasCdpRestoreMarker() || hasReadableCdpCookie();
-}
-
 export function writeAccountProviderHint(provider: AccountProviderHint | null) {
   try {
     if (provider) {

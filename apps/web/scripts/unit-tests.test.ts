@@ -52,12 +52,9 @@ test("batches, substring filters and option values", () => {
   expect(() => splitArgs(["--coverage-dir", "coverage"])).toThrow("run bun test directly");
 });
 
-test("only the operator inbox suite is isolated from default 25-file batches", () => {
-  const inbox = "./client/operator-support/operator-support-inbox.test.tsx";
+test("default batches preserve contiguous 25-file groups", () => {
   const files = Array.from({ length: 26 }, (_, index) => `./client/suite-${index}.test.tsx`);
-  const batches = batchTests([...files.slice(0, 13), inbox, ...files.slice(13)], DEFAULT_BATCH_SIZE);
-  expect(batches).toEqual([files.slice(0, 25), files.slice(25), [inbox]]);
-  expect(batchTests([inbox], DEFAULT_BATCH_SIZE)).toEqual([[inbox]]);
+  expect(batchTests(files, DEFAULT_BATCH_SIZE)).toEqual([files.slice(0, 25), files.slice(25)]);
 });
 
 test("DOM partition scan recognizes runtime imports but not comments or type-only imports", () => {

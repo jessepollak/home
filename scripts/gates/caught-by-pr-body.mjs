@@ -12,7 +12,7 @@ export function caughtByPrBodyFindings(title, body) {
   const detectors = prBodyDetectors(body);
   return detectors.length === 1
     ? []
-    : ["A scoped fix PR body must name exactly one Caught-by detector: lint, bot, review, browser, or production."];
+    : ["A scoped fix PR body must name exactly one Caught-by detector: lint, unit, bot, review, browser, or production."];
 }
 
 function main() {

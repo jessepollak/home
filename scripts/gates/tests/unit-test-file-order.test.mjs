@@ -189,13 +189,13 @@ test("run defaults to client groups of ten files", () => {
 });
 
 test("a failing second group reports its files and stops later groups", (t) => {
-  const groups = groupFiles(shardFiles(trackedFiles(), "client"), 25);
+  const groups = groupFiles(shardFiles(trackedFiles(), "client"), 1);
   assert.ok(groups.length > 2);
   const logged = [];
   t.mock.method(console, "error", (message) => logged.push(message));
   let calls = 0;
   const result = run(["client"], {
-    env: { HOME_UNIT_TEST_FILE_ORDER_GROUP_SIZE: "25" },
+    env: { HOME_UNIT_TEST_FILE_ORDER_GROUP_SIZE: "1" },
     readSource: () => "export {};",
     command: () => ({ status: ++calls === 2 ? 7 : 0 }),
   });

@@ -10,10 +10,6 @@ import {
   type VerifiedAccountSession,
 } from "@/shared/account/session-types";
 
-/** @public exercised by client/home/home-experience.test.tsx */
-export {
-  BASE_CHAIN_ID,
-} from "@/shared/account/session-types";
 export type {
   VerifiedAccountSession,
 } from "@/shared/account/session-types";

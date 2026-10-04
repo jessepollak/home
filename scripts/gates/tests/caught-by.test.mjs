@@ -41,7 +41,7 @@ const squashedMainHead = {
 };
 
 test("requires exactly one allowed Caught-by detector on scoped fix commits", () => {
-  for (const value of ["lint", "bot", "review", "browser", "production"]) {
+  for (const value of ["lint", "unit", "bot", "review", "browser", "production"]) {
     assert.deepEqual(caughtByViolations([commit("fix(home): repair state", `details\n\nCaught-by: ${value}`)]), []);
   }
   assert.match(caughtByViolations([commit("fix(home): repair state")])[0], /must name exactly one Caught-by detector$/);

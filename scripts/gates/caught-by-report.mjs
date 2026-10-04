@@ -16,7 +16,7 @@ import { prBodyDetectors } from "./caught-by-pr-body.mjs";
 // detectors and lists fixes a home/* lint rule could have caught. It is a
 // report, not a gate: every path exits 0 so a broken corpus cannot fail a build.
 
-export const detectorOrder = ["lint", "bot", "review", "browser", "production", "mixed", "unknown"];
+export const detectorOrder = ["lint", "unit", "bot", "review", "browser", "production", "mixed", "unknown"];
 // review, bot, and production fixes are the rule-first triage queue.
 export const ruleCandidateDetectors = ["review", "bot", "production"];
 export const defaultSince = "30.days";
