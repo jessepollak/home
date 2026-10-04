@@ -217,7 +217,11 @@ function affectsPersistedOwner(event: QueryCacheNotifyEvent, ownerKey: string): 
   if (event.type !== "added" && event.type !== "removed" && event.type !== "updated") return false;
   const { query } = event;
   const meta = query.meta;
-  if (meta?.persistence !== "owner" || meta.ownerKey !== ownerKey || query.queryKey[0] !== ownerKey) return false;
+  if (meta?.persistence !== "owner" || meta.ownerKey !== ownerKey) return false;
+  const queryKey: unknown = query.queryKey;
+  if (!Array.isArray(queryKey)) return false;
+  const parts: unknown[] = queryKey;
+  if (parts[0] !== ownerKey) return false;
   if (event.type === "removed") return true;
   if (event.type === "added") return query.state.status === "success";
   switch (event.action.type) {

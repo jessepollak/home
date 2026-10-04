@@ -39,6 +39,7 @@ const fundingOrderSchema = z.object({
   paymentMethodLabel: textSchema,
   status: statusSchema,
   stage: fundingStageSchema,
+  abandonReason: z.optional(z.enum(["owner", "timed-out"])),
   instruction: z.nullable(instructionKindSchema),
   resumable: z.boolean(),
   fiatAmount: z.string().check(z.regex(decimalPattern)),
@@ -52,6 +53,7 @@ const fundingOrderSchema = z.object({
   logIndex: z.nullable(atomicSchema),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
+  movedAt: z.optional(timestampSchema),
 }).check(z.refine((order) => order.transactionHash !== null || order.logIndex === null));
 
 const cashoutOrderSchema = z.object({

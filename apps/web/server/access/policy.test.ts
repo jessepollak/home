@@ -53,11 +53,30 @@ describe("deployment access policy", () => {
       "/api/actions/0b9a7c1e-4d2f-4a8b-9c3d-5e6f7a8b9c0d/paymaster/extra",
       "/api/actions/network-fee",
       "/api/session",
+      "/api/support/chat",
+      "/api/support/handoff",
+      "/api/admin/support/assistant/credential",
+      "/api/admin/support/conversations/11111111-1111-4111-8111-111111111111/handler",
+      "/api/funding/orders/11111111-1111-4111-8111-111111111111/resolve",
+      "/api/funding/orders/11111111-1111-4111-8111-111111111111/cancel",
       "/_next/image",
     ];
     for (const path of protectedNeighbors) {
       const expectedStatus = path.startsWith("/api/") ? 401 : 307;
       expect(enforceAccess(request(path), enabled, now)?.status, path).toBe(expectedStatus);
+    }
+  });
+
+  test("protects funding cancel and resolution POST with the same access policy", async () => {
+    for (const endpoint of ["cancel", "resolve"]) {
+      const path = `/api/funding/orders/11111111-1111-4111-8111-111111111111/${endpoint}`;
+      const denied = enforceAccess(request(path, { method: "POST" }), enabled, now);
+      if (!denied) throw new Error("Expected access rejection");
+      expect(denied.status).toBe(401);
+      expect(accessErrorCode(await denied.json())).toBe("ACCESS_REQUIRED");
+      const token = issueAccessToken(enabled, now);
+      expect(enforceAccess(request(path, { method: "POST", headers: { cookie: `home-access=${token}` } }), enabled, now)?.status).toBe(200);
+      expect(enforceAccess(request(path, { method: "POST" }), { kind: "misconfigured" }, now)?.status).toBe(503);
     }
   });
 

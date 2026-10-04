@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isRecord } from "@/shared/guards";
 import { cashoutFixtureAction, cashoutFixtureWithdraw } from "./feature-map/cashout-fixture";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
@@ -8,7 +9,9 @@ for (const start of ["/home", "/activity"] as const) {
     await installApiFixtures(page);
     await page.route("**/api/actions", (route) => json(route, { actions: [cashoutFixtureAction] }));
     await page.route("**/api/actions/prepare", (route) => {
-      if (route.request().method() !== "POST" || route.request().postDataJSON()?.kind !== "cash-out-withdraw") return route.fallback();
+      if (route.request().method() !== "POST") return route.fallback();
+      const body: unknown = route.request().postDataJSON();
+      if (!isRecord(body) || body.kind !== "cash-out-withdraw") return route.fallback();
       return json(route, cashoutFixtureWithdraw);
     });
 

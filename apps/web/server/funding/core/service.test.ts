@@ -17,6 +17,7 @@ import {
   isPrivateIp,
   type FundingOrderTransitionEvent,
   type FundingCoreDependencies,
+  publicOrder,
 } from "./service";
 import { FundingProviderConfigurationError, resolveFundingMode, resolveWebhookEnvironment } from "./provider-context";
 import { FundingQuoteRejectedError } from "./quote-rejection";
@@ -24,6 +25,7 @@ import { authenticateFundingQuote } from "./quote-token";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { fundingProviders } from "@/server/funding/providers";
 import { euroAreaPeerCountries } from "@/server/funding/providers/peer/manifest";
+import type { Observation, OrderState } from "@/shared/funding/provider-contract";
 
 const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
 const sessionAddress = session.smartAccount?.address;
@@ -119,6 +121,310 @@ function setup(
   const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set", FUNDING_QUOTE_SECRET: "s".repeat(32), ...(options.sandbox ? { FIXTURE_ONRAMP_MODE: "sandbox" } : {}) }, readOffering: options.readOffering, currentBaseBlock: async () => { blockReads += 1; return "500"; }, verifyReceipt: async (_order, hash) => { receiptVerifications += 1; return { transactionHash: hash, logIndex: 4 }; }, markStale: async (address, at) => { staleSignals.push({ address, at: at.toISOString() }); }, logOrderTransition: (event) => transitionEvents.push(event), now: () => date });
   return { core, store, transitionEvents, dispatches: () => dispatches, blockReads: () => blockReads, receiptVerifications: () => receiptVerifications, getOrderSandboxes: () => getOrderSandboxes, staleSignals: () => staleSignals, advance(minutes: number) { date = new Date(date.getTime() + minutes * 60_000); }, observe(state: typeof observation) { observation = state; date = new Date(date.getTime() + 10_000); }, throwStatus() { statusThrows = true; date = new Date(date.getTime() + 10_000); }, sent() { observation = "sent"; date = new Date(date.getTime() + 10_000); } };
 }
+
+async function cancellationFixture(sandbox = false, expiresAt: string | null = null) {
+  let date = new Date("2026-09-12T00:00:10.000Z");
+  let reads = 0;
+  let observation: Observation = { state: "awaiting-payment", providerStatus: "PENDING" };
+  let failure: Error | null = null;
+  let onRead: (() => Promise<void>) | null = null;
+  const store = new MemoryFundingOrderStore();
+  const input: FundingReservation = { id: "11111111-1111-4111-8111-111111111111", owner: { subject: session.user.subject, accountProvider: session.accountProvider }, destination: "0x1111111111111111111111111111111111111111", providerId: "fixture", region: "ID", assetId: "base:idrx", paymentMethod: "bank", fiatAmount: "20000", intentDigest: "cancel", quote: { fiatAmount: "20000", tokenAmountAtomic: "2000000", fees: [], expiresAt: "2026-09-12T00:05:00.000Z" }, quoteToken: "cancel-token", customerRef: null, sandbox, creationBlock: "1", createdAt: "2026-09-12T00:00:00.000Z" };
+  await store.reserve(input);
+  await store.completeDispatch(input.id, { providerOrderId: "cancel-provider", expectedTokenAmountAtomic: "2000000", fees: [], expiresAt, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: "20000", currency: "IDR" }, expectedVersion: 0, updatedAt: "2026-09-12T00:00:01.000Z" });
+  const events: FundingOrderTransitionEvent[] = [];
+  const provider: FundingProvider = { manifest: { ...manifest, onramp: { ...manifest.onramp, sandbox: true } }, onramp: { createOrder: async () => { throw new Error("must not redispatch"); }, getOrder: async () => { reads++; await onRead?.(); if (failure) throw failure; return observation; } } };
+  const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set" }, currentBaseBlock: async () => "1", verifyReceipt: async (_order, hash) => ({ transactionHash: hash, logIndex: 1 }), now: () => date, random: () => 0, logOrderTransition: (event) => events.push(event) });
+  return { core, store, input, events, reads: () => reads, observe: (next: Observation) => { observation = next; }, fail: (error: Error) => { failure = error; }, onRead: (run: () => Promise<void>) => { onRead = run; }, advance: (ms: number) => { date = new Date(date.getTime() + ms); }, now: () => date.toISOString(), owned: async () => { const order = await store.getOwned(input.id, input.owner); if (!order) throw new Error("Expected owned order"); return order; } };
+}
+
+describe("FundingCore cancellation and checkout reconciliation", () => {
+  for (const sandbox of [false, true]) {
+    test(`owner cancel abandons unpaid ${sandbox ? "sandbox" : "live"} checkout and repeated cancel never reads provider`, async () => {
+      const fixture = await cancellationFixture(sandbox);
+      expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "owner", instructions: null });
+      expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "owner" });
+      expect(fixture.reads()).toBe(1);
+      expect(await fixture.store.getOpen(fixture.input.owner, "ID")).toBeNull();
+      expect(fixture.events).toEqual([expect.objectContaining({ route: "/api/funding/orders/:id/cancel", code: "ORDER_ABANDONED", outcome: "ok" })]);
+    });
+  }
+
+  for (const state of ["payment-received", "settling", "sent", "failed", "expired", "cancelled", "refunded"] as const) {
+    test(`provider ${state} wins cancellation race`, async () => {
+      const fixture = await cancellationFixture();
+      fixture.observe({ state, providerStatus: state });
+      await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATE_CHANGED", status: 409 });
+      expect((await fixture.owned()).state).toBe(state === "sent" ? "sent-unverified" : state);
+      expect(fixture.events.some((event) => event.code === "ORDER_ABANDONED")).toBe(false);
+    });
+  }
+
+  for (const failure of ["throw", "timeout", "unknown"] as const) {
+    test(`${failure} before deadline refuses cancellation and touches only checkedAt`, async () => {
+      const fixture = await cancellationFixture();
+      const before = await fixture.owned();
+      if (failure === "throw") fixture.fail(new Error("provider unavailable"));
+      if (failure === "timeout") fixture.fail(new DOMException("timed out", "TimeoutError"));
+      if (failure === "unknown") fixture.observe({ state: "unknown", providerStatus: "HTTP_ERROR" });
+      await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATUS_UNAVAILABLE", status: 503 });
+      expect(await fixture.owned()).toEqual({ ...before, checkedAt: fixture.now() });
+      expect(fixture.events).toEqual([]);
+      fixture.advance(24 * 60 * 60 * 1_000);
+      expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "timed-out" });
+    });
+  }
+
+  test("a provider paid report with an unusable settled amount still wins cancellation", async () => {
+    const fixture = await cancellationFixture();
+    fixture.advance(24 * 60 * 60 * 1_000);
+    fixture.observe({ state: "settling", providerStatus: "PAID", settledTokenAmountAtomic: "2000001",
+      fees: [{ label: "Untrusted fee", amount: "1", currency: "IDR" }], transactionHash: `0x${"2".repeat(64)}` });
+    await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATE_CHANGED", status: 409 });
+    expect(await fixture.owned()).toMatchObject({ state: "settling", providerStatus: "PAID", expectedTokenAmountAtomic: "2000000",
+      fees: [], providerTransactionHash: null, transactionHash: null, abandonReason: null });
+    expect(fixture.events.some((event) => event.code === "ORDER_ABANDONED")).toBe(false);
+  });
+
+  test("a lost observation CAS reapplies the paid observation instead of abandoning", async () => {
+    const fixture = await cancellationFixture();
+    fixture.advance(24 * 60 * 60 * 1_000);
+    fixture.observe({ state: "settling", providerStatus: "PROCESSING" });
+    const apply = fixture.store.applyObservation.bind(fixture.store);
+    let raced = false;
+    fixture.store.applyObservation = async (id, input) => {
+      if (!raced) {
+        raced = true;
+        const current = await fixture.store.getOwned(id, fixture.input.owner);
+        if (!current) throw new Error("expected order");
+        await apply(id, { state: "awaiting-payment", providerStatus: "PENDING_METADATA", expectedVersion: current.version, updatedAt: fixture.now() });
+        return null;
+      }
+      return apply(id, input);
+    };
+    await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATE_CHANGED", status: 409 });
+    expect(await fixture.owned()).toMatchObject({ state: "settling", abandonReason: null });
+    expect(fixture.events.some((event) => event.code === "ORDER_ABANDONED")).toBe(false);
+  });
+
+  test("an unrepeatable lost observation CAS never abandons a provider-paid order", async () => {
+    const fixture = await cancellationFixture();
+    fixture.advance(24 * 60 * 60 * 1_000);
+    fixture.observe({ state: "settling", providerStatus: "PROCESSING" });
+    const apply = fixture.store.applyObservation.bind(fixture.store);
+    fixture.store.applyObservation = async (id, _input) => {
+      const current = await fixture.store.getOwned(id, fixture.input.owner);
+      if (!current) throw new Error("expected order");
+      await apply(id, { state: "awaiting-payment", providerStatus: "PENDING_METADATA", expectedVersion: current.version, updatedAt: fixture.now() });
+      return null;
+    };
+    await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATE_CHANGED", status: 409 });
+    expect(await fixture.owned()).toMatchObject({ state: "awaiting-payment", abandonReason: null });
+    expect(fixture.events.some((event) => event.code === "ORDER_ABANDONED")).toBe(false);
+  });
+
+  test("a second lost observation CAS returns the freshly advanced order without abandoning", async () => {
+    const fixture = await cancellationFixture();
+    fixture.advance(24 * 60 * 60 * 1_000);
+    fixture.observe({ state: "settling", providerStatus: "PROCESSING" });
+    const apply = fixture.store.applyObservation.bind(fixture.store);
+    const abandon = fixture.store.abandon.bind(fixture.store);
+    let attempts = 0;
+    let abandons = 0;
+    fixture.store.abandon = async (...args) => { abandons++; return abandon(...args); };
+    fixture.store.applyObservation = async (id, input) => {
+      const retry = ++attempts === 2;
+      await apply(id, {
+        state: retry ? "payment-received" : "awaiting-payment",
+        providerStatus: retry ? "CONCURRENT_PAID" : "PENDING_METADATA",
+        expectedVersion: input.expectedVersion, updatedAt: fixture.now(),
+      });
+      return null;
+    };
+    const refreshed = await fixture.core.getOrder(session, fixture.input.id);
+    expect(refreshed).toEqual(publicOrder(await fixture.owned()));
+    expect(refreshed).toMatchObject({ state: "payment-received", providerStatus: "CONCURRENT_PAID" });
+    expect(attempts).toBe(2);
+    expect(abandons).toBe(0);
+    expect(fixture.events.some((event) => event.code === "ORDER_ABANDONED")).toBe(false);
+  });
+
+  test("a paid observation advances the row after a concurrent owner abandon", async () => {
+    const fixture = await cancellationFixture();
+    fixture.observe({ state: "settling", providerStatus: "PROCESSING" });
+    fixture.onRead(async () => {
+      const current = await fixture.owned();
+      await fixture.store.abandon(current.id, current.owner, { expectedVersion: current.version, reason: "owner", updatedAt: fixture.now() });
+    });
+    await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATE_CHANGED", status: 409 });
+    expect(await fixture.owned()).toMatchObject({ state: "settling", providerStatus: "PROCESSING", instructions: null });
+  });
+
+  test("cancel retries a definite pending observation after a provider-status-only race", async () => {
+    const fixture = await cancellationFixture();
+    fixture.onRead(async () => {
+      const current = await fixture.owned();
+      await fixture.store.applyObservation(current.id, { state: "awaiting-payment", providerStatus: "PENDING_METADATA", expectedVersion: current.version, updatedAt: fixture.now() });
+    });
+    expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "owner", providerStatus: "PENDING" });
+    expect(await fixture.owned()).toMatchObject({ checkedAt: fixture.now(), state: "abandoned", providerStatus: "PENDING" });
+    expect(fixture.reads()).toBe(1);
+  });
+
+  test("a lost settlement CAS never overwrites a frozen lower amount", async () => {
+    const fixture = await cancellationFixture();
+    fixture.observe({ state: "sent", providerStatus: "MINTED", settledTokenAmountAtomic: "1990000", transactionHash: `0x${"2".repeat(64)}` });
+    const apply = fixture.store.applyObservation.bind(fixture.store);
+    let raced = false;
+    fixture.store.applyObservation = async (id, input) => {
+      if (!raced) {
+        raced = true;
+        const current = await fixture.store.getOwned(id, fixture.input.owner);
+        if (!current) throw new Error("expected order");
+        await apply(id, { state: "awaiting-payment", providerStatus: "LOWERED", expectedTokenAmountAtomic: "1986000", expectedVersion: current.version, updatedAt: fixture.now() });
+        return null;
+      }
+      return apply(id, input);
+    };
+    await fixture.core.getOrder(session, fixture.input.id);
+    expect(await fixture.owned()).toMatchObject({ expectedTokenAmountAtomic: "1986000" });
+  });
+
+  test("a paid observation that can never be persisted never reports a cancelled checkout", async () => {
+    const fixture = await cancellationFixture();
+    fixture.observe({ state: "settling", providerStatus: "PROCESSING" });
+    const abandon = fixture.store.abandon.bind(fixture.store);
+    let writes = 0;
+    fixture.store.applyObservation = async (id) => {
+      writes += 1;
+      const current = await fixture.store.getOwned(id, fixture.input.owner);
+      if (!current) throw new Error("expected order");
+      if (writes === 1) await abandon(id, fixture.input.owner, { expectedVersion: current.version, reason: "timed-out", updatedAt: fixture.now() });
+      return null;
+    };
+    await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATE_CHANGED", status: 409 });
+    expect(writes).toBe(2);
+    expect(await fixture.owned()).toMatchObject({ state: "abandoned", abandonReason: "timed-out" });
+  });
+
+  test("cancel by another owner does not observe or change the order", async () => {
+    const fixture = await cancellationFixture();
+    const before = await fixture.owned();
+    await expect(fixture.core.cancelOrder({ ...session, user: { subject: "other" } }, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_NOT_FOUND", status: 404 });
+    expect(fixture.reads()).toBe(0);
+    expect(await fixture.owned()).toEqual(before);
+  });
+
+  for (const state of ["reserving", "dispatch-ambiguous", "unknown", "payment-received", "settling", "sent", "sent-unverified", "received", "expired", "cancelled", "failed", "refunded"] as const satisfies readonly OrderState[]) {
+    test(`cancel rejects ${state} without reading provider`, async () => {
+      const fixture = await cancellationFixture();
+      const before = { ...await fixture.owned(), state };
+      fixture.store.getOwned = async (_id, owner) => owner.subject === fixture.input.owner.subject ? before : null;
+      await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_NOT_CANCELLABLE", status: 409 });
+      expect(fixture.reads()).toBe(0);
+    });
+  }
+
+  test("cancel retries CAS once when a concurrent status observation bumps version", async () => {
+    const fixture = await cancellationFixture();
+    const abandon = fixture.store.abandon.bind(fixture.store);
+    let attempts = 0;
+    fixture.store.abandon = async (id, owner, input) => {
+      if (++attempts === 1) await fixture.store.applyObservation(id, { state: "awaiting-payment", providerStatus: "PENDING_PAYMENT", expectedVersion: input.expectedVersion, updatedAt: fixture.now() });
+      return abandon(id, owner, input);
+    };
+    expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned" });
+    expect(attempts).toBe(2);
+    expect(fixture.reads()).toBe(1);
+  });
+
+  test("a second CAS loss fails safely and a concurrent payment cannot be abandoned", async () => {
+    for (const state of ["awaiting-payment", "settling"] as const) {
+      const fixture = await cancellationFixture();
+      const abandon = fixture.store.abandon.bind(fixture.store);
+      let attempts = 0;
+      fixture.store.abandon = async (id, owner, input) => {
+        await fixture.store.applyObservation(id, { state, providerStatus: `race-${++attempts}`, expectedVersion: input.expectedVersion, updatedAt: fixture.now() });
+        return abandon(id, owner, input);
+      };
+      await expect(fixture.core.cancelOrder(session, fixture.input.id)).rejects.toMatchObject({ code: "ORDER_STATE_CHANGED", status: 409 });
+      expect((await fixture.owned()).state).toBe(state);
+      expect(attempts).toBe(state === "settling" ? 1 : 2);
+    }
+  });
+
+  test("concurrent abandon during provider read is an idempotent success", async () => {
+    const fixture = await cancellationFixture();
+    fixture.onRead(async () => { const order = await fixture.owned(); await fixture.store.abandon(order.id, order.owner, { expectedVersion: order.version, reason: "owner", updatedAt: fixture.now() }); });
+    expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "owner" });
+    expect(fixture.reads()).toBe(1);
+  });
+
+  test("late settlement after abandon still reaches received on a verified receipt", async () => {
+    const fixture = await cancellationFixture();
+    await fixture.core.cancelOrder(session, fixture.input.id);
+    fixture.advance(4_000);
+    fixture.observe({ state: "settling", providerStatus: "PROCESSING" });
+    expect(await fixture.core.getOrder(session, fixture.input.id)).toMatchObject({ state: "settling", instructions: null });
+    fixture.advance(4_000);
+    fixture.observe({ state: "sent", providerStatus: "COMPLETED", transactionHash: `0x${"2".repeat(64)}` });
+    expect(await fixture.core.getOrder(session, fixture.input.id)).toMatchObject({ state: "received", transactionHash: `0x${"2".repeat(64)}`, instructions: null });
+  });
+
+  for (const throws of [false, true]) {
+    test(`refresh applies the 24-hour checkout deadline even when provider ${throws ? "throws" : "stays pending"}`, async () => {
+      const fixture = await cancellationFixture();
+      fixture.advance(24 * 60 * 60 * 1_000 - 10_000);
+      if (throws) fixture.fail(new Error("unavailable"));
+      expect(await fixture.core.getOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "timed-out", instructions: null });
+      expect(fixture.events).toContainEqual(expect.objectContaining({ code: "ORDER_ABANDONED", outcome: "ok", route: "/api/funding/orders/:id" }));
+    });
+  }
+
+  test("open-order lookup does not resume a checkout that timed out during the lookup", async () => {
+    const fixture = await cancellationFixture();
+    fixture.advance(24 * 60 * 60 * 1_000);
+    expect(await fixture.core.getOpenOrder(session, fixture.input.region)).toBeNull();
+    expect(await fixture.owned()).toMatchObject({ state: "abandoned", abandonReason: "timed-out" });
+  });
+
+  test("explicit provider expiry overrides the 24-hour fallback", async () => {
+    const fixture = await cancellationFixture(false, "2026-09-12T00:00:10.000Z");
+    expect(await fixture.core.getOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "timed-out" });
+  });
+
+  test("identical reads keep lifecycle chronology and cooldown uses checkedAt", async () => {
+    const fixture = await cancellationFixture();
+    await fixture.core.getOrder(session, fixture.input.id);
+    const first = await fixture.owned();
+    fixture.advance(3_000);
+    await fixture.core.getOrder(session, fixture.input.id);
+    expect(await fixture.owned()).toEqual({ ...first, checkedAt: fixture.now() });
+    const reads = fixture.reads();
+    fixture.advance(1_000);
+    await fixture.core.getOrder(session, fixture.input.id);
+    await fixture.core.listOrderHistory(session);
+    expect(fixture.reads()).toBe(reads);
+    fixture.advance(2_000);
+    await fixture.core.listOrderHistory(session);
+    expect(fixture.reads()).toBe(reads + 1);
+  });
+
+  test("history stops reconciling abandoned orders at seven days but explicit reads still reconcile", async () => {
+    const fixture = await cancellationFixture();
+    await fixture.core.cancelOrder(session, fixture.input.id);
+    fixture.advance(7 * 24 * 60 * 60 * 1_000 - 1);
+    await fixture.core.listOrderHistory(session);
+    expect(fixture.reads()).toBe(2);
+    const abandoned = await fixture.owned();
+    expect(abandoned.updatedAt).not.toBe(fixture.now());
+    fixture.advance(4_000);
+    await fixture.core.listOrderHistory(session);
+    expect(fixture.reads()).toBe(2);
+    await fixture.core.getOrder(session, fixture.input.id);
+    expect(fixture.reads()).toBe(3);
+  });
+});
 
 describe("FundingCore", () => {
   test("reads offering once per provider listing and hides paused onramp and offramp corridors", async () => {
@@ -1319,13 +1625,13 @@ describe("FundingCore", () => {
     const createdHigher = await core.createOrder(session, { quoteToken: higher.quoteToken }, "https://home.example");
     date = new Date("2026-09-12T00:01:10.000Z");
     const ignored = await core.getOrder(session, createdHigher.id);
-    expect(ignored.state).toBe("awaiting-payment");
+    expect(ignored.state).toBe("sent-unverified");
     expect(ignored.expectedTokenAmountAtomic).toBe("2000000");
     expect(ignored.fees).toEqual([]);
     expect(verified).toEqual(["1986000"]);
   });
 
-  test("emits a provider failure and preserves the order when a settlement is rejected", async () => {
+  test("emits a provider failure and advances state while refusing an unusable settled amount", async () => {
     const lines: string[] = [];
     setObservabilityLogWriterForTests((line) => lines.push(line));
     try {
@@ -1346,9 +1652,10 @@ describe("FundingCore", () => {
       const created = await core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
       date = new Date("2026-09-12T00:00:10.000Z");
 
-      expect(await core.getOrder(session, created.id)).toEqual(created);
-      expect(lines).toHaveLength(1);
-      expect(JSON.parse(lines[0]!)).toMatchObject({
+      expect(await core.getOrder(session, created.id)).toEqual({ ...created, state: "sent-unverified", providerStatus: "MINTED:PAID", updatedAt: date.toISOString() });
+      const failures = lines.map((line) => JSON.parse(line)).filter((event) => event.code === "PROVIDER_INVALID_RESPONSE");
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toMatchObject({
         kind: "funding-order",
         route: "/api/funding/orders/:redacted",
         code: "PROVIDER_INVALID_RESPONSE",
@@ -1398,7 +1705,7 @@ describe("FundingCore", () => {
     date = new Date("2026-09-12T00:00:30.000Z");
     const same = await core.getOrder(session, created.id);
     expect(same.expectedTokenAmountAtomic).toBe("1900000");
-    expect(same.updatedAt).toBe("2026-09-12T00:00:30.000Z");
+    expect(same.updatedAt).toBe(lowered.updatedAt);
   });
 
   test("logs unmatched webhooks without raw bodies or provider order identifiers", async () => {

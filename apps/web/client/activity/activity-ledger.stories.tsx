@@ -30,6 +30,7 @@ const funding: ActivityLedgerItem = {
     { status: "upcoming", title: "Added to your balance", time: "After your payment arrives" },
   ],
   nextAction: { kind: "complete-payment", label: "Continue payment" },
+  secondaryAction: { kind: "cancel-order", label: "Cancel deposit" },
   detail: {
     family: "funding-order",
     provider: "Coinbase",
@@ -313,6 +314,9 @@ const detail = (item: ActivityLedgerItem, options: {
         await expect(dialog.queryByRole("button", { name: new RegExp(item.detailAsset.name) })).toBeNull();
       }
     }
+    if (item.secondaryAction?.kind === "cancel-order" && item.status === "waiting-customer") {
+      await expect(dialog.getByRole("button", { name: item.secondaryAction.label })).toBeVisible();
+    }
     const allowed = item.nextAction?.label;
     if (allowed) {
       await expect(
@@ -424,6 +428,14 @@ export const DetailTradeWithServiceFee: Story = {
   },
 };
 export const DetailFundingNeedsYou = detail(funding);
+export const DetailFundingCancelled = detail({ ...funding, id: "funding-cancelled", status: "failed", statusLabel: "Cancelled",
+  nextAction: undefined, secondaryAction: undefined, steps: [], ownerSentence: { title: "Deposit cancelled",
+    description: "If you already paid, the money will still show up here when it arrives." } });
+export const DetailFundingTimedOut = detail({ ...funding, id: "funding-timed-out", status: "expired", statusLabel: "Timed out",
+  nextAction: undefined, secondaryAction: undefined, steps: [], ownerSentence: { title: "Checkout timed out",
+    description: "If you already paid, the money will still show up here when it arrives." } });
+export const DetailFundingPaymentReceived = detail({ ...provider, secondaryAction: undefined,
+  ownerSentence: { title: "Payment received", description: "Coinbase is processing your payment. Home will show the money when it arrives on Base." } });
 export const DetailHomeActionConfirming: Story = {
   ...detail({
     ...borrowed,

@@ -57,9 +57,13 @@ export function fundingProviderCustomersQuery(owner: string | null, region: Regi
   });
 }
 
+export function fundingOrderKeyForId(owner: string | null, id: string): QueryKey {
+  return owner ? ownerQueryKey(owner, "funding-order", id) : publicQueryKey("funding-order-isolated", id);
+}
+
 export function fundingOrderKey(owner: string | null, order: FundingOrderSummary | null): QueryKey {
   if (!order) return disabledQueryKey("funding-order");
-  return owner ? ownerQueryKey(owner, "funding-order", order.id) : publicQueryKey("funding-order-isolated", order.id);
+  return fundingOrderKeyForId(owner, order.id);
 }
 
 export function fundingOrderQuery(owner: string | null, order: FundingOrderSummary | null, fetchResource: FetchResource) {

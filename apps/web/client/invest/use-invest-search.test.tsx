@@ -4,6 +4,7 @@ import { getHomeQueryClient } from "@/client/query/query-client";
 import { afterEach, describe, expect, test } from "bun:test";
 import { assetResolutionFixture, searchFixture, nonTrendingAddress } from "@/tests/browser/feature-map/search-fixtures";
 import { hydrateServerRender } from "@/tests/helpers/hydration";
+import { isRecord } from "@/shared/guards";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { useInvestSearch } = await import("./use-invest-search");
@@ -71,10 +72,14 @@ describe("Invest search", () => {
     render(<InvestExperience />);
     const input = page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "BTC" } });
-    expect(window.history.state.investSearchQuery).toBe("BTC");
+    const searchState: unknown = window.history.state;
+    if (!isRecord(searchState)) throw new Error("Expected search history state");
+    expect(searchState.investSearchQuery).toBe("BTC");
     fireEvent.click(page().getByRole("button", { name: "Clear search" }));
     expect(input.value).toBe(""); expect(document.activeElement).toBe(input);
-    expect(window.history.state.investSearchQuery).toBe("");
+    const clearedState: unknown = window.history.state;
+    if (!isRecord(clearedState)) throw new Error("Expected cleared search history state");
+    expect(clearedState.investSearchQuery).toBe("");
     fireEvent.change(input, { target: { value: "Apple" } });
     fireEvent.keyDown(input, { key: "Escape" });
     expect(document.activeElement).not.toBe(input); expect(input.value).toBe("Apple");

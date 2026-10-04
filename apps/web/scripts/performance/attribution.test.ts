@@ -264,7 +264,7 @@ describe("long-animation-frame attribution", () => {
       disconnect() {}
     }]) {
       const context: { PerformanceObserver: typeof PerformanceObserver; __homeNavigationLoaf?: Collector } = { PerformanceObserver };
-      expect(() => runInNewContext(loafCollectorSource, context)).not.toThrow();
+      expect(() => { runInNewContext(loafCollectorSource, context); }).not.toThrow();
       expect(context.__homeNavigationLoaf?.supported).toBe(false);
       expect(() => { context.__homeNavigationLoaf?.start(); context.__homeNavigationLoaf?.stop(); context.__homeNavigationLoaf?.reset(); }).not.toThrow();
       expect(context.__homeNavigationLoaf?.entries).toEqual([]);

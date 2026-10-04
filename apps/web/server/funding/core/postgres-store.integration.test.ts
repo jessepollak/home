@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { randomUUID } from "node:crypto";
 import { createPostgresSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { readMigrationSql } from "@/tests/helpers/migrations";
+import { fundingAbandonStoreContract } from "@/tests/helpers/funding-store-contract";
 import { PostgresFundingOrderStore } from "./postgres-store";
 import type { FundingReservation } from "./store";
 
@@ -35,6 +36,7 @@ async function inTestSchema(text: string): Promise<void> {
 }
 
 describePostgres("PostgresFundingOrderStore production contract", () => {
+  fundingAbandonStoreContract(() => store, reservation);
   beforeAll(async () => {
     admin = new Bun.SQL(connectionString!) as unknown as BunSqlClient;
     const migration = await readMigrationSql("002_funding_provider_seam.sql");
@@ -45,6 +47,8 @@ describePostgres("PostgresFundingOrderStore production contract", () => {
     await inTestSchema(migration);
     await inTestSchema(hostedRetirementMigration);
     await inTestSchema(sandboxMigration);
+    await inTestSchema(await readMigrationSql("022_funding_order_abandon.sql"));
+    await inTestSchema(await readMigrationSql("022_funding_order_abandon.sql"));
     for (const file of ["001_actions.sql", "007_funding_provider_customers.sql", "008_funding_provider_user_tokens.sql", "011_operator_registry.sql", "017_record_customer_ids.sql"]) {
       await inTestSchema(await readMigrationSql(file));
     }

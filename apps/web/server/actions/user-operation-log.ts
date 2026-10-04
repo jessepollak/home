@@ -5,6 +5,7 @@ import { USER_OPERATION_ENTRY_POINTS, USER_OPERATION_EVENT_TOPIC } from "./recei
 import type { ActionRow } from "./store";
 
 const hashPattern = /^0x[0-9a-fA-F]{64}$/;
+const topicPattern = /^0x[0-9a-fA-F]{64}$/;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const FUTURE_SKEW_MS = 30_000;
 const BLOCK_MS = 2_000;
@@ -54,20 +55,28 @@ export function createUserOperationLogLookup(options: {
         for (const log of logs) {
           if (!log || typeof log !== "object" || Array.isArray(log)) return { status: "unavailable" };
           const entry = log as Record<string, unknown>;
-          if (typeof entry.address !== "string" || !Array.isArray(entry.topics) ||
-            !Object.values(USER_OPERATION_ENTRY_POINTS).some((address) => address === (entry.address as string).toLowerCase()) ||
-            entry.topics[0]?.toLowerCase?.() !== USER_OPERATION_EVENT_TOPIC ||
-            entry.topics[1]?.toLowerCase?.() !== handle.toLowerCase() ||
-            entry.topics[2]?.toLowerCase?.() !== senderTopic) continue;
-          if (typeof entry.transactionHash !== "string" || !hashPattern.test(entry.transactionHash)) return { status: "unavailable" };
-          const version = Object.entries(USER_OPERATION_ENTRY_POINTS).find(([, address]) => address === (entry.address as string).toLowerCase())?.[0];
+          if (typeof entry.address !== "string") return { status: "unavailable" };
+          const address = entry.address.toLowerCase();
+          if (!Object.values(USER_OPERATION_ENTRY_POINTS).some((entryPoint) => entryPoint === address)) continue;
+          if (!Array.isArray(entry.topics)) return { status: "unavailable" };
+          const topics: unknown[] = entry.topics;
+          const eventTopic = lowerCaseTopic(topics[0]);
+          const handleTopic = lowerCaseTopic(topics[1]);
+          const logSenderTopic = lowerCaseTopic(topics[2]);
+          if (eventTopic === undefined || handleTopic === undefined || logSenderTopic === undefined) return { status: "unavailable" };
+          if (!topicPattern.test(eventTopic) || !topicPattern.test(handleTopic) || !topicPattern.test(logSenderTopic)) return { status: "unavailable" };
+          if (eventTopic !== USER_OPERATION_EVENT_TOPIC || handleTopic !== handle.toLowerCase() || logSenderTopic !== senderTopic) continue;
+          const hashValue = entry.transactionHash;
+          if (typeof hashValue !== "string" || !hashPattern.test(hashValue)) return { status: "unavailable" };
+          const transactionHash = hashValue.toLowerCase();
+          const version = Object.entries(USER_OPERATION_ENTRY_POINTS).find(([, entryPoint]) => entryPoint === address)?.[0];
           if (version !== "V06" && version !== "V07" && version !== "V08") return { status: "unavailable" };
-          const logKey = [entry.address.toLowerCase(), entry.transactionHash.toLowerCase(),
+          const logKey = [address, transactionHash,
             typeof entry.logIndex === "string" ? entry.logIndex.toLowerCase() : "",
-            entry.topics.map((topic) => String(topic).toLowerCase()).join(",")].join("|");
+            topics.map((topic) => String(topic).toLowerCase()).join(",")].join("|");
           if (observed.has(logKey)) continue;
           observed.add(logKey);
-          matches.push({ transactionHash: entry.transactionHash.toLowerCase() as `0x${string}`, code: `USEROP_LOG_${version}` });
+          matches.push({ transactionHash: transactionHash as `0x${string}`, code: `USEROP_LOG_${version}` });
         }
         if (matches.length > 1) return { status: "unavailable" };
       }
@@ -77,6 +86,10 @@ export function createUserOperationLogLookup(options: {
       return { status: "unavailable" };
     }
   };
+}
+
+function lowerCaseTopic(topic: unknown): string | undefined {
+  return typeof topic === "string" ? topic.toLowerCase() : undefined;
 }
 
 function windowFor(anchorMs: number, nowMs: number, latest: bigint): { range: { first: bigint; last: bigint }; end: bigint } {

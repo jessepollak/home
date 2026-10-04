@@ -3,6 +3,31 @@ import { cashoutFixtureAction } from "./feature-map/cashout-fixture";
 import { activityOrdersFixture, fundingOrderResolutionFixture } from "./feature-map/fixtures";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
+for (const path of ["/activity", "/home"]) {
+  test(`${path} cancels a pending funding checkout from Activity`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await seedSignedInSession(page);
+    await installApiFixtures(page, { activityOrders: true });
+    const writes: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/cancel")) writes.push(new URL(request.url()).pathname);
+    });
+    await page.goto(path);
+    const activity = page.locator("[data-app-main-authenticated]").getByRole("region", { name: "Activity" }).last();
+    await activity.getByRole("list", { name: "Pending" }).getByRole("button", { name: /Add money.*\+\$25/ }).click();
+    const sheet = page.getByRole("dialog", { name: "Add money" });
+    await expect(sheet.getByRole("button", { name: "Continue with Coinbase" })).toBeVisible();
+    await sheet.getByRole("button", { name: "Cancel deposit" }).click();
+    await expect(sheet.getByText("Cancelled", { exact: true })).toBeVisible();
+    await expect(sheet.getByText("Deposit cancelled", { exact: true })).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Cancel deposit" })).toHaveCount(0);
+    expect(writes).toEqual(["/api/funding/orders/fixture-funding-pending/cancel"]);
+    await sheet.getByRole("button", { name: "Close Add money details" }).click();
+    await expect(sheet).toHaveCount(0);
+    await expect(activity.getByRole("button", { name: /Add money.*Cancelled/ })).toBeVisible();
+  });
+}
+
 for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
   for (const path of ["/activity", "/home"] as const) {
     test(`${path} shows funding orders and reconciled cash-out at ${viewport.width}px`, async ({ page }) => {

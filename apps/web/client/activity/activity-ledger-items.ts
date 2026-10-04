@@ -390,6 +390,9 @@ function cashoutItem(
 }
 
 function fundingItem(order: ActivityFundingOrder, options: Options): ActivityLedgerItem {
+  const movedAt = order.movedAt ?? order.updatedAt;
+  const cancelledByOwner = order.stage === "cancelled" && order.abandonReason === "owner";
+  const timedOut = order.stage === "expired" && order.abandonReason === "timed-out";
   const full = (value: string) => formatPresentationDate(value, { style: "activity-full", ...options });
   const created = { status: "complete" as const, title: "Order created", time: full(order.createdAt) };
   const received = { status: "complete" as const, title: "Payment received" };
@@ -413,12 +416,21 @@ function fundingItem(order: ActivityFundingOrder, options: Options): ActivityLed
     ? formatPresentationCashAmount(order.tokenAmountAtomic, order.asset.decimals, "USD", { regionId: options.regionId })
     : joinAmountAndSymbol(parts.amount, parts.symbol);
   return {
-    family: "funding-order", id: order.id, status: order.status, timestamp: order.updatedAt, updatedAt: order.updatedAt,
-    dateLabel: formatPresentationDate(order.updatedAt, { style: "activity-short", ...options }), fullDateLabel: full(order.updatedAt),
+    family: "funding-order", id: order.id, status: order.status, timestamp: movedAt, updatedAt: movedAt,
+    dateLabel: formatPresentationDate(movedAt, { style: "activity-short", ...options }), fullDateLabel: full(movedAt),
     title: "Add money", amount: `+${amount}`, detailAmount: joinAmountAndSymbol(`+${parts.amount}`, parts.symbol),
     detailAmountParts: { amount: `+${parts.amount}`, symbol: parts.symbol },
     direction: "in", mark: { kind: "glyph", glyph: "cash" }, activateLabel: "View Add money details",
-    ...(order.stage === "cleared" ? { statusLabel: "Cleared" } : order.stage === "cancelled" ? { statusLabel: "Cancelled" } : {}),
+    ...(order.stage === "cleared" ? { statusLabel: "Cleared" } : order.stage === "cancelled" ? { statusLabel: "Cancelled" } : timedOut ? { statusLabel: "Timed out" } : {}),
+    ...(order.status === "waiting-customer" && order.stage === "awaiting-payment"
+      ? { secondaryAction: { kind: "cancel-order" as const, label: "Cancel deposit" } } : {}),
+    ...(cancelledByOwner || timedOut ? { ownerSentence: {
+      title: cancelledByOwner ? "Deposit cancelled" : "Checkout timed out",
+      description: "If you already paid, the money will still show up here when it arrives.",
+    } } : {}),
+    ...(order.stage === "unconfirmed" && !order.clearableAt ? { ownerSentence: {
+      title: `Checking with ${order.providerName}`, description: "Don't pay again while Home checks.",
+    } } : {}),
     ...(steps ? { steps } : {}), ...(nextAction ? { nextAction } : {}),
     ...(order.status === "ambiguous" && order.stage === "unconfirmed" && order.clearableAt && Date.parse(order.clearableAt) > (options.now ?? Date.now())
       ? { ownerSentence: { title: "We can't confirm this yet", description: `Don't try again. You can clear it after ${full(order.clearableAt)}.` } } : {}),

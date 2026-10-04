@@ -21,6 +21,12 @@ export function uiBoundary(wallet: UiBoundaryWallet): string | null {
   return wallet.status === "verified" ? ownerSessionBoundary(wallet) : null;
 }
 
+export function supportOwnerKey(wallet: { status: string; verification: string | null; session: VerifiedAccountSession | null }): string | null {
+  return wallet.status === "verified" && wallet.verification === "server" && wallet.session
+    ? `${wallet.session.accountProvider}\u0000${wallet.session.user.subject}`
+    : null;
+}
+
 export function savingsJourneyOwnerKey(session: VerifiedAccountSession): string {
   return `${session.user.subject}\u0000${session.smartAccount?.address.toLowerCase() ?? ""}\u0000${session.smartAccount?.chainId ?? ""}\u0000${session.accountProvider}`;
 }

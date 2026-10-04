@@ -15,10 +15,53 @@ import { FUNDING_QUOTE_VERSION } from "@/shared/funding/contracts/quotes";
 import { FUNDING_PROVIDERS_VERSION } from "@/shared/funding/contracts/providers";
 import { FUNDING_PROVIDER_CUSTOMERS_VERSION } from "@/shared/funding/contracts/provider-customers";
 import { fundingProvidersQuery } from "./funding-queries";
+import { isRecord } from "@/shared/guards";
 
 const { act, cleanup, fireEvent, render, waitFor } = await import("@testing-library/react");
 const { FundingExperienceForWallet: RenderFundingExperienceForWallet } = await import("./funding-experience");
 const { shouldPollFundingOrder } = await import("./order-polling");
+
+test("cancelling an open-order prompt goes straight to the new deposit path", async () => {
+  let cancelled = false;
+  const requests: string[] = [];
+  const pending = pendingRipioOrder();
+  const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
+    requests.push(path);
+    if (path.startsWith("/api/funding/providers?")) return providersOk([fundingBinding()]);
+    if (path.startsWith("/api/funding/orders?")) return { version: FUNDING_OPEN_ORDER_VERSION, order: cancelled ? null : pending };
+    if (path.endsWith("/cancel")) { cancelled = true; return { version: 1, order: { ...pending, state: "abandoned", abandonReason: "owner", instructions: null } }; }
+    throw new Error(`Unexpected path ${path}`);
+  } };
+  render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);
+  fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+  expect(await page().findByRole("button", { name: "Continue deposit" })).toBeTruthy();
+  fireEvent.click(page().getByRole("button", { name: "Cancel deposit" }));
+  expect(await page().findByRole("button", { name: "Review quote" })).toBeTruthy();
+  expect(page().queryByRole("heading", { name: "You have an open deposit" })).toBeNull();
+  expect(requests.filter((path) => path.endsWith("/cancel"))).toHaveLength(1);
+});
+
+test("an owner change mid-prompt cancellation cannot open a new owner's deposit journey", async () => {
+  const result = deferred<unknown>();
+  const pending = pendingRipioOrder();
+  const fetchAccountResource = async (path: string) => {
+    if (path.startsWith("/api/funding/providers?")) return providersOk([fundingBinding()]);
+    if (path.startsWith("/api/funding/orders?")) return { version: FUNDING_OPEN_ORDER_VERSION, order: pending };
+    if (path.endsWith("/cancel")) return result.promise;
+    throw new Error(`Unexpected path ${path}`);
+  };
+  const first = { ...verifiedWallet(), fetchAccountResource };
+  const view = render(<FundingExperienceForWallet wallet={first} navigateToRedirect={() => {}} regionId="AR" />);
+  fireEvent.click(await page().findByRole("button", { name: /Deposit ARS/ }));
+  fireEvent.click(await page().findByRole("button", { name: "Cancel deposit" }));
+  await act(async () => { await Promise.resolve(); });
+  const second = { ...verifiedWallet(ADDRESS_B), fetchAccountResource };
+  view.rerender(<FundingExperienceForWallet wallet={second} navigateToRedirect={() => {}} regionId="AR" />);
+  await page().findByRole("heading", { name: "Add money" });
+  await act(async () => { result.resolve({ version: 1, order: { ...pending, state: "abandoned", instructions: null } }); await result.promise; });
+  expect(page().queryByRole("button", { name: "Review quote" })).toBeNull();
+  expect(page().getByRole("heading", { name: "Add money" })).toBeTruthy();
+});
 
 const ADDRESS_A = "0x1111111111111111111111111111111111111111" as const;
 const ADDRESS_B = "0x2222222222222222222222222222222222222222" as const;
@@ -35,7 +78,11 @@ function FundingExperienceForWallet(props: Parameters<typeof RenderFundingExperi
     const response = await props.wallet.fetchAccountResource(path, options);
     if (path.startsWith("/api/funding/providers?") && response !== null && typeof response === "object" &&
       !Array.isArray(response) && "providers" in response && Array.isArray(response.providers) && !("version" in response)) {
-      return { ...response, version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: response.providers.map((binding) => ({ direction: "onramp", ...binding })) };
+      const providers: unknown[] = response.providers;
+      return { ...response, version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: providers.map((binding) => {
+        if (!isRecord(binding)) throw new Error("Expected a provider binding object");
+        return { direction: "onramp", ...binding };
+      }) };
     }
     return response;
   };
@@ -1813,12 +1860,12 @@ describe("FundingExperience", () => {
     expect(requests).toEqual(["/api/funding/providers?region=AR&direction=onramp", "/api/funding/orders?region=AR"]);
   });
 
-  test("Start new deposit opens a fresh quote form instead of the pending order", async () => {
+  test("Start new deposit keeps its existing rules for a processing order", async () => {
     const requests: string[] = [];
     const wallet = { ...verifiedWallet(), fetchAccountResource: async (path: string) => {
       requests.push(path);
       if (path.startsWith("/api/funding/providers?")) return providersOk([fundingBinding()]);
-      if (path.startsWith("/api/funding/orders?")) return { version: FUNDING_OPEN_ORDER_VERSION, order: pendingRipioOrder() };
+      if (path.startsWith("/api/funding/orders?")) return { version: FUNDING_OPEN_ORDER_VERSION, order: { ...pendingRipioOrder(), state: "settling", instructions: null } };
       throw new Error(`unexpected request: ${path}`);
     } };
     render(<FundingExperienceForWallet wallet={wallet} navigateToRedirect={() => {}} regionId="AR" />);

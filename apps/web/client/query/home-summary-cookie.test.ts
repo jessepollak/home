@@ -7,7 +7,7 @@ import { clearOwnerQueryBoundary, getHomeQueryClient } from "./query-client";
 import { clearHomeSummaryCookie, writeHomeSummaryCookie } from "./home-summary-cookie";
 
 const now = Date.parse("2026-10-02T05:00:00.000Z");
-const record = parseHomeSummaryRecord(JSON.stringify({ version: 1, owner: "a", region: "US", updatedAt: now,
+const record = parseHomeSummaryRecord(JSON.stringify({ version: 2, owner: "a", region: "US", updatedAt: now,
   presentation: presentHomeBalances({ status: "ready", snapshot: balancesSnapshotFixture, error: null }) }), "a", "US", now);
 if (!record) throw new Error("Summary fixture invalid");
 afterEach(() => { clearHomeSummaryCookie(); window.history.replaceState(null, "", "/"); });

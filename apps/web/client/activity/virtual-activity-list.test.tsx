@@ -35,8 +35,17 @@ function requiredElement<K extends keyof HTMLElementTagNameMap>(root: ParentNode
 function mockHeights(rowHeight: (index: number) => number = () => 64) {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() { return this.tagName === "LI" ? rowHeight(Number((this as HTMLElement).dataset.index)) : this.tagName === "MAIN" ? 800 : 0; },
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
+      return this.tagName === "LI" ? rowHeight(Number(this.dataset.index)) : this.tagName === "MAIN" ? 800 : 0;
+    },
   });
+}
+
+function readDimension(descriptor: PropertyDescriptor, element: HTMLElement): number {
+  const value: unknown = descriptor.get!.call(element);
+  if (typeof value !== "number") throw new Error("Expected a numeric element dimension");
+  return value;
 }
 
 function mockListOffset(offset: { current: number }) {
@@ -261,17 +270,19 @@ test("resumes measured rows without synchronous geometry reads and updates after
   const measuredHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() {
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
       if (this.tagName === "LI") reads.rowHeight++;
       if (this.tagName === "MAIN") reads.hostHeight++;
-      return measuredHeight.get!.call(this);
+      return readDimension(measuredHeight, this);
     },
   });
   Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
     configurable: true,
-    get() {
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement width receiver");
       if (this.tagName === "MAIN") reads.hostWidth++;
-      return originalWidth.get!.call(this);
+      return readDimension(originalWidth, this);
     },
   });
   view.rerender(show(true));
@@ -324,9 +335,10 @@ test("resumes rows measured at the estimate without synchronous row geometry rea
   const measuredHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() {
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
       if (this.tagName === "LI") reads.rowHeight++;
-      return measuredHeight.get!.call(this);
+      return readDimension(measuredHeight, this);
     },
   });
   view.rerender(show(true));
@@ -365,9 +377,10 @@ test("reads a newly mounted row once on resume while reused rows stay unread", (
   const measuredHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() {
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
       if (this.tagName === "LI") reads.rowHeight++;
-      return measuredHeight.get!.call(this);
+      return readDimension(measuredHeight, this);
     },
   });
   rowHeight = 66.5;

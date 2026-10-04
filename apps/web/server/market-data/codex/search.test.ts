@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { investAssets } from "@/config/invest-assets";
+import { isRecord } from "@/shared/guards";
 import { createCodexSearchReader } from "./search";
 
 const a = "0x1111111111111111111111111111111111111111";
@@ -8,6 +9,12 @@ const now = () => new Date("2026-09-26T12:00:00.000Z");
 const row = (address: string, name = "Other", symbol = "OTHER", extra = {}) => ({ priceUSD: "0.01", change24: "0.02", lastTransaction: "1788955200", token: { address, name, symbol, decimals: "18", networkId: "8453", info: {} }, ...extra });
 const page = (rows: unknown[], offset = 0) => Response.json({ data: { filterTokens: { results: rows, count: rows.length, page: offset } } });
 const request = (query: string, offset = 0) => ({ query, offset });
+
+function searchBody(init: RequestInit | undefined) {
+  const body: unknown = JSON.parse(String(init?.body));
+  if (!isRecord(body) || !isRecord(body.variables)) throw new Error("Invalid search request body");
+  return { query: body.query, variables: body.variables };
+}
 
 describe("Base Invest search", () => {
   test("matches configured aliases, whitespace, single-character symbols, contract and case", async () => {
@@ -39,7 +46,7 @@ describe("Base Invest search", () => {
   test("sends Base-only phrase search, retains distinct symbols, ranks relevance and drops wrong-chain/configured/duplicate contracts", async () => {
     const checked: string[] = [];
     const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async (address) => { checked.push(address); return false; }, fetchImpl: async (_, init) => {
-      const body = JSON.parse(String(init?.body));
+      const body = searchBody(init);
       expect(body.query).toContain("filterTokens(phrase: $phrase");
       expect(body.variables).toMatchObject({ phrase: "AAPL", filters: { network: [8453] }, limit: 20, offset: 0 });
       expect(body.variables.filters).toEqual({ network: [8453] });
@@ -162,7 +169,7 @@ describe("Base Invest search", () => {
 
   test("an indexed exact contract carries its current price and identity; mismatched rows are not accepted", async () => {
     let variables: Record<string, unknown> = {};
-    const priced = createCodexSearchReader({ apiKey: "fixture", now, isPair: async () => false, fetchImpl: async (_, init) => { variables = JSON.parse(String(init?.body)).variables; return page([row(a, "Indexed", "IDX", { token: { address: a, name: "Indexed", symbol: "IDX", decimals: 18, networkId: 8453, info: { imageThumbUrl: "https://example.com/thumb.png", imageSmallUrl: "https://example.com/small.png", imageLargeUrl: "https://example.com/large.png" } } })]); } });
+    const priced = createCodexSearchReader({ apiKey: "fixture", now, isPair: async () => false, fetchImpl: async (_, init) => { variables = searchBody(init).variables; return page([row(a, "Indexed", "IDX", { token: { address: a, name: "Indexed", symbol: "IDX", decimals: 18, networkId: 8453, info: { imageThumbUrl: "https://example.com/thumb.png", imageSmallUrl: "https://example.com/small.png", imageLargeUrl: "https://example.com/large.png" } } })]); } });
     const result = await priced(request(a));
     expect(variables).toEqual({ tokens: [`${a}:8453`], limit: 1 });
     expect(result).toMatchObject({ provider: "ok", results: [{ kind: "dynamic", source: "indexed", asset: { id: `base:${a}`, displayName: "Indexed", displaySymbol: "IDX", imageUrl: "https://example.com/small.png" } }], snapshots: [{ assetId: `base:${a}`, displayPrice: "$0.01" }] });
@@ -237,7 +244,8 @@ describe("Base Invest search", () => {
   test("pagination omits configured later, uses raw provider count, caps last page and keeps page-level dedupe", async () => {
     const seen: number[] = [];
     const search = createCodexSearchReader({ apiKey: "fixture", now, isPair: async () => false, fetchImpl: async (_, init) => {
-      const { offset } = JSON.parse(String(init?.body)).variables;
+      const { offset } = searchBody(init).variables;
+      if (typeof offset !== "number") throw new Error("Invalid search offset");
       seen.push(offset);
       return page(Array.from({ length: 20 }, (_, i) => row(i === 0 ? a : `0x${(i + offset + 100).toString(16).padStart(40, "0")}`, "Bitcoin", "BTC")), offset);
     } });

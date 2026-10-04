@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
+import type { queries } from "storybook/test";
 import { ReviewBoardView } from "./explorations/board/board";
 import { parseBoard } from "./explorations/board/manifest";
 import { readReviewBuild, type ReviewBuild } from "./explorations/board/review-build";
@@ -10,6 +11,7 @@ import investmentsJson from "./boards/investments.json";
 import glassNavigationJson from "./boards/glass-navigation.json";
 import investAssetDetailJson from "./boards/invest-asset-detail.json";
 import cashOutReviewJson from "./boards/cash-out-review.json";
+import mutedForegroundJson from "./boards/muted-foreground.json";
 
 const build = readReviewBuild(import.meta.env);
 const savings = parseBoard(savingsJson);
@@ -18,6 +20,7 @@ const borrowIllustration = parseBoard(borrowIllustrationJson);
 const investments = parseBoard(investmentsJson);
 const glassNavigation = parseBoard(glassNavigationJson);
 const cashOutReview = parseBoard(cashOutReviewJson);
+const mutedForeground = parseBoard(mutedForegroundJson);
 const fixture = parseBoard({
   id: "chrome-fixture", title: "Board chrome test", summary: "Empty document controls", sections: [
     { id: "first", title: "First section", frames: [
@@ -40,6 +43,7 @@ export const BorrowIllustration: Story = { tags: ["!test", "review-board"], args
 export const Investments: Story = { tags: ["!test", "review-board"], args: { board: investments, build } };
 export const GlassNavigation: Story = { tags: ["!test", "review-board"], args: { board: glassNavigation, build } };
 export const CashOutReview: Story = { tags: ["!test", "review-board"], args: { board: cashOutReview, build } };
+export const MutedForeground: Story = { tags: ["!test", "review-board"], args: { board: mutedForeground, build } };
 export const CommentsFollowCanvas: Story = {
   args: { board: fixture, build: fixtureBuild, frameSource: "blank" },
   render: (args) => <div style={{ height: "100dvh", width: 1400 }}><ReviewBoardView {...args} /></div>,
@@ -84,7 +88,7 @@ function ChromeFixture() {
     <ReviewBoardView board={fixture} build={fixtureBuild} frameSource="blank" narrow={narrow} />
   </div>;
 }
-async function interactOnMobile(screen: ReturnType<typeof within>) {
+async function interactOnMobile(screen: ReturnType<typeof within<typeof queries>>) {
   const action = screen.getByRole("button", { name: "Interact" });
   await waitFor(() => expect(action).toBeEnabled());
   await userEvent.click(action);
@@ -286,22 +290,28 @@ export const BoardChrome: Story = {
     await expect(first.getBoundingClientRect().left).toBeCloseTo(frameLeft, 0);
     board.focus();
     await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
+    await userEvent.keyboard("second frame");
     const palette = await screen.findByRole("dialog", { name: "Command palette" });
     const search = within(palette).getByRole("combobox", { name: "Search board navigation" });
-    await waitFor(() => expect(search).toHaveFocus());
-    await userEvent.keyboard("second frame");
+    await expect(search).toHaveFocus();
+    await expect(search).toHaveValue("second frame");
     await waitFor(() => expect(within(palette).getAllByRole("option")[0]).toHaveTextContent("Second frame"));
     await userEvent.keyboard("{Enter}");
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).not.toBeInTheDocument());
     await expect(new URL(doc.location.href).searchParams.get("frame")).toBe("two");
     await expect(screen.getByRole("complementary", { name: "Inspector" })).toHaveTextContent("blank-two");
     await waitFor(() => expect(board.contains(doc.activeElement)).toBe(true));
-    within(screen.getByRole("complementary", { name: "Inspector" })).getByRole("button", { name: "Fit frame" }).focus();
-    await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
+    const fitFrame = within(screen.getByRole("complementary", { name: "Inspector" })).getByRole("button", { name: "Fit frame" });
+    fitFrame.focus();
+    void fireEvent.keyDown(fitFrame, { key: "k", code: "KeyK", metaKey: mac, ctrlKey: !mac });
+    const focusedBeforeFrame = await new Promise<Element | null>((resolve) =>
+      (doc.defaultView ?? window).requestAnimationFrame(() => resolve(doc.activeElement)));
+    await fireEvent.keyUp(fitFrame, { key: "k", code: "KeyK", metaKey: mac, ctrlKey: !mac });
+    await userEvent.keyboard("tgl insp");
     const inspectorPalette = await screen.findByRole("dialog", { name: "Command palette" });
     const inspectorSearch = within(inspectorPalette).getByRole("combobox", { name: "Search board navigation" });
-    await waitFor(() => expect(inspectorSearch).toHaveFocus());
-    await userEvent.keyboard("tgl insp");
+    await expect(focusedBeforeFrame).toBe(inspectorSearch);
+    await expect(inspectorSearch).toHaveValue("tgl insp");
     await waitFor(() => expect(within(inspectorPalette).getAllByRole("option")[0]).toHaveTextContent("Toggle inspector"));
     await userEvent.keyboard("{Enter}");
     await expect(inspectorToggle).toHaveAttribute("aria-pressed", "false");

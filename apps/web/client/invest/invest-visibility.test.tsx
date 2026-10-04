@@ -6,6 +6,7 @@ import { investAssets } from "@/config/invest-assets";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { INVEST_HIDE_ALL } from "@/shared/operator-settings/invest";
 import { searchFixture } from "@/tests/browser/feature-map/search-fixtures";
+import { isRecord } from "@/shared/guards";
 
 test("categories left on with every asset hidden show the empty state instead of empty shelves", () => {
   const hiddenAssets = investAssets.filter((asset) => asset.category !== "meme").map((asset) => asset.id);
@@ -89,7 +90,9 @@ test("hidden category hub persists search and restores it on remount", () => {
     investVisibility: { hiddenCategories: ["stock" as const], hiddenAssets: [] } };
   const first = render(<InvestExperience {...props} />);
   fireEvent.change(page().getByRole("textbox", { name: "Search assets" }), { target: { value: "BTC" } });
-  expect(window.history.state.investSearchQuery).toBe("BTC");
+  const searchState: unknown = window.history.state;
+  if (!isRecord(searchState)) throw new Error("Expected search history state");
+  expect(searchState.investSearchQuery).toBe("BTC");
   first.unmount();
   render(<InvestExperience {...props} />);
   expect((page().getByRole("textbox", { name: "Search assets" }) as HTMLInputElement).value).toBe("BTC");

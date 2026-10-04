@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 
-import { BOUNDARY_EXCLUDED_FILES, BOUNDARY_EXTENSIONS, BOUNDARY_EXTENSIONS_GLOB, BOUNDARY_RULES, ENFORCING_SEVERITIES, FENCED_LAYERS, isRootSourcePath } from "./exploration-boundary.mjs";
+import { BOUNDARY_EXCLUDED_FILES, BOUNDARY_EXTENSIONS, BOUNDARY_EXTENSIONS_GLOB, BOUNDARY_RULES, ENFORCING_SEVERITIES, FENCED_LAYERS, ROOT_CATCH_ALL, isRootSourcePath } from "./exploration-boundary.mjs";
 
-export const ROOT_CATCH_ALL = `./*.${BOUNDARY_EXTENSIONS_GLOB}`;
+export { ROOT_CATCH_ALL };
 
 export function loadRootEntryExemptions() {
   return JSON.parse(readFileSync(new URL("./exploration-boundary-exemptions.json", import.meta.url), "utf8"))

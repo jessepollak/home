@@ -18,6 +18,7 @@ import {
   type MoneyActionMetadata,
   type PreparedMoneyAction,
 } from "@/shared/money-actions/types";
+import { currencyRecordById } from "@/shared/currencies/registry";
 import { getDirectPortfolioAssets } from "@/config/portfolio-assets";
 import { getActionsStore } from "@/server/actions/store";
 import { isSavingsMetadata } from "@/shared/savings/review";
@@ -418,6 +419,11 @@ function normalizeAmount(amount: MoneyActionAmount): MoneyActionAmount {
 }
 
 function assertTradeDraft(calls: MoneyActionCall[], amounts: MoneyActionAmount[], metadata: TradeMoneyActionMetadata, hasPaymaster: boolean, owner: `0x${string}`): void {
+  if (metadata.currencyRecordId !== undefined &&
+    currencyRecordById(metadata.currencyRecordId)?.contractAddress.toLowerCase() !==
+      (metadata.direction === "buy" ? metadata.toAsset.address : metadata.fromAsset.address)) {
+    throw new MoneyActionIssueError("invalid-draft");
+  }
   const customer = tradeCustomerAmounts(metadata);
   if (amounts.length !== 2 ||
     amounts[0]?.direction !== "spend" || amounts[0].assetId !== metadata.fromAsset.id ||

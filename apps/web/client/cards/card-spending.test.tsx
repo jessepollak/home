@@ -71,6 +71,35 @@ async function setReview(view: ReturnType<typeof render>, amount = "25") {
   return within(dialog);
 }
 
+describe("Card spending opener", () => {
+  for (const label of ["Change", "Set limit", "Turn off", "Remove"]) {
+    test(`${label} restores the actual activating control rather than ambient focus`, async () => {
+      const response: typeof available = { ...available, allowanceBaseUnits: label === "Set limit" ? "0" : available.allowanceBaseUnits,
+        retired: label === "Remove" ? [{ spender: retired, allowanceBaseUnits: "1000000" }] : [] };
+      const { view } = setup({ spending: { status: "ready", response } });
+      const opener = view.getByRole("button", { name: label });
+      view.getByRole("switch", { name: "Lock card" }).focus();
+      fireEvent.click(opener);
+      const dialog = await view.findByRole("dialog");
+      await waitFor(() => expect(within(dialog).getByRole("button", { name: "Close spending limit" }).hasAttribute("disabled")).toBe(false));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Close spending limit" }));
+      await waitFor(() => expect(document.activeElement === opener).toBe(true));
+    });
+  }
+
+  test("removing the activating row never restores detached focus", async () => {
+    const { view, props } = setup();
+    const opener = view.getByRole("button", { name: "Change" });
+    fireEvent.click(opener);
+    const dialog = await view.findByRole("dialog");
+    view.rerender(renderScreen({ ...props, spending: { status: "loading" } }));
+    expect(opener.isConnected).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close spending limit" }));
+    await waitFor(() => expect(view.queryByRole("dialog") === null).toBe(true));
+    expect(document.activeElement === opener).toBe(false);
+  });
+});
+
 describe("Card spending section", () => {
   test("loading is busy and has no figures", () => {
     const { view } = setup({ spending: { status: "loading" } });
@@ -263,13 +292,13 @@ describe("Card allowance flow", () => {
     for (const operation of ["set", "revoke"] as const) {
       const { view, execute, refresh } = setup();
       execute.mockImplementationOnce(async () => { throw new TransferExecutionError("stale-session"); });
-      let dialog: ReturnType<typeof within>;
-      if (operation === "set") dialog = await setReview(view);
-      else {
+      const dialog = await (async () => {
+        if (operation === "set") return setReview(view);
         fireEvent.click(view.getByRole("button", { name: "Turn off" }));
-        dialog = within(await view.findByRole("dialog"));
-        await waitFor(() => expect(dialog.getByText("Purpose")).toBeTruthy());
-      }
+        const review = within(await view.findByRole("dialog"));
+        await waitFor(() => expect(review.getByText("Purpose")).toBeTruthy());
+        return review;
+      })();
       const label = operation === "set" ? "Set limit" : "Turn off";
       fireEvent.click(dialog.getByRole("button", { name: label }));
       await waitFor(() => expect(dialog.getByText("Your account changed. Sign in again and try again.")).toBeTruthy());

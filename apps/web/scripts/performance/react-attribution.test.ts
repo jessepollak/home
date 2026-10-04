@@ -27,7 +27,7 @@ function commits(globals: ReactGlobals): ReactCommitCollector {
 function install(existing?: object) {
   const globals: ReactGlobals = { performance: { now: () => 15 }, __REACT_DEVTOOLS_GLOBAL_HOOK__: existing, __homeReactCommits: undefined };
   const evaluate = new Function("globalThis", reactCommitCollectorSource);
-  evaluate(globals);
+  Reflect.apply(evaluate, undefined, [globals]);
   return { globals, evaluate };
 }
 const commit = (atMs: number, renderMs = 10, hidden = false): ReactCommit => ({ atMs, renderMs, commitMs: 2, passiveMs: 1, profiling: true,
@@ -50,7 +50,7 @@ describe("React commit collector", () => {
     hook.onPostCommitFiberRoot(id);
     const [firstCommit] = commits(globals).commits;
     expect(firstCommit?.passiveMs).toBe(4);
-    evaluate(globals);
+    Reflect.apply(evaluate, undefined, [globals]);
     expect(globals.__REACT_DEVTOOLS_GLOBAL_HOOK__).toBe(hook);
     expect(commits(globals).commits).toHaveLength(1);
   });
@@ -173,7 +173,7 @@ describe("React window summaries", () => {
     });
   });
   test("Markdown reports configured, missing and non-injected profiling legs honestly", () => {
-    const report: NavigationAttributionReport = { rows: 300, pooling: "cycles and both legs", chromium: [], samples: [], plainLatenciesByPath: {},
+    const report: NavigationAttributionReport = { rows: 300, pooling: "cycles and measured legs per path", chromium: [], samples: [], plainLatenciesByPath: {},
       webkit: { browser: null, samples: [], paths: [], errors: [] }, react: { url: null, samples: [], hooks: [], reason: "No profiling build configured",
         paths: [aggregateReact("/cash", [])] } };
     expect(attributionMarkdown(report)).toContain("| /cash | — | — | — | — | — | — | — | — | — |");

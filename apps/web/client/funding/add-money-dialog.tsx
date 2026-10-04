@@ -62,6 +62,9 @@ export function AddMoneyDialog({
   promptOrder,
   onContinueOrder,
   onStartNewOrder,
+  onCancelOrder,
+  cancellingOrder = false,
+  cancellationError = null,
   startNewAllowed,
   initialCustomer,
   fetchAccountResource,
@@ -89,6 +92,9 @@ export function AddMoneyDialog({
   promptOrder: FundingOrderSummary | null;
   onContinueOrder: () => void;
   onStartNewOrder: () => void;
+  onCancelOrder?: () => void;
+  cancellingOrder?: boolean;
+  cancellationError?: string | null;
   startNewAllowed: boolean;
   initialCustomer?: FundingProviderCustomerSummary | null;
   fetchAccountResource: AccountWalletClient["fetchAccountResource"];
@@ -144,6 +150,9 @@ export function AddMoneyDialog({
           startNewAllowed={startNewAllowed && (selectedBinding.direction !== "onramp" || selectedBinding.resumeOnly !== true)}
           onContinue={onContinueOrder}
           onStartNew={onStartNewOrder}
+          onCancel={onCancelOrder}
+          cancelling={cancellingOrder}
+          cancellationError={cancellationError}
         />
       ) : null}
       {signedOut ? (

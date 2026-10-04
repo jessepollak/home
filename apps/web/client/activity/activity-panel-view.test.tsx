@@ -149,7 +149,10 @@ const originalHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "o
 function mockRowHeight() {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() { return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0; },
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
+      return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0;
+    },
   });
 }
 afterEach(() => {
@@ -327,8 +330,11 @@ describe("combined Activity panel", () => {
       expect(children).toHaveLength(2);
       for (const child of children) {
         fireEvent.click(child);
-        const dialog = await view.findByRole("dialog", { name: "Received" });
-        expect(within(dialog).getByText("From")).toBeTruthy();
+        const dialog = await waitFor(() => {
+          const loaded = view.getByRole("dialog", { name: "Received" });
+          expect(within(loaded).getByText("From")).toBeTruthy();
+          return loaded;
+        }, { timeout: 2_000 });
         const animationFlag = globalThis as { BASE_UI_ANIMATIONS_DISABLED?: boolean };
         animationFlag.BASE_UI_ANIMATIONS_DISABLED = true;
         try {

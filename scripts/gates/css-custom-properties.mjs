@@ -280,7 +280,7 @@ function isArbitraryModifier(value) {
       continue;
     }
     if (ch === "'" || ch === '"') quote = ch;
-    else if (ch === "[") bracketDepth += 1;
+    else if (ch === "[" && parenthesisDepth === 0) bracketDepth += 1;
     else if (ch === "(") parenthesisDepth += 1;
     else if (ch === ")") {
       parenthesisDepth = Math.max(0, parenthesisDepth - 1);
@@ -292,26 +292,92 @@ function isArbitraryModifier(value) {
   return false;
 }
 
-// A declared global token is live if any app source (including stories and
-// explorations) uses var(--name), references it through Tailwind's parenthesized
-// custom-property shorthand, or consumes its @theme inline mapping with a
-// Tailwind spelling measured from the installed build (see
-// tailwind-theme-spellings.mjs): `<utility>-<value>` for a namespace's functional
-// roots, or a variant segment such as `<value>:`, `max-<value>:` or `@<value>:`.
-// A declaration named exactly like a bare default-value key (--spacing, --radius)
-// is a default lookup rather than a namespace value and needs a var() reference.
-// Count uncertain references as uses.
+// Tailwind's source scanner starts a candidate at the token start or after a
+// boundary character (whitespace, a quote, a backtick, `.`, `>` or `}`), and an
+// `@` outside brackets, parentheses and quoted runs is startable only at that
+// position or immediately after `:`. A token with an unstartable `@` therefore
+// yields only the pieces after its boundary characters; text before the first
+// boundary is not a candidate. Over-approximating the pieces keeps the guard
+// fail-open.
+const SCANNER_BOUNDARY = /[\s"'`>}.]/;
+
+function scannerCandidates(token) {
+  const candidates = [];
+  let start = 0;
+  let recovery = false;
+  let bracketDepth = 0;
+  let parenthesisDepth = 0;
+  let quote = null;
+  for (let i = 0; i < token.length; i += 1) {
+    const ch = token[i];
+    if (ch === "\\") {
+      const escaped = token[i + 1];
+      if (recovery && escaped !== undefined && SCANNER_BOUNDARY.test(escaped)) {
+        if (start >= 0) candidates.push(token.slice(start, i));
+        start = i + 2;
+      }
+      i += 1;
+      continue;
+    }
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      continue;
+    }
+    if (ch === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+    if (ch === "]") {
+      bracketDepth = Math.max(0, bracketDepth - 1);
+      continue;
+    }
+    if (ch === "(" && bracketDepth === 0) {
+      parenthesisDepth += 1;
+      continue;
+    }
+    if (ch === ")" && bracketDepth === 0) {
+      parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+      continue;
+    }
+    if (bracketDepth > 0 || parenthesisDepth > 0) continue;
+    if (ch === "@" && i !== start && token[i - 1] !== ":") {
+      if (recovery && start >= 0) candidates.push(token.slice(start, i));
+      start = -1;
+      recovery = true;
+      continue;
+    }
+    if (!recovery || !SCANNER_BOUNDARY.test(ch)) continue;
+    if (start >= 0) candidates.push(token.slice(start, i));
+    start = i + 1;
+  }
+  if (start >= 0 && start < token.length) candidates.push(token.slice(start));
+  return candidates;
+}
+
+// A declared theme token consumes measured utility, variant, modifier or default
+// spellings; overlapping namespaces must all be considered.
 function themeSpellingUses(token, classes, themeSpellings) {
-  // A token may belong to overlapping namespaces (--font and --font-weight).
-  for (const [namespace, { utilities, variants }] of themeSpellings) {
-    if (!token.startsWith(`${namespace}-`)) continue;
+  for (const [namespace, { utilities, variants, modifiers, defaults }] of themeSpellings) {
+    const isDefault = token === namespace;
+    if (!isDefault && !token.startsWith(`${namespace}-`)) continue;
     const value = token.slice(namespace.length + 1);
-    if (classes.some((literal) => classTokens(literal).some((part) => {
+    if (classes.some((part) => {
       const { variants: segments, utility: rawUtility } = splitClassToken(part);
-      // Strip variants, a leading or trailing important marker, and the opacity
-      // suffix, then the negative marker.
-      const utility = rawUtility.replace(/^!/, "").replace(/!$/, "").split("/")[0].replace(/^-/, "");
+      const normalized = rawUtility.replace(/^!/, "").replace(/!$/, "");
+      if (isDefault) {
+        const base = splitClassParts(normalized, "/")[0];
+        return defaults.bare.includes(base) || defaults.valued.some((root) => normalized.startsWith(`${root}-`)
+          && /^-?\d+(?:\.\d+)?$/.test(normalized.slice(root.length + 1)));
+      }
+      const utility = normalized.split("/")[0].replace(/^-/, "");
       if (utilities.some((root) => utility === `${root}-${value}`)) return true;
+      const modifierParts = splitClassParts(normalized, "/");
+      if (modifierParts.length === 2 && modifierParts[1] === value
+        && modifiers.some((root) => modifierParts[0] === root || modifierParts[0].startsWith(`${root}-`))) return true;
       return segments.some((segment) => variants.some((template) => {
         const modified = template.endsWith("/{modifier}");
         const spelling = (modified ? template.slice(0, -"/{modifier}".length) : template).replace("{value}", value);
@@ -320,7 +386,7 @@ function themeSpellingUses(token, classes, themeSpellings) {
         if (parts.length !== 2 || parts[0] !== spelling) return false;
         return /^[A-Za-z0-9_.-]+$/.test(parts[1]) || isArbitraryModifier(parts[1]);
       }));
-    }))) return true;
+    })) return true;
   }
   return false;
 }
@@ -356,12 +422,12 @@ export function evaluateUnusedDeclaredTokens({ inventory, files, allowlist = [],
     for (const match of source.matchAll(CSS_VAR_USE)) vars.add(match[1]);
     if (path.endsWith(".css")) {
       for (const { classBody, maskedBody } of applyBodies(source)) {
-        classes.push(classBody);
+        classes.push(...classTokens(classBody));
         shorthandClasses.push(maskedBody);
       }
     } else if (/\.[cm]?[jt]sx?$/.test(path)) {
       const literals = jsStringLiterals(source);
-      classes.push(...literals);
+      classes.push(...literals.flatMap((literal) => classTokens(literal).flatMap(scannerCandidates)));
       shorthandClasses.push(...literals);
     }
   }

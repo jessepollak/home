@@ -35,7 +35,11 @@ function isPendingActivityOrder(order: ActivityOrder): boolean {
 }
 
 export function activityOrdersNeedPolling(orders: readonly ActivityOrder[]): boolean {
-  return orders.some((order) => isPendingActivityOrder(order) || (order.kind === "funding" && order.resumable));
+  return orders.some((order) => {
+    if (order.kind === "funding" && ((order.stage === "cancelled" && order.abandonReason === "owner") ||
+      (order.stage === "expired" && order.abandonReason === "timed-out"))) return false;
+    return isPendingActivityOrder(order) || (order.kind === "funding" && order.resumable);
+  });
 }
 
 export function mergeActivityFeed(input: {
@@ -124,11 +128,12 @@ export function mergeActivityFeed(input: {
     }),
     ...(input.orders ?? []).filter((order) => {
       if (order.kind === "cash-out" && actionWins.has(order.id)) return false;
-      return isPendingActivityOrder(order) || loadedThroughTime === null || Date.parse(order.updatedAt) > loadedThroughTime;
+      const timestamp = order.kind === "funding" ? order.movedAt ?? order.updatedAt : order.updatedAt;
+      return isPendingActivityOrder(order) || loadedThroughTime === null || Date.parse(timestamp) > loadedThroughTime;
     }).map((order): ActivityFeedItem => {
       const withdraw = order.kind === "cash-out" && order.orderId ? cashoutWithdrawForDeposit(order.orderId, input.operations) : undefined;
       const reviewed = order.kind === "cash-out" ? reviewedByOrder.get(order.id) : undefined;
-      return { kind: "order", id: order.id, timestamp: order.updatedAt, order, ...(withdraw ? { withdraw } : {}), ...(reviewed ? { reviewed } : {}) };
+      return { kind: "order", id: order.id, timestamp: order.kind === "funding" ? order.movedAt ?? order.updatedAt : order.updatedAt, order, ...(withdraw ? { withdraw } : {}), ...(reviewed ? { reviewed } : {}) };
     }),
   ].sort((left, right) => compareActivityFeedItems(left, right, loadedThroughTime));
 }

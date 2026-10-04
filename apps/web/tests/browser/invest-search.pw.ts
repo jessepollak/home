@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { isRecord } from "@/shared/guards";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 import { nonTrendingAddress, searchFixture } from "./feature-map/search-fixtures";
 import { expectNavigation } from "./fixtures/navigation-budget";
@@ -25,8 +26,13 @@ test("Invest search keeps identity, query and scroll when returning from a reloa
   await rows.first().click();
   await expectNavigation(page, new RegExp(`/invest/base:${nonTrendingAddress}$`));
   await expect(page.locator("[data-shell-header-title]")).toContainText("Orbit");
-  expect(await page.evaluate(() => history.state.investSearchQuery)).toBe("ORB");
-  expect(await page.evaluate(() => history.state.investSearchScrollTop)).toBeGreaterThan(0);
+  const searchState = await page.evaluate(() => {
+    const state: unknown = history.state;
+    return state;
+  });
+  if (!isRecord(searchState)) throw new Error("Missing Invest search history state");
+  expect(searchState.investSearchQuery).toBe("ORB");
+  expect(searchState.investSearchScrollTop).toBeGreaterThan(0);
 
   await page.reload();
   await expect(page.locator("[data-shell-header-title]").filter({ hasText: "Orbit" }).first()).toBeVisible();

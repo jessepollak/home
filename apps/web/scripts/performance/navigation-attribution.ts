@@ -3,13 +3,13 @@ import { installApiFixtures, seedSignedInSession } from "../../tests/browser/fix
 import { attributeWindow, loafCollectorSource, loafFrames, mainThread, markWindows, summarizeLoaf,
   type LoafEntry, type LoafFrame, type LoafSummary, type TraceEvent, type WindowAttribution } from "./attribution";
 import { inlineFixtureMark, twoFrames, type CpuRate, type Session } from "./browser";
-import { navigationCycles, navigationTraceCategories } from "./config";
+import { navigationCycles, navigationSettleMs, navigationTraceCategories } from "./config";
 import { median, percentile } from "./evaluate";
-import { fillFeed, installFeed, scrollFeedTo } from "./feed";
-import { home, navigate, ready, warmNavigation } from "./navigation";
+import { closeDetailRow, fillFeed, installFeed, openDetailRow, scrollFeedTo, selectDetailRow } from "./feed";
+import { browserBack, home, navigate, ready, warmNavigation } from "./navigation";
 import { aggregateReact, reactAvailability, reactCommitCollectorSource, summarizeReactWindow, type ReactAttributionReport, type ReactCommitCollector, type ReactWindowSummary } from "./react-attribution";
 
-export type NavigationLeg = "outbound" | "home";
+export type NavigationLeg = "outbound" | "home" | "back" | "detail";
 export type NavigationWindow = {
   path: string; leg: NavigationLeg; cycle: number; latencyMs: number;
   startMark: string; endMark: string; startMs: number; endMs: number;
@@ -26,7 +26,7 @@ export type WebKitSample = Pick<NavigationWindow, "path" | "leg" | "cycle" | "la
 };
 export type WebKitResult = { browser: string | null; samples: WebKitSample[]; errors: { path: string | null; reason: string }[] };
 export type NavigationAttributionReport = {
-  rows: number; pooling: "cycles and both legs"; chromium: ReturnType<typeof aggregateAttribution>[];
+  rows: number; pooling: "cycles and measured legs per path"; chromium: ReturnType<typeof aggregateAttribution>[];
   samples: NavigationAttributionSample[]; plainLatenciesByPath: Record<string, number[]>;
   webkit: WebKitResult & { paths: ReturnType<typeof aggregateWebKit>[] };
   react: ReactAttributionReport | null;
@@ -47,6 +47,12 @@ export function sliceLoaf(entries: LoafEntry[], window: { startMs: number; endMs
   return entries.filter((entry) => entry.durationMs >= 50 && entry.startMs >= window.startMs && entry.startMs < window.endMs);
 }
 
+export function topInvokerByPath(entries: LoafEntry[], windows: readonly { path: string; startMs: number; endMs: number }[]): Record<string, string | null> {
+  const selected = new Map<string, LoafEntry[]>();
+  for (const window of windows) selected.set(window.path, [...(selected.get(window.path) ?? []), ...sliceLoaf(entries, window)]);
+  return Object.fromEntries([...selected].map(([path, slices]) => [path, summarizeLoaf(slices).topInvoker]));
+}
+
 export function summarizeLoafWindow(collector: { supported: boolean; entries: LoafEntry[] }, window: { startMs: number; endMs: number }) {
   if (!collector.supported) return { loaf: null, loafFrames: null };
   const entries = sliceLoaf(collector.entries, window);
@@ -54,15 +60,17 @@ export function summarizeLoafWindow(collector: { supported: boolean; entries: Lo
     loafFrames: loafFrames(entries.map((entry) => ({ ...entry, startMs: entry.startMs - window.startMs }))) };
 }
 
-export function mapTraceWindows(events: TraceEvent[], windows: NavigationWindow[], cycles: number, dataLossOccurred = false) {
+export function mapTraceWindows(events: TraceEvent[], windows: NavigationWindow[], cycles: number, dataLossOccurred = false,
+  legs: readonly NavigationLeg[] = ["outbound", "home"]) {
   if (dataLossOccurred) throw new Error("Navigation attribution trace reported data loss; refusing incomplete buckets");
-  if (windows.length !== cycles * 2) throw new Error(`Navigation attribution window/leg mismatch: expected ${cycles * 2}, got ${windows.length}`);
-  const names = new Set<string>();
+  if (windows.length !== cycles * legs.length) throw new Error(`Navigation attribution window/leg mismatch: expected ${cycles * legs.length}, got ${windows.length}`);
+  const names = new Set<string>(), paths = new Map<NavigationLeg, string>();
   const marks = events.filter((event) => event.cat?.split(",").includes("blink.user_timing"));
   let previousTraceEnd = -Infinity, previousPageEnd = -Infinity;
   return windows.map((window, index) => {
-    if (window.cycle !== Math.floor(index / 2) + 1 || window.leg !== (index % 2 === 0 ? "outbound" : "home")
-      || window.path !== windows[0]?.path) throw new Error(`Navigation attribution missing or out-of-order leg at ${index}`);
+    if (window.cycle !== Math.floor(index / legs.length) + 1 || window.leg !== legs[index % legs.length]
+      || (paths.has(window.leg) && window.path !== paths.get(window.leg))) throw new Error(`Navigation attribution missing or out-of-order leg at ${index}`);
+    paths.set(window.leg, window.path);
     if (!Number.isFinite(window.startMs) || !Number.isFinite(window.endMs) || window.endMs <= window.startMs || window.startMs < previousPageEnd)
       throw new Error(`Navigation attribution invalid page-clock window at ${index}`);
     if (names.has(window.startMark) || names.has(window.endMark) || window.startMark === window.endMark)
@@ -189,7 +197,7 @@ export async function awaitTraceEnd(ending: Promise<unknown>, completed: Promise
 }
 
 export async function runChromiumNavigationAttribution(session: Session, baseUrl: string, rows: number, path: string, options: { collectCommits?: boolean } = {}) {
-  const { page, cdp } = session;
+  const { page } = session;
   if (options.collectCommits) await page.addInitScript(reactCommitCollectorSource);
   await captureRealPerformance(page);
   await page.clock.install({ time: new Date() });
@@ -202,6 +210,21 @@ export async function runChromiumNavigationAttribution(session: Session, baseUrl
   await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
   await twoFrames(page);
   await warmNavigation(page, [path]);
+  return collectChromiumAttribution(session, {
+    legs: ["outbound", "home"], path: () => path,
+    measure: (leg) => leg === "outbound" ? navigate(page, path) : home(page),
+  }, options);
+}
+
+type AttributionScenario = {
+  legs: readonly NavigationLeg[]; path: (leg: NavigationLeg) => string;
+  before?: (leg: NavigationLeg) => Promise<unknown>;
+  measure: (leg: NavigationLeg, cycle: number) => Promise<number>;
+  after?: () => Promise<unknown>;
+};
+
+async function collectChromiumAttribution(session: Session, scenario: AttributionScenario, options: { collectCommits?: boolean }) {
+  const { page, cdp } = session;
   await page.evaluate(loafCollectorSource);
   const events: TraceEvent[] = [], windows: NavigationWindow[] = [], cpu: CpuRate[] = [];
   const collect = (data: { value: TraceEvent[] }) => { for (const event of data.value) events.push(event); };
@@ -211,13 +234,15 @@ export async function runChromiumNavigationAttribution(session: Session, baseUrl
     await cdp.send("Tracing.start", { transferMode: "ReportEvents", categories: navigationTraceCategories });
     traceRunning = true;
     const started = Date.now();
-    for (let cycle = 1; cycle <= navigationCycles; cycle++) for (const leg of ["outbound", "home"] as const) {
+    for (let cycle = 1; cycle <= navigationCycles; cycle++) for (const leg of scenario.legs) {
+      await scenario.before?.(leg);
       const startMark = `home-attribution-${cycle}-${leg}-start`, endMark = `home-attribution-${cycle}-${leg}-end`;
       const startMs = await mark(page, startMark);
-      const latencyMs = leg === "outbound" ? await navigate(page, path) : await home(page);
+      const latencyMs = await scenario.measure(leg, cycle);
       const endMs = await mark(page, endMark);
-      windows.push({ path, leg, cycle, latencyMs, startMark, endMark, startMs, endMs });
+      windows.push({ path: scenario.path(leg), leg, cycle, latencyMs, startMark, endMark, startMs, endMs });
       cpu.push({ ...session.cpu });
+      await scenario.after?.();
     }
     if (Date.now() - started >= 55_000) throw new Error("Navigation attribution windows crossed the 60 s savings poll interval");
     await drainTailFrames(() => page.evaluate(() => new Promise<number>((resolve) => {
@@ -250,7 +275,7 @@ export async function runChromiumNavigationAttribution(session: Session, baseUrl
     } finally {
       if (complete) cdp.off("Tracing.tracingComplete", complete);
     }
-    const mapped = mapTraceWindows(events, windows, navigationCycles, completion.dataLossOccurred);
+    const mapped = mapTraceWindows(events, windows, navigationCycles, completion.dataLossOccurred, scenario.legs);
     const renderer = mainThread(events);
     const threadNames = events.filter((event) => event.ph === "M" && event.name === "thread_name").map((event) => event.args?.name ?? "");
     const threadAvailable = {
@@ -259,7 +284,7 @@ export async function runChromiumNavigationAttribution(session: Session, baseUrl
     };
     const samples: NavigationAttributionSample[] = mapped.map((window) => {
       const attributed = attributeWindow(events, window.traceWindow);
-      return { path, leg: window.leg, cycle: window.cycle, latencyMs: window.latencyMs, ...attributed,
+      return { path: window.path, leg: window.leg, cycle: window.cycle, latencyMs: window.latencyMs, ...attributed,
         main: renderer ? attributed.main : null,
         threads: { rasterMs: threadAvailable.rasterMs ? attributed.threads.rasterMs : null,
           compositorMs: threadAvailable.compositorMs ? attributed.threads.compositorMs : null,
@@ -267,14 +292,66 @@ export async function runChromiumNavigationAttribution(session: Session, baseUrl
         ...summarizeLoafWindow(loaf, window),
         ...(options.collectCommits ? summarizeReactWindow(reactCollector, window) : { react: null, reactReason: "React commit collection not requested" }) };
     });
-    const topInvoker = loaf.supported ? summarizeLoaf(mapped.flatMap((window) => sliceLoaf(loaf.entries, window))).topInvoker : null;
     const availability = reactAvailability(reactCollector);
-    return { samples, cpu, topInvoker, hookInjected: options.collectCommits === true && availability.injected,
+    return { samples, cpu, topInvokerByPath: loaf.supported ? topInvokerByPath(loaf.entries, mapped) : {},
+      hookInjected: options.collectCommits === true && availability.injected,
       reactReason: options.collectCommits ? availability.reason : "React commit collection not requested" };
   } finally {
     cdp.off("Tracing.dataCollected", collect);
     if (traceRunning) await endTraceWithDeadline(() => cdp.send("Tracing.end"));
   }
+}
+
+function backScenario(page: Page): AttributionScenario {
+  return {
+    legs: ["home", "back"], path: (leg) => leg === "home" ? "Back (Home tab)" : "Back (browser history)",
+    before: () => navigate(page, "/cash"),
+    measure: (leg) => leg === "home" ? home(page) : browserBack(page),
+  };
+}
+
+async function detailScenario(page: Page): Promise<AttributionScenario> {
+  const identity = await selectDetailRow(page);
+  await openDetailRow(page, identity, 0);
+  await closeDetailRow(page, identity);
+  return {
+    legs: ["detail"], path: () => "Activity detail",
+    measure: async (_leg, cycle) => {
+      const latencyMs = await openDetailRow(page, identity, cycle);
+      await twoFrames(page);
+      await page.waitForTimeout(navigationSettleMs);
+      return latencyMs;
+    },
+    after: () => closeDetailRow(page, identity),
+  };
+}
+
+async function prepareChromiumFeed(session: Session, baseUrl: string, rows: number, path: "/home" | "/activity", options: { collectCommits?: boolean }) {
+  const { page } = session;
+  if (options.collectCommits) await page.addInitScript(reactCommitCollectorSource);
+  await captureRealPerformance(page);
+  await page.clock.install({ time: new Date() });
+  await inlineFixtureMark(page);
+  const fixture = await installFeed(page, rows);
+  await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });
+  await ready(page, path);
+  await fillFeed(session, rows, fixture.filled, path === "/home" ? "section[data-activity-feed]" : undefined);
+  fixture.verify();
+}
+
+export async function runChromiumBackAttribution(session: Session, baseUrl: string, rows: number, options: { collectCommits?: boolean } = {}) {
+  await prepareChromiumFeed(session, baseUrl, rows, "/home", options);
+  await session.page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
+  await twoFrames(session.page);
+  await warmNavigation(session.page, ["/cash"]);
+  return collectChromiumAttribution(session, backScenario(session.page), options);
+}
+
+export async function runChromiumDetailAttribution(session: Session, baseUrl: string, rows: number, options: { collectCommits?: boolean } = {}) {
+  await prepareChromiumFeed(session, baseUrl, rows, "/activity", options);
+  const scenario = await detailScenario(session.page);
+  await session.page.clock.setFixedTime(new Date());
+  return collectChromiumAttribution(session, scenario, options);
 }
 
 export async function runWebKitNavigation(browser: Browser, baseUrl: string, rows: number, path: string): Promise<WebKitSample[]> {
@@ -327,6 +404,68 @@ export async function runWebKitNavigation(browser: Browser, baseUrl: string, row
   } finally { await context.close(); }
 }
 
+async function runWebKitReturnOrDetail(browser: Browser, baseUrl: string, rows: number, path: "/home" | "/activity"): Promise<WebKitSample[]> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false });
+  try {
+    const page = await context.newPage();
+    await seedSignedInSession(page);
+    await installApiFixtures(page, { clock: "system" });
+    await inlineFixtureMark(page);
+    const fixture = await installFeed(page, rows);
+    await page.goto(`${baseUrl}${path}`, { waitUntil: "domcontentloaded" });
+    await ready(page, path);
+    const section = path === "/home" ? "section[data-activity-feed]" : 'section[aria-label="Activity"]:not(#navigation-panel)';
+    const end = page.locator(`${section} [role="status"]`).filter({ hasText: "End of activity" });
+    const until = Date.now() + 120_000;
+    while (!(fixture.filled() && await end.isVisible()) && Date.now() < until) {
+      await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "bottom");
+      await page.waitForTimeout(65);
+    }
+    if (!fixture.filled() || !await end.isVisible()) throw new Error(`WebKit feed fill timed out at ${rows} rows`);
+    fixture.verify();
+    let scenario: AttributionScenario;
+    if (path === "/home") {
+      await page.evaluate<void, "top" | "bottom">(scrollFeedTo, "top");
+      await twoFrames(page);
+      await warmNavigation(page, ["/cash"], { freezeTime: false });
+      scenario = backScenario(page);
+    } else scenario = await detailScenario(page);
+    const samples: WebKitSample[] = [];
+    const started = Date.now();
+    for (let cycle = 1; cycle <= navigationCycles; cycle++) for (const leg of scenario.legs) {
+      await scenario.before?.(leg);
+      await page.evaluate(() => {
+        const gaps: number[] = [];
+        let previous: number | null = null, frame: number;
+        const tick = (now: number) => {
+          if (previous !== null) gaps.push(now - previous);
+          previous = now;
+          frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+        (window as typeof window & AttributionWindowGlobals).__homeFrameGaps = {
+          stop: () => { cancelAnimationFrame(frame); return gaps; },
+        };
+      });
+      const latencyMs = await scenario.measure(leg, cycle);
+      const frameGaps = await page.evaluate(() => (window as typeof window & { __homeFrameGaps: { stop: () => number[] } }).__homeFrameGaps.stop());
+      samples.push({ path: scenario.path(leg), leg, cycle, latencyMs, frameGaps, frameGapP95Ms: frameGaps.length ? percentile(frameGaps, 0.95) : null,
+        frameGapMaxMs: frameGaps.length ? Math.max(...frameGaps) : null, longFrameCount: frameGaps.filter((gap) => gap > 50).length });
+      await scenario.after?.();
+    }
+    if (Date.now() - started >= 55_000) throw new Error("WebKit navigation windows crossed the 60 s savings poll interval");
+    return samples;
+  } finally { await context.close(); }
+}
+
+export async function runWebKitBackAttribution(browser: Browser, baseUrl: string, rows: number) {
+  return runWebKitReturnOrDetail(browser, baseUrl, rows, "/home");
+}
+
+export async function runWebKitDetailAttribution(browser: Browser, baseUrl: string, rows: number) {
+  return runWebKitReturnOrDetail(browser, baseUrl, rows, "/activity");
+}
+
 export function attributionMarkdown(report: NavigationAttributionReport | null): string[] {
   const lines = ["", "## Navigation attribution (report only)", ""];
   if (!report) return [...lines, "— Attribution runs only in a full, unseeded run or with --attribution.",
@@ -334,8 +473,9 @@ export function attributionMarkdown(report: NavigationAttributionReport | null):
   const value = (number: number | null | undefined) => number == null ? "—" : String(Math.round(number * 100) / 100);
   const signed = (number: number | null) => number === null ? "—" : `${number >= 0 ? "+" : ""}${value(number)}`;
   const text = (input: string | null) => input === null ? "—" : input.replaceAll("|", "\\|").replace(/[\r\n]/g, " ");
-  lines.push(`${report.rows}-row feed; pooled over cycles and both legs. All durations are ms. Chromium uses the existing mobile viewport and CPU throttle; WebKit is desktop and unthrottled.`,
-    "Reported latency is click → destination ready. Attribution windows include two animation frames and the existing 75 ms settle; presented time and pipeline stages are separate, not app latency.",
+  lines.push(`${report.rows}-row feed; pooled over cycles and measured legs per path. All durations are ms. Chromium uses the existing mobile viewport and CPU throttle; WebKit is desktop and unthrottled.`,
+    "Warm round trips report click → destination ready. Back returns to Home from /cash in separate Home-tab and browser-history windows, reporting action → Home ready. Activity detail is the /activity dialog open on the 300-row feed, reporting click → dialog visible.",
+    "Attribution windows include two animation frames and the existing 75 ms settle; presented time and pipeline stages are separate, not app latency. Activity detail closes outside the window before the next cycle.",
     "— means unavailable: no samples/plain timing, missing trace thread metadata or complete presenting-frame pipeline, unsupported long-animation-frame observer, no LoAF duration/invoker, or no rAF gaps. Engine failures are named below.",
     "", "### Chromium", "", "| Path | Samples | Latency p50 | Latency p95 | Window p50 | Presented samples | Presented p50 | Presented p95 |", "|---|---:|---:|---:|---:|---:|---:|---:|",
     ...report.chromium.map((row) => `| ${row.path} | ${row.latency.samples} | ${value(row.latency.p50)} | ${value(row.latency.p95)} | ${value(row.windowMs)} | ${row.presented.samples} | ${value(row.presented.p50)} | ${value(row.presented.p95)} |`),

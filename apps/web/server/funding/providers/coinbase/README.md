@@ -60,6 +60,10 @@ A pre-existing `dispatch-ambiguous` sandbox row remains resumable and has no UI 
 | `COMPLETED` | `sent-unverified`, then `received` only after exact Base receipt evidence |
 | `FAILED`, `CANCELLED`, `EXPIRED` | matching terminal state |
 | unknown or contradictory response | `unknown` |
+| Owner cancels an unpaid Home checkout | `abandoned` (Home-local; not a provider cancellation) |
+| Unpaid checkout reaches its Home deadline | `abandoned` (`timed-out`) |
+
+Coinbase's Onramp v2 API reference, checked October 2, 2026, exposes create/quote and read order operations, but no cancel endpoint and no order or payment-link expiry field. Home cancellation only stops offering the checkout: it does not cancel the provider order or promise a refund. Home uses the provider expiry when present, otherwise a 24-hour deadline from creation. Abandoned orders remain eligible for late-payment reconciliation; background Activity rotation observes them for seven days after abandonment, while explicit status reads and webhooks can reconcile them at any age.
 
 September 16, 2026 evidence:
 

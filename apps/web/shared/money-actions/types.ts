@@ -55,7 +55,7 @@ export type BorrowMoneyActionMetadata = {
     | "withdraw-collateral"
     | "close-position";
   marketId: `0x${string}`;
-  riskIncreased: boolean;
+  riskIncreased?: boolean;
   loanAsset: { id: string; symbol: string };
   collateralAsset: { id: string; symbol: string };
   projectedHealthFactorWad: string | null;

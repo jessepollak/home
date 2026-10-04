@@ -18,15 +18,17 @@ import { MemoryFundingProviderCustomerStore, type FundingProviderCustomer, type 
 import { awaitBalanceSignal } from "@/server/balances/signal";
 import type { FundingUserTokenVault, ProviderUserTokenCreateOrder, FundingUserTokenBinding } from "./provider-user-token";
 import { isRegionOffered } from "@/server/operator-settings/regions";
+import { checkoutDeadline } from "@/shared/funding/checkout-deadline";
 
 export const AMBIGUOUS_ORDER_RECOVERY_DELAY_MS = 24 * 60 * 60 * 1_000;
 const REFRESH_COOLDOWN_MS = 3_000;
+const ABANDONED_RECONCILE_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000;
 
 export type ReceiptMatch = { transactionHash: `0x${string}`; logIndex: number } | null;
 
 export type FundingOrderTransitionEvent = {
-  route: "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/orders/:id/resolve" | "/api/funding/webhooks/:provider";
-  code: "ORDER_CREATED" | "ORDER_REJECTED" | "ORDER_AMBIGUOUS" | "ORDER_AMBIGUOUS_RESOLVED" | "ORDER_SENT_UNVERIFIED" | "ORDER_RECEIVED" | "ORDER_EXPIRED" | "ORDER_CANCELLED" | "ORDER_FAILED" | "ORDER_REFUNDED";
+  route: "/api/funding/orders" | "/api/funding/orders/:id" | "/api/funding/orders/:id/resolve" | "/api/funding/orders/:id/cancel" | "/api/funding/webhooks/:provider";
+  code: "ORDER_CREATED" | "ORDER_REJECTED" | "ORDER_AMBIGUOUS" | "ORDER_AMBIGUOUS_RESOLVED" | "ORDER_ABANDONED" | "ORDER_SENT_UNVERIFIED" | "ORDER_RECEIVED" | "ORDER_EXPIRED" | "ORDER_CANCELLED" | "ORDER_FAILED" | "ORDER_REFUNDED";
   outcome: "ok" | "rejected" | "unavailable" | "failed";
   providerId: string;
   region: string;
@@ -511,7 +513,9 @@ export class FundingCore {
     const orders = await this.deps.store.listOwned(ownerFor(session), limit);
     const now = this.now().getTime();
     const eligible = orders.filter((order) => !isTerminalFundingState(order.state) && order.state !== "reserving" &&
-      !(order.sandbox && order.state === "sent-unverified") && now - Date.parse(order.updatedAt) >= REFRESH_COOLDOWN_MS)
+      !(order.sandbox && order.state === "sent-unverified") &&
+      (order.state !== "abandoned" || now - Date.parse(order.updatedAt) < ABANDONED_RECONCILE_WINDOW_MS) &&
+      now - Date.parse(order.checkedAt ?? order.updatedAt) >= REFRESH_COOLDOWN_MS)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
     const start = Math.floor((this.deps.random ?? Math.random)() * eligible.length) % Math.max(eligible.length, 1);
     const candidates = Array.from({ length: Math.min(2, eligible.length) }, (_, index) => eligible[(start + index) % eligible.length]!);
@@ -530,10 +534,44 @@ export class FundingCore {
   }
 
   async getOpenOrder(session: VerifiedAccountSession, region: string, providerId?: string, paymentMethod?: string, assetId?: string) {
-    const order = providerId
-      ? await this.deps.store.getOpenForProvider(ownerFor(session), region, providerId, paymentMethod, assetId)
-      : await this.deps.store.getOpen(ownerFor(session), region);
-    return order ? publicOrder(await this.refresh(order)) : null;
+    const lookup = () => providerId
+      ? this.deps.store.getOpenForProvider(ownerFor(session), region, providerId, paymentMethod, assetId)
+      : this.deps.store.getOpen(ownerFor(session), region);
+    const order = await lookup();
+    if (!order) return null;
+    const refreshed = await this.refresh(order);
+    if (refreshed.state !== "abandoned") return publicOrder(refreshed);
+    const next = await lookup();
+    return next ? publicOrder(next) : null;
+  }
+
+  async cancelOrder(session: VerifiedAccountSession, id: string) {
+    const startedAt = Date.now();
+    const owner = ownerFor(session);
+    let order = await this.deps.store.getOwned(id, owner);
+    if (!order) throw new FundingCoreError("ORDER_NOT_FOUND", 404);
+    if (order.state === "abandoned") return publicOrder(order);
+    if (order.state !== "awaiting-payment") throw new FundingCoreError("ORDER_NOT_CANCELLABLE", 409);
+    const observed = await this.refreshObservation(order, true, "/api/funding/orders/:id/cancel");
+    order = observed.order;
+    if (observed.advanced) throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
+    if (order.state === "abandoned") return publicOrder(order);
+    if (order.state !== "awaiting-payment") throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
+    if (!observed.definite && !(this.now().getTime() >= checkoutDeadline(order))) {
+      throw new FundingCoreError("ORDER_STATUS_UNAVAILABLE", 503);
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const abandoned = await this.deps.store.abandon(id, owner, { expectedVersion: order.version, reason: "owner", updatedAt: this.now().toISOString() });
+      if (abandoned) {
+        this.logTransition(abandoned, "ORDER_ABANDONED", "ok", "/api/funding/orders/:id/cancel", startedAt);
+        return publicOrder(abandoned);
+      }
+      order = await this.deps.store.getOwned(id, owner);
+      if (!order) throw new FundingCoreError("ORDER_NOT_FOUND", 404);
+      if (order.state === "abandoned") return publicOrder(order);
+      if (order.state !== "awaiting-payment") break;
+    }
+    throw new FundingCoreError("ORDER_STATE_CHANGED", 409);
   }
 
   async resolveAmbiguousOrder(session: VerifiedAccountSession, id: string) {
@@ -621,16 +659,25 @@ export class FundingCore {
   }
 
   private async refresh(order: FundingOrder, force = false): Promise<FundingOrder> {
-    if (["reserving", "dispatch-ambiguous", "received", "expired", "cancelled", "failed", "refunded"].includes(order.state) || !order.providerOrderId || !order.expectedTokenAmountAtomic) return order;
-    if (!force && this.now().getTime() - Date.parse(order.updatedAt) < REFRESH_COOLDOWN_MS) return order;
+    return (await this.refreshObservation(order, force)).order;
+  }
+
+  private async refreshObservation(
+    order: FundingOrder,
+    force = false,
+    refreshRoute: FundingOrderTransitionEvent["route"] = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id",
+  ): Promise<{ order: FundingOrder; definite: boolean; advanced?: boolean }> {
+    if (isTerminalFundingState(order.state) || order.state === "reserving" || !order.providerOrderId || !order.expectedTokenAmountAtomic) return { order, definite: false };
+    if (!force && this.now().getTime() - Date.parse(order.checkedAt ?? order.updatedAt) < REFRESH_COOLDOWN_MS) return { order, definite: false };
     const provider = this.provider(order.providerId);
     const binding = provider ? findBinding(provider, order.region, "onramp", order.paymentMethod, order.assetId) : null;
     const onramp = provider ? provider.onramp : null;
-    if (!provider || !onramp || !binding) return order;
+    if (!provider || !onramp || !binding) return { order: await this.abandonTimedOut(order, refreshRoute, Date.now()), definite: false };
     const asset = getFundingAsset(order.assetId);
-    if (!asset) return order;
+    if (!asset) return { order: await this.abandonTimedOut(order, refreshRoute, Date.now()), definite: false };
     const refreshStartedAt = Date.now();
     let observation: Observation;
+    let definite = true;
     try {
       const ctx = createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "onramp", paymentMethodId: order.paymentMethod, env: this.env, fetchImplementation: this.deps.fetchImplementation, sandbox: order.sandbox });
       observation = await onramp.getOrder({
@@ -646,11 +693,13 @@ export class FundingCore {
         expectedTokenAmountAtomic: order.quote.tokenAmountAtomic,
         tokenDecimals: asset.decimals,
       }, ctx);
-    } catch { return order; }
-    const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
-    const refreshRoute = force ? "/api/funding/webhooks/:provider" : "/api/funding/orders/:id";
+    } catch {
+      observation = { state: "unknown", providerStatus: order.providerStatus ?? "" };
+      definite = false;
+    }
     const settled = settledAmount(observation, order.quote.tokenAmountAtomic, order.expectedTokenAmountAtomic);
-    if (settled === undefined) {
+    const amountsTrusted = settled !== undefined;
+    if (!amountsTrusted) {
       emitFundingProviderFailure({
         route: refreshRoute,
         code: "PROVIDER_INVALID_RESPONSE",
@@ -658,19 +707,39 @@ export class FundingCore {
         region: order.region,
         startedAt: refreshStartedAt,
       });
-      return order;
     }
-    let updated = await this.deps.store.applyObservation(order.id, {
+    definite = definite && observation.state !== "unknown";
+    const nextState = observation.state === "sent" ? "sent-unverified" : observation.state;
+    const observationInput: Parameters<FundingOrderStore["applyObservation"]>[1] = {
       state: nextState,
       providerStatus: observation.providerStatus,
-      providerTransactionHash: observation.transactionHash,
-      ...(settled ? { expectedTokenAmountAtomic: settled, ...(observation.fees ? { fees: observation.fees } : {}) } : {}),
+      ...(amountsTrusted ? { providerTransactionHash: observation.transactionHash } : {}),
+      ...(definite && amountsTrusted && settled ? { expectedTokenAmountAtomic: settled } : {}),
+      ...(definite && amountsTrusted && observation.fees ? { fees: observation.fees } : {}),
       expectedVersion: order.version,
       updatedAt: this.now().toISOString(),
-    });
-    if (!updated) return await this.deps.store.getOwned(order.id, order.owner) ?? order;
+    };
+    let updated = await this.deps.store.applyObservation(order.id, observationInput);
+    if (!updated) {
+      let current = await this.deps.store.getOwned(order.id, order.owner) ?? order;
+      const unpersisted = definite && nextState !== "awaiting-payment";
+      if (definite && (current.state === "awaiting-payment" || current.state === "abandoned") && current.version !== order.version) {
+        const retrySettled = settledAmount(observation, order.quote.tokenAmountAtomic, current.expectedTokenAmountAtomic ?? order.quote.tokenAmountAtomic);
+        updated = await this.deps.store.applyObservation(order.id, {
+          state: observationInput.state,
+          providerStatus: observationInput.providerStatus,
+          ...(amountsTrusted ? { providerTransactionHash: observation.transactionHash } : {}),
+          ...(definite && retrySettled ? { expectedTokenAmountAtomic: retrySettled } : {}),
+          ...(definite && retrySettled !== undefined && observation.fees ? { fees: observation.fees } : {}),
+          expectedVersion: current.version,
+          updatedAt: observationInput.updatedAt,
+        });
+        if (!updated) current = await this.deps.store.getOwned(order.id, order.owner) ?? current;
+      }
+      if (!updated) return { order: current, definite: false, advanced: unpersisted };
+    }
     if (updated.state !== order.state) this.logObservedTransition(updated, refreshRoute, refreshStartedAt);
-    if (observation.transactionHash && !order.sandbox) {
+    if (amountsTrusted && observation.transactionHash && !order.sandbox) {
       const evidence = await this.deps.verifyReceipt(updated, observation.transactionHash);
       if (evidence) {
         const receivedAt = this.now();
@@ -689,7 +758,18 @@ export class FundingCore {
         }
       }
     }
-    return updated;
+    return {
+      order: await this.abandonTimedOut(updated, refreshRoute, refreshStartedAt),
+      definite,
+    };
+  }
+
+  private async abandonTimedOut(order: FundingOrder, route: FundingOrderTransitionEvent["route"], startedAt: number): Promise<FundingOrder> {
+    if (order.state !== "awaiting-payment" || !(this.now().getTime() >= checkoutDeadline(order))) return order;
+    const abandoned = await this.deps.store.abandon(order.id, order.owner, { expectedVersion: order.version, reason: "timed-out", updatedAt: this.now().toISOString() });
+    if (!abandoned) return await this.deps.store.getOwned(order.id, order.owner) ?? order;
+    this.logTransition(abandoned, "ORDER_ABANDONED", "ok", route, startedAt);
+    return abandoned;
   }
 
   private logObservedTransition(
@@ -775,7 +855,7 @@ export class FundingCoreError extends Error {
 }
 
 export function publicOrder(order: FundingOrder) {
-  return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, sandbox: order.sandbox, state: order.state, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
+  return { id: order.id, providerId: order.providerId, region: order.region, assetId: order.assetId, paymentMethod: order.paymentMethod, fiatAmount: order.fiatAmount, quote: order.quote, quoteToken: order.quoteToken, sandbox: order.sandbox, state: order.state, abandonReason: order.abandonReason, expectedTokenAmountAtomic: order.expectedTokenAmountAtomic, fees: order.fees, expiresAt: order.expiresAt, instructions: order.instructions, providerStatus: order.providerStatus, transactionHash: order.transactionHash, createdAt: order.createdAt, updatedAt: order.updatedAt };
 }
 function ownerFor(session: VerifiedAccountSession): FundingOrderOwner { return { subject: session.user.subject, accountProvider: session.accountProvider }; }
 function findBinding(

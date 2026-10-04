@@ -9,6 +9,7 @@ export function shouldPollFundingOrder(
 export function isTerminalFundingOrderState(state: string, sandbox = false) {
   return (sandbox && state === "sent-unverified") || [
     "received",
+    "abandoned",
     "dispatch-ambiguous",
     "failed",
     "cancelled",

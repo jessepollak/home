@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useContext, useRef, useState, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ActivityPanelView,
   type ActivityPanelDensity,
@@ -23,6 +23,9 @@ import type { RegionId } from "@/config/regions";
 import { useCashOutWithdrawJourney } from "@/client/activity/cash-out-withdraw-journey";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "./panel-routing";
 import { ShimmerRows } from "./panel-shared";
+import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "@/client/funding/cancel-order";
+import { fundingOrderKey } from "@/client/funding/funding-queries";
+import { readFundingOrder } from "@/shared/funding/contracts/order";
 
 const EMPTY_OPERATIONS: readonly RecentMoneyActionOperation[] = [];
 const EMPTY_ORDERS: readonly ActivityOrder[] = [];
@@ -91,6 +94,10 @@ export function ConnectedActivityPanel({
   const ownerKey = activitySession?.smartAccount ? activityOwnerKey(activitySession) : null;
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const wallet = useContext(AccountWalletContext);
+  const cancelOrderMutation = useCancelFundingOrder(ownerKey, async (path, options) => {
+    if (!wallet) throw new Error("Funding is unavailable.");
+    return wallet.fetchAccountResource(path, options);
+  });
   const clearOrderMutation = useHomeMutation(ownerMutation({
     owner: ownerKey,
     invalidates: (order: ActivityOrder) => [{ scope: "funding-open-order", key: [order.region], refetchType: "all" }],
@@ -107,6 +114,7 @@ export function ConnectedActivityPanel({
   const routing = useOptionalHomeShellRouting();
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelActionKind, setCancelActionKind] = useState<ActivityLedgerNextActionKind | null>(null);
   const [reviewOpened, setReviewOpened] = useState(0);
   const [restoreDetailsRequest, setRestoreDetailsRequest] = useState(0);
   const [suspendDetailsRequest, setSuspendDetailsRequest] = useState(0);
@@ -133,6 +141,19 @@ export function ConnectedActivityPanel({
     }
   }
   const cancelAttempt = useRef(0);
+  const cancelInFlightRef = useRef(false);
+  const cancelOwnerRef = useRef(ownerKey);
+  useEffect(() => {
+    cancelOwnerRef.current = ownerKey;
+    return () => { cancelAttempt.current += 1; cancelInFlightRef.current = false; };
+  }, [ownerKey]);
+  const [cancelStateOwner, setCancelStateOwner] = useState(ownerKey);
+  if (cancelStateOwner !== ownerKey) {
+    setCancelStateOwner(ownerKey);
+    setCancelBusy(false);
+    setCancelActionKind(null);
+    setCancelError(null);
+  }
   const activity = useActivity(activitySession, fetchActivity, regionId, { scheduleContinuationRetry });
   const actions = useHomeQuery({
     ...recentActionsQuery({ owner: ownerKey, session: activitySession, fetchOperations }),
@@ -198,10 +219,43 @@ export function ConnectedActivityPanel({
       }
       return;
     }
+    if (kind === "cancel-order") {
+      const latest = orders.find((candidate) => candidate.id === order.id && candidate.kind === "funding");
+      if (order.kind !== "funding" || latest?.kind !== "funding" || latest.status !== "waiting-customer" ||
+        latest.stage !== "awaiting-payment" || !wallet || !ownerKey || cancelInFlightRef.current) return;
+      const attempt = ++cancelAttempt.current;
+      const owner = ownerKey;
+      const current = () => attempt === cancelAttempt.current && owner === cancelOwnerRef.current;
+      cancelInFlightRef.current = true;
+      setCancelBusy(true);
+      setCancelActionKind(kind);
+      setCancelError(null);
+      try {
+        const resolved = await cancelOrderMutation.mutateAsync(latest);
+        if (!current()) return;
+        queryClient.setQueryData(fundingOrderKey(owner, resolved.order), resolved.order);
+        await refetchOrders();
+      } catch (failure) {
+        if (!current()) return { ok: false as const, message: cancellationErrorCopy(failure) };
+        setCancelError(cancellationErrorCopy(failure));
+        if (cancellationNeedsRefetch(failure)) {
+          const value = await wallet.fetchAccountResource(`/api/funding/orders/${encodeURIComponent(order.id)}`).catch(() => null);
+          const refreshed = readFundingOrder(value);
+          if (!current()) return;
+          if (refreshed?.id === order.id) queryClient.setQueryData(fundingOrderKey(owner, refreshed), refreshed);
+          await refetchOrders();
+        }
+        return { ok: false as const, message: cancellationErrorCopy(failure) };
+      } finally {
+        if (current()) { cancelInFlightRef.current = false; setCancelBusy(false); setCancelActionKind(null); }
+      }
+      return;
+    }
     if (kind !== "clear-order" || order.kind !== "funding" || order.status !== "ambiguous" ||
       order.stage !== "unconfirmed" || !order.clearableAt || Date.parse(order.clearableAt) > Date.now() || !wallet || cancelBusy) return;
     const attempt = ++cancelAttempt.current;
     setCancelBusy(true);
+    setCancelActionKind(kind);
     setCancelError(null);
     try {
       await clearOrderMutation.mutateAsync(order);
@@ -249,6 +303,7 @@ export function ConnectedActivityPanel({
       restoreDetailsRequest={restoreDetailsRequest}
       suspendDetailsRequest={suspendDetailsRequest}
       cancelBusy={cancelBusy}
+      cancelActionKind={cancelActionKind}
       cancelError={cancelError}
       withdrawJourney={withdrawJourney}
       fetchOperations={fetchOperations}
@@ -265,6 +320,8 @@ export function ConnectedActivityPanel({
       onDetailsChange={(open) => {
         if (!open) routing?.setActivityReturn?.(null);
         cancelAttempt.current += 1;
+        cancelInFlightRef.current = false;
+        setCancelActionKind(null);
         setCancelBusy(false);
         setCancelError(null);
         withdrawJourney.reset();

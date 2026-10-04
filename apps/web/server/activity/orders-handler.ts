@@ -11,6 +11,10 @@ import type { FundingOrder } from "@/server/funding/core/store";
 import type { CashoutOrderRow } from "@/server/actions/store";
 import { presentFundingOrder, presentCashoutOrder } from "./orders";
 
+function activityTime(order: ActivityOrder): string {
+  return order.kind === "funding" ? order.movedAt ?? order.updatedAt : order.updatedAt;
+}
+
 export function createActivityOrdersHandler(deps: {
   authorize: SessionAuthorizer;
   listFundingOrders: (session: VerifiedAccountSession, limit: number) => Promise<FundingOrder[]>;
@@ -37,7 +41,7 @@ export function createActivityOrdersHandler(deps: {
           return item ? [item] : [];
         }),
         ...cashouts.map(presentCashoutOrder),
-      ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id));
+      ].sort((left, right) => activityTime(right).localeCompare(activityTime(left)) || left.id.localeCompare(right.id));
       return privateJson({ version: ACTIVITY_ORDERS_CONTRACT_VERSION,
         owner: { subject: session.user.subject, accountProvider: session.accountProvider }, orders,
       } satisfies ActivityOrdersResponse, 200);

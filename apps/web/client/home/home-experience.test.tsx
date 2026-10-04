@@ -4,7 +4,7 @@ import { getHomeQueryClient, ownerQueryKey, useHomeQuery } from "@/client/query/
 import { dataOwnerKey } from "@/client/account/owner-keys";
 import { afterEach, beforeEach, describe, expect, jest, mock, setSystemTime, spyOn, test } from "bun:test";
 import * as homePerformance from "@/client/observability/perf-marks";
-import { useState, useSyncExternalStore, type ComponentProps } from "react";
+import { useEffect, useState, useSyncExternalStore, type ComponentProps } from "react";
 import type { HomeRegionState } from "./use-home-region";
 import type { AccountWalletSdkBoundary } from "@/client/account/cdp-client";
 import type { SessionFetch, VerifiedAccountSession } from "@/client/account/session-client";
@@ -19,6 +19,7 @@ import { ProductOfferingProvider } from "./product-offering";
 import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { savingsVaultsBody } from "@/tests/browser/fixtures/bodies";
 import { readClientHistoryFlag } from "@/config/shell-location";
+import { isRecord } from "@/shared/guards";
 
 const BORROW_MARKET_ID = DEFAULT_BORROW_MARKET.marketId;
 import {
@@ -257,7 +258,7 @@ function DashboardHarness({
               tone: "default",
             }],
           }],
-          breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000 }],
+          breakdown: [{ id: "cash", label: "Cash", value: "$12.34", weight: 1_000, status: "complete" }],
           summary: {
             cash: { status: "complete", value: "$12.34" },
             investments: { status: "complete", value: "$0.00", assetCount: 0, ownedCount: 0 },
@@ -275,7 +276,7 @@ function DashboardHarness({
           hiddenRows: [],
           hiddenCount: 0,
         }}
-    ><TestPage /></DashboardShell>
+    >{props.children}<TestPage /></DashboardShell>
   );
 }
 
@@ -402,7 +403,10 @@ beforeEach(() => setSystemTime(new Date(NOW)));
 function mockActivityLayout() {
   Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
-    get() { return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0; },
+    get(this: unknown) {
+      if (!(this instanceof HTMLElement)) throw new Error("Expected an HTMLElement height receiver");
+      return this.tagName === "LI" ? 64 : this.tagName === "MAIN" ? 800 : 0;
+    },
   });
 }
 
@@ -433,6 +437,49 @@ function EmptySavingsFunding({ view, onOpenSavings }: { view: "cash" | "savings"
     prepareMoneyAction={async () => { throw new Error("Not part of this test"); }}
     executeMoneyAction={async () => { throw new Error("Not part of this test"); }} />;
 }
+
+function FlowOpenerObserver({ observe }: { observe: (opener: HTMLElement | null) => void }) {
+  const routing = useOptionalHomeShellRouting();
+  useEffect(() => { observe(routing?.flowOpener ?? null); }, [routing?.flowOpener, observe]);
+  return <button onClick={() => routing?.setFlow("add-money")}>Programmatic funding</button>;
+}
+
+describe("DashboardShell flow opener provenance", () => {
+  test("passes the actual activating DOM opener to the flow and clears it on history entry", async () => {
+    syncLocation("/home");
+    historyEntries = ["/home"];
+    const observe = jest.fn((_opener: HTMLElement | null) => {});
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}>
+      <FlowOpenerObserver observe={observe} />
+    </HomeHarness>);
+    const unrelated = await waitForVerifiedShell();
+    const trigger = page().getByRole("link", { name: "Add money" });
+    unrelated.focus();
+    fireEvent.click(trigger);
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === trigger).toBe(true);
+    act(() => popHistory());
+    act(() => forwardHistory());
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === null).toBe(true);
+  });
+
+  test("deep-link and programmatic entries do not invent an opener", async () => {
+    syncLocation("/home?flow=add-money");
+    historyEntries = ["/home?flow=add-money"];
+    const observe = jest.fn((_opener: HTMLElement | null) => {});
+    render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}>
+      <FlowOpenerObserver observe={observe} />
+    </HomeHarness>);
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === null).toBe(true);
+    fireEvent.click(page().getByRole("button", { name: "Close add money" }));
+    await waitFor(() => expect(window.location.search).toBe(""));
+    fireEvent.click(page().getByRole("button", { name: "Programmatic funding" }));
+    await page().findByRole("dialog", { name: "Add money" });
+    expect(observe.mock.calls.at(-1)?.[0] === null).toBe(true);
+  });
+});
 
 describe("pushed funding history", () => {
   test("Home to Cash to Add money closes without a duplicate Cash history entry", async () => {
@@ -1054,7 +1101,9 @@ describe("Home shell routing and intents", () => {
     expect(window.location.pathname).toBe("/invest/crypto");
     fireEvent.click(page().getByRole("button", { name: /Bitcoin/ }));
     expect(window.location.pathname).toBe("/invest/cbbtc");
-    expect(window.history.state.investDetailFrom).toBe("crypto");
+    const detailState: unknown = window.history.state;
+    if (!isRecord(detailState)) throw new Error("Expected detail history state");
+    expect(detailState.investDetailFrom).toBe("crypto");
 
     fireEvent.click(within(tabsNavigation())
       .getByRole("button", { name: "Invest" }));
@@ -1152,9 +1201,9 @@ describe("Home shell routing and intents", () => {
           totalStatus: "complete",
           groups: [],
           breakdown: [
-            { id: "borrow", label: "Borrow", value: "−$30.01", weight: 249 },
-            { id: "cash", label: "Cash", value: "$12.34", weight: 102 },
-            { id: "investments", label: "Investments", value: "$78.21", weight: 649 },
+            { id: "borrow", label: "Borrow", value: "−$30.01", weight: 249, status: "complete" },
+            { id: "cash", label: "Cash", value: "$12.34", weight: 102, status: "complete" },
+            { id: "investments", label: "Investments", value: "$78.21", weight: 649, status: "complete" },
           ],
           summary: {
             cash: { status: "complete", value: "$12.34" },
@@ -1426,6 +1475,58 @@ describe("Home shell routing and intents", () => {
     });
   }
 
+  for (const action of ["focus Account", "focus Home", "wheel", "navigate Home"] as const) {
+    test(`asynchronous holding Back respects intervening ${action}`, async () => {
+      pendingSelectionReady = true;
+      const originalObserver = globalThis.MutationObserver;
+      const callbacks = new Set<() => void>();
+      globalThis.MutationObserver = class extends originalObserver {
+        callback: () => void;
+        constructor(callback: MutationCallback) { super(callback); this.callback = () => callback([], this); }
+        observe(target: Node, options?: MutationObserverInit) {
+          if (target instanceof HTMLElement && target.tagName === "MAIN" && options?.attributeFilter?.includes("aria-busy")) callbacks.add(this.callback);
+        }
+        disconnect() { callbacks.delete(this.callback); }
+      };
+      try {
+        render(<HomeHarness accountSdk={sdk({ isSignedIn: true, ownerKey: OWNER })}
+          assetBalances={fundedInvestments()} investmentsContent={PendingInvestmentsFixture} />);
+        await waitForVerifiedShell();
+        fireEvent.click(page().getByRole("button", { description: /^Open Invest(ments)?$/ }));
+        fireEvent.click(page().getByRole("button", { name: "Ethereum row" }));
+        await page().findByRole("region", { name: "Holding detail" });
+        fireEvent.click(page().getByRole("button", { name: "Back" }));
+        const section = page().getByRole("region", { name: "Your investments" });
+        expect(section.getAttribute("aria-busy")).toBe("true");
+        const homeButton = within(tabsNavigation()).getByRole("button", { name: "Home" });
+        const target = action === "focus Account" ? page().getByRole("button", { name: "Account" }) : homeButton;
+        const lateCallbacks = [...callbacks];
+        expect(lateCallbacks.length).toBeGreaterThan(0);
+        if (action === "navigate Home") {
+          fireEvent.click(homeButton);
+          expect(window.location.pathname).toBe("/home");
+          expect(callbacks.size).toBe(0);
+          const lateFocus = document.activeElement;
+          act(() => { section.setAttribute("aria-busy", "false"); for (const callback of lateCallbacks) callback(); });
+          expect(document.activeElement).toBe(lateFocus);
+          expect(page().queryByRole("button", { name: "Ethereum row" })).toBeNull();
+          return;
+        }
+        if (action === "wheel") fireEvent.wheel(page().getByRole("main"));
+        else act(() => target.focus());
+        fireEvent.click(page().getByRole("button", { name: "Finish selection" }));
+        const button = page().getByRole("button", { name: "Ethereum row" });
+        const row = button.querySelector<HTMLElement>("[data-holding-key]");
+        if (!row) throw new Error("Missing Ethereum holding key");
+        const scroll = mock(() => {});
+        row.scrollIntoView = scroll;
+        act(() => { for (const callback of lateCallbacks) callback(); });
+        expect(document.activeElement).toBe(action === "wheel" ? button : target);
+        expect(scroll).not.toHaveBeenCalled();
+      } finally { globalThis.MutationObserver = originalObserver; }
+    });
+  }
+
   test("cold holding detail replaces to the list, focuses and scrolls its row", async () => {
     syncLocation(INVESTMENT_PATH);
     historyEntries = [INVESTMENT_PATH];
@@ -1645,13 +1746,13 @@ describe("Home shell routing and intents", () => {
     expect(page().getByRole("button", { name: "Choose a country in Account to set how money is shown" })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={null} />);
-    expect(document.querySelector("[data-home-status]")).toBeNull();
+    expect(page().getByRole("button", { name: /Balance unavailable.*Some balances couldn’t be read/ })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={{ kind: "interrupted" }} />);
     expect(page().getByRole("button", { name: interrupted })).toBeTruthy();
     view.rerender(<HomeHarness accountSdk={accountSdk} assetBalances={partial}
       investContent={<NestedInvestFixture />} interruption={null} />);
-    expect(document.querySelector("[data-home-status]")).toBeNull();
+    expect(page().getByRole("button", { name: /Balance unavailable.*Some balances couldn’t be read/ })).toBeTruthy();
   });
 
   test("offered Send becomes Cash out without removing transfer actions when Send pauses", async () => {

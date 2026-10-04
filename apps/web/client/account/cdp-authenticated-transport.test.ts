@@ -46,6 +46,8 @@ describe("authenticated account resources", () => {
       .toBe("/api/invites/link");
     expect(() => normalizeAccountResourcePath("/api/invites/private"))
       .toThrow();
+    expect(normalizeAccountResourcePath("/api/support/messages")).toBe("/api/support/messages");
+    expect(() => normalizeAccountResourcePath("/api/supporter")).toThrow();
     expect(normalizeAccountResourcePath("/api/activity/orders")).toBe("/api/activity/orders");
   });
 });
@@ -119,7 +121,10 @@ describe("unrecorded handle qualification", () => {
       client.setQueryData(balancesKey, { version: 5, holdings: [] });
       const invalidated = new Promise<void>((resolve) => {
         const unsubscribe = client.getQueryCache().subscribe((event) => {
-          if (event.query.queryKey[1] !== "balances" || !event.query.state.isInvalidated) return;
+          const queryKey: unknown = event.query.queryKey;
+          if (!Array.isArray(queryKey)) return;
+          const parts: unknown[] = queryKey;
+          if (parts[1] !== "balances" || !event.query.state.isInvalidated) return;
           unsubscribe();
           resolve();
         });

@@ -12,7 +12,8 @@ import type { BorrowMarketSnapshot } from "@/shared/borrowing/contract";
 import { makePaymasterApproval, NetworkFeeUnfundedError } from "@/server/paymaster/fee";
 import { BASE_USDC_ADDRESS, BASE_USDC_PAYMASTER_ADDRESS, NETWORK_FEE_ETH_UNFUNDED_MESSAGE, NETWORK_FEE_UNFUNDED_MESSAGE } from "@/shared/money-actions/network-fee";
 import type { MoneyActionDraft } from "@/shared/money-actions/types";
-import { setActionsStoreForTests, type ActionsStore } from "./store";
+import { setActionsStoreForTests } from "./store";
+import { TestActionsStore } from "@/tests/helpers/store-doubles";
 import { TradePreparationError } from "./kinds/trade/permit2";
 import { createPrepareActionHandler } from "./prepare";
 import { CardAllowancePreparationError } from "@/server/cards/allowance/prepare";
@@ -74,6 +75,21 @@ function savingsDraft(operation: "deposit" | "withdraw"): MoneyActionDraft {
   };
 }
 
+function borrowSnapshot(debtAssetsRaw: string): BorrowMarketSnapshot {
+  if (MARKET === undefined) throw new Error("Expected an enabled borrow market fixture.");
+  if (BLOCK_HASH === null) throw new Error("Expected a 32-byte block hash fixture.");
+  const collateral = (BigInt(10_000) * BigInt(10) ** BigInt(MARKET.collateralToken.decimals)).toString();
+  return {
+    version: "1", chainId: 8453, walletAddress: OWNER,
+    market: { id: MARKET.marketId, morpho: MARKET.morpho, loanToken: MARKET.loanToken, collateralToken: MARKET.collateralToken, oracle: MARKET.oracle, irm: MARKET.irm, lltvWad: MARKET.lltvWad.toString(), rank: MARKET.rank },
+    eligibility: { mode: MARKET.availability, newRisk: true, reason: null },
+    source: { provider: "Base JSON-RPC", blockNumber: "51714405", blockHash: BLOCK_HASH, blockTimestamp: "1790218157", fetchedAt: "2026-09-24T02:49:17.000Z" },
+    state: { oraclePriceRaw: "843242900000000000000000000000000000000", borrowRatePerSecondWad: "0", borrowAprWad: "0", totalSupplyAssetsRaw: "10000000000", totalBorrowAssetsRaw: "1000000000", totalBorrowSharesRaw: "1000000000", liquidityAssetsRaw: "9000000000", lastUpdateTimestamp: "1790218150" },
+    wallet: { collateralBalanceRaw: collateral, loanBalanceRaw: "10000000000", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
+    position: { collateralRaw: collateral, borrowSharesRaw: "1000000", debtAssetsRaw, rawBorrowCapacityAssetsRaw: "1", borrowCapacityAssetsRaw: "1", rawWithdrawableCollateralRaw: collateral, withdrawableCollateralRaw: collateral, healthFactorWad: "1500000000000000000", liquidationPriceRaw: "1" },
+  };
+}
+
 function authorized() {
   return Response.json({
     user: { subject: "prepare-test-user" },
@@ -122,8 +138,9 @@ describe("prepare action handler", () => {
     }
   });
   test.each(["savings-deposit", "trade", "send"] as const)("blocks paused %s before building a draft and allows entries when on", async (kind) => {
-    const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
-    setActionsStoreForTests({ insert: async (input) => { inserts.push(input); } } as ActionsStore);
+    const store = new TestActionsStore();
+    setActionsStoreForTests(store);
+    const { inserts } = store;
     let prepared = 0;
     const settings = resolveProductOffering({ kind: "deployment" });
     const handler = (paused: boolean) => createPrepareActionHandler({
@@ -142,7 +159,7 @@ describe("prepare action handler", () => {
     }) : request(kind);
     const blocked = await handler(true)(input());
     expect(blocked.status).toBe(409);
-    expect((await blocked.json()).error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(parseProductNotOfferedPrepareErrorResponse(await blocked.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
     expect(prepared).toBe(0);
     const allowed = await handler(false)(input());
     expect(allowed.status).toBe(kind === "trade" ? 422 : 201);
@@ -161,7 +178,7 @@ describe("prepare action handler", () => {
   });
 
   test.each(["savings-withdraw", "trade"] as const)("does not read settings for %s exits", async (kind) => {
-    setActionsStoreForTests({ insert: async () => {} } as unknown as ActionsStore);
+    setActionsStoreForTests(new TestActionsStore());
     let reads = 0;
     const handler = createPrepareActionHandler({
       authorize: async () => authorized(),
@@ -178,18 +195,10 @@ describe("prepare action handler", () => {
     expect(reads).toBe(0);
   });
   test("borrow uses the offered market ceiling, rejects a paused market and prepares when enabled", async () => {
-    const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
-    setActionsStoreForTests({ insert: async (input) => { inserts.push(input); } } as ActionsStore);
-    const collateral = (BigInt(10_000) * BigInt(10) ** BigInt(MARKET.collateralToken.decimals)).toString();
-    const snapshot: BorrowMarketSnapshot = {
-      version: "1", chainId: 8453, walletAddress: OWNER,
-      market: { id: MARKET.marketId, morpho: MARKET.morpho, loanToken: MARKET.loanToken, collateralToken: MARKET.collateralToken, oracle: MARKET.oracle, irm: MARKET.irm, lltvWad: MARKET.lltvWad.toString(), rank: MARKET.rank },
-      eligibility: { mode: MARKET.availability, newRisk: true, reason: null },
-      source: { provider: "Base JSON-RPC", blockNumber: "51714405", blockHash: BLOCK_HASH, blockTimestamp: "1790218157", fetchedAt: "2026-09-24T02:49:17.000Z" },
-      state: { oraclePriceRaw: "843242900000000000000000000000000000000", borrowRatePerSecondWad: "0", borrowAprWad: "0", totalSupplyAssetsRaw: "10000000000", totalBorrowAssetsRaw: "1000000000", totalBorrowSharesRaw: "1000000000", liquidityAssetsRaw: "9000000000", lastUpdateTimestamp: "1790218150" },
-      wallet: { collateralBalanceRaw: collateral, loanBalanceRaw: "10000000000", collateralAllowanceRaw: "0", loanAllowanceRaw: "0" },
-      position: { collateralRaw: collateral, borrowSharesRaw: "1000000", debtAssetsRaw: "1000000", rawBorrowCapacityAssetsRaw: "1", borrowCapacityAssetsRaw: "1", rawWithdrawableCollateralRaw: collateral, withdrawableCollateralRaw: collateral, healthFactorWad: "1500000000000000000", liquidationPriceRaw: "1" },
-    };
+    const store = new TestActionsStore();
+    setActionsStoreForTests(store);
+    const { inserts } = store;
+    const snapshot = borrowSnapshot("1000000");
     const deployment = resolveProductOffering({ kind: "deployment" });
     const marketPaused = resolveProductOffering({ kind: "saved", value: { products: deployment.products, vaults: deployment.vaults, markets: { ...deployment.markets, [MARKET.marketId]: "reducing-only" } } });
     const handler = (pause: boolean) => createPrepareActionHandler({ authorize: async () => authorized(),
@@ -201,7 +210,7 @@ describe("prepare action handler", () => {
       body: JSON.stringify({ kind: "borrow", params: { marketId: MARKET.marketId, operation: "borrow", amountBaseUnits: "100" } }) });
     const blocked = await handler(true)(input());
     expect(blocked.status).toBe(409);
-    expect((await blocked.json()).error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
+    expect(parseProductNotOfferedPrepareErrorResponse(await blocked.json())?.error.code).toBe(PRODUCT_NOT_OFFERED_CODE);
     const allowed = await handler(false)(input());
     expect(allowed.status).toBe(201);
     expect(inserts).toHaveLength(1);
@@ -231,11 +240,10 @@ describe("prepare action handler", () => {
   test("only risk-increasing borrowing reads the offering; zero-debt collateral withdrawal is an exit", async () => {
     let debt = "0";
     let reads = 0;
-    const snapshot = { position: { debtAssetsRaw: debt } } as BorrowMarketSnapshot;
     const handler = createPrepareActionHandler({
       authorize: async () => authorized(),
       readOffering: async () => { reads++; throw new Error("db outage"); },
-      borrowRpc: { readSnapshot: async () => ({ ...snapshot, position: { ...snapshot.position, debtAssetsRaw: debt } }), readSnapshots: async () => [], simulateBatch: async () => {} },
+      borrowRpc: { readSnapshot: async () => borrowSnapshot(debt), readSnapshots: async () => [], simulateBatch: async () => {} },
       prepareBorrow: async () => { throw new Error("prepared"); },
     });
     const input = (operation: string) => new Request("https://home.test/api/actions/prepare", {
@@ -272,10 +280,9 @@ describe("prepare action handler", () => {
   test.each(["deposit", "withdraw"] as const)(
     "issues a successful savings %s action through the shared prepare route",
     async (operation) => {
-      const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
-      setActionsStoreForTests({
-        insert: async (input: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(input); },
-      } as ActionsStore);
+      const store = new TestActionsStore();
+      setActionsStoreForTests(store);
+      const { inserts } = store;
       const handler = createPrepareActionHandler({
         authorize: async () => authorized(),
         prepareSavings: async () => savingsDraft(operation),
@@ -292,14 +299,14 @@ describe("prepare action handler", () => {
   );
 
   test("does not issue a trade when the fee policy cannot be read", async () => {
-    let inserts = 0;
-    setActionsStoreForTests({ insert: async () => { inserts++; } } as unknown as ActionsStore);
+    const store = new TestActionsStore();
+    setActionsStoreForTests(store);
     const handler = createPrepareActionHandler({ authorize: async () => authorized(),
       prepareTrade: async () => { throw new TradePreparationError("provider-unavailable"); } });
     const response = await handler(request("trade"));
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ error: { code: "TRADE_UNAVAILABLE" } });
-    expect(inserts).toBe(0);
+    expect(store.inserts).toHaveLength(0);
   });
   test("returns a trade quote failure from the prepare handler", async () => {
     let quotes = 0;
@@ -393,8 +400,9 @@ describe("prepare action handler", () => {
   });
 
   test.each(["send", "savings-deposit"] as const)("prepares %s with the approved USDC fee as first call", async (kind) => {
-    const inserts: Array<Parameters<ActionsStore["insert"]>[0]> = [];
-    setActionsStoreForTests({ insert: async (input: Parameters<ActionsStore["insert"]>[0]) => { inserts.push(input); } } as ActionsStore);
+    const store = new TestActionsStore();
+    setActionsStoreForTests(store);
+    const { inserts } = store;
     let feeRequest: Request | undefined;
     const handler = createPrepareActionHandler({
       authorize: async () => authorized(),

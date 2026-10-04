@@ -59,10 +59,13 @@ function ComboboxInput({
   disabled = false,
   showTrigger = true,
   showClear = false,
+  triggerLabel,
   variant = "default",
+  "aria-label": ariaLabel,
   ...props
 }: ComboboxPrimitive.Input.Props & {
   showTrigger?: boolean
+  triggerLabel?: string
   groupRef?: React.Ref<HTMLDivElement>
   showClear?: boolean
   variant?: "default" | "search"
@@ -79,6 +82,7 @@ function ComboboxInput({
       )}
     >
       <ComboboxPrimitive.Input
+        aria-label={ariaLabel}
         render={
           <InputGroupInput
             disabled={disabled}
@@ -93,6 +97,7 @@ function ComboboxInput({
             size="icon-xs"
             variant="ghost"
             render={<ComboboxTrigger />}
+            aria-label={triggerLabel ?? (ariaLabel ? `${ariaLabel} options` : "Show options")}
             data-slot="input-group-button"
             className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent"
             disabled={disabled}

@@ -24,6 +24,7 @@ import {
 import type { TradeDirection } from "../../../shared/trading/contract";
 import type { ActivityOrdersResponse } from "../../../shared/activity/contract-orders";
 import { FUNDING_ORDER_RESOLUTION_VERSION, type ResolveFundingOrderResponse } from "../../../shared/funding/contracts/order-resolution";
+import { FUNDING_ORDER_CANCELLATION_VERSION, type CancelFundingOrderResponse } from "../../../shared/funding/contracts/order-cancellation";
 import { assetResolutionFixture, nonTrendingAddress, searchFixture } from "./search-fixtures";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "../../../shared/money-actions/network-fee";
 
@@ -56,6 +57,13 @@ export function activityOrdersFixture(): ActivityOrdersResponse {
       status: "waiting-provider", state: "awaiting-buyer", decimals: 6, amountAtomic: "50000000", filledAtomic: "0",
       returnedAtomic: "0", remainingAtomic: "50000000", withdrawable: true, settledAt: null, createdAt, updatedAt },
   ] };
+}
+
+export function fundingOrderCancellationFixture(id: string): CancelFundingOrderResponse {
+  return { version: FUNDING_ORDER_CANCELLATION_VERSION, order: {
+    id, providerId: "coinbase", region: "US", state: "abandoned", abandonReason: "owner",
+    fiatAmount: "25.00", providerStatus: null, instructions: null,
+  } };
 }
 
 export function fundingOrderResolutionFixture(id: string): ResolveFundingOrderResponse {
@@ -158,6 +166,8 @@ export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "saving
     ["**/api/session", sessionBody],
     ["**/api/account/country-preference", { version: COUNTRY_PREFERENCE_VERSION, regionId: null }],
     ["**/api/invites/link", { version: 1, code: "abcdefghjk" }],
+    ["**/api/support/summary", { version: 2, unreadCount: 0 }],
+    ["**/api/support", { version: 2, conversation: null, assistant: { available: true, handoff: false } }],
     ["**/api/balances**", {
       ...balances,
       holdings: balances.holdings.map((holding) => ({
@@ -196,7 +206,9 @@ export function fixtureRoutes({ prepare = "send" }: { prepare?: "send" | "saving
       expiresAt: cashoutFixtureWithdraw.expiresAt,
     }],
     ["**/api/activity/orders", { version: 1, owner: { subject: sessionBody.user.subject, accountProvider: sessionBody.accountProvider }, orders: [] }],
-    ["**/api/activity**", {}],
+    ["**/api/funding/orders/fixture-funding-pending/cancel", fundingOrderCancellationFixture("fixture-funding-pending")],
+    ["**/api/activity", {}],
+    ["**/api/activity?**", {}],
     ["**/api/savings/vaults", savingsVaultsBody(new Date(FIXED_NOW).toISOString(), new Date(FIXED_NOW).toISOString())],
     ["**/api/borrow", borrowOverview],
     ["**/api/cards", cardsBody()],

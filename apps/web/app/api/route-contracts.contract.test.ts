@@ -30,6 +30,14 @@ const acceptedGaps = {
     "auth/base/verify/route.ts -> shared/account/contracts/base-verify.ts",
     "session/route.ts -> shared/account/contracts/session.ts",
   ]),
+  undeclaredHandlerContracts: {
+    "actions/[id]/confirm/route.ts": ["shared/actions/contracts/prepare.ts", "shared/cards/allowance-contract.ts"],
+    "actions/[id]/retry/route.ts": ["shared/cards/allowance-contract.ts"],
+    "actions/prepare/route.ts": ["shared/trading/contract.ts"],
+    "auth/base/verify/route.ts": ["shared/account/contracts/base-nonce.ts"],
+    "funding/provider-customers/verification/route.ts": ["shared/funding/contracts/errors.ts"],
+    "market-prices/stats/route.ts": ["shared/invest/contracts/market-price-history.ts"],
+  },
   clientUnlinked: {
     "access/route.ts": ["shared/access/contract.ts"],
     "actions/[id]/handle/route.ts": ["shared/actions/contracts/handle.ts"],
@@ -61,6 +69,7 @@ test("inventories every route and rejects newly introduced or stale contract gap
 function verifyFrozenGaps(baseline: Parameters<typeof inventoryRouteContracts>[0]["manifest"]["baseline"]) {
   expect(baseline.routesWithoutVersionedParser).toEqual(acceptedGaps.routesWithoutVersionedParser);
   expect(baseline.clientUnlinked).toEqual(acceptedGaps.clientUnlinked);
+  expect(baseline.undeclaredHandlerContracts).toEqual(acceptedGaps.undeclaredHandlerContracts);
   for (const name of ["unversionedContracts", "parserlessContracts"] as const) {
     expect(new Set(baseline[name])).toEqual(acceptedGaps[name]);
   }
@@ -214,6 +223,7 @@ test("retired baseline identities cannot be reinstated without editing the froze
   expect(() => verifyFrozenGaps({ ...manifest.baseline, clientUnlinked: {} })).toThrow();
   expect(() => verifyFrozenGaps({ ...manifest.baseline, routesWithoutVersionedParser: {} })).toThrow();
   expect(() => verifyFrozenGaps({ ...manifest.baseline, handlerUnlinked: {} })).toThrow();
+  expect(() => verifyFrozenGaps({ ...manifest.baseline, undeclaredHandlerContracts: {} })).toThrow();
 });
 
 test("client reasons are frozen to the reviewed routes", () => {

@@ -83,8 +83,8 @@ type BorrowMoneyFlowProps = {
   onDone?: () => void;
 };
 
-export function BorrowMoneyDialog({ onClose, onClosed, ...props }: BorrowMoneyFlowProps & { onClose: () => void; onClosed?: () => void }) {
-  return <MoneyModal open={props.open ?? true} labelledBy="borrow-action-title" onCancel={onClose} onClose={onClosed ?? onClose}>
+export function BorrowMoneyDialog({ onClose, onClosed, opener = null, ...props }: BorrowMoneyFlowProps & { onClose: () => void; onClosed?: () => void; opener?: HTMLElement | null }) {
+  return <MoneyModal open={props.open ?? true} opener={opener} labelledBy="borrow-action-title" onCancel={onClose} onClose={onClosed ?? onClose}>
     <BorrowMoneyFlow {...props} />
   </MoneyModal>;
 }

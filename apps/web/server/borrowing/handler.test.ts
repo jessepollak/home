@@ -54,13 +54,17 @@ describe("borrow API handlers", () => {
     const deployment = resolveProductOffering({ kind: "deployment" });
     const paused = resolveProductOffering({ kind: "saved", value: { products: { ...deployment.products, borrow: "exit-only" }, vaults: deployment.vaults, markets: deployment.markets } });
     const result = await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(), readOffering: async () => paused })(request());
-    const value = await result.json();
-    for (const opportunity of value.opportunities) {
+    const value = await readJson(result);
+    const parsed = parseBorrowOverview(value, OWNER);
+    if (!parsed) throw new Error("Invalid borrowing overview");
+    for (const opportunity of parsed.opportunities) {
       expect(opportunity.availability).toMatchObject({ mode: "reducing-only", snapshot: { eligibility: { mode: "reducing-only", newRisk: false } } });
     }
     expect(parseBorrowOverview(value, OWNER)).not.toBeNull();
-    const unavailable = await (await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(), readOffering: async () => { throw new Error("db outage"); } })(request())).json();
-    expect(unavailable.opportunities.every((item: { availability: { mode: string } }) => item.availability.mode === "reducing-only")).toBe(true);
+    const unavailable = await readJson(await createBorrowHandler({ authorize: async () => Response.json(session()), rpc: rpc(), readOffering: async () => { throw new Error("db outage"); } })(request()));
+    const parsedUnavailable = parseBorrowOverview(unavailable, OWNER);
+    if (!parsedUnavailable) throw new Error("Invalid borrowing overview");
+    expect(parsedUnavailable.opportunities.every((item) => item.availability.mode === "reducing-only")).toBe(true);
     expect(parseBorrowOverview(unavailable, OWNER)).not.toBeNull();
   });
 
@@ -94,8 +98,10 @@ describe("borrow API handlers", () => {
     const market = BORROW_MARKETS.find((item) => item.availability === "enabled");
     if (!market) throw new Error("Expected an enabled borrow market fixture.");
     const handler = createBorrowMarketHandler({ authorize: async () => Response.json(session()), rpc: rpc(), readOffering: async () => resolveProductOffering({ kind: "unavailable" }) });
-    const detail = await (await handler(request(`/api/borrow/markets/${market.marketId}`), { params: Promise.resolve({ marketId: market.marketId }) })).json();
-    expect(detail.eligibility).toMatchObject({ mode: "reducing-only", newRisk: false });
+    const detail = await readJson(await handler(request(`/api/borrow/markets/${market.marketId}`), { params: Promise.resolve({ marketId: market.marketId }) }));
+    const parsed = parseSnapshot(detail, OWNER);
+    if (!parsed) throw new Error("Invalid borrowing snapshot");
+    expect(parsed.eligibility).toMatchObject({ mode: "reducing-only", newRisk: false });
     expect(parseSnapshot(detail, OWNER)).not.toBeNull();
   });
 

@@ -8,7 +8,10 @@ import { parseConfirmActionErrorResponse, parseConfirmActionResponse } from "@/s
 import { PRODUCT_NOT_OFFERED_CODE } from "@/shared/actions/contracts/prepare";
 import { parseRecentActionsPayload, parseRecentMoneyActions } from "@/shared/actions/contracts/list";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
-import { ACTION_KINDS, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
+import { ACTION_KINDS, type BorrowMoneyActionMetadata, type SavingsMoneyActionMetadata, type MoneyActionCall, type MoneyActionOwner } from "@/shared/money-actions/types";
+import { requireAddress } from "@/shared/chain/hex";
+import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
+import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
 import { createCashoutCorridorOfferingReader } from "@/server/funding/offering";
 import { resolveProductOffering } from "@/shared/operator-settings/products";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
@@ -88,25 +91,50 @@ function authorize(subject = "owner-a", accountProvider: "cdp-embedded" | "base-
 
 const SAVE_VAULT = VERIFIED_SAVE_VAULTS[0];
 
-function borrowConfirmRow(operation: BorrowOperation): ActionRow {
-  return { ...row, kind: actionKindForBorrowOperation(operation), summary: { ...row.summary, metadata: {
-    product: "borrow", operation, marketId: DEFAULT_BORROW_MARKET.marketId,
-    riskIncreased: operation === "borrow" || operation === "supply-and-borrow" || operation === "withdraw-collateral",
-    loanAsset: { id: "usdc", symbol: "USDC" }, collateralAsset: { id: "weth", symbol: "WETH" },
-    projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
-    source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1" },
-  } } };
-}
-
-function savingsConfirmRow(operation: "deposit" | "withdraw"): ActionRow {
-  return { ...row, kind: operation === "deposit" ? "savings-deposit" : "savings-withdraw", summary: { ...row.summary, metadata: {
+function savingsMetadata(operation: "deposit" | "withdraw"): SavingsMoneyActionMetadata {
+  return {
     product: "savings", operation, vaultAddress: SAVE_VAULT.address, vaultName: SAVE_VAULT.name,
     network: { name: "Base", chainId: 8453 }, feeWad: "0", limitBaseUnits: "1000000",
     previewSharesBaseUnits: "1000000000000000000", shareDecimals: 18,
     exchangeConstraint: operation === "deposit" ? "deposit-preview-no-minimum-shares" : "withdraw-exact-assets-or-revert",
     discoveryRate: { status: "unavailable", netApy: null, fetchedAt: null, stateAsOf: null },
     source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1" },
-  } } };
+  };
+}
+
+function borrowMetadata(operation: BorrowOperation, market: BorrowMarketRef, riskIncreased: boolean | undefined): BorrowMoneyActionMetadata {
+  return {
+    product: "borrow", operation, marketId: market.marketId,
+    ...(riskIncreased === undefined ? {} : { riskIncreased }),
+    loanAsset: { id: market.loanToken.id, symbol: market.loanToken.symbol },
+    collateralAsset: { id: market.collateralToken.id, symbol: market.collateralToken.symbol },
+    projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null, borrowAprWad: "0",
+    source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1" },
+  };
+}
+
+function tradeConfirmMetadata(direction: "buy" | "sell"): TradeMoneyActionMetadata {
+  const usdc = { id: "usdc", symbol: "USDC", decimals: 6, address: requireAddress(BASE_USDC_ADDRESS) };
+  const token = { id: "fixture", symbol: "FIXTURE", decimals: 6, address: requireAddress(ADDRESS) };
+  return {
+    product: "trade", provider: "cdp-swaps", direction,
+    network: { name: "Base", chainId: 8453 }, assetId: "fixture", assetName: "Fixture",
+    fromAsset: direction === "sell" ? token : usdc,
+    toAsset: direction === "buy" ? token : usdc,
+    fromAmountBaseUnits: "1000000", expectedToAmountBaseUnits: "1000", minimumToAmountBaseUnits: "990",
+    slippageBps: 100, fees: [], approval: "permit2-exact", quoteBlockNumber: "1",
+    quotedAt: "2026-09-12T12:00:00.000Z", permitDeadline: "4102444800", executionDeadline: "4102444800",
+  };
+}
+
+function borrowConfirmRow(operation: BorrowOperation): ActionRow {
+  return { ...row, kind: actionKindForBorrowOperation(operation), summary: { ...row.summary,
+    metadata: borrowMetadata(operation, DEFAULT_BORROW_MARKET, operation === "borrow" || operation === "supply-and-borrow" || operation === "withdraw-collateral"),
+  } };
+}
+
+function savingsConfirmRow(operation: "deposit" | "withdraw"): ActionRow {
+  return { ...row, kind: operation === "deposit" ? "savings-deposit" : "savings-withdraw", summary: { ...row.summary, metadata: savingsMetadata(operation) } };
 }
 
 describe("retained savings action reads", () => {
@@ -1164,10 +1192,10 @@ describe("actions HTTP handlers", () => {
   });
   test.each(["send", "savings-deposit", "borrow", "trade"] as const)("re-checks paused unconfirmed %s drafts before committing", async (kind) => {
     const market = enabledMarket();
-    const metadata = kind === "savings-deposit" ? { product: "savings", operation: "deposit", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
-      : kind === "borrow" ? { product: "borrow", operation: "borrow", marketId: market.marketId, riskIncreased: true }
-      : kind === "trade" ? { product: "trade", direction: "buy" } : undefined;
-    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const metadata = kind === "savings-deposit" ? savingsMetadata("deposit")
+      : kind === "borrow" ? borrowMetadata("borrow", market, true)
+      : kind === "trade" ? tradeConfirmMetadata("buy") : undefined;
+    const draft = { ...row, kind, summary: { ...row.summary, metadata } };
     const offering = resolveProductOffering({ kind: "deployment" });
     const paused = { ...offering, products: { save: "exit-only" as const, borrow: "exit-only" as const, invest: "exit-only" as const, send: "off" as const } };
     let reads = 0;
@@ -1188,8 +1216,8 @@ describe("actions HTTP handlers", () => {
     const deployment = resolveProductOffering({ kind: "deployment" });
     const offering = resolveProductOffering({ kind: "saved", value: { products: deployment.products,
       vaults: { ...deployment.vaults, [vault.id]: "reducing-only" }, markets: { ...deployment.markets, [market.marketId]: "reducing-only" } } });
-    const metadata = kind === "borrow" ? { product: "borrow", operation: "borrow", marketId: market.marketId, riskIncreased: true } : { product: "savings", operation: "deposit", vaultAddress: vault.address };
-    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const metadata = kind === "borrow" ? borrowMetadata("borrow", market, true) : savingsMetadata("deposit");
+    const draft = { ...row, kind, summary: { ...row.summary, metadata } };
     const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"), readOffering: async () => offering,
       store: { get: async () => draft, confirm: async () => { throw new Error("Must not confirm"); } } });
     const response = await handler(request(`/api/actions/${ID}/confirm`, { method: "POST", body: "{}" }), context());
@@ -1199,9 +1227,9 @@ describe("actions HTTP handlers", () => {
 
   test.each(["savings-withdraw", "repay", "supply-collateral", "withdraw-collateral"] as const)("confirms %s exits without consulting settings", async (kind) => {
     let reads = 0;
-    const metadata = kind === "savings-withdraw" ? { product: "savings", operation: "withdraw", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
-      : { product: "borrow", operation: kind, marketId: enabledMarket().marketId, riskIncreased: false };
-    const draft = { ...row, kind, summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } };
+    const metadata = kind === "savings-withdraw" ? savingsMetadata("withdraw")
+      : borrowMetadata(kind, enabledMarket(), false);
+    const draft = { ...row, kind, summary: { ...row.summary, metadata } };
     const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
       readOffering: async () => { reads++; throw new Error("db outage"); },
       markHot: async () => {}, recordConfirmed: async () => {},
@@ -1236,11 +1264,9 @@ describe("actions HTTP handlers", () => {
       : offeringMode === "paused-market"
         ? resolveProductOffering({ kind: "saved", value: { products: deployment.products, vaults: deployment.vaults, markets: { ...deployment.markets, [market.marketId]: "reducing-only" } } })
         : deployment;
-    const draft: ActionRow = { ...row, kind: "withdraw-collateral", summary: { ...row.summary, metadata: { product: "borrow", operation: "withdraw-collateral", marketId: market.marketId,
-      ...(riskIncreased === undefined ? {} : { riskIncreased }), loanAsset: { id: market.loanToken.id, symbol: market.loanToken.symbol },
-      collateralAsset: { id: market.collateralToken.id, symbol: market.collateralToken.symbol }, projectedHealthFactorWad: null, projectedLiquidationPriceRaw: null,
-      borrowAprWad: "0", source: { blockNumber: "1", blockHash: HASH, blockTimestamp: "1789214400" },
-    } as ActionRow["summary"]["metadata"] } };
+    const draft: ActionRow = { ...row, kind: "withdraw-collateral", summary: { ...row.summary,
+      metadata: borrowMetadata("withdraw-collateral", market, riskIncreased),
+    } };
     let reads = 0;
     let confirms = 0;
     const handler = createConfirmActionHandler({ authorize: authorize(), now: () => new Date("2026-09-12T12:05:00.000Z"),
@@ -1317,12 +1343,12 @@ describe("actions HTTP handlers", () => {
     };
     const calls = kind === "send" ? [transfer] : [CALL, approval];
     const market = enabledMarket();
-    const metadata = kind === "savings-deposit" ? { product: "savings", vaultAddress: VERIFIED_SAVE_VAULTS[0].address }
-      : kind === "borrow" || kind === "withdraw-collateral" ? { product: "borrow", marketId: market.marketId, riskIncreased: kind === "borrow" } : null;
+    const metadata = kind === "savings-deposit" ? savingsMetadata("deposit")
+      : kind === "borrow" || kind === "withdraw-collateral" ? borrowMetadata(kind === "borrow" ? "borrow" : "withdraw-collateral", market, kind === "borrow") : null;
     const draft: ActionRow = {
       ...(kind === "cash-out" || kind === "cash-out-withdraw" ? cashoutConfirmRow(kind) : row),
       kind,
-      ...(metadata ? { summary: { ...row.summary, metadata: metadata as ActionRow["summary"]["metadata"] } } : {}),
+      ...(metadata ? { summary: { ...row.summary, metadata } } : {}),
       pending: { calls },
       summary: kind === "savings-deposit" || kind === "savings-withdraw"
         ? savingsConfirmRow(kind === "savings-deposit" ? "deposit" : "withdraw").summary

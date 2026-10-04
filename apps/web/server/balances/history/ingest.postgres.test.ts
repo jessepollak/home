@@ -486,7 +486,8 @@ suite("history ingest with Postgres", () => {
         await gate;
         return target.putReconcileCheckpoints(input);
       };
-      return Reflect.get(target, property, receiver);
+      const value: unknown = Reflect.get(target, property, receiver);
+      return value;
     } });
     const slow = createHistoryIngest({ store: delayed, source, chain, now: () => time, lagBlocks: BigInt(0), replayBlocks: BigInt(0) })
       .run(address, { heldAssets: [token], deadline: time.getTime() + 100_000 });
@@ -833,7 +834,8 @@ suite("history ingest with Postgres", () => {
         seen.push([...input.changeBoundaries]);
         return target.readIngestSnapshot(input);
       };
-      return Reflect.get(target, property, receiver);
+      const value: unknown = Reflect.get(target, property, receiver);
+      return value;
     } });
     const service = createHistoryIngest({ store: counted, source, chain, now: () => time, lagBlocks: BigInt(0), replayBlocks: BigInt(0) });
     const bucketAt = new Date(windowAt.getTime() + 115 * 3_600_000);

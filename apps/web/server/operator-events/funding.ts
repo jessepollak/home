@@ -48,6 +48,7 @@ export function withFundingOrderEvents(store: FundingOrderStore, record: Recorde
       finalized(await store.markDispatchAmbiguous(id, expectedVersion, updatedAt)),
     resolveDispatchAmbiguous: async (id, owner, expectedVersion, updatedAt) =>
       finalized(await store.resolveDispatchAmbiguous(id, owner, expectedVersion, updatedAt)),
+    abandon: (id, owner, input) => store.abandon(id, owner, input),
     applyObservation: async (id, input) => finalized(await store.applyObservation(id, input)),
     claimReceipt: async (id, input) => finalized(await store.claimReceipt(id, input)),
   };

@@ -23,6 +23,7 @@ import {
   presentBalances,
   presentCashSelection,
   presentPendingCashout,
+  presentHomeBalances,
   presentInvestmentTotal,
   presentHoldingMark,
 } from "./present";
@@ -160,13 +161,15 @@ describe("balance presentation", () => {
     expect(view.displayTotal).toBe("$20.00");
     expect(view.breakdown.find(({ id }) => id === "pending-cash-out")?.value).toBe("$20.00");
     expect(view.totalStatus).toBe("partial");
-    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(view.statusLabel).toBe("Partial balance");
+    expect(view.statusReasons).toEqual(["pending-cash-out"]);
     expect(presentPendingCashout(snapshot, escrow)).toEqual({ value: "$20.00" });
     const withoutCurrency = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     const noCurrency = presentBalances({ status: "ready", snapshot: withoutCurrency, error: null },
       { showSmallBalances: false, pendingCashout: escrow });
     expect(noCurrency.totalStatus).toBe("unavailable");
     expect(noCurrency.statusLabel).toBe("Choose a country in Account to set how money is shown");
+    expect(noCurrency.statusReasons).toBeUndefined();
   });
 
   test("missing unit price marks a pending escrow partial without adding it", () => {
@@ -175,7 +178,8 @@ describe("balance presentation", () => {
     const view = presentBalances({ status: "ready", snapshot, error: null }, { showSmallBalances: false, pendingCashout: { state: "escrow", baseUnits: "1000000", partial: false } });
     expect(view.displayTotal).toBe(before.displayTotal);
     expect(view.totalStatus).toBe("partial");
-    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(view.statusLabel).toBe("Partial balance");
+    expect(view.statusReasons).toEqual(["pending-cash-out-unpriced"]);
     expect(view.breakdown).toEqual(before.breakdown);
     expect(presentPendingCashout(snapshot, { state: "escrow", baseUnits: "1000000", partial: false })).toBeNull();
   });
@@ -190,7 +194,8 @@ describe("balance presentation", () => {
     expect(view.displayTotal).toBe(before.displayTotal);
     expect(view.breakdown).toEqual(before.breakdown);
     expect(view.totalStatus).toBe("partial");
-    expect(view.statusLabel).toBe("Some balances are unavailable");
+    expect(view.statusLabel).toBe("Partial balance");
+    expect(view.statusReasons).toEqual(["pending-cash-out"]);
     expect(presentPendingCashout(snapshot, pendingCashout)).toEqual(status === "indeterminate" ? { value: null } : null);
     const withoutCurrency = buildBalancesSnapshotFixture({ region: "GLOBAL" });
     expect(presentBalances({ status: "ready", snapshot: withoutCurrency, error: null },
@@ -604,6 +609,54 @@ describe("balance presentation", () => {
     });
   });
 
+  test.each([
+    { value: { status: "unpriced", reason: "price-stale" } as const, expected: "price-delayed" as const },
+    ...(["price-unavailable", "fx-unavailable", "below-market-gate", "asset-removed", "price-paused"] as const).map((reason) => ({
+      value: { status: "unpriced" as const, reason }, expected: "value-unavailable" as const,
+    })),
+    { value: { status: "unavailable" } as const, expected: "value-unavailable" as const },
+  ])("classifies $value as $expected for positive holdings, collateral and debt", ({ value, expected }) => {
+    for (const source of ["holding", "collateral", "debt"] as const) {
+      const snapshot = buildBalancesSnapshotFixture({
+        registry: {
+          usdc: { balance: ready("1000000"), value: priced("USD", "100"), cashValue: pricedCash("USD", "100") },
+          ...(source === "holding" ? { eth: { balance: ready("1"), value } } : {}),
+        },
+        borrow: { coverage: "complete", positions: source === "holding" ? [] : [borrowPosition({
+          collateralBaseUnits: "1", collateralValue: source === "collateral" ? value : priced("USD", "100"),
+          debtBaseUnits: "1", debtValue: source === "debt" ? value : priced("USD", "1"),
+        })] },
+      });
+      const view = presentHomeBalances({ status: "ready", snapshot, error: null });
+      expect(view.statusReasons).toEqual(source === "debt" ? [expected, "loan-unpriced"] : [expected]);
+    }
+  });
+
+  test.each(["price-stale", "price-paused", "no-quote-currency"] as const)("ignores zero contributions and no-quote-currency (%s)", (reason) => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: { eth: { balance: ready(reason === "no-quote-currency" ? "1" : "0"), value: { status: "unpriced", reason } } },
+      coverage: { catalog: "incomplete" },
+    });
+    expect(presentHomeBalances({ status: "ready", snapshot, error: null }).statusReasons).toEqual(["unreadable"]);
+  });
+
+  test("orders balance, valuation, Borrow and both pending cash-out reasons", () => {
+    const snapshot = buildBalancesSnapshotFixture({
+      registry: { eth: { balance: ready("1"), value: { status: "unpriced", reason: "price-stale" } } },
+      coverage: { catalog: "incomplete" },
+      borrow: { coverage: "partial", positions: [borrowPosition({
+        collateralBaseUnits: "1", collateralValue: priced("USD", "100"),
+        debtBaseUnits: "1", debtValue: { status: "unpriced", reason: "price-paused" },
+      })] },
+    });
+    expect(presentHomeBalances({ status: "ready", snapshot, error: null }, {
+      pendingCashout: { state: "escrow", baseUnits: "1000000", partial: true },
+    }).statusReasons).toEqual([
+      "unreadable", "price-delayed", "value-unavailable", "borrow-unconfirmed", "loan-unpriced",
+      "pending-cash-out-unpriced", "pending-cash-out",
+    ]);
+  });
+
   test("maps loading, partial and unavailable net states without sentinel rows", () => {
     expect(presentBalances({ status: "loading", snapshot: null, error: null })).toEqual({
       status: "loading",
@@ -625,10 +678,11 @@ describe("balance presentation", () => {
       status: "ready",
       displayTotal: "$3,852.88",
       totalStatus: "partial",
-      statusLabel: "Some balances are unavailable",
+      statusLabel: "Partial balance",
+      statusReasons: ["unreadable", "value-unavailable"],
       breakdown: [
-        { id: "cash", label: "Cash", value: "$2,234.68", weight: 580 },
-        { id: "investments", label: "Investments", value: "$1,618.20", weight: 420 },
+        { id: "cash", label: "Cash", value: "$2,234.68", weight: 580, status: "complete" },
+        { id: "investments", label: "Investments", value: "$1,618.20", weight: 420, status: "partial" },
       ],
       revalidating: true,
     });
@@ -749,7 +803,7 @@ describe("balance presentation", () => {
     const presentation = presentBalances({ status: "ready", snapshot, error: null });
 
     expect(presentation.totalStatus).toBe("partial");
-    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+    expect(presentation.statusLabel).toBe("Partial balance");
   });
 
   test("never presents a gross total as net when the Borrow read is incomplete", () => {
@@ -766,7 +820,7 @@ describe("balance presentation", () => {
     const presentation = presentBalances({ status: "ready", snapshot, error: null });
 
     expect(presentation.totalStatus).toBe("partial");
-    expect(presentation.statusLabel).toBe("Some balances are unavailable");
+    expect(presentation.statusLabel).toBe("Partial balance");
     expect(presentation.summary?.borrow).toEqual({ kind: "unavailable" });
     expect(presentation.breakdown.some((item) => item.id === "borrow")).toBeFalse();
   });

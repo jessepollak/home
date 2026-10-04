@@ -5,6 +5,7 @@ import {
   nativeBaseOwnerKey,
   savingsGrowthOwnerKey,
   savingsJourneyOwnerKey,
+  supportOwnerKey,
 } from "./owner-keys";
 
 const smartAccount: NonNullable<VerifiedAccountSession["smartAccount"]> = { address: "0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD", chainId: 8453 };
@@ -30,4 +31,15 @@ test("savings identity handles sessions without a smart account and keeps provid
 test("the preference scope keeps its existing owner-part ordering", () => {
   expect(countryPreferenceOwnerKey({ ownerKey: "wallet", session: baseSession })).toBe("wallet\u0000base-account\u0000base-subject");
   expect(countryPreferenceOwnerKey({ ownerKey: null, session: baseSession })).toBeNull();
+});
+
+test("the support scope follows the server-verified customer and changes with the owner", () => {
+  const verified = { status: "verified", verification: "server", session: baseSession };
+  expect(supportOwnerKey(verified)).toBe("base-account\u0000base-subject");
+  expect(supportOwnerKey({ ...verified, session: { ...baseSession, smartAccount: null } })).toBe("base-account\u0000base-subject");
+  expect(supportOwnerKey({ ...verified, session: { ...baseSession, user: { subject: "other-subject" } } })).toBe("base-account\u0000other-subject");
+  expect(supportOwnerKey({ ...verified, session: { ...baseSession, accountProvider: "cdp-embedded" } })).toBe("cdp-embedded\u0000base-subject");
+  expect(supportOwnerKey({ ...verified, verification: "provisional" })).toBeNull();
+  expect(supportOwnerKey({ ...verified, status: "validating" })).toBeNull();
+  expect(supportOwnerKey({ ...verified, session: null })).toBeNull();
 });

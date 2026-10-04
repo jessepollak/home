@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { isRecord } from "@/shared/guards";
 import { ownerQueryPersistThrottleMs } from "../../client/query/query-client";
 import { decodeOwnerCache } from "../../client/query/owner-cache-codec";
 import { readIndexedOwnerCache, replaceIndexedOwnerCache } from "./fixtures/owner-cache";
@@ -332,7 +333,8 @@ test("summary-only reload retains rate subtitles without pulsing placeholders", 
   const settled = await visibleBalanceRowLayout(page);
   const value = await readIndexedOwnerCache(page);
   if (!value) throw new Error("Owner cache missing");
-  const envelope = JSON.parse(await decodeOwnerCache(value));
+  const envelope: unknown = JSON.parse(await decodeOwnerCache(value));
+  if (!isRecord(envelope) || !isRecord(envelope.clientState)) throw new Error("Owner cache missing client state");
   envelope.clientState.queries = [];
   await replaceIndexedOwnerCache(page, value, JSON.stringify(envelope));
   await page.addInitScript((expected) => {
@@ -391,7 +393,7 @@ test("cached Home HTML contains money before React hydration", async ({ browser,
   const summary = presentation.summary;
   const total = presentation.displayTotal;
   if (!summary || total === null) throw new Error("Summary fixture invalid");
-  const value = encodeHomeSummaryCookie({ version: 1, owner: dataOwnerKey(session), region: "US", updatedAt: now, presentation: { ...presentation, status: "ready", summary },
+  const value = encodeHomeSummaryCookie({ version: 2, owner: dataOwnerKey(session), region: "US", updatedAt: now, presentation: { ...presentation, status: "ready", summary },
     rates: { cash: { value: "3.50% APY", updatedAt: now }, borrow: { value: "3.15% APR", updatedAt: now } } });
   if (!value || !baseURL) throw new Error("Summary fixture unavailable");
   const noScript = await browser.newContext({ extraHTTPHeaders: { "x-vercel-ip-country": "US" }, viewport: { width: 390, height: 844 } });
