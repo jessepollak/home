@@ -33,11 +33,11 @@ function createSupportServer(scenario: Scenario) {
   const fetchAccountResource = async (path: string, options?: { method?: string; body?: unknown }): Promise<unknown> => {
     if (path === "/api/support") return snapshot();
     if (path === `/api/support?before=${olderMessage.id}`) return snapshot([olderMessage], null);
-    if (path === "/api/support/read") return null;
     if (path === "/api/support/handoff" && options?.method === "POST") { handler = "operator"; return snapshot(); }
     throw new Error("Unexpected support request");
   };
-  const fetchAccountResponse = async (_path: string, options: { body: string; signal?: AbortSignal }): Promise<Response> => {
+  const fetchAccountResponse = async (path: string, options: { body: string; signal?: AbortSignal }): Promise<Response> => {
+    if (path === "/api/support/read") return new Response(null, { status: 204 });
     attempts++;
     if (scenario === "rate-limit") throw Object.assign(new TransferExecutionError("unavailable"), { kind: "http", status: 429, code: "RATE_LIMITED" });
     if (scenario === "retry" && attempts === 1) throw Object.assign(new TransferExecutionError("unavailable"), { kind: "network" });

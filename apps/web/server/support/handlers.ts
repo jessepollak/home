@@ -222,7 +222,9 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
             if (!text && assistant.capability.handoff) await store.handoffCustomer(resolved.id, true, true, sent.messageId);
           } finally { await store.releaseAssistantRun(conversation.id, runId); }
         })();
-        observeSafely(() => abortRelease);
+        observeSafely(() => abortRelease?.catch(() => {
+          emitServerEvent("support", { route, code: "ASSISTANT_ABORT_CLEANUP", outcome: "failed" });
+        }));
       };
       request.signal.addEventListener("abort", onAbort, { once: true });
       if (request.signal.aborted && !abortRelease) onAbort();
