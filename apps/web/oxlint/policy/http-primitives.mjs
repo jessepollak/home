@@ -8,7 +8,6 @@ export const manualAbortTimeoutExceptions = new Map([
   ["server/actions/reconcile.ts", 1],
   ["server/activity/token-metadata-rpc.ts", 1],
   ["server/activity/valuation/coinbase-daily-fx.ts", 1],
-  ["server/balances/enumerate-cdp.ts", 2],
   ["server/balances/price.ts", 1],
   ["server/balances/read.ts", 1],
   ["server/cards/immersve/immersve-client.ts", 1],
