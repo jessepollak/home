@@ -1,17 +1,21 @@
 import { useEffect, type ReactNode } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, within } from "storybook/test";
+import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
+import { formatUsdStablecoinAmount } from "@/shared/formatting";
 import { cashoutQuoteFromLegacy, type CashoutQuote } from "@/shared/funding/cash-out-quote";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { CashOutReview } from "./cash-out-review";
 
 const legacy = cashoutQuoteFromLegacy({ approximateFiatAmount: "50", currency: "USD", etaSeconds: 3600 });
 const peer: CashoutQuote = { ...legacy, fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null } };
+const spend = { direction: "spend", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000" } as const;
+
 const action: PreparedMoneyAction = {
   id: "cashout-review-fixture", kind: "cash-out", title: "Cash out", calls: [], warnings: [],
   createdAt: "2026-09-01T00:00:00.000Z", expiresAt: "2099-09-01T00:00:00.000Z",
   owner: { subject: "fixture", address: "0x1111111111111111111111111111111111111111", chainId: 8453, accountProvider: "cdp-embedded" },
-  amounts: [{ direction: "spend", assetId: "usdc", symbol: "USDC", decimals: 6, amountBaseUnits: "50000000" }],
+  amounts: [spend],
   networkFee: { payment: "usdc", token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", maxFeeBaseUnits: "20000", decimals: 6 },
 };
 
@@ -61,6 +65,20 @@ export const UsPeerCashApp: Story = {
     await expectFacts(canvasElement, { "You send": "50 USDC", "Peer fee": "None", Rate: null, "You receive": "≈ $50.00 to Cash App", Arrives: "Usually within 1 hour" });
     await expect(fact(canvasElement, "Network fee")).toHaveTextContent("Up to 0.02 USDC");
     await expectDetails(canvasElement);
+  },
+};
+
+export const BrPresentation: Story = {
+  args: {
+    action: { ...action, amounts: [{ ...spend, amountBaseUnits: "2500000000" }] },
+    amount: formatUsdStablecoinAmount("2500000000", 6, "BR"),
+    quote: { ...peer, fees: { ...peer.fees, provider: { amount: "1265.44", currency: "USD" } }, receive: { amount: "1234.56", currency: "USD", approximate: true } },
+  },
+  decorators: [(Story) => <PresentationRegionProvider regionId="BR"><Story /></PresentationRegionProvider>],
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByText("$2.500,00", { selector: "bdi", exact: true })).toBeVisible();
+    await expectFacts(canvasElement, { "You send": "2.500 USDC", "Peer fee": "$1.265,44", "You receive": "1.234,56" });
+    await expect(fact(canvasElement, "Network fee")).toHaveTextContent("Up to 0,02 USDC");
   },
 };
 

@@ -5,6 +5,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { X } from "lucide-react";
 import { AppDrawer } from "@/client/money-modal";
+import { reportPageClientError } from "@/client/observability/client-reporter";
 import { Button } from "@/components/ui/button";
 import { ConversationScrollButton } from "@/components/ui/conversation";
 import { PromptInput, PromptInputSubmit, PromptInputTextarea } from "@/components/ui/prompt-input";
@@ -99,6 +100,7 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
   const [handoff, setHandoff] = useState<"idle" | "pending" | "failed">("idle");
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const readRef = useRef<string | null>(null);
+  const readFailedRef = useRef(false);
   const logRef = useRef<HTMLDivElement>(null);
   const [logMounted, setLogMounted] = useState(false);
   const attachLog = useCallback((node: HTMLDivElement | null) => { logRef.current = node; setLogMounted(node !== null); }, []);
@@ -153,8 +155,18 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
   const markRead = useCallback((messageId: string) => {
     if (readRef.current === messageId) return;
     readRef.current = messageId;
-    void fetchAccountResource("/api/support/read", { method: "POST", body: { version: SUPPORT_CONTRACT_VERSION, lastMessageId: messageId } }).then(() => cache.refresh(), () => { readRef.current = null; return null; });
-  }, [fetchAccountResource, cache]);
+    void fetchAccountResponse("/api/support/read", { body: JSON.stringify({ version: SUPPORT_CONTRACT_VERSION, lastMessageId: messageId }) }).then(() => {
+      readFailedRef.current = false;
+      return cache.refresh();
+    }, (error) => {
+      readRef.current = null;
+      if (!readFailedRef.current) {
+        readFailedRef.current = true;
+        reportPageClientError({ name: error instanceof Error ? error.name : "Error", message: "Support read receipt failed", route: window.location.pathname });
+      }
+      return null;
+    });
+  }, [fetchAccountResponse, cache]);
 
   useEffect(() => {
     if (!open || document.hidden || unreadCount === 0 || !newestObservedId) return;

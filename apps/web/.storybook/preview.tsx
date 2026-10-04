@@ -1,13 +1,17 @@
 import type { Preview } from "@storybook/nextjs-vite";
 import { setupWorker } from "msw/browser";
 import { mswLoader } from "msw-storybook-addon/csf3";
+import { ProductOfferingProvider } from "@/client/home/product-offering";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
+import { resolveProductOffering } from "@/shared/operator-settings/products";
 import {
   getHomeQueryClient,
   HomeQueryClientProvider,
 } from "@/client/query/query-client";
 import "@/app/globals.css";
 import { rejectUnexpectedStoryRequest } from "./request-guard";
+
+const deploymentOffering = resolveProductOffering({ kind: "deployment" });
 
 const preview: Preview = {
   globalTypes: {
@@ -25,11 +29,18 @@ const preview: Preview = {
     (Story, context) => {
       document.documentElement.classList.toggle("dark", context.globals.theme === "dark");
       document.body.style.backgroundColor = "var(--background)";
+      const story = (
+        <PresentationRegionProvider regionId="GLOBAL">
+          <Story />
+        </PresentationRegionProvider>
+      );
       return (
         <HomeQueryClientProvider>
-          <PresentationRegionProvider regionId="GLOBAL">
-            <Story />
-          </PresentationRegionProvider>
+          {context.parameters.provideProductOffering === false ? story : (
+            <ProductOfferingProvider value={deploymentOffering}>
+              {story}
+            </ProductOfferingProvider>
+          )}
         </HomeQueryClientProvider>
       );
     },

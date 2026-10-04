@@ -14,7 +14,7 @@ import {
 } from "./action-resolution";
 import type { OperationResult, PreparedMoneyAction } from "@/shared/money-actions/types";
 import type { TradeConfirmRequest, TradeSigningRequest } from "@/shared/trading/contract";
-import { validPrepared } from "@/shared/actions/contracts/prepare";
+import { parsePreparedAction } from "@/shared/actions/contracts/prepare";
 import { parseMoneyActionNetworkFee, paymasterProxyPath, USDC_PAYMASTER_CONTEXT } from "@/shared/money-actions/network-fee";
 import { parsePendingActionResponse } from "@/shared/actions/contracts/get";
 import { parseConfirmActionResponse } from "@/shared/actions/contracts/confirm";
@@ -76,9 +76,10 @@ export function useMoneyActionExecution({
       body: { kind, params },
     });
     ownerFence.assertCurrent(generation);
-    if (!validPrepared(value, active)) throw new TransferExecutionError("unavailable");
-    preparedGeneration.current.set(value.id, generation);
-    return value;
+    const prepared = parsePreparedAction(value, active);
+    if (!prepared) throw new TransferExecutionError("unavailable");
+    preparedGeneration.current.set(prepared.id, generation);
+    return prepared;
   }, [assertReady, fetchAccountResource, ownerFence]);
 
   const resumeMoneyAction = useCallback(async (id: string) => {

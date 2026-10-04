@@ -43,7 +43,7 @@ export function transferScanPosition(scope: WindowScope, cursor: string | null):
   const remaining = Date.parse(scope.to) - scanTimestamp;
   if (parsed.scanVersion !== 1 || parsed.scope !== scopeKey(scope) || typeof scanTo !== "string" ||
     !Number.isFinite(scanTimestamp) || scanTimestamp <= Date.parse(scope.from) ||
-    remaining < 0 || remaining % BASE_TRANSFER_SCAN_WINDOW_MS !== 0 ||
+    remaining < 0 ||
     new Date(scanTimestamp).toISOString() !== scanTo ||
     !(rowCursor === null || typeof rowCursor === "string" &&
       rowCursor.length > 0 && rowCursor.length <= MAX_CURSOR_LENGTH) ||
@@ -66,14 +66,16 @@ export function nextTransferScanCursor(
   bounds: { from: string; to: string },
   rowCursor: string | null,
   legacyCursor: string | null,
+  narrowed = false,
+  previousRowCursor: string | null = null,
 ): string | null {
-  if (Date.parse(scope.to) - Date.parse(scope.from) <= BASE_TRANSFER_SCAN_WINDOW_MS) return rowCursor;
+  if (!narrowed && Date.parse(scope.to) - Date.parse(scope.from) <= BASE_TRANSFER_SCAN_WINDOW_MS) return rowCursor;
   if (rowCursor === null && bounds.from === scope.from) return null;
   const encoded = Buffer.from(JSON.stringify({
     scanVersion: 1,
     scope: scopeKey(scope),
     scanTo: rowCursor === null ? bounds.from : bounds.to,
-    rowCursor,
+    rowCursor: rowCursor ?? (narrowed ? previousRowCursor : null),
     legacyCursor,
   }), "utf8").toString("base64url");
   if (encoded.length > MAX_CURSOR_LENGTH) {

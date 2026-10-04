@@ -96,7 +96,7 @@ describe("trade confirmation", () => {
   test("rejects a legacy trade whose fee recipient is the owner before confirming", async () => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
     row.summary.metadata = {
-      product: "trade", direction: "buy", fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: ROUTER },
+      product: "trade", direction: "buy", assetId: "fixture", fromAsset: { address: BASE_USDC_ADDRESS }, toAsset: { address: ROUTER },
       fromAmountBaseUnits: "1000000", expectedToAmountBaseUnits: "1000", minimumToAmountBaseUnits: "990",
       operatorFee: { amountBaseUnits: "10000", bps: 100, recipient: OWNER, collectedBy: "in-batch-transfer",
         token: { address: BASE_USDC_ADDRESS, decimals: 6, assetId: "usdc", symbol: "USDC" } },
@@ -139,6 +139,61 @@ describe("trade confirmation", () => {
     expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
     expect(confirms).toBe(0);
     expect(verifications).toBe(0);
+  });
+
+  test.each([
+    ["removed", "fixture"],
+    ["missing", undefined],
+    ["non-string", 123],
+  ] as const)("rejects a %s buy asset id before confirming", async (_label, assetId) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = tradeMetadata("0x4444444444444444444444444444444444444444", "buy");
+    Object.assign(row.summary.metadata, { assetId });
+    let confirms = 0;
+    let verifications = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      buyBlocked: (id) => id === "fixture",
+      verifySmartAccountSignature: async () => { verifications += 1; return true; },
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(confirms).toBe(0);
+    expect(verifications).toBe(0);
+  });
+
+  test.each([
+    ["non-removed", "buy", false, 1],
+    ["removed-asset", "sell", true, 0],
+  ] as const)("confirms a %s %s", async (_label, direction, removed, expectedBuyReads) => {
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = tradeMetadata("0x4444444444444444444444444444444444444444", direction);
+    let buyReads = 0;
+    let confirms = 0;
+    let verifications = 0;
+    const signature = await SIGNER.signTypedData({ ...typed, domain: { ...typed.domain, chainId: BigInt(8453) } });
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      readOffering: async () => resolveProductOffering({ kind: "deployment" }),
+      buyBlocked: () => { buyReads += 1; return removed; },
+      verifySmartAccountSignature: async () => { verifications += 1; return true; },
+      markHot: async () => {}, recordConfirmed: async () => {},
+      store: { get: async () => row, confirm: async (_owner, _id, calls) => {
+        if (!row.pending) throw new Error("Missing pending trade");
+        if (!calls) throw new Error("Missing confirmed calls");
+        confirms += 1;
+        return { ...row, confirmed_at: "2026-09-25T12:01:00.000Z", pending: { ...row.pending, calls } };
+      } },
+    });
+    const result = await handler(request(signature, "cdp-embedded"), context);
+    expect(result.status).toBe(200);
+    expect(confirms).toBe(1);
+    expect(verifications).toBe(1);
+    expect(buyReads).toBe(expectedBuyReads);
   });
 
   test.each([
@@ -261,7 +316,7 @@ describe("trade confirmation", () => {
     [{ address: BASE_USDC_ADDRESS }, { address: 123 }],
   ] as const)("preserves legacy confirmation with asset references %j and %j", async (fromAsset, toAsset) => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
-    row.summary.metadata = { product: "trade", direction: "buy", fromAsset, toAsset } as unknown as TradeMoneyActionMetadata;
+    row.summary.metadata = { product: "trade", direction: "buy", assetId: "fixture", fromAsset, toAsset } as unknown as TradeMoneyActionMetadata;
     let pairReads = 0;
     const handler = createConfirmActionHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
@@ -467,12 +522,12 @@ describe("confirmed trade replay", () => {
     change?.(row);
     return row;
   }
-  function replayHandler(row: ActionRow, provider: "base-account" | "cdp-embedded" = "cdp-embedded", convertPair?: typeof resolveConvertPair) {
+  function replayHandler(row: ActionRow, provider: "base-account" | "cdp-embedded" = "cdp-embedded", convertPair?: typeof resolveConvertPair, buyBlocked?: (assetId: string) => boolean) {
     const effects = { confirms: 0, verifications: 0, recorded: 0, estimates: 0 };
     const handler = createConfirmActionHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: provider }),
       now: () => new Date("2026-09-25T12:01:00.000Z"),
-      convertPair,
+      convertPair, buyBlocked,
       verifySmartAccountSignature: async () => { effects.verifications += 1; return true; },
       estimateBaseBatch: async () => { effects.estimates += 1; return BigInt(100_000); },
       markHot: async () => {}, recordConfirmed: async () => { effects.recorded += 1; },
@@ -508,6 +563,22 @@ describe("confirmed trade replay", () => {
     })));
     expect(Boolean(body.batchGasLimit)).toBe(provider === "base-account");
     expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: provider === "base-account" ? 1 : 0 });
+  });
+
+  test("replays a committed buy after operator removal without reading buy policy", async () => {
+    const row = confirmedRow((value) => {
+      value.summary.metadata = tradeMetadata("0x4444444444444444444444444444444444444444", "buy");
+    });
+    let buyReads = 0;
+    const { effects, confirm } = replayHandler(row, "cdp-embedded", undefined, () => {
+      buyReads += 1;
+      return true;
+    });
+    const response = await confirm("cdp-embedded");
+    expect(response.status).toBe(200);
+    expect(await readJson(response)).toMatchObject({ calls: finalized });
+    expect(buyReads).toBe(0);
+    expect(effects).toEqual({ confirms: 0, verifications: 0, recorded: 0, estimates: 0 });
   });
 
   test.each(["buy", "sell"] as const)("replays a committed currency %s after its registry record is removed", async (direction) => {

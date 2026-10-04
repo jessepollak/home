@@ -36,6 +36,7 @@ export type BaseErc20TransferHistoryOptions = {
   assets: readonly BaseErc20Asset[];
   transport: CdpSqlTransport;
   now?: () => Date;
+  sqlBudgetMs?: number;
 };
 
 type ValidatedRequest = {
@@ -139,6 +140,7 @@ export function createBaseErc20TransferHistory({
   assets,
   transport,
   now = () => new Date(),
+  sqlBudgetMs = 20_000,
 }: BaseErc20TransferHistoryOptions) {
   const allowlist = validateAllowlist(assets);
 
@@ -150,18 +152,49 @@ export function createBaseErc20TransferHistory({
       const scope = validateRequest({ ...input, cursor: null }, allowlist, fetchedAt);
       const position = transferScanPosition(scope, input.cursor ?? null);
       if (position.legacyCursor !== null) decodeTransferCursor(position.legacyCursor);
-      const bounds = transferScanBounds(scope, position);
-      const { sql, request } = buildBaseErc20TransferQuery(
+      let bounds = transferScanBounds(scope, position);
+      let query = buildBaseErc20TransferQuery(
         { ...input, ...bounds, cursor: position.rowCursor ?? position.legacyCursor }, allowlist, fetchedAt,
       );
-      const response = await transport.run({
-        sql,
-        cache:
-          request.cacheMaxAgeMs === null
-            ? undefined
-            : { maxAgeMs: request.cacheMaxAgeMs },
-        signal: input.signal,
-      });
+      let response: CdpSqlResponse;
+      let narrowings = 0;
+      let lastCapacityError: ChainDataError | null = null;
+      const attemptsStartedAt = now().getTime();
+      for (;;) {
+        let signal = input.signal;
+        if (lastCapacityError !== null) {
+          const remainingMs = sqlBudgetMs - (now().getTime() - attemptsStartedAt);
+          if (remainingMs <= 0) throw lastCapacityError;
+          const deadline = AbortSignal.timeout(remainingMs);
+          signal = input.signal ? AbortSignal.any([input.signal, deadline]) : deadline;
+        }
+        try {
+          response = await transport.run({
+            sql: query.sql,
+            cache:
+              query.request.cacheMaxAgeMs === null
+                ? undefined
+                : { maxAgeMs: query.request.cacheMaxAgeMs },
+            signal,
+          });
+          break;
+        } catch (error) {
+          if (!(error instanceof ChainDataError) || error.code !== "upstream-error" ||
+            (error.status !== 400 && error.status !== 413) || error.sqlRejectionReason === "invalid-query" ||
+            signal?.aborted || narrowings >= 3 || now().getTime() - attemptsStartedAt >= 4_000) throw error;
+          const toMs = Date.parse(bounds.to);
+          const fromMs = Date.parse(bounds.from);
+          const narrowedFromMs = Math.max(Date.parse(scope.from), toMs - Math.floor((toMs - fromMs) / 2));
+          if (narrowedFromMs <= fromMs || narrowedFromMs >= toMs) throw error;
+          bounds = { from: new Date(narrowedFromMs).toISOString(), to: bounds.to };
+          narrowings += 1;
+          lastCapacityError = error;
+          query = buildBaseErc20TransferQuery(
+            { ...input, ...bounds, cursor: position.rowCursor ?? position.legacyCursor }, allowlist, fetchedAt,
+          );
+        }
+      }
+      const { request } = query;
       const metadata = parseMetadata(response);
       const parsedRows = response.result.map((row) =>
         parseTransferRow(row, request.includeUnknownAssets),
@@ -191,7 +224,7 @@ export function createBaseErc20TransferHistory({
 
       return {
         transfers,
-        nextCursor: nextTransferScanCursor(scope, bounds, rowCursor, position.legacyCursor),
+        nextCursor: nextTransferScanCursor(scope, bounds, rowCursor, position.legacyCursor, narrowings > 0, position.rowCursor),
         droppedRowCount: pageRows.length - transfers.length,
         source: {
           provider: "cdp-sql",

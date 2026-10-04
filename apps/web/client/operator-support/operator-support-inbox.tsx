@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SupportMessageBubble } from "@/components/ui/support-message";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeSupportBody, type OperatorSupportConversationResponse, type OperatorSupportListItem, type OperatorSupportListResponse, type OperatorSupportMessage } from "@/shared/support/contract";
-import { operatorSupportTransport, SupportConflictError, type OperatorSupportTransport } from "./api";
+import { operatorSupportTransport, SupportConflictError, type OperatorConversationResult, type OperatorSupportTransport } from "./api";
 import { CustomerDetail } from "./customer-detail";
 import { shouldSubmitSupportComposer } from "@/client/support/composer-keydown";
 import { logAtLatest, newestVisibleMessageId } from "@/client/support/log-visibility";
@@ -42,6 +42,8 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
   const readMessage = useRef("");
   const listSeq = useRef(0);
   const detailSeq = useRef(0);
+  const detailTag = useRef<{ id: string; etag: string | null } | null>(null);
+  const detailPending = useRef<number | null>(null);
   const filterRef = useRef(filter);
   const pendingReplies = useRef(new Map<string, { clientMessageId: string; body: string }>());
   const conversationRef = useRef(conversationId);
@@ -119,22 +121,28 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     }
   }, [transport]);
 
-  const loadDetail = useCallback(async (id: string, before?: string) => {
+  const loadDetail = useCallback(async (id: string, before?: string, etag?: string) => {
     const seq = ++detailSeq.current;
     const generation = generationRef.current;
+    if (!before) detailPending.current = seq;
     try {
-      const result = await transport.conversation(id, before);
+      const result = await transport.conversation(id, { before, etag });
       if (seq !== detailSeq.current || generationRef.current !== generation) return;
-      if (before) {
-        setHistory((previous) => [...result.conversation.messages, ...previous]);
-        setHistoryCursor(result.conversation.messagesNextCursor);
-        setHistoryLoaded(true);
-      } else {
-        setDetail(result);
+      if (result !== "unchanged") {
+        if (before) {
+          setHistory((previous) => [...result.detail.conversation.messages, ...previous]);
+          setHistoryCursor(result.detail.conversation.messagesNextCursor);
+          setHistoryLoaded(true);
+        } else {
+          detailTag.current = { id, etag: result.etag };
+          setDetail(result.detail);
+        }
       }
       if (generationRef.current === generation) setDetailError(null);
     } catch (error) {
       setDetailError((previous) => seq === detailSeq.current && generationRef.current === generation ? { generation, message: error instanceof Error ? error.message : "Couldn't load support. Try again." } : previous);
+    } finally {
+      if (detailPending.current === seq) detailPending.current = null;
     }
   }, [transport]);
 
@@ -150,13 +158,17 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
   useEffect(() => {
     if (!conversationId) return;
     const initial = window.setTimeout(() => void loadDetail(conversationId), 0);
-    const poll = () => { if (!document.hidden) void loadDetail(conversationId); };
+    const poll = () => {
+      if (document.hidden) return;
+      if (detailPending.current !== null) return;
+      void loadDetail(conversationId, undefined, detailTag.current?.id === conversationId ? detailTag.current.etag ?? undefined : undefined);
+    };
     const timer = window.setInterval(poll, 5_000);
     document.addEventListener("visibilitychange", poll);
     return () => { window.clearTimeout(initial); window.clearInterval(timer); document.removeEventListener("visibilitychange", poll); };
   }, [conversationId, loadDetail]);
 
-  const mutate = async (targetId: string, operation: () => Promise<OperatorSupportConversationResponse>, source?: "handler") => {
+  const mutate = async (targetId: string, operation: () => Promise<OperatorConversationResult>, source?: "handler") => {
     if (busyConversations.has(targetId)) return;
     const generation = generationRef.current;
     const token = ++busyToken.current;
@@ -164,13 +176,14 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     setActionError(null);
     try {
       const result = await operation();
-      if (filterRef.current !== "all" && result.conversation.status !== filterRef.current) {
-        setList((previous) => previous ? { ...previous, conversations: previous.conversations.filter((row) => row.id !== result.conversation.id) } : previous);
+      if (filterRef.current !== "all" && result.detail.conversation.status !== filterRef.current) {
+        setList((previous) => previous ? { ...previous, conversations: previous.conversations.filter((row) => row.id !== result.detail.conversation.id) } : previous);
       }
       void loadList(filterRef.current);
       if (generationRef.current !== generation) return;
       ++detailSeq.current;
-      setDetail(result);
+      detailTag.current = { id: targetId, etag: result.etag };
+      setDetail(result.detail);
     } catch (error) {
       if (error instanceof SupportConflictError && generationRef.current === generation) {
         void loadDetail(targetId);
@@ -205,10 +218,10 @@ export function OperatorSupportInbox({ conversationId, transport = operatorSuppo
     setLoadingEarlier(true);
     setEarlierError(null);
     try {
-      const result = await transport.conversation(targetId, from);
-      if (generationRef.current !== generation) return;
-      setHistory((previous) => [...result.conversation.messages, ...previous]);
-      setHistoryCursor(result.conversation.messagesNextCursor);
+      const result = await transport.conversation(targetId, { before: from });
+      if (generationRef.current !== generation || result === "unchanged") return;
+      setHistory((previous) => [...result.detail.conversation.messages, ...previous]);
+      setHistoryCursor(result.detail.conversation.messagesNextCursor);
       setHistoryLoaded(true);
       if (!historyLoaded) setHistoryBoundary(from);
     } catch (error) {

@@ -674,6 +674,7 @@
               "recordHomeStartupCache",
               "reportCaughtClientError",
               "reportClientError",
+              "reportPageClientError",
               "sendHomeAuthSignOut",
               "startHomeAuthRestore",
               "startHomePerformance",

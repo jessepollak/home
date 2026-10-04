@@ -847,6 +847,7 @@ export function CashExperience({
           snapshot={liveSnapshot}
           balanceActionStale={balanceActionStale}
           pendingCashout={pendingCashout}
+          pendingDeposits={pendingDeposits}
           balanceStatus={balanceStatus}
           metadata={metadata}
           vaultStatus={vaultStatus}

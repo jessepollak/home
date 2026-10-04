@@ -19,7 +19,7 @@ const schedule = createAfterSchedule(after, () => {
 });
 const readBalances = createBalancesService({
   schedule,
-  priceBalances: createBalancesPricer({ schedule }),
+  priceBalances: createBalancesPricer({ schedule, refreshWindowMs: maxDuration * 1000 }),
 });
 export const GET = createBalancesHandler({
   authorize: authorizeSession,

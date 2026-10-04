@@ -9,6 +9,8 @@ import {
   type ActivityLedgerItem,
 } from "./activity-ledger";
 import { ActivityLedgerDetailSheet } from "./activity-ledger-sheet";
+import { presentActivityLedgerItems } from "./activity-ledger-items";
+import type { CardPurchase } from "@/shared/cards/transactions-contract";
 
 const funding: ActivityLedgerItem = {
   id: "funding-1",
@@ -113,33 +115,31 @@ const reversed: ActivityLedgerItem = {
     orderId: "cashout-1",
   },
 };
-const refunded: ActivityLedgerItem = {
-  id: "card-refund-1",
-  family: "card",
-  status: "refunded",
-  timestamp: "2026-09-23T06:00:00.000Z",
-  dateLabel: "Yesterday",
-  title: "Card refund · Blue Bottle",
-  amount: "+$6.50",
-  direction: "in",
-  mark: { kind: "glyph", glyph: "card" },
-  detail: {
-    family: "card",
-    merchant: "Blue Bottle",
-    cardLabel: "Home card •••• 1234",
-    originalPurchase: "Sep 21 · −$6.50",
-  },
-};
-const card: ActivityLedgerItem = {
-  ...refunded,
-  id: "card-1",
-  status: "confirmed",
-  timestamp: "2026-09-21T14:00:00.000Z",
-  dateLabel: "Sep 21",
-  title: "Card · Blue Bottle",
-  amount: "−$6.50",
-  direction: "out",
-};
+function cardPurchaseItem(purchase: CardPurchase): ActivityLedgerItem {
+  const item = { kind: "card" as const, id: purchase.id, timestamp: purchase.createdAt, purchase };
+  const [ledgerItem] = presentActivityLedgerItems([item], { regionId: "US" });
+  if (!ledgerItem) throw new Error("Card purchase fixture did not present");
+  return ledgerItem;
+}
+
+const cardPendingPurchase: CardPurchase = { id: "iauth_fixturebluebottle", kind: "authorization", amountMinor: "650", merchantName: "Blue Bottle Coffee", status: "pending", declineReasonCode: null,
+    currency: "USD", merchantCategory: null, createdAt: "2026-09-24T10:30:00.000Z", updatedAt: "2026-09-24T10:30:00.000Z" };
+const cardDeclinedLockedPurchase: CardPurchase = { id: "iauth_fixturelyft", kind: "authorization", amountMinor: "1820", merchantName: "Lyft", status: "declined", declineReasonCode: "card_inactive",
+    currency: "USD", merchantCategory: null, createdAt: "2026-09-19T14:00:00.000Z", updatedAt: "2026-09-19T14:00:00.000Z" };
+const cardDeclinedInsufficientPurchase: CardPurchase = { id: "iauth_fixturewholefoodsdeclined", kind: "authorization", amountMinor: "6410", merchantName: "Whole Foods Market", status: "declined", declineReasonCode: "insufficient_funds",
+    currency: "USD", merchantCategory: null, createdAt: "2026-09-19T13:30:00.000Z", updatedAt: "2026-09-19T13:30:00.000Z" };
+const cardCompletedPurchase: CardPurchase = { id: "ipi_fixturewholefoods", kind: "transaction", amountMinor: "4218", merchantName: "Whole Foods Market", status: "completed", declineReasonCode: null,
+    currency: "USD", merchantCategory: null, createdAt: "2026-09-21T14:00:00.000Z", updatedAt: "2026-09-21T14:00:00.000Z" };
+const cardReversedPurchase: CardPurchase = { id: "ipi_fixturegrandhotel", kind: "transaction", amountMinor: "10000", merchantName: "Grand Hotel", status: "reversed", declineReasonCode: null,
+    currency: "USD", merchantCategory: null, createdAt: "2026-09-23T06:30:00.000Z", updatedAt: "2026-09-23T06:30:00.000Z" };
+const cardRefundedPurchase: CardPurchase = { id: "ipi_fixtureapple", kind: "transaction", amountMinor: "999", merchantName: "Apple", status: "refunded", declineReasonCode: null,
+    currency: "USD", merchantCategory: null, createdAt: "2026-09-23T06:00:00.000Z", updatedAt: "2026-09-23T06:00:00.000Z" };
+const pendingCard = cardPurchaseItem(cardPendingPurchase);
+const declined = cardPurchaseItem(cardDeclinedLockedPurchase);
+const declinedInsufficient = cardPurchaseItem(cardDeclinedInsufficientPurchase);
+const card = cardPurchaseItem(cardCompletedPurchase);
+const cardReversed = cardPurchaseItem(cardReversedPurchase);
+const refunded = cardPurchaseItem(cardRefundedPurchase);
 const failed: ActivityLedgerItem = {
   id: "action-failed",
   family: "home-action",
@@ -187,16 +187,6 @@ const ambiguous: ActivityLedgerItem = {
   },
   nextAction: undefined,
 };
-const declined: ActivityLedgerItem = {
-  ...card,
-  id: "card-declined",
-  status: "failed",
-  timestamp: "2026-09-19T14:00:00.000Z",
-  dateLabel: "Sep 19",
-  title: "Card · Corner Store",
-  amount: "$12.00",
-  detail: { family: "card", merchant: "Corner Store", cardLabel: "Home card •••• 1234" },
-};
 const received: ActivityLedgerItem = {
   ...transfer,
   id: "transfer-received",
@@ -225,8 +215,8 @@ const ambiguousFunding: ActivityLedgerItem = {
   nextAction: { kind: "clear-order", label: "Clear old order" },
 };
 const fixtures = [
-  funding, transfer, provider, borrowed, reversed, refunded,
-  card, failed, expired, ambiguous, declined, received,
+  funding, transfer, pendingCard, provider, borrowed, reversed, cardReversed, refunded,
+  card, failed, expired, ambiguous, declined, declinedInsufficient, received,
 ];
 
 function Surface({
@@ -302,6 +292,9 @@ const detail = (item: ActivityLedgerItem, options: {
     const number = screen.getByRole("dialog").querySelector('[data-slot="activity-amount-number"]');
     await expect(number).toHaveTextContent(item.detailAmountParts?.amount ?? item.detailAmount ?? item.amount);
     const dialog = within(screen.getByRole("dialog"));
+    if (item.statusLabel) {
+      for (const label of dialog.getAllByText(item.statusLabel, { exact: true })) await expect(label).toBeVisible();
+    }
     if (item.detailValue !== undefined) {
       await expect(dialog.getByText(item.detailValue)).toBeVisible();
       await expect(dialog.queryByRole("term", { name: "Value" })).toBeNull();
@@ -338,9 +331,9 @@ export const MixedChronology: Story = {
     const recent = canvas.getByRole("list", { name: "Recent" });
     const pendingRows = within(pending).getAllByRole("button");
     const recentRows = within(recent).getAllByRole("button");
-    await expect(pendingRows).toHaveLength(6);
-    await expect(recentRows).toHaveLength(6);
-    const titles = ["Add money", "Cash out to bank", "Sent to alex.base.eth", "Add money", "Borrowed USDC", "Send"];
+    await expect(pendingRows).toHaveLength(7);
+    await expect(recentRows).toHaveLength(8);
+    const titles = ["Add money", "Cash out to bank", "Sent to alex.base.eth", "Blue Bottle Coffee", "Add money", "Borrowed USDC", "Send"];
     for (const [index, row] of pendingRows.entries()) {
       await expect(row).toHaveTextContent(titles[index]!);
     }
@@ -349,8 +342,8 @@ export const MixedChronology: Story = {
     await expect(within(recent).queryByRole("button", { name: /Action needed/ })).toBeNull();
     await expect(pendingRows[0]).toHaveTextContent("Today");
     await expect(pendingRows[1]).toHaveTextContent("Yesterday · Reversed");
-    await expect(pendingRows[5]).toHaveTextContent("Sep 20");
-    await expect(pendingRows[5]).not.toHaveTextContent(" · ");
+    await expect(pendingRows[6]).toHaveTextContent("Sep 20");
+    await expect(pendingRows[6]).not.toHaveTextContent(" · ");
     for (const row of [...pendingRows, ...recentRows]) {
       await expect(row).not.toHaveTextContent(/With |On /);
     }
@@ -374,10 +367,19 @@ export const Deduplicated: Story = {
       .toHaveLength(2);
   },
 };
-export const PendingByOwner = withItems([funding, provider, transfer, borrowed]);
-export const TerminalStates = withItems([
-  received, failed, expired, ambiguous, reversed, refunded, declined,
-]);
+export const PendingByOwner = withItems([funding, provider, transfer, borrowed, pendingCard]);
+export const TerminalStates: Story = {
+  ...withItems([received, failed, expired, ambiguous, reversed, refunded, card, cardReversed, declined, declinedInsufficient]),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const recent = within(canvas.getByRole("list", { name: "Recent" }));
+    for (const item of [refunded, card, cardReversed, declined, declinedInsufficient]) {
+      const statusLabel = item.statusLabel;
+      if (!statusLabel) throw new Error("Missing card status label");
+      await expect(recent.getByRole("button", { description: item.activateLabel, name: new RegExp(statusLabel) })).toHaveTextContent(statusLabel);
+    }
+  },
+};
 const usdcAsset = { assetKey: PORTFOLIO_USDC_ASSET_KEY, name: "US dollar", symbol: "USDC", openable: true };
 const bitcoinAsset = { assetKey: assetKeyForErc20("0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf"),
   name: "Bitcoin", symbol: "cbBTC", openable: true };
@@ -476,9 +478,14 @@ export const DetailAmbiguousFunding = detail(ambiguousFunding);
 export const DetailFailed = detail(failed);
 export const DetailCashOutReversed = detail(reversed);
 export const DetailCardRefunded = detail(refunded);
+export const DetailCardPending = detail(pendingCard);
+export const DetailCardCompleted = detail(card);
+export const DetailCardDeclinedLocked = detail(declined);
+export const DetailCardDeclinedInsufficient = detail(declinedInsufficient);
+export const DetailCardReversed = detail(cardReversed);
 export const DetailExpired = detail(expired);
 export const NothingPending: Story = {
-  ...withItems([refunded, card, failed, expired, declined, received]),
+  ...withItems([refunded, card, failed, expired, declined, declinedInsufficient, cardReversed, received]),
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement);
     await expect(screen.getAllByRole("list")).toHaveLength(1);

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { http, HttpResponse } from "msw";
 import { Toaster } from "@/components/ui/toast";
 import type { CardsResponse, CardState } from "@/shared/cards/contract";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
@@ -23,6 +24,7 @@ const twoCards: CardsResponse = { ...cardsBody("frozen"), cards: [
 
 const spendingSpender = "0x2222222222222222222222222222222222222222";
 const retiredSpender = "0x3333333333333333333333333333333333333333";
+const otherRetiredSpender = "0x4444444444444444444444444444444444444444";
 const spendingReady: Extract<CardSpendingData, { status: "ready" }> = { status: "ready", response: {
   version: 1, status: "available", setEnabled: true, spender: spendingSpender, walletBaseUnits: "100000000", allowanceBaseUnits: "25000000", availableBaseUnits: "25000000", retired: [], blockNumber: "1", fetchedAt: "2026-09-28T12:00:00.000Z",
 } };
@@ -41,10 +43,11 @@ const spendingCommands: CardSpendingCommands = {
   fetchOperations: async () => ({ actions: [] }),
 };
 
-function CardStateStory({ state, initial, refreshFails = false, withReveal = true, spending }: {
+function CardStateStory({ state, initial, refreshFails = false, lockOutcome, withReveal = true, spending }: {
   state: CardState | "loading" | "failed";
   initial?: CardsResponse;
   refreshFails?: boolean;
+  lockOutcome?: "hangs" | "fails";
   withReveal?: boolean;
   spending?: CardSpendingData;
 }) {
@@ -67,6 +70,8 @@ function CardStateStory({ state, initial, refreshFails = false, withReveal = tru
           issue: async () => { actions.issue(); setResponse(cardsBody("active")); },
           setFrozen: async (cardId, frozen) => {
             actions.setFrozen(cardId, frozen);
+            if (lockOutcome === "hangs") return new Promise<never>(() => {});
+            if (lockOutcome === "fails") throw new Error("Card lock failed.");
             setResponse(cardsBody(frozen ? "frozen" : "active"));
             if (refreshFails) { setReadFailed(true); throw new CardRefreshError(); }
           },
@@ -83,7 +88,7 @@ const meta = {
   title: "Client/Cards/Card screen",
   component: CardStateStory,
   args: { state: "active" },
-  parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" } },
+  parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, msw: { handlers: [http.post("/api/client-errors", () => new HttpResponse(null, { status: 204 }))] } },
 } satisfies Meta<typeof CardStateStory>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -127,6 +132,35 @@ export const Active: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole("button", { name: "Card details" })).toBeVisible();
     await expect(canvas.getByRole("switch", { name: "Lock card" })).not.toBeChecked();
+  },
+};
+export const LockPending: Story = {
+  args: { state: "active", lockOutcome: "hangs" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const control = canvas.getByRole("switch", { name: "Lock card" });
+    await userEvent.click(control);
+    await expect(control).toBeChecked();
+    await expect(control).toHaveAttribute("aria-busy", "true");
+    await expect(control).not.toHaveAttribute("aria-disabled", "true");
+    await expect(canvas.getByText("Locking…")).toBeVisible();
+    await expect(canvas.getByRole("img", { name: "Virtual card ending 4821" })).toBeVisible();
+    await expect(within(document.body).queryByText("Card locked")).toBeNull();
+    await userEvent.click(control);
+    await expect(control).toBeChecked();
+    await expect(canvas.getByText("Locking…")).toBeVisible();
+  },
+};
+export const LockFailure: Story = {
+  args: { state: "active", lockOutcome: "fails" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const control = canvas.getByRole("switch", { name: "Lock card" });
+    await userEvent.click(control);
+    const [toast] = await within(document.body).findAllByText("Couldn't lock your card. Try again.");
+    await expect(toast).toBeVisible();
+    await expect(control).not.toBeChecked();
+    await expect(canvas.getByText("Pause new purchases")).toBeVisible();
   },
 };
 export const ActiveWithoutPublishableKey: Story = {
@@ -228,9 +262,12 @@ export const SpendingDisabled: Story = { args: { spending: { status: "ready", re
 export const SpendingNotConfigured: Story = { args: { spending: { status: "not-configured" } } };
 export const SpendingUnavailable: Story = { args: { spending: { status: "unavailable" } } };
 export const RetiredPermission: Story = {
-  args: { spending: { status: "ready", response: { ...spendingReady.response, retired: [{ spender: retiredSpender, allowanceBaseUnits: "10000000" }] } } },
+  args: { spending: { status: "ready", response: { ...spendingReady.response, retired: [{ spender: retiredSpender, allowanceBaseUnits: "10000000" }, { spender: otherRetiredSpender, allowanceBaseUnits: "10000000" }] } } },
   play: async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement).getByRole("button", { name: "Remove" }));
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole("button", { name: "Remove old card program 0x3333…333333" })).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Remove old card program 0x4444…444444" })).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Remove old card program 0x3333…333333" }));
     const dialog = within(await within(document.body).findByRole("dialog"));
     await waitFor(() => expect(dialog.getByText(retiredSpender)).toBeVisible());
     await expect(dialog.getByText("Card purchases from Cash")).toBeVisible();

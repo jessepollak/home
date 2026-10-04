@@ -61,6 +61,7 @@ export type CashOverviewProps = {
   regionId: RegionId;
   snapshot: BalancesSnapshot | null;
   pendingCashout?: PendingCashoutEstimate;
+  pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
   balanceStatus?: "ready" | "loading" | "failed";
   balanceActionStale?: boolean;
   metadata: MorphoVaultsResult | null;
@@ -86,7 +87,6 @@ export type SavingsDetailProps = Omit<
 > & {
   balanceStale?: boolean;
   summary?: SavingsPortfolioSummary | null;
-  pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
   pendingActionsLoading?: boolean;
   pendingActionsError?: boolean;
   onRetryActions?: () => void;
@@ -410,6 +410,7 @@ export function CashOverview({
   regionId,
   snapshot,
   pendingCashout = null,
+  pendingDeposits = [],
   balanceStatus = "ready",
   balanceActionStale = false,
   metadata,
@@ -461,6 +462,8 @@ export function CashOverview({
     [activeSnapshot]
   );
   const savingsHeld = holdings.some(({ held }) => held);
+  const pendingTotal = pendingDeposits.reduce((sum, deposit) => sum + BigInt(deposit.amountBaseUnits), BigInt(0));
+  const savingsPending = !loading && pendingDeposits.length > 0 && total === BigInt(0) && !partial;
   const empty =
     !loading &&
     summary?.status === "complete" &&
@@ -609,7 +612,7 @@ export function CashOverview({
           </Button> : null}
         </div>
       )}
-      {!failed && (!empty || vaultStatus === "failed") ? (
+      {!failed && (!empty || vaultStatus === "failed" || savingsPending) ? (
         <>
           {!empty ? (
             <section
@@ -679,7 +682,7 @@ export function CashOverview({
               </Card>
             </section>
           ) : null}
-          {(!balanceComplete || saveEntryOffered(offering, vaultStatus === "failed" ? null : metadata?.candidates) || total > BigInt(0) || partial) ? <section
+          {(!balanceComplete || saveEntryOffered(offering, vaultStatus === "failed" ? null : metadata?.candidates) || total > BigInt(0) || partial || savingsPending) ? <section
             aria-labelledby="cash-savings-heading"
             aria-busy={loading || vaultStatus === "loading" || undefined}
           >
@@ -706,14 +709,19 @@ export function CashOverview({
                       iconTone="mark"
                       label="US dollar"
                       context={
-                        vaultStatus === "loading" ? (
+                        savingsPending ? "Pending" : vaultStatus === "loading" ? (
                           <RateLoadingPlaceholder />
                         ) : (
                           rowRate
                         )
                       }
                       value={
-                        total > BigInt(0) || partial ? (
+                        savingsPending ? (
+                          <MoneyTicker
+                            animated={false}
+                            value={formatUsdStablecoinAmount(pendingTotal.toString())}
+                          />
+                        ) : total > BigInt(0) || partial ? (
                           partial && total === BigInt(0) ? (
                             unavailableValue()
                           ) : (

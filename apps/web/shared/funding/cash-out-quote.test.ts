@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { cashoutArrivalSeconds, cashoutQuoteFromLegacy, formatCashoutArrival, parseCashoutQuote } from "./cash-out-quote";
+import { formatFiatAmount } from "@/shared/formatting";
+import { cashoutArrivalSeconds, cashoutQuoteFromLegacy, formatCashoutArrival, parseCashoutQuote, type CashoutFee, type CashoutQuote } from "./cash-out-quote";
+import { formatCashoutFee, formatCashoutReceive } from "./cash-out-quote-format";
 
 const quote = {
   fees: { provider: { amount: "0", currency: "USD" }, network: null, operator: null },
@@ -9,6 +11,23 @@ const quote = {
 } as const;
 
 describe("cash-out quote", () => {
+  test("formats USD payout amounts and fees with Brazilian presentation separators", () => {
+    const receive: CashoutQuote["receive"] = { amount: "1234.56", currency: "USD", approximate: false };
+    const fee: CashoutFee = { amount: "1234.56", currency: "USD" };
+    const formattedAmount = formatFiatAmount("1234.56", "USD", { regionId: "BR" });
+    const formattedReceive = formatCashoutReceive(receive, "PIX", "BR");
+    expect(formattedReceive).toBe(`${formattedAmount} to PIX`);
+    expect(formattedReceive).toContain("1.234,56");
+    expect(formatCashoutFee(fee, "BR")).toBe(formattedAmount);
+    expect(formatCashoutFee(fee, "BR")).toContain("1.234,56");
+  });
+
+  test("keeps US presentation separators for USD payout amounts and fees", () => {
+    const receive: CashoutQuote["receive"] = { amount: "1234.56", currency: "USD", approximate: false };
+    expect(formatCashoutReceive(receive, "Cash App", "US")).toBe("$1,234.56 to Cash App");
+    expect(formatCashoutFee({ amount: "1234.56", currency: "USD" }, "US")).toBe("$1,234.56");
+  });
+
   test("parses the fee, receive, rate and timing contract", () => {
     expect(parseCashoutQuote(quote)).toEqual(quote);
     expect(parseCashoutQuote({ ...quote, rate: { from: "USDC", to: "EUR", value: "0.9" } })).toMatchObject({ rate: { value: "0.9" } });

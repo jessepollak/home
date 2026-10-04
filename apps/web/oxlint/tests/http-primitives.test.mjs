@@ -424,7 +424,7 @@ describe("no-manual-abort-timeout", () => {
 
   it("pins every default exception to its exact manual abort deadline count", async () => {
     // This count may only go down; lower it in the same change that deletes an entry.
-    expect(manualAbortTimeoutExceptions.size).toBe(24);
+    expect(manualAbortTimeoutExceptions.size).toBe(23);
     const appsWeb = new URL("../..", import.meta.url);
     const fixtures = Object.fromEntries(await Promise.all([...manualAbortTimeoutExceptions.keys()].map(async (path) => [
       path, { path, code: await readFile(new URL(path, appsWeb), "utf8") },

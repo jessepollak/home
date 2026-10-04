@@ -3,12 +3,12 @@
 import { useHomeQuery, publicQueryKey } from "@/client/query/query-client";
 import { publicResource } from "@/client/query/public-resource";
 import { usePresentationRegionId, presentationQuoteForRegion } from "@/client/invest/presentation-quote";
-import { presentationRegions } from "@/config/regions";
+import { presentationRegions, type RegionId } from "@/config/regions";
 import { parseMarketPricesResponse } from "@/shared/invest/contracts/market-prices";
 import { formatExactPresentationTokenAmount, formatFiatAmount, scaleDecimalByExact } from "@/shared/formatting";
 import type { MoneyActionNetworkFee } from "@/shared/money-actions/types";
 
-export function NetworkFeeReview({ fee }: { fee: Extract<MoneyActionNetworkFee, { payment: "usdc" }> }) {
+export function NetworkFeeReview({ fee, tokenRegionId }: { fee: Extract<MoneyActionNetworkFee, { payment: "usdc" }>; tokenRegionId?: RegionId }) {
   const regionId = usePresentationRegionId();
   const currency = presentationRegions[regionId].currency.code ?? "USD";
   const fx = useHomeQuery({
@@ -25,5 +25,5 @@ export function NetworkFeeReview({ fee }: { fee: Extract<MoneyActionNetworkFee, 
   const quote = presentationQuoteForRegion(regionId, currency === "USD" ? null : fx.data?.fx);
   const usd = scaleDecimalByExact(fee.maxFeeBaseUnits, { atoms: "1", scale: fee.decimals });
   const local = usd && quote.quoteUnitsPerUsd ? scaleDecimalByExact(usd, quote.quoteUnitsPerUsd) : null;
-  return <>{`Up to ${formatExactPresentationTokenAmount(fee.maxFeeBaseUnits, fee.decimals, "USDC")} · ≈ ${local === null ? "—" : formatFiatAmount(local, currency, { regionId, fractionDigits: 2 })}`}</>;
+  return <>{`Up to ${formatExactPresentationTokenAmount(fee.maxFeeBaseUnits, fee.decimals, "USDC", { regionId: tokenRegionId })} · ≈ ${local === null ? "—" : formatFiatAmount(local, currency, { regionId, fractionDigits: 2 })}`}</>;
 }

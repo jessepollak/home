@@ -51,7 +51,7 @@ Balance pricing indexes quotes by exact asset key once per response; holding, un
 
 A fresh stored observation is served immediately even when it has an enumeration cursor. A hot row refreshes the registry only and preserves catalog rows and cursor. Explicit stale signals and the 120-second backstop resume full observation from the stored cursor and merge progress as before.
 
-CDP enumeration starts pages only inside a 2.5-second soft budget. A page that started while the budget was open may finish successfully after it closes. Each in-flight page, including retries, has a four-second hard ceiling. Successful rows and the advanced cursor are retained; unavailable enumeration preserves prior rows and cursor. This trades foreground catalog completion speed for predictable response latency without changing truthful coverage.
+CDP enumeration starts pages only within a 2.5 s budget; the whole scan, including the in-flight page and its retry, stops at a 4 s inventory deadline measured from the scan start. A page that started while the page-start budget was open may finish successfully after that budget closes, but only before the inventory deadline. Successful rows and the advanced cursor are retained; unavailable enumeration preserves prior rows and cursor. This trades foreground catalog completion speed for predictable response latency without changing truthful coverage.
 
 Valuation follows the same stale-while-revalidate boundary. A request serving any existing balance observation reads only global stored token/FX values; it records zero foreground `codex` and `coinbase` duration and retains needed refreshes with `after()`. Provider bootstrap is synchronous only for the `full` outcome that creates a missing balance observation. `durationMs.valuation-store`, `durationMs.codex`, and `durationMs.coinbase` separate valuation storage and provider time. A degraded visible valuation sets the snapshot stale flag only when its needed refresh was actually scheduled or is already in flight, allowing the client's bounded refetch to converge; refreshing a safe value is silent.
 
@@ -89,7 +89,7 @@ Verify after at least 200 balance reads or seven days, whichever is later. Captu
 
 ## Rollback
 
-Speed Insights and the Home custom reporter are independent additive signals. Remove or lower Speed Insights sampling if its traffic is unsuitable; set `NEXT_PUBLIC_HOME_INTERACTION_SAMPLE_RATE=0` and rebuild to disable navigation and scroll reporting independently. Remove the custom reporter independently if its endpoint traffic is unsuitable. If catalog convergence is too slow, cursor-driven foreground resume may be restored while retaining the soft page-start and hard in-flight-page bounds. Do not restore the eight-second whole-scan abort without new production evidence.
+Speed Insights and the Home custom reporter are independent additive signals. Remove or lower Speed Insights sampling if its traffic is unsuitable; set `NEXT_PUBLIC_HOME_INTERACTION_SAMPLE_RATE=0` and rebuild to disable navigation and scroll reporting independently. Remove the custom reporter independently if its endpoint traffic is unsuitable. If catalog convergence is too slow, cursor-driven foreground resume may be restored while retaining the page-start budget and inventory deadline. Do not restore the eight-second whole-scan abort without new production evidence.
 
 ## Activity source failures
 

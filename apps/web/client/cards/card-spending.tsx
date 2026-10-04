@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { parseCardAllowanceMetadata, type CardAllowancePrepareParams, type CardSpendingResponse } from "@/shared/cards/allowance-contract";
-import { formatPresentationDate, formatUsdStablecoinAmount } from "@/shared/formatting";
+import { formatAddress, formatPresentationDate, formatUsdStablecoinAmount } from "@/shared/formatting";
 import type { PreparedMoneyAction } from "@/shared/money-actions/types";
 import { TransferExecutionError } from "@/shared/transfers/types";
 
@@ -97,7 +97,7 @@ export function CardSpending({ spending, variant, visible, canSet, commands, onR
           </Item> : null}
           {ready.retired.filter((item) => BigInt(item.allowanceBaseUnits) > BigInt(0)).map((item) => <Item key={item.spender}>
             <ItemContent><ItemTitle>Old card program</ItemTitle><ItemDescription>{limitLabel(item.allowanceBaseUnits)}</ItemDescription></ItemContent>
-            <ItemActions><Button variant="ghost" size="sm" disabled={!commands} onClick={(event) => revoke(item.spender, event.currentTarget)}>Remove</Button></ItemActions>
+            <ItemActions><Button variant="ghost" size="sm" aria-label={`Remove old card program ${formatAddress(item.spender)}`} disabled={!commands} onClick={(event) => revoke(item.spender, event.currentTarget)}>Remove</Button></ItemActions>
           </Item>)}
         </> : null}
       </CardContent>
