@@ -2,28 +2,17 @@ import { useRef, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { http, HttpResponse } from "msw";
-import { AccountWalletClientProvider, createBlockedAccountWalletClient } from "@/client/account/cdp-client";
+import { AccountWalletClientProvider } from "@/client/account/cdp-client";
 import { AssetDetailScreen } from "@/client/invest/asset-detail-screen";
 import { DiscoverAssetRow } from "@/client/invest/discover-asset-row";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { getHomeQueryClient } from "@/client/query/query-client";
 import { BalanceRow } from "@/components/finance-rows";
-import { investAssets } from "@/config/invest-assets";
-import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
-import type { MarketDataState } from "@/shared/invest/invest-market";
+import { assetDetailAsset as asset, assetDetailMarket as market, assetDetailTime as TIME, createAssetDetailClient } from "./explorations/invest-asset-detail-fixture";
 import { pinClock } from "@/tests/helpers/pin-clock";
 
-const TIME = "2026-09-28T12:00:00.000Z";
 const NOW = Date.parse(TIME);
 
-const asset = investAssets.find((item) => item.id === "cbbtc")!;
-const market: MarketDataState = { status: "ready", snapshots: [{ assetId: asset.id,
-  displayPrice: "$122391.18", asOf: TIME, sourceLabel: "Codex", changeLabel: "+4.1%",
-}] };
-const session = { user: { subject: "synthetic-invest-journey" },
-  smartAccount: { address: "0x1111111111111111111111111111111111111111" as const, chainId: 8453 as const },
-  accountProvider: "cdp-embedded" as const,
-};
 function Journey({ entry }: { entry: "discover" | "holding" }) {
   const [selected, setSelected] = useState(false);
   const opener = useRef<HTMLElement | null>(null);
@@ -33,17 +22,7 @@ function Journey({ entry }: { entry: "discover" | "holding" }) {
     setSelected(false);
     queueMicrotask(() => { if (opener.current?.isConnected) opener.current.focus({ preventScroll: true }); });
   };
-  const blocked = createBlockedAccountWalletClient("unconfigured");
-  const client = { ...blocked, status: "verified" as const, verification: "server" as const, session,
-    fetchBalances: async () => {
-      const snapshot = balancesSnapshot("US");
-      return { ...snapshot, holdings: snapshot.holdings.map((holding) => holding.id === asset.id
-        ? { ...holding, balance: { status: "ready" as const, baseUnits: "1234000" },
-          value: { status: "priced" as const, currency: "USD" as const,
-            amount: { atoms: "151030", scale: 2 }, asOf: TIME } }
-        : holding) };
-    },
-  };
+  const client = createAssetDetailClient();
   return <AccountWalletClientProvider client={client}><PresentationRegionProvider regionId="US">
     <main className="min-h-screen bg-background">
       <section className="mx-auto max-w-2xl space-y-4 p-4" hidden={selected} aria-label={entry === "holding" ? "Investments" : "Discover"}>
