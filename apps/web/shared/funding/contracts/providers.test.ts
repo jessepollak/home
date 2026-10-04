@@ -38,6 +38,15 @@ describe("funding provider contract parser", () => {
   ])("rejects an unknown, stale, mismatched or partial providers envelope: %p", (value) => {
     expect(() => assertFundingProvidersResponse(value, "onramp", "US")).toThrow("Invalid funding providers response");
   });
+  test.each([
+    { version: FUNDING_PROVIDERS_VERSION + 1, direction: "offramp", providers: [] },
+    { direction: "offramp", providers: [] },
+    { version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [] },
+    { version: FUNDING_PROVIDERS_VERSION, providers: [] },
+    { version: FUNDING_PROVIDERS_VERSION, direction: "offramp", providers: [{ providerId: "partial" }] },
+  ])("rejects an invalid off-ramp providers envelope: %p", (value) => {
+    expect(() => assertFundingProvidersResponse(value, "offramp", "US")).toThrow("Invalid funding providers response");
+  });
   test("accepts an empty providers envelope", () => {
     expect(() => assertFundingProvidersResponse({ version: FUNDING_PROVIDERS_VERSION, direction: "onramp", providers: [] }, "onramp", "US")).not.toThrow();
   });
