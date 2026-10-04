@@ -68,6 +68,7 @@ async function installRecipientFixtures(
 
     if (path === "/api/session") {
       return json(route, {
+        version: 1,
         user: { subject: "playwright-smoke-subject" },
         smartAccount: { address: OWNER, chainId: 8453 },
         accountProvider: "cdp-embedded",

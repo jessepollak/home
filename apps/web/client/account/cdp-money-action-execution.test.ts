@@ -3,7 +3,7 @@ import "./dom-test-harness";
 import { describe, expect, test } from "bun:test";
 import { MfaError } from "@coinbase/cdp-core";
 import type { MutableRefObject } from "react";
-import { executeActionOnce } from "./action-dispatch";
+import { executeActionOnce, type ConfirmedPlan } from "./action-dispatch";
 import {
   normalizeResolutionState,
   pollTransactionResolution,
@@ -170,7 +170,7 @@ describe("thin action dispatch", () => {
   test("a lost confirm response retries confirmation without opening a second provider dispatch", async () => {
     let confirms = 0;
     let dispatches = 0;
-    const confirmedPlans = new Map();
+    const confirmedPlans = new Map<string, ConfirmedPlan>();
     const providerDispatches = new Map<string, Promise<string>>();
     const execute = () => executeActionOnce({
       id, generation: 3, fence: { assertCurrent: () => {} }, confirmedPlans, providerDispatches,
@@ -249,7 +249,7 @@ describe("thin action dispatch", () => {
     const fake = fakeClock();
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
-    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) => fake.clock.setTimer(() => {
+    globalThis.setTimeout = ((callback: () => void, delay?: number) => fake.clock.setTimer(() => {
       if (typeof callback === "function") callback();
     }, delay ?? 0)) as typeof setTimeout;
     globalThis.clearTimeout = ((timer: unknown) => fake.clock.clearTimer(timer)) as typeof clearTimeout;
@@ -373,7 +373,7 @@ describe("thin action dispatch", () => {
     render(createElement(Probe));
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
-    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) =>
+    globalThis.setTimeout = ((callback: () => void, delay?: number) =>
       fake.clock.setTimer(() => {
         if (typeof callback === "function") callback();
       }, delay ?? 0)) as typeof setTimeout;
@@ -672,7 +672,7 @@ describe("thin action dispatch", () => {
     render(createElement(Probe));
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
-    globalThis.setTimeout = ((callback: TimerHandler, delay?: number) =>
+    globalThis.setTimeout = ((callback: () => void, delay?: number) =>
       fake.clock.setTimer(() => {
         if (typeof callback === "function") callback();
       }, delay ?? 0)) as typeof setTimeout;
@@ -701,7 +701,7 @@ describe("thin action dispatch", () => {
     let dispatches = 0;
     let handlePosts = 0;
     let recordedHandle: string | null = null;
-    const confirmedPlans = new Map();
+    const confirmedPlans = new Map<string, ConfirmedPlan>();
     const providerDispatches = new Map<string, Promise<string>>();
     const dispatchAttempts = new Map<string, number>();
     const pendingDeclines = new Map<string, Promise<void>>();

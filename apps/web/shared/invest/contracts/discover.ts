@@ -1,28 +1,134 @@
-import { parseAddress, type Address } from "@/shared/chain/hex";
+import * as z from "zod/mini";
+import { parseAddress, requireAddress } from "@/shared/chain/hex";
 
 import { investAssets, type InvestAsset } from "@/config/invest-assets";
 import { assetKeyForErc20 } from "@/config/portfolio-assets";
 import { resolveMarketPriceAssetIdentity } from "./market-price-history";
-import { unavailableMarketData, type MarketDataState, type MarketSnapshot } from "@/shared/invest/invest-market";
+import { unavailableMarketData, type MarketDataState } from "@/shared/invest/invest-market";
 
 export const INVEST_DISCOVER_VERSION = 1 as const;
 
-export type InvestDiscoverStatus = "ready" | "empty" | "error" | "unavailable";
-export type InvestDiscoverResponse = {
-  version: typeof INVEST_DISCOVER_VERSION;
-  provider: "codex";
-  fetchedAt: string | null;
-  icons: Readonly<Record<string, string | null>>;
-  memes: {
-    status: InvestDiscoverStatus;
-    message?: string;
-    assets: InvestAsset[];
-    snapshots: MarketSnapshot[];
-    nextOffset: number | null;
-    exhausted: boolean;
-  };
+const investDiscoverStatusSchema = z.enum(["ready", "empty", "error", "unavailable"]);
+const assetFields = {
+  id: z.string(),
+  displayName: z.string(),
+  displaySymbol: z.string(),
+  initials: z.string(),
+  chainId: z.literal(8453),
+  descriptor: z.string(),
+  contractUrl: z.string(),
 };
-export type ParsedDynamicInvestAsset = InvestAsset & { contractAddress: Address };
+
+export const investAssetWireSchema = z.object({
+  ...assetFields,
+  category: z.enum(["stock", "crypto", "meme"]),
+  listing: z.optional(z.enum(["listed", "removed"])),
+  contractAddress: z.templateLiteral(["0x", z.string()]),
+  availability: z.enum(["restricted", "informational"]),
+  representation: z.object({
+    tokenSymbol: z.string(),
+    decimals: z.optional(z.number()),
+    issuer: z.optional(z.string()),
+    relationship: z.string(),
+  }),
+  valuation: z.optional(z.object({
+    kind: z.literal("tokenized-equity-feed"),
+    feedProxy: z.templateLiteral(["0x", z.string()]),
+    feedDecimals: z.literal(8),
+    heartbeatSeconds: z.number(),
+  })),
+  imageUrl: z.optional(z.string()),
+  projectUrl: z.optional(z.string()),
+});
+
+export const assetSnapshotSchema = z.pipe(z.object({
+  assetId: z.string(),
+  displayPrice: z.string().check(z.minLength(1)),
+  asOf: z.string(),
+  sourceLabel: z.string(),
+  sourceUrl: z.optional(z.unknown()),
+  changeLabel: z.optional(z.unknown()),
+}), z.transform(({ sourceUrl, changeLabel, ...snapshot }) => ({
+  ...snapshot,
+  ...(typeof sourceUrl === "string" ? { sourceUrl } : {}),
+  ...(typeof changeLabel === "string" ? { changeLabel } : {}),
+})));
+
+export const dynamicInvestAssetSchema = z.pipe(z.object({
+  ...assetFields,
+  category: z.literal("meme"),
+  contractAddress: z.pipe(
+    z.string().check(z.refine((value) => parseAddress(value) !== null)),
+    z.transform((value: string) => requireAddress(value)),
+  ),
+  availability: z.literal("informational"),
+  representation: z.object({
+    tokenSymbol: z.string(),
+    decimals: z.optional(z.unknown()),
+    relationship: z.optional(z.unknown()),
+  }),
+  imageUrl: z.optional(z.unknown()),
+  projectUrl: z.optional(z.unknown()),
+}).check(z.refine((asset) => {
+  const identity = resolveMarketPriceAssetIdentity(asset.id);
+  return identity !== null && identity.chainId === asset.chainId &&
+    parseAddress(identity.contractAddress) === asset.contractAddress;
+})), z.transform(({ representation, imageUrl, projectUrl, ...asset }) => ({
+  ...asset,
+  representation: {
+    tokenSymbol: representation.tokenSymbol,
+    ...(typeof representation.decimals === "number" ? { decimals: representation.decimals } : {}),
+    relationship: typeof representation.relationship === "string"
+      ? representation.relationship : "Base ERC-20 token.",
+  },
+  ...(typeof imageUrl === "string" ? { imageUrl } : {}),
+  ...(typeof projectUrl === "string" ? { projectUrl } : {}),
+})));
+
+const iconMapSchema = z.record(z.string(), z.nullable(z.string()));
+const paginationFields = {
+  nextOffset: z.nullable(z.number().check(z.refine((offset) => Number.isSafeInteger(offset) && offset >= 0))),
+  exhausted: z.boolean(),
+};
+const validPagination = (page: { nextOffset: number | null; exhausted: boolean }) =>
+  page.exhausted ? page.nextOffset === null : page.nextOffset !== null;
+const investDiscoverResponseSchema = z.object({
+  version: z.literal(INVEST_DISCOVER_VERSION),
+  provider: z.literal("codex"),
+  fetchedAt: z.nullable(z.string()),
+  icons: iconMapSchema,
+  memes: z.object({
+    status: investDiscoverStatusSchema,
+    message: z.optional(z.string()),
+    assets: z.array(investAssetWireSchema),
+    snapshots: z.array(assetSnapshotSchema),
+    ...paginationFields,
+  }).check(z.refine(validPagination)),
+});
+const parsedDiscoverResponseSchema = z.object({
+  version: z.literal(INVEST_DISCOVER_VERSION),
+  provider: z.literal("codex"),
+  icons: iconMapSchema,
+  memes: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("ready"),
+      assets: z.array(dynamicInvestAssetSchema),
+      snapshots: z.array(assetSnapshotSchema),
+      ...paginationFields,
+    }).check(z.refine(validPagination), z.refine((memes) => {
+      const ids = new Set(memes.assets.map((asset) => asset.id));
+      return memes.snapshots.every((snapshot) => ids.has(snapshot.assetId));
+    })),
+    z.object({
+      status: z.enum(["empty", "error", "unavailable"]),
+      ...paginationFields,
+    }).check(z.refine(validPagination)),
+  ]),
+});
+
+export type InvestDiscoverStatus = z.output<typeof investDiscoverStatusSchema>;
+export type InvestDiscoverResponse = z.output<typeof investDiscoverResponseSchema>;
+export type ParsedDynamicInvestAsset = z.output<typeof dynamicInvestAssetSchema>;
 export type ParsedInvestDiscoverState = InvestDiscoverState & { memeAssets: readonly ParsedDynamicInvestAsset[] };
 export type AssetMarkResolution = {
   images?: Readonly<Record<string, string | null>>;
@@ -52,30 +158,10 @@ const discoverEmptyPagination: MemePagination = {
 export function parseDiscoverResponse(
   value: unknown,
 ): ParsedInvestDiscoverState | null {
-  const record = readRecord(value);
-  if (
-    !record ||
-    record.version !== INVEST_DISCOVER_VERSION ||
-    record.provider !== "codex"
-  ) {
-    return null;
-  }
-
-  const icons = parseIconMap(record.icons);
-  const memes = readRecord(record.memes);
-  if (!icons || !memes || typeof memes.status !== "string") return null;
-  if (
-    memes.status !== "ready" &&
-    memes.status !== "empty" &&
-    memes.status !== "error" &&
-    memes.status !== "unavailable"
-  ) {
-    return null;
-  }
-
-  const pagination = parsePagination(memes);
-  if (!pagination) return null;
-
+  const result = parsedDiscoverResponseSchema.safeParse(value);
+  if (!result.success) return null;
+  const { icons, memes } = result.data;
+  const pagination = { nextOffset: memes.nextOffset, exhausted: memes.exhausted };
   if (memes.status !== "ready") {
     return {
       memeAssets: [],
@@ -91,154 +177,14 @@ export function parseDiscoverResponse(
     };
   }
 
-  if (!Array.isArray(memes.assets) || !Array.isArray(memes.snapshots)) {
-    return null;
-  }
-
-  const assets: ParsedDynamicInvestAsset[] = [];
-  for (const item of memes.assets) {
-    const asset = parseDynamicInvestAsset(item);
-    if (!asset) return null;
-    assets.push(asset);
-  }
-
-  const assetIds = new Set(assets.map((asset) => asset.id));
-  const snapshots = [];
-  for (const item of memes.snapshots) {
-    const snapshot = readRecord(item);
-    if (
-      !snapshot ||
-      typeof snapshot.assetId !== "string" ||
-      !assetIds.has(snapshot.assetId) ||
-      typeof snapshot.displayPrice !== "string" ||
-      snapshot.displayPrice.length === 0 ||
-      typeof snapshot.asOf !== "string" ||
-      typeof snapshot.sourceLabel !== "string"
-    ) {
-      return null;
-    }
-    snapshots.push({
-      assetId: snapshot.assetId,
-      displayPrice: snapshot.displayPrice,
-      asOf: snapshot.asOf,
-      sourceLabel: snapshot.sourceLabel,
-      ...(typeof snapshot.sourceUrl === "string"
-        ? { sourceUrl: snapshot.sourceUrl }
-        : {}),
-      ...(typeof snapshot.changeLabel === "string"
-        ? { changeLabel: snapshot.changeLabel }
-        : {}),
-    });
-  }
-
   return {
-    memeAssets: assets,
-    memeStatus: assets.length > 0 ? "ready" : "empty",
-    memeMarket: { status: "ready", snapshots },
-    assetMarkResolution: assetMarkResolutionFromDiscover({
-      icons,
-      memeAssets: assets,
-    }),
+    memeAssets: memes.assets,
+    memeStatus: memes.assets.length > 0 ? "ready" : "empty",
+    memeMarket: { status: "ready", snapshots: memes.snapshots },
+    assetMarkResolution: assetMarkResolutionFromDiscover({ icons, memeAssets: memes.assets }),
     memePagination: { ...discoverEmptyPagination, ...pagination },
   };
 }
-
-function parsePagination(
-  memes: Record<string, unknown>,
-): { nextOffset: number | null; exhausted: boolean } | null {
-  const exhausted = memes.exhausted;
-  if (typeof exhausted !== "boolean") return null;
-  if (exhausted) {
-    if (memes.nextOffset !== null) return null;
-    return { nextOffset: null, exhausted: true };
-  }
-  const nextOffset = memes.nextOffset;
-  if (
-    typeof nextOffset !== "number" ||
-    !Number.isSafeInteger(nextOffset) ||
-    nextOffset < 0
-  ) {
-    return null;
-  }
-  return { nextOffset, exhausted: false };
-}
-
-
-export function parseDynamicInvestAsset(value: unknown): ParsedDynamicInvestAsset | null {
-  const record = readRecord(value);
-  const contractAddress = parseAddress(record?.contractAddress);
-  if (
-    !record ||
-    typeof record.id !== "string" ||
-    record.category !== "meme" ||
-    typeof record.displayName !== "string" ||
-    typeof record.displaySymbol !== "string" ||
-    typeof record.initials !== "string" ||
-    record.chainId !== 8453 ||
-    typeof record.contractAddress !== "string" ||
-    !contractAddress ||
-    record.availability !== "informational" ||
-    typeof record.descriptor !== "string" ||
-    typeof record.contractUrl !== "string"
-  ) {
-    return null;
-  }
-
-  const representation = readRecord(record.representation);
-  const identity = resolveMarketPriceAssetIdentity(record.id);
-  if (
-    !representation ||
-    typeof representation.tokenSymbol !== "string" ||
-    !identity ||
-    identity.chainId !== record.chainId ||
-    parseAddress(identity.contractAddress) !== parseAddress(record.contractAddress)
-  ) {
-    return null;
-  }
-
-  return {
-    id: record.id,
-    category: "meme",
-    displayName: record.displayName,
-    displaySymbol: record.displaySymbol,
-    initials: record.initials,
-    chainId: 8453,
-    contractAddress,
-    availability: "informational",
-    descriptor: record.descriptor,
-    representation: {
-      tokenSymbol: representation.tokenSymbol,
-      ...(typeof representation.decimals === "number"
-        ? { decimals: representation.decimals }
-        : {}),
-      ...(typeof representation.relationship === "string"
-        ? { relationship: representation.relationship }
-        : { relationship: "Base ERC-20 token." }),
-    },
-    contractUrl: record.contractUrl,
-    ...(typeof record.imageUrl === "string" ? { imageUrl: record.imageUrl } : {}),
-    ...(typeof record.projectUrl === "string" ? { projectUrl: record.projectUrl } : {}),
-  };
-}
-
-function parseIconMap(value: unknown): Record<string, string | null> | null {
-  const record = readRecord(value);
-  if (!record) return null;
-  const icons: Record<string, string | null> = {};
-  for (const [id, imageUrl] of Object.entries(record)) {
-    if (imageUrl !== null && typeof imageUrl !== "string") return null;
-    icons[id] = imageUrl;
-  }
-  return icons;
-}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return null;
-  }
-  return value as Record<string, unknown>;
-}
-
 
 function assetMarkResolutionFromDiscover({
   icons,

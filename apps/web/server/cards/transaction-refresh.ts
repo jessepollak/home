@@ -1,7 +1,9 @@
 import "server-only";
 
+import { isRecord } from "./response-guards";
+import { isStripePurchase } from "./stripe/transactions";
 import type { CardMode, CardObservation } from "./provider";
-import type { CardPurchases } from "@/shared/cards/transactions-contract";
+import { CARD_PURCHASES_VERSION, type CardPurchases } from "@/shared/cards/transactions-contract";
 import type { StripePurchase } from "./stripe/transactions";
 import { createCardTransactionStore } from "./transaction-store";
 import { createStripeTransactionClient } from "./stripe/transactions";
@@ -27,19 +29,21 @@ export async function refreshCardPurchases(customerId: string, mode: CardMode, s
       const failedTargetIds = new Set<string>();
       let writes = 0;
       for (const [index, result] of fresh.slice(0, Math.min(pending.length, 10)).entries()) {
-        if (result.status === "rejected") { status = "unavailable"; failedTargetIds.add(pending[index]!.transaction_id); continue; }
-        const purchase = result.value as StripePurchase;
-        if (purchase.cardId !== card.stripe_card_id) { status = "unavailable"; failedTargetIds.add(pending[index]!.transaction_id); continue; }
+        const target = pending[index];
+        if (!target) { status = "unavailable"; continue; }
+        if (result.status === "rejected" || !isStripePurchase(result.value)) { status = "unavailable"; failedTargetIds.add(target.transaction_id); continue; }
+        const purchase = result.value;
+        if (purchase.cardId !== card.stripe_card_id) { status = "unavailable"; failedTargetIds.add(target.transaction_id); continue; }
         try {
           await store.upsert(card.id, mode, purchase);
           unique.set(purchase.id, purchase);
           writes++;
-        } catch { status = "unavailable"; failedTargetIds.add(pending[index]!.transaction_id); }
+        } catch { status = "unavailable"; failedTargetIds.add(target.transaction_id); }
       }
       const listed: StripePurchase[] = [];
       for (const result of fresh.slice(Math.min(pending.length, 10))) {
-        if (result.status === "rejected") { status = "unavailable"; continue; }
-        const list = result.value as { rows: StripePurchase[]; partial: boolean };
+        if (result.status === "rejected" || !isStripePurchaseList(result.value)) { status = "unavailable"; continue; }
+        const list = result.value;
         if (list.partial) status = "unavailable";
         listed.push(...list.rows);
       }
@@ -58,7 +62,11 @@ export async function refreshCardPurchases(customerId: string, mode: CardMode, s
       status = "unavailable";
     }
   }
-  return { status, rows: await store.rows(customerId, mode, window) };
+  return { version: CARD_PURCHASES_VERSION, status, rows: await store.rows(customerId, mode, window) };
+}
+
+function isStripePurchaseList(value: unknown): value is { rows: StripePurchase[]; partial: boolean } {
+  return isRecord(value) && typeof value.partial === "boolean" && Array.isArray(value.rows) && value.rows.every(isStripePurchase);
 }
 
 export async function refreshObservedCardEvent(event: CardObservation): Promise<void> {
@@ -78,9 +86,9 @@ export async function refreshObservedCardEvent(event: CardObservation): Promise<
 
 export async function readActivityCardPurchases(customerId: string | null, window: { from: string; to: string }): Promise<CardPurchases> {
   const config = readCardJourneyConfig();
-  if (!config) return { status: "ready", rows: [] };
+  if (!config) return { version: CARD_PURCHASES_VERSION, status: "ready", rows: [] };
   if (!process.env.DATABASE_URL?.trim()) throw new Error("Card transaction store is unavailable");
-  if (!customerId) return { status: "ready", rows: [] };
+  if (!customerId) return { version: CARD_PURCHASES_VERSION, status: "ready", rows: [] };
   return refreshCardPurchases(customerId, config.mode, createCardTransactionStore(getSqlExecutor()),
     createStripeTransactionClient(config, fetch, AbortSignal.timeout(8_000)), window);
 }

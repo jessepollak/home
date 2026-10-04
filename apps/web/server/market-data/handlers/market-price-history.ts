@@ -9,6 +9,7 @@ import {
   isDynamicMarketPriceAssetId,
   isMarketPriceRange,
   MARKET_HISTORY_PRIORITY_HEADER,
+  MARKET_PRICE_HISTORY_VERSION,
   resolveMarketPriceAssetIdentity,
   type MarketPriceHistoryResponse,
   type MarketPriceRange,
@@ -121,7 +122,7 @@ function createUnavailableQueryResponse(
   unavailableReason: "unknown-asset" | "invalid-range",
 ): MarketPriceHistoryResponse {
   return {
-    version: 1,
+    version: MARKET_PRICE_HISTORY_VERSION,
     provider: "codex",
     assetId,
     range,

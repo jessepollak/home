@@ -20,9 +20,13 @@ export function VaultPositionsProvider({ snapshot, children }: {
   const holdings = snapshot?.holdings;
   const address = snapshot?.owner.address;
   const region = snapshot?.region;
-  const value = useMemo(() => holdings && address && region
-    ? { holdings, address, region, positions: selectVaultPositions({ holdings }) }
-    : null, [holdings, address, region]);
+  const fetchedAt = snapshot?.fetchedAt;
+  const block = snapshot?.block;
+  const value = useMemo(() => holdings && address && region && fetchedAt && block
+    ? { holdings, address, region, positions: selectVaultPositions({
+        holdings, owner: { address, chainId: 8453 }, fetchedAt, block,
+      }) }
+    : null, [holdings, address, region, fetchedAt, block]);
   return <VaultPositionsContext.Provider value={value}>{children}</VaultPositionsContext.Provider>;
 }
 

@@ -7,11 +7,13 @@ import { createSiweMessage, parseSiweMessage } from "viem/siwe";
 import { BASE_CHAIN_ID, OWNER_SESSION_RETENTION_MS, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { parseAddress } from "@/shared/chain/hex";
 import {
+  NATIVE_BASE_CHALLENGE_VERSION,
   NATIVE_BASE_CHALLENGE_TTL_MS,
   NATIVE_BASE_STATEMENT,
   parseNativeBaseChallenge,
   type NativeBaseChallenge,
 } from "@/shared/account/contracts/base-nonce";
+import { NATIVE_BASE_VERIFY_VERSION, parseNativeBaseSession } from "@/shared/account/contracts/base-verify";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
 import { HOME_CDP_LIVE_COOKIE, HOME_CDP_SESSION_COOKIE } from "@/server/auth/cdp-render-session";
 import {
@@ -217,7 +219,7 @@ export function createNativeBaseNonceHandler(input: NativeBaseAuthDependencies =
       chainId: BASE_CHAIN_ID,
       domain: origin.hostname,
       uri: origin.origin,
-      version: "1",
+      version: NATIVE_BASE_CHALLENGE_VERSION,
       statement: NATIVE_BASE_STATEMENT,
       issuedAt: issuedAt.toISOString(),
       expirationTime: expirationTime.toISOString(),
@@ -341,7 +343,9 @@ export function createNativeBaseVerifyHandler(input: NativeBaseAuthDependencies 
     if (!verified) return json({ error: { code: "INVALID_AUTH_PROOF" } }, 401, [clearChallenge]);
 
     const issued = issueSessionToken(deps.secret, address, deps.now());
-    const response = json(issued.session, 200, [
+    const responseBody = parseNativeBaseSession({ ...issued.session, version: NATIVE_BASE_VERIFY_VERSION });
+    if (!responseBody) throw new Error("Invalid native Base session response");
+    const response = json(responseBody, 200, [
       clearChallenge,
       cookie(HOME_SESSION_COOKIE, issued.token, request, NATIVE_BASE_SESSION_TTL_MS / 1000),
       ...(input.verifiedCookies?.(request) ?? []),

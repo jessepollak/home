@@ -1,220 +1,178 @@
-import { parseAddress, parseHash32, type Address, type Hash32 } from "@/shared/chain/hex";
-import type { AccountProvider } from "@/shared/account/session-types";
+import * as z from "zod/mini";
+import { parseAddress, parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type { BorrowAddress, BorrowAssetRef, BorrowMarketId } from "./config";
 import { getBorrowMarketRef } from "./config";
 
 export const BORROW_OVERVIEW_VERSION = "2" as const;
 export const BORROW_MARKET_DETAIL_VERSION = "1" as const;
 
-export type BorrowMarketIdentity = {
-  id: BorrowMarketId; morpho: BorrowAddress; loanToken: BorrowAssetRef; collateralToken: BorrowAssetRef;
-  oracle: BorrowAddress; irm: BorrowAddress; lltvWad: string; rank: number;
+const addressSchema = z.custom<BorrowAddress>((value) => parseAddress(value) !== null);
+const marketIdSchema = z.custom<BorrowMarketId>((value) => parseHash32(value) !== null);
+const hashSchema = z.custom<Hash32>((value) => parseHash32(value) !== null);
+const decimalSchema = z.string().check(z.regex(/^\d+$/));
+const nullableDecimalSchema = z.nullable(decimalSchema);
+const modeSchema = z.enum(["enabled", "reducing-only"]);
+const assetSchema = z.looseObject({
+  id: z.custom<BorrowAssetRef["id"]>((value) => typeof value === "string"),
+  chainId: z.literal(8453), name: z.string(), symbol: z.string(), decimals: z.number(), address: addressSchema,
+});
+const marketSchema = z.looseObject({
+  id: marketIdSchema, morpho: addressSchema, loanToken: assetSchema, collateralToken: assetSchema,
+  oracle: addressSchema, irm: addressSchema, lltvWad: decimalSchema, rank: z.number(),
+}).check(z.refine((value) => {
+  const configured = getBorrowMarketRef(value.id);
+  return Boolean(configured && parseHash32(value.id) === parseHash32(configured.marketId) &&
+    parseAddress(value.morpho) === parseAddress(configured.morpho) &&
+    parseAddress(value.oracle) === parseAddress(configured.oracle) &&
+    parseAddress(value.irm) === parseAddress(configured.irm) &&
+    value.lltvWad === configured.lltvWad.toString(10) && value.rank === configured.rank &&
+    assetMatches(value.loanToken, configured.loanToken) && assetMatches(value.collateralToken, configured.collateralToken));
+}));
+const blockShape = {
+  provider: z.literal("Base JSON-RPC"), blockNumber: decimalSchema, blockHash: hashSchema, blockTimestamp: decimalSchema,
 };
-export type ParsedBorrowMarketIdentity = BorrowMarketIdentity & {
-  id: Hash32; morpho: Address; oracle: Address; irm: Address;
-  loanToken: BorrowAssetRef & { address: Address };
-  collateralToken: BorrowAssetRef & { address: Address };
-};
-export type BorrowSourceBlock = {
-  provider: "Base JSON-RPC"; blockNumber: string; blockHash: Hash32;
-  blockTimestamp: string; fetchedAt: string;
-};
-export type BorrowMarketSnapshot = {
-  version: typeof BORROW_MARKET_DETAIL_VERSION; chainId: 8453; walletAddress: BorrowAddress;
-  market: BorrowMarketIdentity;
-  eligibility: { mode: "enabled" | "reducing-only"; newRisk: boolean; reason: string | null };
-  source: BorrowSourceBlock;
-  state: {
-    oraclePriceRaw: string; borrowRatePerSecondWad: string; borrowAprWad: string;
-    totalSupplyAssetsRaw: string; totalBorrowAssetsRaw: string; totalBorrowSharesRaw: string;
-    liquidityAssetsRaw: string; lastUpdateTimestamp: string;
-  };
-  wallet: {
-    collateralBalanceRaw: string; loanBalanceRaw: string; collateralAllowanceRaw: string; loanAllowanceRaw: string;
-  };
-  position: {
-    collateralRaw: string; borrowSharesRaw: string; debtAssetsRaw: string;
-    rawBorrowCapacityAssetsRaw: string; borrowCapacityAssetsRaw: string;
-    rawWithdrawableCollateralRaw: string; withdrawableCollateralRaw: string;
-    healthFactorWad: string | null; liquidationPriceRaw: string | null;
-  };
-};
-export type ParsedBorrowMarketSnapshot = BorrowMarketSnapshot & { walletAddress: Address; market: ParsedBorrowMarketIdentity };
-export type BorrowOverviewOpportunity = {
-  market: BorrowMarketIdentity;
-  availability:
-    | { status: "available"; mode: "enabled" | "reducing-only"; reason: null; source: BorrowSourceBlock; snapshot: BorrowMarketSnapshot }
-    | { status: "unavailable"; mode: "enabled" | "reducing-only"; reason: string; source: null };
-};
-export type BorrowOverviewPosition = {
-  market: BorrowMarketIdentity; source: BorrowSourceBlock; collateralRaw: string;
-  borrowSharesRaw: string; debtAssetsRaw: string; healthFactorWad: string | null;
-};
-export type BorrowOverviewResponse = {
-  version: typeof BORROW_OVERVIEW_VERSION; chainId: 8453;
-  owner: { address: BorrowAddress; accountProvider: AccountProvider };
-  discovery: {
-    status: "complete" | "partial"; sourceBlock: Omit<BorrowSourceBlock, "fetchedAt"> | null;
-    candidateCount: number; verifiedCount: number; reason: string | null; fetchedAt: string;
-  };
-  opportunities: BorrowOverviewOpportunity[]; positions: BorrowOverviewPosition[];
-};
-export type ParsedBorrowOverviewResponse = BorrowOverviewResponse & {
-  owner: BorrowOverviewResponse["owner"] & { address: Address };
-  opportunities: (BorrowOverviewOpportunity & { market: ParsedBorrowMarketIdentity; availability: BorrowOverviewOpportunity["availability"] & { snapshot?: ParsedBorrowMarketSnapshot } })[];
-  positions: (BorrowOverviewPosition & { market: ParsedBorrowMarketIdentity })[];
-};
+const blockSchema = z.looseObject(blockShape);
+const sourceSchema = z.looseObject({ ...blockShape, fetchedAt: z.string() });
+const snapshotSchema = z.looseObject({
+  version: z.literal(BORROW_MARKET_DETAIL_VERSION), chainId: z.literal(8453), walletAddress: addressSchema,
+  market: marketSchema,
+  eligibility: z.looseObject({ mode: modeSchema, newRisk: z.boolean(), reason: z.nullable(z.string()) }),
+  source: sourceSchema,
+  state: z.looseObject({
+    oraclePriceRaw: decimalSchema, borrowRatePerSecondWad: decimalSchema, borrowAprWad: decimalSchema,
+    totalSupplyAssetsRaw: decimalSchema, totalBorrowAssetsRaw: decimalSchema, totalBorrowSharesRaw: decimalSchema,
+    liquidityAssetsRaw: decimalSchema, lastUpdateTimestamp: decimalSchema,
+  }),
+  wallet: z.looseObject({
+    collateralBalanceRaw: decimalSchema, loanBalanceRaw: decimalSchema, collateralAllowanceRaw: decimalSchema, loanAllowanceRaw: decimalSchema,
+  }),
+  position: z.looseObject({
+    collateralRaw: decimalSchema, borrowSharesRaw: decimalSchema, debtAssetsRaw: decimalSchema,
+    rawBorrowCapacityAssetsRaw: decimalSchema, borrowCapacityAssetsRaw: decimalSchema,
+    rawWithdrawableCollateralRaw: decimalSchema, withdrawableCollateralRaw: decimalSchema,
+    healthFactorWad: nullableDecimalSchema, liquidationPriceRaw: nullableDecimalSchema,
+  }),
+}).check(z.refine((value) => {
+  const configured = getBorrowMarketRef(value.market.id);
+  return Boolean(configured && modeNotWider(value.eligibility.mode, configured.availability) &&
+    value.eligibility.newRisk === (value.eligibility.mode === "enabled"));
+}));
+const availabilitySchema = z.discriminatedUnion("status", [
+  z.looseObject({
+    status: z.literal("available"), mode: modeSchema, reason: z.null(), source: sourceSchema, snapshot: snapshotSchema,
+  }),
+  z.looseObject({
+    status: z.literal("unavailable"), mode: modeSchema, reason: z.string(), source: z.null(),
+  }).check(z.refine((value) => !("snapshot" in value))),
+]);
+const opportunitySchema = z.looseObject({ market: marketSchema, availability: availabilitySchema }).check(z.refine((value) => {
+  const configured = getBorrowMarketRef(value.market.id);
+  if (!configured || !modeNotWider(value.availability.mode, configured.availability)) return false;
+  if (value.availability.status === "unavailable") return true;
+  const { snapshot, mode, source } = value.availability;
+  return parseHash32(snapshot.market.id) === parseHash32(value.market.id) &&
+    snapshot.eligibility.mode === mode && sameSource(snapshot.source, source);
+}));
+const positionSchema = z.looseObject({
+  market: marketSchema, source: sourceSchema, collateralRaw: decimalSchema,
+  borrowSharesRaw: decimalSchema, debtAssetsRaw: decimalSchema, healthFactorWad: nullableDecimalSchema,
+});
+const overviewSchema = z.looseObject({
+  version: z.literal(BORROW_OVERVIEW_VERSION), chainId: z.literal(8453),
+  owner: z.looseObject({ address: addressSchema, accountProvider: z.enum(["cdp-embedded", "base-account"]) }),
+  discovery: z.looseObject({
+    status: z.enum(["complete", "partial"]), sourceBlock: z.nullable(blockSchema),
+    candidateCount: z.number().check(z.refine((value) => Number.isSafeInteger(value) && value >= 0)),
+    verifiedCount: z.number().check(z.refine((value) => Number.isSafeInteger(value) && value >= 0)),
+    reason: z.nullable(z.string()), fetchedAt: z.string(),
+  }),
+  opportunities: z.array(opportunitySchema), positions: z.array(positionSchema),
+}).check(z.refine((value) => {
+  const { discovery, opportunities, positions } = value;
+  const available = opportunities.filter((entry) => entry.availability.status === "available");
+  if (discovery.verifiedCount > discovery.candidateCount || opportunities.length !== discovery.candidateCount ||
+    discovery.verifiedCount !== available.length || (discovery.sourceBlock === null) !== (available.length === 0)) return false;
+  const sourceBlock = discovery.sourceBlock;
+  if (available.some((entry) => entry.availability.status !== "available" ||
+    parseAddress(entry.availability.snapshot.walletAddress) !== parseAddress(value.owner.address) ||
+    (sourceBlock !== null && !sameBlock(entry.availability.source, sourceBlock)))) return false;
+  const opportunityIds = new Set(opportunities.map((entry) => parseHash32(entry.market.id)));
+  const positionIds = new Set(positions.map((entry) => parseHash32(entry.market.id)));
+  return opportunityIds.size === opportunities.length && positionIds.size === positions.length && positions.every((entry) => {
+    const opportunity = opportunities.find((candidate) => parseHash32(candidate.market.id) === parseHash32(entry.market.id));
+    return opportunity?.availability.status === "available" && sameBlock(entry.source, opportunity.availability.source);
+  });
+}));
+const parsedSnapshotSchema = z.pipe(snapshotSchema, z.transform(normalizedSnapshot));
+const parsedOverviewSchema = z.pipe(overviewSchema, z.transform((value): BorrowOverviewResponse & ReturnType<typeof normalizedOverview> => normalizedOverview(value)));
+
+export type BorrowMarketIdentity = z.output<typeof marketSchema>;
+export type BorrowSourceBlock = z.output<typeof sourceSchema>;
+export type BorrowMarketSnapshot = z.output<typeof snapshotSchema>;
+export type ParsedBorrowMarketSnapshot = z.output<typeof parsedSnapshotSchema>;
+export type BorrowOverviewOpportunity = z.output<typeof opportunitySchema>;
+export type BorrowOverviewResponse = z.output<typeof overviewSchema>;
+export type ParsedBorrowOverviewResponse = z.output<typeof parsedOverviewSchema>;
 export type BorrowResponse = BorrowOverviewResponse;
 
-
 export function parseSnapshot(value: unknown, expectedOwner: `0x${string}`): ParsedBorrowMarketSnapshot | null {
-  const walletAddress = isRecord(value) ? parseAddress(value.walletAddress) : null;
-  if (!isRecord(value) || value.version !== BORROW_MARKET_DETAIL_VERSION || value.chainId !== 8453 ||
-    !walletAddress || walletAddress !== parseAddress(expectedOwner)) return null;
-  if (!isRecord(value.market) || typeof value.market.id !== "string") return null;
-  const configured = getBorrowMarketRef(value.market.id);
-  if (!configured || !marketMatches(value.market, configured)) return null;
-  if (!isRecord(value.eligibility) || !modeNotWider(value.eligibility.mode, configured.availability) ||
-    value.eligibility.newRisk !== (value.eligibility.mode === "enabled") ||
-    (value.eligibility.reason !== null && typeof value.eligibility.reason !== "string")) return null;
-  if (!validSource(value.source) || !isRecord(value.state) || !isRecord(value.wallet) || !isRecord(value.position)) return null;
-  const decimalFields = [
-    value.state.oraclePriceRaw, value.state.borrowRatePerSecondWad, value.state.borrowAprWad,
-    value.state.totalSupplyAssetsRaw, value.state.totalBorrowAssetsRaw, value.state.totalBorrowSharesRaw,
-    value.state.liquidityAssetsRaw, value.state.lastUpdateTimestamp,
-    value.wallet.collateralBalanceRaw, value.wallet.loanBalanceRaw,
-    value.wallet.collateralAllowanceRaw, value.wallet.loanAllowanceRaw,
-    value.position.collateralRaw, value.position.borrowSharesRaw, value.position.debtAssetsRaw,
-    value.position.rawBorrowCapacityAssetsRaw, value.position.borrowCapacityAssetsRaw,
-    value.position.rawWithdrawableCollateralRaw, value.position.withdrawableCollateralRaw,
-  ];
-  if (decimalFields.some((field) => typeof field !== "string" || !/^\d+$/.test(field))) return null;
-  if (!nullableDecimal(value.position.healthFactorWad) || !nullableDecimal(value.position.liquidationPriceRaw)) return null;
-  const snapshot = value as BorrowMarketSnapshot;
-  return { ...snapshot, walletAddress, market: normalizedMarket(snapshot.market), source: normalizedSource(snapshot.source) };
+  const result = parsedSnapshotSchema.safeParse(value);
+  return result.success && result.data.walletAddress === parseAddress(expectedOwner) ? result.data : null;
 }
 
 export function parseBorrowOverview(value: unknown, expectedOwner: `0x${string}`): ParsedBorrowOverviewResponse | null {
-  if (!isRecord(value)) return null;
-  const ownerAddress = isRecord(value.owner) ? parseAddress(value.owner.address) : null;
-  if (value.version !== BORROW_OVERVIEW_VERSION || value.chainId !== 8453 || !isRecord(value.owner) ||
-    !ownerAddress || ownerAddress !== parseAddress(expectedOwner) ||
-    (value.owner.accountProvider !== "cdp-embedded" && value.owner.accountProvider !== "base-account") ||
-    !isRecord(value.discovery) || !Array.isArray(value.opportunities) || !Array.isArray(value.positions)) return null;
-  if ((value.discovery.status !== "complete" && value.discovery.status !== "partial") ||
-    !Number.isSafeInteger(value.discovery.candidateCount) || (value.discovery.candidateCount as number) < 0 ||
-    !Number.isSafeInteger(value.discovery.verifiedCount) || (value.discovery.verifiedCount as number) < 0 ||
-    (value.discovery.verifiedCount as number) > (value.discovery.candidateCount as number) ||
-    typeof value.discovery.fetchedAt !== "string" ||
-    (value.discovery.reason !== null && typeof value.discovery.reason !== "string") ||
-    value.opportunities.length !== value.discovery.candidateCount ||
-    !value.opportunities.every((entry) => validOpportunity(entry, expectedOwner)) ||
-    !value.positions.every(validPosition)) return null;
-  const opportunities = value.opportunities as BorrowOverviewOpportunity[];
-  const positions = value.positions as BorrowOverviewPosition[];
-  const available = opportunities.filter((entry) => entry.availability.status === "available");
-  const sourceBlock = value.discovery.sourceBlock;
-  if (value.discovery.verifiedCount !== available.length || (sourceBlock === null) !== (available.length === 0)) return null;
-  if (sourceBlock !== null && (!validBlock(sourceBlock) || available.some((entry) =>
-    entry.availability.status !== "available" || !sameBlock(entry.availability.source, sourceBlock)))) return null;
-  const parsedSnapshots: Record<string, ParsedBorrowMarketSnapshot> = {};
-  for (const entry of opportunities) {
-    if (entry.availability.status !== "available") continue;
-    const snapshot = parseSnapshot(entry.availability.snapshot, expectedOwner);
-    if (!snapshot) return null;
-    parsedSnapshots[entry.market.id] = snapshot;
-  }
-  const opportunityIds = new Set(opportunities.map((entry) => parseHash32(entry.market.id)));
-  const positionIds = new Set(positions.map((entry) => parseHash32(entry.market.id)));
-  if (opportunityIds.size !== opportunities.length || positionIds.size !== positions.length ||
-    positions.some((entry) => {
-      const opportunity = opportunities.find((candidate) => parseHash32(candidate.market.id) === parseHash32(entry.market.id));
-      return !opportunity || opportunity.availability.status !== "available" ||
-        !sameBlock(entry.source, opportunity.availability.source);
-    })) return null;
-  const overview = value as BorrowOverviewResponse;
-  return { ...overview, owner: { ...overview.owner, address: ownerAddress },
-    discovery: { ...overview.discovery, sourceBlock: sourceBlock === null ? null : normalizedBlock(sourceBlock) },
-    opportunities: opportunities.map((entry) => ({ ...entry, market: normalizedMarket(entry.market),
-      availability: entry.availability.status === "available"
-        ? { ...entry.availability, source: normalizedSource(entry.availability.source), snapshot: parsedSnapshots[entry.market.id] }
-        : entry.availability })),
-    positions: positions.map((entry) => ({ ...entry, market: normalizedMarket(entry.market), source: normalizedSource(entry.source) })),
-  };
+  const result = parsedOverviewSchema.safeParse(value);
+  return result.success && result.data.owner.address === parseAddress(expectedOwner) ? result.data : null;
 }
 
-function modeNotWider(mode: unknown, configured: "enabled" | "reducing-only"): mode is "enabled" | "reducing-only" {
-  return mode === "reducing-only" || (mode === "enabled" && configured === "enabled");
+function modeNotWider(mode: "enabled" | "reducing-only", configured: "enabled" | "reducing-only"): boolean {
+  return mode === "reducing-only" || configured === "enabled";
 }
-
-function validOpportunity(value: unknown, expectedOwner: `0x${string}`): value is BorrowOverviewOpportunity {
-  if (!isRecord(value) || !isRecord(value.market) || typeof value.market.id !== "string" || !isRecord(value.availability)) return false;
-  const configured = getBorrowMarketRef(value.market.id);
-  if (!configured || !marketMatches(value.market, configured) || !modeNotWider(value.availability.mode, configured.availability)) return false;
-  if (value.availability.status === "available") {
-    const snapshot = parseSnapshot(value.availability.snapshot, expectedOwner);
-    return value.availability.reason === null && validSource(value.availability.source) && snapshot !== null &&
-      snapshot.market.id === parseHash32(value.market.id) &&
-      snapshot.eligibility.mode === value.availability.mode &&
-      sameSource(snapshot.source, value.availability.source);
-  }
-  return value.availability.status === "unavailable" && typeof value.availability.reason === "string" &&
-    value.availability.source === null && !("snapshot" in value.availability);
+function assetMatches(value: BorrowAssetRef, expected: BorrowAssetRef): boolean {
+  return value.id === expected.id && value.chainId === expected.chainId && parseAddress(value.address) === parseAddress(expected.address) &&
+    value.symbol === expected.symbol && value.name === expected.name && value.decimals === expected.decimals;
 }
-function validPosition(value: unknown): value is BorrowOverviewPosition {
-  if (!isRecord(value) || !isRecord(value.market) || typeof value.market.id !== "string" || !validSource(value.source)) return false;
-  const configured = getBorrowMarketRef(value.market.id);
-  return Boolean(configured && marketMatches(value.market, configured) &&
-    [value.collateralRaw, value.borrowSharesRaw, value.debtAssetsRaw].every((field) => typeof field === "string" && /^\d+$/.test(field)) &&
-    nullableDecimal(value.healthFactorWad));
-}
-function marketMatches(value: Record<string, unknown>, configured: NonNullable<ReturnType<typeof getBorrowMarketRef>>) {
-  return typeof value.id === "string" && parseHash32(value.id) === parseHash32(configured.marketId) &&
-    typeof value.morpho === "string" && parseAddress(value.morpho) === parseAddress(configured.morpho) &&
-    typeof value.oracle === "string" && parseAddress(value.oracle) === parseAddress(configured.oracle) &&
-    typeof value.irm === "string" && parseAddress(value.irm) === parseAddress(configured.irm) &&
-    value.lltvWad === configured.lltvWad.toString(10) && value.rank === configured.rank &&
-    assetMatches(value.loanToken, configured.loanToken) && assetMatches(value.collateralToken, configured.collateralToken);
-}
-function assetMatches(value: unknown, expected: BorrowAssetRef): boolean {
-  return isRecord(value) && value.id === expected.id && value.chainId === expected.chainId &&
-    parseAddress(value.address) === parseAddress(expected.address) && value.symbol === expected.symbol &&
-    value.name === expected.name && value.decimals === expected.decimals;
-}
-function validBlock(value: unknown): value is Omit<BorrowSourceBlock, "fetchedAt"> {
-  return isRecord(value) && value.provider === "Base JSON-RPC" && typeof value.blockNumber === "string" && /^\d+$/.test(value.blockNumber) &&
-    parseHash32(value.blockHash) !== null &&
-    typeof value.blockTimestamp === "string" && /^\d+$/.test(value.blockTimestamp);
-}
-function validSource(value: unknown): value is BorrowSourceBlock {
-  return validBlock(value) && "fetchedAt" in value && typeof value.fetchedAt === "string";
-}
-function sameBlock(left: Omit<BorrowSourceBlock, "fetchedAt">, right: Omit<BorrowSourceBlock, "fetchedAt">): boolean {
+function sameBlock(left: z.output<typeof blockSchema>, right: z.output<typeof blockSchema>): boolean {
   return left.blockNumber === right.blockNumber && parseHash32(left.blockHash) === parseHash32(right.blockHash) && left.blockTimestamp === right.blockTimestamp;
 }
 function sameSource(left: BorrowSourceBlock, right: BorrowSourceBlock): boolean {
   return sameBlock(left, right) && left.fetchedAt === right.fetchedAt;
 }
-function nullableDecimal(value: unknown) { return value === null || (typeof value === "string" && /^\d+$/.test(value)); }
-function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
-
-function normalizedBlock(value: Omit<BorrowSourceBlock, "fetchedAt">): Omit<BorrowSourceBlock, "fetchedAt"> {
-  return { ...value, blockHash: parseHash32(value.blockHash) ?? value.blockHash };
+function normalizedBlock(value: z.output<typeof blockSchema>) {
+  return { ...value, blockHash: normalizedHash(value.blockHash) };
 }
 function normalizedSource(value: BorrowSourceBlock): BorrowSourceBlock {
-  return { ...value, blockHash: parseHash32(value.blockHash) ?? value.blockHash };
+  return { ...value, blockHash: normalizedHash(value.blockHash) };
 }
-function normalizedMarket(value: BorrowMarketIdentity): ParsedBorrowMarketIdentity {
-  const id = parseHash32(value.id);
-  const morpho = parseAddress(value.morpho);
-  const oracle = parseAddress(value.oracle);
-  const irm = parseAddress(value.irm);
-  const loanTokenAddress = parseAddress(value.loanToken.address);
-  const collateralTokenAddress = parseAddress(value.collateralToken.address);
-  if (!id || !morpho || !oracle || !irm || !loanTokenAddress || !collateralTokenAddress) {
-    throw new Error("borrow market identity must be validated before normalization");
-  }
-  return { ...value, id, morpho, oracle, irm,
-    loanToken: { ...value.loanToken, address: loanTokenAddress },
-    collateralToken: { ...value.collateralToken, address: collateralTokenAddress } };
+function normalizedAddress(value: BorrowAddress) {
+  const address = parseAddress(value);
+  if (!address) throw new Error("borrow address must be validated before normalization");
+  return address;
+}
+function normalizedHash(value: BorrowMarketId) {
+  const hash = parseHash32(value);
+  if (!hash) throw new Error("borrow hash must be validated before normalization");
+  return hash;
+}
+function normalizedMarket(value: BorrowMarketIdentity) {
+  return { ...value, id: normalizedHash(value.id), morpho: normalizedAddress(value.morpho),
+    oracle: normalizedAddress(value.oracle), irm: normalizedAddress(value.irm),
+    loanToken: { ...value.loanToken, address: normalizedAddress(value.loanToken.address) },
+    collateralToken: { ...value.collateralToken, address: normalizedAddress(value.collateralToken.address) } };
+}
+function normalizedSnapshot(value: BorrowMarketSnapshot) {
+  return { ...value, walletAddress: normalizedAddress(value.walletAddress), market: normalizedMarket(value.market), source: normalizedSource(value.source) };
+}
+function normalizedOverview(value: BorrowOverviewResponse) {
+  return {
+    ...value, owner: { ...value.owner, address: normalizedAddress(value.owner.address) },
+    discovery: { ...value.discovery, sourceBlock: value.discovery.sourceBlock === null ? null : normalizedBlock(value.discovery.sourceBlock) },
+    opportunities: value.opportunities.map((entry) => ({
+      ...entry, market: normalizedMarket(entry.market),
+      availability: entry.availability.status === "available"
+        ? { ...entry.availability, source: normalizedSource(entry.availability.source), snapshot: normalizedSnapshot(entry.availability.snapshot) }
+        : entry.availability,
+    })),
+    positions: value.positions.map((entry) => ({ ...entry, market: normalizedMarket(entry.market), source: normalizedSource(entry.source) })),
+  };
 }
