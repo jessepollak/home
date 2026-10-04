@@ -512,7 +512,7 @@ export function checkQuoteCompatibility(input: QuoteCheck): void {
   checkQuoteExecutionShape(input.request, checkQuoteIdentity(input), input.now, input.swapRouter);
 }
 
-export function validateSwapQuote(input: QuoteCheck) {
+export function validateSwapQuote(input: QuoteCheck & { reportUnknownActions?: boolean }) {
   const { request, now } = input;
   const { fromToken, toToken } = swapTokens(request.direction, request.token);
   const quote = checkQuoteIdentity(input);
@@ -525,7 +525,7 @@ export function validateSwapQuote(input: QuoteCheck) {
   if (executable.executionDeadline * BigInt(1000) <= BigInt(now.getTime())) throw new TradePreparationError("stale-quote");
   const target = quote.transaction.to;
   const unknownSelectors = [...new Set(actionSelectors?.filter((selector) => !SETTLER_ACTION_VALIDATORS.has(selector)))];
-  if (unknownSelectors.length) emitServerEvent("action-prepare", {
+  if (unknownSelectors.length && input.reportUnknownActions !== false) emitServerEvent("action-prepare", {
     route: "/api/actions/prepare", code: "TRADE_UNKNOWN_ACTIONS_ADMITTED", outcome: "accepted",
     unknownSelectors, direction: request.direction,
   });

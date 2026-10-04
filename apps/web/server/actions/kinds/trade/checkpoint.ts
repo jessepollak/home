@@ -134,7 +134,7 @@ export async function runSwapsCheckpoint({ client, taker, amounts, now, readBloc
           }
         }
         try {
-          validateSwapQuote({ request, quote, now, currentBlockNumber: block, swapRouter });
+          validateSwapQuote({ request, quote, now, currentBlockNumber: block, swapRouter, reportUnknownActions: false });
           executionReadiness = makerFailure ?? "ready";
         } catch (error) {
           executionReadiness = makerFailure ?? (error instanceof TradePreparationError ? error.reason : "provider-unavailable");
