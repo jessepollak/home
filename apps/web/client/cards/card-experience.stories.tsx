@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { http, HttpResponse } from "msw";
 import { Toaster } from "@/components/ui/toast";
 import type { CardsResponse, CardState } from "@/shared/cards/contract";
 import { cardsBody } from "@/tests/browser/fixtures/bodies";
@@ -41,10 +42,11 @@ const spendingCommands: CardSpendingCommands = {
   fetchOperations: async () => ({ actions: [] }),
 };
 
-function CardStateStory({ state, initial, refreshFails = false, withReveal = true, spending }: {
+function CardStateStory({ state, initial, refreshFails = false, lockOutcome, withReveal = true, spending }: {
   state: CardState | "loading" | "failed";
   initial?: CardsResponse;
   refreshFails?: boolean;
+  lockOutcome?: "hangs" | "fails";
   withReveal?: boolean;
   spending?: CardSpendingData;
 }) {
@@ -67,6 +69,8 @@ function CardStateStory({ state, initial, refreshFails = false, withReveal = tru
           issue: async () => { actions.issue(); setResponse(cardsBody("active")); },
           setFrozen: async (cardId, frozen) => {
             actions.setFrozen(cardId, frozen);
+            if (lockOutcome === "hangs") return new Promise<never>(() => {});
+            if (lockOutcome === "fails") throw new Error("Card lock failed.");
             setResponse(cardsBody(frozen ? "frozen" : "active"));
             if (refreshFails) { setReadFailed(true); throw new CardRefreshError(); }
           },
@@ -83,7 +87,7 @@ const meta = {
   title: "Client/Cards/Card screen",
   component: CardStateStory,
   args: { state: "active" },
-  parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" } },
+  parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, msw: { handlers: [http.post("/api/client-errors", () => new HttpResponse(null, { status: 204 }))] } },
 } satisfies Meta<typeof CardStateStory>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -127,6 +131,35 @@ export const Active: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole("button", { name: "Card details" })).toBeVisible();
     await expect(canvas.getByRole("switch", { name: "Lock card" })).not.toBeChecked();
+  },
+};
+export const LockPending: Story = {
+  args: { state: "active", lockOutcome: "hangs" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const control = canvas.getByRole("switch", { name: "Lock card" });
+    await userEvent.click(control);
+    await expect(control).toBeChecked();
+    await expect(control).toHaveAttribute("aria-busy", "true");
+    await expect(control).not.toHaveAttribute("aria-disabled", "true");
+    await expect(canvas.getByText("Locking…")).toBeVisible();
+    await expect(canvas.getByRole("img", { name: "Virtual card ending 4821" })).toBeVisible();
+    await expect(within(document.body).queryByText("Card locked")).toBeNull();
+    await userEvent.click(control);
+    await expect(control).toBeChecked();
+    await expect(canvas.getByText("Locking…")).toBeVisible();
+  },
+};
+export const LockFailure: Story = {
+  args: { state: "active", lockOutcome: "fails" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const control = canvas.getByRole("switch", { name: "Lock card" });
+    await userEvent.click(control);
+    const [toast] = await within(document.body).findAllByText("Couldn't lock your card. Try again.");
+    await expect(toast).toBeVisible();
+    await expect(control).not.toBeChecked();
+    await expect(canvas.getByText("Pause new purchases")).toBeVisible();
   },
 };
 export const ActiveWithoutPublishableKey: Story = {
