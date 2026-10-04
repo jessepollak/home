@@ -281,7 +281,7 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
         } catch { if (!request.signal.aborted && !capped) failed = true; }
         if (!text && !failed && !request.signal.aborted) {
           const handled = await store.handlerForCustomer(resolved.id, assistant.capability);
-          if (!handled || handled.handler === "assistant") failed = true;
+          if (!request.signal.aborted && (!handled || handled.handler === "assistant")) failed = true;
         }
         if (text) {
           let saved: Awaited<ReturnType<SupportStore["saveAssistant"]>>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MoneyMotionProvider } from "@/components/money-ticker";
 import { useReactiveExpiry } from "@/client/actions/expiry";
@@ -266,9 +266,9 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
             availableLabel={reservePending ? reserveFailed ? "Network fee unavailable" : "Checking network fee…" : maxBaseUnits !== null ? `${decimalFromBaseUnits(maxBaseUnits, decimals)} available` : "Balance unavailable"}
             availableAmount={!reservePending && maxBaseUnits !== null ? decimalFromBaseUnits(maxBaseUnits, decimals) : null} chipSet="max">
             {reservePending && reserveFailed
-              ? <Notice tone="error"><span className="flex flex-wrap items-center gap-x-2">Couldn&apos;t check the network fee.<Button variant="link" size="inline" aria-busy={reserveRetrying || undefined} onClick={() => { if (!reserveRetrying) retryReserve(); }}>Try again</Button></span></Notice>
+              ? <Alert ref={revealNotice} role="alert" variant="destructive"><AlertDescription><span className="flex flex-wrap items-center gap-x-2">Couldn&apos;t check the network fee.<Button variant="link" size="inline" aria-busy={reserveRetrying || undefined} onClick={() => { if (!reserveRetrying) retryReserve(); }}>Try again</Button></span></AlertDescription></Alert>
               : null}
-            {maxBaseUnits === null ? <Notice>Balance unavailable. Try again shortly.</Notice> : null}
+            {maxBaseUnits === null ? <Alert role="status"><AlertDescription>Balance unavailable. Try again shortly.</AlertDescription></Alert> : null}
           </MoneyAmountDisplay> : null}
         {prepared && metadata && customer && step !== "amount" && step !== "dispatch-unknown" ? <MoneyConfirmSummary key={prepared.id} action={prepared}
           amount={spentAmount} lead={conversion ? `Convert ${conversion.from.code} to ${conversion.to.code}` : `${direction === "buy" ? "Buy" : "Sell"} ${assetName}`}
@@ -282,9 +282,9 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
             ...metadata.operatorFee ? [{ label: SERVICE_FEE_LABEL, value: serviceFeeValue(metadata.operatorFee) }] : [],
           ]}
           details={tradeDetailRows(prepared, metadata, customer, actionExpired ? 0 : secondsLeft, conversionPair)} /> : null}
-        {step === "dispatch-unknown" ? <Notice tone="error" role="alert">{conversion ? "This conversion may have been submitted. Check Activity for its result." : "This trade may have been submitted. Check Activity for its result."}</Notice> : null}
-        {expiredUnresolved ? <Notice tone="error" role="alert">{conversion ? "This quote expired before the outcome was recorded. Check Activity before converting again." : "This quote expired before the outcome was recorded. Check Activity before trading again."}</Notice>
-          : error ? <Notice tone="error" role="alert">{error}</Notice> : null}
+        {step === "dispatch-unknown" ? <Alert ref={revealNotice} role="alert" variant="destructive"><AlertDescription>{conversion ? "This conversion may have been submitted. Check Activity for its result." : "This trade may have been submitted. Check Activity for its result."}</AlertDescription></Alert> : null}
+        {expiredUnresolved ? <Alert ref={revealNotice} role="alert" variant="destructive"><AlertDescription>{conversion ? "This quote expired before the outcome was recorded. Check Activity before converting again." : "This quote expired before the outcome was recorded. Check Activity before trading again."}</AlertDescription></Alert>
+          : error ? <Alert ref={revealNotice} role="alert" variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
       </MoneyModalBody>
       {step === "amount" ? <MoneyModalFooter primaryLabel={busy === "quote" ? "Getting quote…" : "Continue"} primaryDisabled={!canContinue} primaryLoading={busy === "quote"} onPrimary={() => void prepare()} /> : null}
       {step === "confirm" && prepared ? <MoneyConfirmFooter action={prepared} actionExpired={actionExpired} submitting={busy !== null}
@@ -382,9 +382,6 @@ function messageForTradeError(error: unknown, direction: TradeDirection, convers
     }
   }
   return "Couldn't get a quote. Try again later.";
-}
-function Notice({ children, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children"> & { children: ReactNode; tone?: "neutral" | "error" }) {
-  return <Alert ref={tone === "error" ? revealNotice : undefined} variant={tone === "error" ? "destructive" : "default"} role={tone === "error" ? "alert" : "status"} {...props}><AlertDescription>{children}</AlertDescription></Alert>;
 }
 function revealNotice(node: HTMLDivElement | null) {
   node?.scrollIntoView?.({ block: "nearest" });

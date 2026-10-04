@@ -146,8 +146,8 @@ test("variant modifiers require a bare container name or one balanced nonempty a
 });
 
 for (const [valid, modifiers] of [
-  [true, ["[a]", "[a/b]", "[a:b]", "[a[b]]", "[a\\]b]", "[a\\]]", "[[]]", "[(a)]", "[()]", "[a(b)]", "[[a]]", "[(])]", "[())]", "['a]/b']", '["a]/b"]', "[([])]", "[a\\[b]", "[a(b)c]", "[a\\(b]", "[a\\)b]"]],
-  [false, ["[a]]", "[(]", "[a(b]", "[a[b]", "[]]", "[[]", '[(])', "[a)", "[a(]", "[)(", "[([)]]", "[]", "[a]b", "[a\\]", "(a/b)", "a\\/b", '("a)/b")', "[`a]/b`]", "(a:b)"]],
+  [true, ["[a]", "[a/b]", "[a:b]", "[a[b]]", "[a\\]b]", "[a\\]]", "[[]]", "[(a)]", "[()]", "[a(b)]", "[[a]]", "[(])]", "[())]", "['a]/b']", '["a]/b"]', "[([])]", "[a\\[b]", "[a(b)c]", "[a\\(b]", "[a\\)b]", "[])()]", "[])())]", "[])()a]", "[])(a)]", "[]))()]", "[])a()]", "[]a)()]", "[()]])]", "[[]])()]", "[[)]]", "[[/)()]]", "[[:)()]]", "[()[/)]]"]],
+  [false, ["[a]]", "[(]", "[a(b]", "[a[b]", "[]]", "[[]", '[(])', "[a)", "[a(]", "[)(", "[([)]]", "[]", "[a]b", "[a\\]", "(a/b)", "a\\/b", '("a)/b")', "[`a]/b`]", "(a:b)", "[[])[]]"]],
 ]) {
   for (const modifier of modifiers) {
     test(`arbitrary container modifier ${modifier} ${valid ? "keeps its token live" : "leaves its token unused"}`, () => {
@@ -573,7 +573,7 @@ test("allowlist entries fail when referenced, removed, duplicated, or missing re
   assert.deepEqual(evaluate(orphan, files, [{ name: "--color-orphan", reason: "external" }]), clean);
 });
 
-for (const [modifier, live] of [["[([])]", true], ["[([)]]", false]]) {
+for (const [modifier, live] of [["[([])]", true], ["[([)]]", false], ["[])()]", true], ["[])())]", true], ["[])()a]", true], ["[])(a)]", true], ["[]))()]", true], ["[])a()]", true], ["[]a)()]", true], ["[()]])]", true], ["[[/)()]]", true], ["[[:)()]]", true], ["[()[/)]]", true]]) {
   test(`CSS @apply exotic modifier ${modifier} ${live ? "keeps its token live" : "leaves it unused"}`, () => {
     assert.deepEqual(evaluate("@theme inline { --container-probe: 719px; }", [
       { path: "components/probe.css", content: `.x { @apply @probe/${modifier}:block; }` },

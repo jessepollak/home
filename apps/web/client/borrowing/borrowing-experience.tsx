@@ -1,10 +1,10 @@
 "use client";
 
 import { BorrowOverview } from "./borrow-overview";
+import { loanActions } from "./borrow-overview-model";
 import type { HomeMoneySummary } from "@/shared/balances/present";
 import { leadingBorrowOffer } from "@/shared/borrowing/offer";
-import { CircleAlertIcon } from "lucide-react";
-import { useEffect, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { CurrencyMark } from "@/components/currency-mark";
 import {
   presentPortfolioAssetMark,
@@ -29,7 +29,7 @@ import {
   useHomeQueryClient,
 } from "@/client/query/query-client";
 import { ownerQuery } from "@/client/query/query-options";
-import { Alert, AlertIcon, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import { LoadErrorCard } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -69,6 +69,7 @@ import {
   formatPresentationTokenAmount,
   formatWadPercent,
 } from "@/shared/formatting";
+import type { BorrowOperation } from "@/shared/borrowing/types";
 import { borrowRiskState } from "./borrow-ui";
 
 type FetchAccountResource = AccountWalletClient["fetchAccountResource"];
@@ -180,7 +181,7 @@ function BorrowExperienceInner({
 
   return (
     <>
-      {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
+      {!session?.smartAccount && !sessionSettling ? <Alert role="status"><AlertTitle>Sign in to view Borrow</AlertTitle></Alert> : null}
       {session?.smartAccount && overviewView === "failed-with-data" && overview.data ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow data could not be refreshed"
           description={`Showing values last verified ${formatPresentationDate(overview.data.discovery.fetchedAt, { regionId, style: "date-time-zone" })}; current values could not be verified.`}
@@ -233,7 +234,23 @@ function BorrowDirectMarket({
     (hasCollateral ? BigInt(snapshot.position.borrowCapacityAssetsRaw) > BigInt(0) : BigInt(openingBorrowAvailableBaseUnits(snapshot)) > BigInt(0)));
   const [dialogSnapshot, setDialogSnapshot] = useState<BorrowMarketSnapshot | null>(null);
   const [dialogOpen, setDialogOpen] = useState(true);
-  if (!dialogSnapshot && snapshot && canOpen) setDialogSnapshot(snapshot);
+  const [operation, setOperation] = useState<BorrowOperation | null>(null);
+  if (!dialogSnapshot && snapshot && canOpen) {
+    setDialogSnapshot(snapshot);
+    setOperation(BigInt(snapshot.position.collateralRaw) > BigInt(0) ? "borrow" : "supply-and-borrow");
+  }
+  const hasDebt = snapshot ? BigInt(snapshot.position.debtAssetsRaw) > BigInt(0) : false;
+  const actions = snapshot && (hasDebt || hasCollateral) ? loanActions(snapshot) : null;
+  const managementActions: Array<{ operation: BorrowOperation; enabled: boolean; label: string; ariaLabel?: string }> =
+    snapshot && actions && session?.smartAccount && prepareMoneyAction && executeMoneyAction ? hasDebt ? [
+      { label: "Repay", operation: "repay", enabled: actions.repay },
+      { label: "Add collateral", operation: "supply-collateral", enabled: actions.addCollateral },
+      { label: "Withdraw", operation: "withdraw-collateral", enabled: actions.withdraw, ariaLabel: `Withdraw collateral from ${collateralDisplayName(snapshot.market.id)} position` },
+    ] : [
+      { label: "Withdraw", operation: "withdraw-collateral", enabled: actions.withdraw, ariaLabel: `Withdraw collateral from ${collateralDisplayName(snapshot.market.id)} position` },
+      { label: "Add collateral", operation: "supply-collateral", enabled: actions.addCollateral },
+    ] : [];
+  const enabledManagementActions = managementActions.filter((action) => action.enabled);
 
   return (
     <section className="space-y-4" aria-labelledby="borrow-direct-title">
@@ -241,7 +258,7 @@ function BorrowDirectMarket({
         <h2 className="text-2xl font-semibold tracking-tight" id="borrow-direct-title">Borrow</h2>
         <p className="text-sm text-muted-foreground">Borrow USDC against your crypto on Base.</p>
       </div>
-      {!session?.smartAccount && !sessionSettling ? <BorrowNotice title="Sign in to view Borrow" /> : null}
+      {!session?.smartAccount && !sessionSettling ? <Alert role="status"><AlertTitle>Sign in to view Borrow</AlertTitle></Alert> : null}
       {(!session?.smartAccount && sessionSettling) || (session?.smartAccount && detailView === "loading") ? <BorrowOverviewLoading /> : null}
       {session?.smartAccount && (detailView === "failed" || detailView === "failed-with-data") ? (
         <LoadErrorCard tone="destructive" role="alert" title="Borrow is unavailable" description="Current wallet, market, and position values could not be verified." onRetry={() => void detail.refetch()} />
@@ -252,20 +269,27 @@ function BorrowDirectMarket({
             <div className="space-y-4 sm:px-1">
               <BorrowMarketHeading market={snapshot.market} assetMarkResolution={assetMarkResolution} />
               <p className="text-sm text-muted-foreground">
-                {BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt(0) && !hasCollateral
-                  ? `You need ${snapshot.market.collateralToken.symbol} in this wallet before you can borrow.`
-                  : snapshot.eligibility.reason ?? "New borrowing is not currently available for this market."}
+                {actions
+                  ? actions.reason ?? snapshot.eligibility.reason ?? "New borrowing is not currently available for this market."
+                  : BigInt(snapshot.wallet.collateralBalanceRaw) === BigInt(0) && !hasCollateral
+                    ? `You need ${snapshot.market.collateralToken.symbol} in this wallet before you can borrow.`
+                    : snapshot.eligibility.reason ?? "New borrowing is not currently available for this market."}
               </p>
-              <Button variant="secondary" onClick={onClose}>Back to Borrow</Button>
+              <div className="flex flex-wrap gap-2">
+                {enabledManagementActions.map((action, index) => <Button key={action.operation} variant={index === 0 ? "default" : "secondary"}
+                  aria-label={action.ariaLabel} onPointerDown={() => void BorrowMoneySheet.preload()}
+                  onClick={() => { setOperation(action.operation); setDialogOpen(true); setDialogSnapshot(snapshot); }}>{action.label}</Button>)}
+                <Button variant={enabledManagementActions.length ? "outline" : "secondary"} onClick={onClose}>Back to Borrow</Button>
+              </div>
             </div>
           </CardContent>
         </Card>
       ) : null}
-      {dialogSnapshot && session?.smartAccount && prepareMoneyAction && executeMoneyAction ? (
+      {dialogSnapshot && operation && session?.smartAccount && prepareMoneyAction && executeMoneyAction ? (
         <BorrowMoneySheet
           session={session}
           snapshot={dialogSnapshot}
-          operation={BigInt(dialogSnapshot.position.collateralRaw) > BigInt(0) ? "borrow" : "supply-and-borrow"}
+          operation={operation}
           fetchAccountResource={fetchAccountResource}
           prepareMoneyAction={prepareMoneyAction}
           executeMoneyAction={executeMoneyAction}
@@ -382,16 +406,6 @@ export function LiquidationBufferMeter({
 
 function BorrowOverviewLoading() {
   return <Card aria-busy="true"><CardContent><div className="space-y-3 py-5"><Skeleton className="h-5 w-36" /><Skeleton className="h-16 w-full" /><Skeleton className="h-16 w-full" /><span className="sr-only">Loading Borrow overview</span></div></CardContent></Card>;
-}
-
-export function BorrowNotice({ children, role = "status", title, tone = "neutral", ...props }: Omit<ComponentProps<typeof Alert>, "children" | "title"> & { children?: ReactNode; role?: "status" | "alert"; title?: ReactNode; tone?: "neutral" | "error" }) {
-  return (
-    <Alert role={role} variant={tone === "error" ? "destructive" : "default"} {...props}>
-      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
-      {title ? <AlertTitle>{title}</AlertTitle> : null}
-      {children ? <AlertDescription>{children}</AlertDescription> : null}
-    </Alert>
-  );
 }
 
 function useBorrowOverview(session: VerifiedAccountSession | null, fetchAccountResource?: FetchAccountResource) {

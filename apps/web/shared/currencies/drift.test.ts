@@ -125,6 +125,14 @@ describe("currency registry drift", () => {
     expect(codes(CURRENCY_REGISTRY, [{ ...pair, evidence: "" }, reverse])).toEqual(["invalid-pair"]);
     expect(codes(CURRENCY_REGISTRY, [pair, { ...pair, id: "duplicate" }, reverse])).toEqual(["invalid-pair"]);
   });
+  test("requires a reason for paused and withdrawn pairs", () => {
+    for (const status of ["paused", "withdrawn"] as const) {
+      for (const reason of [undefined, "", "  "]) {
+        expect(codes(CURRENCY_REGISTRY, [{ ...pair, status, reason }])).toEqual(["undispositioned-pair"]);
+      }
+      expect(codes(CURRENCY_REGISTRY, [{ ...pair, status, reason: "route paused" }])).toEqual([]);
+    }
+  });
   test("reports stale verified pairs", () => {
     expect(codes(CURRENCY_REGISTRY, [{ ...pair, verifiedAt: "2025-01-01" }, reverse])).toEqual(["stale-pair"]);
   });
@@ -135,7 +143,7 @@ describe("currency registry drift", () => {
   });
   test("requires a verified reverse pair and unscoped execution for published pairs", () => {
     expect(codes(CURRENCY_REGISTRY, [pair])).toEqual(["pair-incomplete"]);
-    expect(codes(CURRENCY_REGISTRY, [pair, { ...reverse, status: "paused" }])).toEqual(["pair-incomplete"]);
+    expect(codes(CURRENCY_REGISTRY, [pair, { ...reverse, status: "paused", reason: "route paused" }])).toEqual(["pair-incomplete"]);
     expect(codes(CURRENCY_REGISTRY, [pair, reverse])).toEqual([]);
     for (const regions of [["US"] as const, [] as const]) {
       expect(codes(CURRENCY_REGISTRY, [{ ...pair, regions }, reverse])).toEqual(["region-scoped-pair"]);

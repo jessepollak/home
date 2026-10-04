@@ -2,11 +2,11 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { dataOwnerKey as ownerDataKey } from "@/client/account/owner-keys";
-import { ChevronDown, CircleDollarSign, Coins, ShieldCheck } from "lucide-react";
+import { ChevronDown, CircleAlertIcon, CircleDollarSign, Coins, ShieldCheck } from "lucide-react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import { borrowOperationLabels, borrowRiskCopy, borrowRiskState } from "./borrow-ui";
-import { BorrowNotice, collateralDisplayName, formatCash, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
+import { collateralDisplayName, formatCash, formatToken, LiquidationBufferMeter, presentBorrowAssetMark } from "./borrowing-experience";
 import { HomeSectionHeading } from "@/client/home/home-overview";
 import { ShimmerRows } from "@/client/home/panel-shared";
 import { MoneyModal, MoneyModalActions, MoneyModalBody, MoneyModalHeader, MoneyModalStep, MoneyModalStepLoading, deferStep } from "@/client/money-modal";
@@ -18,6 +18,7 @@ import { useAssetTrade } from "@/client/trading/use-asset-trade";
 import { FeatureIntro } from "@/components/ui/feature-intro";
 import { MoneyTicker } from "@/components/money-ticker";
 import { ManagementFacts } from "@/components/management-facts";
+import { Alert, AlertIcon, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -87,7 +88,7 @@ function Summary({ overview, borrowSummary, status, onRetry, regionId, summaryRe
       </> : null}
     </CardContent></Card>
     {unavailable ? <div className="space-y-3">
-      <BorrowNotice tone="error" role="alert" title="Borrow is unavailable">Current loan values could not be verified. No zero values are shown.</BorrowNotice>
+      <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertTitle>Borrow is unavailable</AlertTitle><AlertDescription>Current loan values could not be verified. No zero values are shown.</AlertDescription></Alert>
       {onRetry ? <Button variant="secondary" size="sm" className="min-h-11" onClick={onRetry}>Retry</Button> : null}
     </div> : null}
   </>;

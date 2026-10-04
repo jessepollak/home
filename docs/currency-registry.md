@@ -71,6 +71,7 @@ Only checked capabilities become actionable. Check, do not assume:
 - `missing-valuation` — an inventory record without approved valuation.
 - `missing-exit-capability` — an inventory record without approved Send exit.
 - `unknown-pair-asset` — a pair referencing an unknown asset.
+- `undispositioned-pair` — a paused or withdrawn pair without a reason.
 - `invalid-pair` — a self-pair, a duplicate pair key, or a verified pair with missing, invalid or future dated evidence.
 - `stale-pair` — a verified pair older than the maximum age.
 - `pair-incomplete` — a verified pair without a verified reverse direction.
