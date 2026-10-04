@@ -11,11 +11,11 @@ function module(order?: unknown): StoryModule {
 }
 
 test("composition meta order wins over title, with stable index order inside each file", () => {
-  const entries = [entry("Deposit", "Submitted"), entry("Home", "Home"), entry("Deposit", "Deposit")];
+  const entries = [entry("Invest", "OrbitDetail"), entry("Home", "Home"), entry("Invest", "Invest")];
   const original = [...entries];
-  const modules = new Map([["Deposit.stories.tsx", module(2)], ["Home.stories.tsx", module(1)]]);
+  const modules = new Map([["Invest.stories.tsx", module(2)], ["Home.stories.tsx", module(1)]]);
   expect(orderedCompositionEntries(entries, modules).map(({ id }) => id))
-    .toEqual(["Home--Home", "Deposit--Submitted", "Deposit--Deposit"]);
+    .toEqual(["Home--Home", "Invest--OrbitDetail", "Invest--Invest"]);
   expect(entries).toEqual(original);
 });
 

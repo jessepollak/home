@@ -8,17 +8,14 @@ import { TransferActions } from "@/client/transfers";
 import { ActivityPanelView } from "@/client/activity";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { presentBalances } from "@/shared/balances/present";
-import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
 import { balance, wallet, homeShellHandlers } from "../../journeys/explorations/home-pull-to-refresh.fixtures";
 import { availableAssets, sendRecipientHandlers } from "../../journeys/explorations/send-recipient.fixtures";
 import { activity, transfers, pendingSend } from "../../journeys/explorations/activity-transfer-runs.fixtures";
 
-type State = "ready" | "loading" | "error" | "empty";
+type State = "ready" | "loading";
 
 function HomeComposition({ state }: { state: State }) {
   const assetBalances = state === "loading" ? presentBalances({ status: "loading", snapshot: null, error: null })
-    : state === "error" ? presentBalances({ status: "error", snapshot: null, error: "balances-unavailable" })
-    : state === "empty" ? presentBalances({ status: "ready", snapshot: buildBalancesSnapshotFixture({ region: "US" }), error: null })
     : balance;
   return <AccountWalletContext.Provider value={wallet}>
     <PresentationRegionProvider regionId="US">
@@ -30,8 +27,8 @@ function HomeComposition({ state }: { state: State }) {
           onRetryBalances={() => {}}
           destinations={{ onOpenCash: () => {}, onOpenInvestments: () => {}, onOpenBorrow: () => {} }}
           actions={<><FundingActions regionId="US" /><TransferActions availableAssets={availableAssets} regionId="US" /></>}
-          activity={<ActivityPanelView activity={activity(state === "empty" ? [] : transfers)}
-            operations={state === "empty" ? [] : [pendingSend]} density="feed" regionId="US" />} />
+          activity={<ActivityPanelView activity={activity(transfers)}
+            operations={[pendingSend]} density="feed" regionId="US" />} />
       </DashboardShell>
     </PresentationRegionProvider>
   </AccountWalletContext.Provider>;
@@ -60,10 +57,3 @@ export const Home: Story = {
   },
 };
 export const HomeLoading: Story = { args: { state: "loading" } };
-export const HomeError: Story = { args: { state: "error" } };
-export const HomeEmpty: Story = {
-  args: { state: "empty" },
-  play: async ({ canvasElement }) => {
-    await expect(await within(canvasElement).findByText("No activity yet")).toBeVisible();
-  },
-};

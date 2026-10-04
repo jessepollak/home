@@ -18,7 +18,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     a11y: { test: "error" },
-    library: { render: "frame", order: 9 },
+    library: { render: "frame", order: 5 },
     viewport: { viewports: { desktop1440: { name: "1440 × 900", styles: { width: "1440px", height: "900px" } } }, defaultViewport: "desktop1440" },
     nextjs: { navigation: { pathname: "/admin/support", segments: ["(sections)", "support"] } },
     msw: { handlers: [http.get("*/api/admin/support/summary", () => HttpResponse.json(summary))] },

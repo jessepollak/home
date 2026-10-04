@@ -41,9 +41,11 @@ async function catalogComponents(): Promise<Map<string, string>> {
 describe("library compositions", () => {
   test("cover every catalog component or explicitly report it unused", async () => {
     const components = await catalogComponents();
-    const compositions = Object.values(await compositionUiImports());
+    const imports = await compositionUiImports();
+    expect(Object.keys(imports)).toEqual(["card-onboarding.stories.tsx", "coverage.stories.tsx", "home.stories.tsx", "invest.stories.tsx", "operator.stories.tsx"]);
+    const compositions = Object.values(imports);
     expect(components.size).toBeGreaterThan(0);
-    expect(compositions.length).toBeGreaterThan(0);
+    expect(compositions).toHaveLength(5);
     expect(await compositionNotUsedInProduct()).toEqual(expectedNotUsedInProduct);
     expect(requireCompositionCoverage(components, compositions, await productUiImports(), expectedNotUsedInProduct)).toBe(components.size);
   }, 15_000);
@@ -166,6 +168,24 @@ describe("library compositions", () => {
       expect(await lexCompositionUiImports(source, "probe.stories.tsx")).toEqual(covered ? ["input-otp"] : []);
     });
   }
+
+  test("the covering core has eight tiles and contiguous screen orders", async () => {
+    const expected = [
+      ["home", ["Home", "HomeLoading"]],
+      ["invest", ["Invest", "SearchToOrbitDetail"]],
+      ["card-onboarding", ["Active", "CardOnboarding"]],
+      ["coverage", ["Coverage"]],
+      ["operator", ["Operator"]],
+    ] as const;
+    let count = 0;
+    for (const [index, [file, names]] of expected.entries()) {
+      const storyModule: Record<string, unknown> = await import(`@/stories/review/compositions/${file}.stories.tsx`);
+      expect(Object.keys(storyModule).filter((name) => name !== "default").sort()).toEqual([...names].sort());
+      expect(requireStoryMeta(storyModule).parameters?.library?.order).toBe(index + 1);
+      count += names.length;
+    }
+    expect(count).toBe(8);
+  });
 
   test("render each composition in its own frame", async () => {
     const files = [...new Bun.Glob("stories/review/compositions/*.stories.tsx").scanSync({ cwd: root })].sort();

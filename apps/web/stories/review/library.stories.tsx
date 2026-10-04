@@ -212,10 +212,13 @@ export const OverviewGrid: Story = {
 const compositionsIndex = indexOf([
   ...Object.values(fullOverviewIndex),
   story("compositions-home--home", "Compositions/Home", "Home", "./stories/review/compositions/home.stories.tsx"),
-  story("compositions-deposit-to-savings--deposit-to-savings", "Compositions/Deposit to Savings", "Deposit to Savings",
-    "./stories/review/compositions/deposit-to-savings.stories.tsx"),
-  story("compositions-deposit-to-savings--deposit-submitted", "Compositions/Deposit to Savings", "Deposit Submitted",
-    "./stories/review/compositions/deposit-to-savings.stories.tsx"),
+  story("compositions-home--home-loading", "Compositions/Home", "Home Loading", "./stories/review/compositions/home.stories.tsx"),
+  story("compositions-invest--invest", "Compositions/Invest", "Invest", "./stories/review/compositions/invest.stories.tsx"),
+  story("compositions-invest--search-to-orbit-detail", "Compositions/Invest", "Orbit Detail", "./stories/review/compositions/invest.stories.tsx"),
+  story("compositions-card-onboarding--card-onboarding", "Compositions/Card Onboarding", "Card Onboarding", "./stories/review/compositions/card-onboarding.stories.tsx"),
+  story("compositions-card-onboarding--active", "Compositions/Card Onboarding", "Active", "./stories/review/compositions/card-onboarding.stories.tsx"),
+  story("compositions-coverage--coverage", "Compositions/Coverage", "Coverage", "./stories/review/compositions/coverage.stories.tsx"),
+  story("compositions-operator--operator", "Compositions/Operator", "Operator", "./stories/review/compositions/operator.stories.tsx"),
 ]);
 
 export const Compositions: Story = {
@@ -228,23 +231,25 @@ export const Compositions: Story = {
     const window = canvasElement.ownerDocument.defaultView;
     if (!window) throw new Error("Library window is missing");
     const historyLength = window.history.length;
-    await userEvent.click(canvas.getByRole("option", { name: "Compositions, 2 compositions" }));
+    await userEvent.click(canvas.getByRole("option", { name: "Compositions, 5 compositions" }));
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
-    await expect(within(surface).getByText("Compositions · 2 compositions")).toBeVisible();
+    await expect(within(surface).getByText("Compositions · 5 compositions")).toBeVisible();
     await expect(await within(surface).findByRole("link", { name: "Button Group" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     await expect(within(surface).getByRole("link", { name: "Dialog" })).toBeVisible();
     await expect(within(surface).getByText(/^Not used in any product screen:/)).toHaveTextContent("Not used in any product screen: Button Group, Dialog, Kbd, Progress");
     await expect(search(canvasElement).get("component")).toBe("compositions");
     await expect(window.history.length).toBe(historyLength + 1);
-    for (const name of ["Home", "Deposit to Savings", "Deposit Submitted"]) {
+    for (const name of ["Home", "Home Loading", "Invest", "Orbit Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
       await expect(await within(surface).findByRole("heading", { name }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     }
-    await expect(await within(surface).findByTitle("Compositions · Deposit to Savings", {}, { timeout: INITIAL_MODULE_TIMEOUT }))
+    await expect(await within(surface).findByTitle("Compositions · Card Onboarding", {}, { timeout: INITIAL_MODULE_TIMEOUT }))
       .toHaveAttribute("width", "390");
     await expect(within(surface).queryByRole("alert")).not.toBeInTheDocument();
-    await expect(within(surface).getAllByRole("link", { name: /^390 × 844/ })).toHaveLength(3);
-    await userEvent.click(section(canvas, "Deposit to Savings"));
-    await expect(search(canvasElement).get("story")).toBe("compositions-deposit-to-savings--deposit-to-savings");
+    await expect(within(surface).getAllByRole("link", { name: /^390 × 844/ })).toHaveLength(4);
+    await expect(within(surface).getAllByRole("link", { name: /^1280 × 800/ })).toHaveLength(3);
+    await expect(within(surface).getByRole("link", { name: /^1440 × 900/ })).toBeVisible();
+    await userEvent.click(section(canvas, "Card Onboarding"));
+    await expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding");
     await expect(window.history.length).toBe(historyLength + 1);
   },
 };

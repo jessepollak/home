@@ -19,7 +19,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     a11y: { test: "error" },
-    library: { render: "frame", order: 8 },
+    library: { render: "frame", order: 4 },
     viewport: { viewports: { desktop1280: { name: "1280 × 800", styles: { width: "1280px", height: "800px" } } }, defaultViewport: "desktop1280" },
   },
 } satisfies Meta<CoverageArgs>;
@@ -32,13 +32,5 @@ export const Coverage: Story = {
     await expect(canvas.getByRole("heading", { name: "Local money coverage" })).toBeVisible();
     await expect(canvas.getByText(`Showing ${coverageRegistry.length} of ${coverageRegistry.length} countries and territories.`)).toBeVisible();
     await expect(canvas.getByRole("link", { name: "Download CSV" })).toBeVisible();
-  },
-};
-export const CountrySearch: Story = { args: { search: "Brazil" } };
-export const Priority: Story = { args: { priority: "priority" } };
-export const Empty: Story = {
-  args: { search: "nothing-found" },
-  play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByText(`Showing 0 of ${coverageRegistry.length} countries and territories.`)).toBeVisible();
   },
 };
