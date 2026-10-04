@@ -264,8 +264,7 @@ export function MethodBody({
         </CardContent>
       </Card>
       {providersStatus === "loaded" && !fundingReadError && providerBindings.length === 0 ? (
-        // oxlint-disable-next-line jsx-a11y/aria-role -- Removes Alert's live role from an aria-hidden visual duplicate of the status message.
-        <Alert role={undefined} aria-hidden="true">
+        <Alert role="presentation" aria-hidden="true">
           <AlertDescription>No local deposit method in {countryName} yet.</AlertDescription>
         </Alert>
       ) : null}

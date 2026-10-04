@@ -31,7 +31,6 @@
       "react/no-unstable-nested-components": 1
     },
     "apps/web/client/funding/add-money-dialog.tsx": {
-      "jsx-a11y/aria-role": 1,
       "jsx-a11y/no-noninteractive-tabindex": 1
     },
     "apps/web/client/funding/order-flow.tsx": {
@@ -86,18 +85,12 @@
     "apps/web/components/profile-mark.tsx": {
       "nextjs/no-img-element": 1
     },
-    "apps/web/components/ui/coverage-status-preview.tsx": {
-      "jsx-a11y/heading-has-content": 1
-    },
     "apps/web/components/ui/data-table.tsx": {
       "react-hooks/incompatible-library": 1
     },
     "apps/web/components/ui/input-group.tsx": {
       "jsx-a11y/click-events-have-key-events": 1,
       "jsx-a11y/no-noninteractive-element-interactions": 1
-    },
-    "apps/web/components/ui/label.tsx": {
-      "jsx-a11y/label-has-associated-control": 1
     },
     "apps/web/instrumentation-client.ts": {
       "home/no-silent-catch": 1
@@ -134,13 +127,6 @@
     }
   },
   "exceptions": [
-    {
-      "path": "apps/web/components/ui/field.tsx",
-      "rule": "jsx-a11y/label-has-associated-control",
-      "count": 1,
-      "issue": "#1338",
-      "reason": "FieldLabel forwards htmlFor and children to the owned Label, which the label rule now recognizes; consumers associate the control."
-    },
     {
       "path": "apps/web/gmail.test.ts",
       "rule": "home/no-source-reads",

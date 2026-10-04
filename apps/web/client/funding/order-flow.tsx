@@ -333,10 +333,10 @@ export function FundingOrderFlow({
     return <MoneyModalStep step="order:setup" depth={1}>
       <MoneyModalHeader title={`Set up ${binding.displayName}`} titleId={titleId} onBack={onBack} closeLabel="Close add money" />
       <MoneyModalBody hasFooter={!pendingStarted && !blocked} className="gap-4 pt-4">
-        {pendingStarted ? <FundingNotice tone="neutral">Verification is pending. Return here after Ripio completes its review. Home will not issue another hosted link automatically.</FundingNotice> : null}
-        {reserving ? <FundingNotice tone="neutral">Provider setup is still being created. Home will not start another request.</FundingNotice> : null}
-        {ambiguous ? <FundingNotice tone="error" role="alert">Home could not confirm the provider setup result. Do not try again until support checks the provider result.</FundingNotice> : null}
-        {rejected ? <FundingNotice tone="error" role="alert">The provider rejected this setup. Home will not retry it automatically. Message support before restarting setup.</FundingNotice> : null}
+        {pendingStarted ? <Alert role="status"><AlertDescription>Verification is pending. Return here after Ripio completes its review. Home will not issue another hosted link automatically.</AlertDescription></Alert> : null}
+        {reserving ? <Alert role="status"><AlertDescription>Provider setup is still being created. Home will not start another request.</AlertDescription></Alert> : null}
+        {ambiguous ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>Home could not confirm the provider setup result. Do not try again until support checks the provider result.</AlertDescription></Alert> : null}
+        {rejected ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>The provider rejected this setup. Home will not retry it automatically. Message support before restarting setup.</AlertDescription></Alert> : null}
         {(ambiguous || rejected) && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport()}>Message support</Button> : null}
         {!pendingStarted && !blocked ? <Field>
           <FieldLabel htmlFor="funding-customer-email">Email</FieldLabel>
@@ -348,7 +348,7 @@ export function FundingOrderFlow({
             onInput={(event) => setEmail(event.currentTarget.value)}
           />
         </Field> : null}
-        {error ? <FundingNotice tone="error" role="alert">{error}</FundingNotice> : null}
+        {error ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>{error}</AlertDescription></Alert> : null}
       </MoneyModalBody>
       {!pendingStarted && !blocked ? <MoneyModalFooter primaryLabel={busy ? "Working…" : "Continue to Ripio verification"} primaryDisabled={busy || !email.trim()} onPrimary={() => void startVerification()} secondaryLabel="Back" onSecondary={onBack} /> : null}
     </MoneyModalStep>;
@@ -396,9 +396,10 @@ export function FundingOrderFlow({
           nativeSymbol={binding.currency}
         >
           {error ? (
-            <FundingNotice tone="error" role="alert">
-              {error}
-            </FundingNotice>
+            <Alert role="alert" variant="destructive">
+              <AlertIcon><CircleAlertIcon /></AlertIcon>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : null}
         </MoneyAmountDisplay>
       </MoneyModalBody>
@@ -478,9 +479,10 @@ function QuoteReview({
           </CardContent>
         </Card>
         {error ? (
-          <FundingNotice tone="error" role="alert">
-            {error}
-          </FundingNotice>
+          <Alert role="alert" variant="destructive">
+            <AlertIcon><CircleAlertIcon /></AlertIcon>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : null}
       </MoneyModalBody>
       <MoneyModalFooter
@@ -549,7 +551,7 @@ function ProviderEconomicsReview({
             </dl>
           </CardContent>
         </Card>
-        {cancellationError ? <FundingNotice tone="error" role="alert">{cancellationError}</FundingNotice> : null}
+        {cancellationError ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>{cancellationError}</AlertDescription></Alert> : null}
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel="View payment instructions"
@@ -615,10 +617,10 @@ export function OpenOrderPrompt({
           </CardContent>
         </Card>
         {order.state === "dispatch-ambiguous" ? (
-          <FundingNotice>Home can&apos;t confirm this deposit yet. Continue to check it before starting another.</FundingNotice>
+          <Alert role="status"><AlertDescription>Home can&apos;t confirm this deposit yet. Continue to check it before starting another.</AlertDescription></Alert>
         ) : null}
         {order.state === "dispatch-ambiguous" && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport({ kind: "funding_order", id: order.id })}>Message support</Button> : null}
-        {cancellationError ? <FundingNotice tone="error" role="alert">{cancellationError}</FundingNotice> : null}
+        {cancellationError ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>{cancellationError}</AlertDescription></Alert> : null}
       </MoneyModalBody>
       <MoneyModalFooter
         primaryLabel="Continue deposit"
@@ -666,9 +668,9 @@ function OrderStatus({
       <MoneyModalBody hasFooter={Boolean(onResolve || (order.state === "awaiting-payment" && onCancel) || (order.state === "abandoned" && onStartNew))} className="gap-4 pt-4">
         <h3 className="text-lg font-semibold">{copy.title}</h3>
         {order.sandbox ? <SandboxBadge /> : null}
-        {copy.body ? <FundingNotice>{copy.body}</FundingNotice> : null}
+        {copy.body ? <Alert role="status"><AlertDescription>{copy.body}</AlertDescription></Alert> : null}
         {needsSupport && support ? <Button variant="outline" size="touch" onClick={() => support.openSupport({ kind: "funding_order", id: order.id })}>Message support</Button> : null}
-        {unusableCheckout && order.state === "awaiting-payment" ? <FundingNotice>{binding.displayName} couldn&apos;t load this checkout. It may have expired. Cancel it and start a new deposit.</FundingNotice> : null}
+        {unusableCheckout && order.state === "awaiting-payment" ? <Alert role="status"><AlertDescription>{binding.displayName} couldn&apos;t load this checkout. It may have expired. Cancel it and start a new deposit.</AlertDescription></Alert> : null}
         <SettledAmounts binding={binding} order={order} />
         {order.instructions && order.state === "awaiting-payment" ? (
           <InstructionView
@@ -678,11 +680,12 @@ function OrderStatus({
           />
         ) : null}
         {resolutionError ? (
-          <FundingNotice tone="error" role="alert">
-            {resolutionError}
-          </FundingNotice>
+          <Alert role="alert" variant="destructive">
+            <AlertIcon><CircleAlertIcon /></AlertIcon>
+            <AlertDescription>{resolutionError}</AlertDescription>
+          </Alert>
         ) : null}
-        {cancellationError && order.state === "awaiting-payment" ? <FundingNotice tone="error" role="alert">{cancellationError}</FundingNotice> : null}
+        {cancellationError && order.state === "awaiting-payment" ? <Alert role="alert" variant="destructive"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>{cancellationError}</AlertDescription></Alert> : null}
       </MoneyModalBody>
       {order.state === "awaiting-payment" && onCancel ? <MoneyModalFooter primaryLabel="Cancel deposit" onPrimary={onCancel} primaryLoading={cancelling} primaryDisabled={cancelling} /> : null}
       {order.state === "abandoned" && onStartNew ? <MoneyModalFooter primaryLabel="Start new deposit" onPrimary={onStartNew} /> : null}
@@ -956,23 +959,6 @@ function MoneyLine({ value }: { value: string }) {
     <p className="text-sm tabular-nums">
       <MoneyTicker value={value} />
     </p>
-  );
-}
-
-function FundingNotice({
-  children,
-  role = "status",
-  tone = "neutral",
-}: {
-  children: React.ReactNode;
-  role?: "status" | "alert";
-  tone?: "neutral" | "error";
-}) {
-  return (
-    <Alert role={role} variant={tone === "error" ? "destructive" : "default"}>
-      {tone === "error" ? <AlertIcon><CircleAlertIcon /></AlertIcon> : null}
-      <AlertDescription>{children}</AlertDescription>
-    </Alert>
   );
 }
 
