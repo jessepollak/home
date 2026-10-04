@@ -46,7 +46,7 @@ const meta = {
     layout: "fullscreen",
     a11y: { test: "error" },
     library: { render: "frame", order: 2 },
-    viewport: { viewports: { desktop1280: { name: "1280 × 800", styles: { width: "1280px", height: "800px" } } }, defaultViewport: "desktop1280" },
+    viewport: { viewports: { phone390: { name: "390 × 844", styles: { width: "390px", height: "844px" } } }, defaultViewport: "phone390" },
     msw: { handlers: [
       ...searchJourney.parameters.msw.handlers.slice(0, 1),
       ...detailJourney.parameters.msw.handlers,

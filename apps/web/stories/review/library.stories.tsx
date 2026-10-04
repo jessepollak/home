@@ -254,8 +254,8 @@ export const Compositions: Story = {
     await expect(await within(surface).findByTitle("Compositions · Card Onboarding", {}, { timeout: INITIAL_MODULE_TIMEOUT }))
       .toHaveAttribute("width", "390");
     await expect(within(surface).queryByRole("alert")).not.toBeInTheDocument();
-    await expect(within(surface).getAllByRole("link", { name: /^390 × 844/ })).toHaveLength(4);
-    await expect(within(surface).getAllByRole("link", { name: /^1280 × 800/ })).toHaveLength(3);
+    await expect(within(surface).getAllByRole("link", { name: /^390 × 844/ })).toHaveLength(6);
+    await expect(within(surface).getAllByRole("link", { name: /^1280 × 800/ })).toHaveLength(1);
     await expect(within(surface).getByRole("link", { name: /^1440 × 900/ })).toBeVisible();
     await userEvent.click(section(canvas, "Card Onboarding"));
     await expect(search(canvasElement).get("story")).toBe("compositions-card-onboarding--card-onboarding");
