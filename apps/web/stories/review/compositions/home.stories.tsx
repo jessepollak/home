@@ -124,7 +124,7 @@ const meta = {
   component: HomeComposition,
   parameters: {
     layout: "fullscreen",
-    library: { render: "frame" },
+    library: { render: "frame", order: 1 },
     viewport: { viewports: { phone390: { name: "390 × 844", styles: { width: "390px", height: "844px" } } }, defaultViewport: "phone390" },
     a11y: { test: "error" },
   },

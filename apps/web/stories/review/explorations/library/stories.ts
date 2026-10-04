@@ -143,6 +143,17 @@ export function compositionEntries(entries: Record<string, StoryIndexEntry>): St
     COMPOSITION_STORY.test(entry.importPath));
 }
 
+export function orderedCompositionEntries(entries: StoryIndexEntry[], modules: ReadonlyMap<string, StoryModule>): StoryIndexEntry[] {
+  const orders = new Map([...modules].map(([path, module]) => {
+    const library = module.default?.parameters?.library;
+    const order = library && typeof library === "object" && "order" in library ? library.order : undefined;
+    return [path, typeof order === "number" && Number.isFinite(order) ? order : Infinity];
+  }));
+  return entries.toSorted((a, b) => a.importPath === b.importPath ? 0 :
+    (orders.get(a.importPath) ?? Infinity) - (orders.get(b.importPath) ?? Infinity) ||
+    a.title.localeCompare(b.title) || a.importPath.localeCompare(b.importPath));
+}
+
 export async function loadCompositionStories(entries: StoryIndexEntry[]): Promise<SheetStory[]> {
   const { composeStory, preview } = await loadRuntime();
   const files = [...new Set(entries.map((entry) => entry.importPath))];
@@ -151,6 +162,7 @@ export async function loadCompositionStories(entries: StoryIndexEntry[]): Promis
     const key = file && Object.keys(compositionModules).find((candidate) => candidate.endsWith(`/compositions/${file}`));
     return key ? compositionModules[key]() : Promise.reject(new Error(`No composition module for ${path}`));
   }));
+  const modulesByPath = new Map(files.map((path, index) => [path, loadedModules[index]]));
   const composedStories = new Map(loadedModules.flatMap((module) => {
     const meta = module.default ?? {};
     return Object.entries(module).flatMap(([name, value]) => {
@@ -159,7 +171,7 @@ export async function loadCompositionStories(entries: StoryIndexEntry[]): Promis
       return [[story.id, story] as const];
     });
   }));
-  return entries.flatMap((entry): SheetStory[] => {
+  return orderedCompositionEntries(entries, modulesByPath).flatMap((entry): SheetStory[] => {
     const story = composedStories.get(entry.id);
     if (!story) return [];
     return [{

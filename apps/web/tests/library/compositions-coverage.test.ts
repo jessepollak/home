@@ -6,11 +6,12 @@ import { libraryCatalog } from "@/stories/review/explorations/library/catalog";
 const root = `${import.meta.dir}/../..`;
 const build: ReviewBuild = { revision: "fixture", deployment: "", branch: "", repo: null, pr: null, changedFiles: null };
 
-const pending = new Set([
-  "ui-button-group", "ui-combobox", "ui-coverage-status-preview", "ui-coverage-table", "ui-data-table", "ui-dialog",
-  "ui-empty", "ui-feature-intro", "ui-input", "ui-input-otp", "ui-kbd", "ui-popover", "ui-radio-group", "ui-rail-nav",
-  "ui-select", "ui-switch", "ui-table", "ui-toast", "ui-toggle",
-]);
+function requireCompositionCoverage(components: Map<string, string>, compositions: string[][]): number {
+  const covered = new Set(compositions.flat().flatMap((name) => components.get(name) ?? []));
+  const uncovered = [...components.values()].filter((id) => !covered.has(id)).sort();
+  if (uncovered.length) throw new Error(`Uncovered catalog components: ${uncovered.join(", ")}`);
+  return covered.size;
+}
 
 async function catalogComponents(): Promise<Map<string, string>> {
   const files = [...new Bun.Glob("components/ui/*.stories.tsx").scanSync({ cwd: root })].sort();
@@ -26,17 +27,17 @@ async function catalogComponents(): Promise<Map<string, string>> {
 }
 
 describe("library compositions", () => {
-  test("cover every catalog component except the pending set", async () => {
+  test("cover every catalog component", async () => {
     const components = await catalogComponents();
     const compositions = Object.values(await compositionUiImports());
     expect(components.size).toBeGreaterThan(0);
     expect(compositions.length).toBeGreaterThan(0);
-    const covered = new Set(compositions.flat()
-      .flatMap((name) => components.get(name) ?? []));
-    const uncovered = [...components.values()].filter((id) => !covered.has(id)).sort();
-    expect(uncovered.filter((id) => !pending.has(id))).toEqual([]);
-    expect([...pending].filter((id) => covered.has(id)).sort()).toEqual([]);
-    expect([...pending].filter((id) => ![...components.values()].includes(id)).sort()).toEqual([]);
+    expect(requireCompositionCoverage(components, compositions)).toBe(components.size);
+  });
+
+  test("fail when a catalog component is uncovered", () => {
+    const components = new Map([["button", "ui-button"], ["input", "ui-input"]]);
+    expect(() => requireCompositionCoverage(components, [["button"]])).toThrow("Uncovered catalog components: ui-input");
   });
 
   test("render each composition in its own frame", async () => {
