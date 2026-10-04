@@ -1,4 +1,5 @@
 import { requireValue } from "./fixtures/runtime";
+import { requireStoryMeta } from "./fixtures/story-meta";
 import "@/client/account/dom-test-harness";
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -12,7 +13,7 @@ const originalUrl = location.href;
 const build: ReviewBuild = { revision: "fixture", deployment: "", branch: "", repo: null, pr: null, changedFiles: null };
 const storyFiles = [...new Bun.Glob("components/ui/*.stories.tsx").scanSync({ cwd: `${import.meta.dir}/../..` })].sort();
 const storyMetas = await Promise.all(storyFiles.map(async (file) => {
-  const meta: { id?: string; title: string } = (await import(`@/${file}`)).default;
+  const meta = requireStoryMeta(await import(`@/${file}`));
   return { file, id: meta.id ?? meta.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), title: meta.title };
 }));
 
@@ -68,6 +69,12 @@ describe("library overview specimens", () => {
     expect(card("ui-input-group").getByRole<HTMLInputElement>("textbox", { name: "Amount" }).value).toBe("1111.11");
     fireEvent.click(card("ui-button-group").getByRole("button", { name: "Next" }));
     expect(card("ui-button-group").getByText("4 of 12")).not.toBeNull();
+    const prompt = card("ui-prompt-input");
+    expect(prompt.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled).toBe(true);
+    fireEvent.change(prompt.getByRole("textbox", { name: "Message" }), { target: { value: "Where is my deposit?" } });
+    fireEvent.click(prompt.getByRole("button", { name: "Send" }));
+    expect(prompt.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" }).value).toBe("");
+    expect(card("ui-support-message").getByText("Let me check for you.")).not.toBeNull();
     expect(surface()).toBe("Library overview");
 
     fireEvent.click(card("ui-switch").getByRole("button", { name: "Switch" }));

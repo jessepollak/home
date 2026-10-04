@@ -178,13 +178,13 @@ function ActivityComposition() {
                     </TableHeader>
                     <TableBody>
                       {RUNS.map((run) => <TableRow key={run.id}>
-                        <TableCell>
+                        <TableCell className="whitespace-normal">
                           <span className="flex flex-col">
                             <span className="font-medium">{run.label} ×{run.count}</span>
                             <span className="text-xs text-muted-foreground">{run.dates}</span>
                           </span>
                         </TableCell>
-                        <TableCell className="text-end tabular-nums">{run.total}</TableCell>
+                        <TableCell className="text-end whitespace-normal tabular-nums">{run.total}</TableCell>
                       </TableRow>)}
                     </TableBody>
                   </Table>

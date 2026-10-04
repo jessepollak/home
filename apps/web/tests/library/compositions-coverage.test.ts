@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { requireStoryMeta } from "./fixtures/story-meta";
 import { compositionUiImports, lexCompositionUiImports } from "../../.storybook/library-imports-plugin";
 import type { ReviewBuild, StoryIndexEntry } from "@/stories/review/explorations/board/review-build";
 import { libraryCatalog } from "@/stories/review/explorations/library/catalog";
@@ -16,7 +17,7 @@ function requireCompositionCoverage(components: Map<string, string>, composition
 async function catalogComponents(): Promise<Map<string, string>> {
   const files = [...new Bun.Glob("components/ui/*.stories.tsx").scanSync({ cwd: root })].sort();
   const metas = await Promise.all(files.map(async (file) => {
-    const meta: { id?: string; title: string } = (await import(`@/${file}`)).default;
+    const meta = requireStoryMeta(await import(`@/${file}`));
     return { file, id: meta.id ?? meta.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"), title: meta.title };
   }));
   const index: Record<string, StoryIndexEntry> = Object.fromEntries(metas.map(({ file, id, title }) =>
@@ -60,7 +61,7 @@ describe("library compositions", () => {
   test("render each composition in its own frame", async () => {
     const files = [...new Bun.Glob("stories/review/compositions/*.stories.tsx").scanSync({ cwd: root })].sort();
     for (const file of files) {
-      const meta: { title: string; parameters?: { library?: { render?: string } } } = (await import(`@/${file}`)).default;
+      const meta = requireStoryMeta(await import(`@/${file}`));
       expect(meta.title.startsWith("Compositions/")).toBe(true);
       expect(meta.parameters?.library?.render).toBe("frame");
     }

@@ -24,6 +24,7 @@ import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverDescription, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
+import { PromptInput, PromptInputSubmit, PromptInputTextarea } from "@/components/ui/prompt-input";
 import { PullToRefreshAction, PullToRefreshIndicator, usePullToRefresh } from "@/components/ui/pull-to-refresh";
 import { RadioGroup, RadioGroupOption } from "@/components/ui/radio-group";
 import { RailNavItem } from "@/components/ui/rail-nav";
@@ -32,6 +33,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusStep, StatusSteps } from "@/components/ui/status-step";
+import { SupportMessageBubble } from "@/components/ui/support-message";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Toaster, toast } from "@/components/ui/toast";
@@ -177,6 +179,15 @@ function ProgressSpecimen() {
       {step === 3 ? "Start over" : "Next step"}
     </Button>
   </div>;
+}
+
+function PromptInputSpecimen() {
+  const [text, setText] = useState("");
+  return <PromptInput className="w-64" onSubmit={(event) => { event.preventDefault(); setText(""); }}>
+    <PromptInputTextarea aria-label="Message" placeholder="Ask a question" value={text}
+      onChange={(event) => setText(event.currentTarget.value)} />
+    <PromptInputSubmit busy={false} disabled={!text.trim()} onStop={() => {}} />
+  </PromptInput>;
 }
 
 function PullToRefreshSpecimen() {
@@ -367,6 +378,7 @@ export const specimens: Record<string, Specimen> = {
     </Popover>,
   },
   "ui-progress": { Render: ProgressSpecimen },
+  "ui-prompt-input": { Render: PromptInputSpecimen },
   "ui-pull-to-refresh": { Render: PullToRefreshSpecimen },
   "ui-radio-group": { Render: RadioGroupSpecimen },
   "ui-rail-nav": { Render: RailNavSpecimen },
@@ -400,6 +412,12 @@ export const specimens: Record<string, Specimen> = {
         <StatusStep status="complete" title="Submitted" time="10:35 AM" />
         <StatusStep status="current" title="Confirming on Base" />
       </StatusSteps>
+    </div>,
+  },
+  "ui-support-message": {
+    Render: () => <div className="grid w-64 gap-3">
+      <SupportMessageBubble author="customer" side="customer">Where is my deposit?</SupportMessageBubble>
+      <SupportMessageBubble author="operator" side="customer">Let me check for you.</SupportMessageBubble>
     </div>,
   },
   "ui-switch": { Render: SwitchSpecimen },

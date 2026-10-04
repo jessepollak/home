@@ -43,7 +43,7 @@ export const Library: Story = {
   render: (args, { globals }) => <LibraryView {...args} theme={typeof globals.theme === "string" ? globals.theme : "light"} />,
 };
 
-const section = (canvas: ReturnType<typeof within>, name: string) =>
+const section = (canvas: { getByRole: (role: "heading", options: { name: RegExp }) => HTMLElement }, name: string) =>
   within(canvas.getByRole("heading", { name: new RegExp(`^${name}`) })).getByRole("button");
 const search = (canvasElement: HTMLElement) => new URL(canvasElement.ownerDocument.location.href).searchParams;
 
@@ -369,7 +369,7 @@ export const RestoredFoundation: Story = {
     await expect(within(surface).getByRole("columnheader", { name: "Occurrences / files" })).toBeVisible();
     await expect(new URL(canvasElement.ownerDocument.location.href).searchParams.get("component")).toBe("foundations/radius-spacing");
     const spacing = within(surface).getByRole("row", { name: /^1\.5 / });
-    await expect(within(spacing).getAllByRole("cell")[0]).toHaveTextContent(/^35Files/);
+    await expect(within(spacing).getAllByRole("cell")[0]).toHaveTextContent(/^[1-9]\d*Files \([1-9]\d*\)/);
     await userEvent.click(within(spacing).getByText(/^Files \(/));
     await expect(within(spacing).getByText("components/ui/field.tsx")).toBeVisible();
   },

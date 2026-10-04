@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
+import { PromptInput, PromptInputSubmit, PromptInputTextarea } from "@/components/ui/prompt-input";
+import { SupportMessageBubble } from "@/components/ui/support-message";
 import { RadioGroup, RadioGroupSegment } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -39,6 +41,25 @@ function isAppearance(value: unknown): value is Appearance {
 
 function isCountry(value: unknown): value is (typeof COUNTRIES)[number]["value"] {
   return COUNTRIES.some((option) => option.value === value);
+}
+
+function SupportConversation() {
+  const [text, setText] = useState("");
+  const [messages, setMessages] = useState<{ id: string; text: string }[]>([]);
+  return <div className="grid gap-4">
+    <SupportMessageBubble author="operator" side="customer">How can we help?</SupportMessageBubble>
+    {messages.map((message) => <SupportMessageBubble key={message.id} author="customer" side="customer">{message.text}</SupportMessageBubble>)}
+    <PromptInput onSubmit={(event) => {
+      event.preventDefault();
+      if (!text.trim()) return;
+      setMessages((current) => [...current, { id: crypto.randomUUID(), text }]);
+      setText("");
+    }}>
+      <PromptInputTextarea aria-label="Message support" placeholder="Ask a question" value={text}
+        onChange={(event) => setText(event.currentTarget.value)} />
+      <PromptInputSubmit busy={false} disabled={!text.trim()} onStop={() => {}} />
+    </PromptInput>
+  </div>;
 }
 
 function AccountSettingsComposition({ signOutOpen = false }: { signOutOpen?: boolean }) {
@@ -171,6 +192,11 @@ function AccountSettingsComposition({ signOutOpen = false }: { signOutOpen?: boo
           </Card>
         </section>
 
+        <section className="flex flex-col gap-3" aria-labelledby="composition-account-support">
+          <h2 id="composition-account-support" className="text-lg font-semibold">Support</h2>
+          <Card><CardContent><SupportConversation /></CardContent></Card>
+        </section>
+
         <section className="flex flex-col gap-3" aria-labelledby="composition-account-disclosures">
           <h2 id="composition-account-disclosures" className="text-lg font-semibold">Disclosures &amp; terms</h2>
           <Card>
@@ -213,6 +239,12 @@ export const AccountSettings: Story = {
     await userEvent.click(smallBalances);
     await expect(smallBalances).toHaveAttribute("aria-checked", "false");
     await expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible();
+    const support = canvas.getByRole("region", { name: "Support" });
+    await expect(within(support).getByRole("button", { name: "Send" })).toBeDisabled();
+    await userEvent.type(within(support).getByRole("textbox", { name: "Message support" }), "Where is my deposit?");
+    await userEvent.click(within(support).getByRole("button", { name: "Send" }));
+    await expect(within(support).getByText("Where is my deposit?")).toBeVisible();
+    await expect(within(support).getByRole("textbox", { name: "Message support" })).toHaveValue("");
   },
 };
 
