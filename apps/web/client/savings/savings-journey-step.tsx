@@ -256,7 +256,7 @@ export function SavingsJourneyStep({
       setServerExpiredActionId(null);
       setPreparing(false);
       setStep("confirm");
-    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a stale preparation fenced by a newer journey generation has no state to report
+    } catch (caught) {
       if (generation !== preparation.current) return;
       setPreparedAction(null);
       setError(messageForPrepareError(caught));
@@ -304,7 +304,7 @@ export function SavingsJourneyStep({
       setSubmittedAt(new Date().toISOString());
       setSubmission("submitted");
       setStep("result");
-    } catch (caught) { // oxlint-disable-line home/no-silent-catch -- a stale dispatch fenced by a newer journey generation has no state to report
+    } catch (caught) {
       if (generation !== preparation.current) return;
       if (caught instanceof TransferExecutionError && (caught.reason === "submission-unknown" || caught.reason === "dispatch-unknown")) {
         setAttemptedAction(true);

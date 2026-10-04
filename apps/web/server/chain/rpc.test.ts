@@ -81,6 +81,22 @@ describe("Base RPC client", () => {
     expect(partial).toEqual(["first", null]);
   });
 
+  test.each([true, false])("an unreadable batch envelope uses the partial-mode disposition %p", async (allowPartial) => {
+    const pending = baseRpcBatch([
+      { id: 10, method: "a", params: [] },
+      { id: 11, method: "b", params: [] },
+    ], {
+      rpcUrl: "https://rpc.example.test",
+      allowPartial,
+      fetchImpl: rpcFetch(() => [
+        { jsonrpc: "2.0", id: 10, result: "first" },
+        { jsonrpc: "1.0", id: 11, result: "unreadable" },
+      ]),
+    });
+    if (allowPartial) await expect(pending).resolves.toEqual(["first", null]);
+    else await expect(pending).rejects.toThrow("Base RPC returned an invalid response envelope.");
+  });
+
   test("guards Base chain once per reader", async () => {
     const valid = createBaseRpcClient({
       rpcUrl: "https://rpc.example.test",
