@@ -43,14 +43,14 @@ function Journey({ state = "open", empty = false, draft = false, assistant = "of
   const rows = (filter: "open" | "resolved" | "all", conversation: OperatorSupportConversationResponse["conversation"]) => empty || filter === "resolved" && conversation.status !== "resolved" || filter === "open" && conversation.status !== "open" ? [] : list ? [listRow(conversation), assistantRow] : [listRow(conversation)];
   const transport: OperatorSupportTransport = {
     list: async (filter) => ({ version: SUPPORT_CONTRACT_VERSION, conversations: rows(filter, current.current.conversation), nextCursor: null }),
-    conversation: async (_id, before) => before ? { ...current.current, conversation: { ...current.current.conversation, messages: [{ id: olderMessageId, authorType: "customer", authorOperator: null, status: "sent", body: "Earlier note from the customer.", createdAt: "2026-09-27T11:00:00.000Z" }], messagesNextCursor: null } } : current.current,
+    conversation: async (_id, options) => ({ detail: options?.before ? { ...current.current, conversation: { ...current.current.conversation, messages: [{ id: olderMessageId, authorType: "customer", authorOperator: null, status: "sent", body: "Earlier note from the customer.", createdAt: "2026-09-27T11:00:00.000Z" }], messagesNextCursor: null } } : current.current, etag: null }),
     read: async () => {},
-    reply: async (_id, body) => { current.current = { ...current.current, conversation: { ...current.current.conversation, handler: "operator", messages: [...current.current.conversation.messages, { id: "55555555-5555-4555-8555-555555555555", authorType: "operator", authorOperator: "0x1111111111111111111111111111111111111111", status: "sent", body, createdAt: timestamp }] } }; return current.current; },
-    status: async (_id, status) => { current.current = { ...current.current, conversation: { ...current.current.conversation, status, resolvedAt: status === "resolved" ? timestamp : null } }; return current.current; },
+    reply: async (_id, body) => { current.current = { ...current.current, conversation: { ...current.current.conversation, handler: "operator", messages: [...current.current.conversation.messages, { id: "55555555-5555-4555-8555-555555555555", authorType: "operator", authorOperator: "0x1111111111111111111111111111111111111111", status: "sent", body, createdAt: timestamp }] } }; return { detail: current.current, etag: null }; },
+    status: async (_id, status) => { current.current = { ...current.current, conversation: { ...current.current.conversation, status, resolvedAt: status === "resolved" ? timestamp : null } }; return { detail: current.current, etag: null }; },
     handler: async (_id, handler) => {
       if (assistant === "conflict" && handler === "assistant") { current.current = { ...current.current, conversation: { ...current.current.conversation, assistantAvailable: false } }; throw new SupportConflictError("Can't hand back yet. Reply to the customer first, or check the Support assistant settings."); }
       current.current = { ...current.current, conversation: { ...current.current.conversation, handler } };
-      return current.current;
+      return { detail: current.current, etag: null };
     },
   };
   const conversationId = empty || list ? undefined : id;

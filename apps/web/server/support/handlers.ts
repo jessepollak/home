@@ -1,7 +1,7 @@
 import "server-only";
 
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
-import { SUPPORT_CONTRACT_VERSION, parseCustomerSupportChatRequest, parseCustomerSupportHandoffRequest, parseSupportCredentialPutRequest, parseOperatorSupportHandlerRequest, parseOperatorSupportListQuery, parseOperatorSupportReplyRequest, parseOperatorSupportStatusRequest, parseSupportMessageCursor, parseSupportReadRequest, type SupportAssistantCapability, type SupportErrorCode, type SupportHandler, type SupportStreamData } from "@/shared/support/contract";
+import { SUPPORT_CONTRACT_VERSION, parseCustomerSupportChatRequest, parseCustomerSupportHandoffRequest, parseSupportCredentialPutRequest, parseOperatorSupportHandlerRequest, parseOperatorSupportListQuery, parseOperatorSupportReplyRequest, parseOperatorSupportStatusRequest, parseSupportMessageCursor, parseSupportReadRequest, type OperatorSupportConversationResponse, type SupportAssistantCapability, type SupportErrorCode, type SupportHandler, type SupportStreamData } from "@/shared/support/contract";
 import { createUIMessageStream, createUIMessageStreamResponse, streamText, stepCountIs, tool, type LanguageModel } from "ai";
 import { z } from "zod";
 import { authorizeSession } from "@/server/auth/authorize";
@@ -46,6 +46,15 @@ function fail(route: string, code: SupportErrorCode, status: number, retryAfter?
   return response;
 }
 function noContent(): Response { return new Response(null, { status: 204, headers: privateJson(null, 200).headers }); }
+async function conversationEtag(result: OperatorSupportConversationResponse | null): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(result)));
+  return `"${Buffer.from(digest).toString("base64url")}"`;
+}
+async function conversationJson(result: OperatorSupportConversationResponse | null, status: number): Promise<Response> {
+  const response = privateJson(result, status);
+  response.headers.set("ETag", await conversationEtag(result));
+  return response;
+}
 function getStore(deps: Dependencies): SupportStore | null { return deps.store ? deps.store() : process.env.DATABASE_URL?.trim() ? new SupportStore(getSqlExecutor()) : null; }
 function getAudit(deps: Dependencies): AdminAuditLog { return deps.audit ? deps.audit() : new AdminAuditLog(getSqlExecutor()); }
 function getAssistant(deps: Dependencies): SupportAssistantStore { return deps.assistant ? deps.assistant() : new SupportAssistantStore(getSqlExecutor()); }
@@ -370,7 +379,7 @@ export function createOperatorSupportHandlerHandler(deps: Dependencies = {}) {
     const decision = await access.store.setHandler(id, input.handler);
     if (decision === "not-found") return fail(route, "NOT_FOUND", 404);
     if (decision === "conflict") return fail(route, "SUPPORT_CONFLICT", 409);
-    return privateJson(await access.store.operatorConversation(id, undefined, assistant), 200);
+    return conversationJson(await access.store.operatorConversation(id, undefined, assistant), 200);
   });
 }
 
@@ -418,9 +427,17 @@ export function createOperatorSupportConversationHandler(deps: Dependencies = {}
     if (!cursor) return fail("/api/admin/support/conversations/[id]", "INVALID_REQUEST", 400);
     const customerId = await access.store.customerIdForConversation(id);
     if (!customerId) return fail("/api/admin/support/conversations/[id]", "NOT_FOUND", 404);
-    await getAudit(deps).recordCustomerRead({ actor: access.address, customerId, purpose: "support", repeatWithinSeconds: SUPPORT_VIEW_AUDIT_WINDOW_SECONDS });
     const result = await access.store.operatorConversation(id, cursor.before, await capability(deps));
-    return result ? privateJson(result, 200) : fail("/api/admin/support/conversations/[id]", "NOT_FOUND", 404);
+    if (!result) return fail("/api/admin/support/conversations/[id]", "NOT_FOUND", 404);
+    const etag = await conversationEtag(result);
+    const matches = request.headers.get("If-None-Match")?.split(",").some((entry) => entry.trim().replace(/^W\//, "") === etag);
+    if (matches) {
+      const headers = privateJson(null, 200).headers;
+      headers.set("ETag", etag);
+      return new Response(null, { status: 304, headers });
+    }
+    await getAudit(deps).recordCustomerRead({ actor: access.address, customerId, purpose: "support" });
+    return conversationJson(result, 200);
   });
 }
 export function createOperatorSupportReplyHandler(deps: Dependencies = {}) {
@@ -440,7 +457,7 @@ export function createOperatorSupportReplyHandler(deps: Dependencies = {}) {
     if (sent.outcome === "conflict") return fail("/api/admin/support/conversations/[id]/messages", "SUPPORT_CONFLICT", 409);
     if (sent.outcome === "not-found") return fail("/api/admin/support/conversations/[id]/messages", "NOT_FOUND", 404);
     const result = await access.store.operatorConversation(id, undefined, await capability(deps));
-    return result ? privateJson(result, sent.replayed ? 200 : 201) : fail("/api/admin/support/conversations/[id]/messages", "NOT_FOUND", 404);
+    return result ? conversationJson(result, sent.replayed ? 200 : 201) : fail("/api/admin/support/conversations/[id]/messages", "NOT_FOUND", 404);
   });
 }
 export function createOperatorSupportStatusHandler(deps: Dependencies = {}) {
@@ -460,7 +477,7 @@ export function createOperatorSupportStatusHandler(deps: Dependencies = {}) {
     if (outcome === "conflict") return fail("/api/admin/support/conversations/[id]/status", "SUPPORT_CONFLICT", 409);
     if (outcome === "not-found") return fail("/api/admin/support/conversations/[id]/status", "NOT_FOUND", 404);
     const result = await access.store.operatorConversation(id, undefined, await capability(deps));
-    return result ? privateJson(result, 200) : fail("/api/admin/support/conversations/[id]/status", "NOT_FOUND", 404);
+    return result ? conversationJson(result, 200) : fail("/api/admin/support/conversations/[id]/status", "NOT_FOUND", 404);
   });
 }
 export function createOperatorSupportReadHandler(deps: Dependencies = {}) {
