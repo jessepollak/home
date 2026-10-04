@@ -7,6 +7,7 @@ import { parseActivityPage } from "../../../shared/activity/contract";
 import { parseActivityOrders } from "../../../shared/activity/contract-orders";
 import { sessionBody } from "../fixtures/bodies";
 import { parseAddress } from "../../../shared/chain/hex";
+import { assertFundingProvidersResponse, readProviderBindings } from "../../../shared/funding/contracts/providers";
 
 test("Activity query and bare fixtures cannot shadow the owner-fenced orders route", () => {
   const routes = fixtureRoutes();
@@ -17,6 +18,14 @@ test("Activity query and bare fixtures cannot shadow the owner-fenced orders rou
     smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } })).toEqual([]);
   expect(matching("/api/activity?to=now&currency=USD")).toHaveLength(1);
   expect(matching("/api/activity")).toHaveLength(1);
+});
+
+test.each(["onramp", "offramp"] as const)("funding provider fixtures match only the requested %s direction", (direction) => {
+  const routes = fixtureRoutes().filter(([pattern]) => matches(pattern, `http://localhost:3199/api/funding/providers?region=US&direction=${direction}`));
+  expect(routes).toHaveLength(1);
+  const body = routes[0]?.[1];
+  expect(() => assertFundingProvidersResponse(body, direction, "US")).not.toThrow();
+  expect(readProviderBindings(body)).toEqual([]);
 });
 
 test("card spending fixture parses with the shared response contract", () => {
