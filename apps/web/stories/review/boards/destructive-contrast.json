@@ -1,0 +1,19 @@
+{
+  "id": "destructive-contrast",
+  "title": "Destructive — Light candidates",
+  "summary": "Issue #1920: destructive Badge and Button text on its 10% tint. Production and Dark remain unchanged; adoption waits for Jesse's selection.",
+  "refs": { "issue": 1920 },
+  "sections": [
+    {
+      "id": "surfaces",
+      "title": "Card and page · Light",
+      "note": "Badge and Button text sits on a 10% destructive tint; hover uses 20%. Normal text needs 4.5:1. Light popover (dialogs) equals the card.",
+      "frames": [
+        { "id": "current", "story": "explorations-destructive-contrast--current", "label": "Current · #c8372d · card tint 4.48:1 (fails)", "viewport": "mobile", "change": "unchanged" },
+        { "id": "a", "story": "explorations-destructive-contrast--a", "label": "A · #c33128 · card tint 4.76:1 · page tint 4.38:1", "viewport": "mobile", "change": "new" },
+        { "id": "b", "story": "explorations-destructive-contrast--b", "label": "B · #bd2b23 · card 5.07:1 · page 4.67:1", "viewport": "mobile", "change": "new" },
+        { "id": "c", "story": "explorations-destructive-contrast--c", "label": "C · #b42318 (= --status-negative) · card 5.57:1 · hover 4.68:1", "viewport": "mobile", "change": "new" }
+      ]
+    }
+  ]
+}
