@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { InfiniteQueryObserver, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
+import { InfiniteQueryObserver, replaceEqualDeep, type InfiniteData, type Query, type QueryClient, type QueryKey } from "@tanstack/react-query";
 import {
   compareActivityTransferKeys,
   isVerifiedActivitySession,
   parseActivityPage,
 } from "@/shared/activity/contract";
 import { mergeActivityPages, sameActivityTransfer } from "@/shared/activity/pages";
+import { ACTIVITY_WINDOW_DAYS } from "@/shared/activity/types";
 import type {
   ActivityPage,
   ActivityState,
@@ -77,6 +78,7 @@ type ValuationRetryState = {
 };
 
 const valuationRetries = new WeakMap<Query, ValuationRetryState>();
+const cardReadStartedAt = new WeakMap<object, number>();
 
 function scheduleRetryTimeout(run: () => void, delayMs: number): () => void {
   const timer = setTimeout(run, delayMs);
@@ -158,6 +160,14 @@ function retainFreshCards(
   }, { updatedAt: query.state.dataUpdatedAt });
 }
 
+function firstPageCards(data: unknown): object | undefined {
+  if (!data || typeof data !== "object" || !("pages" in data) || !Array.isArray(data.pages)) return undefined;
+  const first: unknown = data.pages[0];
+  if (!first || typeof first !== "object" || !("cards" in first)) return undefined;
+  const cards: unknown = first.cards;
+  return cards && typeof cards === "object" ? cards : undefined;
+}
+
 function activityQueryOptions(input: {
   session: VerifiedAccountSession | null;
   ownerKey: string;
@@ -166,8 +176,9 @@ function activityQueryOptions(input: {
   fetchActivity: FetchActivity;
   queryClient: QueryClient;
   previousPages?: readonly ActivityPage[];
+  onPartialFirstPage?: (page: ActivityPage) => void;
 }) {
-  const { session, ownerKey, windowEnd, currency, fetchActivity, queryClient, previousPages } = input;
+  const { session, ownerKey, windowEnd, currency, fetchActivity, queryClient, previousPages, onPartialFirstPage } = input;
   return ownerInfiniteQuery<ActivityPage, string | null>({
     owner: session ? ownerKey : null,
     scope: "activity",
@@ -175,6 +186,16 @@ function activityQueryOptions(input: {
     initialPageParam: null,
     retry: false,
     refetchOnWindowFocus: true,
+    structuralSharing: (oldData, newData) => {
+      const shared = replaceEqualDeep(oldData, newData);
+      const cards = firstPageCards(shared);
+      const nextCards = firstPageCards(newData);
+      const readAt = nextCards ? cardReadStartedAt.get(nextCards) : undefined;
+      if (cards && nextCards && cards !== nextCards && readAt !== undefined) {
+        cardReadStartedAt.set(cards, Math.max(readAt, cardReadStartedAt.get(cards) ?? readAt));
+      }
+      return shared;
+    },
     queryFn: async ({ pageParam, queryKey, signal }) => {
       if (!session) throw new Error("Activity is unavailable.");
       const requestedWindow = queryKey[2] as string;
@@ -192,9 +213,11 @@ function activityQueryOptions(input: {
       const hasHealthyHistory = knownPages.some((known) => known.onchainStatus !== "unavailable");
       const readPage = async () => {
         if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+        const startedAt = pageParam ? undefined : Date.now();
         const result = parseActivityPage(
           await fetchActivity(queryString, signal), session, requestedWindow, requestedCurrency,
         );
+        if (result.cards && startedAt !== undefined) cardReadStartedAt.set(result.cards, startedAt);
         if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
         return result;
       };
@@ -209,7 +232,10 @@ function activityQueryOptions(input: {
           const result = await readPage().then((value) => ({ ok: true as const, value }), (error: unknown) => ({ ok: false as const, error }));
           if (!result.ok) {
             if (signal.aborted || !isTransientActivityFailure(result.error) || attempt === activityFirstPageRetryDelaysMs.length) {
-              if (retained) retainFreshCards(queryClient, queryKey, retained.cached, retained.dataUpdateCount, retained.page, signal);
+              if (retained) {
+                retainFreshCards(queryClient, queryKey, retained.cached, retained.dataUpdateCount, retained.page, signal);
+                if (hasHealthyHistory && !signal.aborted) onPartialFirstPage?.(retained.page);
+              }
               throw result.error;
             }
           } else {
@@ -219,6 +245,7 @@ function activityQueryOptions(input: {
             if (attempt === activityFirstPageRetryDelaysMs.length) {
               if (hasHealthyHistory) {
                 retainFreshCards(queryClient, queryKey, cached, dataUpdateCount, page, signal);
+                onPartialFirstPage?.(page);
                 throw new Error("Activity onchain history is unavailable.");
               }
               break;
@@ -245,7 +272,7 @@ export async function refreshLatestActivity(input: {
   fetchActivity: FetchActivity;
   isCurrent: () => boolean;
   onPrefetchKey: (key: QueryKey | null) => void;
-}): Promise<"advanced" | "superseded" | "skipped"> {
+}): Promise<"advanced" | "cards" | "superseded" | "skipped"> {
   const { queryClient, ownerKey, session, regionId, fetchActivity, isCurrent, onPrefetchKey } = input;
   if (!isCurrent()) return "skipped";
   const windowKey = ownerQueryKey(ownerKey, activityWindowScope);
@@ -258,7 +285,11 @@ export async function refreshLatestActivity(input: {
   const boundary = currentPages.length ? mergeActivityPages(currentPages).transfers.at(-1) : undefined;
   const nextEnd = nextActivityWindowEnd(windowEnd);
   const nextKey = ownerQueryKey(ownerKey, "activity", nextEnd, currency, "all");
-  const options = activityQueryOptions({ session, ownerKey, windowEnd: nextEnd, currency, fetchActivity, queryClient, previousPages: currentPages });
+  let partialFirstPage: ActivityPage | undefined;
+  const options = activityQueryOptions({
+    session, ownerKey, windowEnd: nextEnd, currency, fetchActivity, queryClient, previousPages: currentPages,
+    onPartialFirstPage: (page) => { partialFirstPage = page; },
+  });
   onPrefetchKey(nextKey);
   try {
     let next: InfiniteData<ActivityPage> = await queryClient.fetchInfiniteQuery({
@@ -300,6 +331,15 @@ export async function refreshLatestActivity(input: {
       await queryClient.cancelQueries({ queryKey: nextKey, exact: true });
       if (isCurrent()) queryClient.removeQueries({ queryKey: nextKey, exact: true });
     }
+    if (partialFirstPage?.cards !== undefined && isCurrent() && queryClient.getQueryData<string>(windowKey) === windowEnd) {
+      const data = queryClient.getQueryData<InfiniteData<ActivityPage>>(currentKey);
+      if (data?.pages.some((page) => page.currency === currency && page.onchainStatus !== "unavailable")) {
+        activityWindowController(queryClient, ownerKey).recordNewerCards({
+          to: partialFirstPage.window.to, cards: partialFirstPage.cards,
+        });
+        return "cards";
+      }
+    }
     throw error;
   } finally {
     onPrefetchKey(null);
@@ -314,7 +354,8 @@ type ActivityAdvanceInputs = {
 
 type ActivityAdvanceInputsBox = { current: ActivityAdvanceInputs };
 type ActivityLatestFailure = { windowEnd: string; currency: string } | null;
-type ActivityLatestState = { failure: ActivityLatestFailure; busy: boolean };
+type ActivityNewerCards = { to: string; cards: NonNullable<ActivityPage["cards"]>; windowQuery: Query; readAt: number };
+type ActivityLatestState = { failure: ActivityLatestFailure; busy: boolean; newerCards: ActivityNewerCards | null };
 type ActivityRunToken = { epoch: number };
 type ActivityRefreshWaiter = {
   ticket: number;
@@ -332,7 +373,8 @@ class ActivityWindowController {
   epoch = 0;
   dirty = false;
   failure: ActivityLatestFailure = null;
-  latestState: ActivityLatestState = { failure: null, busy: false };
+  newerCards: ActivityNewerCards | null = null;
+  latestState: ActivityLatestState = { failure: null, busy: false, newerCards: null };
   listeners = new Set<() => void>();
   prefetchKey: QueryKey | null = null;
   unregisterAdvancer: (() => void) | null = null;
@@ -348,9 +390,20 @@ class ActivityWindowController {
 
   private publish() {
     const busy = this.active !== null;
-    if (this.latestState.busy === busy && this.latestState.failure === this.failure) return;
-    this.latestState = { failure: this.failure, busy };
+    if (this.latestState.busy === busy && this.latestState.failure === this.failure &&
+      this.latestState.newerCards === this.newerCards) return;
+    this.latestState = { failure: this.failure, busy, newerCards: this.newerCards };
     for (const listener of this.listeners) listener();
+  }
+
+  recordNewerCards(snapshot: Omit<ActivityNewerCards, "windowQuery" | "readAt">) {
+    const windowQuery = this.queryClient.getQueryCache().find({
+      queryKey: ownerQueryKey(this.ownerKey, activityWindowScope), exact: true,
+    });
+    if (!windowQuery) return;
+    if (this.newerCards?.windowQuery === windowQuery && Date.parse(this.newerCards.to) >= Date.parse(snapshot.to)) return;
+    this.newerCards = { ...snapshot, windowQuery, readAt: cardReadStartedAt.get(snapshot.cards) ?? Date.now() };
+    this.publish();
   }
 
   setFailure(failure: ActivityLatestFailure) {
@@ -440,6 +493,7 @@ class ActivityWindowController {
       let runCurrency: string | null = null;
       let attemptedWindow = initialActivityWindowEnd();
       let failed = false;
+      let cardsOnly = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const inputs = this.latestInputs();
@@ -483,6 +537,7 @@ class ActivityWindowController {
             this.prefetchKey = null;
           }
           if (result === "superseded" || (result === "skipped" && inputsChanged && !timedOut) || this.currentCurrency() !== runCurrency) continue;
+          cardsOnly = result === "cards";
           failed = result === "failed" || result === "timed-out";
           if (failed && this.queryClient.getQueryData<string>(ownerQueryKey(this.ownerKey, activityWindowScope)) !== attemptedWindow) continue;
         }
@@ -501,7 +556,7 @@ class ActivityWindowController {
       const settled = this.waiters.filter((waiter) => waiter.epoch === token.epoch && waiter.ticket <= target);
       this.waiters = this.waiters.filter((waiter) => waiter.epoch !== token.epoch || waiter.ticket > target);
       for (const waiter of settled) {
-        if (failed) waiter.reject(new Error("Latest activity refresh unavailable."));
+        if (failed || cardsOnly) waiter.reject(new Error("Latest activity refresh unavailable."));
         else waiter.resolve();
       }
       if (this.requested > this.served) continue;
@@ -532,11 +587,13 @@ function activityWindowController(queryClient: QueryClient, ownerKey: string): A
 export function refreshActivityThroughController(input: Parameters<typeof refreshLatestActivity>[0]): Promise<void> {
   const controller = activityWindowControllers.get(input.queryClient)?.get(input.ownerKey);
   if (controller && controller.observers.size > 0) return controller.refresh();
-  return refreshLatestActivity(input).then(() => undefined);
+  return refreshLatestActivity(input).then((result) => {
+    if (result === "cards") throw new Error("Latest activity refresh unavailable.");
+  });
 }
 
 const subscribeWithoutOwner = () => () => {};
-const idleLatestState = Object.freeze<ActivityLatestState>({ failure: null, busy: false });
+const idleLatestState = Object.freeze<ActivityLatestState>({ failure: null, busy: false, newerCards: null });
 const latestStateWithoutOwner = () => idleLatestState;
 
 export type ActivityRetrySchedules = {
@@ -567,6 +624,9 @@ export function useActivity(
     queryFn: async () => ownerKey ? initialActivityWindowEnd() : "",
   }));
   const windowEnd = windowQuery.data ?? "";
+  const activityWindowQuery = ownerKey
+    ? queryClient.getQueryCache().find({ queryKey: ownerQueryKey(ownerKey, activityWindowScope), exact: true })
+    : undefined;
   const activityQueryKey = useMemo(() => ownerKey
     ? ownerQueryKey(ownerKey, "activity", windowEnd, currency, "all")
     : ["unauthenticated", "activity-disabled"], [ownerKey, windowEnd, currency]);
@@ -588,6 +648,32 @@ export function useActivity(
     controller?.getLatestState ?? latestStateWithoutOwner,
     controller?.getLatestState ?? latestStateWithoutOwner,
   );
+  const currentReadAt = mergedPage?.cards ? cardReadStartedAt.get(mergedPage.cards) : undefined;
+  const page = useMemo<ActivityPage | null>(() => {
+    const snapshot = state.newerCards;
+    if (!mergedPage || !snapshot || snapshot.windowQuery !== activityWindowQuery ||
+      Date.parse(snapshot.to) <= Date.parse(mergedPage.window.to)) return mergedPage;
+    const currentCards = new Map(mergedPage.cards?.rows.map((row) => [row.id, row]));
+    const currentWindowTo = Date.parse(mergedPage.window.to);
+    const currentWindowFrom = currentWindowTo - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const canReconcileMissing = mergedPage.cards?.status === "ready" && mergedPage.cards.rows.length < 50 &&
+      currentReadAt !== undefined && currentReadAt > snapshot.readAt;
+    return {
+      ...mergedPage,
+      cards: {
+        status: snapshot.cards.status === "unavailable" || mergedPage.cards?.status === "unavailable"
+          ? "unavailable" : "ready",
+        rows: snapshot.cards.rows.filter((row) => {
+          const createdAt = Date.parse(row.createdAt);
+          return !(canReconcileMissing && createdAt >= currentWindowFrom && createdAt < currentWindowTo &&
+            !currentCards.has(row.id));
+        }).map((row) => {
+          const current = currentCards.get(row.id);
+          return current && Date.parse(current.updatedAt) > Date.parse(row.updatedAt) ? current : row;
+        }),
+      },
+    };
+  }, [mergedPage, state.newerCards, activityWindowQuery, currentReadAt]);
   const latestUnavailable = Boolean(ownerKey && state.failure?.windowEnd === windowEnd && state.failure.currency === currency);
   const latestBusy = Boolean(ownerKey && state.busy);
   const observerId = useRef(Symbol());
@@ -899,7 +985,7 @@ export function useActivity(
       retry, refresh, setSentinelVisible, retryLoadMore,
     };
   }
-  if (!mergedPage) {
+  if (!page) {
     return {
       status: "error", page: null, loadingMore: false,
       refreshing: query.isFetching || query.isPaused || latestBusy,
@@ -910,7 +996,7 @@ export function useActivity(
   }
   return {
     status: "ready",
-    page: mergedPage,
+    page,
     refreshing: query.isFetching || query.isPaused || latestBusy,
     failed: query.isError,
     loadingMore: query.isFetchingNextPage,
