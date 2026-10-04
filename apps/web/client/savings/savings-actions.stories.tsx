@@ -333,6 +333,7 @@ export const Submitting: Story = {
 };
 
 export const Delayed: Story = {
+  parameters: { a11y: { test: "error" } },
   args: { executeMoneyAction: submittedExecution, fetchAccountResource: storyActions("pending") },
   play: async ({ canvasElement }) => {
     const screen = await enterAmountAndContinue(canvasElement);
