@@ -149,9 +149,27 @@ describePostgres("actions schema and store", () => {
       await sql.query("UPDATE actions SET confirmed_at = now() - $2::interval WHERE id = $1", [id, id === olderId ? "25 hours" : "23 hours 30 minutes"]);
     }
     const retained = await store.listRetainedSavingsDeposits(owner);
-    expect(retained).toHaveLength(RETAINED_SAVINGS_DEPOSITS_LIMIT);
+    expect(retained).toHaveLength(RETAINED_SAVINGS_DEPOSITS_LIMIT + 1);
     expect(retained[0]?.id).toBe(olderId);
+    expect(retained.slice(1).map(({ id }) => id).sort()).toEqual([...overlapIds].sort());
     expect(retained.every(({ outcome }) => outcome === null)).toBe(true);
+    expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([...overlapIds].sort());
+  });
+  test("retains an older recently recorded outcome alongside 20 unresolved overlap rows", async () => {
+    const overlapIds = Array.from({ length: 20 }, () => randomUUID());
+    const olderId = randomUUID();
+    for (const id of [...overlapIds, olderId]) {
+      await store.insert({ id, owner, kind: "savings-deposit", summary, pending: { calls }, createdAt: new Date().toISOString() });
+      await store.confirm(owner, id);
+      await store.recordHandle(owner, id, { providerHandle: `0x${"ab".repeat(32)}` });
+      await sql.query("UPDATE actions SET confirmed_at = now() - $2::interval WHERE id = $1", [id, id === olderId ? "25 hours" : "23 hours 30 minutes"]);
+    }
+    await store.recordOutcome(owner, olderId, { outcome: "succeeded", source: "chain", settledAt: new Date() });
+    await sql.query("UPDATE actions SET outcome_recorded_at = now() - interval '1 hour' WHERE id = $1", [olderId]);
+    const retained = await store.listRetainedSavingsDeposits(owner);
+    expect(retained).toHaveLength(RETAINED_SAVINGS_DEPOSITS_LIMIT + 1);
+    expect(retained.slice(0, RETAINED_SAVINGS_DEPOSITS_LIMIT).map(({ id }) => id).sort()).toEqual([...overlapIds].sort());
+    expect(retained.at(-1)).toMatchObject({ id: olderId, outcome: "succeeded" });
     expect((await store.list(owner)).map(({ id }) => id).sort()).toEqual([...overlapIds].sort());
   });
   test("prioritizes an older unresolved deposit over 20 newer recently recorded outcomes", async () => {

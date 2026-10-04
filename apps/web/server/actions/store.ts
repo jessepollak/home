@@ -591,13 +591,23 @@ export class ActionsStore {
 
   async listRetainedSavingsDeposits(owner: MoneyActionOwner): Promise<ActionRow[]> {
     const result = await this.sql.query<RawActionRow>(
-      `SELECT * FROM actions
-       WHERE owner_key = $1 AND kind = 'savings-deposit' AND confirmed_at IS NOT NULL
-         AND confirmed_at < now() - interval '23 hours'
-         AND confirmed_at >= now() - interval '30 days'
-         AND (outcome IS NULL OR outcome_recorded_at >= now() - interval '24 hours')
-         AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
-       ORDER BY (outcome IS NULL) DESC, (confirmed_at < now() - interval '24 hours') DESC, confirmed_at DESC LIMIT ${RETAINED_SAVINGS_DEPOSITS_LIMIT}`,
+      `SELECT * FROM (
+         (SELECT * FROM actions
+          WHERE owner_key = $1 AND kind = 'savings-deposit' AND confirmed_at IS NOT NULL
+            AND confirmed_at < now() - interval '24 hours'
+            AND confirmed_at >= now() - interval '30 days'
+            AND (outcome IS NULL OR outcome_recorded_at >= now() - interval '24 hours')
+            AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
+          ORDER BY (outcome IS NULL) DESC, confirmed_at DESC LIMIT ${RETAINED_SAVINGS_DEPOSITS_LIMIT})
+         UNION ALL
+         (SELECT * FROM actions
+          WHERE owner_key = $1 AND kind = 'savings-deposit' AND confirmed_at IS NOT NULL
+            AND confirmed_at >= now() - interval '24 hours'
+            AND confirmed_at < now() - interval '23 hours'
+            AND (outcome IS NULL OR outcome_recorded_at >= now() - interval '24 hours')
+            AND (provider_handle IS NOT NULL OR transaction_hash IS NOT NULL)
+          ORDER BY (outcome IS NULL) DESC, confirmed_at DESC LIMIT ${RETAINED_SAVINGS_DEPOSITS_LIMIT})
+       ) retained ORDER BY (outcome IS NULL) DESC, (confirmed_at < now() - interval '24 hours') DESC, confirmed_at DESC`,
       [actionOwnerKey(owner)],
       { timeoutMs: 5_000 },
     );
