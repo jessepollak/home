@@ -8,7 +8,7 @@ PRs that change user-visible UI or core flows. Skip docs-only, CI-only, and pure
 
 ## What
 
-Keep `## Preview` visible after the short `## Review` brief. Its first line is the managed **Review board** link on the PR's current Storybook deployment (see [Storybook links](#storybook-links)). Keep the Home **Vercel preview link** (posted automatically on every PR) as the primary implementation proof. Add to Preview:
+Keep `## Preview` visible after the short `## What changes` brief. Its first line is the managed **Review board** link on the PR's current Storybook deployment (see [Storybook links](#storybook-links)). Keep the Home **Vercel preview link** (posted automatically on every PR) as the primary implementation proof. Add to Preview:
 
 - **Non-motion UI:** retain screenshots that help review the changed route on the current head; ~390px is the default mobile viewport. The comparison is adaptive, not a fixed before/after matrix.
 - **Motion / animation:** retain a short video or GIF (roughly 30 seconds or less) when stills cannot show the transition — timing, interruption, or gesture reversal.
@@ -67,12 +67,12 @@ Without declared stories, the top Changes-board link appears for design PRs or P
 
 ### Review findings
 
-Keep findings separate from the screenshot tables. When a user-visible PR records review findings, publish them in their own table inside Evidence, not Preview:
+Keep findings separate from the screenshot tables, inside Evidence, not Preview. Count fixed findings in one `Review:` line; list only declined, deferred, or open findings in their own table:
 
 | Severity | Evidence | Judgment / action |
 |---|---|---|
-| major | Recovery CTA is obscured in the PR-head screenshot; `file:line` identifies the owned component | Fix before approval |
-| minor | Press state reads slow in the motion clip at 0:02 | Follow-up issue, or accept with reason |
+| major | Recovery CTA is obscured in the PR-head screenshot; `file:line` identifies the owned component | Open: blocks approval |
+| minor | Press state reads slow in the motion clip at 0:02 | Deferred to the area's debt issue, or declined with reason |
 
 Severity is `blocker`, `major`, or `minor` for actionable defects. Review against the [issue's design scope](../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and acceptance criteria:
 
