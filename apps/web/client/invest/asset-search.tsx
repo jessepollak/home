@@ -98,10 +98,9 @@ export function AssetSearch({ initialQuery, initialScrollTop = 0, initialResultI
       <div className={`${shellFrameClassName} py-4 sm:py-6`}><AssetSearchResults query={query} composing={composing} search={{ ...search, results }}
         markets={markets} assetMarkResolution={assetMarkResolution} onOpenAsset={(asset) => onOpenAsset(asset.id, query, scrollRef.current?.scrollTop ?? 0)} /></div>
     </div>
-    <ShellSearchBar>
-      <ShellSearchField inputRef={inputRef} onInputReady={onInputReady} query={query} onQueryChange={(next) => { restoreRef.current = null; setQuery(next); if (scrollRef.current) scrollRef.current.scrollTop = 0; }}
-        onComposingChange={setComposing} maxLength={INVEST_SEARCH_QUERY_MAX_LENGTH} />
-      <ShellSearchControl close onClick={onClose} />
-    </ShellSearchBar>
+    <ShellSearchBar
+      field={<ShellSearchField inputRef={inputRef} onInputReady={onInputReady} query={query} onQueryChange={(next) => { restoreRef.current = null; setQuery(next); if (scrollRef.current) scrollRef.current.scrollTop = 0; }}
+        onComposingChange={setComposing} maxLength={INVEST_SEARCH_QUERY_MAX_LENGTH} />}
+      action={<ShellSearchControl close onClick={onClose} />} />
   </ShellSearchSurface>;
 }

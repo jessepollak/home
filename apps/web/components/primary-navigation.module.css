@@ -114,6 +114,17 @@
   .navigation :active > .content { scale: .95; transition-duration: 0ms; }
   .navigation[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
   .group[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
+  .navigation.withSearch { transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), scale 300ms cubic-bezier(.4, 0, .2, 1); }
+  .group[data-search-open] > .navigation { scale: .9; pointer-events: none; }
+  .searchMorphOrigin { transition: opacity 0ms linear 300ms; }
+  .group[data-search-open] > .searchMorphOrigin { opacity: 0; transition: none; }
+  .searchMorphField {
+    margin-inline-start: calc((100% - var(--spacing-shell-mobile-navigation)) * var(--search-morph-rest, 0));
+    margin-inline-end: calc(-1 * (var(--spacing-shell-mobile-navigation) + .5rem) * var(--search-morph-rest, 0));
+  }
+  .shellSearchField { overflow: hidden; }
+  .searchMorphContent { margin-inline-start: calc((var(--spacing-shell-mobile-navigation) / 2 - 1.625rem) * var(--search-morph-rest, 0)); }
+  .searchMorphAction { opacity: calc(1 - 1.75 * var(--search-morph-rest, 0)); }
 }
 
 @media (max-width: 63.9375rem) and (hover: hover) {
@@ -121,7 +132,8 @@
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
-  .navigation, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
+  .navigation, .navigation.withSearch, .searchMorphOrigin, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
+  .group[data-search-open] > .navigation { scale: 1; }
   .navigation :active > .content { scale: 1; }
 }
 

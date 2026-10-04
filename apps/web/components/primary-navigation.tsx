@@ -125,6 +125,8 @@ export function PrimaryNavigation({
   const NavLens = useNavLens();
   const navigationLens = visibleItems.length > 1 ? NavLens : null;
   const [lensReady, setLensReady] = useState(false);
+  const chromeHidden = keyboardOpen || searchOpen;
+  const keyboardHidden = keyboardOpen && !searchOpen;
 
   const activeIndex = (isAccountSettingsOpen || searchOpen) && layout === "rail" ? -1 : visibleItems.findIndex((item) =>
     activeNavigation === item.id ||
@@ -225,14 +227,14 @@ export function PrimaryNavigation({
   }
 
   return (
-    <div aria-hidden={keyboardOpen ? true : undefined} inert={keyboardOpen} data-keyboard-hidden={keyboardOpen ? "true" : undefined}
-      className={`${onOpenSearch ? `${styles.group} fixed inset-x-0 z-30 flex items-center justify-center gap-2` : "contents"} lg:hidden ${shellChromeCompensationClassName}`}>
+    <div aria-hidden={chromeHidden ? true : undefined} inert={chromeHidden} data-keyboard-hidden={keyboardHidden ? "true" : undefined}
+      data-search-open={searchOpen ? "" : undefined} className={`${onOpenSearch ? `${styles.group} fixed inset-x-0 z-30 flex items-center justify-center gap-2` : "contents"} lg:hidden ${shellChromeCompensationClassName}`}>
       <nav
         ref={navRef}
         aria-label="Main navigation"
-        aria-hidden={keyboardOpen ? true : undefined}
-        inert={keyboardOpen}
-        data-keyboard-hidden={keyboardOpen ? "true" : undefined}
+        aria-hidden={chromeHidden ? true : undefined}
+        inert={chromeHidden}
+        data-keyboard-hidden={keyboardHidden ? "true" : undefined}
         data-navigation-items={visibleItems.length}
         data-lens={navigationLens && lensReady ? "ready" : undefined}
         style={navigationStyle}
@@ -272,7 +274,7 @@ export function PrimaryNavigation({
           createElement(navigationLens, { items: lensItems, target: lensTarget, reducedMotion: prefersReducedMotion, onReadyChange: setLensReady })
         ) : null}
       </nav>
-      {onOpenSearch ? <ShellSearchControl data-shell-search-opener="" data-breakpoint-peer="asset-search" aria-expanded={searchOpen} aria-controls="asset-search-surface"
+      {onOpenSearch ? <ShellSearchControl morphOrigin data-shell-search-opener="" data-breakpoint-peer="asset-search" aria-expanded={searchOpen} aria-controls="asset-search-surface"
         onClick={(event) => onOpenSearch(event.currentTarget)} /> : null}
     </div>
   );

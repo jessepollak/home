@@ -591,7 +591,7 @@ function DashboardShellBody({
               </section>}
           </div>
         </main>
-        {!isSignedOut && !searchOpen ? <PrimaryNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} onOpenSearch={searchAvailable ? openSearch : undefined} /> : null}
+        {!isSignedOut ? <PrimaryNavigation activeNavigation={activeNavigation} cardsEnabled={cardsEnabled} onNavigate={navigateTo} onOpenSearch={searchAvailable ? openSearch : undefined} searchOpen={searchOpen} /> : null}
         <AnimatePresence key={`${pathname}:${account.ownerKey}:${searchAvailable}:${isSignedOut}`}>
           {searchOpen && searchContent ? <ShellSearchSlot key="search" content={searchContent} initialQuery={overlay.search ?? ""} initialScrollTop={searchEntry?.state.assetSearchScrollTop ?? 0} initialResultId={searchEntry?.state.assetSearchResult ?? null} onInputReady={onSearchInputReady} onClose={closeSearch} onQueryCommit={commitSearchQuery} onOpenAsset={openSearchAsset} /> : null}
         </AnimatePresence>
