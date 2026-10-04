@@ -257,7 +257,7 @@ function actionItem(operation: RecentMoneyActionOperation, transfers: readonly A
       const quote = reviewedQuote(metadata);
       facts.push(
         { label: "Payout handle", value: metadata.canonicalHandle },
-        { label: "You receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) },
+        { label: "You receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel, options.regionId) },
         { label: "Arrives", value: formatCashoutArrival(quote.arrival) },
       );
     }
@@ -353,7 +353,7 @@ function cashoutItem(
   if (view.metadata) {
     facts.push(
       { label: "Payout handle", value: view.metadata.canonicalHandle },
-      { label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(reviewedQuote(view.metadata).receive, view.metadata.platformLabel) },
+      { label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(reviewedQuote(view.metadata).receive, view.metadata.platformLabel, options.regionId) },
     );
   }
   if (prospective) {
@@ -458,7 +458,7 @@ function cashoutOrderItem(order: ActivityCashoutOrder, withdraw: RecentMoneyActi
   const metadata = reviewed?.action.metadata;
   if (reviewed?.action.kind === "cash-out" && metadata?.product === "cashout" && metadata.operation === "deposit") {
     const quote = reviewedQuote(metadata);
-    facts.push({ label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel) });
+    facts.push({ label: prospective ? "You receive" : "Quoted receive", value: formatCashoutReceive(quote.receive, metadata.platformLabel, options.regionId) });
     if (prospective) {
       facts.push({ label: "Arrives", value: formatCashoutArrival(quote.arrival) });
     }
