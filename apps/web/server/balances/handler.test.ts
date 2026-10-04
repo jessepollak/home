@@ -15,6 +15,22 @@ const verified = {
 };
 
 describe("balances handler", () => {
+  test("a synchronous subscription refresh failure does not fail the balances response", async () => {
+    let attempts = 0;
+    const handler = createBalancesHandler({
+      authorize: async () => verified,
+      readBalances: async () => balancesSnapshotFixture,
+      ensureAddressSubscribed: () => { attempts += 1; throw new Error("subscription unavailable"); },
+    });
+    const response = await handler(new Request("https://home.test/api/balances?region=US"));
+    expect(attempts).toBe(1);
+    expect(response.status).toBe(200);
+    expect(parseBalancesSnapshot(await response.json(), {
+      subject: verified.user.subject,
+      smartAccountAddress: verified.smartAccount.address,
+      chainId: 8453,
+    }, "US")).toEqual(balancesSnapshotFixture);
+  });
   test.each([
     [
       "invalid region",

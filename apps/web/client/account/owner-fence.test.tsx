@@ -216,6 +216,70 @@ afterEach(() => {
 });
 
 describe("owner generation fence", () => {
+  test("repeated lost-identity cleanup joins the pending cleanup and reports its rejection once", async () => {
+    let invalidate: () => void = () => { throw new Error("Base account invalidation was not registered."); };
+    let rejectCleanup: (error: Error) => void = () => { throw new Error("Cleanup rejection was not registered."); };
+    const cleanupResult = new Promise<void>((_resolve, reject) => { rejectCleanup = reject; });
+    let cleanups = 0;
+    let errorTransitions = 0;
+    function ErrorProbe() {
+      const account = useAccountWallet();
+      useEffect(() => { if (account.status === "signout-error") errorTransitions += 1; }, [account.status]);
+      return <ClientProbe />;
+    }
+    render(<AccountWalletSessionOwner
+      sdk={sdk({ signOut: () => { cleanups += 1; return cleanupResult; } })}
+      baseAccountEnabled
+      sessionFetch={async () => Response.json(session("base-account"))}
+      baseAccountRestorer={async (onInvalidated) => {
+        invalidate = () => onInvalidated("account-changed");
+        return {
+          kind: "unsupported", address: ADDRESS_A,
+          assertUnchanged: async () => {}, signMessage: async () => "0x1234",
+          signTypedData: async () => "0x1234", disconnect: async () => {},
+        };
+      }}
+    ><ErrorProbe /></AccountWalletSessionOwner>);
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    await act(async () => { invalidate(); });
+    expect(currentClient().status).toBe("signing-out");
+    expect(cleanups).toBe(1);
+    await act(async () => { invalidate(); });
+    expect(currentClient().status).toBe("signing-out");
+    expect(currentClient().session).toBeNull();
+    expect(cleanups).toBe(1);
+    await act(async () => { rejectCleanup(new Error("cleanup unavailable")); });
+    expect(currentClient().status).toBe("signout-error");
+    expect(currentClient().message).toBe("Sign-out did not finish. Retry sign out.");
+    expect(currentClient().session).toBeNull();
+    expect(errorTransitions).toBe(1);
+    expect(cleanups).toBe(1);
+  });
+
+  test("a superseded verification rejection cannot overwrite a newer verified session", async () => {
+    let rejectOld: (error: Error) => void = () => { throw new Error("Old verification was not started."); };
+    let oldSignal: AbortSignal | undefined;
+    let reads = 0;
+    const newer = session("cdp-embedded", "subject-b", ADDRESS_B);
+    const sessionFetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      reads += 1;
+      if (reads === 1) {
+        oldSignal = init?.signal ?? undefined;
+        return new Promise<Response>((_resolve, reject) => { rejectOld = reject; });
+      }
+      return Response.json(newer);
+    };
+    const owner = (boundary: AccountWalletSdkBoundary) => <AccountWalletSessionOwner sdk={boundary} sessionFetch={sessionFetch}><ClientProbe /></AccountWalletSessionOwner>;
+    const view = render(owner(sdk()));
+    await waitFor(() => expect(reads).toBe(1));
+    act(() => { view.rerender(owner(sdk({ ownerKey: OWNER_B }))); });
+    await waitFor(() => expect(currentClient().status).toBe("verified"));
+    expect(oldSignal?.aborted).toBe(true);
+    await act(async () => { rejectOld(new Error("old verification unavailable")); });
+    expect(currentClient().status).toBe("verified");
+    expect(currentClient().session).toEqual(newer);
+    expect(currentClient().message).toBeNull();
+  });
   test.each([false, true])("native restore removes the duplicate GET and preserves the wallet address check (mismatch=%s)", async (mismatch) => {
     let reads = 0;
     const sessionFetch = async () => { reads++; return Response.json(session("base-account")); };

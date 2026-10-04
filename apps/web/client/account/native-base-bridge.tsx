@@ -52,7 +52,7 @@ export function useNativeBaseIdentity(
         if (signal?.aborted || sequence !== restoreSequence.current) return;
         setIdentity(session);
       },
-      () => { // oxlint-disable-line home/no-silent-catch -- a superseded restore must not overwrite the newer attempt's state; the current attempt reports provider-unavailable
+      () => {
         if (signal?.aborted || sequence !== restoreSequence.current) return;
         setIdentity(null);
         setInitializationError("provider-unavailable");

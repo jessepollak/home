@@ -22,6 +22,20 @@ describe("Base funding receipt verification", () => {
     }
   });
 
+  test("skips a malformed transfer amount and matches a later valid log", async () => {
+    const asset = fundingAssets["base:idrx"];
+    const log = {
+      address: asset.address,
+      topics: [transfer, `0x${"0".repeat(64)}`, `0x${destination.slice(2).padStart(64, "0")}`],
+    };
+    await expect(verifyBaseFundingReceipt(order(asset.id), hash, {}, response(asset.address, {
+      logs: [
+        { ...log, data: "0xnot-hex", logIndex: "0x2" },
+        { ...log, data: "0x1e8480", logIndex: "0x4" },
+      ],
+    }))).resolves.toEqual({ transactionHash: hash, logIndex: 4 });
+  });
+
   test("requires the exact asset, destination, amount and creation block", async () => {
     const asset = fundingAssets["base:idrx"];
     expect(await verifyBaseFundingReceipt(order(asset.id), hash, {}, response(asset.address, { blockNumber: "0x63" }))).toBeNull();
