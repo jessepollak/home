@@ -3,7 +3,7 @@
 }
 
 @media (max-width: 63.9375rem) {
-  .navigation {
+  .navigation, .glass {
     --glass-tint-top: color-mix(in oklch, var(--background) 12%, transparent);
     --glass-tint-bottom: color-mix(in oklch, var(--background) 22%, transparent);
     --glass-tone: saturate(150%) brightness(1.08);
@@ -23,15 +23,20 @@
     --glass-lens-specular: oklch(1 0 0 / 85%);
     --glass-lens-shine: oklch(1 0 0 / 90%);
     --glass-lens-lift-shadow: 0 0 0 .5px color-mix(in oklch, var(--foreground) 12%, transparent), 0 1px 2px oklch(0 0 0 / 8%), 0 6px 14px -4px oklch(0 0 0 / 18%);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .navigation {
     width: calc(6rem * var(--navigation-items, 2));
     max-width: calc(100% - 2rem);
     height: var(--spacing-shell-mobile-navigation);
-    bottom: calc(var(--shell-navigation-offset) + var(--shell-viewport-overhang));
+    bottom: var(--shell-navigation-offset);
+    transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
     box-shadow: var(--glass-shadow);
-    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), transform 150ms cubic-bezier(.4, 0, .2, 1);
+    transition: opacity 150ms cubic-bezier(.4, 0, .2, 1);
   }
 
-  :global(.dark) .navigation {
+  :global(.dark) .navigation, :global(.dark) .glass {
     --glass-tint-top: color-mix(in oklch, var(--secondary) 14%, transparent);
     --glass-tint-bottom: color-mix(in oklch, var(--secondary) 24%, transparent);
     --glass-tone: saturate(170%) brightness(.78);
@@ -50,6 +55,27 @@
     --glass-lens-lift-shadow: 0 0 0 .5px oklch(0 0 0 / 40%), 0 6px 14px -4px oklch(0 0 0 / 45%);
   }
 
+  .navigation.withSearch {
+    width: calc(6rem * var(--navigation-items, 2));
+    max-width: calc(100% - var(--spacing-shell-mobile-navigation) - .5rem);
+    margin-inline: 0;
+    position: relative;
+    inset: auto;
+    transform: none;
+    flex-shrink: 1;
+  }
+
+  .group, .assetSearchBar { --shell-frame-inset: 1rem; }
+
+  .group {
+    bottom: var(--shell-navigation-offset);
+    padding-inline: var(--shell-frame-inset);
+    transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
+  }
+
+  .assetSearchBar {
+    inset-inline: var(--shell-frame-inset);
+  }
   .navigation[data-glass-rim] { --glass-filter: var(--glass-rim-lens) var(--glass-tone); }
 
   .pill {
@@ -93,7 +119,48 @@
 
   .content { transition: scale 140ms ease-out; }
   .navigation :active > .content { scale: .95; transition-duration: 0ms; }
-  .navigation[data-keyboard-hidden="true"] { opacity: 0; transform: translateY(.5rem); pointer-events: none; }
+  .navigation[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
+  .group[data-keyboard-hidden="true"] { opacity: 0; pointer-events: none; }
+  .navigation.withSearch { transition: opacity 150ms cubic-bezier(.4, 0, .2, 1), box-shadow 150ms cubic-bezier(.4, 0, .2, 1); }
+  .group[data-search-open] > .navigation { box-shadow: 0 0 0 transparent; pointer-events: none; }
+  .group[data-search-open] > .navigation > * { opacity: 0; transition: opacity 150ms cubic-bezier(.4, 0, .2, 1); }
+  .searchMorphOrigin { transition: opacity 0ms linear 300ms; }
+  .group[data-search-open] > .searchMorphOrigin { opacity: 0; transition: none; }
+  .shellSearchField { overflow: hidden; }
+  .searchMorphField {
+    --search-morph-cap: calc(var(--spacing-shell-mobile-navigation) / 2);
+    --search-morph-shift: calc(var(--spacing-shell-mobile-navigation) + .5rem);
+    transform: translate3d(0, 0, 0);
+    transition: transform 300ms cubic-bezier(.4, 0, .2, 1);
+  }
+  .searchMorphField > .shellSearchField {
+    box-shadow: none;
+    clip-path: inset(-1px round calc(var(--search-morph-cap) + 1px));
+    transition: clip-path 300ms cubic-bezier(.4, 0, .2, 1);
+  }
+  .searchMorphShadow { opacity: 1; transition: opacity 120ms ease-out 180ms; }
+  .searchMorphField .searchMorphContent { transform: translate3d(0, 0, 0); transition: transform 300ms cubic-bezier(.4, 0, .2, 1); }
+  .searchMorphAction { opacity: 1; transition: opacity 160ms ease-out 140ms; }
+  [data-search-morph="closed"] > .searchMorphField { transform: translate3d(var(--search-morph-shift), 0, 0); }
+  [data-search-morph="closed"] > .searchMorphField > .shellSearchField { clip-path: inset(-1px -1px -1px calc(100% - var(--spacing-shell-mobile-navigation) - 1px) round calc(var(--search-morph-cap) + 1px)); }
+  [data-search-morph="closed"] > .searchMorphField .searchMorphContent { transform: translate3d(calc(100% + 2rem - var(--search-morph-cap) - 1.625rem), 0, 0); }
+  [data-search-morph="closed"] > .searchMorphAction, [data-search-morph="closed"] > .searchMorphField > .searchMorphShadow { opacity: 0; transition: opacity 100ms ease-in; }
+  [data-search-morph="closed"] > .searchMorphField:dir(rtl) { transform: translate3d(calc(-1 * var(--search-morph-shift)), 0, 0); }
+  [data-search-morph="closed"] > .searchMorphField > .shellSearchField:dir(rtl) { clip-path: inset(-1px calc(100% - var(--spacing-shell-mobile-navigation) - 1px) -1px -1px round calc(var(--search-morph-cap) + 1px)); }
+  [data-search-morph="closed"] > .searchMorphField .searchMorphContent:dir(rtl) { transform: translate3d(calc(-1 * (100% + 2rem - var(--search-morph-cap) - 1.625rem)), 0, 0); }
+  @starting-style {
+    .searchMorphField { transform: translate3d(var(--search-morph-shift), 0, 0); }
+    .searchMorphField > .shellSearchField { clip-path: inset(-1px -1px -1px calc(100% - var(--spacing-shell-mobile-navigation) - 1px) round calc(var(--search-morph-cap) + 1px)); }
+    .searchMorphField .searchMorphContent { transform: translate3d(calc(100% + 2rem - var(--search-morph-cap) - 1.625rem), 0, 0); }
+    .searchMorphAction, .searchMorphShadow { opacity: 0; }
+    .searchMorphField:dir(rtl) { transform: translate3d(calc(-1 * var(--search-morph-shift)), 0, 0); }
+    .searchMorphField > .shellSearchField:dir(rtl) { clip-path: inset(-1px calc(100% - var(--spacing-shell-mobile-navigation) - 1px) -1px -1px round calc(var(--search-morph-cap) + 1px)); }
+    .searchMorphField .searchMorphContent:dir(rtl) { transform: translate3d(calc(-1 * (100% + 2rem - var(--search-morph-cap) - 1.625rem)), 0, 0); }
+  }
+}
+
+@media (min-width: 40rem) and (max-width: 63.9375rem) {
+  .group, .assetSearchBar { --shell-frame-inset: max(0px, (100% - 42rem) / 2); }
 }
 
 @media (max-width: 63.9375rem) and (hover: hover) {
@@ -101,9 +168,9 @@
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-motion: reduce) {
-  .navigation, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
+  .navigation, .navigation.withSearch, .searchMorphOrigin, .motionReady > .pill, .content, .pill, .navigation[data-lens] > .pill, .navigation[data-lens] > button > .content { transition: none; }
+  .group[data-search-open] > .navigation > *, .searchMorphField, .searchMorphField > .shellSearchField, .searchMorphShadow, .searchMorphField .searchMorphContent, .searchMorphAction, [data-search-morph="closed"] > .searchMorphAction, [data-search-morph="closed"] > .searchMorphField > .searchMorphShadow { transition: none; }
   .navigation :active > .content { scale: 1; }
-  .navigation[data-keyboard-hidden="true"] { transform: none; }
 }
 
 @media (max-width: 63.9375rem) and (prefers-reduced-transparency: reduce) {
@@ -136,4 +203,20 @@
   .navigation :is(span, svg) { color: CanvasText; }
   .pill { background: Highlight; }
   .navigation [aria-current="page"] :is(span, svg) { color: HighlightText; }
+}
+
+.assetSearchBar {
+  bottom: var(--shell-bottom-control-offset);
+  transform: translate3d(0, calc(-1 * var(--shell-viewport-inset-bottom)), 0);
+}
+.assetSearchResults {
+  padding-bottom: calc(var(--spacing-shell-mobile-navigation) + var(--shell-bottom-control-offset) + 1rem + var(--shell-viewport-inset-bottom));
+}
+.shellSearchField { height: var(--spacing-shell-mobile-navigation); }
+@media (min-width: 64rem) {
+  .assetSearchSurface { inset-inline-start: var(--shell-rail-width, 15rem); }
+  .assetSearchBar { position: relative; inset: auto; transform: none; order: -1; width: 100%; max-width: 73rem; margin-inline: auto; padding: 1.5rem; }
+  .assetSearchResults { padding-bottom: 1.5rem; }
+  .shellSearchField { background: var(--background); border: 1px solid var(--border); }
+  .shellSearchField:focus-within { border-color: var(--ring); }
 }

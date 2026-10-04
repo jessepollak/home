@@ -143,7 +143,7 @@ function PreviewShell({ initialPanel, homeIndicator, fallback, longLabels, balan
                     onAddMoney={noop} fetchVaults={fetchVaults} now={now} fetchAccountResource={async (path) => path.includes("/api/trades?") ? { version: 2, status: "unavailable", reason: "asset-unsupported" } : { version: 1, usdcReserveBaseUnits: "20000" }} prepareMoneyAction={unsupportedAction} executeMoneyAction={unsupportedAction} />}
         </div>
       </main>
-      <PrimaryNavigation activeNavigation={panel} onNavigate={navigate} cardsEnabled={cards} labels={longLabels ? { home: "Portfolio home overview", invest: "Investments & markets" } : undefined} />
+      <PrimaryNavigation activeNavigation={panel} onNavigate={navigate} cardsEnabled={cards} onOpenSearch={noop} labels={longLabels ? { home: "Portfolio home overview", invest: "Investments & markets" } : undefined} />
     </>
   );
   const shell = <div dir={rtl ? "rtl" : "ltr"} className="relative flex min-h-svh min-w-0 flex-col bg-muted"
@@ -696,6 +696,13 @@ export const Narrow320: Story = { parameters: { viewport: { defaultViewport: "mo
   await expect(nav.getBoundingClientRect().width).toBeLessThanOrEqual(192);
   await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(320);
 } };
+export const CardsNarrow320: Story = { args: { cards: true }, parameters: { viewport: { defaultViewport: "mobile320" } }, play: async ({ canvasElement }) => {
+  const screen = within(canvasElement);
+  await expect(screen.getByRole("button", { name: "Search assets" })).toBeVisible();
+  await expect(screen.getByRole("button", { name: "Card" })).toBeVisible();
+  await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+} };
+export const CardsNarrowDark: Story = { ...CardsNarrow320, globals: { theme: "dark" } };
 export const Tablet1023: Story = { parameters: { viewport: { defaultViewport: "tablet1023" } }, play: async ({ canvasElement }) => {
   const nav = await verifyNav(canvasElement, "Home");
   await expect(nav).toBeVisible();

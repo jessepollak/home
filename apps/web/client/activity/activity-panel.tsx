@@ -449,22 +449,41 @@ function ActivityContinuation({
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[entries.length - 1];
-        if (entry) setSentinelVisible(entry.isIntersecting);
-      },
-      { rootMargin: "0px 0px 240px 0px" },
-    );
-    observer.observe(sentinel);
+    let observer: IntersectionObserver | null = null;
+    let resizeFrame: number | null = null;
+    const observe = () => {
+      observer?.disconnect();
+      const next = new IntersectionObserver(
+        (entries) => {
+          if (observer !== next) return;
+          const entry = entries[entries.length - 1];
+          if (entry) setSentinelVisible(entry.isIntersecting);
+        },
+        { rootMargin: `0px 0px ${window.innerHeight * 1.5}px 0px` },
+      );
+      observer = next;
+      next.observe(sentinel);
+    };
+    const resize = () => {
+      if (resizeFrame !== null) return;
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = null;
+        observe();
+      });
+    };
+    observe();
+    window.addEventListener("resize", resize);
     return () => {
-      observer.disconnect();
+      window.removeEventListener("resize", resize);
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      observer?.disconnect();
+      observer = null;
       setSentinelVisible(false);
     };
   }, [setSentinelVisible]);
 
   return (
-    <div className="space-y-2">
+    <div>
       <p className="sr-only" role="status">
         {activity.continuing ? "Loading older activity" : ""}
       </p>

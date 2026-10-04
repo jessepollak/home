@@ -1,42 +1,33 @@
 "use client";
 
-import { useRef } from "react";
-import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { AssetMarkResolution } from "@/client/asset-mark/presentation";
 import type { MarketDataState } from "@/shared/invest/invest-market";
-import { INVEST_SEARCH_QUERY_MAX_LENGTH } from "@/shared/invest/contracts/search";
 import { marketForAsset } from "./discover";
 import { DiscoverAssetRow } from "./discover-asset-row";
 import { useInvestSearch } from "./use-invest-search";
 
-export type InvestSearchState = ReturnType<typeof useInvestSearch>;
+export type AssetSearchState = ReturnType<typeof useInvestSearch>;
 
-export function InvestSearch({
+export function AssetSearchResults({
   query,
-  onQueryChange,
   composing,
-  onComposingChange,
   search,
   markets,
   assetMarkResolution,
   onOpenAsset,
 }: {
   query: string;
-  onQueryChange: (query: string) => void;
   composing: boolean;
-  onComposingChange: (composing: boolean) => void;
-  search: InvestSearchState;
+  search: AssetSearchState;
   markets: { stockMarket: MarketDataState; cryptoMarket: MarketDataState; memeMarket: MarketDataState };
   assetMarkResolution: AssetMarkResolution;
   onOpenAsset: (asset: InvestAsset) => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const visible = query.trim().length > 0;
   const labels = new Map<string, number>();
   for (const { asset } of search.results) {
@@ -54,57 +45,8 @@ export function InvestSearch({
 
   return (
     <>
-      <form role="search" onSubmit={(event) => { event.preventDefault(); inputRef.current?.blur(); }}>
-        <InputGroup className="h-11">
-          <InputGroupAddon align="inline-start">
-            <Search aria-hidden="true" className="size-4" />
-          </InputGroupAddon>
-          <InputGroupInput
-            ref={inputRef}
-            type="text"
-            inputMode="search"
-            variant="touch"
-            className="h-11 min-w-0"
-            aria-label="Search assets"
-            placeholder="Search assets"
-            value={query}
-            maxLength={INVEST_SEARCH_QUERY_MAX_LENGTH}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onCompositionStart={() => onComposingChange(true)}
-            onCompositionEnd={(event) => {
-              onQueryChange(event.currentTarget.value);
-              onComposingChange(false);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                inputRef.current?.blur();
-              }
-            }}
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="none"
-            spellCheck={false}
-            enterKeyHint="search"
-          />
-          {query ? (
-            <InputGroupAddon align="inline-end" className="p-0">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-lg"
-                className="size-11"
-                aria-label="Clear search"
-                onClick={() => { onQueryChange(""); inputRef.current?.focus(); }}
-              >
-                <X aria-hidden="true" className="size-4" />
-              </Button>
-            </InputGroupAddon>
-          ) : null}
-        </InputGroup>
-      </form>
       {visible ? (
-        <section aria-label="Search results" className="mt-4 space-y-3">
+        <section aria-label="Search results" className="space-y-3">
           <span className="sr-only" role="status" aria-live="polite">{summary}</span>
           {loading ? (
             <div aria-label="Loading search results" className="space-y-3 py-3">

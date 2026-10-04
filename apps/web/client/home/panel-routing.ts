@@ -37,6 +37,7 @@ export type HomeShellRouting = {
   activityReturn?: ActivityDetailReturn | null;
   getActivityReturn?: () => ActivityDetailReturn | null;
   setActivityReturn?: (value: ActivityDetailReturn | null) => void;
+  getSearchDetailOrigin?: () => { assetId: string; query: string } | null;
   state: HomeInboundPanelState;
   flowOpener?: HTMLElement | null;
   popRevision: number;

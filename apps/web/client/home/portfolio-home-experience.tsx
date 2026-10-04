@@ -19,6 +19,10 @@ import { PricedInvestExperienceWithDiscover } from "@/client/invest/priced-inves
 import { InvestmentsExperience } from "@/client/investments/investments-experience";
 import { investViewFromLocation } from "@/client/invest/invest-location";
 import { useInvestDiscover } from "@/client/invest/use-invest-discover";
+import { PricedAssetSearch } from "@/client/invest/asset-search";
+import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
+import { getVisibleShelves } from "@/client/invest/discover";
+import { INVEST_SETTINGS_DEFAULTS } from "@/shared/operator-settings/invest";
 import { AuthenticatedCashExperience } from "@/client/cash/cash-experience";
 import type { InvestSettings } from "@/shared/operator-settings/invest";
 import { DashboardShell } from "./shell";
@@ -210,6 +214,8 @@ export function PortfolioHomeExperience({
     return (key: string) => snapshot !== null && selectOwnedInvestment(snapshot, key as AssetKey) !== null;
   }, [balances.snapshot]);
 
+  const renderSearchContent = useCallback((props: import("./home-types").ShellSearchContentProps) => <PresentationRegionProvider regionId={region.regionId}>
+    <PricedAssetSearch {...props} discover={discover} investVisibility={investVisibility} /></PresentationRegionProvider>, [region.regionId, discover, investVisibility]);
   return (
     <VaultPositionsProvider snapshot={snapshot}>
     <ProductOfferingProvider value={productOffering}>
@@ -219,6 +225,8 @@ export function PortfolioHomeExperience({
       initialRateLabels={initialHomeSummary && initialHomeSummary.owner === (session ? dataOwnerKey(session) : null) && initialHomeSummary.region === region.regionId ? initialHomeSummary.rates : undefined}
       cardsEnabled={cardsEnabled}
       investContent={<RoutedInvestExperience discover={discover} investVisibility={investVisibility} />}
+      searchContent={getVisibleShelves(discover.memeAssets, investVisibility ?? INVEST_SETTINGS_DEFAULTS).length > 0
+        ? renderSearchContent : undefined}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.
       cashContent={({ view, onOpenSavings }) => <AuthenticatedCashExperience view={view} onOpenSavings={onOpenSavings} regionReady={regionReady} pendingCashout={pendingCashout} />}
       // oxlint-disable-next-line react/no-unstable-nested-components -- Shell invokes this render callback as a function, not a component.

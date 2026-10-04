@@ -46,6 +46,7 @@ export function DiscoverAssetRow({
         render={<Button variant="ghost" press="none" />}
         className="flex-nowrap cursor-pointer items-center text-left"
         onClick={onOpen}
+        data-search-asset-id={asset.id}
         aria-describedby={`${asset.id}-action-hint`}
       >
         <ItemMedia variant="avatar">

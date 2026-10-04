@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { BORROW_MARKETS } from "@/shared/borrowing/config";
 import { erc20AssetKey, nativeAssetKey } from "@/shared/balances/types";
 import {
+  commitClientUrl,
   flowHref, homeHrefWithOverlays, isCanonicalShellPathname, legacyShellRedirectHref, parseInboundUrlIntent,
   parseShellLocation, parseShellOverlayIntent, readClientHistoryFlag, readShellHistoryOrigin, searchParamsToString, shellHref, withoutFlowHref, writeShellHistoryOrigin,
   type ShellHistoryFlag, type ShellLocation,
@@ -131,6 +132,14 @@ describe("shell location", () => {
     expect(parseShellOverlayIntent(new URLSearchParams(`flow=receive&action=${ACTION_ID}`)).actionId).toBeNull();
     expect(parseShellOverlayIntent(new URLSearchParams(`flow=send&action=${ACTION_ID}`)).actionId).toBe(ACTION_ID);
   });
+  test("parses asset search presence, empty values and bounded queries", () => {
+    expect(parseShellOverlayIntent(new URLSearchParams()).search).toBeNull();
+    expect(parseShellOverlayIntent(new URLSearchParams("search=")).search).toBe("");
+    expect(parseShellOverlayIntent({ search: ["eth", "btc"] }).search).toBe("eth");
+    expect(parseShellOverlayIntent({ search: "x".repeat(100) }).search).toBe("x".repeat(64));
+    expect(homeHrefWithOverlays({ search: "eth" })).toBe("/home");
+    expect(legacyShellRedirectHref("/save", { search: "eth" })).toBe("/cash/savings");
+  });
   test("keeps only allowlisted overlay intent on the verified home redirect", () => {
     expect(homeHrefWithOverlays(new URLSearchParams(
       `account=settings&flow=send&action=${ACTION_ID}&return=funding&add-money=1`,
@@ -168,6 +177,23 @@ describe("shell location", () => {
     expect(searchParamsToString({ account: "signin", flow: "send", tags: ["a", "b"], missing: undefined })).toBe("account=signin&flow=send&tags=a&tags=b");
     expect(searchParamsToString({})).toBe("");
   });
+});
+test("search URL updates retain application state while notifying native router integration", () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let written: unknown;
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { history: {
+    state: { __NA: true, _N: true, assetSearchPushed: true, keep: "value" },
+    replaceState(state: unknown) { written = state; },
+  } } });
+  try {
+    commitClientUrl("/home?search=eth", "replace", undefined, true);
+    expect(written).toEqual({ assetSearchPushed: true, keep: "value" });
+    commitClientUrl("/home?search=eth", "replace");
+    expect(written).toEqual({ __NA: true, _N: true, assetSearchPushed: true, keep: "value" });
+  } finally {
+    if (original) Object.defineProperty(globalThis, "window", original);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
 });
   test("reads and writes the in-app history origin from entry state", () => {
     const state: Record<string, unknown> = {};

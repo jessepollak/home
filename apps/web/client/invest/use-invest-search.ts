@@ -96,6 +96,7 @@ export function useInvestSearch(
   const last = pages?.at(-1);
   const providerFailed = pages?.some((page) => page.query === active && (page.provider === "error" || page.provider === "unavailable")) ?? false;
   return {
+    activeQuery: active,
     results,
     snapshots,
     status: !input.trim()
