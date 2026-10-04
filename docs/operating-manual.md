@@ -113,7 +113,7 @@ The bot-dedicated Home account is configured by `HOME_VERIFY_ACCOUNT_EMAIL`, not
 
 ## PR evidence and media
 
-Lead the PR body with `## What changes` (at most 200 words), written for a reader who has not seen the issue or the diff. It is two bullets, `- **Before:** …` and `- **After:** …`, followed by a two-column table with **Who notices**, **Decide**, and **Risk** rows, as in the template:
+Lead the PR body with `## What changes` (at most 200 words), written for a reader who has not seen the issue or the diff. It is two bullets, `- **Before:** …` and `- **After:** …`, followed by a `| Who notices | Decide | Risk |` table with one row of answers, as in the template:
 
 - **Before** and **After**: one to three plain sentences each describing behavior, naming the concrete thing that changes (screen, route, command, CI job, table). Non-user-facing changes say what a developer, CI run, or operator now sees differently; a pure refactor says behavior is unchanged and what got simpler.
 - **Who notices**: users, developers (name the command or job), operators, or nobody.

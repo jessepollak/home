@@ -7,12 +7,18 @@ import { prBodyShapeFindings } from "../pr-body-shape.mjs";
 const title = "feat(home): change behavior";
 const bulletLabels = ["Before", "After"];
 const labels = [...bulletLabels, "Who notices", "Decide", "Risk"];
-const lineFor = (label, value = "none") => bulletLabels.includes(label) ? `- **${label}:** ${value}` : `| **${label}** | ${value} |`;
-const section = `${lineFor("Before")}\n${lineFor("After")}\n\n| | |\n|---|---|\n${labels.slice(2).map((label) => lineFor(label)).join("\n")}`;
+const tableLabels = labels.slice(2);
+const lineFor = (label, value = "none") => `- **${label}:** ${value}`;
+const makeSection = (values = {}) => {
+  const value = (label) => values[label] ?? "none";
+  return `${lineFor("Before", value("Before"))}\n${lineFor("After", value("After"))}\n\n| Who notices | Decide | Risk |\n| --- | --- | --- |\n| ${tableLabels.map(value).join(" | ")} |`;
+};
+const section = makeSection();
 const body = `## What changes\n${section}`;
 const findingFor = (label) => bulletLabels.includes(label)
   ? `## What changes needs a \`- **${label}:** …\` bullet with text that is not a template placeholder.`
-  : `## What changes needs a \`| **${label}** | … |\` table row with text that is not a template placeholder.`;
+  : `## What changes needs a ${label} answer in the table that is not a template placeholder.`;
+const missingTable = "## What changes needs a `| Who notices | Decide | Risk |` table with one row of answers.";
 
 for (const type of ["product", "design", "feat", "fix", "test", "ops", "dx", "docs", "chore"]) {
   for (const scope of ["", "(home)"]) {
@@ -72,7 +78,7 @@ test("recognizes Markdown heading indentation, tabs, trailing whitespace and clo
   assert.deepEqual(prBodyShapeFindings(title, `${body}\n## `), ["Disallowed level-two heading: (empty)."]);
 });
 
-for (const label of labels) {
+for (const label of bulletLabels) {
   for (const [name, replacement] of [
     ["missing", ""],
     ["empty", lineFor(label, " \t ")],
@@ -87,9 +93,26 @@ for (const label of labels) {
   }
 }
 
+for (const label of tableLabels) {
+  for (const [name, value] of [["empty", " "], ["comment-only", "<!-- none -->"]]) {
+    test(`rejects a ${name} ${label} table answer`, () => {
+      assert.deepEqual(prBodyShapeFindings(title, `## What changes\n${makeSection({ [label]: value })}`), [findingFor(label)]);
+    });
+  }
+}
+
 test("rejects the template Who notices placeholder", () => {
-  const value = body.replace(lineFor("Who notices"), lineFor("Who notices", "users / developers (name the command, job, or file) / operators / nobody (refactor)"));
+  const value = `## What changes\n${makeSection({ "Who notices": "users / developers (name the command, job, or file) / operators / nobody (refactor)" })}`;
   assert.deepEqual(prBodyShapeFindings(title, value), [findingFor("Who notices")]);
+});
+
+test("rejects a missing, reordered, or answerless Who notices / Decide / Risk table", () => {
+  const [bullets] = section.split("\n\n");
+  assert.deepEqual(prBodyShapeFindings(title, `## What changes\n${bullets}`), [missingTable]);
+  assert.deepEqual(prBodyShapeFindings(title, body.replace("| Who notices | Decide | Risk |", "| Risk | Decide | Who notices |")), [missingTable]);
+  assert.deepEqual(prBodyShapeFindings(title, body.replace(/\n\| none \| none \| none \|$/, "")), tableLabels.map(findingFor));
+  assert.deepEqual(prBodyShapeFindings(title, body.replace("| --- | --- | --- |\n", "")), tableLabels.map(findingFor));
+  assert.deepEqual(prBodyShapeFindings(title, body.replace("| none | none | none |", "| none | none |")), [findingFor("Risk")]);
 });
 
 for (const placeholder of ["What happens today, in plain words.", "What happens once this merges."]) {
@@ -99,7 +122,7 @@ for (const placeholder of ["What happens today, in plain words.", "What happens 
 }
 
 test("required lines must be inside What changes, but deeper subsections do not end it", () => {
-  assert.deepEqual(prBodyShapeFindings(title, `## What changes\n## Preview\n${section}`), labels.map(findingFor));
+  assert.deepEqual(prBodyShapeFindings(title, `## What changes\n## Preview\n${section}`), [...bulletLabels.map(findingFor), missingTable]);
   assert.deepEqual(prBodyShapeFindings(title, `## What changes\n### Details\n${section}`), []);
 });
 

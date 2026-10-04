@@ -10,7 +10,8 @@ const bulletLabels = ["Before", "After"];
 const tableLabels = ["Who notices", "Decide", "Risk"];
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const bulletLine = (label) => new RegExp(`^[-*][ \\t]+\\*\\*${escape(label)}:\\*\\*(.*)$`);
-const tableLine = (label) => new RegExp(`^\\|[ \\t]*\\*\\*${escape(label)}\\*\\*[ \\t]*\\|(.*?)\\|?[ \\t]*$`);
+const tableHeader = /^\|?[ \t]*Who notices[ \t]*\|[ \t]*Decide[ \t]*\|[ \t]*Risk[ \t]*\|?[ \t]*$/;
+const tableCells = (line) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
 const tableSeparator = /^\|?[ \t:|-]+\|?[ \t]*$/;
 const placeholders = new Set([
   "What happens today, in plain words.",
@@ -43,8 +44,17 @@ export function prBodyShapeFindings(title, body) {
     for (const label of bulletLabels) {
       if (!filled(bulletLine(label))) findings.push(`## What changes needs a \`- **${label}:** …\` bullet with text that is not a template placeholder.`);
     }
-    for (const label of tableLabels) {
-      if (!filled(tableLine(label))) findings.push(`## What changes needs a \`| **${label}** | … |\` table row with text that is not a template placeholder.`);
+    const header = content.findIndex((line) => tableHeader.test(line));
+    if (header === -1) {
+      findings.push("## What changes needs a `| Who notices | Decide | Risk |` table with one row of answers.");
+    } else {
+      const cells = tableSeparator.test(content[header + 1] ?? "") && content[header + 2]?.trim().startsWith("|")
+        ? tableCells(content[header + 2])
+        : [];
+      tableLabels.forEach((label, index) => {
+        const value = cells[index];
+        if (!value || placeholders.has(value)) findings.push(`## What changes needs a ${label} answer in the table that is not a template placeholder.`);
+      });
     }
   }
   for (const heading of headings) {
