@@ -15,7 +15,7 @@ Keep `## Preview` visible after the short `## What changes` brief. Its first lin
 
 Put every retained screenshot or clip directly in Preview as a GitHub attachment in one compact Markdown table. Each row label describes the visible state and CSS-pixel viewport. There is no screenshot cap; choose the adaptive form that carries useful evidence. Keep only labels, the link, and media here; browser observations, limitations, cleanup, and findings belong in the collapsed Evidence section.
 
-When the pre-change baseline materially improves judgment, use a paired comparison. Pair identical state, data, and CSS-pixel viewport; **After is the current PR head**:
+When the pre-change baseline materially improves judgment, use a paired comparison. Pair identical state, data, and CSS-pixel viewport in one row, with Before and After as side-by-side columns, never as separate rows; **After is the current PR head**:
 
 | State + viewport | Board | Before | After |
 |---|---|---|---|
