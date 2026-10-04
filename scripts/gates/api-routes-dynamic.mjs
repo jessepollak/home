@@ -1,9 +1,12 @@
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { executedAsScript } from "../worktree/bootstrap.mjs";
 import { loadSourceFiles } from "./source-files.mjs";
+
+const ts = createRequire(new URL("../../apps/web/package.json", import.meta.url))("typescript");
 
 export const defaultWebDir = fileURLToPath(new URL("../../apps/web/", import.meta.url));
 export const defaultBuildDir = path.join(defaultWebDir, ".next");
@@ -22,13 +25,69 @@ const requestArrow = /\bexport\s+const\s+(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIO
 const boundHandler = /\bexport\s+const\s+(?:GET|HEAD)(?:\s*:\s*(?:[^=]|=>)+)?\s*=\s*(?!async\b)[A-Za-z_$][\w$.]*\s*(?:\(|;|$)/m;
 const boundHandlers = /\bexport\s+const\s+\{[^}]*\b(?:GET|HEAD)\b[^}]*\}\s*=\s*(?!async\b)[A-Za-z_$][\w$.]*\s*\(/;
 const requestTimeCall = /\b(?:headers|cookies|draftMode|connection|noStore|unstable_noStore)\s*\(/;
-// Only a GET handler is statically prerendered, so a file exporting only other methods needs no dynamic
-// signal. An unmodeled form still does: a re-exported GET counts as a GET, and a file with no recognized
-// method export at all requires a signal, so no export form fails open.
-const methods = "GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS";
-const methodExport = new RegExp(`\\bexport\\s+(?:(?:async\\s+)?function\\s+(?:${methods})\\s*\\(|(?:const|let|var)\\s+(?:${methods})\\s*[:=])`);
-const prerenderableExport = new RegExp(`\\bexport\\s+(?:(?:async\\s+)?function\\s+(?:GET|HEAD)\\s*\\(|(?:const|let|var)\\s+(?:GET|HEAD)\\s*[:=]|\\{[^{}]*\\b(?:GET|HEAD)\\b)`);
-const needsDynamicSignal = (content) => prerenderableExport.test(content) || !methodExport.test(content);
+// Only a GET export is statically prerendered. Parse top-level runtime export names, including binding
+// patterns and re-exports; parse errors, unknown export forms and files without a recognized method
+// require a dynamic signal. HEAD-only handlers need none.
+const runtimeMethods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
+
+function bindingNames(name, names) {
+  if (ts.isIdentifier(name)) names.add(name.text);
+  else if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (!ts.isOmittedExpression(element)) bindingNames(element.name, names);
+    }
+  }
+}
+
+function hasExportModifier(node) {
+  return (ts.getCombinedModifierFlags(node) & ts.ModifierFlags.Export) !== 0;
+}
+
+function exportedNames(content) {
+  const source = ts.createSourceFile("route.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  if (source.parseDiagnostics.length) return null;
+  const names = new Set();
+  let unknown = false;
+  for (const statement of source.statements) {
+    if (ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Ambient) continue;
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.isTypeOnly) continue;
+      if (!statement.exportClause || ts.isNamespaceExport(statement.exportClause)) {
+        unknown = true;
+        continue;
+      }
+      for (const element of statement.exportClause.elements) {
+        if (!element.isTypeOnly) names.add(element.name.text);
+      }
+    } else if (ts.isExportAssignment(statement)) {
+      unknown = true;
+    } else if (hasExportModifier(statement)) {
+      if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) continue;
+      if (ts.isImportEqualsDeclaration(statement) && statement.isTypeOnly) continue;
+      if (ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Default) {
+        unknown = true;
+      } else if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
+        if (statement.name) names.add(statement.name.text);
+        else unknown = true;
+      } else if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) bindingNames(declaration.name, names);
+      } else {
+        unknown = true;
+      }
+    }
+  }
+  return { names, unknown };
+}
+
+const dynamicSignals = [forceDynamic, zeroRevalidate, requestHandler, requestArrow, boundHandler, boundHandlers, requestTimeCall];
+
+function staticSourceFinding(content) {
+  const exports = exportedNames(content);
+  if (!exports) return "no request-time read and no dynamic route segment";
+  const needsSignal = exports.unknown || exports.names.has("GET") || ![...exports.names].some((name) => runtimeMethods.has(name));
+  if (!needsSignal || dynamicSignals.some((signal) => signal.test(content))) return null;
+  return "no request-time read and no dynamic route segment";
+}
 
 export function prerenderedApiRoutes(manifest) {
   return [...new Set([
@@ -42,12 +101,13 @@ export function routesWithoutDynamicSignal(files) {
   const findings = [];
   for (const { path: file, content } of files) {
     if (privateFolder.test(file)) continue;
+    const staticSourceReason = staticSourceFinding(content);
     if (routeHandler.test(path.basename(file)) && path.basename(file) !== "route.ts") {
       findings.push({ path: file, reason: "unrecognized route handler form; this gate models only route.ts" });
     } else if (forceStatic.test(content)) {
       findings.push({ path: file, reason: 'declares `export const dynamic = "force-static"`' });
-    } else if (needsDynamicSignal(content) && ![forceDynamic, zeroRevalidate, requestHandler, requestArrow, boundHandler, boundHandlers, requestTimeCall].some((signal) => signal.test(content))) {
-      findings.push({ path: file, reason: "no request-time read and no dynamic route segment" });
+    } else if (staticSourceReason) {
+      findings.push({ path: file, reason: staticSourceReason });
     }
   }
   return findings.sort((a, b) => a.path.localeCompare(b.path));
