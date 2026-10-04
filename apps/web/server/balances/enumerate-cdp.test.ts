@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   CDP_NATIVE_TOKEN_ADDRESS,
-  CDP_TOKEN_BALANCES_MAX_PAGES,
   CdpTokenBalancesError,
   createCdpTokenBalancesClient,
   parseNextPageToken,
@@ -254,24 +253,30 @@ describe("CDP Onchain Data Token Balances client", () => {
   });
 
   test("returns every collected row as incomplete when the page budget is exhausted", async () => {
+    const pageHorizon = 64;
     let pages = 0;
+    const served: string[] = [];
     const client = createCdpTokenBalancesClient({
       env: configuredEnv,
       generateJwtImpl: async () => "signed-jwt",
+      now: () => 0,
       fetchImpl: async () => {
         pages += 1;
+        const amount = String(pages);
+        served.push(amount);
         return Response.json({
-          balances: [token(`0x${pages.toString(16).padStart(40, "0")}`, String(pages))],
-          nextPageToken: `page-${pages + 1}`,
+          balances: [token(`0x${pages.toString(16).padStart(40, "0")}`, amount)],
+          nextPageToken: pages < pageHorizon ? `page-${pages + 1}` : undefined,
         });
       },
     });
 
     const listed = await client.listBalances({ address: ADDRESS });
-    expect(pages).toBe(CDP_TOKEN_BALANCES_MAX_PAGES); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
-    expect(listed.complete).toBeFalse();
-    expect(listed.balances).toHaveLength(CDP_TOKEN_BALANCES_MAX_PAGES); // oxlint-disable-line home/no-self-referential-expectation -- the constant is the specified bound; the assertion tests bounding, not the value
-    expect(listed.balances.at(-1)?.amountBaseUnits).toBe(String(CDP_TOKEN_BALANCES_MAX_PAGES));
+    expect(pages).toBeGreaterThan(1);
+    expect(listed.complete, "fixture horizon must exceed the page budget").toBeFalse();
+    expect(listed.pagesRead).toBe(pages);
+    expect(listed.balances.map(({ amountBaseUnits }) => amountBaseUnits)).toEqual(served);
+    expect(listed.nextPageToken).toBe(`page-${pages + 1}`);
   });
 
   test("keeps collected rows when a transient middle page fails after retry", async () => {

@@ -87,6 +87,19 @@ describe("no-self-referential-expectation", () => {
     `)).toHaveLength(0);
   }, budgetMs);
 
+  it("accepts canonical identity literals and behavior-derived values while rejecting the subject-import form", async () => {
+    expect(await lintTestFile("identity.test.ts", `
+      import { expect } from "bun:test";
+      import { HOME_CDP_SESSION_COOKIE, REDACTED, issueHeader, scrubMarker, readPages } from "./identity";
+      const pageCount = 3;
+      expect(issueHeader()).toContain("home-cdp-session=");
+      expect(scrubMarker()).toContain("Authorization: [REDACTED]");
+      expect(readPages()).toBe(pageCount);
+      expect(issueHeader()).toContain(\`\${HOME_CDP_SESSION_COOKIE}=\`);
+      expect(scrubMarker()).toContain(\`Authorization: \${REDACTED}\`);
+    `)).toHaveLength(2);
+  }, budgetMs);
+
   it("accepts same-named constants imported from another module alias", async () => {
     expect(await lintTestFile("registry.test.ts", `
       import { expect } from "bun:test";

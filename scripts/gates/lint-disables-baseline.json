@@ -105,12 +105,6 @@
     "apps/web/instrumentation.ts": {
       "home/no-silent-catch": 2
     },
-    "apps/web/server/auth/cdp-render-session.test.ts": {
-      "home/no-self-referential-expectation": 2
-    },
-    "apps/web/server/balances/enumerate-cdp.test.ts": {
-      "home/no-self-referential-expectation": 2
-    },
     "apps/web/server/balances/handler.ts": {
       "home/no-silent-catch": 1
     },
@@ -134,9 +128,6 @@
     },
     "apps/web/server/scheduling/after-schedule.ts": {
       "home/no-silent-catch": 1
-    },
-    "apps/web/shared/observability/scrub.test.ts": {
-      "home/no-self-referential-expectation": 1
     },
     "apps/web/tests/browser/navigation-geometry.pw.ts": {
       "home/no-real-waits": 1

@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  REDACTED,
   sanitizeIdentifier,
   sanitizeRoutePath,
   scrubString,
@@ -88,8 +87,7 @@ describe("observability scrub security matrix", () => {
     for (const canary of [headerOne, headerTwo, arrayOne, arrayTwo, objectOne, objectTwo]) {
       expect(scrubbed).not.toContain(canary);
     }
-    // oxlint-disable-next-line home/no-self-referential-expectation -- the scrubber must emit the canonical redaction marker before adjacent punctuation
-    expect(scrubbed).toContain(`Authorization: ${REDACTED}`);
+    expect(scrubbed).toContain("Authorization: [REDACTED]");
     expect(scrubbed).toContain('"accessToken":[REDACTED]');
     expect(scrubbed).toContain('"clientSecret":[REDACTED]');
     expect(scrubbed).toContain('"safe":"retained"');
