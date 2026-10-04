@@ -68,7 +68,7 @@ async function readCompositionSource(file: string): Promise<string | undefined> 
   }
 }
 
-export async function walkCompositionUiImports(entry: string, root = webRoot, readSource: CompositionSource = readCompositionSource): Promise<string[]> {
+export async function walkCompositionUiImports(entry: string | string[], root = webRoot, readSource: CompositionSource = readCompositionSource, includeSource: (file: string) => boolean = () => true): Promise<string[]> {
   const visited = new Set<string>();
   const reached = new Set<string>();
   const sources = new Map<string, Promise<string | undefined>>();
@@ -81,6 +81,7 @@ export async function walkCompositionUiImports(entry: string, root = webRoot, re
   };
   const visit = async (file: string, source: string): Promise<void> => {
     if (visited.has(file)) return;
+    if (!includeSource(normalizePath(relative(root, file)))) return;
     visited.add(file);
     const ui = normalizePath(relative(root, file)).match(/^components\/ui\/([^/.]+)(?:\.[cm]?[jt]sx?|\/)/)?.[1];
     if (ui) reached.add(ui);
@@ -105,10 +106,12 @@ export async function walkCompositionUiImports(entry: string, root = webRoot, re
       if (!found) throw new Error(`Couldn't resolve composition import ${specifier} from ${normalizePath(relative(root, file))}`);
     }
   };
-  const file = resolve(root, entry);
-  const source = await read(file);
-  if (source === undefined) throw new Error(`Couldn't read composition imports: ${entry}`);
-  await visit(file, source);
+  for (const name of typeof entry === "string" ? [entry] : entry) {
+    const file = resolve(root, name);
+    const source = await read(file);
+    if (source === undefined) throw new Error(`Couldn't read composition imports: ${name}`);
+    await visit(file, source);
+  }
   return [...reached].sort();
 }
 
@@ -119,8 +122,20 @@ export async function compositionUiImports(root = webRoot): Promise<Record<strin
     [name, await walkCompositionUiImports(join(directory, name), root)])));
 }
 
+function isProductSource(file: string): boolean {
+  return !/(?:^|\/)(?:stories|tests|__tests__|explorations)(?:\/|$)|\.(?:stories|test|spec)\.[cm]?[jt]sx?$/.test(file);
+}
+
+export async function productUiImports(root = webRoot, files?: string[], readSource: CompositionSource = readCompositionSource): Promise<string[]> {
+  const routes = (files ?? await readdir(join(root, "app"), { recursive: true })).map(normalizePath)
+    .filter((file) => isProductSource(file) && /(?:^|\/)(?:page|layout|template|loading|error|global-error|not-found|default|route)\.[jt]sx?$/.test(file))
+    .sort().map((file) => join("app", file));
+  if (!routes.length) throw new Error("No product route entries found under app");
+  return walkCompositionUiImports(routes, root, readSource, isProductSource);
+}
+
 export async function compositionNotUsedInProduct(root = webRoot): Promise<string[]> {
-  const used = new Set(Object.values(await compositionUiImports(root)).flat());
+  const used = new Set(await productUiImports(root));
   const uiRoot = join(root, "components/ui");
   const files = (await readdir(uiRoot)).filter((name) => name.endsWith(".stories.tsx"));
   const catalog = await Promise.all(files.map(async (file) => {
