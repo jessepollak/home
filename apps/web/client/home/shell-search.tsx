@@ -92,8 +92,8 @@ export function ShellSearchProvider({ children, content, available, signedOut, o
     const next = new URL(window.location.href);
     if (!next.searchParams.has(SHELL_SEARCH_PARAM) || next.searchParams.get(SHELL_SEARCH_PARAM) === nextQuery) return;
     next.searchParams.set(SHELL_SEARCH_PARAM, nextQuery);
-    commitClientUrl(`${next.pathname}${next.search}`, "replace", undefined, true);
-    setSearchEntry((saved) => saved ? { ...saved, href: `${next.pathname}${next.search}` } : assetSearchEntry());
+    commitClientUrl(`${next.pathname}${next.search}`, "replace", { assetSearchScrollTop: 0, assetSearchResult: null }, true);
+    setSearchEntry((saved) => saved ? { href: `${next.pathname}${next.search}`, state: { ...saved.state, assetSearchScrollTop: 0, assetSearchResult: null } } : assetSearchEntry());
     setUrlSearchOverride(next.search);
   }, []);
   const openSearch = useCallback((opener: HTMLButtonElement) => {
