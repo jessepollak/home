@@ -12,14 +12,14 @@
 
 ## Preview
 
-<!-- User-visible work: Vercel preview link and EVERY retained screenshot/clip as GitHub user-attachments in one compact table. Label state and CSS-pixel viewport; pair Before/After at matching state, data, and viewport when useful. No screenshot cap. Only labels and media here; put browser observations, limitations, cleanup, and review findings in Evidence. Put `story:<story-id>` in each row's Board cell when a story shows that state (— when none does); CI turns it into a direct link on the current Storybook deployment and keeps the Review board link below pointed at those stories. Otherwise write N/A: docs-only / CI-only / pure server. -->
+<!-- User-visible work: Vercel preview link and EVERY retained screenshot/clip as GitHub user-attachments in one compact table. Label state and CSS-pixel viewport. A before/after pair is ONE row: base in the Before column, current head in the After column, at matching state, data, and viewport; never put Before and After on separate rows. When Before adds nothing, replace the Before and After columns with a single Evidence column. No screenshot cap. Only labels and media here; put browser observations, limitations, cleanup, and review findings in Evidence. Put `story:<story-id>` in each row's Board cell when a story shows that state (— when none does); CI turns it into a direct link on the current Storybook deployment and keeps the Review board link below pointed at those stories. Otherwise write N/A: docs-only / CI-only / pure server. -->
 
 <!-- review-links:start -->
 <!-- review-links:end -->
 
-| State + viewport | Board | Evidence |
-| --- | --- | --- |
-| Changed state — 390×844 CSS px | `story:<story-id>` | GitHub attachment |
+| State + viewport | Board | Before | After |
+| --- | --- | --- | --- |
+| Changed state — 390×844 CSS px | `story:<story-id>` | PR base attachment | PR head attachment |
 
 <details><summary>Evidence</summary>
 
