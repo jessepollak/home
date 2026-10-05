@@ -3,6 +3,7 @@ import "server-only";
 import { USDC_PAYMASTER_CONTEXT } from "@/shared/money-actions/network-fee";
 import { getPaymasterUrl } from "./config";
 import { readJson } from "@/shared/http/read-json";
+import { createUpstreamDeadline } from "@/server/http/upstream";
 
 export const PAYMASTER_METHODS = ["pm_getPaymasterStubData", "pm_getPaymasterData", "pm_getAcceptedPaymentTokens"] as const;
 export type PaymasterMethod = (typeof PAYMASTER_METHODS)[number];
@@ -23,18 +24,14 @@ export function createPaymasterClient(options: { fetchImpl?: FetchLike; url?: st
       if (!url || !/^https:\/\//i.test(url) || !PAYMASTER_METHODS.includes(method)) throw new PaymasterError();
       const timeoutMs = options.timeoutMs ?? 8000;
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) throw new PaymasterError();
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      signal?.addEventListener("abort", abort, { once: true });
-      if (signal?.aborted) abort();
-      const timeout = setTimeout(abort, timeoutMs);
+      const deadline = createUpstreamDeadline({ timeoutMs, signal });
       try {
         const body = { jsonrpc: "2.0", id: 1, method, params: [...params.slice(0, method === "pm_getAcceptedPaymentTokens" ? 2 : 3), USDC_PAYMASTER_CONTEXT] };
         const response = await (options.fetchImpl ?? fetch)(url, {
           method: "POST",
           headers: { accept: "application/json", "content-type": "application/json" },
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: deadline.signal,
           cache: "no-store",
         });
         if (!response.ok) throw new PaymasterError();
@@ -45,9 +42,6 @@ export function createPaymasterClient(options: { fetchImpl?: FetchLike; url?: st
         return payload.result;
       } catch {
         throw new PaymasterError();
-      } finally {
-        clearTimeout(timeout);
-        signal?.removeEventListener("abort", abort);
       }
     },
   };

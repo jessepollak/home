@@ -1,5 +1,4 @@
 // Route JSON parsing and abort deadlines through the shared HTTP primitives.
-import { manualAbortTimeoutExceptions } from "../policy/http-primitives.mjs";
 
 const wrappers = new Set([
   "ParenthesizedExpression",
@@ -168,7 +167,7 @@ export const noManualAbortTimeout = {
     },
   },
   create(context) {
-    if (allowedFile(context, manualAbortTimeoutExceptions)) return {};
+    if (allowedFile(context, [])) return {};
     return {
       CallExpression(node) {
         if (!isSetTimeout(context.sourceCode, node.callee)) return;

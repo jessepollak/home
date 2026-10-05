@@ -25,15 +25,17 @@ async function withDeadline<T>(run: (signal: AbortSignal) => Promise<T>, ms: num
     cancellation.reject(controller.signal.reason);
   };
   parent?.addEventListener("abort", abortFromParent, { once: true });
-  const deadline = setTimeout(() => {
+  const deadline = AbortSignal.timeout(Number.isFinite(ms) && ms >= 1 && ms <= 2_147_483_647 ? Math.trunc(ms) : 1);
+  const onTimeout = () => {
     const error = new Error("Funding settings read timed out");
     controller.abort(error);
     cancellation.reject(error);
-  }, ms);
+  };
+  deadline.addEventListener("abort", onTimeout, { once: true });
   try {
     return await Promise.race([run(controller.signal), cancellation.promise]);
   } finally {
-    clearTimeout(deadline);
+    deadline.removeEventListener("abort", onTimeout);
     parent?.removeEventListener("abort", abortFromParent);
   }
 }

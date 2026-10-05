@@ -599,11 +599,11 @@ async function fetchPriceInputs(
 ) {
   const batches: CodexRawQuoteInput[][] = [];
   for (let index = 0; index < inputs.length; index += PRICE_BATCH_SIZE) batches.push(inputs.slice(index, index + PRICE_BATCH_SIZE));
-  const budget = new AbortController();
-  const signal = options.signal ? AbortSignal.any([options.signal, budget.signal]) : budget.signal;
-  const timer = options.budgetMs !== undefined && !signal.aborted
-    ? setTimeout(() => budget.abort(), options.budgetMs)
-    : undefined;
+  const signals = options.signal ? [options.signal] : [];
+  if (options.budgetMs !== undefined && !options.signal?.aborted) {
+    signals.push(AbortSignal.timeout(Number.isFinite(options.budgetMs) && options.budgetMs >= 1 && options.budgetMs <= 2_147_483_647 ? Math.trunc(options.budgetMs) : 1));
+  }
+  const signal = AbortSignal.any(signals);
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<null>((resolve) => {
     onAbort = () => resolve(null);
@@ -623,7 +623,6 @@ async function fetchPriceInputs(
       uncompletedInputs: batches.flatMap((batch, index) => results[index] === null ? batch : []),
     };
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
     if (onAbort) signal.removeEventListener("abort", onAbort);
   }
 }

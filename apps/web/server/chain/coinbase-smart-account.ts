@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { MoneyActionCall } from "@/shared/money-actions/types";
+import { createUpstreamDeadline } from "@/server/http/upstream";
 import {
   BaseRpcError,
   createBaseRpcClient,
@@ -290,24 +291,17 @@ async function withTimeout<T>(
   externalSignal: AbortSignal | undefined,
   work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const abort = () => controller.abort(externalSignal?.reason);
-  externalSignal?.addEventListener("abort", abort, { once: true });
-  if (externalSignal?.aborted) abort();
+  const deadline = createUpstreamDeadline({ timeoutMs, signal: externalSignal });
   try {
-    return await work(controller.signal);
+    return await work(deadline.signal);
   } catch (error) {
     if (error instanceof CoinbaseSmartAccountBatchSimulationError) throw error;
     throw new CoinbaseSmartAccountBatchSimulationError(
-      controller.signal.aborted
+      deadline.signal.aborted
         ? "The Base smart-account batch simulation timed out or was aborted."
         : "The Base smart-account batch simulation failed.",
       { cause: error },
     );
-  } finally {
-    clearTimeout(timeout);
-    externalSignal?.removeEventListener("abort", abort);
   }
 }
 

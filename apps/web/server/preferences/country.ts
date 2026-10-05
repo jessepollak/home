@@ -9,25 +9,25 @@ export class CountryPreferenceStore {
   constructor(private readonly sql: SqlExecutor, private readonly customers: CustomerResolver) {}
 
   async readCountryPreference(session: VerifiedAccountSession): Promise<CountryCode | null> {
-    let deadline: ReturnType<typeof setTimeout> | undefined;
-    const controller = new AbortController();
+    const signal = AbortSignal.timeout(750);
+    let onAbort = () => {};
     try {
       const read = this.sql.query<{ country_preference: string | null }>(
         `SELECT cp.country_preference FROM customer_credentials cr
          LEFT JOIN customer_preferences cp ON cp.customer_id=cr.customer_id
          WHERE cr.account_provider=$1 AND cr.subject=$2`,
-        [session.accountProvider, session.user.subject], { timeoutMs: 750, signal: controller.signal },
+        [session.accountProvider, session.user.subject], { timeoutMs: 750, signal },
       );
       const result = await Promise.race([
         read,
-        new Promise<never>((_resolve, reject) => { deadline = setTimeout(() => {
-          controller.abort();
-          reject(new Error("Country preference read timed out"));
-        }, 750); }),
+        new Promise<never>((_resolve, reject) => {
+          onAbort = () => reject(new Error("Country preference read timed out"));
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
       ]);
       return normalizeCountryCode(result.rows[0]?.country_preference);
     } finally {
-      clearTimeout(deadline);
+      signal.removeEventListener("abort", onAbort);
     }
   }
 

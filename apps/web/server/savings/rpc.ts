@@ -2,6 +2,7 @@ import "server-only";
 
 import { BASE_CHAIN_ID, BASE_USDC_ADDRESS } from "@/shared/savings/config";
 import type { Address } from "@/shared/savings/types";
+import { createUpstreamDeadline } from "@/server/http/upstream";
 import {
   BaseRpcError,
   baseRpc,
@@ -86,10 +87,7 @@ export function createSavingsActionStateReader(options: {
   }
 
   return async function readSavingsActionState(input, externalSignal) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const abort = () => controller.abort();
-    externalSignal?.addEventListener("abort", abort, { once: true });
+    const deadline = createUpstreamDeadline({ timeoutMs, signal: externalSignal });
 
     try {
       const rpcRetry = { attempts: retryAttempts, retryDelayMs, sleep };
@@ -97,7 +95,7 @@ export function createSavingsActionStateReader(options: {
         fetchImpl,
         rpcUrl,
         request(1, "eth_chainId", []),
-        controller.signal,
+        deadline.signal,
         rpcRetry,
       );
       if (parseQuantity(chain.result, "chain ID") !== BigInt(BASE_CHAIN_ID)) {
@@ -108,7 +106,7 @@ export function createSavingsActionStateReader(options: {
         fetchImpl,
         rpcUrl,
         request(2, "eth_getBlockByNumber", ["latest", false]),
-        controller.signal,
+        deadline.signal,
         rpcRetry,
       );
       const block = parseBlock(latest.result);
@@ -121,7 +119,7 @@ export function createSavingsActionStateReader(options: {
               fetchImpl,
               rpcUrl,
               rpcRequest,
-              controller.signal,
+              deadline.signal,
               rpcRetry,
             ),
           ),
@@ -162,7 +160,7 @@ export function createSavingsActionStateReader(options: {
         fetchImpl,
         rpcUrl,
         request(99, "eth_getBlockByNumber", [block.numberHex, false]),
-        controller.signal,
+        deadline.signal,
         rpcRetry,
       );
       const confirmedBlock = parseBlock(confirmation.result);
@@ -194,14 +192,11 @@ export function createSavingsActionStateReader(options: {
         throw error;
       }
       throw new SavingsActionRpcError(
-        controller.signal.aborted
+        deadline.signal.aborted
           ? "The Base savings RPC request timed out or was aborted."
           : "The Base savings RPC request failed.",
         { cause: error },
       );
-    } finally {
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener("abort", abort);
     }
   };
 }

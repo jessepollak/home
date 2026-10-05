@@ -29,7 +29,8 @@ function runtimeReader(env: Readonly<Record<string, string | undefined>> = serve
 
 function withDeadline<T>(run: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
   const controller = new AbortController();
-  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const deadline = AbortSignal.timeout(Number.isFinite(ms) && ms >= 1 && ms <= 2_147_483_647 ? Math.trunc(ms) : 1);
+  let onAbort = () => {};
   const outcome = run(controller.signal).then(
     (value) => ({ settled: true as const, value }),
     () => ({ settled: false as const }),
@@ -41,12 +42,13 @@ function withDeadline<T>(run: (signal: AbortSignal) => Promise<T>, ms: number): 
   return Promise.race([
     work,
     new Promise<never>((_resolve, reject) => {
-      deadline = setTimeout(() => {
+      onAbort = () => {
         controller.abort(new Error("Invest settings read timed out"));
         reject(new Error("Invest settings read timed out"));
-      }, ms);
+      };
+      deadline.addEventListener("abort", onAbort, { once: true });
     }),
-  ]).finally(() => clearTimeout(deadline));
+  ]).finally(() => deadline.removeEventListener("abort", onAbort));
 }
 
 export async function readInvestSettingsEntry(

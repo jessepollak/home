@@ -452,23 +452,9 @@ async function withDeadline<T>(
   timeoutMs: number,
   run: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  const controller = new AbortController();
-  const abort = () => controller.abort(external?.reason);
-  if (external?.aborted) {
-    abort();
-  } else {
-    external?.addEventListener("abort", abort, { once: true });
-  }
-  const timer = setTimeout(
-    () => controller.abort("balances-read-deadline"),
-    timeoutMs,
-  );
-  try {
-    return await run(controller.signal);
-  } finally {
-    clearTimeout(timer);
-    external?.removeEventListener("abort", abort);
-  }
+  const timeout = AbortSignal.timeout(Number.isFinite(timeoutMs) && timeoutMs >= 1 && timeoutMs <= 2_147_483_647 ? Math.trunc(timeoutMs) : 1);
+  const signal = external ? AbortSignal.any([external, timeout]) : timeout;
+  return run(signal);
 }
 
 /** @public exercised by server/balances/read.test.ts */
