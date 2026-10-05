@@ -81,7 +81,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
       await seedSignedInSession(page);
       await installApiFixtures(page);
       const orders = activityOrdersFixture();
-      await page.route("**/api/actions", (route) => json(route, { actions: [cashoutFixtureAction] }));
+      await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [cashoutFixtureAction] }));
       await page.route("**/api/activity/orders", (route) => json(route, orders));
       const writes: string[] = [];
       page.on("request", (request) => {

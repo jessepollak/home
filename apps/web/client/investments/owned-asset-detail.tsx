@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 
 import { Lock, Wallet } from "lucide-react";
 import { useNestedAppChrome } from "@/components/app-chrome";
@@ -54,6 +54,7 @@ export function OwnedAssetDetail({ snapshot, balanceStatus, refreshFailed = fals
 }
 
 function OwnedBalanceCard({ row, snapshot, refreshFailed, onRetryBalances }: { row: OwnedInvestment; snapshot: BalancesSnapshot; refreshFailed: boolean; onRetryBalances: () => void }) {
+  const partialId = useId();
   const availableIsZero = !!row.availableZero || (!row.wallet && snapshot.coverage.registry === "complete" && snapshot.coverage.catalog === "complete");
   const availableValue = row.wallet?.balance.status === "ready" && row.wallet.value.status === "priced";
   const collateralPriced = row.collateral.every((item) => item.value.status === "priced");
@@ -61,7 +62,9 @@ function OwnedBalanceCard({ row, snapshot, refreshFailed, onRetryBalances }: { r
   const walletUnreadable = row.wallet?.balance.status === "unavailable";
   return <Card><CardContent inset="hero"><div className="@container space-y-2">
     <p className="text-sm text-muted-foreground">Your balance</p>
-    <div className="text-xl @2xs:text-2xl font-semibold tabular-nums">{unreadable ? <span className="text-muted-foreground">Unavailable</span> : row.amount ? <MoneyTicker align="start" reserveDigits={false} animated={false} value={compactFinancialValue(amountLabel(row.amount, snapshot))} aria-label={amountLabel(row.amount, snapshot)} /> : unavailableValue()}</div>
+    <div className={`text-xl @2xs:text-2xl font-semibold tabular-nums ${row.status !== "complete" ? "text-muted-foreground" : ""}`}>{row.amount ? <MoneyTicker align="start" reserveDigits={false} animated={false} value={compactFinancialValue(amountLabel(row.amount, snapshot))} aria-label={amountLabel(row.amount, snapshot)} aria-describedby={row.status === "partial" ? partialId : undefined} /> : unavailableValue()}</div>
+    {row.status === "partial" ? <p id={partialId} className="text-sm text-muted-foreground">Some balances are unavailable</p> : null}
+    {row.status === "unavailable" ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}>Try again</Button> : null}
     {!unreadable ? <p className="text-sm text-muted-foreground">{ownedQuantity(row, snapshot, true)}</p> : null}
     {refreshFailed ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription><AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryBalances}>Try again</Button></AlertAction></Alert> : null}
     {row.collateral.length ? <ul className="list-none p-0"><BalanceRow icon={<GlyphMark size="sm"><Wallet /></GlyphMark>} label="Available" context={walletUnreadable ? undefined : row.wallet ? quantity(row.wallet, snapshot) : row.availableZero ? quantity(row.availableZero, snapshot) : availableIsZero ? `0 ${row.holding.symbol}` : "Balance unavailable"} value={walletUnreadable ? "Unavailable" : availableValue ? <MoneyTicker animated={false} value={amountLabel((row.wallet!.value as Extract<Holding["value"], { status: "priced" }>).amount, snapshot)} /> : availableIsZero ? <MoneyTicker animated={false} value={amountLabel({ atoms: "0", scale: 2 }, snapshot)} /> : unavailableValue()} valueTone={availableValue || availableIsZero ? "default" : "muted"} chevron={false} /><BalanceRow icon={<GlyphMark size="sm"><Lock /></GlyphMark>} label="Collateral" context={holdingsQuantity(row.collateral, row.holding, snapshot)} value={collateralPriced ? <MoneyTicker animated={false} value={amountLabel(roundFractionPreservingPositive(addFractions(row.collateral.map((item) => exactDecimalToFraction((item.value as Extract<Holding["value"], { status: "priced" }>).amount)))), snapshot)} /> : unavailableValue()} valueTone={collateralPriced ? "default" : "muted"} chevron={false} /></ul> : null}

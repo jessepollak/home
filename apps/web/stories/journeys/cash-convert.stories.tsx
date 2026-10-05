@@ -61,7 +61,7 @@ function Surface({ scenario }: { scenario: Scenario }) {
     <CashExperience view="cash" session={owner} snapshot={scenario === "empty" ? zero : held} balanceStatus="ready" onOpenSavings={() => undefined}
       onAddMoney={() => setAdded(true)} now={() => Date.parse(now)} fetchVaults={async () => metadata}
       fetchAccountResource={async (path) => {
-        if (path === "/api/actions") return { actions: [] };
+        if (path === "/api/actions") return { version: 1, truncated: false, actions: [] };
         if (!path.includes("/api/trades")) return { version: 1, usdcReserveBaseUnits: "20000" };
         const assetId = new URL(path, "https://example.test").searchParams.get("assetId");
         const currency = cashConversionCurrencies.find((entry) => entry.tradeAssetId === assetId);

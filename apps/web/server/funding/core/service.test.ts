@@ -8,6 +8,7 @@ import type {
   Instruction,
   Quote,
   QuoteIntent,
+  OrderIntent,
 } from "@/shared/funding/provider-contract";
 import { MemoryFundingOrderStore, type FundingReservation } from "./store";
 import {
@@ -1152,6 +1153,23 @@ describe("FundingCore", () => {
     expect(calls).toBe(1);
   });
 
+  test("rejects a quote request above the signed amount bound as a request error", async () => {
+    let calls = 0;
+    const core = new FundingCore({
+      providers: [{ manifest, onramp: {
+        async createQuote() { calls += 1; return { fiatAmount: "2100", tokenAmountAtomic: "210000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" }; },
+        async createOrder() { return { outcome: "ambiguous" }; },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      } }],
+      store: new MemoryFundingOrderStore(),
+      env: { FIXTURE_KEY: "set", ["FUNDING_" + "QUOTE_SECRET"]: "q".repeat(32) },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+    });
+    await expect(core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: `1${"0".repeat(40)}` }, "https://home.example"))
+      .rejects.toMatchObject({ code: "INVALID_QUOTE_REQUEST", status: 400 });
+    expect(calls).toBe(0);
+  });
+
   test("rejects a provider quote outside the contract before signing and strips undeclared fields", async () => {
     const base = {
       providerQuoteId: "provider-quote",
@@ -1190,7 +1208,18 @@ describe("FundingCore", () => {
       ["null quote", null],
       ["unparseable expiry", { ...base, expiresAt: "not-a-date" }],
       ["expired quote", { ...base, expiresAt: "2000-01-01T00:00:00.000Z" }],
-      ["mismatched fiat amount", { ...base, fiatAmount: "3.00" }],
+      ["legacy mismatched fiat amount", { ...base, fiatAmount: "3.00" }],
+      ["mismatched entered amount", { ...base, fiatAmount: "2.08", enteredFiatAmount: "2.06" }],
+      ["total below entered amount", { ...base, fiatAmount: "2.06", enteredFiatAmount: "2.07" }],
+      ["negative total", { ...base, fiatAmount: "-3", enteredFiatAmount: "2.07" }],
+      ["total with a leading zero", { ...base, fiatAmount: "03", enteredFiatAmount: "2.07" }],
+      ["exponent total", { ...base, fiatAmount: "3e0", enteredFiatAmount: "2.07" }],
+      ["total with a trailing decimal point", { ...base, fiatAmount: "3.", enteredFiatAmount: "2.07" }],
+      ["total without an integer part", { ...base, fiatAmount: ".3", enteredFiatAmount: "2.07" }],
+      ["non-string total", { ...base, fiatAmount: 3, enteredFiatAmount: "2.07" }],
+      ["null total", { ...base, fiatAmount: null, enteredFiatAmount: "2.07" }],
+      ["total beyond supported precision", { ...base, fiatAmount: `3.${"0".repeat(256)}`, enteredFiatAmount: "2.07" }],
+      ["oversized integer total", { ...base, fiatAmount: "9".repeat(16_384), enteredFiatAmount: "2.07" }],
       ["non-atomic token amount", { ...base, tokenAmountAtomic: "2.020000" }],
     ] as const) {
       returned.value = value;
@@ -1210,7 +1239,56 @@ describe("FundingCore", () => {
     expect(draft.quote).not.toHaveProperty("undeclared");
     const authenticated = authenticateFundingQuote(draft.quoteToken, "q".repeat(32));
     expect(authenticated?.claims.quote).toEqual(draft.quote);
-    expect(calls).toBe(10);
+    expect(calls).toBe(21);
+  });
+
+  test.each(["2110.00000000", "2110"])("signs the final debit %s for old-server dispatch while preserving the entered amount", async (total) => {
+    const quote = {
+      providerQuoteId: "provider-quote", fiatAmount: total, enteredFiatAmount: "2100",
+      tokenAmountAtomic: "210000", fees: [{ label: "Service", amount: "10", currency: "IDR" }],
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    };
+    let capturedIntent: OrderIntent | null = null;
+    const store = new MemoryFundingOrderStore();
+    const core = new FundingCore({
+      providers: [{ manifest, onramp: {
+        async createQuote() { return quote; },
+        async createOrder(input, ctx) {
+          capturedIntent = input;
+          const confirmedQuote = input.quote;
+          if (!confirmedQuote) throw new Error("Expected a confirmed quote");
+          return { outcome: "created", order: {
+            providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address,
+            expectedTokenAmountAtomic: confirmedQuote.tokenAmountAtomic, fees: confirmedQuote.fees, expiresAt: null,
+            instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: confirmedQuote.fiatAmount, currency: "IDR" },
+          } };
+        },
+        async getOrder() { return { state: "unknown", providerStatus: "unknown" }; },
+      } }],
+      store, env: { FIXTURE_KEY: "set", ["FUNDING_" + "QUOTE_SECRET"]: "q".repeat(32) },
+      currentBaseBlock: async () => "1", verifyReceipt: async () => null,
+    });
+    const draft = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "2100" }, "https://home.example");
+    expect(readQuoteDraft(JSON.parse(JSON.stringify(draft)))?.quote).toEqual(quote);
+    expect(draft.version).toBe(1);
+    const claims = authenticateFundingQuote(draft.quoteToken, "q".repeat(32))?.claims;
+    expect(claims).toMatchObject({ fiatAmount: "2100", quote });
+    expect(claims?.quote.fiatAmount).toBe(total);
+    expect(claims?.quote.enteredFiatAmount).toBe("2100");
+    const order = await core.createOrder(session, { quoteToken: draft.quoteToken }, "https://home.example");
+    expect(capturedIntent).toMatchObject({ fiatAmount: "2100", quote });
+    expect(order).toMatchObject({ fiatAmount: "2100", quote, instructions: { amount: total } });
+    expect(await store.getOwned(order.id, { subject: session.user.subject, accountProvider: session.accountProvider })).toMatchObject({ fiatAmount: "2100", quote });
+  });
+
+  test("accepts and dispatches a legacy quote without an entered amount", async () => {
+    const { core } = setup();
+    const draft = await core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "2100" }, "https://home.example");
+    expect(draft.quote.fiatAmount).toBe("2100");
+    expect(draft.quote).not.toHaveProperty("enteredFiatAmount");
+    expect(authenticateFundingQuote(draft.quoteToken, "s".repeat(32))?.claims).toMatchObject({ fiatAmount: "2100", quote: draft.quote });
+    const order = await core.createOrder(session, { quoteToken: draft.quoteToken }, "https://home.example");
+    expect(order).toMatchObject({ fiatAmount: "2100", quote: draft.quote, instructions: { amount: "2100" } });
   });
 
   test("maps typed provider quote rejections to public copy without provider text", async () => {

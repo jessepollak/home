@@ -431,7 +431,7 @@ function QuoteReview({
   const regionId = presentationCurrencyMetadata(
     binding.currency,
   ).defaultRegionId;
-  const deposit = formatFiatAmount(draft.quote.fiatAmount, binding.currency, {
+  const deposit = formatFiatAmount(draft.quote.enteredFiatAmount ?? draft.quote.fiatAmount, binding.currency, {
     regionId,
   });
   const receive = formatPresentationTokenAmount(
@@ -466,9 +466,15 @@ function QuoteReview({
               ) : (
                 <DefinitionRow
                   label="Fees"
-                  value={draft.quote.feesKnown ? "None" : "Not yet available"}
+                  value={draft.quote.enteredFiatAmount !== undefined ? "Included in total" : draft.quote.feesKnown ? "None" : "Not yet available"}
                 />
               )}
+              {draft.quote.enteredFiatAmount !== undefined ? (
+                <DefinitionRow
+                  label="Total"
+                  value={formatFiatAmount(draft.quote.fiatAmount, binding.currency, { regionId })}
+                />
+              ) : null}
             </dl>
             <p className="mt-4 text-xs text-muted-foreground">
               Expires:{" "}
@@ -547,7 +553,7 @@ function ProviderEconomicsReview({
                   />
                 ))
               ) : (
-                <DefinitionRow label="Fees" value="None" />
+                <DefinitionRow label="Fees" value={order.quote?.enteredFiatAmount !== undefined ? "Included in total" : "None"} />
               )}
             </dl>
           </CardContent>
@@ -606,7 +612,7 @@ export function OpenOrderPrompt({
           </CardHeader>
           <CardContent>
             <dl className="space-y-3">
-              <DefinitionRow label="You pay" value={formatFiatAmount(order.fiatAmount, binding.currency, { currencyNative: true })} />
+              <DefinitionRow label="You pay" value={formatFiatAmount(order.quote?.fiatAmount ?? order.fiatAmount, binding.currency, { currencyNative: true })} />
               {order.createdAt ? (
                 <DefinitionRow
                   label="Started"

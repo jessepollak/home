@@ -193,7 +193,7 @@ test("injected start records a live leader and stop removes the state and log", 
   expect(existsSync(options.logPath)).toBe(true);
   expect(readFileSync(options.logPath, "utf8")).toContain("listening");
   expect(JSON.parse(readFileSync(options.logPath, "utf8").split("\n")[0])).toEqual([
-    "HOME", "HOME_FIXTURE_PORT", "HOME_PLAYWRIGHT_SMOKE", "NEXT_TELEMETRY_DISABLED", "PATH",
+    "DATABASE_URL", "HOME", "HOME_FIXTURE_PORT", "HOME_OPERATOR_ADDRESSES", "HOME_PLAYWRIGHT_SMOKE", "HOME_SESSION_SECRET", "NEXT_TELEMETRY_DISABLED", "PATH",
   ]);
   expect(await stopFixtureServer(options)).toBe(`fixture server on port ${options.port} stopped; port free`);
   expect(await portIsFree(options.port)).toBe(true);

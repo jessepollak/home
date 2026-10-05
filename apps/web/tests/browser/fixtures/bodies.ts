@@ -26,7 +26,7 @@ export const sessionBody = {
   accountProvider: "cdp-embedded",
 };
 
-export const actionsBody = { actions: [] };
+export const actionsBody = { version: 1, truncated: false, actions: [] };
 export const fundingProvidersBody = { version: FUNDING_PROVIDERS_VERSION, direction: "onramp" as const, providers: [] };
 export const basenameProfileBody = { profile: null };
 

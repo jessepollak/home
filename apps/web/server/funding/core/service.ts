@@ -411,9 +411,21 @@ export class FundingCore {
     const validated = readFundingQuote(quote);
     if (!validated) throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
     quote = validated;
-    if (quote.fiatAmount !== parsed.fiatAmount || !validAtomic(quote.tokenAmountAtomic) || !(Date.parse(quote.expiresAt) > this.now().getTime())) {
+    const enteredFiatAmount = quote.enteredFiatAmount ?? quote.fiatAmount;
+    if (enteredFiatAmount !== parsed.fiatAmount || !validAtomic(quote.tokenAmountAtomic) || !(Date.parse(quote.expiresAt) > this.now().getTime())) {
       throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
     }
+    if (quote.fiatAmount.length > 40 || !/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(quote.fiatAmount)) {
+      throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
+    }
+    let totalBelowEntered = false;
+    try {
+      const decimals = Math.max(enteredFiatAmount.split(".")[1]?.length ?? 0, quote.fiatAmount.split(".")[1]?.length ?? 0);
+      totalBelowEntered = BigInt(decimalToAtomic(quote.fiatAmount, decimals)) < BigInt(decimalToAtomic(enteredFiatAmount, decimals));
+    } catch {
+      throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
+    }
+    if (totalBelowEntered) throw new FundingCoreError("INVALID_PROVIDER_QUOTE", 502);
     const claims = {
       subject: session.user.subject, accountProvider: session.accountProvider,
       providerId: provider.manifest.id, region: binding.region, paymentMethod: parsed.paymentMethod,
@@ -940,7 +952,7 @@ function verifyWebhookForBinding(
 }
 function parseQuoteRequest(value: unknown): { providerId: string; region: string; paymentMethod: string; fiatAmount: string } | null {
   if (!record(value) || Object.keys(value).some((key) => !["providerId", "region", "paymentMethod", "fiatAmount"].includes(key))) return null;
-  if (typeof value.providerId !== "string" || typeof value.region !== "string" || typeof value.paymentMethod !== "string" || typeof value.fiatAmount !== "string" || !/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value.fiatAmount) || value.fiatAmount.length > 64) return null;
+  if (typeof value.providerId !== "string" || typeof value.region !== "string" || typeof value.paymentMethod !== "string" || typeof value.fiatAmount !== "string" || !/^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value.fiatAmount) || value.fiatAmount.length > 40) return null;
   return { providerId: value.providerId, region: value.region, paymentMethod: value.paymentMethod, fiatAmount: value.fiatAmount };
 }
 function parseVerificationRequest(value: unknown): { providerId: string; region: string; email: string } | null {

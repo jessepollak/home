@@ -134,12 +134,28 @@ export function InvestmentsOverviewExploration({ snapshot, balanceStatus, refres
   const [visibleCount, setVisibleCount] = useState(() => Math.max(20, rows.findIndex((row) => row.key === revealKey) + 1));
   const sentinel = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!sentinel.current || visibleCount >= rows.length) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (entry?.isIntersecting) setVisibleCount((count) => Math.min(count + 20, rows.length));
-    }, { rootMargin: "600px 0px" });
-    observer.observe(sentinel.current);
-    return () => observer.disconnect();
+    const node = sentinel.current;
+    if (!node || visibleCount >= rows.length) return;
+    const view = node.ownerDocument.defaultView;
+    let revealed = false;
+    const reveal = () => {
+      if (revealed) return;
+      revealed = true;
+      setVisibleCount((count) => Math.min(count + 20, rows.length));
+    };
+    const revealWhenNear = () => {
+      if (node.getBoundingClientRect().top <= (view?.innerHeight ?? 0) + 600) reveal();
+    };
+    revealWhenNear();
+    const observer = new IntersectionObserver(revealWhenNear, { rootMargin: "600px 0px" });
+    observer.observe(node);
+    node.ownerDocument.addEventListener("scroll", revealWhenNear, { capture: true, passive: true });
+    view?.addEventListener("resize", revealWhenNear);
+    return () => {
+      observer.disconnect();
+      node.ownerDocument.removeEventListener("scroll", revealWhenNear, { capture: true });
+      view?.removeEventListener("resize", revealWhenNear);
+    };
   }, [visibleCount, rows.length]);
   const marks = new Map(active ? presentBalances({ status: "ready", snapshot: active, error: null }, { showSmallBalances: true }).groups.flatMap((group) => group.rows.map((row) => [row.key, row.mark] as const)) : []);
   return <div className="space-y-4">

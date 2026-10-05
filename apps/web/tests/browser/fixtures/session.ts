@@ -2,6 +2,9 @@ import { createHash, createHmac } from "node:crypto";
 import { FIXED_NOW } from "./fixed-time";
 
 const secret = "playwright-smoke-home-session-secret-32-bytes!!";
+export { secret as homeSessionSecret };
+
+export const fixtureOperatorAddress = "0x1111111111111111111111111111111111111111" as const;
 
 export function homeSessionToken(address: string): string {
   const subject = `base-${createHash("sha256").update(address).digest("hex").slice(0, 32)}`;

@@ -3,13 +3,15 @@ import { expect, test, type Page } from "@playwright/test";
 import { fixtureRoutes, requiresSignedInFixture } from "./feature-map/fixtures";
 import { conversionFixtureAction, preparedConversionFixture, type ConversionPrepareParams } from "./feature-map/conversion-fixture";
 
+import { installOperatorSupportFixtures } from "./feature-map/operator-support-fixture";
+import { fixtureOperatorAddress, homeSessionToken } from "./fixtures/session";
 import { readFeatureMap, type ReachStep } from "./feature-map/map";
 import { installApiFixtures, json, seedSignedInSession } from "./fixtures/api";
 
 const mapPromise = readFeatureMap(resolve(__dirname, "../../../../.agents/skills/browser-iteration/surfaces"));
 const replaySurfaceIds = [
   "landing", "sign-in", "home-panel", "activity", "save", "invest", "investments",
-  "send", "account-settings", "coverage", "support-chat",
+  "send", "account-settings", "coverage", "support-chat", "operator-console",
 ];
 const variantFixtures: Record<string, (page: Page) => Promise<void>> = {
   "save:convert": async (page) => {
@@ -50,8 +52,15 @@ for (const surfaceId of replaySurfaceIds) {
     if (!surface) return;
     if (requiresSignedInFixture(surfaceId)) await seedSignedInSession(page);
     await installApiFixtures(page);
+    if (surfaceId === "operator-console") {
+      await page.context().addCookies([{
+        name: "home-session", value: homeSessionToken(fixtureOperatorAddress), domain: "localhost", path: "/",
+        httpOnly: true, secure: false, sameSite: "Lax",
+      }]);
+      await installOperatorSupportFixtures(page);
+    }
     if (surfaceId === "activity") {
-      await page.route("**/api/actions", (route) => json(route, { actions: [conversionFixtureAction] }));
+      await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [conversionFixtureAction] }));
     }
     if (surfaceId === "send" || surfaceId === "invest") {
       const routes = fixtureRoutes();

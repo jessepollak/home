@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 
+import { fixtureOperatorAddress, homeSessionSecret } from "../tests/browser/fixtures/session";
 import { releaseFixturePort, reserveFixturePort } from "./fixture-port";
 
 const LOCK_DIRECTORY = join(tmpdir(), "home-fixture-server");
@@ -210,11 +211,14 @@ async function startLockedFixtureServer(options: StartOptions): Promise<FixtureS
       detached: true,
       stdio: ["ignore", descriptor, descriptor],
       env: {
+        DATABASE_URL: "",
         HOME: homedir(),
         PATH: process.env.PATH,
         NEXT_TELEMETRY_DISABLED: "1",
         HOME_PLAYWRIGHT_SMOKE: "1",
         HOME_FIXTURE_PORT: String(port),
+        HOME_SESSION_SECRET: homeSessionSecret,
+        HOME_OPERATOR_ADDRESSES: fixtureOperatorAddress,
       } as unknown as NodeJS.ProcessEnv,
     });
   } finally {

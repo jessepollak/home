@@ -38,6 +38,7 @@ This map points to Home's current product, engineering, delivery, setup, and int
 ## Integrations and data
 
 - [Issuer integration guide](integrations/README.md) — funding-provider adapter walkthrough.
+- [Coinbase onramp sandbox harness](coinbase-onramp-agent-browser.md) — the approved, opt-in provider-acceptance runbook for Embedded Orders sandbox proof.
 - [Base Account](base-account.md) — native account configuration and sign-in boundary.
 - [CDP setup](cdp-setup.md), [error reporting](cdp-error-reporting.md), [Address History](cdp-address-history.md), and [CDP SQL](cdp-sql.md) — CDP configuration and Activity data sources.
 - [Codex prices](codex-prices.md) and [Invest data](invest-data.md) — market-data integration and asset identity.

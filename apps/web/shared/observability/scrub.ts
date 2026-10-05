@@ -23,12 +23,13 @@ const sensitiveKeySource = [
   "refresh[_-]?token",
   "id[_-]?token",
   "api[_-]?key",
+  "api[_-]?key[_-]?id",
   "api[_-]?secret",
   "client[_-]?secret",
   "private[_-]?key",
   "secret",
   "session[_-]?(?:id|token|secret)",
-  "cdp[_-]?(?:api[_-]?)?(?:key(?:[_-]?secret)?|secret|token)",
+  "cdp[_-]?(?:api[_-]?)?(?:key(?:[_-]?(?:secret|id))?|secret|token)",
 ].join("|");
 
 const sensitiveKeyPattern = new RegExp(`^(?:${sensitiveKeySource})$`, "i");

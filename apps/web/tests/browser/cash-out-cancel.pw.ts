@@ -7,7 +7,7 @@ for (const start of ["/home", "/activity"] as const) {
   test(`cancel a pending cash-out from ${start} reviews the withdrawal in the same sheet`, async ({ page }) => {
     await seedSignedInSession(page);
     await installApiFixtures(page);
-    await page.route("**/api/actions", (route) => json(route, { actions: [cashoutFixtureAction] }));
+    await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [cashoutFixtureAction] }));
     await page.route("**/api/actions/prepare", (route) => {
       if (route.request().method() !== "POST") return route.fallback();
       const body: unknown = route.request().postDataJSON();

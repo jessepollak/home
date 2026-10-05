@@ -10,7 +10,7 @@ import type { GetActionPendingResponse, GetActionResponse } from "@/shared/actio
 import type { HandleActionResponse } from "@/shared/actions/contracts/handle";
 import { DECLINE_ACTION_CONTRACT_VERSION, parseDeclineActionRequest, type DeclineActionResponse } from "@/shared/actions/contracts/decline";
 import { RETRY_ACTION_CONTRACT_VERSION, parseRetryActionRequest, type RetryActionResponse } from "@/shared/actions/contracts/retry";
-import { RECENT_ACTIONS_LIMIT, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
+import { LIST_ACTIONS_CONTRACT_VERSION, RECENT_ACTIONS_LIMIT, type ActionListItem, type ListActionsResponse } from "@/shared/actions/contracts/list";
 import type { CashoutProgress } from "@/shared/funding/contracts/cash-out-progress";
 import type { CardAllowanceMoneyActionMetadata, MoneyActionCall, MoneyActionOwner } from "@/shared/money-actions/types";
 import { parseCardAllowanceMetadata } from "@/shared/cards/allowance-contract";
@@ -613,6 +613,8 @@ export function createListActionsHandler(dependencies: {
         const record = row.kind === "cash-out" ? byAction.get(row.id) : undefined;
         return {
           ...await presentAction(row, owner, receipt, now),
+          ...(row.kind === "cash-out-withdraw" && finalizedSucceededReceiptBlock(row) !== undefined
+            ? { receiptBlockNumber: finalizedSucceededReceiptBlock(row) } : {}),
           ...(record ? { cashout: presentCashoutProgress(record,
             record.deposit_id !== null && cashoutWithdrawalInFlight(observed, owner, record.deposit_id, now), row) } : {}),
         };
@@ -621,8 +623,9 @@ export function createListActionsHandler(dependencies: {
         (observed.at(-1)?.row.kind === "cash-out" || observed.at(-1)?.row.kind === "cash-out-withdraw");
       const retainedSavingsDeposits = await Promise.all(retainedObserved.map(({ row, receipt }) => presentAction(row, owner, receipt, now)));
       return privateJson({
+        version: LIST_ACTIONS_CONTRACT_VERSION,
         actions,
-        ...(truncated ? { truncated: true } : {}),
+        truncated,
         ...(retainedSavingsDeposits.length ? { retainedSavingsDeposits } : {}),
         ...(retainedSavingsDepositsUnavailable ? { retainedSavingsDepositsUnavailable: true } : {}),
       } satisfies ListActionsResponse, 200);
@@ -632,15 +635,20 @@ export function createListActionsHandler(dependencies: {
   };
 }
 
+function finalizedSucceededReceiptBlock(row?: ActionRow): string | undefined {
+  return row?.outcome === "succeeded" && row.observed_receipt_outcome === "succeeded" && row.observed_receipt_block_number != null &&
+    row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase()
+    ? row.observed_receipt_block_number : undefined;
+}
+
 export function presentCashoutProgress(record: RefreshedCashoutOrder | CashoutOrderRow, withdrawing: boolean, row?: ActionRow): CashoutProgress {
   return {
     version: 1,
     providerId: record.provider_id,
     region: record.region,
     depositId: record.deposit_id,
-    ...(row?.outcome === "succeeded" && row.observed_receipt_outcome === "succeeded" && row.observed_receipt_block_number != null &&
-      row.transaction_hash && row.observed_receipt_transaction_hash?.toLowerCase() === row.transaction_hash.toLowerCase()
-      ? { depositBlockNumber: row.observed_receipt_block_number } : {}),
+    ...(finalizedSucceededReceiptBlock(row) !== undefined
+      ? { depositBlockNumber: finalizedSucceededReceiptBlock(row) } : {}),
     progressConfirmed: "progressConfirmed" in record && record.progressConfirmed === true,
     state: record.state,
     platform: record.platform,

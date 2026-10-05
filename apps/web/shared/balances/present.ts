@@ -45,6 +45,7 @@ export type MoneyGroupPresentation = {
   id: "cash" | "investments" | "unpriced";
   label: "Cash" | "Investments" | "Unpriced";
   displaySubtotal: string | null;
+  subtotalStatus: BalanceFigureStatus;
   rows: BalanceRowModel[];
 };
 
@@ -74,7 +75,7 @@ export type HomeSummaryAmount = {
 
 export type HomeMoneySummary = {
   cash: HomeSummaryAmount;
-  investments: HomeSummaryAmount & { assetCount: number; ownedCount: number };
+  investments: HomeSummaryAmount & { assetCount: number; assetCountStatus: BalanceFigureStatus; ownedCount: number };
   borrow:
     | (HomeSummaryAmount & { kind: "position"; rate: string | null; debts: Array<{ marketId: string; baseUnits: string }> })
     | { kind: "none"; hasCollateral: boolean }
@@ -90,6 +91,7 @@ export type HomeBalancesPresentation = {
   needsCountry?: true;
   breakdown: MoneyBreakdownItem[];
   summary: HomeMoneySummary | null;
+  refreshFailed?: true;
   revalidating?: true;
   cachedAt?: number;
 };
@@ -225,12 +227,12 @@ function balanceStatusReasons(snapshot: BalancesSnapshot, loanUnpriced: boolean,
   return reasons;
 }
 
-export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null } | null {
-  if (escrow?.state === "indeterminate") return { value: null };
+export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null; atLeast: boolean } | null {
+  if (escrow?.state === "indeterminate") return { value: null, atLeast: false };
   if (escrow?.state !== "escrow" || BigInt(escrow.baseUnits) === BigInt(0)) return null;
   const amount = pricePendingCashout(snapshot, escrow);
   return amount === "unpriced" || BigInt(amount.atoms) === BigInt(0) || !snapshot.quoteCurrency
-    ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region) };
+    ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region), atLeast: escrow.partial };
 }
 
 function signedNetWithPending(net: ExactDecimal, negative: boolean, pending: ExactDecimal): { value: ExactDecimal; negative: boolean } {
@@ -287,19 +289,19 @@ function buildMoneyGroups(
   const groups: MoneyGroupPresentation[] = [{
     id: "cash",
     label: "Cash",
-    displaySubtotal: presentCashSubtotal(cashSelections, snapshot),
+    ...presentHoldingsSubtotal(cashSelections.flatMap((entry) => entry.kind === "holding" ? [entry.holding] : []), snapshot),
     rows: cashRows,
   }];
   if (investmentRows.length > 0) {
     groups.push({
       id: "investments",
       label: "Investments",
-      displaySubtotal: presentHoldingsSubtotal(investmentHoldings, snapshot),
+      ...presentHoldingsSubtotal(investmentHoldings, snapshot, snapshot.coverage.catalog !== "complete" || snapshot.borrow.coverage !== "complete"),
       rows: investmentRows,
     });
   }
   if (unpricedRows.length > 0) {
-    groups.push({ id: "unpriced", label: "Unpriced", displaySubtotal: null, rows: unpricedRows });
+    groups.push({ id: "unpriced", label: "Unpriced", ...presentHoldingsSubtotal(investmentHoldings.filter((holding) => unpricedRows.some((row) => row.key === holding.key)), snapshot), rows: unpricedRows });
   }
   return groups;
 }
@@ -327,6 +329,9 @@ function presentHomeSummary(
     investments: {
       ...summaryAmount(totals.investments, snapshot.region),
       assetCount: assetKeys.size,
+      assetCountStatus: [...selectInvestmentHoldings(snapshot), ...snapshot.borrow.positions.map(({ collateral }) => collateral)].some((holding) => holding.balance.status === "unavailable") ||
+        snapshot.coverage.catalog !== "complete" || snapshot.coverage.registry === "partial" || snapshot.borrow.coverage !== "complete"
+        ? "partial" : "complete",
       ownedCount: [...owned.values()].filter(Boolean).length,
     },
     borrow: presentBorrowSummary(snapshot, totals.borrow),
@@ -532,36 +537,21 @@ function presentAsset(holding: Holding, snapshot: BalancesSnapshot): BalanceRowM
   };
 }
 
-function presentCashSubtotal(
-  entries: readonly CashSelection[],
-  snapshot: BalancesSnapshot,
-): string | null {
-  return presentHoldingsSubtotal(
-    entries.flatMap((entry) => entry.kind === "holding" ? [entry.holding] : []),
-    snapshot,
-  );
-}
-
 function presentHoldingsSubtotal(
   holdings: readonly Holding[],
   snapshot: BalancesSnapshot,
-): string | null {
-  const amount = holdingsSubtotalAmount(holdings, snapshot);
-  return amount && snapshot.quoteCurrency
-    ? formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region)
-    : null;
-}
-
-function holdingsSubtotalAmount(
-  holdings: readonly Holding[],
-  snapshot: BalancesSnapshot,
-): ExactDecimal | null {
-  if (!snapshot.quoteCurrency) return null;
+  knownIncomplete = false,
+): Pick<MoneyGroupPresentation, "displaySubtotal" | "subtotalStatus"> {
+  if (!snapshot.quoteCurrency) return { displaySubtotal: null, subtotalStatus: "unavailable" };
+  const missing = knownIncomplete || holdings.some((holding) => holding.balance.status !== "ready" ||
+    BigInt(holding.balance.baseUnits) > BigInt(0) && holding.value.status !== "priced");
   const values = holdings.flatMap((holding) =>
-    holding.value.status === "priced" ? [holding.value.amount] : []
+    holding.balance.status === "ready" && holding.value.status === "priced" ? [holding.value.amount] : []
   );
-  if (values.length === 0 && holdings.length > 0) return null;
-  return sumExactDecimals(values);
+  const amount = sumExactDecimals(values);
+  const subtotalStatus = !missing ? "complete" : BigInt(amount.atoms) > BigInt(0) ? "partial" : "unavailable";
+  return { subtotalStatus, displaySubtotal: subtotalStatus === "unavailable" ? null
+    : formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region) };
 }
 
 function sumExactDecimals(values: readonly ExactDecimal[]): ExactDecimal {

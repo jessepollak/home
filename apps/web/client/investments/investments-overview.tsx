@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { preserveRowFocus } from "./preserve-row-focus";
 import { noteHomeNavigationContent } from "@/client/observability/interaction-performance";
 import { RotateCw } from "lucide-react";
@@ -63,7 +63,7 @@ export function amountLabel(value: ExactDecimal, snapshot: BalancesSnapshot) {
 }
 
 export function unavailableValue() {
-  return <><span aria-hidden="true">—</span><span className="sr-only">Value unavailable</span></>;
+  return <span role="img" aria-label="Unavailable">—</span>;
 }
 
 function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
@@ -80,6 +80,7 @@ function holdingMark(holding: Holding, mark: BalanceRowModel["mark"]) {
 }
 
 export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed = false, onRetryRows, snapshot, balanceStatus, refreshFailed = false, visibleCount, onVisibleCountChange, onOpenAsset, onRetryBalances }: InvestmentsOverviewProps) {
+  const partialId = useId();
   const loading = balanceStatus === "loading";
   const listLoading = loading || rowsPending;
   const pendingFocus = useRef<ReturnType<typeof preserveRowFocus>>(null);
@@ -129,22 +130,23 @@ export function InvestmentsOverview({ ownedRows, rowsPending = false, rowsFailed
       <div className="@container flex flex-col gap-1">
         <p className="text-sm text-muted-foreground">Investments</p>
         {loading ? <div data-shimmer="hero"><Skeleton className="h-14 w-48" /><span className="sr-only">Updating…</span></div> : <div data-tone={summary?.status === "complete" ? "default" : "muted"} className={`text-2xl @2xs:text-3xl @xs:text-4xl font-semibold tabular-nums ${summary?.status !== "complete" ? "text-muted-foreground" : ""}`}>
-          {summary?.value ? <MoneyTicker align="start" reserveDigits={false} value={compactFinancialValue(summary.value)} aria-label={summary.value} /> : unavailableValue()}
+          {summary?.value ? <MoneyTicker align="start" reserveDigits={false} value={compactFinancialValue(summary.value)} aria-label={summary.value} aria-describedby={summary.status === "partial" ? partialId : undefined} /> : unavailableValue()}
         </div>}
-        {summary && summary.status !== "complete" ? <p className="text-sm text-muted-foreground">Some values are unavailable</p> : null}
+        {summary?.status === "partial" ? <p id={partialId} className="text-sm text-muted-foreground">Some balances are unavailable</p> : null}
         {failed ? <p className="text-sm text-muted-foreground">Couldn&apos;t load your balance. Check your connection.</p> : null}
         {refreshFailed && active ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription><AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryBalances}>Try again</Button></AlertAction></Alert> : null}
       </div>
-      {failed ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}><RotateCw aria-hidden="true" />Try again</Button> : null}
+      {failed || summary?.status === "unavailable" ? <Button variant="outline" size="touch" className="w-full" onClick={onRetryBalances}><RotateCw aria-hidden="true" />Try again</Button> : null}
     </CardContent></Card>
     {listLoading || rowsFailed || rows.length > 0 ? <section key={active ? `${active.owner.address}:${active.region}` : "unavailable"} aria-labelledby="investments-held-heading" aria-busy={listLoading || undefined}><Card><CardHeader><HomeSectionHeading id="investments-held-heading">Your investments</HomeSectionHeading></CardHeader><CardContent inset="list">
       <div style={{ minHeight: rowsPending ? "var(--investment-list-height, 0px)" : undefined }}>
       {rowsFailed ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription><AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryRows ?? onRetryBalances}>Try again</Button></AlertAction></Alert> : listLoading ? <><ShimmerRows count={3} /><span className="sr-only">Updating…</span></> : <><ul ref={measureRows} className="list-none p-0">{rows.slice(0, visibleCount).map((row) => {
         const context = ownedQuantity(row, active!);
+        const complete = row.status === "complete";
         const unreadable = ownedBalanceUnreadable(row);
         const value = row.amount ? amountLabel(row.amount, active!) : null;
         const reason = holdingValueContext(row.holding.value);
-        return <BalanceRow key={row.key} icon={holdingMark(row.holding, presentHoldingMark(row.holding))} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name.trim() || row.holding.symbol.trim()}</span>} context={unreadable ? undefined : context} contextTitle={unreadable ? undefined : ownedQuantity(row, active!, true)} value={unreadable ? "Unavailable" : value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : unavailableValue()} valueTone={row.amount ? "default" : "muted"} valueContext={row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : unreadable || reason === "Value unavailable" ? undefined : reason} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name.trim() || row.holding.symbol.trim()}`} chevron />;
+        return <BalanceRow key={row.key} icon={holdingMark(row.holding, presentHoldingMark(row.holding))} iconTone="mark" label={<span data-holding-key={row.key}>{row.holding.name.trim() || row.holding.symbol.trim()}</span>} context={unreadable ? undefined : context} contextTitle={unreadable ? undefined : ownedQuantity(row, active!, true)} value={value ? <MoneyTicker animated={false} value={compactFinancialValue(value)} aria-label={value} /> : unavailableValue()} valueTone={complete ? "default" : "muted"} valueContext={row.status === "partial" ? "Partial balance" : unreadable ? undefined : row.collateral.length ? row.wallet ? "Includes collateral" : "Collateral" : reason === "Value unavailable" ? undefined : reason} onActivate={() => onOpenAsset(row.key)} activateLabel={`Open ${row.holding.name.trim() || row.holding.symbol.trim()}`} chevron />;
       })}</ul>{visibleCount < rows.length ? <><span role="status" className="sr-only">Showing {visibleCount} of {rows.length} investments</span><div ref={sentinel} aria-hidden="true" /></> : null}</>}
       </div>
     </CardContent></Card></section> : null}

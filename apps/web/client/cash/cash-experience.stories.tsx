@@ -171,6 +171,7 @@ type SurfaceProps = {
   failPreparation?: boolean;
   balanceStale?: boolean;
   balanceActionStale?: boolean;
+  refreshFailed?: boolean;
   pendingActionsError?: boolean;
   initialView?: "cash" | "savings";
   nowMs?: number;
@@ -178,7 +179,7 @@ type SurfaceProps = {
   regionId?: RegionId;
 };
 
-function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, saveMode = "on", failPreparation = false, balanceStale = false, balanceActionStale = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
+function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, saveMode = "on", failPreparation = false, balanceStale = false, balanceActionStale = false, refreshFailed = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
   const [view, setView] = useState(initialView);
   const clock = useRef(nowMs);
   const now = useCallback(() => clock.current, []);
@@ -252,11 +253,11 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
   const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => path.includes("/api/trades?")
     ? { version: 2, status: "unavailable", reason: "asset-unsupported" }
     : path === "/api/actions"
-      ? { actions: [] }
+      ? { version: 1, truncated: false, actions: [] }
       : { version: 1, usdcReserveBaseUnits: "20000" };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
   const cashRate = homeParity ? "4.08% APY" : null;
-  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale} balanceActionStale={balanceActionStale} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
+  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale} balanceActionStale={balanceActionStale} refreshFailed={refreshFailed} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
   return (
     <PresentationRegionProvider regionId={regionId}>
       <ProductOfferingProvider value={offering}>
@@ -355,6 +356,12 @@ const fixtureParameters = { msw: { handlers: [http.get("/api/savings/vaults", ()
 export const FixtureParity: Story = { args: fixtureParity, parameters: fixtureParameters };
 export const FixtureParitySavings: Story = { args: { ...fixtureParity, initialView: "savings" }, parameters: fixtureParameters };
 export const SavingsAfterActionStale: Story = { args: { initialView: "savings", balanceActionStale: true }, play: async ({ canvasElement }) => {
+  const hero = within(canvasElement).getByLabelText("Savings balance");
+  await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
+  await expect(within(hero).getByRole("img", { name: "$883.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
+  await expect(within(hero).queryByText(/^Earning /)).toBeNull();
+} };
+export const SavingsSnapshotStale: Story = { args: { initialView: "savings", snapshot: { ...fundedSnapshot, stale: true } }, play: async ({ canvasElement }) => {
   const hero = within(canvasElement).getByLabelText("Savings balance");
   await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
   await expect(within(hero).getByRole("img", { name: "$883.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
@@ -512,6 +519,15 @@ export const PartialSavings: Story = { args: { snapshot: partialSavingsSnapshot 
   await expect(within(hero).getByText("Some savings are unavailable")).toBeVisible();
   await expect(hero.querySelector("[aria-describedby='savings-balance-partial']")).not.toBeNull();
 } };
+export const PartialSavingsStale: Story = { args: { snapshot: { ...partialSavingsSnapshot, stale: true } }, play: async ({ canvasElement }) => {
+  const row = await within(canvasElement).findByRole("button", { name: /US dollar.*\$800\.00.*Partial · May be out of date/ });
+  await expect(within(row).getByText("Partial · May be out of date")).toBeVisible();
+} };
+export const PartialSavingsStaleDetail: Story = { args: { snapshot: { ...partialSavingsSnapshot, stale: true }, initialView: "savings" }, play: async ({ canvasElement }) => {
+  const hero = within(canvasElement).getByLabelText("Savings balance");
+  await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
+  await expect(within(hero).getByText("Some savings are unavailable")).toBeVisible();
+} };
 const partialVaultMetadata = { ...metadata, candidates: metadata.candidates.filter((vault) => vault.vaultAddress !== STEAKHOUSE) };
 export const SavingsMetadataPartial: Story = { parameters: { msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(partialVaultMetadata))] } }, play: async ({ canvasElement }) => {
   const screen = await openSavings(canvasElement);
@@ -599,9 +615,9 @@ export const Recovery: Story = { beforeEach() { recoveryRequests = 0; }, paramet
   await expect(tray.getByRole("button", { name: "Withdraw" })).toBeEnabled();
   await userEvent.click(tray.getByRole("button", { name: "Close Gauntlet USDC Prime details" }));
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await expect(await screen.findByText("More ways to save")).toBeVisible();
+  await waitFor(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toHaveAccessibleName(/4\.10% APY/));
   await expect(manageRow(screen, "Gauntlet USDC Prime")).toBeEnabled();
-  await expect(recoveryRequests).toBe(2);
+  await expect(within(screen.getByRole("region", { name: "More ways to save" })).getByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" })).toBeVisible();
 } };
 export const DepositJourney: Story = { play: async ({ canvasElement }) => {
   const screen = await openSavings(canvasElement);
@@ -876,6 +892,35 @@ export const CashSavingsHiddenWhileSavePaused: Story = { args: { snapshot: cashO
   await expect(screen.queryByRole("region", { name: "Savings" })).toBeNull();
   await expect(screen.queryByText(/APY/)).toBeNull();
 } };
+export const CashSavingsVisibleWhileSavePausedStale: Story = { args: { snapshot: { ...cashOnlySnapshot, stale: true }, saveMode: "exit-only" }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  await expect(await screen.findByRole("region", { name: "Currencies" })).toBeVisible();
+  const savings = within(await screen.findByRole("region", { name: "Savings" }));
+  const row = savings.getByRole("button", { description: "Open savings" });
+  await expect(row).toBeEnabled();
+  await expect(within(row).getByText("May be out of date")).toBeVisible();
+} };
+export const CashSavingsVisibleWhileSavePausedActionStale: Story = { args: { snapshot: cashOnlySnapshot, saveMode: "exit-only", balanceActionStale: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const savings = await screen.findByRole("region", { name: "Savings" });
+  await expect(savings).toBeVisible();
+  const row = within(savings).getByRole("button", { description: "Open savings" });
+  await expect(within(row).getByText("May be out of date")).toBeVisible();
+} };
+export const CashSavingsVisibleWhileSavePausedEmptyStale: Story = { args: { snapshot: { ...emptySnapshot, stale: true }, saveMode: "exit-only" }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  await expect(screen.queryByRole("region", { name: "Currencies" })).toBeNull();
+  const savings = within(await screen.findByRole("region", { name: "Savings" }));
+  const row = savings.getByRole("button", { description: "Open savings" });
+  await expect(row).toBeVisible();
+  await expect(row).toBeEnabled();
+  await expect(within(row).getByText("May be out of date")).toBeVisible();
+  await userEvent.click(row);
+  await expect(await within(canvasElement).findByRole("heading", { name: "Savings", level: 1 })).toBeVisible();
+  const hero = await within(canvasElement).findByLabelText("Savings balance");
+  await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
+  await expect(within(hero).getByRole("img", { name: "$0.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
+} };
 export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
   const body = within(canvasElement.ownerDocument.body);
@@ -1047,7 +1092,7 @@ const pendingGbSnapshot = withCashUnitPrice(buildBalancesSnapshotFixture({ regio
 function pendingCashoutArgs(state: PendingCashoutStoryState, snapshot = pendingUsSnapshot) {
   return { snapshot, regionId: snapshot.region, pendingCashout: selectPendingCashoutEscrow(pendingCashoutOperations(state, snapshot), snapshot) };
 }
-function expectPendingCashout(cash: string, pending: string | null) {
+function expectPendingCashout(cash: string, pending: string | null, atLeast = false) {
   return async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const hero = within(canvasElement).getByLabelText("Cash balance");
     await expect(within(hero).getAllByRole("img")[0]).toHaveAccessibleName(cash);
@@ -1057,12 +1102,15 @@ function expectPendingCashout(cash: string, pending: string | null) {
       return;
     }
     await expect(line).toHaveTextContent(/^Pending cash-out/);
+    if (atLeast) await expect(line).toHaveTextContent(/^Pending cash-out.*At least/);
+    else await expect(line).not.toHaveTextContent("At least");
     await expect(within(line!).getByRole("img", { name: pending })).toBeVisible();
   };
 }
 export const PendingCashoutNone: Story = { args: pendingCashoutArgs("none"), play: expectPendingCashout("$1,234.00", null) };
 export const PendingCashoutWaiting: Story = { args: pendingCashoutArgs("waiting"), play: expectPendingCashout("$1,234.00", "$50.00") };
 export const PendingCashoutPartiallyPaid: Story = { args: pendingCashoutArgs("partial"), play: expectPendingCashout("$1,234.00", "$20.00") };
+export const PendingCashoutPartialEstimate: Story = { args: { snapshot: pendingUsSnapshot, regionId: pendingUsSnapshot.region, pendingCashout: { state: "escrow", baseUnits: "20000000", partial: true } }, play: expectPendingCashout("$1,234.00", "$20.00", true) };
 export const PendingCashoutPaid: Story = { args: pendingCashoutArgs("paid"), play: expectPendingCashout("$1,234.00", null) };
 export const PendingCashoutReturned: Story = { args: pendingCashoutArgs("returned"), play: expectPendingCashout("$1,234.00", null) };
 export const PendingCashoutWaitingDesktop: Story = { args: pendingCashoutArgs("waiting"), parameters: { viewport: { defaultViewport: "desktop" } }, play: expectPendingCashout("$1,234.00", "$50.00") };
@@ -1070,3 +1118,28 @@ export const PendingCashoutNoneGb: Story = { args: pendingCashoutArgs("none", pe
 export const PendingCashoutWaitingGb: Story = { args: pendingCashoutArgs("waiting", pendingGbSnapshot), play: expectPendingCashout("£80.00", "£40.00") };
 export const PendingCashoutPartiallyPaidGb: Story = { args: pendingCashoutArgs("partial", pendingGbSnapshot), play: expectPendingCashout("£80.00", "£16.00") };
 export const PendingCashoutReturnedGb: Story = { args: pendingCashoutArgs("returned", pendingGbSnapshot), play: expectPendingCashout("£80.00", null) };
+
+export const Partial: Story = { args: { snapshot: holdingUnavailableSnapshot }, play: async ({ canvasElement }) => {
+  const hero = within(within(canvasElement).getByLabelText("Cash balance"));
+  await expect(hero.getByText("Some balances are unavailable")).toBeVisible();
+  await expect(hero.getByRole("img", { name: "$234.00" })).toHaveAccessibleDescription("Some balances are unavailable");
+} };
+export const Unavailable: Story = { args: { snapshot: unfundedUsdcUnavailableSnapshot }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const hero = within(canvas.getByLabelText("Cash balance"));
+  await expect(hero.getByRole("img", { name: "Unavailable" })).toHaveTextContent("—");
+  await expect(canvas.getByLabelText("Cash balance")).not.toHaveTextContent("$0.00");
+  await expect(canvas.queryByText(/Earn up to/)).toBeNull();
+  await expect(canvas.getByRole("button", { name: "Add money" })).toBeVisible();
+  await expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible();
+  await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+  await expect(retryBalances).toHaveBeenCalledOnce();
+} };
+export const RefreshFailed: Story = { args: { snapshot: cashOnlySnapshot, refreshFailed: true }, play: async ({ canvasElement }) => {
+  const hero = within(within(canvasElement).getByLabelText("Cash balance"));
+  await expect(hero.getByRole("img", { name: "$351.00" })).toBeVisible();
+  await expect(hero.getByText("Couldn't refresh")).toBeVisible();
+  await userEvent.click(hero.getByRole("button", { name: "Try again" }));
+  await expect(retryBalances).toHaveBeenCalledOnce();
+} };
+export const EmptyWallet: Story = { args: EmptyNux.args, play: EmptyNux.play };

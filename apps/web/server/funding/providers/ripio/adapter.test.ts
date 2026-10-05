@@ -196,6 +196,74 @@ describe("Ripio funding adapter", () => {
       customerRef: intent.customerRef,
     }, ctx);
     expect(quote.fiatAmount).toBe("1000");
+    expect(quote).not.toHaveProperty("enteredFiatAmount");
+  });
+
+  test("keeps the entered amount separate from from-side fees", async () => {
+    const onramp = ripioProvider.onramp;
+    if (!onramp?.createQuote) throw new Error("Expected Ripio quote support");
+    const fetchImplementation: typeof fetch = Object.assign(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return tokenResponse();
+      if (path.includes("Networks")) return Response.json([{ network_name: "BASE", assets: [{ name: "wARS", contract_address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" }] }]);
+      return Response.json({ quoteId, customerId: customerRef, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2100", finalFromAmount: "2110", toAmount: "2100", finalToAmount: "2100", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [{ amount: "10", type: "service", currency: "ARS", appliesOnFromAmount: true, appliesOnToAmount: false }] });
+    }, { preconnect: fetch.preconnect });
+    const ctx = context(fetchImplementation);
+    const quote = await onramp.createQuote({
+      destination: intent.destination, fiatAmount: "2100", returnUrl: intent.returnUrl, customerRef,
+    }, ctx);
+    expect(quote).toMatchObject({ fiatAmount: "2110", enteredFiatAmount: "2100", fees: [{ label: "service", amount: "10", currency: "ARS" }] });
+  });
+
+  test("preserves a mismatched provider base amount for core rejection", async () => {
+    const onramp = ripioProvider.onramp;
+    if (!onramp?.createQuote) throw new Error("Expected Ripio quote support");
+    const fetchImplementation: typeof fetch = Object.assign(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/oauth2/token/") return tokenResponse();
+      if (path.includes("Networks")) return Response.json([{ network_name: "BASE", assets: [{ name: "wARS", contract_address: "0x0dc4f92879b7670e5f4e4e6e3c801d229129d90d" }] }]);
+      return Response.json({ quoteId, customerId: customerRef, fromCurrency: "ARS", toCurrency: "wARS", fromAmount: "2090", finalFromAmount: "2100", toAmount: "2090", finalToAmount: "2090", rate: "1", expiration: "2099-01-01T00:00:00.000Z", fees: [] });
+    }, { preconnect: fetch.preconnect });
+    const ctx = context(fetchImplementation);
+    const quote = await onramp.createQuote({
+      destination: intent.destination, fiatAmount: "2100", returnUrl: intent.returnUrl, customerRef,
+    }, ctx);
+    expect(quote).toMatchObject({ fiatAmount: "2100", enteredFiatAmount: "2090" });
+  });
+
+  test.each([
+    ["with from-side fees", { fiatAmount: "2110", enteredFiatAmount: "2100" }, "2110"],
+    ["without from-side fees", { fiatAmount: "2100" }, "2100"],
+  ])("bank instructions use the confirmed payment amount %s", async (_label, debit, expectedAmount) => {
+    const onramp = ripioProvider.onramp;
+    if (!onramp) throw new Error("Expected Ripio onramp support");
+    const fetchImplementation: typeof fetch = Object.assign(async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
+      ? tokenResponse()
+      : Response.json({ transaction: transaction(), fiatPaymentInstructions: { cvu: "1234567890123456789012" } }), { preconnect: fetch.preconnect });
+    const ctx = context(fetchImplementation);
+    const result = await onramp.createOrder({ ...intent, fiatAmount: "2100", quote: { ...intent.quote, ...debit } }, ctx);
+    expect(result).toMatchObject({ outcome: "created", order: { instructions: { kind: "bank-transfer", amount: expectedAmount } } });
+  });
+
+  test.each([
+    ["fee-inclusive total", { fiatAmount: "2110", enteredFiatAmount: "2100" }, "00020126320014br.gov.bcb.pix0110abcdefghij52040000530398654072110.005802BR5904HOME6004HOME63045DDD", "2110"],
+    ["entered amount without fees", { fiatAmount: "2100" }, "00020126320014br.gov.bcb.pix0110abcdefghij52040000530398654072100.005802BR5904HOME6004HOME6304D3F4", "2100"],
+  ])("Pix validation and instructions bind to the %s", async (_label, debit, brCode, expectedAmount) => {
+    const onramp = ripioProvider.onramp;
+    if (!onramp) throw new Error("Expected Ripio onramp support");
+    const fetchImplementation: typeof fetch = Object.assign(async (input: RequestInfo | URL) => new URL(String(input)).pathname === "/oauth2/token/"
+      ? tokenResponse()
+      : Response.json({ transaction: { ...transaction(), fromCurrency: "BRL", toCurrency: "wBRL", paymentMethodType: "pix" }, fiatPaymentInstructions: { brCode } }), { preconnect: fetch.preconnect });
+    const ctx = createProviderContext({
+      manifest: ripioManifest, region: "BR", paymentMethodId: "pix",
+      env: { RIPIO_CLIENT_ID_BR: "client-fees", RIPIO_CLIENT_SECRET_BR: "secret", RIPIO_WEBHOOK_SECRET_BR: "b".repeat(32) },
+      fetchImplementation,
+    });
+    const quote = { ...intent.quote, ...debit };
+    const result = await onramp.createOrder({ ...intent, fiatAmount: "2100", quote }, ctx);
+    expect(result).toMatchObject({ outcome: "created", order: { instructions: { kind: "qr", amount: expectedAmount, currency: "BRL" } } });
+    const mismatch = { ...quote, fiatAmount: "2120" };
+    expect(await onramp.createOrder({ ...intent, fiatAmount: "2100", quote: mismatch }, ctx)).toEqual({ outcome: "ambiguous" });
   });
 
   test("fails closed when terms cannot be identified and never submits KYC", async () => {

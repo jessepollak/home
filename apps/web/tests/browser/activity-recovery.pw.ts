@@ -88,7 +88,7 @@ async function setup(page: Page) {
   const createdAt = new Date(FIXED_NOW - 5 * 60_000).toISOString();
   await page.route("**/api/actions*", (route) =>
     new URL(route.request().url()).pathname === "/api/actions"
-      ? json(route, { actions: [{
+      ? json(route, { version: 1, truncated: false, actions: [{
         id: "11111111-1111-4111-8111-111111111112",
         provider: "cdp-embedded",
         kind: "send",

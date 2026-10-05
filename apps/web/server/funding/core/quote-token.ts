@@ -58,6 +58,7 @@ function validClaims(value: unknown): value is FundingQuoteClaims {
     && (value.customerRef === null || typeof value.customerRef === "string")
     && typeof value.sandbox === "boolean"
     && typeof value.quote.fiatAmount === "string"
+    && (value.quote.enteredFiatAmount === undefined || typeof value.quote.enteredFiatAmount === "string")
     && typeof value.quote.tokenAmountAtomic === "string" && /^(0|[1-9][0-9]*)$/.test(value.quote.tokenAmountAtomic)
     && Array.isArray(value.quote.fees)
     && typeof value.quote.expiresAt === "string" && Number.isFinite(Date.parse(value.quote.expiresAt));

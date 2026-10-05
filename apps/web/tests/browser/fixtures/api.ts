@@ -2,6 +2,7 @@ import type { Page, Route } from "@playwright/test";
 import type { RegionId } from "../../../config/regions";
 import type { BalancesSnapshot } from "../../../shared/balances/types";
 import { FIXED_NOW, installFixedPageDate } from "./fixed-time";
+import { CARD_PURCHASES_VERSION } from "../../../shared/cards/transactions-contract";
 import { balancesSnapshot } from "./balances";
 import { savingsPrepareFixture } from "../feature-map/savings-fixture";
 import { COUNTRY_PREFERENCE_VERSION, parseCountryPreferenceRequest } from "../../../shared/account/contracts/country-preference";
@@ -69,7 +70,7 @@ function activityPageBody(windowEnd: string | null, currency: string) {
         }
         : { status: "unpriced", currency, reason: "fx-unavailable" },
     }],
-    cards: { status: "ready", rows: cardPurchasesFixture(to) },
+    cards: { version: CARD_PURCHASES_VERSION, status: "ready", rows: cardPurchasesFixture(to) },
     nextCursor: null,
     source: {
       provider: "cdp-sql",
@@ -251,7 +252,7 @@ export async function installApiFixtures(
         transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined,
         owner: currentAction.owner,
       }];
-      return json(route, { actions });
+      return json(route, { ...actionsBody, actions });
     }
     if (path === "/api/funding/providers") {
       const direction = url.searchParams.get("direction") ?? "onramp";

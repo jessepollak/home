@@ -27,6 +27,15 @@ describe("funding quote draft", () => {
     expect(readQuoteDraft(full)).toEqual(full);
   });
 
+  test("round-trips a draft with a fee-inclusive fiat total", () => {
+    const draft = {
+      ...minimal,
+      quote: { ...minimal.quote, fiatAmount: "25.50", enteredFiatAmount: "25" },
+      sandbox: false,
+    };
+    expect(readQuoteDraft(JSON.parse(JSON.stringify(draft)))).toEqual(draft);
+  });
+
   test("defaults an absent sandbox to false without adding absent optional fields", () => {
     expect(readQuoteDraft(minimal)).toEqual({ ...minimal, sandbox: false });
   });
@@ -61,6 +70,8 @@ describe("funding quote draft", () => {
     ["fee amount not a string", { ...minimal, quote: { ...minimal.quote, fees: [{ label: "Fee", amount: 1, currency: "USD" }] } }],
     ["feesKnown not boolean", { ...minimal, quote: { ...minimal.quote, feesKnown: "true" } }],
     ["providerQuoteId not string", { ...minimal, quote: { ...minimal.quote, providerQuoteId: 1 } }],
+    ["enteredFiatAmount not string", { ...minimal, quote: { ...minimal.quote, enteredFiatAmount: 25.5 } }],
+    ["enteredFiatAmount not a decimal", { ...minimal, quote: { ...minimal.quote, enteredFiatAmount: "abc" } }],
     ["sandbox not boolean", { ...minimal, sandbox: "false" }],
     ["missing expiresAt", { ...minimal, quote: { fiatAmount: "25", tokenAmountAtomic: "25000000", fees: [] } }],
   ])("rejects %s", (_label, value) => {

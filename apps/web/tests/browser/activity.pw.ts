@@ -50,7 +50,7 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     });
     await page.route("**/api/actions*", (route) => {
       if (new URL(route.request().url()).pathname !== "/api/actions") return route.fallback();
-      return json(route, { actions: [
+      return json(route, { version: 1, truncated: false, actions: [
         action("11111111-1111-4111-8111-111111111112", "send", "Pending send", "pending", 0),
         {
           ...action("11111111-1111-4111-8111-111111111113", "cash-out", "Cash out with Peer", "confirmed", 21, "25000000"),
@@ -208,7 +208,7 @@ test("Activity preserves the visible row through an insertion, reorder, and size
   let promote = false;
   let reads = 0;
   await page.route("**/api/actions*", (route) =>
-    new URL(route.request().url()).pathname === "/api/actions" ? json(route, { actions: [] }) : route.fallback());
+    new URL(route.request().url()).pathname === "/api/actions" ? json(route, { version: 1, truncated: false, actions: [] }) : route.fallback());
   await page.route("**/api/activity*", (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
@@ -300,7 +300,7 @@ test("Activity keeps the visible Recent row fixed when a pending action settles"
   await page.route("**/api/actions*", (route) => {
     if (new URL(route.request().url()).pathname !== "/api/actions") return route.fallback();
     actionReads++;
-    return json(route, { actions: [{
+    return json(route, { version: 1, truncated: false, actions: [{
       ...cashoutFixtureAction,
       createdAt: timestamp(0), confirmedAt: timestamp(0), status: settled ? "confirmed" : "pending",
       cashout: { ...cashoutFixtureProgress, state: settled ? "delivered" : "awaiting-buyer", settledAt: settled ? timestamp(0) : null, updatedAt: timestamp(0) },
@@ -364,7 +364,7 @@ test("mobile Activity keeps 300 paginated rows bounded and restores keyboard foc
   const time = Array.from({ length: 300 }, (_, index) => timestamp(index));
   await page.route("**/api/actions*", (route) => {
     if (new URL(route.request().url()).pathname !== "/api/actions") return route.fallback();
-    return json(route, { actions: [] });
+    return json(route, { version: 1, truncated: false, actions: [] });
   });
   const reads = new Map<number, number>();
   await page.route("**/api/activity*", (route) => {
@@ -486,7 +486,7 @@ for (const width of [390, 1280]) {
     const wallet = sessionBody.smartAccount.address;
     const token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
     await page.route("**/api/actions*", (route) =>
-      new URL(route.request().url()).pathname === "/api/actions" ? json(route, { actions: [] }) : route.fallback());
+      new URL(route.request().url()).pathname === "/api/actions" ? json(route, { version: 1, truncated: false, actions: [] }) : route.fallback());
     await page.route("**/api/activity*", (route) => {
       const url = new URL(route.request().url());
       if (url.pathname !== "/api/activity") return route.fallback();
@@ -549,8 +549,8 @@ test("Activity renders seeded card purchases across all statuses and decline rea
 
   const recent = activity.getByRole("list", { name: "Recent" });
   for (const { merchant, label, amount } of [
-    { merchant: "Lyft", label: "Declined · card inactive", amount: "$18.20" },
-    { merchant: "Whole Foods Market", label: "Declined · insufficient funds", amount: "$64.10" },
+    { merchant: "Lyft", label: "Card was locked", amount: "$18.20" },
+    { merchant: "Whole Foods Market", label: "Not enough Cash", amount: "$64.10" },
     { merchant: "Whole Foods Market", label: "Completed", amount: "−$42.18" },
     { merchant: "Grand Hotel", label: "Reversed", amount: "$100.00" },
     { merchant: "Apple", label: "Refunded", amount: "+$9.99" },

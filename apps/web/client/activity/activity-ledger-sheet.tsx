@@ -98,6 +98,7 @@ export type ActivityLedgerDetailSheetProps = {
   immediate?: boolean;
   onClosed?: () => void;
   onAction: (item: ActivityLedgerItem, kind: ActivityLedgerNextActionKind) => void;
+  canAct?: (kind: ActivityLedgerNextActionKind) => boolean;
   canOpenAsset?: (assetKey: string) => boolean;
   onOpenAsset?: (item: ActivityLedgerItem) => void;
   actionBusy?: boolean;
@@ -109,7 +110,7 @@ export type ActivityLedgerDetailSheetProps = {
 };
 
 export function ActivityLedgerDetailSheet({
-  item, open, immediate = false, onDismiss, onClosed, onAction, canOpenAsset, onOpenAsset,
+  item, open, immediate = false, onDismiss, onClosed, onAction, canAct, canOpenAsset, onOpenAsset,
   actionBusy = false, actionBusyKind = null, actionError = null, withdrawJourney, fetchOperations, onViewActivity,
 }: ActivityLedgerDetailSheetProps) {
   const titleId = useId();
@@ -125,10 +126,10 @@ export function ActivityLedgerDetailSheet({
   item = item ?? shown;
   const action = item?.nextAction && isActivityLedgerNextActionAllowed(
     item.status, item.family, item.nextAction.kind,
-  ) ? item.nextAction : null;
+  ) && (item.family !== "card" || canAct?.(item.nextAction.kind) === true) ? item.nextAction : null;
   const secondaryAction = item?.secondaryAction && isActivityLedgerNextActionAllowed(
     item.status, item.family, item.secondaryAction.kind,
-  ) ? item.secondaryAction : null;
+  ) && (item.family !== "card" || canAct?.(item.secondaryAction.kind) === true) ? item.secondaryAction : null;
   const primaryAction = action ?? secondaryAction;
   const footerSecondary = action ? secondaryAction : null;
   const owner = item && item.status !== "confirmed" && item.status !== "refunded"

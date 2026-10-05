@@ -199,8 +199,10 @@ export function PortfolioHomeExperience({
   const cachedHomeBalances = useHomeSummary({ initialSummary: initialHomeSummary, owner: session ? dataOwnerKey(session) : null,
     region: region.regionId, enabled: !suppressBalances || paintCachedWhileHeld,
     presentation: homeBalances, updatedAt: balances.observation.dataUpdatedAt, pending: pendingCashout?.state === "loading" });
-  const assetBalances = useMemo(() => revalidating
-    ? { ...cachedHomeBalances, revalidating } : cachedHomeBalances, [cachedHomeBalances, revalidating]);
+  const assetBalances = useMemo(() => ({ ...cachedHomeBalances,
+    ...(revalidating ? { revalidating } : {}),
+    ...(balances.refreshError && balanceStatus === "ready" ? { refreshFailed: true as const } : {}),
+  }), [cachedHomeBalances, revalidating, balances.refreshError, balanceStatus]);
   const sendAvailability = useMemo(
     () => balances.snapshot ? deriveSendAvailability(balances.snapshot) : [],
     [balances.snapshot],

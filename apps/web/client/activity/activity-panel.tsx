@@ -48,6 +48,8 @@ export function ActivityPanelView({
   retryOrders,
   onCancelCashout,
   onOrderAction,
+  onCardAction,
+  canCardAct,
   cancelBusy = false,
   cancelActionKind = null,
   cancelError = null,
@@ -81,6 +83,8 @@ export function ActivityPanelView({
   retryOrders?: () => void;
   onCancelCashout?: (operation: RecentMoneyActionOperation) => void;
   onOrderAction?: (order: ActivityOrder, kind: ActivityLedgerNextActionKind) => void;
+  onCardAction?: (kind: "unlock-card" | "add-money", close: () => void) => void;
+  canCardAct?: (kind: "unlock-card" | "add-money") => boolean;
   cancelBusy?: boolean;
   cancelActionKind?: ActivityLedgerNextActionKind | null;
   cancelError?: string | null;
@@ -335,6 +339,7 @@ export function ActivityPanelView({
         immediate={immediateClose}
         item={selectedItem}
         canOpenAsset={canOpenAsset}
+        canAct={(kind) => (kind === "unlock-card" || kind === "add-money") && Boolean(onCardAction) && (canCardAct?.(kind) ?? true)}
         onOpenAsset={(item) => {
           const key = item.detailAsset?.assetKey;
           if (!key || !onOpenAsset?.(key)) return;
@@ -360,6 +365,16 @@ export function ActivityPanelView({
           }
         }}
         onAction={(item, kind) => {
+          if (item.family === "card" && (kind === "unlock-card" || kind === "add-money")) {
+            if (canCardAct?.(kind) === false) return;
+            onCardAction?.(kind, () => {
+              setPendingReturn(false);
+              setDetailsOpen(false);
+              onDetailsChange?.(false);
+              onDetailsSelectionChange?.(null);
+            });
+            return;
+          }
           const source = pairs.find((pair) => `${pair.item.family}:${pair.item.id}` === `${item.family}:${item.id}`)?.source;
           if (source?.kind === "order" && (item.family === "funding-order" || item.family === "cash-out-order")) {
             onOrderAction?.(source.order, kind);

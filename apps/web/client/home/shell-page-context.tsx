@@ -49,8 +49,12 @@ export function ShellPageProvider({ value, children }: { value: ShellPageContext
   return <ShellPageContext value={value}>{children}</ShellPageContext>;
 }
 
+export function useOptionalShellPage(): ShellPageContextValue | null {
+  return useContext(ShellPageContext);
+}
+
 export function useShellPage(): ShellPageContextValue {
-  const value = useContext(ShellPageContext);
+  const value = useOptionalShellPage();
   if (!value) throw new Error("A shell page must render inside the shell layout");
   return value;
 }

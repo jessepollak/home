@@ -218,7 +218,7 @@ function ActivityValuationSurface({
       <ConnectedActivityPanel
         activitySession={session}
         fetchActivity={fetchActivity}
-        fetchOperations={() => Promise.resolve({ actions: [] })}
+        fetchOperations={() => Promise.resolve({ version: 1, actions: [], truncated: false })}
         regionId="US"
         density="page"
       />

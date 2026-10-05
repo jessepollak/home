@@ -41,7 +41,7 @@ async function setupLongActivity(page: Page, actions: ReturnType<typeof longActi
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.route("**/api/actions*", (route) =>
-    new URL(route.request().url()).pathname === "/api/actions" ? json(route, { actions }) : route.fallback());
+    new URL(route.request().url()).pathname === "/api/actions" ? json(route, { version: 1, truncated: false, actions }) : route.fallback());
   await page.goto("/activity");
   await expect(page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
   await expect(page.locator("#home-nav")).toHaveAttribute("aria-current", "page");
@@ -288,7 +288,7 @@ async function setupShortActivity(page: Page, mode: "unavailable" | "failed" | "
   await seedSignedInSession(page);
   await installApiFixtures(page);
   await page.route("**/api/actions*", (route) =>
-    new URL(route.request().url()).pathname === "/api/actions" ? json(route, { actions: longActivityActions(12) }) : route.fallback());
+    new URL(route.request().url()).pathname === "/api/actions" ? json(route, { version: 1, truncated: false, actions: longActivityActions(12) }) : route.fallback());
   if (mode !== "short") await page.route("**/api/activity*", (route) => {
     if (new URL(route.request().url()).pathname !== "/api/activity") return route.fallback();
     return mode === "failed" ? route.abort("failed") : route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Activity unavailable" }) });
