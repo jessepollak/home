@@ -46,12 +46,15 @@ async function main() {
       const token = rawToken.toLowerCase() as Address;
       const owner = taker.toLowerCase() as Address;
       const buy = amount(flags.get("--buy-usdc") ?? (sweep ? "0.10" : "1"), 6);
-      let decimals: number | null = null;
-      try { decimals = (await readErc20ExecutionIdentity({ token, read: baseRpc })).decimals; } catch { failed = true; }
-      const sell = sweep ? BigInt(1) : amount(flags.get("--sell") ?? "0.00001", decimals ?? 8);
+      let identity: { decimals: number; symbol: string | null } | null = null;
+      try {
+        const read = await readErc20ExecutionIdentity({ token, read: baseRpc });
+        identity = { decimals: read.decimals, symbol: read.symbol };
+      } catch { failed = true; }
+      const sell = sweep ? BigInt(1) : amount(flags.get("--sell") ?? "0.00001", identity?.decimals ?? 8);
       const report = await runSwapsCheckpoint({
         client, taker: owner, token, amounts: { buy, sell }, now: new Date(), deriveSellFromBuy: sweep,
-        readSwapRouter: async () => { if (decimals === null) throw new Error("Chain unavailable"); return readSettlerRouter(baseRpc, token); },
+        readSwapRouter: async () => { if (identity === null) throw new Error("Chain unavailable"); return readSettlerRouter(baseRpc, token); },
         read: baseRpc,
         readBlockNumber: async () => {
           const chain = parseRpcQuantity(await baseRpc("eth_chainId", []), "chain ID");
@@ -59,7 +62,7 @@ async function main() {
           return parseRpcQuantity(await baseRpc("eth_blockNumber", []), "block number");
         },
       });
-      reports.push({ token, ...report });
+      reports.push({ token, tokenIdentity: identity, ...report });
       if (checkpointExitCode(report) !== 0) failed = true;
     }
     console.log(JSON.stringify(sweep ? { sweep: reports } : reports[0], null, 2));

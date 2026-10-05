@@ -518,14 +518,14 @@ describe("owner generation fence", () => {
     expect(request(1).signal.aborted).toBe(true);
     expect(request(2).signal.aborted).toBe(false);
 
-    await act(async () => { request(1).resolve(Response.json(session("cdp-embedded"))); });
+    await act(async () => { request(1).resolve(Response.json({ ...session("cdp-embedded"), version: 1 })); });
     expect(currentClient().status).toBe("validating");
     expect(currentClient().session).toBeNull();
     expect(currentClient().message).toBeNull();
     expect(currentClient().verification).toBeNull();
 
     await act(async () => {
-      request(2).resolve(Response.json(session("cdp-embedded")));
+      request(2).resolve(Response.json({ ...session("cdp-embedded"), version: 1 }));
       await firstRetry;
       await secondRetry;
     });

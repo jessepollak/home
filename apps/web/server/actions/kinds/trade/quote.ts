@@ -1,15 +1,18 @@
 import "server-only";
 
 import { decodeAbiParameters, encodeAbiParameters, hashTypedData, parseAbiParameters } from "viem";
+import { emitServerEvent } from "@/server/observability/log";
 import { BASE_USDC_ADDRESS } from "@/shared/money-actions/network-fee";
+import { isRecord } from "@/shared/guards";
 import type { Address, Hex } from "@/shared/trading/server-types";
 import type { SwapQuote } from "./cdp-swaps";
-import { PERMIT2_ADDRESS, TradePreparationError, validatePermit2 } from "./permit2";
+import { PERMIT2_ADDRESS, TradePreparationError, parseUint, validatePermit2 } from "./permit2";
 
 const USDC = BASE_USDC_ADDRESS.toLowerCase() as Address;
 const ZERO = "0x0000000000000000000000000000000000000000";
 const EXECUTE_SELECTOR = "0x1fff991f";
 const TRANSFER_FROM = "0xc1fb425e";
+const UNISWAPV4_VIP = "0x931997d3";
 const BASIC = "0x38c9c147";
 const UNISWAPV3 = "0x8d68a156";
 const UNISWAPV2 = "0x103b48be";
@@ -30,8 +33,9 @@ const DEPLOYER = "0x00000000000004533Fe15556B1E086BB1A72cEae";
 const OWNER_OF_TWO = "0x6352211e" + "0".repeat(63) + "2";
 const MAX_SWAP_GAS = BigInt(3_000_000);
 type ActionContext = { actions: Hex[]; request: SwapReviewRequest; quote: LiquidQuote; router: Address; fromToken: Address; toToken: Address };
-const SETTLER_ACTION_VALIDATORS: ReadonlyMap<Hex, (action: Hex, context: ActionContext, index: number) => boolean> = new Map([
+const SETTLER_ACTION_VALIDATORS: ReadonlyMap<string, (action: Hex, context: ActionContext, index: number) => boolean> = new Map([
   [TRANSFER_FROM, validateTransferFrom], [BASIC, validateBasic], [UNISWAPV2, validateV2],
+  [UNISWAPV4_VIP, validateV4Vip],
   [MAVERICKV2, validateMaverick], [UNISWAPV3, validateV3], [RFQ, validateRfq], [POSITIVE_SLIPPAGE, validateSlippage],
 ]);
 
@@ -118,15 +122,26 @@ function parseExecution(data: Hex): { recipient: Address; buyToken: Address; min
     const action = `0x${data.slice(2 + cursor * 2, 2 + (cursor + Number(length)) * 2).toLowerCase()}` as Hex;
     actionOffsets[index] = cursor;
     if (!/^0*$/.test(data.slice(2 + (cursor + Number(length)) * 2, 2 + (cursor + padded) * 2))) throw new Error("nonzero padding");
-    if (action.slice(0, 10) === TRANSFER_FROM) throw new Error("duplicate transfer");
+    if (action.slice(0, 10) === TRANSFER_FROM || action.slice(0, 10) === UNISWAPV4_VIP) throw new Error("duplicate permit action");
     actions[index] = action;
     cursor += padded;
   }
-  if (word(data, bodyStart) !== BigInt(cursor - bodyStart) || word(data, cursor) !== BigInt(0xffff) || cursor + 32 + 196 !== bytes) {
+  if (word(data, bodyStart) !== BigInt(cursor - bodyStart) || word(data, cursor) !== BigInt(0xffff)) {
     throw new Error("invalid signature placeholder");
   }
   const action = `0x${data.slice(2 + (cursor + 32) * 2).toLowerCase()}` as Hex;
-  if (action.slice(0, 10) !== TRANSFER_FROM || word(action, 164) !== BigInt(0xc0)) throw new Error("invalid transfer placeholder");
+  if (action.slice(0, 10) === TRANSFER_FROM) {
+    if (cursor + 32 + 196 !== bytes || word(action, 164) !== BigInt(0xc0)) throw new Error("invalid transfer placeholder");
+  } else if (action.slice(0, 10) === UNISWAPV4_VIP) {
+    const actionBytes = (action.length - 2) / 2;
+    if (word(action, 164) > BigInt(1) || word(action, 260) !== BigInt(0x160)) throw new Error("invalid VIP head");
+    const fillsLength = word(action, 356);
+    if (fillsLength <= BigInt(0) || fillsLength > BigInt(actionBytes - 388)) throw new Error("invalid VIP fills");
+    const fillsEnd = 388 + Number(fillsLength);
+    const paddedEnd = 388 + Math.ceil(Number(fillsLength) / 32) * 32;
+    if (paddedEnd !== actionBytes || word(action, 292) !== BigInt(paddedEnd - 4) ||
+      !/^0*$/.test(action.slice(2 + fillsEnd * 2))) throw new Error("invalid VIP signature placeholder");
+  } else throw new Error("unknown permit action");
   actions[0] = action;
   actionOffsets[0] = cursor + 32;
   return { recipient, buyToken, minAmountOut, actions, actionOffsets };
@@ -185,13 +200,23 @@ function basicPool(action: Hex, context: ActionContext): Address | null {
     validBasicCall(data, offset, context) ? pool.toLowerCase() as Address : null;
 }
 
-function permitUint(value: unknown): bigint | null {
-  return typeof value === "string" && /^(?:0|[1-9][0-9]*)$/.test(value) ? BigInt(value) : null;
+
+function permitMessage(context: ActionContext): Record<string, unknown> | null {
+  const typed = context.quote.permit2?.eip712;
+  return isRecord(typed) && isRecord(typed.message) ? typed.message : null;
+}
+
+function permitBoundsMatch(context: ActionContext): boolean {
+  const message = permitMessage(context);
+  const permitted = message?.permitted;
+  return isRecord(permitted) && typeof permitted.token === "string" && permitted.token.toLowerCase() === context.fromToken &&
+    parseUint(permitted.amount) === context.request.fromAmount &&
+    typeof message?.spender === "string" && message.spender.toLowerCase() === context.router;
 }
 
 function validateTransferFrom(action: Hex, context: ActionContext): boolean {
   if (!context.quote.permit2) return false;
-  const message = (context.quote.permit2.eip712 as { message?: { nonce?: unknown; deadline?: unknown } })?.message;
+  const message = permitMessage(context);
   const recipient = addressWord(action, 4);
   const token = addressWord(action, 36);
   const amount = word(action, 68);
@@ -202,8 +227,16 @@ function validateTransferFrom(action: Hex, context: ActionContext): boolean {
     return [routedPool(other)];
   });
   return token === context.fromToken && amount === context.request.fromAmount &&
-    nonce === permitUint(message?.nonce) && deadline === permitUint(message?.deadline) &&
+    nonce === parseUint(message?.nonce) && deadline === parseUint(message?.deadline) &&
     (recipient === context.router.toLowerCase() || pools.includes(recipient));
+}
+
+function validateV4Vip(action: Hex, context: ActionContext, index: number): boolean {
+  const message = permitMessage(context);
+  return index === 0 && addressWord(action, 4) === context.router.toLowerCase() &&
+    addressWord(action, 36) === context.fromToken && word(action, 68) === context.request.fromAmount &&
+    word(action, 100) === parseUint(message?.nonce) && word(action, 132) === parseUint(message?.deadline) &&
+    word(action, 324) <= context.quote.minToAmount;
 }
 
 function validateBasic(action: Hex, context: ActionContext): boolean {
@@ -259,6 +292,7 @@ function validateSlippage(action: Hex, context: ActionContext): boolean {
 
 function sellsFromToken(action: Hex, context: ActionContext): boolean {
   const selector = action.slice(0, 10);
+  if (selector === UNISWAPV4_VIP) return addressWord(action, 36) === context.fromToken;
   if (selector === BASIC) return basicPool(action, context) !== null && decodeAction(BASIC_ABI, action)[0].toLowerCase() === context.fromToken;
   if (selector === UNISWAPV2) return decodeAction(V2_ABI, action)[1].toLowerCase() === context.fromToken;
   if (selector === MAVERICKV2) return decodeAction(MAVERICK_ABI, action)[1].toLowerCase() === context.fromToken;
@@ -270,7 +304,7 @@ function sellsFromToken(action: Hex, context: ActionContext): boolean {
 function isSwapAction(action: Hex): boolean {
   const selector = action.slice(0, 10);
   if (selector === UNISWAPV2 || selector === MAVERICKV2 || selector === UNISWAPV3 || selector === RFQ) return true;
-  if (selector !== BASIC) return false;
+  if (selector !== BASIC) return !SETTLER_ACTION_VALIDATORS.has(selector);
   const [sellToken, , pool] = decodeAction(BASIC_ABI, action);
   return sellToken.toLowerCase() !== pool.toLowerCase();
 }
@@ -301,6 +335,10 @@ function rfqBoundsValid(context: ActionContext): boolean {
 export type InputSpend = "exact" | "underfill" | "overfill" | "unmodeled";
 
 function settlerInputSpend(context: ActionContext): InputSpend {
+  if (context.actions.some((action) => !SETTLER_ACTION_VALIDATORS.has(action.slice(0, 10)))) return "unmodeled";
+  if (context.actions[0]?.slice(0, 10) === UNISWAPV4_VIP) {
+    return context.actions.slice(1).some(isSwapAction) ? "unmodeled" : "exact";
+  }
   const swaps = context.actions.slice(1).filter(isSwapAction);
   if (addressWord(context.actions[0], 4) !== context.router.toLowerCase()) {
     return swaps.some((action) => action.slice(0, 10) === RFQ) ? "unmodeled" : "exact";
@@ -414,11 +452,15 @@ export function swapExecutionMatches(request: SwapReviewRequest, quote: LiquidQu
       minAmountOut > BigInt(0) && minAmountOut === quote.minToAmount;
     const context = { actions, request, quote, router: swapRouter, fromToken, toToken };
     try {
-      const structurallyValid = actions.some((action) => sellsFromToken(action, context)) &&
-        actions.every((action, index) => SETTLER_ACTION_VALIDATORS.get(action.slice(0, 10) as Hex)?.(action, context, index) === true) &&
-        feesMatch(context) && rfqBoundsValid(context);
+      const unknownActions = actions.some((action) => !SETTLER_ACTION_VALIDATORS.has(action.slice(0, 10)));
+      const structurallyValid = permitBoundsMatch(context) &&
+        (unknownActions || actions.some((action) => sellsFromToken(action, context))) &&
+        actions.every((action, index) => {
+          const validator = SETTLER_ACTION_VALIDATORS.get(action.slice(0, 10));
+          return validator === undefined || validator(action, context, index);
+        }) && feesMatch(context) && rfqBoundsValid(context);
       if (targetMatchesRouter && calldataMatches && structurallyValid) inputSpend = settlerInputSpend(context);
-      actionsVerified = structurallyValid && inputSpend === "exact";
+      actionsVerified = structurallyValid && (inputSpend === "exact" || (unknownActions && inputSpend === "unmodeled"));
     } catch {
       actionsVerified = false;
       inputSpend = null;
@@ -443,7 +485,7 @@ function executableCalldata(data: Hex, takerDeadline: bigint): { data: Hex; exec
       const makerDeadline = decodeAction(RFQ_ABI, action)[1].deadline;
       if (makerDeadline < executionDeadline) executionDeadline = makerDeadline;
     }
-    const paramIndex = selector === UNISWAPV2 ? 5 : selector === MAVERICKV2 ? 6 : selector === UNISWAPV3 ? 3 : null;
+    const paramIndex = selector === UNISWAPV2 ? 5 : selector === MAVERICKV2 ? 6 : selector === UNISWAPV3 ? 3 : selector === UNISWAPV4_VIP ? 10 : null;
     if (paramIndex !== null) {
       const start = 2 + (actionOffsets[index]! + 4 + paramIndex * 32) * 2;
       rewritten = `${rewritten.slice(0, start)}${"0".repeat(64)}${rewritten.slice(start + 64)}`;
@@ -470,18 +512,23 @@ export function checkQuoteCompatibility(input: QuoteCheck): void {
   checkQuoteExecutionShape(input.request, checkQuoteIdentity(input), input.now, input.swapRouter);
 }
 
-export function validateSwapQuote(input: QuoteCheck) {
+export function validateSwapQuote(input: QuoteCheck & { reportUnknownActions?: boolean }) {
   const { request, now } = input;
   const { fromToken, toToken } = swapTokens(request.direction, request.token);
   const quote = checkQuoteIdentity(input);
   if (quote.issues.balance !== null) throw new TradePreparationError("insufficient-balance");
   if (quote.issues.simulationIncomplete !== false) reject();
   const permit = checkQuoteExecutionShape(request, quote, now, input.swapRouter);
-  const { actionsVerified, inputSpend } = swapExecutionMatches(request, quote, input.swapRouter);
+  const { actionsVerified, inputSpend, actionSelectors } = swapExecutionMatches(request, quote, input.swapRouter);
   if (!actionsVerified) throw new TradePreparationError(inputSpend !== null && inputSpend !== "exact" ? "stale-quote" : "unverified-actions");
   const executable = executableCalldata(quote.transaction.data, permit.deadline);
   if (executable.executionDeadline * BigInt(1000) <= BigInt(now.getTime())) throw new TradePreparationError("stale-quote");
   const target = quote.transaction.to;
+  const unknownSelectors = [...new Set(actionSelectors?.filter((selector) => !SETTLER_ACTION_VALIDATORS.has(selector)))];
+  if (unknownSelectors.length && input.reportUnknownActions !== false) emitServerEvent("action-prepare", {
+    route: "/api/actions/prepare", code: "TRADE_UNKNOWN_ACTIONS_ADMITTED", outcome: "accepted",
+    unknownSelectors, direction: request.direction,
+  });
   return {
     direction: request.direction, fromToken, toToken, fromAmount: request.fromAmount,
     toAmount: quote.toAmount, minToAmount: quote.minToAmount, slippageBps: request.slippageBps,

@@ -1,7 +1,7 @@
 # Home — currency registry and promotion path
 
 Status: normative registry contract. One reviewed change promotes one exact asset identity.
-Checked: 2026-09-30
+Checked: 2026-10-04
 Related: [regional money](regional-money.md), [currency defaults](currency-defaults.md), [balances](balances.md), [activity valuation](activity-valuation.md), [codex prices](codex-prices.md), [gates](gates.md).
 
 Home keeps one server-owned record per currency representation in `apps/web/shared/currencies/registry.ts`. Cash and portfolio presentation, contract-to-currency lookup, valuation eligibility and conversion eligibility are derived from it; no screen, route or module keeps its own currency list. Adding a currency is a reviewed registry change, not a per-screen edit.
@@ -31,7 +31,7 @@ A funding-backed record takes its id, chain, contract, decimals, symbol and disp
 
 A pair is admitted for at most 180 days (`CONVERT_PAIR_MAX_AGE_DAYS`) before it must be re-verified. Two rules read the same records: **admitting resolution** (`resolveConvertPair`, `convertDirectionAdmitted` and `convertCurrencyTradeable` in `shared/trading/assets.ts`) applies identity, status, region and the dated rule against the server clock, and gates trade availability, preparation and first confirmation; **presentation listing** (`convertPairListed`, `convertCurrencyListed`, `convertPickerEntries`) applies identity, lifecycle, region and pair status only, and the Cash Convert entry, its picker and the recorded-conversion classification never read a clock, so a wrong local clock can neither hide nor invent a conversion there. The invest trade entry points resolve eligibility through the admitting rule, where a device clock behind a pair's verification date hides the action rather than inventing one. Staleness fails the drift check and stops new quotes and first confirmations on the server, while a paused or withdrawn pair removes the Cash Convert entry itself.
 
-The published records today are the two conversions that shipped with Cash Convert (USD ↔ EUR and USD ↔ IDR), recorded from the date that route went live: they admit what is already executable rather than activating anything new, and every further pair needs its own dated check.
+The published records admit USD ↔ EUR, IDR, ARS, BRL and COP. EUR/IDR retain their shipped-route dates; ARS/BRL/COP carry the October 4, 2026 [read-only quote and execution-shape check](invest-data.md#ars-brl-and-cop-convert-verification). Only USD-paired directions are offered, never local-to-local. Every further pair needs its own dated check.
 
 ## Promotion path
 
@@ -109,4 +109,4 @@ The direct inventory asserts one entry per asset key and projected id, and the b
 
 ## Current dispositions
 
-USD (USDC), EUR (EURC), IDR (IDRX), ARS (wARS), BRL (wBRL) and COP (wCOP) are approved Cash representations with approved valuation and exit. The Argentine peso, Brazilian real and Colombian peso identities come from the funding registry with the currency name from the presentation regions and the token symbol on the row and in the detail; their promotion is the ARS/BRL/COP expansion (#1494). Two pairs are verified: USD ↔ EUR and USD ↔ IDR, from the route that shipped with Cash Convert. They are the published admission, not a new activation: the source, destination, quote and execution path they name are the ones already live, and this document activates no other route. The three promoted currencies carry no pair record, so they stay in Cash, Send and valuation with Convert unavailable and an accurate reason; adding one is a reviewed record change with a dated check from the checklist above.
+USD (USDC), EUR (EURC), IDR (IDRX), ARS (wARS), BRL (wBRL) and COP (wCOP) are approved Cash representations with approved valuation and exit. The Argentine peso, Brazilian real and Colombian peso identities come from the funding registry with the currency name from the presentation regions and the token symbol on the row and in the detail; their promotion is the ARS/BRL/COP expansion (#1494). Five bidirectional pairs are verified: USD ↔ EUR, IDR, ARS, BRL and COP. The ARS/BRL/COP admission (#1636) uses their exact funding-registry Base identities (18 decimals each) and dated checks at 1 and 10 USDC reference sizes. Their Convert picker rows are selectable when private trade availability allows them; holdings, Send and valuation are unchanged. Quotes remain amount- and time-dependent, and every prepare still validates the complete money-path invariants. No local-to-local route is admitted. The verification is read-only: no signature, broadcast or funded conversion was performed.

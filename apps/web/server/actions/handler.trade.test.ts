@@ -124,8 +124,8 @@ describe("trade confirmation", () => {
     ["sell", "base:eurc", "pair-paused"],
     ["buy", "base:eurc", "pair-withdrawn"],
     ["sell", "base:eurc", "pair-withdrawn"],
-    ["buy", "base:wars", null],
-    ["sell", "base:wars", null],
+    ["buy", "base:wars", "pair-missing"],
+    ["sell", "base:wars", "pair-missing"],
   ] as const)("rejects a registry currency %s for %s with %s before confirming", async (direction, recordId, reason) => {
     const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
     const record = CURRENCY_REGISTRY.find((entry) => entry.id === recordId);
@@ -137,6 +137,28 @@ describe("trade confirmation", () => {
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
       now: () => new Date("2026-09-25T12:01:00.000Z"),
       ...(reason ? { convertPair: () => ({ status: "unavailable" as const, reason }) } : {}),
+      verifySmartAccountSignature: async () => { verifications += 1; return true; },
+      store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
+    });
+    const result = await handler(request("0x1234", "cdp-embedded"), context);
+    expect(result.status).toBe(410);
+    expect(await readJson(result)).toMatchObject({ error: { code: "ACTION_EXPIRED", message: "This trade is no longer available. Prepare it again." } });
+    expect(confirms).toBe(0);
+    expect(verifications).toBe(0);
+  });
+
+  test("rejects a currency with no pair through the real Convert resolver before confirming", async () => {
+    const record = CURRENCY_REGISTRY.find((entry) => entry.id === "base:wars");
+    if (!record) throw new Error("Missing currency record: base:wars");
+    expect(resolveConvertPair({ from: "base:usdc", to: record.id }, { pairs: [] })).toEqual({ status: "unavailable", reason: "pair-missing" });
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    row.summary.metadata = tradeMetadata(record.contractAddress, "buy");
+    let confirms = 0;
+    let verifications = 0;
+    const handler = createConfirmActionHandler({
+      authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),
+      now: () => new Date("2026-09-25T12:01:00.000Z"),
+      convertPair: (input) => resolveConvertPair(input, { pairs: [] }),
       verifySmartAccountSignature: async () => { verifications += 1; return true; },
       store: { get: async () => row, confirm: async () => { confirms += 1; throw new Error("Must not confirm"); } },
     });
