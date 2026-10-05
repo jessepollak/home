@@ -214,7 +214,7 @@ export function createBaseErc20TransferHistory({
       });
       const lastSourceRow = pageRows.at(-1);
       const rowCursor =
-        parsedRows.length > request.limit && lastSourceRow
+        (parsedRows.length > request.limit || metadata.rowCount !== response.result.length) && lastSourceRow
           ? encodeTransferCursor(cursorFromRow(lastSourceRow))
           : null;
       const executionTimestamp = normalizeTimestamp(
