@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, isUniqueViolation, type SqlExecutor } from "@/server/db/sql";
 import { recordCustomerIds } from "@/server/customers/record-ids";
 import type { Instruction, Quote } from "@/shared/funding/provider-contract";
@@ -102,7 +104,7 @@ export class PostgresFundingOrderStore implements FundingOrderStore {
 }
 
 export function createRuntimeFundingOrderStore(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
 ): FundingOrderStore {
   return new PostgresFundingOrderStore(getSqlExecutor(env));
 }

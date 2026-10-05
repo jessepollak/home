@@ -4,6 +4,7 @@ import { resolveSecretKeyring, sealSecret } from "@/server/secrets/at-rest";
 import { userTokenAad } from "./provider-user-token";
 import { rotateUserTokens, verifyUserTokens } from "./user-token-rotation";
 import { MemoryFundingProviderUserTokenStore } from "./user-token-store";
+import { forwardingUserTokenStore } from "./testing/user-token-store";
 const old = randomBytes(32).toString("base64url"), active = randomBytes(32).toString("base64url");
 function ring(version: string, key: string, previous?: string) {
   const resolved = resolveSecretKeyring({ HOME_SECRET_ENCRYPTION_KEY: key, HOME_SECRET_KEY_VERSION: version, HOME_SECRET_ENCRYPTION_KEY_PREVIOUS: previous });
@@ -32,15 +33,13 @@ test("unreadable stays and concurrent replacement is not overwritten", async () 
   await store.putIfEnvelope(key, invalid, { destination: binding.destination, envelope: prior, returnedAt: now, updatedAt: now });
   const replacement = sealSecret(current, "replacement", userTokenAad(binding));
   let calls = 0;
-  const guarded = new Proxy(store, { get(target, property) {
-    if (property === "listNotAtVersion") return async () => {
+  const guarded = forwardingUserTokenStore(store, {
+    listNotAtVersion: async () => {
       if (++calls !== 1) return [];
       await store.putIfEnvelope(key, prior, { destination: binding.destination, envelope: replacement, returnedAt: now, updatedAt: now });
       return [{ key, row: { destination: binding.destination, envelope: prior, keyVersion: 1, returnedAt: now, updatedAt: now } }];
-    };
-    const value = Reflect.get(target, property, target);
-    return typeof value === "function" ? value.bind(target) : value;
-  } });
+    },
+  });
   expect(await rotateUserTokens(guarded, current, () => new Date(now))).toEqual({ rotated: 0, unreadable: 0, skippedConcurrent: 1 });
   expect((await store.get(key))?.envelope).toBe(replacement);
 });

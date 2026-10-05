@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { authorizeSession } from "@/server/auth/authorize";
 import { isRegionOffered } from "@/server/operator-settings/regions";
 import { withFundingOrderEvents, withProviderCustomerEvents } from "@/server/operator-events/funding";
@@ -29,7 +31,7 @@ export function getFundingCore(): FundingCore {
     customerStore: withProviderCustomerEvents(createRuntimeFundingProviderCustomerStore(), (event) =>
       deferCustomerRecord((registry) => registry.record(event))),
     userTokenProviders: fundingUserTokenProviders,
-    userTokenVault: new FundingUserTokenVault({ store: createRuntimeFundingProviderUserTokenStore(), env: process.env, now: () => new Date(), diagnose: (code: FundingUserTokenDiagnostic, binding) => {
+    userTokenVault: new FundingUserTokenVault({ store: createRuntimeFundingProviderUserTokenStore(), env: serverEnvironment(), now: () => new Date(), diagnose: (code: FundingUserTokenDiagnostic, binding) => {
       emitServerEvent("funding-order", { route: "/api/funding/orders", code: `USER_TOKEN_${code.toUpperCase().replaceAll("-", "_")}`, outcome: code === "captured" || code === "cleared-after-rejection" || code === "expired" ? "ok" : "unavailable", provider: binding.providerId, region: binding.region, sandbox: binding.sandbox });
     } }),
     currentBaseBlock: () => readCurrentBaseBlock(),

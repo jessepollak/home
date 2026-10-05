@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import type { CountryCode, RegionId, RegionOffer } from "@/config/regions";
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { REGION_SETTINGS_DEFAULTS, REGIONS_SETTINGS_DOMAIN, type RegionSettings } from "@/shared/operator-settings/regions";
@@ -20,7 +22,7 @@ export const OPERATOR_SETTINGS_PAGE_READ_TIMEOUT_MS = 5_000;
 type ReaderEntry = { value: RegionSettings; source: "default" | "stored" } | null;
 type Reader = (options: { timeoutMs: number; signal?: AbortSignal }) => Promise<ReaderEntry>;
 
-function runtimeReader(env: Readonly<Record<string, string | undefined>> = process.env): Reader {
+function runtimeReader(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): Reader {
   return async ({ timeoutMs, signal }) => {
     if (!env.DATABASE_URL?.trim()) return null;
     const entry = await new OperatorSettingsStore(getSqlExecutor(env)).read(REGIONS_SETTINGS_DOMAIN, { timeoutMs, signal });

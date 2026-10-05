@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { recordCustomerIds } from "@/server/customers/record-ids";
 import type { FundingOrderOwner } from "./store";
@@ -84,6 +86,6 @@ export class PostgresFundingProviderCustomerStore implements FundingProviderCust
   async markVerified(id: string, version: number, updatedAt: string) { return this.one("UPDATE funding_provider_customers SET state='verified',version=version+1,updated_at=$3 WHERE id=$1 AND state='pending' AND verification_started_at IS NOT NULL AND version=$2 RETURNING *", [id,version,updatedAt]); }
   private async one(text: string, values: unknown[]) { const result = await this.sql.query(text, values); return result.rows[0] ? fromRow(result.rows[0] as Row) : null; }
 }
-export function createRuntimeFundingProviderCustomerStore(env: Readonly<Record<string,string|undefined>> = process.env) { return new PostgresFundingProviderCustomerStore(getSqlExecutor(env)); }
+export function createRuntimeFundingProviderCustomerStore(env: Readonly<Record<string,string|undefined>> = serverEnvironment()) { return new PostgresFundingProviderCustomerStore(getSqlExecutor(env)); }
 function fromRow(row: Row): FundingProviderCustomer { return { id:String(row.id),owner:{subject:String(row.owner_subject),accountProvider:String(row.account_provider) as FundingOrderOwner["accountProvider"]},providerId:String(row.provider_id),region:String(row.region),customerRef:row.customer_ref===null?null:String(row.customer_ref),state:String(row.state) as FundingProviderCustomerState,verificationStartedAt:date(row.verification_started_at),version:Number(row.version),createdAt:new Date(String(row.created_at)).toISOString(),updatedAt:new Date(String(row.updated_at)).toISOString()}; }
 function date(value: unknown) { return value === null ? null : new Date(String(value)).toISOString(); }

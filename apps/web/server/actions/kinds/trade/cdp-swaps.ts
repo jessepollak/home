@@ -1,8 +1,9 @@
 import "server-only";
 
-import { generateJwt } from "@coinbase/cdp-sdk/auth";
+import { signCdpRequest, type CdpJwtGenerator } from "@/server/cdp/auth";
+import { readCdpCredentials, serverEnvironment } from "@/server/config/env";
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 import type { Address, Hex } from "@/shared/trading/server-types";
-import { readJson } from "@/shared/http/read-json";
 import { TradePreparationError } from "./permit2";
 import { classifyProviderRefusal } from "./provider-refusal";
 
@@ -66,19 +67,19 @@ export type CdpSwapsClient = {
 };
 
 export function createCdpSwapsClient({
-  env = process.env,
+  env = serverEnvironment(),
   fetchImpl = fetch,
-  generateJwtImpl = generateJwt,
+  generateJwtImpl,
   timeoutMs = 10_000,
 }: {
   env?: Readonly<Record<string, string | undefined>>;
   fetchImpl?: typeof fetch;
-  generateJwtImpl?: typeof generateJwt;
+  generateJwtImpl?: CdpJwtGenerator;
   timeoutMs?: number;
 } = {}): CdpSwapsClient {
-  const apiKeyId = env.CDP_API_KEY_ID?.trim();
-  const apiKeySecret = env.CDP_API_KEY_SECRET?.trim();
-  if (!apiKeyId || !apiKeySecret || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) unavailable();
+  const credentials = readCdpCredentials(env);
+  const authEnv = credentials.status === "complete" ? { CDP_API_KEY_ID: credentials.apiKeyId, CDP_API_KEY_SECRET: credentials.apiKeySecret } : {};
+  if (credentials.status !== "complete" || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) unavailable();
   const usedKeys = new Set<string>();
   async function send(method: "GET" | "POST", path: string, request: SwapsRequest): Promise<unknown> {
     const fromToken = address(request.fromToken);
@@ -99,44 +100,55 @@ export function createCdpSwapsClient({
       if (!/^[0-9a-fA-F-]{36}$/.test(key) || usedKeys.has(key)) unavailable();
       usedKeys.add(key);
     }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const deadline = createUpstreamDeadline({ timeoutMs });
     try {
-      const jwt = await generateJwtImpl({ apiKeyId: apiKeyId!, apiKeySecret: apiKeySecret!, requestMethod: method, requestHost: HOST, requestPath: path, expiresIn: 120 });
-      if (controller.signal.aborted || typeof jwt !== "string" || !jwt || /\s/.test(jwt)) unavailable();
+      const { authorization } = await signCdpRequest({ method, host: HOST, path, env: authEnv, generateJwtImpl });
       const url = new URL(`https://${HOST}${path}`);
       if (method === "GET") for (const [field, value] of Object.entries(payload)) url.searchParams.set(field, String(value));
-      const response = await fetchImpl(url.toString(), {
-        method,
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          Accept: "application/json",
-          ...(method === "POST" ? { "Content-Type": "application/json", "X-Idempotency-Key": key! } : {}),
+      const result = await upstreamRequest(url.toString(), {
+        deadline,
+        maxBytes: 1024 * 1024,
+        errorBodyMaxBytes: 64 * 1024,
+        fetchImpl,
+        init: {
+          method,
+          headers: {
+            Authorization: authorization,
+            Accept: "application/json",
+            ...(method === "POST" ? { "Content-Type": "application/json", "X-Idempotency-Key": key! } : {}),
+          },
+          ...(method === "POST" ? { body: JSON.stringify(payload) } : {}),
+          cache: "no-store",
         },
-        ...(method === "POST" ? { body: JSON.stringify(payload) } : {}),
-        cache: "no-store",
-        signal: controller.signal,
       });
-      if (controller.signal.aborted) unavailable();
-      if (!response.ok) {
-        const body: unknown = await readJson(response).catch(() => null);
-        const reason = classifyProviderRefusal(response.status, body);
-        if (reason === "token-not-routed") throw new TradePreparationError(reason);
-        if (reason) throw new CdpSwapsRefusalError(reason);
+      if (!result.ok) {
+        if (result.kind === "http") {
+          const reason = classifyProviderRefusal(result.status, refusalBody(result.body));
+          if (reason === "token-not-routed") throw new TradePreparationError(reason);
+          if (reason) throw new CdpSwapsRefusalError(reason);
+        }
         unavailable();
       }
-      return await readJson(response);
+      return result.value;
     } catch (error) {
       if (error instanceof TradePreparationError || error instanceof CdpSwapsRefusalError) throw error;
       unavailable();
-    } finally {
-      clearTimeout(timeout);
     }
   }
   return {
     async getPrice(request) { return parsePrice(await send("GET", PRICE_PATH, request)); },
     async createQuote(request) { return parseQuote(await send("POST", SWAPS_PATH, request)); },
   };
+}
+
+function refusalBody(bytes: Uint8Array | undefined): unknown {
+  try {
+    if (bytes === undefined) return null;
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 function common(value: unknown): { liquidityAvailable: false } | Common {

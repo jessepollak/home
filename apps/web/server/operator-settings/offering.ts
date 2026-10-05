@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import type { SettingsEntry } from "@/shared/operator-settings/contract";
 import { parseProductSettings, resolveProductOffering, type ProductOffering } from "@/shared/operator-settings/products";
@@ -34,7 +36,7 @@ export async function readProductOffering(reader: OfferingReader = {}): Promise<
 }
 
 async function loadProductOffering(reader: OfferingReader): Promise<ProductOffering> {
-  const env = reader.env ?? process.env;
+  const env = reader.env ?? serverEnvironment();
   if (!reader.store && !env.DATABASE_URL?.trim()) return resolveProductOffering({ kind: "deployment" });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {

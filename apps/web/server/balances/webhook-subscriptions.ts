@@ -1,7 +1,9 @@
 import "server-only";
 
 import { parseAddress } from "@/shared/chain/hex";
-import { generateJwt } from "@coinbase/cdp-sdk/auth";
+import { signCdpRequest, type CdpJwtGenerator } from "@/server/cdp/auth";
+import { readCdpCredentials, serverEnvironment } from "@/server/config/env";
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 import { emitServerEvent, observeSafely } from "@/server/observability/log";
 import { resolveSecretKeyring, type SecretKeyring } from "@/server/secrets/at-rest";
 import { isRecord, isUnknownArray } from "@/shared/guards";
@@ -31,7 +33,7 @@ export function getBalanceWebhookSubscriptions(): BalanceWebhookSubscriptions {
 
 type Environment = Readonly<Record<string, string | undefined>>;
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-type JwtGenerator = typeof generateJwt;
+type JwtGenerator = CdpJwtGenerator;
 type Subscription = {
   id: string;
   eventTypes: string[];
@@ -51,12 +53,12 @@ export function createCdpWebhookSubscriptions(options: {
   now?: () => number;
   logFailure?: (reason: string) => void;
 } = {}): BalanceWebhookSubscriptions {
-  const env = options.env ?? process.env;
+  const env = options.env ?? serverEnvironment();
   const store = options.store ?? getWebhookSubscriptionStore(env);
   const resolved = resolveSecretKeyring(env);
   const keyring = options.keyring === undefined ? (resolved.ok ? resolved.keyring : null) : options.keyring;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const generateJwtImpl = options.generateJwtImpl ?? generateJwt;
+  const generateJwtImpl = options.generateJwtImpl;
   const now = options.now ?? Date.now;
   const logFailure = options.logFailure ?? observeSubscriptionFailure;
   const origin = deploymentWebhookOrigin(env);
@@ -254,36 +256,43 @@ export function deploymentWebhookOrigin(env: Environment): string | null {
 async function requestJson(options: {
   env: Environment;
   fetchImpl: FetchLike;
-  generateJwtImpl: JwtGenerator;
+  generateJwtImpl: JwtGenerator | undefined;
   method: "GET" | "POST" | "PUT";
   path: string;
   body?: unknown;
 }): Promise<unknown> {
-  const apiKeyId = options.env.CDP_API_KEY_ID?.trim();
-  const apiKeySecret = options.env.CDP_API_KEY_SECRET?.trim();
-  if (!apiKeyId || !apiKeySecret) throw new Error("cdp-api-key-not-configured");
-  const token = await options.generateJwtImpl({
-    apiKeyId,
-    apiKeySecret,
-    requestMethod: options.method,
-    requestHost: CDP_WEBHOOKS_HOST,
-    requestPath: options.path,
-    expiresIn: 120,
+  if (readCdpCredentials(options.env).status !== "complete") throw new Error("cdp-api-key-not-configured");
+  const deadline = createUpstreamDeadline({ timeoutMs: 10_000 });
+  const { authorization } = await signCdpRequest({
+    env: options.env,
+    generateJwtImpl: options.generateJwtImpl,
+    method: options.method,
+    host: CDP_WEBHOOKS_HOST,
+    path: options.path,
   });
   const headers = new Headers({ accept: "application/json" });
-  headers.set("Authorization", `Bearer ${token}`);
+  headers.set("Authorization", authorization);
   if (options.body !== undefined) headers.set("content-type", "application/json");
-  const response = await options.fetchImpl(`https://${CDP_WEBHOOKS_HOST}${options.path}`, {
-    method: options.method,
-    headers,
-    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-    cache: "no-store",
+  const result = await upstreamRequest(`https://${CDP_WEBHOOKS_HOST}${options.path}`, {
+    deadline,
+    maxBytes: 1024 * 1024,
+    responseType: "json",
+    fetchImpl: options.fetchImpl,
+    init: {
+      method: options.method,
+      headers,
+      ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+      cache: "no-store",
+    },
   });
-  if (!response.ok) throw new Error(`cdp-webhooks-${response.status}`);
-  try {
-    return JSON.parse(await response.text()) as unknown;
-  } catch {
-    throw new Error("cdp-webhooks-invalid-json");
+  if (result.ok) return result.value;
+  switch (result.kind) {
+    case "http": throw new Error(`cdp-webhooks-${result.status}`);
+    case "invalid": throw new Error("cdp-webhooks-invalid-json");
+    case "timeout":
+    case "aborted": throw new Error("cdp-webhooks-timeout");
+    case "transport":
+    case "oversized": throw new Error("cdp-webhooks-transport");
   }
 }
 

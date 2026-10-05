@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 export type AccessConfig =
   | { kind: "disabled" }
   | { kind: "misconfigured" }
@@ -9,7 +11,7 @@ const credentialEnvironmentKey = `HOME_ACCESS_${"PASS"}${"WORD"}`;
 const signingSecretEnvironmentKey = "HOME_ACCESS_SIGNING_SECRET";
 
 export function readAccessConfig(
-  environment: Record<string, string | undefined> = process.env,
+  environment: Record<string, string | undefined> = serverEnvironment(),
 ): AccessConfig {
   const credential = environment[credentialEnvironmentKey];
   const signingSecret = environment[signingSecretEnvironmentKey];

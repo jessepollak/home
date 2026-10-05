@@ -1,32 +1,15 @@
 import type { RegionId } from "@/config/regions";
-import { formatFiatAmount, formatPresentationTokenAmount } from "@/shared/formatting";
 import type { CashoutFee, CashoutQuote } from "./cash-out-quote";
-
-let isoCurrencies: ReadonlySet<string> | null = null;
-
-function isIsoCurrency(code: string): boolean {
-  if (!/^[A-Z]{3}$/.test(code)) return false;
-  if (typeof Intl.supportedValuesOf !== "function") return false;
-  isoCurrencies ??= new Set(Intl.supportedValuesOf("currency"));
-  return isoCurrencies.has(code);
-}
-
-function formatCashoutAmount(amount: string, currency: string, regionId: RegionId): string {
-  if (isIsoCurrency(currency)) return formatFiatAmount(amount, currency, { regionId });
-  const match = /^(0|[1-9]\d*)(?:\.(\d+))?$/.exec(amount);
-  if (!match) return "—";
-  const fraction = (match[2] ?? "").padEnd(6, "0");
-  return formatPresentationTokenAmount(`${match[1]}${fraction}`.replace(/^0+(?=\d)/, ""), fraction.length, currency, { regionId });
-}
+import { formatQuotedAmount } from "./quoted-amount-format";
 
 export function formatCashoutReceive(receive: CashoutQuote["receive"], platformLabel: string, regionId: RegionId): string {
-  return `${receive.approximate ? "≈ " : ""}${formatCashoutAmount(receive.amount, receive.currency, regionId)} to ${platformLabel}`;
+  return `${receive.approximate ? "≈ " : ""}${formatQuotedAmount(receive.amount, receive.currency, { regionId })} to ${platformLabel}`;
 }
 
 export function formatCashoutFee(fee: CashoutFee | null, regionId: RegionId): string {
   if (fee === null) return "Not quoted";
   if (/^0(?:\.0+)?$/.test(fee.amount)) return "None";
-  return formatCashoutAmount(fee.amount, fee.currency, regionId);
+  return formatQuotedAmount(fee.amount, fee.currency, { regionId });
 }
 
 export function formatCashoutRate(rate: CashoutQuote["rate"]): string | null {

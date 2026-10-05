@@ -65,7 +65,7 @@ export type FundingProviderManifest = {
     paymentMethods: ReadonlyArray<{ id: string; label: string }>;
     env: ReadonlyArray<string>;       // credentials required; provider is inert until all are set
   }>;
-  apiOrigins: ReadonlyArray<string>;  // ctx.fetch refuses other hosts
+  apiOrigins: ReadonlyArray<string>;  // ctx.request refuses other hosts
   redirectOrigins?: ReadonlyArray<string>;
   sandbox?: boolean;
   reference: "home" | "provider";     // who assigns the order reference (Ripio: home; IDRX: provider)
@@ -90,8 +90,25 @@ export type ProviderContext = {
   binding: { region: CountryCode; asset: FundingAsset; paymentMethod: { id: string; label: string } };
   env: Readonly<Record<string, string>>;   // only the manifest's declared variables
   sandbox: boolean;
-  fetch: typeof fetch;                     // origin allowlist, redirect: "manual", timeout
+  request: <T = unknown>(input: string, options: ProviderRequestOptions<T>) => Promise<ProviderRequestResult<T>>;
 };
+
+export type ProviderRequestOptions<T = unknown> = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Readonly<Record<string, string>>;
+  body?: string;
+  signal?: AbortSignal;
+  maxBytes: number;
+  maxHeaderBytes?: number;
+  errorBodyMaxBytes?: number;
+  responseType?: "json" | "text";
+  parse?: (value: unknown) => T;
+};
+
+export type ProviderRequestResult<T> =
+  | { ok: true; status: number; value: T }
+  | { ok: false; kind: "http"; status: number; body?: Uint8Array }
+  | { ok: false; kind: "aborted" | "timeout" | "transport" | "oversized" | "invalid" };
 
 export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string; customerRef?: string };
 export type Quote = { providerQuoteId?: string; fiatAmount: string; enteredFiatAmount?: string; tokenAmountAtomic: string; fees: Array<{ label: string; amount: string; currency: string }>; expiresAt: string };
@@ -168,6 +185,8 @@ How the ports fit: Ripio is `reference: "home"`, `quotes: true`, an email-create
 
 **Quotes.** `POST /api/funding/quotes` calls `createQuote` and returns `{ version: 1, quote, quoteToken, sandbox }`; `quoteToken` is an HMAC (server secret) over the claims object: the session subject and account provider, the provider/binding/payment fields, the destination, the requested fiat amount, the customer reference, the sandbox mode, and the full validated `quote`. The shared `zod/mini` schema in `apps/web/shared/funding/contracts/quotes.ts` owns the response type and both parsers: the route rejects a provider quote outside the contract, or one whose quoted amount or expiry cannot be honoured, with `INVALID_PROVIDER_QUOTE` (502) before signing it, and the client rejects a missing or different `version`. `POST /api/funding/orders` accepts only the token, recomputes the HMAC, and rejects any mismatch or expiry. No quote table. Within `quote`, `fiatAmount` is the final debit the user pays, including from-side fees; optional `enteredFiatAmount` is the amount entered, present when fees raise the debit. `quote.enteredFiatAmount ?? quote.fiatAmount` must equal the request, and `quote.fiatAmount` must be a plain decimal of at most 40 characters and at least as large as the entered amount. The claims-level `fiatAmount` remains the requested amount. Version 1 is unchanged: legacy quotes without `enteredFiatAmount` still work, and old servers read new quotes' `fiatAmount` as the correct final debit.
 
+**Onramp fee presentation.** Quote review, payment-details review and order status show fees in a registered, approved cash token's mapped native currency (`1.50 USDC` as `$1.50`, `1.50 wBRL` as `R$ 1,50`). The exact symbol and denomination come from `shared/currencies/registry.ts`; unknown and noncash tokens keep their token symbol, and ISO fiat fees keep native currency formatting. `formatOnrampFee` preserves cash-token fee decimals (at least two display digits, up to the fiat formatter's 20-digit limit; invalid or unsupported amounts show `—`) without changing provider data, converting currencies or assuming redemption. Receive in quote review, payment review and order status uses the approved asset ID's mapped native currency and native locale through `formatOnrampReceive` and `formatExactPresentationCashAmount`, preserving every atomic digit without FX. The deposit method keeps the underlying asset explicit; unknown and noncash asset IDs retain their token symbol rather than being mapped by an arbitrary symbol. This onramp-only presentation does not change normalized cash-out quotes or their regional token-fee policy.
+
 **Orders.** `POST /api/funding/orders` `{ providerId, region, paymentMethod, fiatAmount, quoteToken? }`. The core: authorizes the session and requires a chain-8453 address → inserts a `funding_orders` row (`state: "reserving"`, owner, binding, amount, intent digest, current Base block) → calls `createOrder` once → on `created`, refuses the order if `tokenAddress` differs from the registry asset, otherwise stores provider order ID, expected amount, fees, expiry, instructions → on `ambiguous`, marks the row `dispatch-ambiguous` and never retries. The same signed intent resolves through the unique owner-intent reservation and never redispatches. Before creating a different intent, the core rejects an already-persisted owner-region-provider `dispatch-ambiguous` row with `AMBIGUOUS_ORDER_OPEN`; the guard is provider-scoped so an ambiguous row from a provider that is no longer configured cannot lock the region's other providers. Other lifecycle states retain their existing behavior. Before returning `created`, the IDRX adapter validates every available provider/reference/order-ID alias, transaction type, chain, token address/symbol/decimals, destination, decimal/atomic payment and fee amount/currency, payment method/rail/channel, checkout/payment/instruction URL, and transaction-hash alias. Present fees must use IDR and preserve the exact atomic equation; every present URL alias must agree and use the checkout allowlist, while URLs are optional only for VA. Its documented VA response fields and fee equation remain IDRX-owned rules, not universal core behavior. A page refresh finds the open row and shows it; it never dispatches twice.
 
 **Status.** `GET /api/funding/orders/[id]` calls `getOrder` with the provider order ID plus the row's immutable transaction type, Base chain/token, destination, requested fiat amount, exact quoted atomic amount, and token decimals when the row is non-terminal and older than a few seconds. Before applying a reported state, IDRX validates every available provider/reference/order-ID alias, transaction type, chain, token address/symbol/decimals, destination, decimal/atomic base and payment amount, fee amount/currency, payment method/rail/channel, checkout/payment/instruction URL, and transaction-hash alias against that intent and binding. For IDRX, alternate IDs, duplicate records, conflicting aliases, inconsistent payment/fee equations, non-IDR fees, or any mismatch stay `unknown`; other adapters define equivalent provider-specific checks. IDRX checks history `baseAmount` against the requested amount. For `PAID` records, the final settled amount must be at most `expectedTokenAmountAtomic`; a quoted order, where expected is the quoted net below the request, must settle exactly at that net; and an unquoted order, where expected equals requested, may settle lower only when itemized fees cover the shortfall and that shortfall is at most 5% of the request. Before payment, `toBeMinted` is only bounded by the request and does not change the quoted expected settlement. Such an observation carries `settledTokenAmountAtomic` and `fees`. The core rejects and emits a provider-failure event for any settlement above the quoted baseline or different from an already accepted settlement. The first accepted lower settlement is frozen, preventing repeated observations from ratcheting the amount down. The order status view renders the stored receive amount and fee lines. The core maps `sent` to `sent-unverified`. A webhook (`POST /api/funding/webhooks/[provider]`) is verified by the adapter, matched to a row by provider order ID, and triggers the same refresh; unmatched or invalid events get `202` and a log line. Webhook bodies never set state.
@@ -184,7 +203,34 @@ How the ports fit: Ripio is `reference: "home"`, `quotes: true`, an email-create
 
 **Storage.** One table, `funding_orders`, Postgres, with the instruction JSON inline and owner-scoped reads. Instructions are the provider's receiving details; they are deleted from the row when the order reaches a terminal state. Responses are `private, no-store`. When `DATABASE_URL` is not configured, the provider-list route returns no external methods, so Add money remains available through Receive crypto only; configured-store failures remain retryable service errors.
 
-**Adapters are trusted code.** They run in-process and are reviewed like any server change. `ctx.fetch` and `ctx.env` keep them honest, not sandboxed; adapters use raw HTTP through `ctx.fetch`, not provider SDKs.
+**Adapters are trusted code.** They run in-process and are reviewed like any server change. `ctx.request` and `ctx.env` keep them honest, not sandboxed; adapters use raw HTTP through `ctx.request`, not provider SDKs (except the deliberate Peer deviation above). The core enforces the origin allowlist, manual redirects, deadline, and response byte bounds. Every request requires `maxBytes` for successful response bodies; the optional `maxHeaderBytes` bounds headers only for successful responses. HTTP error bodies are discarded unless `errorBodyMaxBytes` is provided, in which case they are bounded by that limit. Adapters handle the typed `ProviderRequestResult<T>` rather than reading an unbounded `Response` body. A parser validates the provider payload before the adapter uses `value`:
+
+```ts
+import type { ProviderContext, ProviderRequestResult } from "@/shared/funding/provider-contract";
+
+async function readProviderStatus(ctx: ProviderContext, url: string): Promise<string> {
+  const result: ProviderRequestResult<{ status: string }> = await ctx.request(url, {
+    method: "GET",
+    maxBytes: 64 * 1024,
+    maxHeaderBytes: 1024,
+    responseType: "json",
+    parse(value) {
+      if (typeof value !== "object" || value === null
+        || !("status" in value) || typeof value.status !== "string") {
+        throw new Error("Invalid provider status.");
+      }
+      return { status: value.status };
+    },
+  });
+  if (!result.ok) {
+    if (result.kind === "http") throw new Error(`Provider returned HTTP ${result.status}.`);
+    throw new Error(`Provider request failed: ${result.kind}.`);
+  }
+  return result.value.status;
+}
+```
+
+Adapters map failures to their port's safe outcome: an uncertain create stays `ambiguous` and must not be retried; an uncertain status read stays `unknown`. The example above is a read, not a create/retry template.
 
 ## UI
 
@@ -225,7 +271,7 @@ Order matters only where noted; everything else can run in parallel under the [d
 
 Cut after review to keep the first version small. Each is a follow-up if a real need appears.
 
-- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — record risk-bounded live evidence in the PR/runbook when it is safe and operator-authorized, not in new machinery.
+- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — not built; a route's registry `status` is its availability statement, and live or funded actions still need the [verification ladder](operating-manual.md#verification-ladder)'s authorization.
 - Template generator, `sync-providers`, status generator — copy a reference adapter; one line in `index.ts`.
 - Rollout registry and eligibility allowlists — credentials connect a corridor, and the operator offers it from **Money in and out**. An allowlist is a one-variable follow-up if hosted Home needs it.
 - Webhook inbox and cross-binding recovery — unmatched webhooks are logged; status polling covers the gap.
@@ -298,7 +344,7 @@ Provider-owned customer identity is separate from `funding_orders`. A provider o
 
 Migration `007_funding_provider_customers.sql` reconciles legacy non-null order customer references as `pending`: an order proves identity binding, not verification. Existing order references remain immutable snapshots, but runtime customer lookup no longer scans orders. Owner-scoped customer GET performs at most one Ripio status read for each pending-started row on that query. Exact `COMPLETED` promotes by CAS to `verified`; exact `FAILED` promotes by CAS to `rejected`; every other status, 404, malformed/contradictory response, and HTTP/transport uncertainty preserves pending. Status refresh is read-only at the provider and never issues a write. Quote creation still requires stored `verified` state.
 
-A provider-rejected or dispatch-ambiguous customer setup is terminal in the customer flow and is never retried automatically. An operator must reconcile the durable row with the provider and explicitly restart setup through a separately reviewed recovery process. Ripio follows the public documentation as the implemented contract; production behavior remains unverified and requires separately authorized acceptance. No live acceptance is claimed. If merged independently, PR #614 supersedes PR #603's code while preserving exact head `74db447b` and its contributor attribution in branch ancestry.
+A provider-rejected or dispatch-ambiguous customer setup is terminal in the customer flow and is never retried automatically. An operator must reconcile the durable row with the provider and explicitly restart setup through a separately reviewed recovery process. Ripio follows the public documentation as the implemented contract. Any live or funded provider action still needs separately authorized acceptance. If merged independently, PR #614 supersedes PR #603's code while preserving exact head `74db447b` and its contributor attribution in branch ancestry.
 
 ## Coinbase reusable user credential (#573)
 

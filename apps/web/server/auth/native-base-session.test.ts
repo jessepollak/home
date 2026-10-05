@@ -147,6 +147,60 @@ describe("native Base authentication handlers", () => {
     });
   });
 
+  test("bounds nonce and verify reads without changing their distinct invalid-body contracts", async () => {
+    const { nonce, verify } = handlers();
+    for (const endpoint of ["nonce", "verify"] as const) {
+      const path = `/api/auth/base/${endpoint}`;
+      const controller = new AbortController();
+      let cancelled = false;
+      const aborted = new Request(`${ORIGIN}${path}`, {
+        method: "POST", signal: controller.signal,
+        body: new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } }),
+      });
+      const handle = endpoint === "nonce" ? nonce : verify;
+      const pending = handle(aborted);
+      controller.abort();
+      const cases = [
+        await pending,
+        await handle(new Request(`${ORIGIN}${path}`, { method: "POST", body: "{}".padEnd(96 * 1024 + 1, " ") })),
+        await handle(new Request(`${ORIGIN}${path}`, { method: "POST", body: "{" })),
+        await handle(post(path, [])),
+        await handle(new Request(`${ORIGIN}${path}`, {
+          method: "POST", body: new ReadableStream<Uint8Array>({ start(stream) { stream.error(new Error("read failed")); } }),
+        })),
+      ];
+      for (const response of cases) {
+        expect(response.status).toBe(endpoint === "nonce" ? 400 : 401);
+        expect(await readJson(response)).toEqual({ error: { code: endpoint === "nonce" ? "INVALID_REQUEST" : "INVALID_AUTH_PROOF" } });
+        if (endpoint === "verify") expect(response.headers.get("set-cookie")).toContain("home-auth-challenge=;");
+      }
+      expect(cancelled).toBe(true);
+      expect(aborted.body?.locked).toBe(false);
+    }
+  });
+
+  test("retains native JSON length boundary and lenient length headers", async () => {
+    const { nonce } = handlers();
+    expect((await nonce(new Request(`${ORIGIN}/api/auth/base/nonce`, {
+      method: "POST", body: "{}".padEnd(96 * 1024, " "),
+    }))).status).toBe(200);
+    for (const length of ["invalid", "-1", "1.5", "1e2"]) {
+      expect((await nonce(post("/api/auth/base/nonce", {}, undefined, ORIGIN, { "content-length": length }))).status).toBe(200);
+    }
+  });
+
+  test("retains replacement UTF-8 decoding for otherwise valid verify JSON", async () => {
+    const { nonce, verify } = handlers();
+    const issued = await challenge(nonce);
+    const prefix = new TextEncoder().encode(`${JSON.stringify(verifyBody(issued.message)).slice(0, -1)},"unused":"`);
+    const response = await verify(new Request(`${ORIGIN}/api/auth/base/verify`, {
+      method: "POST", headers: { cookie: issued.cookie },
+      body: new Uint8Array([...prefix, 0xff, 0x22, 0x7d]),
+    }));
+    expect(response.status).toBe(200);
+    expect(parseNativeBaseSession(await readJson(response))?.smartAccount?.address).toBe(parseAddress(ADDRESS)!);
+  });
+
   test("issues the challenge for the Host the browser used, without the port", async () => {
     // Next.js dev rebuilds request.url from the bind address (127.0.0.1), while
     // the browser and the wallet see `localhost:3000`; Base Account signs the
@@ -426,7 +480,8 @@ describe("verified Base capture", () => {
       randomId: () => NONCE,
       verify: async () => true,
       onVerified: (session: { smartAccount: { address: string } | null }, context: { request: Request }) => {
-        captured.push({ address: session.smartAccount!.address, request: context.request });
+        if (!session.smartAccount) throw new Error("Expected the verified session account.");
+        captured.push({ address: session.smartAccount.address, request: context.request });
       },
     };
     const nonce = createNativeBaseNonceHandler(deps);

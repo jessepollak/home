@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { createPublicKey } from "node:crypto";
 import { getAddress, isAddress } from "viem";
 import type { CardMode } from "../provider";
@@ -15,7 +17,7 @@ export type BridgeConfig = Readonly<{
   stripeWebhookSecret: string;
 }>;
 
-export function readBridgeConfig(env: Readonly<Record<string, string | undefined>> = process.env): BridgeConfig | null {
+export function readBridgeConfig(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): BridgeConfig | null {
   if (env.BRIDGE_ENABLED !== "1") return null;
   const mode = env.BRIDGE_MODE?.trim();
   if (mode !== "sandbox" && mode !== "production") throw new Error("Invalid Bridge mode");

@@ -1,6 +1,8 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import type { Hash32 } from "@/shared/chain/hex";
+import { timingSafeEqualBytes } from "@/server/http/hmac";
 import type {
   FundingProvider,
   Observation,
@@ -9,7 +11,7 @@ import type {
   ReportedState,
 } from "@/shared/funding/provider-contract";
 import { atomicToDecimal, decimalToAtomic } from "@/shared/formatting/atomic";
-import { providerFetchImplementation, resolveWebhookEnvironment } from "../../core/provider-context";
+import { providerRequestIdentity, resolveWebhookEnvironment } from "../../core/provider-context";
 import {
   createRipioClient,
   RipioProviderError,
@@ -188,19 +190,19 @@ export const ripioProvider: FundingProvider = {
     if (!secret) return null;
     const expected = createHmac("sha256", secret).update(raw).digest();
     const actual = Buffer.from(supplied, "hex");
-    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+    if (!timingSafeEqualBytes(actual, expected)) return null;
     const event = parseRipioWebhook(raw);
     return event ? { providerOrderId: event.providerOrderId } : null;
     },
   },
 };
 
-const clientsByTransport = new WeakMap<typeof fetch, Map<string, RipioClient>>();
+const clientsByTransport = new WeakMap<ReturnType<typeof providerRequestIdentity>, Map<string, RipioClient>>();
 
 function clientFor(ctx: ProviderContext): RipioClient {
   const country = countryFor(ctx);
   const clientId = ctx.env[`RIPIO_CLIENT_ID_${country}`];
-  const transport = providerFetchImplementation(ctx.fetch);
+  const transport = providerRequestIdentity(ctx.request);
   let clients = clientsByTransport.get(transport);
   if (!clients) {
     clients = new Map();
@@ -209,7 +211,7 @@ function clientFor(ctx: ProviderContext): RipioClient {
   const key = `${country}:${clientId}`;
   let client = clients.get(key);
   if (!client) {
-    client = createRipioClient(country, { env: ctx.env, fetchImplementation: ctx.fetch });
+    client = createRipioClient(country, { env: ctx.env, request: ctx.request });
     clients.set(key, client);
   }
   return client;
@@ -253,7 +255,7 @@ function earlierExpiry(quoteExpiry: string, instructionExpiry?: string): string 
     : quoteExpiry;
 }
 
-function observationFor(status: string, hash: string | null, refund: { status: string; rejectionReason: string | null } | null): Observation {
+function observationFor(status: string, hash: Hash32 | null, refund: { status: string; rejectionReason: string | null } | null): Observation {
   const normalized = status.toUpperCase();
   const refundStatus = refund?.status.toUpperCase();
   let state: ReportedState;
@@ -267,7 +269,7 @@ function observationFor(status: string, hash: string | null, refund: { status: s
   else if (["REFUNDED", "REFUND_COMPLETED", "ONRAMP_REFUNDED"].includes(normalized)) state = "refunded";
   else if (["FAILED", "SERVICE_UNAVAILABLE", "ONRAMP_FAILED"].includes(normalized)) state = "failed";
   else state = "unknown";
-  return { state, providerStatus: status, transactionHash: hash as `0x${string}` | null };
+  return { state, providerStatus: status, transactionHash: hash };
 }
 
 function assertRedirectOrigin(value: string): void {

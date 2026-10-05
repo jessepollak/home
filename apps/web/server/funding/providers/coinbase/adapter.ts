@@ -1,7 +1,8 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { generateJwt } from "@coinbase/cdp-sdk/auth";
+import { parseAddress, parseHash32 } from "@/shared/chain/hex";
+import { signCdpRequest, type CdpJwtGenerator } from "@/server/cdp/auth";
 import type {
   CreateOrderResult,
   FundingProvider,
@@ -9,6 +10,7 @@ import type {
   OrderIntent,
   ProviderContext,
   ProviderOrder,
+  ProviderRequestResult,
   Quote,
   QuoteIntent,
   ReconciliationIntent,
@@ -32,11 +34,9 @@ const PAYMENT_LINK_TYPES = [
   "PAYMENT_LINK_TYPE_EMBEDDED_ORDER",
 ] as const;
 const MAX_RESPONSE_BYTES = 64 * 1024;
-const RESPONSE_BODY_TIMEOUT_MS = 6_000;
 const MAX_STRING_LENGTH = 4096;
-const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
 
-type JwtGenerator = typeof generateJwt;
+type JwtGenerator = CdpJwtGenerator | undefined;
 type JsonRecord = Record<string, unknown>;
 type CoinbaseProviderOptions = {
   generateJwtImplementation?: JwtGenerator;
@@ -50,7 +50,7 @@ type CoinbaseFees = {
 export function createCoinbaseProvider(
   options: CoinbaseProviderOptions = {},
 ): FundingProvider {
-  const generateJwtImplementation = options.generateJwtImplementation ?? generateJwt;
+  const generateJwtImplementation = options.generateJwtImplementation;
 
   return {
     manifest: coinbaseManifest,
@@ -65,21 +65,19 @@ export function createCoinbaseProvider(
         startedAt,
         "quote",
       );
+      if (!response.ok && response.kind !== "http") {
+        emitFailure(response.kind === "oversized" ? "PROVIDER_TRANSPORT" : "QUOTE_ECHO_MISMATCH", startedAt);
+        throw new Error("Coinbase quote response is invalid.");
+      }
       if (response.status !== 201) {
         emitHttpFailure(response.status, startedAt);
-        const rejection = response.status === 400 ? await classifyQuoteRejection(response) : null;
+        const rejection = response.status === 400 ? classifyQuoteRejection(response) : null;
         if (rejection) throw rejection;
         throw new Error("Coinbase quote request failed.");
       }
-      let text: string;
+      if (!response.ok) throw new Error("Coinbase quote request failed.");
       try {
-        text = await readBoundedText(response);
-      } catch (error) {
-        emitFailure("PROVIDER_TRANSPORT", startedAt);
-        throw error;
-      }
-      try {
-        return quoteFromResponse(parseProviderJson(text), input);
+        return quoteFromResponse(response.value, input);
       } catch (error) {
         emitFailure("QUOTE_ECHO_MISMATCH", startedAt);
         throw error;
@@ -106,25 +104,33 @@ export function createCoinbaseProvider(
         return unknown("AUTHORIZATION_ERROR");
       }
 
-      let response: Response;
+      let response: ProviderRequestResult<unknown>;
       try {
-        response = await ctx.fetch(`${COINBASE_ONRAMP_API_ORIGIN}${requestPath}`, {
+        response = await ctx.request(`${COINBASE_ONRAMP_API_ORIGIN}${requestPath}`, {
           method: "GET",
           headers: requestHeaders(token),
-          cache: "no-store",
+          maxBytes: MAX_RESPONSE_BYTES,
+          responseType: "json",
         });
       } catch {
         emitFailure("PROVIDER_TRANSPORT", startedAt);
         return unknown("TRANSPORT_ERROR");
       }
       if (!response.ok) {
-        emitHttpFailure(response.status, startedAt);
-        return unknown(`HTTP_${response.status}`);
+        if (response.kind === "http") {
+          emitHttpFailure(response.status, startedAt);
+          return unknown(`HTTP_${response.status}`);
+        }
+        if (response.kind === "invalid" || response.kind === "oversized") {
+          emitFailure("STATUS_ECHO_MISMATCH", startedAt);
+          return unknown("INVALID_RESPONSE");
+        }
+        emitFailure("PROVIDER_TRANSPORT", startedAt);
+        return unknown("TRANSPORT_ERROR");
       }
 
       try {
-        const payload = parseProviderJson(await readBoundedText(response));
-        return observationFromResponse(payload, input);
+        return observationFromResponse(response.value, input);
       } catch {
         emitFailure("STATUS_ECHO_MISMATCH", startedAt);
         return unknown("INVALID_RESPONSE");
@@ -158,31 +164,31 @@ async function createOrderWithUserToken(
     }, userAuthToken: null, credentialRejected: false };
   }
 
-  let response: Response;
+  let response: ProviderRequestResult<unknown>;
   try {
-    response = await ctx.fetch(ORDERS_URL, {
+    response = await ctx.request(ORDERS_URL, {
       method: "POST",
       headers: requestHeaders(token),
       body: JSON.stringify(body),
-      cache: "no-store",
+      maxBytes: MAX_RESPONSE_BYTES,
+      errorBodyMaxBytes: MAX_RESPONSE_BYTES,
+      responseType: "json",
     });
   } catch {
     emitFailure("PROVIDER_TRANSPORT", startedAt);
     return { result: { outcome: "ambiguous" }, userAuthToken: null, credentialRejected: false };
   }
 
-  if (response.status !== 201) {
-    const result = await classifyCreateFailure(response, startedAt);
-    return { result, userAuthToken: null, credentialRejected: Boolean(body.userAuthToken) && result.outcome === "rejected" };
-  }
-
-  let payload: unknown;
-  try {
-    payload = parseProviderJson(await readBoundedText(response));
-  } catch {
-    emitFailure("PROVIDER_INVALID_RESPONSE", startedAt);
+  if (!response.ok && response.kind !== "http") {
+    emitFailure(response.kind === "invalid" || response.kind === "oversized" ? "PROVIDER_INVALID_RESPONSE" : "PROVIDER_TRANSPORT", startedAt);
     return { result: { outcome: "ambiguous" }, userAuthToken: null, credentialRejected: false };
   }
+  if (response.status !== 201) {
+    const result = classifyCreateFailure(response, startedAt);
+    return { result, userAuthToken: null, credentialRejected: Boolean(body.userAuthToken) && result.outcome === "rejected" };
+  }
+  if (!response.ok) return { result: { outcome: "ambiguous" }, userAuthToken: null, credentialRejected: false };
+  const payload = response.value;
 
   try {
     const order = orderFromResponse(payload, input, ctx);
@@ -195,7 +201,7 @@ async function createOrderWithUserToken(
 }
 
 export function createCoinbaseUserTokenCreateOrder(options: CoinbaseProviderOptions = {}): ProviderUserTokenCreateOrder {
-  const generateJwtImplementation = options.generateJwtImplementation ?? generateJwt;
+  const generateJwtImplementation = options.generateJwtImplementation;
   return (input, credential, ctx) => createOrderWithUserToken(input, credential, ctx, generateJwtImplementation);
 }
 export const coinbaseUserTokenCreateOrder = createCoinbaseUserTokenCreateOrder();
@@ -257,7 +263,7 @@ async function postOrders(
   generateJwtImplementation: JwtGenerator,
   startedAt: number,
   operation: "quote",
-): Promise<Response> {
+): Promise<ProviderRequestResult<unknown>> {
   let token: string;
   try {
     token = await createJwt(ctx, "POST", ORDERS_PATH, generateJwtImplementation);
@@ -266,12 +272,18 @@ async function postOrders(
     throw error;
   }
   try {
-    return await ctx.fetch(ORDERS_URL, {
+    const response = await ctx.request(ORDERS_URL, {
       method: "POST",
       headers: requestHeaders(token),
       body: JSON.stringify(body),
-      cache: "no-store",
+      maxBytes: MAX_RESPONSE_BYTES,
+      errorBodyMaxBytes: MAX_RESPONSE_BYTES,
+      responseType: "json",
     });
+    if (!response.ok && (response.kind === "transport" || response.kind === "timeout" || response.kind === "aborted")) {
+      throw new Error(`Coinbase ${operation} request failed.`);
+    }
+    return response;
   } catch (error) {
     emitFailure("PROVIDER_TRANSPORT", startedAt);
     throw new Error(`Coinbase ${operation} request failed.`, { cause: error });
@@ -284,20 +296,19 @@ async function createJwt(
   requestPath: string,
   generateJwtImplementation: JwtGenerator,
 ): Promise<string> {
-  return await generateJwtImplementation({
-    apiKeyId: ctx.env.CDP_API_KEY_ID,
-    apiKeySecret: ctx.env.CDP_API_KEY_SECRET,
-    requestMethod: method,
-    requestHost: ONRAMP_HOST,
-    requestPath,
-    expiresIn: 120,
-  });
+  return (await signCdpRequest({
+    env: ctx.env,
+    generateJwtImpl: generateJwtImplementation,
+    method,
+    host: ONRAMP_HOST,
+    path: requestPath,
+  })).authorization;
 }
 
 function requestHeaders(token: string): Record<string, string> {
   return {
     Accept: "application/json",
-    Authorization: `Bearer ${token}`,
+    Authorization: token,
     "Content-Type": "application/json",
   };
 }
@@ -384,9 +395,7 @@ function observationFromResponse(
   }
   const providerStatus = readBoundedString(order.status, 128);
   const state = stateFromStatus(providerStatus);
-  const txHash = typeof order.txHash === "string" && transactionHashPattern.test(order.txHash)
-    ? order.txHash.toLowerCase() as `0x${string}`
-    : null;
+  const txHash = parseHash32(order.txHash);
   return {
     state,
     providerStatus,
@@ -394,9 +403,17 @@ function observationFromResponse(
   };
 }
 
-async function classifyQuoteRejection(response: Response): Promise<FundingQuoteRejectedError | null> {
+type CoinbaseHttpResponse = Extract<ProviderRequestResult<unknown>, { status: number }>;
+
+function readResponsePayload(response: CoinbaseHttpResponse): unknown {
+  if (response.ok) return response.value;
+  if (!response.body) throw new Error("Invalid Coinbase response.");
+  return parseProviderJson(new TextDecoder("utf-8", { fatal: true }).decode(response.body));
+}
+
+function classifyQuoteRejection(response: CoinbaseHttpResponse): FundingQuoteRejectedError | null {
   try {
-    const payload = parseProviderJson(await readBoundedText(response));
+    const payload = readResponsePayload(response);
     if (!isRecord(payload) || (typeof payload.errorType !== "string" && typeof payload.errorMessage !== "string")) return null;
     const description = [payload.errorType, payload.errorMessage].filter((value): value is string => typeof value === "string").join(" ");
     const reason = /minimum|too low|too small|too_low|too_small|below|at least|less than/i.test(description)
@@ -407,14 +424,14 @@ async function classifyQuoteRejection(response: Response): Promise<FundingQuoteR
   }
 }
 
-async function classifyCreateFailure(
-  response: Response,
+function classifyCreateFailure(
+  response: CoinbaseHttpResponse,
   startedAt: number,
-): Promise<CreateOrderResult> {
+): CreateOrderResult {
   emitHttpFailure(response.status, startedAt);
   if (response.status !== 400) return { outcome: "ambiguous" };
   try {
-    const payload = parseProviderJson(await readBoundedText(response));
+    const payload = readResponsePayload(response);
     if (
       !isRecord(payload) ||
       (typeof payload.errorType !== "string" &&
@@ -505,7 +522,7 @@ function validReconciliationIntent(
     input.chainId === ctx.binding.asset.chainId &&
     input.tokenAddress.toLowerCase() === ctx.binding.asset.address.toLowerCase() &&
     input.tokenDecimals === ctx.binding.asset.decimals &&
-    /^0x[0-9a-fA-F]{40}$/.test(input.destination) &&
+    parseAddress(input.destination) !== null &&
     /^(?:0|[1-9]\d*)$/.test(input.expectedTokenAmountAtomic)
   );
 }
@@ -550,11 +567,8 @@ function assertExact(value: unknown, expected: string): void {
 }
 
 function assertAddress(value: unknown, expected: `0x${string}`): void {
-  if (
-    typeof value !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(value) ||
-    value.toLowerCase() !== expected.toLowerCase()
-  ) {
+  const address = parseAddress(value);
+  if (address === null || address !== expected.toLowerCase()) {
     throw new Error("Coinbase address echo mismatch.");
   }
 }
@@ -592,47 +606,6 @@ function emitFailure(
     provider: "coinbase",
     startedAt,
   });
-}
-
-async function readBoundedText(response: Response): Promise<string> {
-  const declaredLength = response.headers.get("content-length");
-  if (
-    declaredLength &&
-    /^\d+$/.test(declaredLength) &&
-    BigInt(declaredLength) > BigInt(MAX_RESPONSE_BYTES)
-  ) {
-    throw new Error("Coinbase response is too large.");
-  }
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let deadlineCleanup: () => void = () => undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    const timeout = setTimeout(() => {
-      void reader.cancel("Coinbase response body timed out.");
-      reject(new Error("Coinbase response body timed out."));
-    }, RESPONSE_BODY_TIMEOUT_MS);
-    deadlineCleanup = () => clearTimeout(timeout);
-  });
-  let bytes = 0;
-  let text = "";
-  try {
-    while (true) {
-      const chunk = await Promise.race([reader.read(), deadline]);
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > MAX_RESPONSE_BYTES) {
-        await reader.cancel("Coinbase response is too large.");
-        throw new Error("Coinbase response is too large.");
-      }
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-    text += decoder.decode();
-    return text;
-  } finally {
-    deadlineCleanup();
-    reader.releaseLock();
-  }
 }
 
 function parseProviderJson(text: string): unknown {

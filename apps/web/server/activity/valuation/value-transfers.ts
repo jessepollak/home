@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import type { FiatCurrencyCode } from "@/config/regions";
 import type { ActivityTransfer } from "@/shared/activity/types";
 import {
@@ -160,7 +162,7 @@ let sharedValuer: ActivityTransferValuer | null = null;
 let sharedApiKey: string | undefined;
 
 export function getActivityTransferValuer(): ActivityTransferValuer {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedValuer || sharedApiKey !== apiKey) {
     sharedApiKey = apiKey;
     sharedValuer = createActivityTransferValuer({

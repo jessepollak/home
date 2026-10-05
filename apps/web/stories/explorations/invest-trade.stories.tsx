@@ -351,22 +351,26 @@ export const QuoteExpiresWhileOpen: Story = { args: { scene: "sheet" }, beforeEa
   if (!expiryScheduler) throw new Error("Expiry scheduler not initialized");
   return <ExpirySchedulerContext value={expiryScheduler}><TradeStory {...args} initialState={{ step: { name: "review", quote: { ...buyQuote, action: { ...buyQuote.action, expiresAt: fixtureValidUntil } } }, amount: "250" }} /></ExpirySchedulerContext>;
 }, play: async ({ canvasElement }) => {
-  const sheet = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Confirm" });
-  const dialog = within(sheet);
-  await expect(dialog.getByRole("button", { name: "Buy $250.00" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Buy $250.00" })).toHaveAttribute("data-money-action-id", buyQuote.action.id);
-  await expect(dialog.queryByText("This quote expired.")).not.toBeInTheDocument();
-  await userEvent.click(dialog.getByRole("button", { name: "Details" }));
-  await expect(dialog.getByText("Quote valid until").nextElementSibling).toHaveTextContent("12:04:30 PM UTC");
-  await expect(dialog.getByText("Network").nextElementSibling).toHaveTextContent("Base");
-  await waitFor(() => expect(dialog.getByText("Quote valid until")).toBeVisible());
+  const body = within(canvasElement.ownerDocument.body);
+  await body.findByRole("dialog", { name: "Confirm" });
+  const dialog = () => within(body.getByRole("dialog", { name: "Confirm" }));
+  await expect(dialog().getByRole("button", { name: "Buy $250.00" })).toBeVisible();
+  await expect(dialog().getByRole("button", { name: "Buy $250.00" })).toHaveAttribute("data-money-action-id", buyQuote.action.id);
+  await expect(dialog().queryByText("This quote expired.")).not.toBeInTheDocument();
+  await userEvent.click(dialog().getByRole("button", { name: "Details" }));
+  await expect(dialog().getByText("Quote valid until").nextElementSibling).toHaveTextContent("12:04:30 PM UTC");
+  await expect(dialog().getByText("Network").nextElementSibling).toHaveTextContent("Base");
   const scheduler = expiryScheduler;
   if (!scheduler) throw new Error("Expiry scheduler not initialized");
-  await waitFor(async () => { scheduler.advance(51); await expect(dialog.getByText("This quote expired.")).toBeVisible(); });
-  await expect(dialog.getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "true");
-  await expect(dialog.getByText("Quote valid until")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Get new quote" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Get new quote" })).not.toHaveAttribute("data-money-action-id");
+  const expiredAt = Date.parse(fixtureValidUntil) + 1;
+  await waitFor(async () => {
+    scheduler.advance(Math.max(0, expiredAt - scheduler.now()));
+    await expect(dialog().getByRole("alert")).toHaveTextContent("This quote expired.");
+  });
+  await expect(dialog().getByRole("button", { name: "Details" })).toHaveAttribute("aria-expanded", "true");
+  await expect(dialog().getByText("Quote valid until").nextElementSibling).toHaveTextContent("12:04:30 PM UTC");
+  await expect(dialog().getByRole("button", { name: "Get new quote" })).toBeVisible();
+  await expect(dialog().getByRole("button", { name: "Get new quote" })).not.toHaveAttribute("data-money-action-id");
 } };
 export const UnsupportedSignerAtQuote: Story = { args: { scene: "sheet", initialState: { step: { name: "amount", error: "unsupported-signer" }, amount: "250" } }, play: async ({ canvasElement }) => {
   const sheet = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Buy Bitcoin" });

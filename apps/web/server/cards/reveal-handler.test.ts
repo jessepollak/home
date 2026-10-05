@@ -33,6 +33,42 @@ describe("POST /api/cards/{id}/ephemeral-key", () => {
     expect(result.status).toBe(200);
     expect(parseCardEphemeralKeyResponse(await result.json())?.cardId).toBe("ic_123");
   });
+  test("maps bounded, failed and aborted reads to INVALID_CARD_REQUEST without provider calls", async () => {
+    let calls = 0;
+    const POST = createCardRevealHandler({ authorize: async () => session,
+      customer: async () => { calls++; return { id: "owner-id" }; }, ephemeralKey: async () => "ek_test_synthetic123456" });
+    const controller = new AbortController();
+    let cancelled = false;
+    const aborted = new Request(request(), { signal: controller.signal,
+      body: new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } }) });
+    const pending = POST(aborted, "ic_123");
+    controller.abort();
+    const cases = [
+      await pending,
+      ...await Promise.all(["{", "[]", '{"nonce":"nonce_synthetic123"}'.padEnd(1025, " "), "€".repeat(1025)].map((body) => POST(request(body), "ic_123"))),
+      await POST(request(undefined, { "content-type": "text/plain" }), "ic_123"),
+      await POST(new Request(request(), { body: new Uint8Array([0xff]) }), "ic_123"),
+      await POST(new Request(request(), { body: new ReadableStream<Uint8Array>({ start(stream) { stream.error(new Error("read failed")); } }) }), "ic_123"),
+    ];
+    for (const response of cases) {
+      expect(response.status).toBe(400);
+      expect(parseCardWriteError(await response.json())?.error.code).toBe("INVALID_CARD_REQUEST");
+    }
+    expect(calls).toBe(0);
+    expect(cancelled).toBe(true);
+    expect(aborted.body?.locked).toBe(false);
+  });
+
+  test("retains 1024-character boundary and ignores legacy unchecked length headers", async () => {
+    const POST = createCardRevealHandler({ authorize: async () => session, customer: async () => ({ id: "owner-id" }),
+      ephemeralKey: async () => "ek_test_synthetic123456" });
+    for (const length of ["invalid", "1000000"]) {
+      const response = await POST(request('{"nonce":"nonce_synthetic123"}'.padEnd(1024, " "), { "content-length": length }), "ic_123");
+      expect(response.status).toBe(200);
+      expect(parseCardEphemeralKeyResponse(await response.json())?.cardId).toBe("ic_123");
+    }
+  });
+
   test("refuses unauthorized, cross-origin, malformed body, unowned ID and provider error without disclosing a secret", async () => {
     let calls = 0;
     const deps = { customer: async () => ({ id: "owner-id" }), ephemeralKey: async () => { calls++; return "ek_test_synthetic123456"; } };

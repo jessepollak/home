@@ -1,6 +1,7 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { timingSafeEqualBytes } from "@/server/http/hmac";
 
 export function requestOrigin(request: Request): URL | null {
   try {
@@ -25,7 +26,7 @@ function hmac(secret: Buffer, value: string): string {
 export function equalText(left: string, right: string): boolean {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return timingSafeEqualBytes(a, b);
 }
 
 export function signedValue(secret: Buffer, value: string): string {

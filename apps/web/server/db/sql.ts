@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { attachDatabasePool } from "@vercel/functions";
 import { Pool, type PoolClient } from "pg";
 
@@ -82,7 +84,7 @@ function wrapQueryable(
 let runtimeExecutor: SqlExecutor | null = null;
 
 export function getSqlExecutor(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
 ): SqlExecutor {
   if (runtimeExecutor) return runtimeExecutor;
   const connectionString = env.DATABASE_URL?.trim();

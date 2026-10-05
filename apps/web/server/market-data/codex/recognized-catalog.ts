@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import {
   getDirectPortfolioAssets,
   portfolioVaults,
@@ -116,7 +118,7 @@ let sharedApiKey: string | undefined;
 export function getCodexRecognizedTokenCatalog(
   signal?: AbortSignal,
 ): Promise<RecognizedTokenCatalogResult> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedReader || apiKey !== sharedApiKey) {
     sharedApiKey = apiKey;
     sharedReader = createCodexRecognizedTokenCatalogReader({ apiKey });

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { createGateway } from "@ai-sdk/gateway";
 import type { LanguageModel } from "ai";
 import { type SupportAssistantSettings, parseSupportAssistantSettings } from "@/shared/operator-settings/contract";
@@ -13,7 +15,7 @@ export type EffectiveAssistant = { settings: SupportAssistantSettings; key: stri
 export function gatewayModel(key: string, id: string): LanguageModel { return createGateway({ apiKey: key })(id); }
 
 export class SupportAssistantStore {
-  constructor(private readonly sql: SqlExecutor, private readonly env: Readonly<Record<string, string | undefined>> = process.env) {}
+  constructor(private readonly sql: SqlExecutor, private readonly env: Readonly<Record<string, string | undefined>> = serverEnvironment()) {}
 
   async credential(): Promise<SupportCredentialResponse> {
     const row = (await this.sql.query<CredentialRow>("SELECT envelope,last4,updated_at FROM support_assistant_credentials WHERE id='default'")).rows[0];

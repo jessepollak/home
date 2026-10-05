@@ -26,6 +26,26 @@ import { feePolicyForTaker } from "@/server/fees/policy";
 import type { OperatorFeePolicy } from "@/shared/fees/contract";
 import { tradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 
+test.each(["oversized", "content-length", "malformed", "empty", "aborted"])("action preparation rejects %s bodies before preparing", async (failure) => {
+  let prepared = 0;
+  const handler = createPrepareActionHandler({
+    authorize: async () => sessions(),
+    prepareTrade: async () => { prepared++; throw new Error("invalid body reached preparation"); },
+  });
+  const body = JSON.stringify({ kind: "trade", params: { version: 3, assetId: "cbbtc", direction: "buy", amountBaseUnits: "1000000" } });
+  const request = new Request("https://home.test/api/actions/prepare", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(failure === "content-length" ? { "content-length": String(64 * 1024 + 1) } : {}) },
+    signal: failure === "aborted" ? AbortSignal.abort() : undefined,
+    body: failure === "oversized" ? " ".repeat(64 * 1024) + body : failure === "malformed" ? "{" : failure === "empty" ? undefined : body,
+  });
+  const response = await handler(request);
+  expect(response.status).toBe(400);
+  expect(await readJson(response)).toEqual({ error: { code: "INVALID_ACTION", message: "A valid action kind and parameters are required." } });
+  expect(prepared).toBe(0);
+  expect(request.body?.locked ?? false).toBe(false);
+});
+
 const inBatchTransferStrategy = createTradeFeeStrategy("in-batch-transfer");
 const providerNativeStrategy = createTradeFeeStrategy("provider-native");
 const inertActionsStore = { insert: async () => {} } as unknown as ActionsStore;

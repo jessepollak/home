@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import type { CardMode } from "../provider";
 
 export type CardJourneyConfig = Readonly<{
@@ -11,11 +13,11 @@ export type CardJourneyConfig = Readonly<{
   funding: Readonly<{ kind: "crypto_wallet" } | { kind: "financial_account"; financialAccount: string }>;
 }>;
 
-export function cardJourneyEnabled(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
+export function cardJourneyEnabled(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): boolean {
   return env.BRIDGE_CARDS_ENABLED === "1";
 }
 
-export function readCardJourneyConfig(env: Readonly<Record<string, string | undefined>> = process.env): CardJourneyConfig | null {
+export function readCardJourneyConfig(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): CardJourneyConfig | null {
   if (!cardJourneyEnabled(env)) return null;
   const mode = env.BRIDGE_MODE?.trim();
   if (mode !== "sandbox" && mode !== "production") throw new Error("Invalid Bridge mode");

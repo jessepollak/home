@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { presentationRegions } from "@/config/regions";
 import { getSqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import { OperatorSettingsStore } from "@/server/operator-settings/store";
@@ -143,7 +145,7 @@ export async function readFundingOffering(deps: {
   const value = parseFundingSettings(stored.settings.value);
   if (!value) throw new FundingOfferingUnavailableError("Stored funding settings are unreadable.");
   const entry: OfferingEntry = { ...stored, settings: { ...stored.settings, value } };
-  return resolveFundingOffering({ providers: deps.providers ?? fundingProviders, env: deps.env ?? process.env, entry });
+  return resolveFundingOffering({ providers: deps.providers ?? fundingProviders, env: deps.env ?? serverEnvironment(), entry });
 }
 
 /** @public read by the cash-out confirm gate, which bounds the settings read so a stalled read cannot hold a confirmation open */

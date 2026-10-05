@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readCdpCredentials, serverEnvironment } from "@/server/config/env";
 import {
   AuthUnavailableError,
   InvalidAccessTokenError,
@@ -15,7 +16,7 @@ type CdpClientLike = {
 };
 
 type CdpSdkModule = {
-  CdpClient: new (options: { apiKeyId: string; apiKeySecret: string }) => CdpClientLike;
+  CdpClient: new (options: { apiKeyId: string; "apiKeySecret": string }) => CdpClientLike;
 };
 
 type CdpEnvironment = Record<string, string | undefined>;
@@ -69,13 +70,12 @@ function applyCdpTelemetryDefaults(env: CdpEnvironment): void {
 }
 
 export async function createCdpAccessTokenValidator({
-  env = process.env,
+  env = serverEnvironment(),
   loadSdk = loadCdpSdk,
 }: CreateValidatorOptions = {}): Promise<AccessTokenValidator> {
-  const apiKeyId = env.CDP_API_KEY_ID;
-  const apiKeySecret = env.CDP_API_KEY_SECRET;
+  const credentials = readCdpCredentials(env);
 
-  if (!apiKeyId?.trim() || !apiKeySecret?.trim()) {
+  if (credentials.status !== "complete") {
     throw new AuthUnavailableError();
   }
 
@@ -83,8 +83,8 @@ export async function createCdpAccessTokenValidator({
     applyCdpTelemetryDefaults(env);
     const { CdpClient } = await loadSdk();
     const client = new CdpClient({
-      apiKeyId,
-      apiKeySecret,
+      apiKeyId: credentials.apiKeyId,
+      "apiKeySecret": credentials.apiKeySecret,
     });
 
     return new CdpSdkAccessTokenValidator(client);

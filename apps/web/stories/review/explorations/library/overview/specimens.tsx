@@ -68,18 +68,16 @@ const coverageRows: CoverageTableRow[] = [
     stablecoin: { candidate: { symbol: "USDC", issuer: "Circle", verification: "Verified" } },
     portfolio: { status: "priority", workstreams: [] },
     issuer: { status: "documented", rail: "ACH", audience: "US persons", evidence: null },
-    home: { status: "live", provider: "Coinbase", asset: "USDC", paymentMethods: ["ACH"], evidence: null },
+    home: { status: "live", provider: "Coinbase", asset: "USDC", paymentMethods: ["ACH"] },
     quote: null,
-    registryCheckedAt: "2026-09-10",
   },
   {
     countryCode: "BR", countryName: "Brazil", flag: "🇧🇷", currencies: "BRL", asset: "Not configured", issuerName: "Not configured",
     stablecoin: { candidate: null },
     portfolio: { status: "deferred", workstreams: [] },
     issuer: { status: "not-researched", rail: "Not recorded", audience: "Not researched", evidence: null },
-    home: { status: "none", provider: null, asset: null, paymentMethods: [], evidence: null },
+    home: { status: "none", provider: null, asset: null, paymentMethods: [] },
     quote: null,
-    registryCheckedAt: "2026-09-10",
   },
 ];
 

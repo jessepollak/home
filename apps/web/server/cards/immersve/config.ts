@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getAddress, isAddress } from "viem";
 
 export type ImmersveMode = "production" | "sandbox";
@@ -24,7 +26,7 @@ const excludedAddresses = new Set([
 const excludedChannel = "4cdc4310718674342d561647194e2446";
 const idPattern = /^[a-fA-F0-9]{32}$/;
 
-export function readImmersveConfig(env: Readonly<Record<string, string | undefined>> = process.env): ImmersveConfig | null {
+export function readImmersveConfig(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): ImmersveConfig | null {
   if (env.IMMERSVE_ENABLED !== "1") return null;
   const modeValue = env.IMMERSVE_MODE?.trim();
   if (modeValue !== "sandbox" && modeValue !== "production") throw new Error("Invalid Immersve mode");

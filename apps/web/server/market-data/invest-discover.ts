@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import {
   createAssetIconResolver,
   emptyAssetIconMap,
@@ -74,7 +76,7 @@ let sharedKey: string | undefined;
 export function getInvestDiscover(
   offset = 0,
 ): Promise<InvestDiscoverResponse> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedReader || sharedKey !== apiKey) {
     sharedKey = apiKey;
     sharedReader = createInvestDiscoverReader({ apiKey });

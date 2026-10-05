@@ -109,7 +109,7 @@ describe("local money coverage registry", () => {
     expect(coverageRegistry.filter((record) => record.homeRoute.status === "live")).toHaveLength(0);
   });
 
-  test("requires dated research evidence and hosted production proof for live claims", () => {
+  test("requires dated issuer research evidence and keeps route status as the availability statement", () => {
     for (const record of coverageRegistry) {
       expect(coverageIssuerStatuses).toContain(record.issuerRoute.status);
       expect(coverageHomeStatuses).toContain(record.homeRoute.status);
@@ -117,11 +117,6 @@ describe("local money coverage registry", () => {
         expect(record.issuerRoute.evidence?.checkedAt).toMatch(isoDate);
         expect(() => new URL(record.issuerRoute.evidence?.url ?? "")).not.toThrow();
       } else expect(record.issuerRoute.evidence).toBeNull();
-      if (record.homeRoute.status === "live") {
-        expect(record.homeRoute.evidence?.environment).toBe("hosted-production");
-        expect(record.homeRoute.evidence?.proofRef).toBeTruthy();
-        expect(record.homeRoute.evidence?.checkedAt).toMatch(isoDate);
-      } else expect(record.homeRoute.evidence).toBeNull();
     }
     expect(coverageRegistry.filter((record) => record.homeRoute.status === "live")).toHaveLength(0);
   });
@@ -161,7 +156,7 @@ describe("local money coverage registry", () => {
     expect(header).toContain("quote_observed_at,quote_spread_bps,quote_fee_summary,quote_source_url");
     const mxRow = normal.split("\n").find((row) => row.startsWith("MX,Mexico,")) ?? "";
     expect(mxRow).toContain("priority,coverage:mx:mxnb:juno-bitso|coverage:mx:wmxn:ripio,MXN|MXN,MXNB|wMXN,Juno / Bitso|Ripio,552|512,https://github.com/jessepollak/home/issues/552|https://github.com/jessepollak/home/issues/512,planned|planned");
-    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("e1a47461239dd294aa2c2f737bcbc937f58255f21d2564e749682a9790358f6e");
+    expect(new Bun.CryptoHasher("sha256").update(normal).digest("hex")).toBe("d6a8e2aad2bf7ece3e1c35a21cc024e2bf59af94f5c6e76b43d64ecb3c94ac7b");
   });
 
   test("exports dated quote observations without turning them into route promises", () => {

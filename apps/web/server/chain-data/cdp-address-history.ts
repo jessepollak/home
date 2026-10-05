@@ -2,7 +2,9 @@ import "server-only";
 
 import { ACTIVITY_HISTORY_START } from "@/shared/activity/types";
 
-import { generateJwt } from "@coinbase/cdp-sdk/auth";
+import { signCdpRequest, type CdpJwtGenerator } from "@/server/cdp/auth";
+import { readCdpCredentials, serverEnvironment } from "@/server/config/env";
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 import { UINT256_MAX } from "@/server/chain/rpc";
 import { ChainDataError, type ChainDataErrorCode } from "./errors";
 import {
@@ -54,7 +56,7 @@ export type CdpAddressHistoryTransportOptions = {
   apiKeySecret: string;
   timeoutMs?: number;
   fetch?: CdpAddressHistoryFetch;
-  generateJwt?: typeof generateJwt;
+  generateJwt?: CdpJwtGenerator;
 };
 
 export type CdpAddressHistoryOptions = {
@@ -105,11 +107,10 @@ export function createCdpAddressHistoryTransport({
   apiKeySecret: untrimmedApiKeySecret,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetch: fetchImplementation = globalThis.fetch,
-  generateJwt: generateJwtImplementation = generateJwt,
+  generateJwt: generateJwtImplementation,
 }: CdpAddressHistoryTransportOptions): CdpAddressHistoryTransport {
-  const apiKeyId = untrimmedApiKeyId?.trim();
-  const apiKeySecret = untrimmedApiKeySecret?.trim();
-  if (!apiKeyId || !apiKeySecret) {
+  const credentials = readCdpCredentials({ CDP_API_KEY_ID: untrimmedApiKeyId, CDP_API_KEY_SECRET: untrimmedApiKeySecret });
+  if (credentials.status !== "complete") {
     throw new ChainDataError(
       "not-configured",
       "CDP_API_KEY_ID and CDP_API_KEY_SECRET are required for CDP Address History.",
@@ -128,10 +129,11 @@ export function createCdpAddressHistoryTransport({
   if (typeof fetchImplementation !== "function") {
     throw new ChainDataError("not-configured", "A fetch implementation is required.");
   }
-  if (typeof generateJwtImplementation !== "function") {
+  if (generateJwtImplementation !== undefined && typeof generateJwtImplementation !== "function") {
     throw new ChainDataError("not-configured", "A JWT generator is required.");
   }
 
+  const authEnv = { CDP_API_KEY_ID: credentials.apiKeyId, CDP_API_KEY_SECRET: credentials.apiKeySecret };
   return {
     async listAddressTransactions(request) {
       throwIfRequestAborted(request.signal);
@@ -148,94 +150,56 @@ export function createCdpAddressHistoryTransport({
 
       const address = request.address.toLowerCase() as HexAddress;
       const requestPath = addressHistoryRequestPath(address);
-      let bearerToken: string;
+      let authorization: string;
       try {
-        bearerToken = await generateJwtImplementation({
-          apiKeyId,
-          apiKeySecret,
-          requestMethod: "GET",
-          requestHost: CDP_ADDRESS_HISTORY_HOST,
-          requestPath,
-          expiresIn: 120,
-        });
+        ({ authorization } = await signCdpRequest({
+          env: authEnv,
+          generateJwtImpl: generateJwtImplementation,
+          method: "GET",
+          host: CDP_ADDRESS_HISTORY_HOST,
+          path: requestPath,
+        }));
       } catch {
         throwIfRequestAborted(request.signal);
         throw providerError("not-configured");
       }
       throwIfRequestAborted(request.signal);
-      if (
-        typeof bearerToken !== "string" ||
-        bearerToken.trim().length === 0 ||
-        /\s/.test(bearerToken)
-      ) {
-        throw providerError("not-configured");
-      }
-
-      const controller = new AbortController();
-      const onAbort = () => controller.abort(request.signal?.reason);
-      request.signal?.addEventListener("abort", onAbort, { once: true });
-      if (request.signal?.aborted) controller.abort(request.signal.reason);
-      const timeout = setTimeout(
-        () => controller.abort("cdp-address-history-timeout"),
-        timeoutMs,
-      );
-
-      try {
-        let response: Response;
-        try {
-          const headerName = ["author", "ization"].join("");
-          const bearerValue = ["Bear", "er ", bearerToken].join("");
-          response = await fetchImplementation(
-            addressHistoryRequestUrl(address, request.pageToken),
-            {
-              method: "GET",
-              headers: {
-                accept: "application/json",
-                [headerName]: bearerValue,
-              },
-              cache: "no-store",
-              signal: controller.signal,
-            },
-          );
-        } catch {
-          if (controller.signal.aborted) throw providerError("timed-out");
-          throw providerError("upstream-error");
-        }
-        if (!response.ok) throw responseError(response);
-
-        let body: string;
-        try {
-          body = await response.text();
-        } catch {
-          if (controller.signal.aborted) throw providerError("timed-out");
-          throw providerError("upstream-error");
-        }
-        try {
-          return JSON.parse(body) as unknown;
-        } catch {
-          throw providerError("invalid-response");
-        }
-      } finally {
-        clearTimeout(timeout);
-        request.signal?.removeEventListener("abort", onAbort);
-      }
+      const deadline = createUpstreamDeadline({ timeoutMs, signal: request.signal });
+      const headerName = ["author", "ization"].join("");
+      const result = await upstreamRequest(addressHistoryRequestUrl(address, request.pageToken), {
+        deadline,
+        maxBytes: 1024 * 1024,
+        fetchImpl: fetchImplementation,
+        init: {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            [headerName]: authorization,
+          },
+          cache: "no-store",
+        },
+      });
+      if (result.ok) return result.value;
+      if (result.kind === "http") throw responseError(result.status);
+      if (result.kind === "timeout" || result.kind === "aborted") throw providerError("timed-out");
+      if (result.kind === "oversized" || result.kind === "invalid") throw providerError("invalid-response");
+      throw providerError("upstream-error");
     },
   };
 }
 
 export function createCdpAddressHistoryFromEnv(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
   options: Omit<CdpAddressHistoryTransportOptions, "apiKeyId" | "apiKeySecret"> = {},
 ): CdpAddressHistoryTransport {
-  const apiKeyId = env.CDP_API_KEY_ID?.trim();
-  const apiKeySecret = env.CDP_API_KEY_SECRET?.trim();
-  if (!apiKeyId || !apiKeySecret) {
+  const credentials = readCdpCredentials(env);
+  if (credentials.status !== "complete") {
     throw new ChainDataError(
       "not-configured",
       "CDP_API_KEY_ID and CDP_API_KEY_SECRET are required for CDP Address History.",
     );
   }
-  return createCdpAddressHistoryTransport({ ...options, apiKeyId, apiKeySecret });
+  return createCdpAddressHistoryTransport({ ...options, apiKeyId: credentials.apiKeyId, apiKeySecret: credentials.apiKeySecret });
 }
 
 export function createCdpAddressHistory({
@@ -406,8 +370,7 @@ function addressHistoryRequestUrl(
   return url.toString();
 }
 
-function responseError(response: Response): ChainDataError {
-  const status = response.status;
+function responseError(status: number): ChainDataError {
   if (status === 400) return providerError("invalid-input", status);
   if (status === 401 || status === 403) {
     return providerError("unauthorized", status);

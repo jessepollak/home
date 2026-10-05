@@ -1,5 +1,5 @@
 import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/runtime";
-import { handleFundingProvidersRequest } from "./handler";
+import { handleFundingProvidersRequest } from "@/server/funding/handlers/providers";
 
 
 export async function GET(request: Request): Promise<Response> {

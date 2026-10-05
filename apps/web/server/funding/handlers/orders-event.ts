@@ -1,3 +1,5 @@
+import "server-only";
+
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { emitServerEvent } from "@/server/observability/log";
 
