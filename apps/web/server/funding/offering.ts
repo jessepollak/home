@@ -9,29 +9,31 @@ import { parseFundingSettings, type FundingSettings, type SettingsEntry } from "
 import { fundingProviders } from "./providers";
 import { environmentAvailable } from "./core/provider-context";
 
-const CASHOUT_CORRIDOR_READ_DEADLINE_MS = 3_000;
+const FUNDING_SETTINGS_READ_DEADLINE_MS = 3_000;
 
 /** @public for the operator funding settings console */
 export class FundingOfferingUnavailableError extends Error {}
 
-function withDeadline<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, parent?: AbortSignal): Promise<T> {
+async function withDeadline<T>(run: (signal: AbortSignal) => Promise<T>, ms: number, parent?: AbortSignal): Promise<T> {
+  parent?.throwIfAborted();
   const controller = new AbortController();
-  const abortFromParent = () => controller.abort(parent?.reason);
+  const cancellation = Promise.withResolvers<never>();
+  const abortFromParent = () => {
+    controller.abort(parent?.reason);
+    cancellation.reject(controller.signal.reason);
+  };
   parent?.addEventListener("abort", abortFromParent, { once: true });
-  if (parent?.aborted) abortFromParent();
-  let deadline: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    run(controller.signal),
-    new Promise<never>((_resolve, reject) => {
-      deadline = setTimeout(() => {
-        controller.abort(new Error("Funding settings read timed out"));
-        reject(new Error("Funding settings read timed out"));
-      }, ms);
-    }),
-  ]).finally(() => {
+  const deadline = setTimeout(() => {
+    const error = new Error("Funding settings read timed out");
+    controller.abort(error);
+    cancellation.reject(error);
+  }, ms);
+  try {
+    return await Promise.race([run(controller.signal), cancellation.promise]);
+  } finally {
     clearTimeout(deadline);
     parent?.removeEventListener("abort", abortFromParent);
-  });
+  }
 }
 
 
@@ -135,7 +137,9 @@ export async function readFundingOffering(deps: {
   signal?: AbortSignal;
   timeoutMs?: number;
 } = {}) {
-  const stored = await (deps.store ?? new OperatorSettingsStore(getSqlExecutor())).read("funding", { signal: deps.signal, timeoutMs: deps.timeoutMs });
+  const timeoutMs = deps.timeoutMs ?? FUNDING_SETTINGS_READ_DEADLINE_MS;
+  const stored = await withDeadline((signal) =>
+    (deps.store ?? new OperatorSettingsStore(getSqlExecutor())).read("funding", { signal, timeoutMs }), timeoutMs, deps.signal);
   const value = parseFundingSettings(stored.settings.value);
   if (!value) throw new FundingOfferingUnavailableError("Stored funding settings are unreadable.");
   const entry: OfferingEntry = { ...stored, settings: { ...stored.settings, value } };
@@ -145,7 +149,7 @@ export async function readFundingOffering(deps: {
 /** @public read by the cash-out confirm gate, which bounds the settings read so a stalled read cannot hold a confirmation open */
 export function createCashoutCorridorOfferingReader({
   read = (options: SqlQueryOptions = {}) => readFundingOffering({ signal: options.signal, timeoutMs: options.timeoutMs }),
-  deadlineMs = CASHOUT_CORRIDOR_READ_DEADLINE_MS,
+  deadlineMs = FUNDING_SETTINGS_READ_DEADLINE_MS,
 }: {
   read?: (options?: SqlQueryOptions) => Promise<Pick<ReturnType<typeof resolveFundingOffering>, "isOffered">>;
   deadlineMs?: number;
