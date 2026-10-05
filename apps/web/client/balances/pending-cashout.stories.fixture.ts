@@ -4,7 +4,7 @@ import type { BalancesSnapshot } from "@/shared/balances/types";
 export type PendingCashoutStoryState = "none" | "waiting" | "partial" | "paid" | "returned";
 
 const time = "2026-09-15T12:00:00.000Z";
-const settledAt = "2026-09-15T12:40:00.000Z";
+const settledAt = "2026-09-07T19:40:00.000Z";
 
 type Progress = NonNullable<RecentMoneyActionOperation["cashout"]>;
 
