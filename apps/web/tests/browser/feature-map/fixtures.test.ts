@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { parseCardSpendingResponse } from "../../../shared/cards/allowance-contract";
 import { FIXED_NOW } from "../fixtures/fixed-time";
+import { activityPageBody } from "../fixtures/api";
 import { fixtureRoutes } from "./fixtures";
 import { matches } from "../../../scripts/device-profile/proxy";
 import { parseActivityPage } from "../../../shared/activity/contract";
@@ -56,6 +57,18 @@ test("card spending fixture parses with the shared response contract", () => {
     expect(response.fetchedAt).toBe(new Date(FIXED_NOW).toISOString());
     expect(response.availableBaseUnits).toBe("25000000");
   }
+});
+
+test("shared browser activity fixture parses with the card contract version", () => {
+  const windowEnd = new Date(Math.floor(FIXED_NOW / 60_000) * 60_000).toISOString();
+  const body = activityPageBody(windowEnd, "USD");
+  const address = parseAddress(sessionBody.smartAccount.address);
+  if (!address) throw new Error("Invalid fixture smart account address");
+  const session = { user: sessionBody.user, accountProvider: "cdp-embedded" as const,
+    smartAccount: { address, chainId: 8453 as const } };
+  const page = parseActivityPage(body, session, windowEnd, "USD");
+  expect(page.cards?.status).toBe("ready");
+  expect(page.cards?.rows.length).toBeGreaterThan(0);
 });
 
 test("activity fixtures parse with all card purchase statuses and common decline reasons", () => {

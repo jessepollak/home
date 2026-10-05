@@ -78,7 +78,9 @@ type ValuationRetryState = {
 };
 
 const valuationRetries = new WeakMap<Query, ValuationRetryState>();
-const cardReadStartedAt = new WeakMap<object, number>();
+let activityCardReadOrder = 0;
+const cardReadStartedOrder = new WeakMap<object, number>();
+const cardReadCompletedOrder = new WeakMap<object, number>();
 
 function scheduleRetryTimeout(run: () => void, delayMs: number): () => void {
   const timer = setTimeout(run, delayMs);
@@ -190,9 +192,11 @@ function activityQueryOptions(input: {
       const shared = replaceEqualDeep(oldData, newData);
       const cards = firstPageCards(shared);
       const nextCards = firstPageCards(newData);
-      const readAt = nextCards ? cardReadStartedAt.get(nextCards) : undefined;
-      if (cards && nextCards && cards !== nextCards && readAt !== undefined) {
-        cardReadStartedAt.set(cards, Math.max(readAt, cardReadStartedAt.get(cards) ?? readAt));
+      const readOrder = nextCards ? cardReadStartedOrder.get(nextCards) : undefined;
+      const completedOrder = nextCards ? cardReadCompletedOrder.get(nextCards) : undefined;
+      if (cards && nextCards && cards !== nextCards) {
+        if (readOrder !== undefined) cardReadStartedOrder.set(cards, Math.max(readOrder, cardReadStartedOrder.get(cards) ?? readOrder));
+        if (completedOrder !== undefined) cardReadCompletedOrder.set(cards, Math.max(completedOrder, cardReadCompletedOrder.get(cards) ?? completedOrder));
       }
       return shared;
     },
@@ -213,11 +217,14 @@ function activityQueryOptions(input: {
       const hasHealthyHistory = knownPages.some((known) => known.onchainStatus !== "unavailable");
       const readPage = async () => {
         if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-        const startedAt = pageParam ? undefined : Date.now();
+        const startOrder = pageParam ? undefined : (activityCardReadOrder += 1);
         const result = parseActivityPage(
           await fetchActivity(queryString, signal), session, requestedWindow, requestedCurrency,
         );
-        if (result.cards && startedAt !== undefined) cardReadStartedAt.set(result.cards, startedAt);
+        if (result.cards && startOrder !== undefined) {
+          cardReadStartedOrder.set(result.cards, startOrder);
+          cardReadCompletedOrder.set(result.cards, activityCardReadOrder += 1);
+        }
         if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
         return result;
       };
@@ -354,7 +361,7 @@ type ActivityAdvanceInputs = {
 
 type ActivityAdvanceInputsBox = { current: ActivityAdvanceInputs };
 type ActivityLatestFailure = { windowEnd: string; currency: string } | null;
-type ActivityNewerCards = { to: string; cards: NonNullable<ActivityPage["cards"]>; windowQuery: Query; readAt: number };
+type ActivityNewerCards = { to: string; cards: NonNullable<ActivityPage["cards"]>; windowQuery: Query; readOrder: number };
 type ActivityLatestState = { failure: ActivityLatestFailure; busy: boolean; newerCards: ActivityNewerCards | null };
 type ActivityRunToken = { epoch: number };
 type ActivityRefreshWaiter = {
@@ -396,13 +403,13 @@ class ActivityWindowController {
     for (const listener of this.listeners) listener();
   }
 
-  recordNewerCards(snapshot: Omit<ActivityNewerCards, "windowQuery" | "readAt">) {
+  recordNewerCards(snapshot: Omit<ActivityNewerCards, "windowQuery" | "readOrder">) {
     const windowQuery = this.queryClient.getQueryCache().find({
       queryKey: ownerQueryKey(this.ownerKey, activityWindowScope), exact: true,
     });
     if (!windowQuery) return;
     if (this.newerCards?.windowQuery === windowQuery && Date.parse(this.newerCards.to) >= Date.parse(snapshot.to)) return;
-    this.newerCards = { ...snapshot, windowQuery, readAt: cardReadStartedAt.get(snapshot.cards) ?? Date.now() };
+    this.newerCards = { ...snapshot, windowQuery, readOrder: cardReadCompletedOrder.get(snapshot.cards) ?? (activityCardReadOrder += 1) };
     this.publish();
   }
 
@@ -648,33 +655,40 @@ export function useActivity(
     controller?.getLatestState ?? latestStateWithoutOwner,
     controller?.getLatestState ?? latestStateWithoutOwner,
   );
-  const currentReadAt = mergedPage?.cards ? cardReadStartedAt.get(mergedPage.cards) : undefined;
+  const currentReadOrder = mergedPage?.cards ? cardReadStartedOrder.get(mergedPage.cards) : undefined;
   const page = useMemo<ActivityPage | null>(() => {
     const snapshot = state.newerCards;
     if (!mergedPage || !snapshot || snapshot.windowQuery !== activityWindowQuery ||
       Date.parse(snapshot.to) <= Date.parse(mergedPage.window.to)) return mergedPage;
-    const currentCards = new Map(mergedPage.cards?.rows.map((row) => [row.id, row]));
+    const currentRows = mergedPage.cards?.rows ?? [];
+    const currentCards = new Map(currentRows.map((row) => [row.id, row]));
     const currentWindowTo = Date.parse(mergedPage.window.to);
     const currentWindowFrom = currentWindowTo - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
-    const canReconcileMissing = mergedPage.cards?.status === "ready" && mergedPage.cards.rows.length < 50 &&
-      currentReadAt !== undefined && currentReadAt > snapshot.readAt;
+    const canReconcile = mergedPage.cards?.status === "ready" && mergedPage.cards.rows.length < 50 &&
+      currentReadOrder !== undefined && currentReadOrder > snapshot.readOrder;
+    const snapshotWindowFrom = Date.parse(snapshot.to) - ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const snapshotIds = new Set(snapshot.cards.rows.map((row) => row.id));
     return {
       ...mergedPage,
       cards: {
         version: snapshot.cards.version,
         status: snapshot.cards.status === "unavailable" || mergedPage.cards?.status === "unavailable"
           ? "unavailable" : "ready",
-        rows: snapshot.cards.rows.filter((row) => {
-          const createdAt = Date.parse(row.createdAt);
-          return !(canReconcileMissing && createdAt >= currentWindowFrom && createdAt < currentWindowTo &&
-            !currentCards.has(row.id));
-        }).map((row) => {
-          const current = currentCards.get(row.id);
-          return current && Date.parse(current.updatedAt) > Date.parse(row.updatedAt) ? current : row;
-        }),
+        rows: [
+          ...snapshot.cards.rows.filter((row) => {
+            const createdAt = Date.parse(row.createdAt);
+            return !(canReconcile && createdAt >= currentWindowFrom && createdAt < currentWindowTo &&
+              !currentCards.has(row.id));
+          }).map((row) => {
+            const current = currentCards.get(row.id);
+            return current && Date.parse(current.updatedAt) > Date.parse(row.updatedAt) ? current : row;
+          }),
+          ...(canReconcile ? currentRows.filter((row) =>
+            !snapshotIds.has(row.id) && Date.parse(row.createdAt) >= snapshotWindowFrom) : []),
+        ],
       },
     };
-  }, [mergedPage, state.newerCards, activityWindowQuery, currentReadAt]);
+  }, [mergedPage, state.newerCards, activityWindowQuery, currentReadOrder]);
   const latestUnavailable = Boolean(ownerKey && state.failure?.windowEnd === windowEnd && state.failure.currency === currency);
   const latestBusy = Boolean(ownerKey && state.busy);
   const observerId = useRef(Symbol());

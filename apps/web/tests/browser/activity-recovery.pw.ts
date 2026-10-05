@@ -182,8 +182,12 @@ async function refreshWithNewerCards(page: Page, options: {
   revalidationCardsUnavailable?: boolean;
   revalidationCompletesCard?: boolean;
   revalidationRemovesAuthorization?: boolean;
+  revalidationAddsBacklogCard?: boolean;
   authorizationPersistedLate?: boolean;
   revalidationOnchainUnavailable?: boolean;
+  revalidationWhileNewerReadHeld?: boolean;
+  revalidationSupersedesRetainedPartial?: boolean;
+  revalidationStartsSameTick?: boolean;
 } = {}) {
   const { feed, rows } = await setup(page);
   let firstWindow: string | undefined;
@@ -191,6 +195,8 @@ async function refreshWithNewerCards(page: Page, options: {
   let newerWindowReads = 0;
   let releaseFirstRead = () => {};
   const firstReadHeld = new Promise<void>((resolve) => { releaseFirstRead = resolve; });
+  let releaseNewerRead = () => {};
+  const newerReadHeld = new Promise<void>((resolve) => { releaseNewerRead = resolve; });
   await page.route("**/api/activity*", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname !== "/api/activity") return route.fallback();
@@ -201,6 +207,7 @@ async function refreshWithNewerCards(page: Page, options: {
     if (newer) newerWindowReads++;
     else currentWindowReads++;
     if (currentWindowReads === 1 && !newer) await firstReadHeld;
+    if (newer && newerWindowReads === 3 && options.revalidationWhileNewerReadHeld) await newerReadHeld;
     if (newer && options.remainingRetriesFail && newerWindowReads > 1) {
       return route.fulfill({
         status: 502,
@@ -211,6 +218,18 @@ async function refreshWithNewerCards(page: Page, options: {
     const response = activityResponse(url, newer || (options.revalidationOnchainUnavailable === true && currentWindowReads > 1), newer);
     if (!newer && options.revalidationCardsUnavailable && currentWindowReads > 1) {
       response.cards.status = "unavailable";
+    }
+    if (options.revalidationSupersedesRetainedPartial) {
+      const completed = !newer && currentWindowReads > 1;
+      const createdAt = new Date(Date.parse(firstWindow) + (completed ? 2 : -30 * 60_000)).toISOString();
+      response.cards.rows[0] = {
+        ...cardRow(response.cards.rows, 0),
+        id: completed ? "ipi_fixturerecovery1" : "iauth_fixturerecovery1",
+        kind: completed ? "transaction" : "authorization",
+        status: completed ? "completed" : "pending",
+        createdAt,
+        updatedAt: createdAt,
+      };
     }
     if (options.revalidationCompletesCard) {
       const completed = !newer && currentWindowReads > 1;
@@ -240,6 +259,13 @@ async function refreshWithNewerCards(page: Page, options: {
         merchantName: "Fixture Market", createdAt, updatedAt: createdAt,
       });
     }
+    if (options.revalidationAddsBacklogCard && !newer && currentWindowReads > 1) {
+      const createdAt = new Date(Date.parse(firstWindow) - 20 * 60_000).toISOString();
+      response.cards.rows.push({
+        ...cardRow(response.cards.rows, 0), id: "ipi_fixturerecovery3", kind: "transaction", status: "completed",
+        merchantName: "Fixture Market", createdAt, updatedAt: createdAt,
+      });
+    }
     return json(route, response);
   });
   await page.goto("/home");
@@ -254,15 +280,51 @@ async function refreshWithNewerCards(page: Page, options: {
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
   if (options.supersede) await expect(feed.getByRole("list", { name: "Pending", exact: true }).getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toBeVisible();
   if (options.authorizationPersistedLate) await expect(feed.getByRole("button", { name: /^Fixture Market/ })).toHaveCount(0);
-  await page.clock.runFor(1_000);
+  if (options.revalidationWhileNewerReadHeld || options.revalidationSupersedesRetainedPartial) await page.clock.fastForward(11_000);
+  else await page.clock.runFor(1_000);
+  const retainedPartialResponse = options.revalidationSupersedesRetainedPartial ? page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/activity" && Date.parse(url.searchParams.get("to") ?? "") > Date.parse(firstWindow ?? "");
+  }) : undefined;
   await page.getByLabel("Refresh Home").evaluate((element) => {
     if (!(element instanceof HTMLElement)) throw new Error("Refresh Home is not an element");
     element.click();
   });
+  if (retainedPartialResponse) {
+    await (await retainedPartialResponse).finished();
+    if (!options.revalidationStartsSameTick) await page.clock.runFor(100);
+    expect(newerWindowReads).toBe(1);
+    await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
+    const revalidationResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/activity" && url.searchParams.get("to") === firstWindow;
+    });
+    const readsBeforeRevalidation = currentWindowReads;
+    await requestBackgroundRevalidation(page, () => currentWindowReads, readsBeforeRevalidation);
+    await (await revalidationResponse).finished();
+    await page.clock.runFor(100);
+    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+    expect(newerWindowReads).toBe(1);
+  }
   await expect.poll(async () => {
     await page.clock.runFor(500);
     return newerWindowReads;
   }, { timeout: 15_000 }).toBe(3);
+  if (options.revalidationWhileNewerReadHeld) {
+    await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toHaveCount(0);
+    await page.clock.runFor(100);
+    const revalidationResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/activity" && url.searchParams.get("to") === firstWindow;
+    });
+    const readsBeforeRevalidation = currentWindowReads;
+    await requestBackgroundRevalidation(page, () => currentWindowReads, readsBeforeRevalidation);
+    await (await revalidationResponse).finished();
+    await page.clock.runFor(100);
+    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toBeVisible();
+    releaseNewerRead();
+    await page.clock.runFor(100);
+  }
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   return { feed, rows, currentWindowReads: () => currentWindowReads };
 }
@@ -284,6 +346,30 @@ test("a newer-window partial snapshot replaces a superseded authorization with i
   await expect(feed.getByText(warning)).toHaveCount(0);
 });
 
+test("a same-window read completed during a newer-window card read cannot restore its superseded authorization", async ({ page }) => {
+  const { feed, rows } = await refreshWithNewerCards(page, { supersede: true, revalidationWhileNewerReadHeld: true });
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+  await expect(rows).toHaveCount(3);
+  await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+for (const revalidationStartsSameTick of [false, true]) {
+  test(`a same-window revalidation completed before a retained newer-window partial publishes keeps its completed capture${revalidationStartsSameTick ? " when the reads meet on the same clock tick" : ""}`, async ({ page }) => {
+    const { feed, rows } = await refreshWithNewerCards(page, {
+      remainingRetriesFail: true,
+      revalidationSupersedesRetainedPartial: true,
+      revalidationStartsSameTick,
+    });
+    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Completed`) })).toBeVisible();
+    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}.*Pending`) })).toHaveCount(0);
+    await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toHaveCount(1);
+    await expect(rows).toHaveCount(3);
+    await expect(feed.getByText(warning)).toHaveCount(0);
+  });
+}
+
 test("healthy same-window revalidation preserves the newer-window card snapshot", async ({ page }) => {
   const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page);
   await page.clock.fastForward(11_000);
@@ -293,6 +379,22 @@ test("healthy same-window revalidation preserves the newer-window card snapshot"
   await expect(rows).toHaveCount(3);
   await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
   await expect(feed.getByText(warning)).toHaveCount(0);
+});
+
+test("healthy same-window revalidation adds a backlog card inside the newer snapshot window", async ({ page }) => {
+  const { feed, rows, currentWindowReads } = await refreshWithNewerCards(page, { revalidationAddsBacklogCard: true });
+  await expect(feed.getByRole("button", { name: /^Fixture Market/ })).toHaveCount(0);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await page.clock.fastForward(11_000);
+  const readsBeforeRevalidation = currentWindowReads();
+  await requestBackgroundRevalidation(page, currentWindowReads, readsBeforeRevalidation);
+  await expect.poll(async () => {
+    await page.clock.runFor(100);
+    return feed.getByRole("button", { name: /^Fixture Market/ }).count();
+  }).toBe(1);
+  await expect(feed.getByRole("button", { name: new RegExp(`^${merchant}`) })).toBeVisible();
+  await expect(feed.getByRole("button", { name: new RegExp(`^${freshMerchant}`) })).toBeVisible();
+  await expect(rows).toHaveCount(3);
 });
 
 test("healthy same-window revalidation completes a shared pending card without losing newer-only cards", async ({ page }) => {

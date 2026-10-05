@@ -29,7 +29,7 @@ const TRANSACTION_HASH = `0x${"cd".repeat(32)}`;
 const CREATED_AT = new Date(FIXED_NOW).toISOString();
 const EXPIRES_AT = new Date(FIXED_NOW + 10 * 60_000).toISOString();
 
-function activityPageBody(windowEnd: string | null, currency: string) {
+export function activityPageBody(windowEnd: string | null, currency: string) {
   const to = windowEnd ?? new Date(FIXED_NOW).toISOString();
   const toTime = new Date(to).getTime();
   const wallet = sessionBody.smartAccount.address.toLowerCase();
