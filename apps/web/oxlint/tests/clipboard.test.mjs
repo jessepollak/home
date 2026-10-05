@@ -35,6 +35,7 @@ describe(rule, () => {
       computed: 'window["navigator"]["clipboard"]["writeText"]("value");',
       template: 'navigator.clipboard[`write`](items);',
       global: 'globalThis.navigator.clipboard.writeText("value");',
+      self: 'self.navigator.clipboard.writeText("value");',
       assertion: '(navigator.clipboard as Clipboard).writeText("value");',
       nonnull: 'navigator.clipboard!.writeText("value");',
       parenthesizedChain: '(navigator.clipboard?.writeText)("value");',

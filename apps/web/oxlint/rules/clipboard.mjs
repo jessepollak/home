@@ -51,8 +51,8 @@ export const noRawClipboardWrite = {
       const node = unwrap(value);
       if (node?.type === "Identifier") {
         const variable = variableFor(context.sourceCode, node);
-        if ((!variable || variable.defs.length === 0) && ["window", "globalThis", "navigator"].includes(node.name)) {
-          return new Set([node.name === "globalThis" ? "window" : node.name]);
+        if ((!variable || variable.defs.length === 0) && ["window", "globalThis", "self", "navigator"].includes(node.name)) {
+          return new Set([node.name === "navigator" ? "navigator" : "window"]);
         }
         return bindings.get(variable) ?? new Set();
       }
