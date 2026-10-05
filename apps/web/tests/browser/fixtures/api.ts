@@ -251,7 +251,7 @@ export async function installApiFixtures(
         transactionHash: status === "confirmed" ? TRANSACTION_HASH : undefined,
         owner: currentAction.owner,
       }];
-      return json(route, { actions });
+      return json(route, { ...actionsBody, actions });
     }
     if (path === "/api/funding/providers") {
       const direction = url.searchParams.get("direction") ?? "onramp";

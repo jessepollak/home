@@ -40,7 +40,7 @@ function preparedSpending(params: CardAllowancePrepareParams): PreparedMoneyActi
 const spendingCommands: CardSpendingCommands = {
   prepare: async (params) => preparedSpending(params),
   execute: async () => ({ id: "card-allowance-story", status: "rejected" }),
-  fetchOperations: async () => ({ actions: [] }),
+  fetchOperations: async () => ({ version: 1, actions: [], truncated: false }),
 };
 
 function CardStateStory({ state, initial, refreshFails = false, lockOutcome, withReveal = true, spending }: {

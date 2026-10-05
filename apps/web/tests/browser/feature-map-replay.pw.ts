@@ -51,7 +51,7 @@ for (const surfaceId of replaySurfaceIds) {
     if (requiresSignedInFixture(surfaceId)) await seedSignedInSession(page);
     await installApiFixtures(page);
     if (surfaceId === "activity") {
-      await page.route("**/api/actions", (route) => json(route, { actions: [conversionFixtureAction] }));
+      await page.route("**/api/actions", (route) => json(route, { version: 1, truncated: false, actions: [conversionFixtureAction] }));
     }
     if (surfaceId === "send" || surfaceId === "invest") {
       const routes = fixtureRoutes();

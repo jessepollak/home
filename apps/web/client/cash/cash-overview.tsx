@@ -542,6 +542,7 @@ export function CashOverview({
                   <p className="flex items-baseline gap-1 text-sm text-muted-foreground tabular-nums" data-pending-cash-out>
                     <span>Pending cash-out</span>
                     <span aria-hidden="true">·</span>
+                    {pendingValue.atLeast ? <span>At least</span> : null}
                     {pendingValue.value ? <MoneyTicker value={pendingValue.value} align="start" reserveDigits={false} /> : unavailableValue()}
                   </p>
                 ) : null}

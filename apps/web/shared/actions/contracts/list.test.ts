@@ -86,7 +86,7 @@ describe("recent Home action activity", () => {
     expect(parsed.unparsedSavingsDeposits).toEqual([]);
   });
   test("omitted or undefined retained fields default empty and only a true unavailable flag is accepted", () => {
-    for (const payload of [{ actions: [] }, { actions: [], retainedSavingsDeposits: undefined }]) {
+    for (const payload of [{ version: 1, truncated: false, actions: [] }, { version: 1, truncated: false, actions: [], retainedSavingsDeposits: undefined }]) {
       expect(parseRecentActionsPayload(payload, session)).toEqual({
         operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: false, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
       });
@@ -95,7 +95,7 @@ describe("recent Home action activity", () => {
     expect(parseRecentActionsPayload({ actions: [], retainedSavingsDepositsUnavailable: "true" }, session).retainedSavingsDepositsUnavailable).toBe(false);
   });
   test.each([null, {}, "invalid"])("a present non-array retained field %j holds savings unresolved", (field) => {
-    expect(parseRecentActionsPayload({ actions: [], retainedSavingsDeposits: field }, session)).toEqual({
+    expect(parseRecentActionsPayload({ version: 1, truncated: false, actions: [], retainedSavingsDeposits: field }, session)).toEqual({
       operations: [], retainedSavingsDeposits: [], retainedSavingsDepositsUnavailable: true, unparsedSavingsDeposits: [], truncated: false, incomplete: false,
     });
   });
@@ -333,10 +333,32 @@ describe("recent Home action activity", () => {
     expect(readRecentActionsIncomplete(null, { ...session, smartAccount: null })).toBe(false);
   });
 
-  test("reads only an explicit truncation flag", () => {
-    expect(readRecentActionsTruncated({ actions: [], truncated: true })).toBe(true);
-    for (const value of [{ actions: [] }, { actions: [], truncated: false }, { actions: [], truncated: "true" }, null, "truncated"])
-      expect(readRecentActionsTruncated(value)).toBe(false);
+  test("only version 1 with explicit false truncation is exhaustive", () => {
+    expect(readRecentActionsTruncated({ version: 1, actions: [], truncated: false })).toBe(false);
+    expect(readRecentActionsTruncated({ version: 1, actions: [], truncated: true })).toBe(true);
+    for (const value of [{ actions: [], truncated: false }, { version: 0, actions: [], truncated: false },
+      { version: 2, actions: [], truncated: false }, { version: 1, actions: [] },
+      { version: 1, actions: [], truncated: "false" }, null, [], "truncated"])
+      expect(readRecentActionsTruncated(value)).toBe(true);
+  });
+
+  test("keeps receipt block numbers only for cash-out withdrawals with digit strings", () => {
+    const metadata = { product: "cashout", operation: "withdraw", providerId: "peer", providerName: "Peer", environment: "sandbox",
+      platform: "cashapp", platformLabel: "Cash App", currency: "USD", approximateFiatAmount: "1", minConversionRate: "1",
+      intentAmountRange: { min: "1", max: "2" }, estimateAsOf: "2026-09-14T12:00:00.000Z",
+      escrow: "0x777777779d229cdF3110e9de47943791c26300Ef", depositId: "escrow-1" };
+    const withdrawal = { ...row(), kind: "cash-out-withdraw", summary: { ...row().summary, metadata } };
+    for (const receiptBlockNumber of ["0", "12345678901234567890"]) {
+      expect(parseRecentMoneyActions({ actions: [{ ...withdrawal, receiptBlockNumber }] }, session)[0]?.receiptBlockNumber).toBe(receiptBlockNumber);
+    }
+    for (const receiptBlockNumber of [undefined, null, 123, "", "-1", "1.5", "0x10", " 123 ", "bad"]) {
+      const parsed = parseRecentMoneyActions({ actions: [{ ...withdrawal, receiptBlockNumber }] }, session);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0]).not.toHaveProperty("receiptBlockNumber");
+    }
+    for (const kind of ["send", "cash-out"]) {
+      expect(parseRecentMoneyActions({ actions: [{ ...row(), kind, receiptBlockNumber: "123" }] }, session)[0]).not.toHaveProperty("receiptBlockNumber");
+    }
   });
 });
 
