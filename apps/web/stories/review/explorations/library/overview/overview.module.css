@@ -13,16 +13,9 @@
 }
 .article {
   container-type: inline-size;
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 32px 40px 72px;
-}
-.title {
+  max-width: calc(var(--library-max) + 2 * var(--library-gutter));
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-  line-height: 28px;
-  letter-spacing: -.01em;
+  padding: 32px var(--library-gutter) 72px;
 }
 .section {
   margin-top: 28px;
@@ -36,13 +29,11 @@
   font-weight: 600;
   line-height: 18px;
 }
-.count, .kind {
+.kind {
   color: var(--overview-subtle);
+  font-size: 12px;
   font-weight: 450;
   font-variant-numeric: tabular-nums;
-}
-.kind {
-  font-size: 12px;
 }
 .foundations {
   display: grid;
@@ -100,7 +91,7 @@
 }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(328px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   grid-auto-flow: row dense;
   gap: 28px 20px;
   margin: 0;
@@ -135,6 +126,12 @@
   box-shadow: 0 0 0 1px var(--border);
   color: var(--foreground);
   font-size: 14px;
+  transition: box-shadow 120ms ease-out;
+}
+@media (hover: hover) {
+  .card:hover .stage {
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 28%, var(--border));
+  }
 }
 .name {
   align-self: flex-start;
@@ -143,7 +140,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: var(--muted-foreground);
+  color: var(--foreground);
   font: inherit;
   font-weight: 550;
   cursor: pointer;
@@ -151,7 +148,6 @@
 }
 @media (hover: hover) {
   .name:hover {
-    color: var(--foreground);
     background: var(--muted);
   }
 }
@@ -166,7 +162,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .foundation, .name {
+  .foundation, .name, .stage {
     transition: none;
   }
 }

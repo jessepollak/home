@@ -48,3 +48,8 @@ export function monogram(name: string): string {
   const words = name.split(/[\s-]+|(?<=[a-z])(?=[A-Z])/).filter(Boolean);
   return words.slice(0, 2).map((word) => word[0].toUpperCase()).join("");
 }
+
+export function countLabel(count: number, noun: string): string {
+  if (count === 1) return `1 ${noun}`;
+  return `${count} ${/[^aeiou]y$/.test(noun) ? `${noun.slice(0, -1)}ies` : `${noun}s`}`;
+}

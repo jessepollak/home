@@ -1,4 +1,5 @@
 import { Component, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { countLabel } from "./catalog";
 import { propControls, storyArgs } from "./controls";
 import { FrameSection } from "./preview";
 import { createFrameSlots, fittedFrameHeight, FRAME_MIN_HEIGHT, FRAME_WIDTH, framedWidth, scaledViewport, spansFullRow,
@@ -261,11 +262,11 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
     return <section key={story.id} className={styles.section} aria-labelledby={heading}
       data-library-section={story.id} data-focused={isFocused || undefined} data-span={spansFullRow(story) ? "row" : undefined}
       data-review-frame={story.id} data-review-story={story.id}>
-      <h2 className={styles.sectionHeading} inert={annotating || undefined}>
+      <h3 className={styles.sectionHeading} inert={annotating || undefined}>
         <button type="button" id={heading} className={styles.sectionToggle} aria-pressed={isFocused}
           onClick={() => onToggle(story.id)}>{story.name}</button>
         {reason && showReasons && <span className={styles.sectionNote}>{reason}</span>}
-      </h2>
+      </h3>
       <div className={styles.sectionStage} data-layout={reason ? "frame" : story.layout}>
         {reason ? <QueuedFrame root={root} slots={slots} busy={busy} story={story} component={component} changed={changed} theme={theme}
           args={args} initialArgs={initialArgs.get(story.id) ?? {}} annotating={annotating} frameSource={frameSource} onUserInput={onUserInput}
@@ -282,6 +283,6 @@ export function VariantSheet({ root, component, changed, stories, hiddenThemes =
         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onExitAnnotate(); } }} />}
     </section>;
   })}{hiddenThemes > 0 && <p className={styles.hiddenThemes}>
-    {hiddenThemes} theme-pinned {hiddenThemes === 1 ? "story" : "stories"} hidden · use Theme
+    {countLabel(hiddenThemes, "theme-pinned story")} hidden · use Theme
   </p>}</div>;
 }

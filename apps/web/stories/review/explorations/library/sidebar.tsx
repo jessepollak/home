@@ -1,6 +1,6 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { ActivityIcon, LayersIcon, LayoutGridIcon, PaletteIcon, RulerIcon, TypeIcon } from "lucide-react";
-import { COMPOSITIONS, monogram, OVERVIEW, type LibraryCatalog } from "./catalog";
+import { COMPOSITIONS, countLabel, monogram, OVERVIEW, type LibraryCatalog } from "./catalog";
 import { foundationPages, type FoundationId } from "./foundations/model";
 import styles from "./library.module.css";
 
@@ -13,15 +13,9 @@ export const FOUNDATION_ICONS: Record<FoundationId, ReactNode> = {
 
 type SidebarRow = { id: string; name: string; kind: string; label: string; tile: ReactNode; changed?: boolean };
 
-function changeSummary(changes: number | null): string | null {
-  if (changes === null) return null;
-  if (changes === 0) return "No changes";
-  return changes === 1 ? "1 change" : `${changes} changes`;
-}
-
 export function LibrarySidebar({ catalog, compositions, selected, onSelect, onPreload }: {
   catalog: LibraryCatalog;
-  compositions: number;
+  compositions: string;
   selected: string;
   onSelect: (id: string) => void;
   onPreload: (id: string) => void;
@@ -31,17 +25,16 @@ export function LibrarySidebar({ catalog, compositions, selected, onSelect, onPr
     tile: FOUNDATION_ICONS[page.id],
   }));
   const componentRows = catalog.items.map((item) => {
-    const kind = item.stories === 1 ? "1 story" : `${item.stories} stories`;
+    const kind = countLabel(item.stories, "story");
     return {
       id: item.id, name: item.name, kind, changed: item.changed, tile: monogram(item.name),
       label: `${item.name}, ${kind}${item.changed ? ", changed in this build" : ""}`,
     };
   });
-  const count = catalog.items.length === 1 ? "1 component" : `${catalog.items.length} components`;
-  const composed = compositions === 1 ? "1 composition" : `${compositions} compositions`;
+  const count = countLabel(catalog.items.length, "component");
   const overviewRows = [
     { id: OVERVIEW, name: "Overview", kind: count, label: `Overview, ${count}`, tile: <LayoutGridIcon /> },
-    { id: COMPOSITIONS, name: "Compositions", kind: composed, label: `Compositions, ${composed}`, tile: <LayersIcon /> },
+    { id: COMPOSITIONS, name: "Compositions", kind: compositions, label: `Compositions, ${compositions}`, tile: <LayersIcon /> },
   ];
   return <nav className={styles.sidebar} aria-label="Library">
     <h1 className={styles.visuallyHidden}>Library</h1>
@@ -49,7 +42,7 @@ export function LibrarySidebar({ catalog, compositions, selected, onSelect, onPr
       onSelect={onSelect} hiddenHeading />
     <SidebarGroup id="library-foundations-heading" heading="Foundations" rows={foundationRows}
       selected={selected} onSelect={onSelect} />
-    <SidebarGroup id="library-components-heading" heading="Components" summary={changeSummary(catalog.changes)}
+    <SidebarGroup id="library-components-heading" heading="Components" summary={catalog.changes ? countLabel(catalog.changes, "change") : null}
       rows={componentRows} selected={selected} onSelect={onSelect} onPreload={onPreload} fill />
   </nav>;
 }
@@ -99,7 +92,7 @@ function SidebarGroup({ id, heading, summary, rows, selected, onSelect, onPreloa
             <span className={styles.rowTitle}>{row.name}</span>
             <span className={styles.rowKind}>{row.kind}</span>
           </span>
-          {row.changed !== undefined && <span className={styles.dot} data-changed={row.changed || undefined} aria-hidden="true" />}
+          {row.changed && <span className={styles.dot} aria-hidden="true" />}
         </div>;
       })}
     </div>

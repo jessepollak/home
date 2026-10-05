@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from "react";
-import type { LibraryItem } from "../catalog";
+import { countLabel, type LibraryItem } from "../catalog";
+import { SurfaceHeading } from "../heading";
 import { foundationPages, type FoundationId } from "../foundations/model";
 import { FOUNDATION_ICONS } from "../sidebar";
 import { specimens } from "./specimens";
@@ -17,13 +18,12 @@ class SpecimenBoundary extends Component<{ name: string; children: ReactNode }, 
 }
 
 export function OverviewSurface({ items, onSelect }: { items: LibraryItem[]; onSelect: (id: string) => void }) {
-  const count = items.length === 1 ? "1 component" : `${items.length} components`;
   return <div className={styles.surface} data-library-overview="">
     <div className={styles.sheet} role="region" aria-label="All components"
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Scrollable references need keyboard access.
       tabIndex={0}>
       <article className={styles.article} aria-labelledby="library-overview-title">
-        <h2 id="library-overview-title" className={styles.title}>Overview</h2>
+        <SurfaceHeading id="library-overview-title" title="Overview" count={countLabel(items.length, "component")} />
         <section className={styles.section} aria-labelledby="library-overview-foundations">
           <h3 id="library-overview-foundations" className={styles.sectionTitle}>Foundations</h3>
           <ul className={styles.foundations}>
@@ -38,7 +38,7 @@ export function OverviewSurface({ items, onSelect }: { items: LibraryItem[]; onS
         </section>
         <section className={styles.section} aria-labelledby="library-overview-components">
           <h3 id="library-overview-components" className={styles.sectionTitle}>
-            Components <span className={styles.count}>{count}</span>
+            Components
           </h3>
           <ul className={styles.grid}>
             {items.map((item) => {
@@ -50,7 +50,7 @@ export function OverviewSurface({ items, onSelect }: { items: LibraryItem[]; onS
                     <p className={styles.message}>No specimen yet</p>}
                 </div>
                 <button type="button" className={styles.name} onClick={() => onSelect(item.id)}>
-                  {item.name}
+                  {item.name} <span className={styles.kind}>{countLabel(item.stories, "story")}</span>
                 </button>
               </li>;
             })}

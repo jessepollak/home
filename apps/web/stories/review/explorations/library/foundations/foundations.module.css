@@ -12,16 +12,9 @@
   scrollbar-width: thin;
 }
 .article {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 32px 40px 72px;
-}
-.title {
+  max-width: calc(var(--library-max) + 2 * var(--library-gutter));
   margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-  line-height: 28px;
-  letter-spacing: -.01em;
+  padding: 32px var(--library-gutter) 72px;
 }
 .summary {
   max-width: 72ch;
@@ -29,6 +22,9 @@
   color: var(--foundation-subtle);
   font-size: 13px;
   line-height: 20px;
+}
+.summaryLine {
+  display: block;
 }
 .summary code, .note code, .numeralCard code {
   font-family: var(--font-mono);

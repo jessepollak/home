@@ -148,7 +148,7 @@ export const Overview: Story = {
     await expect(canvas.getByRole("option", { name: "Overview, 3 components" })).toHaveAttribute("aria-selected", "true");
     await expect(search(canvasElement).has("component")).toBe(false);
     const grid = within(surface).getByRole("region", { name: "All components" });
-    await expect(within(grid).getByRole("button", { name: "Badge" })).toBeVisible();
+    await expect(within(grid).getByRole("button", { name: "Badge 1 story" })).toBeVisible();
 
     const toggle = within(grid).getByRole("switch", { name: "Show small balances" });
     const checked = toggle.getAttribute("aria-checked");
@@ -163,7 +163,7 @@ export const Overview: Story = {
     if (!window) throw new Error("Library window is missing");
     const navigation = window.history;
     const historyLength = navigation.length;
-    await userEvent.click(within(grid).getByRole("button", { name: "Button" }));
+    await userEvent.click(within(grid).getByRole("button", { name: "Button 4 stories" }));
     await expect(await canvas.findByRole("main", { name: "Button preview" })).toBeVisible();
     await expect(await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT })).toBeVisible();
     await expect(search(canvasElement).get("component")).toBe("ui-button");
@@ -238,9 +238,10 @@ export const Compositions: Story = {
     await canvas.findByRole("heading", { name: "Default" }, { timeout: INITIAL_MODULE_TIMEOUT });
     await userEvent.click(section(canvas, "Default"));
     await waitFor(() => expect(search(canvasElement).get("story")).toBe("ui-button--default"));
-    await userEvent.click(canvas.getByRole("option", { name: "Compositions, 5 compositions" }));
+    await userEvent.click(canvas.getByRole("option", { name: "Compositions, 5 screens · 8 states" }));
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
-    await expect(within(surface).getByText("Compositions · 5 compositions")).toBeVisible();
+    await expect(within(surface).getByRole("heading", { name: "Compositions", level: 2 })).toBeVisible();
+    await expect(within(surface).getByText("5 screens · 8 states")).toBeVisible();
     await expect(search(canvasElement).get("component")).toBe("compositions");
     await expect(window.history.length).toBe(historyLength + 2);
     for (const name of ["Home", "Home Loading", "Invest", "Asset Detail", "Card Onboarding", "Active", "Coverage", "Operator"]) {
@@ -289,10 +290,10 @@ export const CompositionCoverage: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body);
     const surface = await canvas.findByRole("main", { name: "Library compositions" });
-    const productUsage = await within(surface).findByText(/^Not used in any product screen:/, {}, { timeout: INITIAL_MODULE_TIMEOUT });
+    const productUsage = await within(surface).findByText(/^Unused in product:/, {}, { timeout: INITIAL_MODULE_TIMEOUT });
     await expect(within(productUsage).getByRole("link", { name: "Button Group" })).toBeVisible();
     await expect(within(productUsage).getByRole("link", { name: "Dialog" })).toBeVisible();
-    await expect(productUsage).toHaveTextContent("Not used in any product screen: Button Group, Dialog, Kbd, Progress");
+    await expect(productUsage).toHaveTextContent("Unused in product: Button Group, Dialog, Kbd, Progress");
   },
 };
 

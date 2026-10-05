@@ -39,12 +39,14 @@ export function ColorPage({ snapshot }: { snapshot: ThemeValues | null }) {
   const families = [...new Set(rows.map((row) => row.token.family))];
   return <>
     <p className={styles.summary}>
-      {rows.length} tokens from <code>app/globals.css</code>. Text needs 4.5:1 and graphics 3:1 against the card and the page.{" "}
       {THEMES.map((theme) => {
         const failed = rows.filter((row) => row[theme].verdict === "fail").map((row) => `--${row.token.name}`);
-        return `${THEME_LABEL[theme]}: ${measurementSummary(rows.map((row) => row[theme]))}${failed.length ? ` (${failed.join(", ")})` : ""}`;
-      }).join(". ")}.
+        return <span key={theme} className={styles.summaryLine}>
+          {THEME_LABEL[theme]}: {measurementSummary(rows.map((row) => row[theme]), failed)}
+        </span>;
+      })}
     </p>
+    <p className={styles.note}>Text needs 4.5:1, graphics 3:1, on card and page. From <code>app/globals.css</code>.</p>
     {families.map((family) => {
       const members = rows.filter((row) => row.token.family === family);
       const headingId = `color-family-${family}`;

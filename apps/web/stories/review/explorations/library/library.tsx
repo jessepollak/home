@@ -7,9 +7,10 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { startRenderDeadline } from "../board/render-deadline";
 import type { ReviewBuild, StoryIndexEntry } from "../board/review-build";
 import { writeBoardUrl } from "../board/url-state";
-import { COMPOSITIONS, libraryCatalog, OVERVIEW, type LibraryCatalog } from "./catalog";
+import { COMPOSITIONS, countLabel, libraryCatalog, OVERVIEW, type LibraryCatalog } from "./catalog";
 import { CompositionsSheet } from "./compositions/compositions";
 import { propControls, storyArgs, type PropValue } from "./controls";
+import { SurfaceHeading } from "./heading";
 import { FoundationsSurface } from "./foundations/foundations";
 import { foundationPages, isFoundation } from "./foundations/model";
 import { OverviewSurface } from "./overview/overview";
@@ -100,7 +101,7 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
 }) {
   const compositions = useMemo(() => compositionEntries(index), [index]);
   const [productUsage, setProductUsage] = useState<string[] | "failed" | null>(null);
-  const compositionGroups = new Set(compositions.map((entry) => entry.title)).size;
+  const compositionSummary = compositionCount(new Set(compositions.map((entry) => entry.title)).size, compositions.length);
   const [original] = useState(() => restoredLibraryUrl(catalog, compositions));
   const [selected, setSelected] = useState(original.selected);
   const overview = selected === OVERVIEW;
@@ -205,9 +206,8 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
     const rest = Object.fromEntries(Object.entries(currentOverrides).filter(([key]) => key !== name));
     return value === undefined || value === focusedStory?.initialArgs[name] ? rest : { ...rest, [name]: value };
   });
-  const count = entries.length === 1 ? "1 story" : `${entries.length} stories`;
   return <div className={styles.library} data-review-library="workspace">
-    <LibrarySidebar catalog={catalog} compositions={compositionGroups}
+    <LibrarySidebar catalog={catalog} compositions={compositionSummary}
       selected={overview || composing ? selected : foundation ?? item.id} onSelect={select} onPreload={preload} />
     <main className={styles.surface} aria-label={overview ? "Library overview" : composing ? "Library compositions" : foundation
       ? `${foundationPages.find((page) => page.id === foundation)!.name} foundations` : `${item.name} preview`}>
@@ -220,17 +220,19 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
             <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
           </ToggleGroup>
         </div>
-        {sheet && focusedStory && controls && args &&
-          <PropsBar name={`${item.name} · ${focusedStory.name}`} controls={controls} values={args} onChange={change} />}
+        {sheet && focusedStory && controls && args ?
+          <PropsBar name={`${item.name} · ${focusedStory.name}`} controls={controls} values={args} onChange={change} /> : null}
+        {(sheet || composing) && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
       </header>
       {overview ? <OverviewSurface items={catalog.items} onSelect={select} />
-        : composing ? <figure className={styles.stage}>
+        : composing ? <div className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
+          <SurfaceHeading title="Compositions" count={compositionSummary} />
           {productUsage === "failed" && <p className={styles.unusedComponents} role="alert">
             Couldn&apos;t read product usage, so unused components can&apos;t be listed.
           </p>}
           {Array.isArray(productUsage) && productUsage.length > 0 && <p className={styles.unusedComponents}>
-            Not used in any product screen: {productUsage.map((name, ordinal) => {
+            Unused in product: {productUsage.map((name, ordinal) => {
               const target = catalog.items.find((candidate) =>
                 componentStories(index, candidate.title).some((entry) => entry.importPath.endsWith(`/ui/${name}.stories.tsx`)));
               return target ? <span key={name}>{ordinal > 0 ? ", " : ""}<a
@@ -241,10 +243,10 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
           <CompositionsSheet entries={compositions} root={root} theme={theme} focused={focused} annotating={annotating}
             frameSource={frameSource} onToggle={toggle} onEscape={clearFocus} onExitAnnotate={() => setAnnotating(false)} />
         </div>
-        <figcaption className={styles.caption}>Compositions · {compositionCount(compositionGroups)}</figcaption>
-      </figure>
-        : foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <figure className={styles.stage}>
+      </div>
+        : foundation ? <FoundationsSurface page={foundation} theme={theme} /> : <div className={styles.stage}>
         <div ref={attach} className={styles.device} data-annotating={annotating || undefined}>
+          <SurfaceHeading title={item.name} count={countLabel(entries.length, "story")} />
           {stories ? <VariantSheet key={item.id} root={root} component={item.name} changed={item.changed}
             stories={stories} theme={theme} focused={focused} focusedArgs={args} annotating={annotating}
             hiddenThemes={hiddenThemes} frameSource={frameSource} onToggle={toggle}
@@ -253,24 +255,22 @@ function LibraryWorkspace({ catalog, index, build, theme: toolbarTheme, frameSou
               {failed ? `Couldn't load ${item.name}'s stories. Reload to try again.` : `Loading ${item.name}…`}
             </p>}
         </div>
-        <figcaption className={styles.caption}>{item.name} · {count}</figcaption>
-      </figure>}
-      {(sheet || composing) && <AnnotateToggle annotating={annotating} onChange={setAnnotating} />}
+      </div>}
     </main>
   </div>;
 }
 
-function compositionCount(count: number): string {
-  return count === 1 ? "1 composition" : `${count} compositions`;
+function compositionCount(screens: number, states: number): string {
+  return `${countLabel(screens, "screen")} · ${countLabel(states, "state")}`;
 }
 
 function AnnotateToggle({ annotating, onChange }: { annotating: boolean; onChange: (value: boolean) => void }) {
   const agentation = shouldRenderAgentation(import.meta.env.MODE);
   return <>
-    <Toggle variant="outline" size="lg" className={styles.annotate} aria-label="Annotate"
-      data-agentation-open={annotating && agentation ? "" : undefined}
+    <Toggle variant="outline" className={styles.annotate}
       title={annotating ? "Stop annotating" : "Annotate the preview"} pressed={annotating} onPressedChange={onChange}>
       <MessageSquarePlusIcon aria-hidden="true" />
+      Annotate
     </Toggle>
     {annotating && agentation && <Suspense fallback={null}><Agentation endpoint={AGENTATION_ENDPOINT} /></Suspense>}
   </>;

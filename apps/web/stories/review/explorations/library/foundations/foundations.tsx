@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { SurfaceHeading } from "../heading";
 import { ColorPage } from "./color-page";
 import { foundationPages, foundations, type FoundationId } from "./model";
 import { MotionPage } from "./motion-page";
@@ -12,13 +13,13 @@ export function FoundationsSurface({ page, theme }: { page: FoundationId; theme:
     const result = probeThemes(foundations.themeNames);
     return result.status === "measured" ? result.values : null;
   });
-  const name = foundationPages.find((entry) => entry.id === page)!.name;
+  const { name, kind } = foundationPages.find((entry) => entry.id === page)!;
   return <div className={styles.surface} data-foundation={page} data-foundation-theme={theme}>
     <div key={page} className={styles.sheet} role="region" aria-label={`${name} reference`}
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Scrollable references need keyboard access.
       tabIndex={0}>
       <article className={styles.article} aria-labelledby="foundation-title">
-        <h2 id="foundation-title" className={styles.title}>{name}</h2>
+        <SurfaceHeading id="foundation-title" title={name} count={kind} />
         {!foundations.sourcesAvailable && page !== "foundations/color" &&
           <p className={styles.note} role="status">Component sources unavailable. Candidate counts cannot be read.</p>}
         {foundations.sourcesAvailable && !foundations.candidatesAvailable && page !== "foundations/color" &&

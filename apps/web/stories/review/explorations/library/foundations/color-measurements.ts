@@ -1,3 +1,4 @@
+import { countLabel } from "../catalog";
 import { composite, contrastRatio, toHex, type Rgba } from "./contrast";
 import { toRgba } from "./probe";
 import type { ColorToken } from "./tokens";
@@ -36,10 +37,11 @@ export function measureColor(token: ColorToken, values: Record<string, string>, 
   }
 }
 
-export function measurementSummary(measurements: ColorMeasurement[]): string {
+export function measurementSummary(measurements: ColorMeasurement[], failedNames: string[] = []): string {
   const failed = measurements.filter((measurement) => measurement.verdict === "fail").length;
   const unavailable = measurements.filter((measurement) => measurement.status === "unavailable").length;
   const judged = measurements.filter((measurement) => measurement.verdict !== null).length;
-  const result = failed ? `${failed} below threshold` : judged ? "all measured checks pass" : "no contrast checks measured";
-  return `${result}; ${unavailable} unmeasured tokens`;
+  const names = failedNames.length ? ` (${failedNames.join(", ")})` : "";
+  const result = failed ? `${failed} below threshold${names}` : judged ? "all measured checks pass" : "no contrast checks measured";
+  return unavailable ? `${result} · ${countLabel(unavailable, "unmeasured token")}` : result;
 }
