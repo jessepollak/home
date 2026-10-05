@@ -4,7 +4,8 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { CashExperience } from "@/client/cash/cash-experience";
 import { PresentationRegionProvider } from "@/client/invest/presentation-quote";
 import { MoneyMotionProvider } from "@/components/money-ticker";
-import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset } from "@/shared/balances/fixtures";
+import { buildBalancesSnapshotFixture, priced, pricedCash, ready, requiredLocalCashAsset, unavailableBalance } from "@/shared/balances/fixtures";
+import type { BalancesSnapshot } from "@/shared/balances/types";
 import { BASE_USDC_PAYMASTER_ADDRESS } from "@/shared/money-actions/network-fee";
 import { BASE_USDC_ADDRESS, MORPHO_V1_CANDIDATE_ADDRESSES } from "@/shared/savings/config";
 import { CASH_CONVERSION_UNAVAILABLE_REASON, cashConversionCurrencies } from "@/shared/trading/cash-conversion";
@@ -25,6 +26,10 @@ const held = buildBalancesSnapshotFixture({ registry: {
   [requiredLocalCashAsset("COP").id]: { balance: ready("1234560000000000000000"), value: priced("USD", "3000"), cashValue: pricedCash("COP", "123456") },
 } });
 const zero = buildBalancesSnapshotFixture({ registry: { usdc: { balance: ready("0"), value: priced("USD", "0"), cashValue: pricedCash("USD", "0") } } });
+const zeroUsdWithEur = buildBalancesSnapshotFixture({ registry: {
+  usdc: { balance: ready("0"), value: priced("USD", "0"), cashValue: pricedCash("USD", "0") },
+  eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+} });
 const now = "2026-09-10T12:00:00.000Z";
 const NOW = Date.parse(now);
 const candidate: MorphoVaultCandidate = { version: "v1", vaultAddress: MORPHO_V1_CANDIDATE_ADDRESSES[0]!, name: "Gauntlet USDC Prime", symbol: "USDC vault", listed: true, chainId: 8453,
@@ -32,8 +37,9 @@ const candidate: MorphoVaultCandidate = { version: "v1", vaultAddress: MORPHO_V1
   source: { provider: "Morpho GraphQL", endpoint: "https://api.morpho.org/graphql", query: "vaults", fetchedAt: now } };
 const metadata: MorphoVaultsResult = { version: "v1", chainId: 8453, asset: candidate.asset, candidates: [candidate], source: candidate.source, stale: false };
 const prepared: unknown[] = [];
+let fundingOpenedWithDialog = false;
 
-type Scenario = "eur" | "idr" | "eur-row" | "save" | "empty" | "unavailable" | "no-route" | "expiry" | "back";
+type Scenario = "eur" | "idr" | "eur-row" | "save" | "zero-save" | "empty" | "unavailable" | "no-route" | "expiry" | "back";
 function tradeAction(request: TradeActionParams, expired: boolean, owner: VerifiedAccountSession): PreparedMoneyAction {
   const traded = cashConversionCurrencies.find((currency) => currency.tradeAssetId === request.assetId && currency.code !== "USD");
   if (!traded) throw new Error("Unexpected conversion identity");
@@ -54,12 +60,12 @@ function tradeAction(request: TradeActionParams, expired: boolean, owner: Verifi
       quoteBlockNumber: "123", quotedAt: new Date(NOW).toISOString(), permitDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30), executionDeadline: String(Math.floor(Date.parse(expiresAt) / 1000) + 30) },
   };
 }
-function Surface({ scenario }: { scenario: Scenario }) {
+function Surface({ scenario, snapshot, balanceStale = false }: { scenario: Scenario; snapshot?: BalancesSnapshot; balanceStale?: boolean }) {
   const [added, setAdded] = useState(false);
   const owner = { ...session, user: { subject: `${session.user.subject}-${scenario}` } };
   return <PresentationRegionProvider regionId="US"><MoneyMotionProvider><main className="mx-auto max-w-xl py-8">
-    <CashExperience view="cash" session={owner} snapshot={scenario === "empty" ? zero : held} balanceStatus="ready" onOpenSavings={() => undefined}
-      onAddMoney={() => setAdded(true)} now={() => Date.parse(now)} fetchVaults={async () => metadata}
+    <CashExperience view="cash" session={owner} snapshot={snapshot ?? (scenario === "empty" ? zero : scenario === "zero-save" ? zeroUsdWithEur : held)} balanceStatus="ready" balanceStale={balanceStale} onOpenSavings={() => undefined}
+      onAddMoney={() => { fundingOpenedWithDialog = document.querySelector('[role="dialog"][data-open]') !== null; setAdded(true); }} now={() => Date.parse(now)} fetchVaults={async () => metadata}
       fetchAccountResource={async (path) => {
         if (path === "/api/actions") return { version: 1, truncated: false, actions: [] };
         if (!path.includes("/api/trades")) return { version: 1, usdcReserveBaseUnits: "20000" };
@@ -78,7 +84,7 @@ function Surface({ scenario }: { scenario: Scenario }) {
   </main></MoneyMotionProvider></PresentationRegionProvider>;
 }
 
-const meta = { title: "Journeys/Cash Convert", component: Surface, args: { scenario: "eur" }, beforeEach: () => { prepared.length = 0; return pinClock(now); } } satisfies Meta<typeof Surface>;
+const meta = { title: "Journeys/Cash Convert", component: Surface, args: { scenario: "eur" }, beforeEach: () => { prepared.length = 0; fundingOpenedWithDialog = false; return pinClock(now); } } satisfies Meta<typeof Surface>;
 export default meta;
 type Story = StoryObj<typeof meta>;
 const openDestination = async (canvasElement: HTMLElement, target: string) => {
@@ -111,9 +117,66 @@ export const EurRowToUsd: Story = { args: { scenario: "eur-row" }, play: async (
 } };
 export const UsdRowWithSave: Story = { args: { scenario: "save" }, play: async ({ canvasElement }) => {
   await userEvent.click(within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ }));
-  const detail = await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "US dollar" });
-  await within(detail).findByRole("button", { name: /^Save$/ });
+  const body = within(canvasElement.ownerDocument.body);
+  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Convert" })).toBeVisible());
+  const detail = within(body.getByRole("dialog", { name: "US dollar" }));
+  await detail.findByRole("button", { name: /^Save$/ });
+  await expect(detail.queryByRole("button", { name: "Add money" })).toBeNull();
+  await userEvent.click(detail.getByRole("button", { name: "Save" }));
+  await body.findByRole("textbox", { name: "Amount" });
+  await userEvent.click(body.getByRole("button", { name: "Back" }));
+  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Convert" })).toBeVisible());
 } };
+export const UsdRowWithoutSaveAtZero: Story = { args: { scenario: "zero-save" }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const savings = canvas.getByRole("region", { name: "Savings" });
+  await waitFor(() => expect(savings).not.toHaveAttribute("aria-busy"));
+  await expect(within(savings).getByText("Earn up to 4.10% APY")).toBeVisible();
+  const usdRow = within(canvas.getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ });
+  await expect(within(usdRow).getByRole("img", { name: "$0.00" })).toBeVisible();
+  await userEvent.click(usdRow);
+  const body = within(canvasElement.ownerDocument.body);
+  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByText("Add money to get started")).toBeVisible());
+  const detail = within(body.getByRole("dialog", { name: "US dollar" }));
+  await expect(detail.queryByRole("img", { name: "$0.00" })).toBeNull();
+  await expect(detail.queryByRole("button", { name: "Convert" })).toBeNull();
+  await expect(detail.queryByRole("button", { name: "Save" })).toBeNull();
+  await expect(prepared).toHaveLength(0);
+  await userEvent.click(detail.getByRole("button", { name: "Close currency details" }));
+  await waitFor(() => expect(usdRow).toHaveFocus());
+  await userEvent.click(usdRow);
+  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Add money" })).toBeVisible());
+  const reopened = within(body.getByRole("dialog", { name: "US dollar" }));
+  await userEvent.click(reopened.getByRole("button", { name: "Add money" }));
+  await waitFor(() => expect(body.queryByRole("dialog")).toBeNull());
+  await expect(await canvas.findByRole("status")).toHaveTextContent("Add money opened");
+  await expect(fundingOpenedWithDialog).toBe(false);
+} };
+async function assertNoFundingNux(canvasElement: HTMLElement, unavailable = false, stale = false) {
+  await userEvent.click(within(within(canvasElement).getByRole("region", { name: "Currencies" })).getByRole("button", { name: /^US dollar/ }));
+  const body = within(canvasElement.ownerDocument.body);
+  await waitFor(() => expect(within(body.getByRole("dialog", { name: "US dollar" })).getByRole("button", { name: "Convert" })).toBeVisible());
+  const detail = within(body.getByRole("dialog", { name: "US dollar" }));
+  await expect(detail.queryByText("Add money to get started")).toBeNull();
+  await expect(detail.queryByRole("button", { name: "Add money" })).toBeNull();
+  await expect(detail.queryByRole("button", { name: "Save" })).toBeNull();
+  if (unavailable) {
+    await expect(detail.getByRole("img", { name: "Unavailable" })).toBeVisible();
+    await expect(detail.queryByRole("img", { name: "$0.00" })).toBeNull();
+  }
+  if (stale) await expect(detail.getByText("Balance may be out of date.")).toBeVisible();
+  await expect(prepared).toHaveLength(0);
+}
+export const StaleZeroUsdDetail: Story = { args: { scenario: "zero-save", balanceStale: true }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement, false, true) };
+export const UnavailableUsdDetail: Story = { args: { snapshot: buildBalancesSnapshotFixture({ registry: {
+  usdc: { balance: unavailableBalance, value: { status: "unavailable" }, cashValue: { status: "unavailable" } },
+  eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+} }) }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement, true) };
+export const PartialZeroUsdDetail: Story = { args: { scenario: "zero-save", snapshot: { ...zeroUsdWithEur, coverage: { ...zeroUsdWithEur.coverage, registry: "partial" } } }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement) };
+export const UnpricedZeroUsdDetail: Story = { args: { scenario: "zero-save", snapshot: buildBalancesSnapshotFixture({ registry: {
+  usdc: { balance: ready("0"), value: { status: "unpriced", reason: "price-unavailable" }, cashValue: { status: "unpriced", reason: "price-unavailable" } },
+  eurc: { balance: ready("15000000"), value: priced("USD", "1700"), cashValue: pricedCash("EUR", "1500") },
+} }) }, play: async ({ canvasElement }) => assertNoFundingNux(canvasElement) };
 export const EmptyUsdBalance: Story = { args: { scenario: "empty" }, play: async ({ canvasElement }) => {
   await userEvent.click(within(canvasElement).getByRole("button", { name: /^Convert$/ }));
   const body = within(canvasElement.ownerDocument.body);
