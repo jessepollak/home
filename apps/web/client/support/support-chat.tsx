@@ -65,15 +65,21 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
   const [discarded, setDiscarded] = useState<ReadonlySet<string>>(() => new Set());
   const [limitedUntil, setLimitedUntil] = useState<number | null>(null);
   const [stoppedBeforeReply, setStoppedBeforeReply] = useState(false);
-  const transport = useMemo(() => new DefaultChatTransport<SupportUIMessage>({
-    api: "/api/support/chat",
-    fetch: ((input: RequestInfo | URL, init?: RequestInit) => fetchAccountResponse(String(input), { body: String(init?.body ?? "{}"), ...(init?.signal ? { signal: init.signal } : {}) })) as typeof fetch,
-    prepareSendMessagesRequest: ({ messages }) => {
-      const message = [...messages].reverse().find((item) => item.role === "user");
-      const messageContext = message?.metadata?.context;
-      return { body: { version: SUPPORT_CONTRACT_VERSION, message: { id: message?.id ?? "", text: message ? messageText(message) : "" }, ...(messageContext ? { context: messageContext } : {}) } };
-    },
-  }), [fetchAccountResponse]);
+  const transport = useMemo(() => {
+    const accountFetch = Object.assign(
+      (input: RequestInfo | URL, init?: RequestInit) => fetchAccountResponse(String(input), { body: String(init?.body ?? "{}"), ...(init?.signal ? { signal: init.signal } : {}) }),
+      { preconnect: fetch.preconnect },
+    );
+    return new DefaultChatTransport<SupportUIMessage>({
+      api: "/api/support/chat",
+      fetch: accountFetch,
+      prepareSendMessagesRequest: ({ messages }) => {
+        const message = [...messages].reverse().find((item) => item.role === "user");
+        const messageContext = message?.metadata?.context;
+        return { body: { version: SUPPORT_CONTRACT_VERSION, message: { id: message?.id ?? "", text: message ? messageText(message) : "" }, ...(messageContext ? { context: messageContext } : {}) } };
+      },
+    });
+  }, [fetchAccountResponse]);
   const chat = useChat<SupportUIMessage>({
     id: `support:${ownerKey}`,
     transport,
@@ -198,8 +204,9 @@ export function SupportChat({ open, context, ownerKey, fetchAccountResource, fet
     try {
       const response = parseCustomerSupportResponse(await fetchAccountResource(`/api/support?before=${encodeURIComponent(from)}`));
       if (!response?.conversation) throw new Error("Invalid support response");
-      setHistory((previous) => [...response.conversation!.messages, ...previous]);
-      setHistoryCursor(response.conversation.messagesNextCursor);
+      const conversation = response.conversation;
+      setHistory((previous) => [...conversation.messages, ...previous]);
+      setHistoryCursor(conversation.messagesNextCursor);
       setHistoryLoaded(true);
       if (!historyLoaded) setHistoryBoundary(from);
     } catch {

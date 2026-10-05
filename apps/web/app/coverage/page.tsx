@@ -107,8 +107,7 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
           data-public-header-frame=""
         >
           <HomeMark href="/" />
-          {/* oxlint-disable-next-line nextjs/no-html-link-for-pages -- This is a CSV download endpoint, not Next.js page navigation. */}
-          <a href="/coverage.csv" className="text-sm font-medium text-primary underline-offset-4 hover:underline">Download CSV</a>
+          <a href="/coverage.csv" download className="text-sm font-medium text-primary underline-offset-4 hover:underline">Download CSV</a>
         </nav>
       </header>
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6 lg:px-8">

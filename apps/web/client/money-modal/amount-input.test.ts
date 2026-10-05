@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { decimalSeparatorForLocale } from "@/shared/formatting";
 import {
-  decimalSeparatorForLocale,
   isPositiveDecimalAmount,
   normalizeTypedAmount,
   parsePastedAmount,

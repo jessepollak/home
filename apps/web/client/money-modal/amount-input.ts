@@ -64,17 +64,6 @@ export function parsePastedAmount(text: string, localeDecimal: "." | ","): Amoun
   return { ok: true, value: normalizeDigits(normalizedWhole.replace(/[., ']/g, ""), fraction) };
 }
 
-export function decimalSeparatorForLocale(locale: string | undefined): "." | "," {
-  if (!locale) return ".";
-  try {
-    if (Intl.NumberFormat.supportedLocalesOf(locale).length === 0) return ".";
-    const separator = new Intl.NumberFormat(locale).formatToParts(1.1).find((part) => part.type === "decimal")?.value; // oxlint-disable-line home/no-local-formatting -- device-locale input parsing, not number presentation
-    return separator === "," ? "," : ".";
-  } catch {
-    return ".";
-  }
-}
-
 export function isPositiveDecimalAmount(value: string): boolean {
   const normalized = value.trim().replace(/\.$/, "");
   if (!/^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(normalized)) return false;

@@ -1,66 +1,6 @@
 {
   "exceptions": [
     {
-      "path": "apps/web/client/home/portfolio-home-experience.tsx",
-      "kind": "suppression",
-      "count": 1,
-      "reason": "The shell invokes this third route-content callback as a function, not a component, exactly like the two neighbouring callbacks that already carry the reviewed inline suppression."
-    },
-    {
-      "path": "apps/web/client/savings/savings-journey-step.tsx",
-      "kind": "suppression",
-      "count": 2,
-      "reason": "Two reviewed home/no-silent-catch disables with reasons: a stale preparation and a stale dispatch fenced by a newer journey generation have no state to report. Both moved unchanged with the deferred step."
-    },
-    {
-      "path": "apps/web/components/ui/field.tsx",
-      "kind": "suppression",
-      "count": 1,
-      "reason": "FieldLabel forwards htmlFor and children to the owned Label, which the label rule now recognizes; consumers associate the control."
-    },
-    {
-      "path": "apps/web/client/support/support-chat.tsx",
-      "kind": "assertion",
-      "count": 1,
-      "reason": "Bridges the account-authenticated fetch wrapper to the AI SDK transport's fetch field, whose signature only the SDK's own type expresses"
-    },
-    {
-      "path": "apps/web/client/support/support-chat.tsx",
-      "kind": "nonNull",
-      "count": 1,
-      "reason": "The preceding guard throws when the response carries no conversation, so that response's conversation is present for the history merge and its cursor"
-    },
-    {
-      "path": "apps/web/server/http/same-origin-mutation.ts",
-      "kind": "assertion",
-      "count": 1,
-      "reason": "JSON.parse returns any at this request boundary and the assertion narrows it to unknown for the caller's own parser"
-    },
-    {
-      "path": "apps/web/server/support/handlers.ts",
-      "kind": "nonNull",
-      "count": 2,
-      "reason": "A store send response always carries its conversation, and the assistant key is present exactly when the capability check proved the sealed envelope opened; neither invariant fits the stored type"
-    },
-    {
-      "path": "apps/web/server/support/store.ts",
-      "kind": "nonNull",
-      "count": 4,
-      "reason": "Two survive the count guard because the retry window comes from the same aggregate row as the count, and two sit inside the result.rows.length > limit branch that guarantees a last row"
-    },
-    {
-      "path": "apps/web/shared/support/contract.ts",
-      "kind": "assertion",
-      "count": 10,
-      "reason": "The contract module's runtime parsers assert each validated shape after checking every field, field set, version token and identifier, the same boundary pattern as the other shared contract modules"
-    },
-    {
-      "path": "apps/web/client/observability/interaction-performance.ts",
-      "kind": "suppression",
-      "count": 2,
-      "reason": "Two reviewed home/no-silent-catch disables: once recovery-named callees need a provable binding, the catches that cancel a pending navigation sample call a local cleanup helper whose nothing-pending guard the rule cannot prove."
-    },
-    {
       "path": "apps/web/server/scheduling/after-schedule.ts",
       "kind": "suppression",
       "count": 1,

@@ -5,6 +5,7 @@ export {
 } from "./presentation-fiat";
 
 export {
+  decimalSeparatorForLocale,
   formatBasisPoints,
   formatChartPrice,
   formatExactPresentationCashAmount,

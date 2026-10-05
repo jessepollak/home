@@ -167,7 +167,7 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
     const initial = await effectiveOrNull(deps);
     const sent = await store.sendCustomer(resolved.id, session, { version: SUPPORT_CONTRACT_VERSION, body: input.message.text, clientMessageId: input.message.id, ...(input.context ? { context: input.context } : {}) }, initial?.capability ?? { available: false, handoff: false });
     if (!initial) await store.handoffCustomer(resolved.id, true, true, sent.messageId);
-    const conversation = sent.response.conversation!;
+    const conversation = sent.response.conversation;
     return supportStream(conversation.id, conversation.handler, async (writer) => {
       const deadline = (deps.now ?? Date.now)() + 35_000;
       let assistant: EffectiveAssistant;
@@ -245,7 +245,8 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
         }
         if (request.signal.aborted) return { handler: conversation.handler, conversationId: conversation.id };
         if (!(await store.ownsAssistantRun(conversation.id, runId))) return { handler: (await store.handlerForCustomer(resolved.id, current.capability))?.handler ?? "operator", conversationId: conversation.id };
-        assistant = current;
+        const assistantKey = current.key;
+        assistant = { ...current, key: assistantKey };
         let pending = "";
         let started = false;
         let capped = false;
@@ -255,7 +256,7 @@ export function createCustomerSupportChatHandler(deps: Dependencies = {}) {
         const limit = new AbortController();
         try {
           const result = streamText({
-            model: (deps.model ?? gatewayModel)(assistant.key!, assistant.settings.model),
+            model: (deps.model ?? gatewayModel)(assistantKey, assistant.settings.model),
             system: `You are the Home support assistant. Answer only from the provided conversation and context. Never ask for or reveal secrets, seed phrases, or keys. Never claim to perform account actions. ${hybrid ? "Call handoff_to_operator if the customer asks for a person or needs account changes." : ""}\nContext facts: ${contexts.join("; ")}\nOperator guidance: ${assistant.settings.instructions}`,
             messages: history, maxOutputTokens: 800, stopWhen: stepCountIs(2), abortSignal: AbortSignal.any([request.signal, limit.signal]), timeout: 30000, onError: () => { if (!capped && !request.signal.aborted) failed = true; },
             tools: hybrid ? { handoff_to_operator: tool({ description: "Hand the conversation to a person", inputSchema: z.object({}), execute: async () => {

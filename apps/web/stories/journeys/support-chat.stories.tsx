@@ -5,7 +5,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { Button } from "@/components/ui/button";
 import { SupportChat } from "@/client/support/support-chat";
 import { TransferExecutionError } from "@/shared/transfers/types";
-import type { CustomerSupportResponse, SupportAssistantCapability, SupportContextRef, SupportHandler, SupportMessage } from "@/shared/support/contract";
+import { parseCustomerSupportChatRequest, type CustomerSupportResponse, type SupportAssistantCapability, type SupportContextRef, type SupportHandler, type SupportMessage } from "@/shared/support/contract";
 
 const conversationId = "11111111-1111-4111-8111-111111111111";
 const operatorMessage: SupportMessage = { id: "22222222-2222-4222-8222-222222222222", authorType: "operator", status: "sent", body: "We can help with your order.", createdAt: "2026-09-27T12:00:00.000Z" };
@@ -41,7 +41,8 @@ function createSupportServer(scenario: Scenario) {
     attempts++;
     if (scenario === "rate-limit") throw Object.assign(new TransferExecutionError("unavailable"), { kind: "http", status: 429, code: "RATE_LIMITED" });
     if (scenario === "retry" && attempts === 1) throw Object.assign(new TransferExecutionError("unavailable"), { kind: "network" });
-    const request = JSON.parse(options.body) as { message: { id: string; text: string } };
+    const request = parseCustomerSupportChatRequest(JSON.parse(options.body));
+    if (!request) throw new Error("Invalid support chat request");
     const at = new Date(Date.UTC(2026, 8, 27, 12, 2, attempts)).toISOString();
     messages = [...messages, { id: crypto.randomUUID(), authorType: "customer", status: "sent", body: request.message.text, createdAt: at, clientMessageId: request.message.id }];
     const replyId = crypto.randomUUID();
