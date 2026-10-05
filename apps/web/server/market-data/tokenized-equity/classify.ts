@@ -17,7 +17,7 @@ export type TokenizedEquityReference =
   | { assetId: string; status: "open" | "closed"; price: ExactDecimal; updatedAt: string; roundId: string; multiplierWad: string; block: EquityBlock }
   | { assetId: string; status: "paused"; lastPrice: ExactDecimal | null; updatedAt: string | null; multiplierWad: string; block: EquityBlock }
   | { assetId: string; status: "stale"; lastPrice: ExactDecimal; updatedAt: string; multiplierWad: string; block: EquityBlock }
-  | { assetId: string; status: "unavailable"; reason: "read-failed" | "invalid-answer" | "decimals-mismatch" | "future-timestamp" | "registry-invalid"; block: EquityBlock | null };
+  | { assetId: string; status: "unavailable"; reason: "not-deployed" | "read-failed" | "invalid-answer" | "decimals-mismatch" | "future-timestamp" | "registry-invalid"; block: EquityBlock | null };
 
 const MAX_CLOSED_STRETCH_SECONDS = 7 * 86_400;
 

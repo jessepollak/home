@@ -4,8 +4,11 @@ import {
   createErrorMarketHistoryResponse,
   getCodexMarketHistory,
 } from "@/server/market-data/codex/history";
+import { getTokenizedEquityHistory } from "@/server/market-data/tokenized-equity/history";
 import { getInvestHistoryAdmission } from "@/server/market-data/codex/history-admission";
 import {
+  expectedMarketPriceHistorySource,
+  parseHistoryResponse,
   isDynamicMarketPriceAssetId,
   isMarketPriceRange,
   MARKET_HISTORY_PRIORITY_HEADER,
@@ -28,6 +31,7 @@ type DynamicAdmissionReader = (
 export function createMarketPriceHistoryHandler(
   readHistory: HistoryReader = getCodexMarketHistory,
   readDynamicAdmission: DynamicAdmissionReader = getInvestHistoryAdmission,
+  readStockHistory: HistoryReader = getTokenizedEquityHistory,
 ) {
   return async function GET(request: Request) {
     const url = new URL(request.url);
@@ -85,16 +89,19 @@ export function createMarketPriceHistoryHandler(
     }
 
     try {
-      const payload = await readHistory(identity.assetId, range, {
+      const reader = expectedMarketPriceHistorySource(identity.assetId)?.kind === "tokenized-equity-feed" ? readStockHistory : readHistory;
+      const payload = await reader(identity.assetId, range, {
         speculative: request.headers.get(MARKET_HISTORY_PRIORITY_HEADER) === "prefetch",
       });
       if (
+        !parseHistoryResponse(payload) ||
         payload.assetId !== identity.assetId ||
         payload.range !== range ||
         payload.currency !== "USD"
       ) {
         throw new Error("History reader returned mismatched identity");
       }
+      if (payload.status === "error") return Response.json(payload, { status: 502, headers: { "Cache-Control": "no-store" } });
       if (payload.unavailableReason === "overloaded") {
         return Response.json(payload, {
           status: 503,
@@ -123,7 +130,8 @@ function createUnavailableQueryResponse(
 ): MarketPriceHistoryResponse {
   return {
     version: MARKET_PRICE_HISTORY_VERSION,
-    provider: "codex",
+    provider: assetId && expectedMarketPriceHistorySource(assetId)?.kind === "tokenized-equity-feed" ? "chainlink" : "codex",
+    source: assetId ? expectedMarketPriceHistorySource(assetId) : null,
     assetId,
     range,
     currency: "USD",

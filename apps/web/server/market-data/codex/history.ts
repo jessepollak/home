@@ -8,6 +8,7 @@ import { CODEX_CACHE_TTL_MS, CODEX_REQUEST_TIMEOUT_MS } from "./config";
 import { CodexMarketDataError } from "./errors";
 import { executeCodexGraphql } from "./execute";
 import {
+  expectedMarketPriceHistorySource,
   isMarketPriceRange,
   MARKET_PRICE_HISTORY_VERSION,
   resolveMarketPriceAssetIdentity,
@@ -104,7 +105,7 @@ export function createCodexMarketHistoryReader({
         unavailableReason: "unknown-asset",
       });
     }
-    if (!apiKey?.trim()) {
+    if (expectedMarketPriceHistorySource(identity.assetId)?.kind === "tokenized-equity-feed" || !apiKey?.trim()) {
       return createHistoryResponse({
         assetId: identity.assetId,
         range,
@@ -264,7 +265,7 @@ function normalizeBars(data: unknown): MarketPriceHistoryPoint[] {
 
     points.push({ time: time.toISOString(), value });
   }
-  return points;
+  return [...new Map(points.map((point) => [point.time, point])).values()].sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
 }
 
 function throwMalformedBars(): never {
@@ -288,7 +289,8 @@ function createHistoryResponse({
 }): MarketPriceHistoryResponse {
   return {
     version: MARKET_PRICE_HISTORY_VERSION,
-    provider: "codex",
+    provider: assetId && expectedMarketPriceHistorySource(assetId)?.kind === "tokenized-equity-feed" ? "chainlink" : "codex",
+    source: assetId ? expectedMarketPriceHistorySource(assetId) : null,
     assetId,
     range,
     currency: "USD",

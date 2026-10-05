@@ -2,7 +2,7 @@ import { balancesSnapshot } from "../fixtures/balances";
 import { FIXED_NOW } from "../fixtures/fixed-time";
 import { cryptoAssets, memeAssets } from "../../../config/invest-assets";
 import { MARKET_PRICES_VERSION, type MarketPricesResponse } from "../../../shared/invest/contracts/market-prices";
-import { MARKET_PRICE_HISTORY_VERSION, type MarketPriceHistoryResponse } from "../../../shared/invest/contracts/market-price-history";
+import { MARKET_PRICE_HISTORY_VERSION, expectedMarketPriceHistorySource, MARKET_PRICE_RANGES, type MarketPriceRange, type MarketPriceHistoryResponse } from "../../../shared/invest/contracts/market-price-history";
 import { VERIFIED_MORPHO_MARKETS } from "../../../shared/morpho-markets/config";
 import { buyRouteForToken } from "../../../shared/trading/assets";
 import { cashConversionCurrencies } from "../../../shared/trading/cash-conversion";
@@ -171,14 +171,20 @@ export function marketPricesFixture(now = new Date(FIXED_NOW)): MarketPricesResp
   };
 }
 
-export function priceHistoryFixture(assetId: string, now = new Date(FIXED_NOW)): MarketPriceHistoryResponse {
+export function priceHistoryFixture(assetId: string, now = new Date(FIXED_NOW), range: MarketPriceRange = "1W"): MarketPriceHistoryResponse {
+  const source = expectedMarketPriceHistorySource(assetId);
+  const stock = source?.kind === "tokenized-equity-feed";
+  const spans = { "1D": 86400000, "1W": 604800000, "1M": 2592000000, "3M": 7776000000, "1Y": 31536000000 };
+  const end = now.getTime() - (stock ? 14 * 3600000 : 30000);
   const points = Array.from({ length: 24 }, (_, index) => ({
-    time: new Date(now.getTime() - (23 - index) * 7 * 3600_000).toISOString(),
-    value: (176 + Math.sin(index / 3) * 4 + index * 0.2).toFixed(2),
+    time: new Date(end - spans[range] * (23 - index) / 23).toISOString(),
+    value: (assetId === "cbbtc" ? 58_000 + 2_000 * index / 23 : 170 + 10.24 * index / 23).toFixed(2),
+    ...(stock ? { session: "closed" as const } : {}),
   }));
   return {
-    version: MARKET_PRICE_HISTORY_VERSION, provider: "codex", assetId: assetId as MarketPriceHistoryResponse["assetId"],
-    range: "1W", currency: "USD", fetchedAt: now.toISOString(), status: "ready", points,
+    version: MARKET_PRICE_HISTORY_VERSION, provider: stock ? "chainlink" : "codex", source, assetId,
+    range, currency: "USD", fetchedAt: now.toISOString(), status: "ready", points,
+    ...(stock ? { coverage: { sampled: 24, observed: 24, gaps: [] } } : {}),
   };
 }
 
@@ -211,7 +217,7 @@ export function fixtureRoutes({
       })),
     }],
     ["**/api/market-prices", marketPricesFixture()],
-    ...["nvdac", "metac"].map((assetId) => [`**/api/market-prices/history?assetId=${assetId}&range=1W`, priceHistoryFixture(assetId)] as const),
+    ...["nvdac", "metac"].flatMap((assetId) => MARKET_PRICE_RANGES.map((range) => [`**/api/market-prices/history?assetId=${assetId}&range=${range}`, priceHistoryFixture(assetId, new Date(FIXED_NOW), range)] as const)),
     ["**/api/actions", { ...actionsBody, actions: [...actionsBody.actions, {
       ...cashoutFixtureAction,
       cashout: { ...cashoutFixtureProgress, depositBlockNumber: balances.block.number },

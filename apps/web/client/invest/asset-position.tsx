@@ -9,7 +9,7 @@ import { BalanceRow } from "@/components/finance-rows";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InvestAsset } from "@/config/invest-assets";
 import { investAssets } from "@/config/invest-assets";
-import { formatExactPresentationTokenAmount, formatFiatAmount } from "@/shared/formatting";
+import { formatExactPresentationTokenAmount, formatFiatAmount, formatPresentationDate } from "@/shared/formatting";
 import type { Holding } from "@/shared/balances/types";
 import { holdingValueContext } from "@/shared/balances/value-label";
 import { AssetIcon } from "./asset-icon";
@@ -23,9 +23,17 @@ export function findAssetHolding(holdings: readonly Holding[], asset: Pick<Inves
       ? holdings.find((holding) => holding.id === asset.id) : undefined);
 }
 
-export function AssetPosition({ asset, assetMarkResolution }: {
+export function valuationTimesDiffer(holdingAsOf: string, headerAsOf: string | undefined) {
+  if (!headerAsOf) return false;
+  const holding = Date.parse(holdingAsOf);
+  const header = Date.parse(headerAsOf);
+  return Number.isFinite(holding) && Number.isFinite(header) && Math.abs(holding - header) > 300_000;
+}
+
+export function AssetPosition({ asset, assetMarkResolution, headerAsOf }: {
   asset: InvestAsset;
   assetMarkResolution: AssetMarkResolution;
+  headerAsOf?: string;
 }) {
   const account = useOptionalAccountWallet();
   const session = account && isServerVerified(account) ? account.session : null;
@@ -57,7 +65,14 @@ export function AssetPosition({ asset, assetMarkResolution }: {
   const value = holding.value.status === "priced"
     ? formatFiatAmount(BigInt(holding.value.amount.atoms), holding.value.amount.scale, holding.value.currency, { regionId })
     : "—";
-  return <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"
-    context={formatExactPresentationTokenAmount(holding.balance.baseUnits, holding.decimals, holding.symbol)}
-    value={value} valueContext={holdingValueContext(holding.value)} chevron={false} /></ul>;
+  const valuedAt = holding.value.status === "priced" && valuationTimesDiffer(holding.value.asOf, headerAsOf)
+    ? `Balance valued ${formatPresentationDate(Date.parse(holding.value.asOf), { regionId, style: "date-time-zone" })}` : null;
+  const valueContext = holding.value.status === "unpriced" && holding.value.reason === "fx-unavailable"
+    ? "Exchange rate unavailable" : holdingValueContext(holding.value);
+  return <div>
+    <ul><BalanceRow icon={mark} iconTone="mark" label="Your balance"
+      context={formatExactPresentationTokenAmount(holding.balance.baseUnits, holding.decimals, holding.symbol)}
+      value={value} valueContext={valueContext} chevron={false} /></ul>
+    {valuedAt ? <p className="text-xs text-muted-foreground">{valuedAt}</p> : null}
+  </div>;
 }

@@ -25,6 +25,8 @@ import { useChartClock, type ChartReadout } from "./asset-chart-support";
 import { ChartLoadFallback } from "./chart-load-fallback";
 import { AssetPosition } from "./asset-position";
 import { AssetStats } from "./asset-stats";
+import { AssetAbout } from "./asset-about";
+import type { AssetFact, AssetCatalyst } from "@/shared/invest/asset-context";
 import { PinnedTradeBar } from "./pinned-trade-bar";
 
 const AssetChart = deferStep(() => import("./asset-chart").then(({ AssetChart }) => AssetChart));
@@ -50,6 +52,7 @@ export function AssetDetailStatusScreen({ status, onBack }: { status: "loading" 
 }
 
 export function ExactAddressAssetScreen({ assetId, name, ownership, onBack }: { assetId: string; name?: string; ownership?: ReactNode; onBack: () => void }) {
+  const clock = useChartClock();
   const account = useAccountWallet();
   const session = isServerVerified(account) ? account.session : null;
   const availability = useTradeAvailability(session, assetId, account.fetchAccountResource);
@@ -83,18 +86,27 @@ export function ExactAddressAssetScreen({ assetId, name, ownership, onBack }: { 
       ) : <h2 className="text-lg font-semibold">{symbol}</h2>}
       <p className="text-sm text-muted-foreground">{shortAddress} · Base</p>
       {ownership}
+      <AssetAbout asset={asset} now={clock.value} />
       <TradeActions asset={asset} layout="sticky" />
     </section>
   );
 }
 
-export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onBack, ownership }: {
+type AssetDetailProps = {
   asset: InvestAsset;
   market: MarketDataState;
   assetMarkResolution?: AssetMarkResolution;
   onBack: () => void;
   ownership?: ReactNode;
-}) {
+  facts?: readonly AssetFact[];
+  catalysts?: readonly AssetCatalyst[];
+};
+
+export function AssetDetailScreen(props: AssetDetailProps) {
+  return <AssetDetailContent key={props.asset.id} {...props} />;
+}
+
+function AssetDetailContent({ asset, market, assetMarkResolution = {}, onBack, ownership, facts, catalysts }: AssetDetailProps) {
   const [range, setRange] = useState<MarketPriceRange>("1W");
   const [scrub, setScrub] = useState<ChartReadout | null>(null);
   const [resting, setResting] = useState<{ change: string | null; pending: boolean }>({ change: null, pending: true });
@@ -113,39 +125,31 @@ export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onB
   }, []);
   const change = resting.pending ? null : resting.change
     ? quote.valueCurrency === "USD" ? resting.change : resting.change.replace(" · ", " in USD · ") : null;
-  const referenceHeader = asset.category === "stock";
-  const headerScrub = referenceHeader ? null : scrub;
-  const headerChange = referenceHeader ? null : change;
-  const marketReadout = scrub && !resting.pending ? `${scrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""} · ${scrub.time}` : change;
+  const snapshot = market.status === "ready" ? market.snapshots.find((entry) => entry.assetId === asset.id) : undefined;
   const body = <>
     <div className="min-w-0 space-y-1">
       <strong className={`block min-h-12 truncate text-3xl font-semibold tabular-nums sm:min-h-14 sm:text-4xl ${price.tone === "ready" ? "" : "text-muted-foreground"}`}
         data-tone={price.tone}>
-        {headerScrub && !resting.pending ? `${headerScrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""}`
+        {scrub && !resting.pending ? `${scrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""}`
           : price.tone === "ready" ? <MoneyTicker value={price.value} align="start" />
             : market.status === "loading" ? <Skeleton className="h-9 w-36" /> : "—"}
       </strong>
       {asset.listing === "removed" ? <p className="text-sm text-muted-foreground">No longer listed</p>
         : market.status !== "loading" && (price.tone !== "ready" || price.context) ? <p className="text-sm text-muted-foreground">{price.context ?? price.detail}</p> : null}
-      {referenceHeader ? null : headerScrub && !resting.pending ? <p className="min-h-5 text-sm" data-scrub-readout>{headerScrub.time}</p>
-        : <p aria-busy={resting.pending || undefined} data-money-change={headerChange ? moneyChangeTone(headerChange) : undefined}
-          className={`min-h-5 text-sm ${resting.pending || !headerChange ? "text-muted-foreground"
-            : moneyChangeTone(headerChange) === "positive" ? "text-market-gain"
-              : moneyChangeTone(headerChange) === "negative" ? "text-market-loss" : "text-muted-foreground"}`}>
-          {headerChange}
+      {scrub && !resting.pending ? <p className="min-h-5 text-sm" data-scrub-readout>{scrub.time}</p>
+        : <p aria-busy={resting.pending || undefined} data-money-change={change ? moneyChangeTone(change) : undefined}
+          className={`min-h-5 text-sm ${resting.pending || !change ? "text-muted-foreground"
+            : moneyChangeTone(change) === "positive" ? "text-market-gain"
+              : moneyChangeTone(change) === "negative" ? "text-market-loss" : "text-muted-foreground"}`}>
+          {change}
         </p>}
     </div>
-    {referenceHeader ? <p className="-mb-2 text-xs text-muted-foreground">
-      DEX market price{marketReadout ? ` · ${marketReadout}` : ""}
-    </p> : null}
-    <AssetChart key={asset.id} assetId={asset.id} range={range} onRangeChange={onRangeChange}
+    <AssetChart key={asset.id} assetId={asset.id} range={range} stock={asset.category === "stock"} onRangeChange={onRangeChange}
       clock={clock} onReadout={setScrub} onResting={onResting} fallback={ChartLoadFallback} />
-    {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} />}
-    <AssetStats asset={asset} market={market} clock={clock} headingLevel={hosted ? 2 : 3} />
+    {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} headerAsOf={snapshot?.asOf} />}
+    <AssetStats asset={asset} market={market} clock={clock} range={range} headingLevel={hosted ? 2 : 3} />
+    <AssetAbout asset={asset} facts={facts} catalysts={catalysts} now={clock.value} />
     {asset.category === "stock" ? <TradeActions asset={asset} layout="sticky" /> : null}
-    <p className="text-xs text-muted-foreground">{asset.category === "stock"
-      ? "Reference price in USD from Chainlink. DEX market price from Codex."
-      : "Market prices in USD from Codex."}</p>
     {asset.category !== "stock" ? <PinnedTradeBar asset={asset} /> : null}
   </>;
   if (hosted) return <Card variant="page" className="-mx-4 -mt-4 min-w-0 sm:mx-0 sm:mt-0">

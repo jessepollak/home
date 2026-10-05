@@ -15,6 +15,7 @@ import { addFractions, exactDecimalToFraction } from "@/shared/balances/math";
 import { presentBalances } from "@/shared/balances/present";
 import type { BalancesSnapshot } from "@/shared/balances/types";
 import type { InvestAsset } from "@/config/invest-assets";
+import { expectedMarketPriceHistorySource } from "@/shared/invest/contracts/market-price-history";
 import type { MarketDataState } from "@/shared/invest/invest-market";
 import { OwnedAssetDetailExploration, InvestmentsOverviewExploration, ownedInvestmentRows } from "./investments-overview";
 import * as investmentFixtures from "./investments-fixtures.stories.fixture";
@@ -50,7 +51,18 @@ export function InvestmentStorySurface({ snapshot, balanceStatus = "ready", refr
 const handlers = [
   http.get("https://assets.example.invalid/aero.svg", () => HttpResponse.text(investmentMarkSvg, { headers: { "content-type": "image/svg+xml" } })),
   http.get("/api/market-prices", () => HttpResponse.json({ version: 1, provider: "codex", fetchedAt: "2026-09-13T12:00:00.000Z", markets: { stock: { status: "ready", snapshots: [{ assetId: stockAsset.id, displayPrice: "$225.00", asOf: "2026-09-13T12:00:00.000Z", sourceLabel: "Market", changeLabel: "+1.2%" }] }, crypto: { status: "ready", snapshots: [{ assetId: bitcoinAsset.id, displayPrice: "$70,000.00", asOf: "2026-09-13T12:00:00.000Z", sourceLabel: "Market", changeLabel: "+2.5%" }, { assetId: xrpAsset.id, displayPrice: "$5.00", asOf: "2026-09-13T12:00:00.000Z", sourceLabel: "Market", changeLabel: "+0.8%" }] } } })),
-  http.get("/api/market-prices/history", ({ request }) => { const url = new URL(request.url); const assetId = url.searchParams.get("assetId"); const values = assetId === discoveredMemeAsset.id ? ["0.40", "0.42"] : assetId === xrpAsset.id ? ["4.96", "5.00"] : ["69000", "70000"]; return HttpResponse.json({ version: 1, provider: "codex", assetId, range: url.searchParams.get("range"), currency: "USD", fetchedAt: "2026-09-13T12:00:00.000Z", status: "ready", points: [{ time: "2026-09-11T12:00:00.000Z", value: values[0] }, { time: "2026-09-12T12:00:00.000Z", value: values[1] }] }); }),
+  http.get("/api/market-prices/history", ({ request }) => {
+    const url = new URL(request.url);
+    const assetId = url.searchParams.get("assetId") ?? "";
+    const source = expectedMarketPriceHistorySource(assetId);
+    const stock = source?.kind === "tokenized-equity-feed";
+    const values = stock ? ["222", "225"] : assetId === discoveredMemeAsset.id ? ["0.40", "0.42"] : assetId === xrpAsset.id ? ["4.96", "5.00"] : ["69000", "70000"];
+    return HttpResponse.json({ version: 2, provider: stock ? "chainlink" : "codex", source, assetId, range: url.searchParams.get("range"),
+      currency: "USD", fetchedAt: "2026-09-13T12:00:00.000Z", status: "ready",
+      points: [{ time: "2026-09-11T12:00:00.000Z", value: values[0] }, { time: "2026-09-12T12:00:00.000Z", value: values[1] }],
+      ...(stock ? { coverage: { sampled: 2, observed: 2, gaps: [] } } : {}),
+    });
+  }),
 ];
 const meta = {
   id: "explorations-investments-l2", title: "Explorations/Investments L2", component: InvestmentStorySurface,

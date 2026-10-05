@@ -4,8 +4,9 @@ import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/i
 import type { InvestAsset } from "@/config/invest-assets";
 import type { ExactDecimal } from "@/shared/balances/types";
 import { formatChartPrice, formatPresentationDate, formatPresentationPrice, formatTrimmedChartPrice } from "@/shared/formatting";
+import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { MarketDataState } from "@/shared/invest/invest-market";
-import { endsEarly, scrubTime, type ChartClock } from "./asset-chart-support";
+import { endsEarly, rangeLabels, rangeSeconds, scrubTime, type ChartClock } from "./asset-chart-support";
 import { usePresentationQuote, usePresentationRegionId } from "./presentation-quote";
 import { usePriceHistory, type PriceHistoryState } from "./use-price-history";
 import { useMarketStats } from "./use-market-stats";
@@ -46,14 +47,19 @@ function RangeStat({ history, day, range, now, snapshotPrice }: {
     {staleAsOf !== null ? <p role="status" className="text-xs text-muted-foreground">
       Couldn&apos;t refresh history · last updated {formatPresentationDate(staleAsOf, { regionId, style: "date-time-zone" })}
     </p> : null}
-    <div className="flex items-center gap-3 text-xs tabular-nums">
-      <span className="shrink-0">{formattedLow}</span>
-      <div aria-hidden="true" className="relative h-1 min-w-0 flex-1 rounded-full bg-border">
-        <span className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 bg-foreground"
-          style={{ insetInlineStart: `${high === low ? 50 : Math.max(0, Math.min(100, (current - low) / (high - low) * 100))}%` }} />
-      </div>
-      <span className="shrink-0">{formattedHigh}</span>
+    <RangeBar low={low} high={high} current={current} />
+  </div>;
+}
+
+function RangeBar({ low, high, current }: { low: number; high: number; current: number }) {
+  const regionId = usePresentationRegionId();
+  return <div className="flex items-center gap-3 text-xs tabular-nums">
+    <span className="shrink-0">{formatPresentationPrice(low.toString(), "USD", regionId)}</span>
+    <div aria-hidden="true" className="relative h-1 min-w-0 flex-1 rounded-full bg-border">
+      <span className="absolute top-1/2 h-3 w-0.5 -translate-y-1/2 bg-foreground"
+        style={{ insetInlineStart: `${high === low ? 50 : Math.max(0, Math.min(100, (current - low) / (high - low) * 100))}%` }} />
     </div>
+    <span className="shrink-0">{formatPresentationPrice(high.toString(), "USD", regionId)}</span>
   </div>;
 }
 
@@ -67,7 +73,11 @@ export function formatStatUsd(value: ExactDecimal, regionId: ReturnType<typeof u
   return formatTrimmedChartPrice(`${significant}e${exponent}`, { regionId });
 }
 
-export function AssetStats({ asset, market, clock, headingLevel = 3 }: { asset: InvestAsset; market: MarketDataState; clock: ChartClock; headingLevel?: 2 | 3 }) {
+export function AssetStats({ asset, market, clock, range = "1W", headingLevel = 3 }: { asset: InvestAsset; market: MarketDataState; clock: ChartClock; range?: MarketPriceRange; headingLevel?: 2 | 3 }) {
+  return asset.category === "stock" ? <StockStats assetId={asset.id} range={range} now={clock.value} headingLevel={headingLevel} /> : <TokenStats asset={asset} market={market} clock={clock} headingLevel={headingLevel} />;
+}
+
+function TokenStats({ asset, market, clock, headingLevel }: { asset: InvestAsset; market: MarketDataState; clock: ChartClock; headingLevel: 2 | 3 }) {
   const day = usePriceHistory(asset.id, "1D", { speculative: true });
   const year = usePriceHistory(asset.id, "1Y", { speculative: true });
   const stats = useMarketStats(asset.id, asset.category !== "stock");
@@ -81,7 +91,7 @@ export function AssetStats({ asset, market, clock, headingLevel = 3 }: { asset: 
   const tiles: Array<[string, ExactDecimal]> = asset.category === "stock" || !stats ? [] : [
     ...(stats.marketCapUsd ? [["Market cap", stats.marketCapUsd] as [string, ExactDecimal]] : []),
     ...(stats.volume24hUsd ? [["24h volume", stats.volume24hUsd] as [string, ExactDecimal]] : []),
-    ...(asset.category === "meme" && stats.liquidityUsd ? [["Liquidity", stats.liquidityUsd] as [string, ExactDecimal]] : []),
+    ...(stats.liquidityUsd ? [["Liquidity", stats.liquidityUsd] as [string, ExactDecimal]] : []),
   ];
   if (!tiles.length && !hasRow(day, 86400000) && !hasRow(year, 7 * 86400000)) return null;
   const heading = quote.valueCurrency && quote.valueCurrency !== "USD" ? "Stats · USD" : "Stats";
@@ -95,5 +105,29 @@ export function AssetStats({ asset, market, clock, headingLevel = 3 }: { asset: 
         <ItemContent><ItemDescription>{label}</ItemDescription><ItemTitle numeric>{formatStatUsd(value, regionId)}</ItemTitle></ItemContent>
       </Item>)}
     </div> : null}
+  </section>;
+}
+
+function StockStats({ assetId, range, now, headingLevel }: { assetId: string; range: MarketPriceRange; now: number; headingLevel: 2 | 3 }) {
+  const history = usePriceHistory(assetId, range, { observeOnly: true });
+  const regionId = usePresentationRegionId();
+  const first = history.points[0];
+  const last = history.points.at(-1);
+  if ((history.status !== "ready" && history.status !== "stale") || history.points.length < 2 || !first || !last) return null;
+  const values = history.points.map((point) => Number(point.value));
+  const coverage = history.coverage;
+  const partial = coverage !== undefined && (coverage.gaps.length > 0 || coverage.observed < coverage.sampled);
+  const label = coverage?.gaps.some((gap) => gap.reason === "not-deployed") || Date.parse(first.time) > now - rangeSeconds[range] * 1000 * 0.9
+    ? `Since ${formatPresentationDate(Date.parse(first.time), { regionId, style: "chart-date" })}` : rangeLabels[range];
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const Heading = headingLevel === 2 ? "h2" : "h3";
+  return <section aria-label="Stats" className="space-y-2">
+    <Heading className="text-sm font-semibold">Stats</Heading>
+    <div role="group" aria-label={`${label} sampled reference-price low ${formatPresentationPrice(low.toString(), "USD", regionId)}, high ${formatPresentationPrice(high.toString(), "USD", regionId)}${partial ? `, partial coverage ${coverage.observed} of ${coverage.sampled} samples` : ""}`} className="space-y-2 py-2">
+      <p className="text-sm font-medium">{label} <span className="font-normal text-muted-foreground">· Sampled reference prices</span></p>
+      {partial ? <p className="text-xs text-muted-foreground">Partial coverage · {coverage.observed} of {coverage.sampled} samples</p> : null}
+      <RangeBar low={low} high={high} current={Number(last.value)} />
+    </div>
   </section>;
 }

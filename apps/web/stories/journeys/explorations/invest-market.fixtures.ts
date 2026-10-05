@@ -1,4 +1,5 @@
 import { http, HttpResponse } from "msw";
+import { expectedMarketPriceHistorySource } from "@/shared/invest/contracts/market-price-history";
 import { assetResolutionFixture } from "@/tests/browser/feature-map/search-fixtures";
 import { assetDetailAsset, assetDetailTime } from "./invest-asset-detail-fixture";
 
@@ -9,12 +10,12 @@ export const investMarketHandlers = [
     const range = url.searchParams.get("range") ?? "1W";
     if (assetId !== assetDetailAsset.id) {
       if (!assetId || !assetResolutionFixture(assetId).asset) return new HttpResponse(null, { status: 404 });
-      return HttpResponse.json({ version: 1, provider: "codex", assetId, range, currency: "USD", fetchedAt: null, status: "empty", points: [] });
+      return HttpResponse.json({ version: 2, source: expectedMarketPriceHistorySource(assetId), provider: "codex", assetId, range, currency: "USD", fetchedAt: null, status: "empty", points: [] });
     }
     const durations: Record<string, number> = { "1D": 86400000, "1W": 604800000, "1M": 2592000000, "3M": 7776000000, "1Y": 31536000000 };
     const duration = durations[range] ?? 604800000;
     const end = Date.parse(assetDetailTime) - 60000;
-    return HttpResponse.json({ version: 1, provider: "codex", assetId, range,
+    return HttpResponse.json({ version: 2, source: expectedMarketPriceHistorySource(assetId), provider: "codex", assetId, range,
       currency: "USD", fetchedAt: new Date(end).toISOString(), status: "ready",
       points: Array.from({ length: 32 }, (_, index) => ({
         time: new Date(end - duration * (1 - index / 31)).toISOString(),

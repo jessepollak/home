@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useOptionalAppChrome } from "@/components/app-chrome";
 import { TradeActions } from "@/client/trading/trade-actions";
 import type { InvestAsset } from "@/config/invest-assets";
 import { resolveTradeAsset } from "@/shared/trading/assets";
@@ -8,6 +9,7 @@ import { useReducedMotion } from "./asset-chart-support";
 
 export function PinnedTradeBar({ asset }: { asset: InvestAsset }) {
   const reduced = useReducedMotion();
+  const hosted = Boolean(useOptionalAppChrome());
   const [desktop, setDesktop] = useState(false);
   const [shown, setShown] = useState(true);
   const bar = useRef<HTMLDivElement>(null);
@@ -69,7 +71,7 @@ export function PinnedTradeBar({ asset }: { asset: InvestAsset }) {
   if (!status) return null;
   if (status.status === "eligibility-required") return <TradeActions asset={asset} layout="sticky" />;
   return <div ref={bar} data-state={shown || reduced || desktop ? "shown" : "hidden"}
-    className="sticky -bottom-4 z-2 -mx-4 border-t border-border bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:mx-0 sm:px-0"
+    className={`sticky z-2 -mx-4 border-t border-border bg-background px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:mx-0 sm:px-0 ${hosted ? "bottom-[calc(var(--shell-navigation-clearance)+var(--shell-viewport-inset-bottom))] lg:-bottom-4" : "-bottom-4"}`}
     style={{ transform: reduced ? undefined : shown || desktop ? "translateY(0)" : "translateY(100%)",
       pointerEvents: shown || reduced || desktop ? undefined : "none",
       transition: reduced ? "none" : `transform ${shown ? 180 : 160}ms cubic-bezier(${shown ? "0.2,0,0,1" : "0.4,0,0.2,1"})` }}>

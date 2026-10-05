@@ -5,6 +5,7 @@ import { chromium, type BrowserContext, type Page, type Route } from "@playwrigh
 import { mkdir, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { expectedMarketPriceHistorySource } from "../../apps/web/shared/invest/contracts/market-price-history";
 import { stockAssets } from "../../apps/web/config/invest-assets";
 import { portfolioVaults } from "../../apps/web/config/portfolio-assets";
 import { isRegionId, presentationRegions, type FiatCurrencyCode } from "../../apps/web/config/regions";
@@ -177,7 +178,9 @@ function priceHistory(assetId: string, range: string) {
   const end = Date.parse(fetchedAt);
   const span = HISTORY_SPANS_MS[range] ?? HISTORY_SPANS_MS["1W"]!;
   const last = HISTORY_PRICES[assetId] ?? 100;
-  const count = 60;
+  const source = expectedMarketPriceHistorySource(assetId);
+  const stock = source?.kind === "tokenized-equity-feed";
+  const count = stock ? 32 : 60;
   let seed = Array.from(`${assetId}:${range}`).reduce((value, character) => (value * 31 + character.charCodeAt(0)) >>> 0, 7);
   const random = () => {
     seed = (seed * 1_664_525 + 1_013_904_223) >>> 0;
@@ -190,7 +193,8 @@ function priceHistory(assetId: string, range: string) {
   });
   const finalOffset = offsets.at(-1)!;
   return {
-    version: 1, provider: "codex", assetId, range, currency: "USD", fetchedAt, status: "ready",
+    version: 2, provider: stock ? "chainlink" : "codex", source, assetId, range, currency: "USD", fetchedAt, status: "ready",
+    ...(stock ? { coverage: { sampled: count, observed: count, gaps: [] } } : {}),
     points: offsets.map((offset, index) => ({
       time: new Date(end - span * (1 - index / (count - 1))).toISOString(),
       value: (last * (1 + offset - finalOffset)).toPrecision(8),

@@ -17,6 +17,7 @@ import { presentBalances } from "@/shared/balances/present";
 import type { AssetKey, BalancesSnapshot } from "@/shared/balances/types";
 import type { InvestAsset } from "@/config/invest-assets";
 import type { MarketDataState } from "@/shared/invest/invest-market";
+import { expectedMarketPriceHistorySource } from "@/shared/invest/contracts/market-price-history";
 import { InvestmentsExperience } from "./investments-experience";
 import { pinClock } from "@/tests/helpers/pin-clock";
 import { bitcoinAsset, collateral, collateralKnownZeroSnapshot, collateralPartialInventorySnapshot, collateralSnapshot, collateralUnavailableSnapshot, createInvestmentsStoryWalletClient, discoveredMemeAsset, discoveredMemeSnapshot, duplicateNamesSnapshot, emptySnapshot, fundedSnapshot, investmentMarkSvg, largeValueSnapshot, manyHoldingsSnapshot, metadataFallbackSnapshot, narrowSnapshot, notListedSnapshot, partialSnapshot, reversedTiedTokensSnapshot, sharedPortfolioSnapshot, singleSnapshot, stockAsset, tiedTokensSnapshot, unpricedSnapshot, unpricedToken, unreadSnapshot } from "./investments-fixtures.stories.fixture";
@@ -49,7 +50,18 @@ export function InvestmentStorySurface({ snapshot, balanceStatus = "ready", refr
 export const investmentStoryHandlers = [
   http.get("https://assets.example.invalid/aero.svg", () => HttpResponse.text(investmentMarkSvg, { headers: { "content-type": "image/svg+xml" } })),
   http.get("/api/market-prices", () => HttpResponse.json({ version: 1, provider: "codex", fetchedAt: TIME, markets: { stock: { status: "ready", snapshots: [{ assetId: stockAsset.id, displayPrice: "$225.00", asOf: TIME, sourceLabel: "Market", changeLabel: "+1.2%" }] }, crypto: { status: "ready", snapshots: [{ assetId: bitcoinAsset.id, displayPrice: "$70,000.00", asOf: TIME, sourceLabel: "Market", changeLabel: "+2.5%" }] } } })),
-  http.get("/api/market-prices/history", ({ request }) => { const url = new URL(request.url); const meme = url.searchParams.get("assetId") === discoveredMemeAsset.id; return HttpResponse.json({ version: 1, provider: "codex", assetId: url.searchParams.get("assetId"), range: url.searchParams.get("range"), currency: "USD", fetchedAt: "2026-09-13T12:00:00.000Z", status: "ready", points: [{ time: "2026-09-11T12:00:00.000Z", value: meme ? "0.40" : "69000" }, { time: "2026-09-12T12:00:00.000Z", value: meme ? "0.42" : "70000" }] }); }),
+  http.get("/api/market-prices/history", ({ request }) => {
+    const url = new URL(request.url);
+    const assetId = url.searchParams.get("assetId") ?? "";
+    const source = expectedMarketPriceHistorySource(assetId);
+    const stock = source?.kind === "tokenized-equity-feed";
+    const values = stock ? ["222", "225"] : assetId === discoveredMemeAsset.id ? ["0.40", "0.42"] : ["69000", "70000"];
+    return HttpResponse.json({ version: 2, provider: stock ? "chainlink" : "codex", source, assetId, range: url.searchParams.get("range"),
+      currency: "USD", fetchedAt: "2026-09-13T12:00:00.000Z", status: "ready",
+      points: [{ time: "2026-09-11T12:00:00.000Z", value: values[0] }, { time: "2026-09-12T12:00:00.000Z", value: values[1] }],
+      ...(stock ? { coverage: { sampled: 2, observed: 2, gaps: [] } } : {}),
+    });
+  }),
 ];
 const meta = { id: "investments-holdings", title: "Investments/Holdings", component: InvestmentStorySurface, args: { snapshot: fundedSnapshot }, parameters: { layout: "fullscreen", viewport: { defaultViewport: "mobile" }, a11y: { test: "error" }, msw: { handlers: investmentStoryHandlers } }, beforeEach() { getHomeQueryClient().clear(); retry.mockClear(); return pinClock(TIME); } } satisfies Meta<typeof InvestmentStorySurface>;
 export default meta;
