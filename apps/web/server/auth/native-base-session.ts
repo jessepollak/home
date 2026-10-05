@@ -1,6 +1,9 @@
 import "server-only";
 
+import { readHomeSessionSecret } from "@/server/config/env";
+
 import { createHash, randomBytes } from "node:crypto";
+import { readBoundedRequestText } from "@/server/http/request";
 import { createPublicClient, http } from "viem";
 import { base } from "viem/chains";
 import { createSiweMessage, parseSiweMessage } from "viem/siwe";
@@ -79,7 +82,9 @@ async function readBody(request: Request): Promise<Record<string, unknown> | nul
   if (Number.isFinite(length) && length > MAX_BODY_BYTES) return null;
   let text: string;
   try {
-    text = await request.text();
+    const body = await readBoundedRequestText(request, { maxBytes: MAX_BODY_BYTES, fatal: false, ignoreContentLength: true });
+    if (body.kind !== "ok") return null;
+    text = body.text;
   } catch {
     return null;
   }
@@ -132,7 +137,7 @@ export type NativeBaseSessionRead =
 
 export function readNativeBaseSessionToken(
   token: string,
-  secretValue: string | undefined = process.env.HOME_SESSION_SECRET,
+  secretValue: string | undefined = readHomeSessionSecret(),
   now: Date = new Date(),
 ): Exclude<NativeBaseSessionRead, { kind: "absent" }> {
   const secret = normalizeSecret(secretValue);
@@ -160,7 +165,7 @@ export function readNativeBaseSessionToken(
 
 export function readNativeBaseSession(
   request: Request,
-  secretValue: string | undefined = process.env.HOME_SESSION_SECRET,
+  secretValue: string | undefined = readHomeSessionSecret(),
   now: Date = new Date(),
 ): NativeBaseSessionRead {
   const found = readCookie(request, HOME_SESSION_COOKIE);
@@ -187,7 +192,7 @@ export type NativeBaseAuthDependencies = {
 function dependencies(input: NativeBaseAuthDependencies) {
   const now = input.now ?? (() => new Date());
   return {
-    secret: normalizeSecret(input.sessionSecret ?? process.env.HOME_SESSION_SECRET),
+    secret: normalizeSecret(input.sessionSecret ?? readHomeSessionSecret()),
     now,
     randomId: input.randomId ?? (() => randomBytes(24).toString("hex")),
     verify: input.verify ?? (async (value) => {

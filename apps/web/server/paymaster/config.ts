@@ -1,6 +1,8 @@
 import "server-only";
 
-export function getPaymasterUrl(configured: string | undefined = process.env.CDP_PAYMASTER_URL): string | null {
+import { readCdpPaymasterUrl } from "@/server/config/env";
+
+export function getPaymasterUrl(configured: string | undefined = readCdpPaymasterUrl()): string | null {
   try {
     const url = new URL(configured?.trim() ?? "");
     return url.protocol === "https:" && !url.username && !url.password && !url.hash ? url.toString() : null;

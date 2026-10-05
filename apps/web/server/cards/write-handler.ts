@@ -6,6 +6,7 @@ import { resolveCustomer } from "@/server/customers/resolve";
 import { getSqlExecutor } from "@/server/db/sql";
 import { CARDS_CONTRACT_VERSION, parseCardEnrollmentResponse, parseCardWriteResponse, parseCardWriteError, type CardWriteErrorCode } from "@/shared/cards/contract";
 import { privateJson, withPrivateHeaders } from "@/server/http/private-response";
+import { readBoundedRequestText } from "@/server/http/request";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { createBridgeClient } from "./bridge/client";
 import { readCardJourneyConfig } from "./bridge/journey-config";
@@ -32,8 +33,8 @@ export function createCardWriteHandlers(deps: {
     if (!expected || !origin || origin !== expected.origin || site !== null && site !== "same-origin") return failure("CROSS_ORIGIN", 403);
     if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") return failure("INVALID_CARD_REQUEST", 400);
     try {
-      const text = await request.text();
-      if (text.length > 1024 || JSON.stringify(JSON.parse(text)) !== "{}") return failure("INVALID_CARD_REQUEST", 400);
+      const body = await readBoundedRequestText(request, { maxBytes: 3072, fatal: false, ignoreContentLength: true });
+      if (body.kind !== "ok" || body.text.length > 1024 || JSON.stringify(JSON.parse(body.text)) !== "{}") return failure("INVALID_CARD_REQUEST", 400);
     } catch { return failure("INVALID_CARD_REQUEST", 400); }
     const customer = await deps.customer(session);
     if (!customer) return failure("CARDS_UNAVAILABLE", 503);

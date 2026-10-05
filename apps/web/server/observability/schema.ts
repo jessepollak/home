@@ -75,6 +75,7 @@ export type PortfolioBalanceSourceReason =
 
 const PORTFOLIO_BALANCE_SOURCE_DETAILS = [
   "malformed-json",
+  "oversized-body",
   "invalid-envelope",
   "malformed-amount",
   "amount-out-of-range",

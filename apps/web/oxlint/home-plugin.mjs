@@ -47,14 +47,17 @@ import { noDeferredEffectSetstate } from "./rules/react-effects.mjs";
 import { noInlineRequestJson, noManualAbortTimeout } from "./rules/http-primitives.mjs";
 import { noFetchInClientComponents, queryKeyFactory } from "./rules/client-data.mjs";
 import { noAddressLiteralRegex } from "./rules/address-literals.mjs";
+import { noRawProcessEnv } from "./rules/raw-env.mjs";
 import { noFullPortfolioPresentation } from "./rules/portfolio-presentation.mjs";
 
 import { boundedCdpEventQuery } from "./rules/cdp-event-query.mjs";
+import { noLocalCdpJwt } from "./rules/no-local-cdp-jwt.mjs";
 
 const homePlugin = {
   meta: { name: "home" },
   rules: {
     "bounded-cdp-event-query": boundedCdpEventQuery,
+    "no-local-cdp-jwt": noLocalCdpJwt,
     "no-storybook-imports": noStorybookImports,
     "no-exploration-imports": noExplorationImports,
     "no-test-support-imports": noTestSupportImports,
@@ -99,6 +102,7 @@ const homePlugin = {
     "no-fetch-in-client-components": noFetchInClientComponents,
     "query-key-factory": queryKeyFactory,
     "no-address-literal-regex": noAddressLiteralRegex,
+    "no-raw-process-env": noRawProcessEnv,
     "no-comments": noComments,
     "no-sheet-primitives": noSheetPrimitives,
     "no-sheet-primitive-reexports": noSheetPrimitiveReexports,

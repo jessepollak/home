@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import { createBoundedCache } from "@/server/cache/bounded";
 
 import { investAssets } from "@/config/invest-assets";
@@ -101,7 +103,7 @@ let sharedReader: ReturnType<typeof createCodexMarketStatsReader> | null = null;
 let sharedKey: string | undefined;
 
 export function getCodexMarketStats(assetId: string): Promise<MarketStatsResponse> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedReader || sharedKey !== apiKey) {
     sharedKey = apiKey;
     sharedReader = createCodexMarketStatsReader({ apiKey });

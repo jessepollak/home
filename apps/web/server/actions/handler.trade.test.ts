@@ -14,7 +14,7 @@ import { resolveConvertPair } from "@/shared/currencies/convert";
 import { CONVERT_PROVIDER, type ConvertPairRecord } from "@/shared/currencies/types";
 import type { ActionRow } from "./store";
 import type { TradeMoneyActionMetadata } from "@/shared/trading/contract";
-import { createConfirmActionHandler, createGetActionHandler, createGetPendingTradeHandler, createRetryActionHandler } from "./handler";
+import { createConfirmActionHandler, createDeclineActionHandler, createGetActionHandler, createGetPendingTradeHandler, createHandleActionHandler, createRetryActionHandler } from "./handler";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const OWNER = "0x1111111111111111111111111111111111111111" as const;
@@ -88,6 +88,32 @@ const request = (signature: string, provider: "base-account" | "cdp-embedded") =
 });
 
 describe("trade confirmation", () => {
+  test.each(["oversized", "content-length", "malformed", "empty", "aborted"])("action mutations reject %s bodies without recording or verifying", async (failure) => {
+    const authorize = async () => ({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 as const }, accountProvider: "cdp-embedded" as const });
+    let writes = 0;
+    const denyWrite = async (): Promise<never> => { writes++; throw new Error("invalid request reached mutation"); };
+    const row = tradeRow("cdp-embedded", "2026-09-25T12:03:00.000Z");
+    const mutations = [
+      { path: "confirm", code: "INVALID_TRADE_SIGNATURE", message: "A valid reviewed Permit2 signature is required.", body: { signature: "0x1234" }, handler: createConfirmActionHandler({ authorize, now: () => new Date("2026-09-25T12:01:00.000Z"), readOffering: async () => resolveProductOffering({ kind: "deployment" }), verifySmartAccountSignature: denyWrite, store: { get: async () => row, confirm: denyWrite } }) },
+      { path: "handle", code: "INVALID_ACTION_HANDLE", message: "A valid action handle is required.", body: { providerHandle: "handle" }, handler: createHandleActionHandler({ authorize, store: { recordHandle: denyWrite } }) },
+      { path: "decline", code: "INVALID_ACTION_DECLINE", message: "A valid versioned decline request is required.", body: { version: 1, attempt: 0 }, handler: createDeclineActionHandler({ authorize, store: { recordDecline: denyWrite } }) },
+      { path: "retry", code: "INVALID_ACTION_RETRY", message: "A valid versioned retry request is required.", body: { version: 1, attempt: 1 }, handler: createRetryActionHandler({ authorize, store: { get: denyWrite, beginRetry: denyWrite } }) },
+    ];
+    for (const mutation of mutations) {
+      const body = JSON.stringify(mutation.body);
+      const input = new Request(`https://home.test/api/actions/${ID}/${mutation.path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(failure === "content-length" ? { "content-length": String(64 * 1024 + 1) } : {}) },
+        signal: failure === "aborted" ? AbortSignal.abort() : undefined,
+        body: failure === "oversized" ? " ".repeat(64 * 1024) + body : failure === "malformed" ? "{" : failure === "empty" ? undefined : body,
+      });
+      const response = await mutation.handler(input, context);
+      expect(response.status).toBe(400);
+      expect(await readJson(response)).toEqual({ error: { code: mutation.code, message: mutation.message } });
+      expect(input.body?.locked ?? false).toBe(false);
+    }
+    expect(writes).toBe(0);
+  });
   test("answers an earlier client's pending-trade check with no blocking trade", async () => {
     const handler = createGetPendingTradeHandler({
       authorize: async () => Response.json({ user: { subject: "owner" }, smartAccount: { address: OWNER, chainId: 8453 }, accountProvider: "cdp-embedded" }),

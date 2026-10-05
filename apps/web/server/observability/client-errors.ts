@@ -1,6 +1,7 @@
 import "server-only";
 
 import { URL } from "node:url";
+import { readBoundedRequestText } from "@/server/http/request";
 import { parseClientErrorReport } from "@/shared/observability/client-error.contract";
 import { writeObservabilityEvent } from "@/server/observability/log";
 import type { ObservabilityEvent } from "@/server/observability/schema";
@@ -85,40 +86,10 @@ async function readBoundedBody(
   request: Request,
 ): Promise<{ kind: "ok"; text: string } | { kind: "too-large" } | { kind: "invalid" }> {
   if (!request.body) return { kind: "ok", text: "" };
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-
-  try {
-    while (true) {
-      const result = await reader.read();
-      if (result.done) break;
-      total += result.value.byteLength;
-      if (total > CLIENT_ERROR_MAX_BODY_BYTES) {
-        await reader.cancel().catch(() => undefined);
-        return { kind: "too-large" };
-      }
-      chunks.push(result.value);
-    }
-  } catch {
-    return { kind: "invalid" };
-  } finally {
-    reader.releaseLock();
-  }
-
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  try {
-    return { kind: "ok", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
-  } catch {
-    return { kind: "invalid" };
-  }
+  const result = await readBoundedRequestText(request, { maxBytes: CLIENT_ERROR_MAX_BODY_BYTES, ignoreContentLength: true });
+  if (result.kind === "ok") return result;
+  if (result.kind === "empty") return { kind: "ok", text: "" };
+  return { kind: result.kind === "oversized" ? "too-large" : "invalid" };
 }
 
 export function createClientErrorHandler(dependencies?: {

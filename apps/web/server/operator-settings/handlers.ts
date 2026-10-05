@@ -4,6 +4,7 @@ import { authorizeSession } from "@/server/auth/authorize";
 import { requestOrigin } from "@/server/auth/signed-cookie";
 import { getSqlExecutor } from "@/server/db/sql";
 import { privateJson } from "@/server/http/private-response";
+import { readJsonBody } from "@/server/http/request";
 import { authorizeOperatorRequest } from "@/server/operator/api";
 import { readOperatorConfig, type OperatorConfig } from "@/server/operator/config";
 import { invalidateInvestVisibility } from "@/server/operator-settings/invest";
@@ -79,26 +80,9 @@ export function createSettingsDomainHandlers(deps: Dependencies = {}) {
       const site = request.headers.get("sec-fetch-site");
       if (!expected || !origin || origin !== expected.origin || (site !== null && site !== "same-origin")) return error("CROSS_ORIGIN", 403);
       if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get("content-type") ?? "")) return error("INVALID_REQUEST", 400);
-      const length = request.headers.get("content-length");
-      if (length !== null && (!/^\d+$/.test(length) || Number(length) > 16_384)) return error("INVALID_REQUEST", 400);
-      let text = "";
-      try {
-        const reader = request.body?.getReader();
-        if (!reader) return error("INVALID_REQUEST", 400);
-        const decoder = new TextDecoder("utf-8", { fatal: true });
-        let size = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.byteLength;
-          if (size > 16_384) { await reader.cancel(); return error("INVALID_REQUEST", 400); }
-          text += decoder.decode(value, { stream: true });
-        }
-        text += decoder.decode();
-      } catch { return error("INVALID_REQUEST", 400); }
-      let body: unknown;
-      try { body = JSON.parse(text); } catch { return error("INVALID_REQUEST", 400); }
-      const parsed = parsePutSettingsRequest(body);
+      const read = await readJsonBody(request, { maxBytes: 16_384 });
+      if (read.kind !== "ok") return error("INVALID_REQUEST", 400);
+      const parsed = parsePutSettingsRequest(read.value);
       const definition = settingsStore.registry[domain];
       if (!parsed || !definition || (definition.parseWrite ?? definition.parse)(parsed.value) === null) return error("INVALID_REQUEST", 400);
       if (parsed.operator !== decision.address.toLowerCase()) {

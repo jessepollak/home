@@ -603,6 +603,42 @@ describe("CDP balance activity webhook", () => {
     expect(dirtyCalls).toEqual([]);
   });
 
+  test.each(["v0", "v1"] as const)("%s signature rejection precedes body validation and activity handling", async (version) => {
+    const staleCalls: unknown[] = [];
+    const dirtyCalls: unknown[] = [];
+    const tasks: unknown[] = [];
+    const headers = new Headers({ "content-type": "application/json" });
+    const handle = createCdpWebhookHandler({
+      store: { markStaleMany: async (...args) => { staleCalls.push(args); } },
+      history: { markDirty: async (...args) => { dirtyCalls.push(args); return 0; } },
+      subscriptions: subscriptionStore(), now: () => NOW,
+      schedule: (task) => { tasks.push(task); },
+      settleActions: async () => {},
+    });
+    const raw = body({ eventType: "wallet.activity.detected", data: { address: ADDRESS } });
+    const malformed = new TextEncoder().encode("{not-json");
+    const invalid = signed(raw, undefined, version, headers).replace(/[0-9a-f]{64}$/, "0".repeat(64));
+    const old = Math.floor(NOW.getTime() / 1000) - 301;
+    expect((await handle(raw, invalid, headers)).status).toBe(401);
+    expect((await handle(raw, signed(raw, old, version, headers), headers)).status).toBe(401);
+    expect((await handle(malformed, signed(raw, undefined, version, headers), headers)).status).toBe(401);
+    expect((await handle(malformed, signed(malformed, undefined, version, headers), headers)).status).toBe(400);
+    expect(staleCalls).toEqual([]);
+    expect(dirtyCalls).toEqual([]);
+    expect(tasks).toEqual([]);
+  });
+
+  test("duplicate v1 delivery remains accepted within the replay window", async () => {
+    const store = await seededStore();
+    const raw = body({ eventType: "wallet.activity.multi", data: { matchedAddress: ADDRESS } });
+    const headers = new Headers({ "content-type": "application/json" });
+    const handle = createCdpWebhookHandler({ store, subscriptions: subscriptionStore(), now: () => NOW });
+    const signature = signed(raw, undefined, "v1", headers);
+    expect((await handle(raw, signature, headers)).status).toBe(200);
+    expect((await handle(raw, signature, headers)).status).toBe(200);
+    expect((await store.get(8453, ADDRESS))?.staleAt).toBe(NOW.toISOString());
+  });
+
   test("a signed malformed body is rejected after signature verification", async () => {
     const store = await seededStore();
     let reads = 0;

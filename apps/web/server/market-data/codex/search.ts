@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import { createBoundedCache } from "@/server/cache/bounded";
 
 import { investAssets, isDiscoverableAsset, type InvestAsset } from "@/config/invest-assets";
@@ -124,7 +126,7 @@ export function createCodexSearchReader({ apiKey, fetchImpl = fetch, onchain, is
 let sharedReader: ReturnType<typeof createCodexSearchReader> | null = null;
 let sharedKey: string | undefined;
 export function getCodexSearch(request: InvestSearchRequest): Promise<InvestSearchResponse> {
-  const key = process.env.CODEX_API_KEY;
+  const key = readCodexApiKey();
   if (!sharedReader || key !== sharedKey) { sharedKey = key; sharedReader = createCodexSearchReader({ apiKey: key, resolve: resolveAsset }); }
   return sharedReader(request);
 }

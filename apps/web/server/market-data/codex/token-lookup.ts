@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import type { PortfolioAddress } from "@/config/portfolio-assets";
 import { sanitizeImageUrl } from "@/server/market-data/asset-icons/image-url";
 import { createBoundedCache } from "@/server/cache/bounded";
@@ -129,7 +131,7 @@ let sharedApiKey: string | undefined;
 export function getCodexTokenLookup(
   addresses: readonly `0x${string}`[],
 ): Promise<Map<string, CodexTokenLookupEntry>> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedLookup || sharedApiKey !== apiKey) {
     sharedApiKey = apiKey;
     sharedLookup = createCodexTokenLookup({ apiKey });

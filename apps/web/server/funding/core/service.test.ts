@@ -1,3 +1,6 @@
+import { createHmac } from "node:crypto";
+import { parseJson } from "@/tests/helpers/read-json";
+import { isRecord } from "@/shared/guards";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { readQuoteDraft } from "@/shared/funding/contracts/quotes";
@@ -25,10 +28,11 @@ import { FundingQuoteRejectedError } from "./quote-rejection";
 import { authenticateFundingQuote } from "./quote-token";
 import { setObservabilityLogWriterForTests } from "@/server/observability/log";
 import { fundingProviders } from "@/server/funding/providers";
+import { ripioProvider } from "@/server/funding/providers/ripio/adapter";
 import { euroAreaPeerCountries } from "@/server/funding/providers/peer/manifest";
 import type { Observation, OrderState } from "@/shared/funding/provider-contract";
 
-const session: VerifiedAccountSession = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } };
+const session = { user: { subject: "user" }, accountProvider: "base-account", smartAccount: { address: "0x1111111111111111111111111111111111111111", chainId: 8453 } } satisfies VerifiedAccountSession;
 const sessionAddress = session.smartAccount?.address;
 if (!sessionAddress) throw new Error("fixture session must declare a smart account");
 const manifest = { id: "fixture", displayName: "Fixture", docsUrl: "https://example.com", onramp: { apiOrigins: ["https://example.com"], reference: "home" }, bindings: [{ region: "ID", assetId: "base:idrx", currency: "IDR", directions: { onramp: { paymentMethods: [{ id: "bank", label: "Bank" }], env: ["FIXTURE_KEY"] } } }] } as const satisfies FundingProviderManifest;
@@ -107,7 +111,7 @@ function setup(
     onramp: {
       async createOrder(input, ctx) {
       dispatches += 1;
-      expect(input.destination).toBe(session.smartAccount!.address);
+      expect(input.destination).toBe(sessionAddress);
       if (outcome === "ambiguous") return { outcome: "ambiguous" };
       if (outcome === "rejected") return { outcome: "rejected", message: "fixture rejection" };
       return { outcome: "created", order: { providerOrderId: "fixture-order", tokenAddress: ctx.binding.asset.address, expectedTokenAmountAtomic: input.quote!.tokenAmountAtomic, fees: [], expiresAt: null, instructions: { kind: "bank-transfer", rail: "VA", accountNumber: "12345678", amount: input.fiatAmount, currency: "IDR" } } };
@@ -147,7 +151,7 @@ describe("FundingCore cancellation and checkout reconciliation", () => {
       expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "owner" });
       expect(fixture.reads()).toBe(1);
       expect(await fixture.store.getOpen(fixture.input.owner, "ID")).toBeNull();
-      expect(fixture.events).toEqual([expect.objectContaining({ route: "/api/funding/orders/:id/cancel", code: "ORDER_ABANDONED", outcome: "ok" })]);
+      expect<unknown>(fixture.events).toEqual([expect.objectContaining({ route: "/api/funding/orders/:id/cancel", code: "ORDER_ABANDONED", outcome: "ok" })]);
     });
   }
 
@@ -170,7 +174,7 @@ describe("FundingCore cancellation and checkout reconciliation", () => {
       expect(await fixture.core.cancelOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "owner", instructions: null });
       expect(await fixture.owned()).toMatchObject({ state: "abandoned", abandonReason: "owner", checkedAt: fixture.now() });
       expect(fixture.reads()).toBe(1);
-      expect(fixture.events).toEqual([expect.objectContaining({ code: "ORDER_ABANDONED", outcome: "ok" })]);
+      expect<unknown>(fixture.events).toEqual([expect.objectContaining({ code: "ORDER_ABANDONED", outcome: "ok" })]);
     });
   }
 
@@ -408,7 +412,7 @@ describe("FundingCore cancellation and checkout reconciliation", () => {
       fixture.advance(24 * 60 * 60 * 1_000 - 10_000);
       if (throws) fixture.fail(new Error("unavailable"));
       expect(await fixture.core.getOrder(session, fixture.input.id)).toMatchObject({ state: "abandoned", abandonReason: "timed-out", instructions: null });
-      expect(fixture.events).toContainEqual(expect.objectContaining({ code: "ORDER_ABANDONED", outcome: "ok", route: "/api/funding/orders/:id" }));
+      expect<unknown>(fixture.events).toContainEqual(expect.objectContaining({ code: "ORDER_ABANDONED", outcome: "ok", route: "/api/funding/orders/:id" }));
     });
   }
 
@@ -569,7 +573,7 @@ describe("FundingCore", () => {
     const order = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
     expect(order.state).toBe("awaiting-payment");
     offered = false;
-    expect(await fixture.core.listProviders("ID", session)).toEqual([expect.objectContaining({ providerId: "fixture", region: "ID" })]);
+    expect<unknown>(await fixture.core.listProviders("ID", session)).toEqual([expect.objectContaining({ providerId: "fixture", region: "ID" })]);
     expect(openReads).toBe(2);
     await expect(fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example"))
       .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409 });
@@ -597,11 +601,11 @@ describe("FundingCore", () => {
       currentBaseBlock: async () => "1", verifyReceipt: async () => null });
     const listed = await core.listProviders("ID", session);
     expect(listed.map(({ providerId }) => providerId)).toEqual(["fixture", "newer"]);
-    expect(listed).toEqual([
+    expect<unknown>(listed).toEqual([
       expect.objectContaining({ providerId: "fixture", resumeOnly: true }),
       expect.objectContaining({ providerId: "newer", resumeOnly: false }),
     ]);
-    expect(await core.listProviders("ID", { ...session, user: { subject: "someone-else" } })).toEqual([
+    expect<unknown>(await core.listProviders("ID", { ...session, user: { subject: "someone-else" } })).toEqual([
       expect.objectContaining({ providerId: "newer", resumeOnly: false }),
     ]);
     const pausedWithoutOrder = new FundingCore({ providers: [provider("fixture"), provider("newer")], store: new MemoryFundingOrderStore(), env: { FIXTURE_KEY: "set" },
@@ -630,7 +634,7 @@ describe("FundingCore", () => {
     const core = new FundingCore({ providers: [provider], store, env: { FIXTURE_KEY: "set" },
       readOffering: async () => ({ source: "saved", isSelected: () => true, isOffered: () => offered }),
       currentBaseBlock: async () => "1", verifyReceipt: async () => null });
-    expect(await core.listProviders("ID", session)).toEqual([
+    expect<unknown>(await core.listProviders("ID", session)).toEqual([
       expect.objectContaining({ paymentMethods: [{ id: "bank", label: "Bank" }], resumeOnly: true }),
     ]);
     offered = true;
@@ -668,7 +672,7 @@ describe("FundingCore", () => {
     expect((await fixture.store.getOpen({ subject: session.user.subject, accountProvider: session.accountProvider }, "ID"))?.id).toBe(order.id);
 
     offered = false;
-    expect(await fixture.core.listProviders("ID", session)).toEqual([expect.objectContaining({ providerId: "fixture", region: "ID" })]);
+    expect<unknown>(await fixture.core.listProviders("ID", session)).toEqual([expect.objectContaining({ providerId: "fixture", region: "ID" })]);
     expect(await fixture.core.listProviders("ID", { ...session, user: { subject: "another-user" } })).toEqual([]);
     await expect(fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "21000" }, "https://home.example"))
       .rejects.toMatchObject({ code: "CORRIDOR_NOT_OFFERED", status: 409 });
@@ -748,7 +752,7 @@ describe("FundingCore", () => {
     let reads = 0;
     const existing = customerSetup(async () => { reads++; if (reads > 1) throw new Error("settings unavailable"); return { source: "saved", isSelected: () => true, isOffered: () => true }; });
     await existing.core.startProviderCustomerVerification(session, input, "https://home.example");
-    expect(await existing.core.listProviderCustomers(session, "ID")).toEqual([expect.objectContaining({ state: "pending" })]);
+    expect<unknown>(await existing.core.listProviderCustomers(session, "ID")).toEqual([expect.objectContaining({ state: "pending" })]);
     expect(reads).toBe(1);
     const pausedBrokenMode = customerSetup(async () => ({ source: "saved", isSelected: () => false, isOffered: () => false }), { FIXTURE_KEY: "set", FUNDING_SANDBOX: "" });
     await expect(pausedBrokenMode.core.startProviderCustomerVerification(session, input, "https://home.example"))
@@ -817,7 +821,7 @@ describe("FundingCore", () => {
       customer: { providerId: "fixture", state: "pending" },
       handoff: { url: "https://verify.example.com/session?bearer=secret" },
     });
-    expect(await core.listProviderCustomers(session, "ID")).toEqual([
+    expect<unknown>(await core.listProviderCustomers(session, "ID")).toEqual([
       expect.objectContaining({ providerId: "fixture", state: "pending" }),
     ]);
     expect(JSON.stringify(await core.listProviderCustomers(session, "ID"))).not.toContain("bearer=secret");
@@ -950,7 +954,7 @@ describe("FundingCore", () => {
       logProviderDiscoveryFailure: (event) => { events.push(event); },
     });
 
-    expect(await core.listProviders("US", session, "offramp")).toEqual([
+    expect<unknown>(await core.listProviders("US", session, "offramp")).toEqual([
       expect.objectContaining({ providerId: "working-fixture", region: "US", paymentMethods: [expect.objectContaining({ platform: "cashapp" })] }),
     ]);
     expect(events).toEqual([{ providerId: "down-fixture", reason: "provider", code: "FUNDING_PROVIDER_CONFIGURATION" }]);
@@ -1141,7 +1145,8 @@ describe("FundingCore", () => {
     }
     expect(calls).toBe(0);
     expect(fetches).toBe(0);
-    const response = JSON.parse(JSON.stringify(await request("2.07")));
+    const response = parseJson(JSON.stringify(await request("2.07")));
+    if (!isRecord(response)) throw new Error("Expected a quote draft response.");
     const draft = readQuoteDraft(response);
     expect(draft).not.toBeNull();
     expect(response.version).toBe(1);
@@ -1230,10 +1235,11 @@ describe("FundingCore", () => {
 
     returned.value = { ...base, undeclared: "ignored" };
     const draft = await request();
-    expect(draft).toEqual({
+    const tokenMatcher: unknown = expect.any(String);
+    expect<unknown>(draft).toEqual({
       version: 1,
       quote: base,
-      quoteToken: expect.any(String),
+      quoteToken: tokenMatcher,
       sandbox: false,
     });
     expect(draft.quote).not.toHaveProperty("undeclared");
@@ -1507,7 +1513,7 @@ describe("FundingCore", () => {
     expect(fixture.getOrderSandboxes()).toHaveLength(0);
     expect(await fixture.core.getOpenOrder(session, "ID")).toBeNull();
     expect(fixture.transitionEvents.map((event) => event.code)).toEqual(["ORDER_AMBIGUOUS", "ORDER_AMBIGUOUS_RESOLVED"]);
-    expect(fixture.transitionEvents.at(-1)).toEqual(expect.objectContaining({ route: "/api/funding/orders/:id/resolve", outcome: "ok", region: "ID" }));
+    expect<unknown>(fixture.transitionEvents.at(-1)).toEqual(expect.objectContaining({ route: "/api/funding/orders/:id/resolve", outcome: "ok", region: "ID" }));
     await expect(fixture.core.resolveAmbiguousOrder(session, ambiguous.id))
       .rejects.toMatchObject({ code: "ORDER_NOT_AMBIGUOUS" });
     expect(fixture.transitionEvents).toHaveLength(2);
@@ -1549,7 +1555,7 @@ describe("FundingCore", () => {
     const fixture = setup();
     const quote = await fixture.core.createQuote(session, { providerId: "fixture", region: "ID", paymentMethod: "bank", fiatAmount: "20000" }, "https://home.example");
     const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
-    expect(fixture.transitionEvents).toEqual([expect.objectContaining({
+    expect<unknown>(fixture.transitionEvents).toEqual([expect.objectContaining({
       code: "ORDER_CREATED", outcome: "ok", providerId: "fixture", region: "ID", sandbox: false,
     })]);
 
@@ -1610,7 +1616,53 @@ describe("FundingCore", () => {
     const created = await fixture.core.createOrder(session, { quoteToken: quote.quoteToken }, "https://home.example");
     fixture.observe(state);
     await fixture.core.getOrder(session, created.id);
-    expect(fixture.transitionEvents.at(-1)).toEqual(expect.objectContaining({ code, outcome: "failed" }));
+    expect<unknown>(fixture.transitionEvents.at(-1)).toEqual(expect.objectContaining({ code, outcome: "failed" }));
+  });
+
+  test.each(["valid", "invalid signature", "malformed signature", "signed malformed body", "replay"] as const)("Ripio %s webhook only refreshes a verified order", async (delivery) => {
+    const store = new MemoryFundingOrderStore();
+    const now = new Date("2026-09-12T00:00:10.000Z");
+    const providerOrderId = "44444444-4444-4444-8444-444444444444";
+    const owner = { subject: session.user.subject, accountProvider: session.accountProvider };
+    const reserved = await store.reserve({
+      id: "11111111-1111-4111-8111-111111111111", owner, destination: sessionAddress,
+      providerId: "ripio", region: "AR", assetId: "base:wars", paymentMethod: "bank_transfer", fiatAmount: "1000",
+      intentDigest: "ripio-webhook-fixture", quoteToken: "ripio-webhook-token", customerRef: "22222222-2222-4222-8222-222222222222",
+      quote: { fiatAmount: "1000", tokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: "2099-01-01T00:00:00.000Z" },
+      sandbox: false, creationBlock: "1", createdAt: "2026-09-12T00:00:00.000Z",
+    });
+    await store.completeDispatch(reserved.order.id, {
+      providerOrderId, expectedTokenAmountAtomic: "1000000000000000000000", fees: [], expiresAt: null,
+      instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "1234567890123456789012", amount: "1000", currency: "ARS" },
+      expectedVersion: reserved.order.version, updatedAt: "2026-09-12T00:00:01.000Z",
+    });
+    let refreshes = 0;
+    let dispatches = 0;
+    const provider: FundingProvider = {
+      ...ripioProvider,
+      onramp: {
+        ...ripioProvider.onramp!,
+        async createOrder() { dispatches += 1; return { outcome: "ambiguous" }; },
+        async getOrder() { refreshes += 1; return { state: "payment-received", providerStatus: "ONRAMP_PAYMENT_RECEIVED" }; },
+      },
+    };
+    const env = { RIPIO_CLIENT_ID_AR: "client", RIPIO_CLIENT_SECRET_AR: "secret", RIPIO_WEBHOOK_SECRET_AR: "w".repeat(32) };
+    const core = new FundingCore({ providers: [provider], store, env, currentBaseBlock: async () => "1", verifyReceipt: async () => null, now: () => now });
+    const raw = new TextEncoder().encode(delivery === "signed malformed body" ? "{not-json" : JSON.stringify({
+      eventType: "ONRAMP_PAYMENT_RECEIVED", issueDatetime: "2026-09-12T00:00:00.000Z", transactionObject: { transactionId: providerOrderId },
+    }));
+    const signature = delivery === "invalid signature" ? "0".repeat(64)
+      : delivery === "malformed signature" ? "invalid"
+      : createHmac("sha256", env.RIPIO_WEBHOOK_SECRET_AR).update(raw).digest("hex");
+    const headers = new Headers({ "http-x-wh-signature-256": signature });
+    const matched = delivery === "valid" || delivery === "replay";
+    expect(await core.handleWebhook("ripio", raw, headers)).toEqual({ accepted: true, matched });
+    if (delivery === "replay") expect(await core.handleWebhook("ripio", raw, headers)).toEqual({ accepted: true, matched: true });
+    expect(refreshes).toBe(delivery === "replay" ? 2 : matched ? 1 : 0);
+    expect(dispatches).toBe(0);
+    const saved = await store.getOwned(reserved.order.id, owner);
+    expect(saved?.state).toBe(matched ? "payment-received" : "awaiting-payment");
+    expect(saved?.version).toBe(matched ? 2 : 1);
   });
 
   test("binds webhook signatures to the order region while preserving shared-secret manifests", async () => {
@@ -1840,7 +1892,7 @@ describe("FundingCore", () => {
       date = new Date("2026-09-12T00:00:10.000Z");
 
       expect(await core.getOrder(session, created.id)).toEqual({ ...created, state: "sent-unverified", providerStatus: "MINTED:PAID", updatedAt: date.toISOString() });
-      const failures = lines.map((line) => JSON.parse(line)).filter((event) => event.code === "PROVIDER_INVALID_RESPONSE");
+      const failures = lines.map(parseJson).filter((event) => isRecord(event) && event.code === "PROVIDER_INVALID_RESPONSE");
       expect(failures).toHaveLength(1);
       expect(failures[0]).toMatchObject({
         kind: "funding-order",

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readDatabaseUrl } from "@/server/config/env";
+
 import { randomBytes } from "node:crypto";
 import { INVITE_CODE_ALPHABET, INVITE_CODE_LENGTH } from "@/shared/invites/contract";
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
@@ -50,7 +52,7 @@ export class InviteStore {
 }
 
 export function getInviteStore(): InviteStore | null {
-  return process.env.DATABASE_URL?.trim() ? new InviteStore(getSqlExecutor()) : null;
+  return readDatabaseUrl() ? new InviteStore(getSqlExecutor()) : null;
 }
 
 export async function getOrCreateInviteCode(customerId: string): Promise<string> {

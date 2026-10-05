@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readBaseRpcUrl, readEthereumRpcUrl, readVercelEnvironment } from "@/server/config/env";
+
 import { BASE_CHAIN_ID } from "@/shared/assets/base";
 import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 
@@ -63,13 +65,13 @@ export type BaseRpcUrlSource = "configured" | "public-default";
 export type BaseRpcHostClass = "cdp-node" | "public-base" | "loopback" | "other";
 
 export function describeBaseRpcUrlResolution(
-  configuredUrl: string | undefined = process.env.BASE_RPC_URL,
+  configuredUrl: string | undefined = readBaseRpcUrl(),
 ): { source: BaseRpcUrlSource } {
   return { source: configuredUrl?.trim() ? "configured" : "public-default" };
 }
 
 export function hostedRuntimeExpectsManagedBaseRpcUrl(
-  vercelEnv: string | undefined = process.env.VERCEL_ENV,
+  vercelEnv: string | undefined = readVercelEnvironment(),
 ): boolean {
   return vercelEnv === "production" || vercelEnv === "preview";
 }
@@ -83,7 +85,7 @@ export function classifyBaseRpcHost(resolvedUrl: string): BaseRpcHostClass {
 }
 
 export function inspectBaseRpcUrl(
-  configuredUrl: string | undefined = process.env.BASE_RPC_URL,
+  configuredUrl: string | undefined = readBaseRpcUrl(),
 ): {
   source: BaseRpcUrlSource;
   hostClass: BaseRpcHostClass;
@@ -98,13 +100,13 @@ export function inspectBaseRpcUrl(
 }
 
 export function resolveBaseRpcUrl(
-  configuredUrl: string | undefined = process.env.BASE_RPC_URL,
+  configuredUrl: string | undefined = readBaseRpcUrl(),
 ): string {
   return resolveRpcUrl(configuredUrl, DEFAULT_BASE_RPC_URL, "BASE_RPC_URL");
 }
 
 export function resolveEthereumRpcUrl(
-  configuredUrl: string | undefined = process.env.ETHEREUM_RPC_URL,
+  configuredUrl: string | undefined = readEthereumRpcUrl(),
 ): string {
   return resolveRpcUrl(configuredUrl, DEFAULT_ETHEREUM_RPC_URL, "ETHEREUM_RPC_URL");
 }

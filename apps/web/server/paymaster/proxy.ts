@@ -6,7 +6,7 @@ import { getActionsStore, type ActionsStore } from "@/server/actions/store";
 import { BASE_USDC_PAYMASTER_ADDRESS, parseMoneyActionNetworkFee } from "@/shared/money-actions/network-fee";
 import { createPaymasterClient, PAYMASTER_METHODS, type PaymasterMethod } from "./client";
 import { readTokenPayment, ENTRY_POINT_V06 } from "./fee";
-import { readJson } from "@/shared/http/read-json";
+import { readJsonBody } from "@/server/http/request";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
@@ -30,8 +30,9 @@ export function createPaymasterProxyHandler(deps: {
     if (!Number.isFinite(created) || !Number.isFinite(expiry) || created > now || expiry > created + 30 * 60_000 || now > expiry + 10 * 60_000) {
       return privateError("ACTION_EXPIRED", "The action is no longer available.", 410);
     }
-    let body: unknown;
-    try { body = await readJson(request); } catch { return privateError("INVALID_RPC", "A JSON-RPC object is required.", 400); }
+    const read = await readJsonBody(request, { maxBytes: 256 * 1024 });
+    if (read.kind !== "ok") return privateError("INVALID_RPC", "A JSON-RPC object is required.", 400);
+    const body = read.value;
     if (!isRecord(body) || body.jsonrpc !== "2.0" || !isRpcId(body.id) || typeof body.method !== "string" || !PAYMASTER_METHODS.includes(body.method as PaymasterMethod) || !Array.isArray(body.params)) {
       return privateError("INVALID_RPC", "A supported JSON-RPC request is required.", 400);
     }

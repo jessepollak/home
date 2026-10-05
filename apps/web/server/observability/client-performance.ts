@@ -1,6 +1,9 @@
 import "server-only";
 
+import { readVercelDeploymentId } from "@/server/config/env";
+
 import { URL } from "node:url";
+import { readBoundedRequestText } from "@/server/http/request";
 import { CLIENT_PERFORMANCE_KINDS, clientPerformanceBucket, parseClientPerformanceReport,
   type ClientPerformanceKind } from "@/shared/observability/client-performance.contract";
 import { writeObservabilityEvent } from "@/server/observability/log";
@@ -95,7 +98,7 @@ export function createClientPerformanceHandler(dependencies?: {
     if (!report || report.kind !== kind) return emptyResponse(400);
 
     try {
-      const deploymentId = dependencies?.deployment ?? process.env.VERCEL_DEPLOYMENT_ID;
+      const deploymentId = dependencies?.deployment ?? readVercelDeploymentId();
       log(report.kind === "home-navigation" || report.kind === "home-scroll"
         ? { ...report, deployment: typeof deploymentId === "string" && deploymentId.length > 0
             ? deploymentId : "local" }
@@ -147,34 +150,8 @@ async function readBoundedBody(
   request: Request,
 ): Promise<{ kind: "ok"; text: string } | { kind: "too-large" } | { kind: "invalid" }> {
   if (!request.body) return { kind: "ok", text: "" };
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const result = await reader.read();
-      if (result.done) break;
-      total += result.value.byteLength;
-      if (total > CLIENT_PERFORMANCE_MAX_BODY_BYTES) {
-        await reader.cancel().catch(() => undefined);
-        return { kind: "too-large" };
-      }
-      chunks.push(result.value);
-    }
-  } catch {
-    return { kind: "invalid" };
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return { kind: "ok", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
-  } catch {
-    return { kind: "invalid" };
-  }
+  const result = await readBoundedRequestText(request, { maxBytes: CLIENT_PERFORMANCE_MAX_BODY_BYTES, ignoreContentLength: true });
+  if (result.kind === "ok") return result;
+  if (result.kind === "empty") return { kind: "ok", text: "" };
+  return { kind: result.kind === "oversized" ? "too-large" : "invalid" };
 }

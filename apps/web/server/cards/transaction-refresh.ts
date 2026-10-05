@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readDatabaseUrl } from "@/server/config/env";
+
 import { isRecord } from "./response-guards";
 import { isStripePurchase } from "./stripe/transactions";
 import type { CardMode, CardObservation } from "./provider";
@@ -87,7 +89,7 @@ export async function refreshObservedCardEvent(event: CardObservation): Promise<
 export async function readActivityCardPurchases(customerId: string | null, window: { from: string; to: string }): Promise<CardPurchases> {
   const config = readCardJourneyConfig();
   if (!config) return { version: CARD_PURCHASES_VERSION, status: "ready", rows: [] };
-  if (!process.env.DATABASE_URL?.trim()) throw new Error("Card transaction store is unavailable");
+  if (!readDatabaseUrl()) throw new Error("Card transaction store is unavailable");
   if (!customerId) return { version: CARD_PURCHASES_VERSION, status: "ready", rows: [] };
   return refreshCardPurchases(customerId, config.mode, createCardTransactionStore(getSqlExecutor()),
     createStripeTransactionClient(config, fetch, AbortSignal.timeout(8_000)), window);

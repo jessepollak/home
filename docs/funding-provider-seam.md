@@ -65,7 +65,7 @@ export type FundingProviderManifest = {
     paymentMethods: ReadonlyArray<{ id: string; label: string }>;
     env: ReadonlyArray<string>;       // credentials required; provider is inert until all are set
   }>;
-  apiOrigins: ReadonlyArray<string>;  // ctx.fetch refuses other hosts
+  apiOrigins: ReadonlyArray<string>;  // ctx.request refuses other hosts
   redirectOrigins?: ReadonlyArray<string>;
   sandbox?: boolean;
   reference: "home" | "provider";     // who assigns the order reference (Ripio: home; IDRX: provider)
@@ -90,8 +90,25 @@ export type ProviderContext = {
   binding: { region: CountryCode; asset: FundingAsset; paymentMethod: { id: string; label: string } };
   env: Readonly<Record<string, string>>;   // only the manifest's declared variables
   sandbox: boolean;
-  fetch: typeof fetch;                     // origin allowlist, redirect: "manual", timeout
+  request: <T = unknown>(input: string, options: ProviderRequestOptions<T>) => Promise<ProviderRequestResult<T>>;
 };
+
+export type ProviderRequestOptions<T = unknown> = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Readonly<Record<string, string>>;
+  body?: string;
+  signal?: AbortSignal;
+  maxBytes: number;
+  maxHeaderBytes?: number;
+  errorBodyMaxBytes?: number;
+  responseType?: "json" | "text";
+  parse?: (value: unknown) => T;
+};
+
+export type ProviderRequestResult<T> =
+  | { ok: true; status: number; value: T }
+  | { ok: false; kind: "http"; status: number; body?: Uint8Array }
+  | { ok: false; kind: "aborted" | "timeout" | "transport" | "oversized" | "invalid" };
 
 export type QuoteIntent = { destination: `0x${string}`; fiatAmount: string; returnUrl: string; customerRef?: string };
 export type Quote = { providerQuoteId?: string; fiatAmount: string; enteredFiatAmount?: string; tokenAmountAtomic: string; fees: Array<{ label: string; amount: string; currency: string }>; expiresAt: string };
@@ -184,7 +201,34 @@ How the ports fit: Ripio is `reference: "home"`, `quotes: true`, an email-create
 
 **Storage.** One table, `funding_orders`, Postgres, with the instruction JSON inline and owner-scoped reads. Instructions are the provider's receiving details; they are deleted from the row when the order reaches a terminal state. Responses are `private, no-store`. When `DATABASE_URL` is not configured, the provider-list route returns no external methods, so Add money remains available through Receive crypto only; configured-store failures remain retryable service errors.
 
-**Adapters are trusted code.** They run in-process and are reviewed like any server change. `ctx.fetch` and `ctx.env` keep them honest, not sandboxed; adapters use raw HTTP through `ctx.fetch`, not provider SDKs.
+**Adapters are trusted code.** They run in-process and are reviewed like any server change. `ctx.request` and `ctx.env` keep them honest, not sandboxed; adapters use raw HTTP through `ctx.request`, not provider SDKs (except the deliberate Peer deviation above). The core enforces the origin allowlist, manual redirects, deadline, and response byte bounds. Every request requires `maxBytes` for successful response bodies; the optional `maxHeaderBytes` bounds headers only for successful responses. HTTP error bodies are discarded unless `errorBodyMaxBytes` is provided, in which case they are bounded by that limit. Adapters handle the typed `ProviderRequestResult<T>` rather than reading an unbounded `Response` body. A parser validates the provider payload before the adapter uses `value`:
+
+```ts
+import type { ProviderContext, ProviderRequestResult } from "@/shared/funding/provider-contract";
+
+async function readProviderStatus(ctx: ProviderContext, url: string): Promise<string> {
+  const result: ProviderRequestResult<{ status: string }> = await ctx.request(url, {
+    method: "GET",
+    maxBytes: 64 * 1024,
+    maxHeaderBytes: 1024,
+    responseType: "json",
+    parse(value) {
+      if (typeof value !== "object" || value === null
+        || !("status" in value) || typeof value.status !== "string") {
+        throw new Error("Invalid provider status.");
+      }
+      return { status: value.status };
+    },
+  });
+  if (!result.ok) {
+    if (result.kind === "http") throw new Error(`Provider returned HTTP ${result.status}.`);
+    throw new Error(`Provider request failed: ${result.kind}.`);
+  }
+  return result.value.status;
+}
+```
+
+Adapters map failures to their port's safe outcome: an uncertain create stays `ambiguous` and must not be retried; an uncertain status read stays `unknown`. The example above is a read, not a create/retry template.
 
 ## UI
 

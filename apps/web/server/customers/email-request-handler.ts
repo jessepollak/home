@@ -5,7 +5,7 @@ import { authorizeSession, type SessionAuthorizer } from "@/server/auth/authoriz
 import { requestOrigin } from "@/server/auth/signed-cookie";
 import { privateError, privateJson } from "@/server/http/private-response";
 import { EmailRequestIdentityMismatchError, claimEmailRequest, readEmailRequest, writeEmailRequest } from "./email-request";
-import { readJson } from "@/shared/http/read-json";
+import { readJsonBody } from "@/server/http/request";
 
 const EMAIL_REQUEST_ERRORS = {
   unsupported: "EMAIL_REQUEST_UNSUPPORTED",
@@ -41,7 +41,8 @@ export function createEmailRequestWriteHandler(dependencies: {
     if (session instanceof Response) return session;
     if (session.accountProvider !== "base-account") return privateError(EMAIL_REQUEST_ERRORS.unsupported, "Email sharing is unavailable for this account.", 403);
     if (!isSameOriginPost(request)) return privateError(EMAIL_REQUEST_ERRORS.unsupported, "Email sharing is unavailable for this request.", 403);
-    const input = parseEmailRequestWrite(await readJson(request).catch(() => null));
+    const result = await readJsonBody(request, { maxBytes: 64 * 1024 });
+    const input = parseEmailRequestWrite(result.kind === "ok" ? result.value : null);
     if (!input) return privateError(EMAIL_REQUEST_ERRORS.invalid, "Email request is invalid.", 400);
     try {
       if (input.kind === "claim") {

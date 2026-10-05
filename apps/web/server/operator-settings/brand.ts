@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readDatabaseUrl } from "@/server/config/env";
+
 import { cache } from "react";
 import { getSqlExecutor } from "@/server/db/sql";
 import { BRAND_DEFAULTS, BRAND_SETTINGS_DOMAIN, deriveBrandTokens, parseBrandSettings, type BrandSettings } from "@/shared/operator-branding/contract";
@@ -11,7 +13,7 @@ type BrandResolution = { settings: BrandSettings; tokens: ReturnType<typeof deri
 /** @public root layout resolver consumed by the brand application follow-up */
 export const resolveBrand = cache(async (deps: { store?: () => BrandStore } = {}): Promise<BrandResolution> => {
   try {
-    if (!deps.store && !process.env.DATABASE_URL?.trim()) throw new Error("DATABASE_URL is required");
+    if (!deps.store && !readDatabaseUrl()) throw new Error("DATABASE_URL is required");
     const entry = await (deps.store?.() ?? new OperatorSettingsStore(getSqlExecutor())).read(BRAND_SETTINGS_DOMAIN);
     const settings = parseBrandSettings(entry.settings.value);
     if (settings === null) throw new Error("Invalid brand settings");

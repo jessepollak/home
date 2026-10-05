@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import { createBoundedCache } from "@/server/cache/bounded";
 
 import { investAssets, initialsFromSymbol, trendingTokenId, type InvestAsset } from "@/config/invest-assets";
@@ -107,7 +109,7 @@ export function createAssetResolver({ apiKey, fetchImpl = fetch, onchain = readO
 let sharedResolver: ReturnType<typeof createAssetResolver> | null = null;
 let sharedKey: string | undefined;
 export function resolveAsset(identity: string): Promise<AssetResolutionResponse> {
-  const key = process.env.CODEX_API_KEY;
+  const key = readCodexApiKey();
   if (!sharedResolver || key !== sharedKey) { sharedKey = key; sharedResolver = createAssetResolver({ apiKey: key }); }
   return sharedResolver(identity);
 }

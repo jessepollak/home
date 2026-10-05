@@ -4,10 +4,11 @@ import { readFundingErrorResponse } from "@/shared/funding/contracts/errors";
 import { readFundingOrderResponse, type FundingOrderSummary } from "@/shared/funding/contracts/order";
 import { readVerificationHandoff, readFundingVerificationResponse, assertFundingProviderCustomersResponse, readFundingProviderCustomers } from "@/shared/funding/contracts/provider-customers";
 import { assertFundingProvidersResponse, readProviderBindings } from "@/shared/funding/contracts/providers";
-import { handleFundingOrderGetById, handleFundingOrderPost } from "./orders/handler";
-import { handleFundingProviderCustomersGet } from "./provider-customers/handler";
-import { handleFundingVerificationPost } from "./provider-customers/verification/handler";
-import { handleFundingProvidersRequest } from "./providers/handler";
+import { handleFundingOrderCancellationPost, handleFundingOrderGetById, handleFundingOrderPost, handleFundingOrderResolutionPost } from "@/server/funding/handlers/orders";
+import { handleFundingQuotePost } from "@/server/funding/handlers/quotes";
+import { handleFundingProviderCustomersGet } from "@/server/funding/handlers/provider-customers";
+import { handleFundingVerificationPost } from "@/server/funding/handlers/provider-customers-verification";
+import { handleFundingProvidersRequest } from "@/server/funding/handlers/providers";
 
 function assertPrivate(response: Response) {
   expect(response.headers.get("cache-control")).toContain("private");
@@ -27,6 +28,37 @@ const roundTripOrder = {
   quote: { fiatAmount: "100", tokenAmountAtomic: "1000", fees: [{ label: "Fee", amount: "1", currency: "ARS" }], expiresAt: "later" },
   instructions: { kind: "bank-transfer", rail: "CVU", accountNumber: "synthetic", amount: "101", currency: "ARS" },
 } satisfies FundingOrderSummary;
+test.each(["oversized", "content-length", "malformed", "empty", "aborted", "wrong-type", "missing-type"])("funding mutations reject %s bodies without invoking services", async (failure) => {
+  const authorize = async () => roundTripSession;
+  let calls = 0;
+  const denyCall = async (): Promise<never> => { calls++; throw new Error("invalid body reached funding service"); };
+  const mutations = [
+    { code: "INVALID_QUOTE_REQUEST", message: "A valid funding request is required.", body: { region: "AR", providerId: "ripio", fiatAmount: "100" }, handle: (request: Request) => handleFundingQuotePost(request, { authorize, createQuote: denyCall }) },
+    { code: "INVALID_VERIFICATION_REQUEST", message: "Valid verification details are required.", body: { providerId: "ripio", region: "AR", email: "customer@example.com" }, handle: (request: Request) => handleFundingVerificationPost(request, { authorize, startVerification: denyCall }) },
+    { code: "INVALID_ORDER_REQUEST", message: "A valid quote token is required.", body: { quoteToken: "signed-token" }, handle: (request: Request) => handleFundingOrderPost(request, { authorize, createOrder: denyCall }) },
+    { code: "INVALID_ORDER_RESOLUTION_REQUEST", message: "A valid resolution request is required.", body: { version: 1 }, handle: (request: Request) => handleFundingOrderResolutionPost(request, roundTripOrder.id, { authorize, resolveAmbiguousOrder: denyCall }) },
+    { code: "INVALID_ORDER_CANCELLATION_REQUEST", message: "A valid cancellation request is required.", body: { version: 1 }, handle: (request: Request) => handleFundingOrderCancellationPost(request, roundTripOrder.id, { authorize, cancelOrder: denyCall }) },
+  ];
+  for (const mutation of mutations) {
+    const body = JSON.stringify(mutation.body);
+    const headers = new Headers();
+    if (failure !== "missing-type") headers.set("content-type", failure === "wrong-type" ? "text/plain" : "application/json");
+    if (failure === "content-length") headers.set("content-length", String(64 * 1024 + 1));
+    const input = new Request("https://home.example/api/funding", {
+      method: "POST",
+      headers,
+      signal: failure === "aborted" ? AbortSignal.abort() : undefined,
+      body: failure === "oversized" ? " ".repeat(64 * 1024) + body : failure === "malformed" ? "{" : failure === "empty" ? undefined : new TextEncoder().encode(body),
+    });
+    const response = await mutation.handle(input);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: { code: mutation.code, message: mutation.message } });
+    assertPrivate(response);
+    expect(input.body?.locked ?? false).toBe(false);
+  }
+  expect(calls).toBe(0);
+});
+
 const orderMethods = [
   {
     method: "POST", status: 201,

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHmac } from "node:crypto";
+import { parseAddress, parseHash32, type Hash32 } from "@/shared/chain/hex";
 import type {
   CreateOrderResult,
   FundingProvider,
@@ -8,12 +9,14 @@ import type {
   OrderIntent,
   ProviderContext,
   ProviderOrder,
+  ProviderRequestResult,
   Quote,
   QuoteIntent,
   ReconciliationIntent,
 } from "@/shared/funding/provider-contract";
 import { decimalToAtomic } from "@/shared/formatting/atomic";
 import { emitFundingProviderFailure, type FundingProviderFailureCode } from "../../core/provider-failure";
+import { FundingProviderFetchError } from "../../core/provider-context";
 import { IDRX_API_ORIGIN, IDRX_CHECKOUT_ORIGIN, idrxManifest } from "./manifest";
 
 const MINT_PATH = "/transaction/mint-request";
@@ -23,13 +26,11 @@ const QRIS_CHANNEL = "QR";
 const QUOTE_TTL_MS = 5 * 60_000;
 const HISTORY_TAKE = 10;
 const MAX_RESPONSE_BYTES = 64 * 1024;
-const RESPONSE_BODY_TIMEOUT_MS = 6_000;
 const MIN_IDRX_ATOMIC = BigInt(2_000_000);
 const MAX_IDRX_ATOMIC = BigInt("100000000000");
 const MAX_IDRX_DECIMAL_LENGTH = "1000000000.00".length;
 const orderIdPattern = /^[\x21-\x7e]{1,128}$/;
 const accountNumberPattern = /^[0-9]{8,32}$/;
-const transactionHashPattern = /^0x[0-9a-fA-F]{64}$/;
 const expiryWithOffsetPattern = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/;
 
 type JsonRecord = Record<string, unknown>;
@@ -50,34 +51,32 @@ export const idrxProvider: FundingProvider = {
       url.searchParams.set("paymentMethod", channel.paymentMethod);
       url.searchParams.set("channelId", channel.channelId);
       const serializedUrl = url.toString();
-      let response: Response;
+      let response: ProviderRequestResult<string>;
       try {
-        response = await ctx.fetch(serializedUrl, {
+        response = await ctx.request<string>(serializedUrl, {
           method: "GET",
           headers: createRequestHeaders(ctx, "GET", serializedUrl, ""),
-          cache: "no-store",
+          maxBytes: MAX_RESPONSE_BYTES,
+          responseType: "text",
         });
       } catch (error) {
         emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
         throw error;
       }
       if (!response.ok) {
-        emitIdrxStatusFailure(
-          response.status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX",
-          startedAt,
-          ctx.binding.region,
-        );
-        throw new Error(`IDRX quote failed with HTTP ${response.status}.`);
-      }
-      let text: string;
-      try {
-        text = await readBoundedText(response);
-      } catch (error) {
+        if (response.kind === "http") {
+          emitIdrxStatusFailure(
+            response.status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX",
+            startedAt,
+            ctx.binding.region,
+          );
+          throw new Error(`IDRX quote failed with HTTP ${response.status}.`);
+        }
         emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
-        throw error;
+        throw requestFailureError(response.kind);
       }
       try {
-        const data = readData(parseProviderJson(text));
+        const data = readData(parseProviderJson(response.value));
         return readQuote(data, input, ctx, channel);
       } catch (error) {
         emitIdrxStatusFailure("QUOTE_ECHO_MISMATCH", startedAt, ctx.binding.region);
@@ -104,22 +103,28 @@ export const idrxProvider: FundingProvider = {
 
     const url = `${IDRX_API_ORIGIN}${MINT_PATH}`;
     const serializedBody = JSON.stringify(body);
-    let response: Response;
+    let response: ProviderRequestResult<string>;
     try {
-      response = await ctx.fetch(url, {
+      response = await ctx.request<string>(url, {
         method: "POST",
         headers: createRequestHeaders(ctx, "POST", url, serializedBody),
         body: serializedBody,
-        cache: "no-store",
+        maxBytes: MAX_RESPONSE_BYTES,
+        errorBodyMaxBytes: MAX_RESPONSE_BYTES,
+        responseType: "text",
       });
     } catch {
       return { outcome: "ambiguous" };
     }
 
-    if (!response.ok) return classifyCreateFailure(response);
+    if (!response.ok) {
+      return response.kind === "http"
+        ? classifyCreateFailure(response)
+        : { outcome: "ambiguous" };
+    }
 
     try {
-      const payload = parseProviderJson(await readBoundedText(response));
+      const payload = parseProviderJson(response.value);
       const data = readData(payload);
       const providerOrderId = readOrderId(data.merchantOrderId);
       const channel = channelForPaymentMethod(ctx.binding.paymentMethod.id);
@@ -200,24 +205,33 @@ export const idrxProvider: FundingProvider = {
     url.searchParams.set("merchantOrderId", providerOrderId);
     const serializedUrl = url.toString();
 
-    let response: Response;
+    let response: ProviderRequestResult<string>;
     try {
-      response = await ctx.fetch(serializedUrl, {
+      response = await ctx.request<string>(serializedUrl, {
         method: "GET",
         headers: createRequestHeaders(ctx, "GET", serializedUrl, ""),
-        cache: "no-store",
+        maxBytes: MAX_RESPONSE_BYTES,
+        responseType: "text",
       });
     } catch {
       emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
       return unknown("TRANSPORT_ERROR");
     }
     if (!response.ok) {
-      emitIdrxStatusFailure(response.status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX", startedAt, ctx.binding.region);
-      return unknown(`HTTP_${response.status}`);
+      if (response.kind === "http") {
+        emitIdrxStatusFailure(response.status >= 500 ? "PROVIDER_HTTP_5XX" : "PROVIDER_HTTP_4XX", startedAt, ctx.binding.region);
+        return unknown(`HTTP_${response.status}`);
+      }
+      if (response.kind === "invalid" || response.kind === "oversized") {
+        emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
+        return unknown("INVALID_RESPONSE");
+      }
+      emitIdrxStatusFailure("PROVIDER_TRANSPORT", startedAt, ctx.binding.region);
+      return unknown("TRANSPORT_ERROR");
     }
 
     try {
-      const payload = parseProviderJson(await readBoundedText(response));
+      const payload = parseProviderJson(response.value);
       if (!isRecord(payload) || !Array.isArray(payload.records)) {
         emitIdrxStatusFailure("PROVIDER_INVALID_RESPONSE", startedAt, ctx.binding.region);
         return unknown("INVALID_RESPONSE");
@@ -342,7 +356,9 @@ function channelForPaymentMethod(id: string): "MANDIRI" | "BRI" | null {
   return null;
 }
 
-async function classifyCreateFailure(response: Response): Promise<CreateOrderResult> {
+function classifyCreateFailure(
+  response: Extract<ProviderRequestResult<string>, { kind: "http" }>,
+): CreateOrderResult {
   if (response.status === 401 || response.status === 403) {
     return {
       outcome: "rejected",
@@ -353,7 +369,8 @@ async function classifyCreateFailure(response: Response): Promise<CreateOrderRes
     return { outcome: "ambiguous" };
   }
   try {
-    const payload = parseProviderJson(await readBoundedText(response));
+    if (!response.body) return { outcome: "ambiguous" };
+    const payload = parseProviderJson(new TextDecoder("utf-8", { fatal: true }).decode(response.body));
     if (!isRecord(payload)) return { outcome: "ambiguous" };
     if (
       payload.statusCode !== undefined &&
@@ -659,11 +676,8 @@ function assertOptionalInteger(value: unknown, expected: number): void {
 
 function assertOptionalAddress(value: unknown, expected: `0x${string}`): void {
   if (value === undefined) return;
-  if (
-    typeof value !== "string" ||
-    !/^0x[0-9a-fA-F]{40}$/.test(value) ||
-    value.toLowerCase() !== expected.toLowerCase()
-  ) {
+  const address = parseAddress(value);
+  if (address === null || address !== expected.toLowerCase()) {
     throw new Error("IDRX address echo mismatch.");
   }
 }
@@ -745,7 +759,7 @@ function isValidReconciliationIntent(
     input.chainId === ctx.binding.asset.chainId &&
     input.tokenAddress.toLowerCase() === ctx.binding.asset.address.toLowerCase() &&
     input.tokenDecimals === ctx.binding.asset.decimals &&
-    /^0x[0-9a-fA-F]{40}$/.test(input.destination) &&
+    parseAddress(input.destination) !== null &&
     /^(?:0|[1-9]\d*)$/.test(input.expectedTokenAmountAtomic)
   );
 }
@@ -897,7 +911,7 @@ function emitIdrxStatusFailure(
   });
 }
 
-function readTransactionHash(record: JsonRecord): `0x${string}` | null {
+function readTransactionHash(record: JsonRecord): Hash32 | null {
   const values = [record.transactionHash, record.txHash].filter(
     (value) => value !== undefined,
   );
@@ -906,10 +920,9 @@ function readTransactionHash(record: JsonRecord): `0x${string}` | null {
     throw new Error("Conflicting IDRX transaction hashes.");
   }
   const normalized = values.map((value) => {
-    if (typeof value !== "string" || !transactionHashPattern.test(value)) {
-      throw new Error("Invalid IDRX transaction hash.");
-    }
-    return value.toLowerCase() as `0x${string}`;
+    const hash = parseHash32(value);
+    if (hash === null) throw new Error("Invalid IDRX transaction hash.");
+    return hash;
   });
   if (new Set(normalized).size !== 1) {
     throw new Error("Conflicting IDRX transaction hashes.");
@@ -1039,46 +1052,18 @@ function readBoundedString(value: unknown, maximumLength: number): string {
   return value;
 }
 
-async function readBoundedText(response: Response): Promise<string> {
-  const declaredLength = response.headers.get("content-length");
-  if (
-    declaredLength &&
-    /^\d+$/.test(declaredLength) &&
-    BigInt(declaredLength) > BigInt(MAX_RESPONSE_BYTES)
-  ) {
-    throw new Error("IDRX response is too large.");
-  }
-  if (!response.body) return "";
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let deadlineCleanup: () => void = () => undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    const timeout = setTimeout(() => {
-      void reader.cancel("IDRX response body timed out.");
-      reject(new Error("IDRX response body timed out."));
-    }, RESPONSE_BODY_TIMEOUT_MS);
-    deadlineCleanup = () => clearTimeout(timeout);
-  });
-  let bytes = 0;
-  let text = "";
-  try {
-    while (true) {
-      const chunk = await Promise.race([reader.read(), deadline]);
-      if (chunk.done) break;
-      bytes += chunk.value.byteLength;
-      if (bytes > MAX_RESPONSE_BYTES) {
-        await reader.cancel("IDRX response is too large.");
-        throw new Error("IDRX response is too large.");
-      }
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-    text += decoder.decode();
-    return text;
-  } finally {
-    deadlineCleanup();
-    reader.releaseLock();
-  }
+function requestFailureError(
+  kind: "transport" | "timeout" | "aborted" | "oversized" | "invalid",
+): Error {
+  if (kind === "oversized") return new Error("IDRX response is too large.");
+  if (kind === "invalid") return new Error("Invalid IDRX response.");
+  return new FundingProviderFetchError(
+    kind === "timeout"
+      ? "The funding provider request timed out."
+      : kind === "aborted"
+        ? "The funding provider request was aborted."
+        : "The funding provider request failed.",
+  );
 }
 
 function parseProviderJson(text: string): unknown {
