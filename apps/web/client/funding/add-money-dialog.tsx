@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Alert, AlertAction, AlertIcon, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -17,14 +17,12 @@ import {
 } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CircleAlertIcon, ArrowDownToLine, ChevronRight, Landmark } from "lucide-react";
-import { CurrencyMark } from "@/components/currency-mark";
 import { verifiedLocalCashAsset, type DirectPortfolioAsset } from "@/config/portfolio-assets";
 import {
   presentationRegions,
   type FiatCurrencyCode,
   type RegionId,
 } from "@/config/regions";
-import { formatAddress } from "@/shared/formatting";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import type { FundingProviderCustomerSummary } from "@/shared/funding/contracts/provider-customers";
 import { receiveSupportedCashCurrencies } from "@/shared/funding/assets";
@@ -141,7 +139,7 @@ export function AddMoneyDialog({
         />
       ) : null}
       {!signedOut && step === "receive" ? (
-        <ReceiveBody address={address} regionId={regionId} />
+        <ReceiveBody key={`${address}:${open}`} address={address} regionId={regionId} />
       ) : null}
       {!signedOut && step === "open-order" && selectedBinding && promptOrder ? (
         <OpenOrderPrompt
@@ -232,9 +230,9 @@ export function MethodBody({
           <div aria-busy={providersStatus === "loading"} className="@container/method-list">
             <MethodRow
               icon={<ArrowDownToLine className="size-4" />}
-              title="Receive crypto"
-              description="USDC and supported tokens on Base"
-              hint="Open receive options"
+              title="From another wallet"
+              description="Receive USDC on Base"
+              hint="Open receive details"
               onSelect={onSelectReceive}
             />
             {providersStatus === "loading" ? (
@@ -329,145 +327,146 @@ function fundingMethodDescription(binding: FundingBinding): string {
   ].join(" · ");
 }
 
-export function ReceiveBody({
-  address,
-  regionId,
-}: {
+export function ReceiveBody({ address, regionId }: {
   address: `0x${string}` | null;
   regionId: RegionId;
 }) {
   return (
     <MoneyModalBody hasFooter={false} className="items-center gap-4 pt-2">
-      <Badge variant="secondary">Receive on Base</Badge>
-      <div className="aspect-square w-full max-w-56 overflow-hidden rounded-xl border bg-background">
-        {address ? (
-          <ReceiveQr
-            value={address}
-            label={`QR code for Base address ${address}`}
-          />
-        ) : (
-          <Skeleton
-            className="size-full"
-            data-shimmer="qr"
-            aria-hidden="true"
-          />
-        )}
-      </div>
-      <div className="grid justify-items-center gap-1 text-center">
-        {address ? (
-          <ReceiveAddress address={address} />
-        ) : (
-          <>
-            <Skeleton
-              className="h-4 w-36"
-              data-shimmer="address"
-              aria-hidden="true"
-            />
-            <p className="text-center text-xs text-muted-foreground">
-              Preparing your Base address
-            </p>
-          </>
-        )}
-      </div>
-      <SupportedAssets regionId={regionId} />
+      {address ? <ReceiveAddress key={address} address={address} regionId={regionId} /> : (
+        <>
+          <Skeleton className="aspect-square w-full max-w-56" data-shimmer="qr" aria-hidden="true" />
+          <Skeleton className="h-10 w-full" data-shimmer="address" aria-hidden="true" />
+          <p role="status" className="text-center text-sm text-muted-foreground">Preparing your Base address</p>
+        </>
+      )}
     </MoneyModalBody>
   );
 }
 
-function ReceiveAddress({ address }: { address: `0x${string}` }) {
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "error">(
-    "idle",
-  );
-  const condensed = formatAddress(address);
+function subscribeShare() {
+  return () => {};
+}
 
-  async function copyAddress() {
+function shareSnapshot() {
+  return typeof navigator.share === "function";
+}
+
+function serverShareSnapshot() {
+  return false;
+}
+
+function ReceiveAddress({ address, regionId }: { address: `0x${string}`; regionId: RegionId }) {
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const addressRef = useRef<HTMLElement>(null);
+  const mounted = useRef(false);
+  const attempt = useRef(0);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canShare = useSyncExternalStore(subscribeShare, shareSnapshot, serverShareSnapshot);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (resetTimer.current !== null) clearTimeout(resetTimer.current);
+    };
+  }, []);
+
+  function startAttempt() {
+    attempt.current += 1;
+    const current = attempt.current;
+    return () => mounted.current && attempt.current === current;
+  }
+
+  function copyFallback(isCurrent: () => boolean) {
+    if (!isCurrent()) return;
+    setError("Couldn't copy the address. Select the address above and copy it.");
+    const element = addressRef.current;
+    if (!element) return;
+    element.focus({ preventScroll: true });
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  async function copyAddress(): Promise<"copied" | "failed" | "cancelled"> {
+    const isCurrent = startAttempt();
+    setError(null);
+    setCopied(false);
+    if (resetTimer.current !== null) clearTimeout(resetTimer.current);
     if (!navigator.clipboard?.writeText) {
-      setCopyStatus("error");
-      return;
+      copyFallback(isCurrent);
+      return "failed";
     }
     try {
       await navigator.clipboard.writeText(address);
-      setCopyStatus("copied");
+      if (!isCurrent()) return "cancelled";
+      setCopied(true);
+      resetTimer.current = setTimeout(() => {
+        if (mounted.current) setCopied(false);
+      }, 2000);
+      return "copied";
     } catch {
-      setCopyStatus("error");
+      copyFallback(isCurrent);
+      return "failed";
+    }
+  }
+
+  async function shareAddress(): Promise<"shared" | "cancelled" | "failed"> {
+    const isCurrent = startAttempt();
+    setError(null);
+    setCopied(false);
+    try {
+      await navigator.share({
+        title: "Home address",
+        text: `My Home address:\n${address}\nBase only. Choose Base as the network in the sending wallet.\n${receiveAssetGuidance(regionId)}`,
+      });
+      return "shared";
+    } catch (failure) {
+      if (!isCurrent() || (failure instanceof Error && failure.name === "AbortError")) return "cancelled";
+      setError("Couldn't open sharing. Copy the address instead.");
+      return "failed";
     }
   }
 
   return (
     <>
-      <Button
-        variant="ghost"
-        className="select-text"
-        size="touch"
-        title={address}
-        aria-label={copyStatus === "copied" ? "Copied" : `Copy ${condensed}`}
-        aria-describedby="receive-address-help"
-        onClick={() => void copyAddress()}
-      >
-        {copyStatus === "copied" ? "Copied" : condensed}
-      </Button>
-      {copyStatus === "error" ? (
-        <div className="grid w-full max-w-xs justify-items-center gap-2">
-          <Alert id="receive-address-help" variant="destructive" role="alert">
-            <AlertIcon><CircleAlertIcon /></AlertIcon>
-            <AlertDescription>
-              Clipboard access is unavailable. Select and copy the full address
-              below.
-            </AlertDescription>
-          </Alert>
-          <code
-            className="block w-full select-text rounded-lg border bg-muted p-3 font-mono text-xs [overflow-wrap:anywhere]"
-            aria-label={`Full Base address ${address}`}
-            // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focusable full address supports keyboard selection.
-            tabIndex={0}
-          >
-            {address}
-          </code>
-        </div>
-      ) : (
-        <p
-          id="receive-address-help"
-          className="text-center text-xs text-muted-foreground"
-        >
-          Tap the address to copy
-        </p>
-      )}
+      <div className="aspect-square w-full max-w-56 overflow-hidden rounded-xl border">
+        <ReceiveQr value={address} label={`QR code for Base address ${address}`} />
+      </div>
+      <div className="grid w-full min-w-0 justify-items-center gap-3 text-center">
+        <code
+          ref={addressRef}
+          dir="ltr"
+          className="block w-full select-text wrap-anywhere font-mono text-sm focus-visible:outline-3 focus-visible:outline-ring"
+          aria-label={`Full Base address ${address}`}
+          // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Focusable full address supports keyboard selection.
+          tabIndex={0}
+        >{address}</code>
+        <Badge variant="secondary">Base only</Badge>
+        <p className="text-sm text-muted-foreground">Choose Base as the network in the sending wallet.</p>
+        <SupportedAssets regionId={regionId} />
+      </div>
+      <div className="flex w-full flex-wrap justify-center gap-2">
+        <Button size="touch" onClick={() => void copyAddress()}>Copy address</Button>
+        {canShare ? <Button variant="outline" size="touch" onClick={() => void shareAddress()}>Share</Button> : null}
+      </div>
+      <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">{copied ? "Address copied" : ""}</span>
+      {error ? <Alert variant="destructive" role="alert"><AlertIcon><CircleAlertIcon /></AlertIcon><AlertDescription>{error}</AlertDescription></Alert> : null}
     </>
   );
 }
 
-export function SupportedAssets({ regionId }: { regionId: RegionId }) {
-  const region = presentationRegions[regionId];
-  const localAsset = supportedRegionalAsset(region.currency.code);
+function receiveAssetGuidance(regionId: RegionId) {
+  const localAsset = supportedRegionalAsset(presentationRegions[regionId].currency.code);
+  return localAsset ? `Send USDC or ${localAsset.symbol}.` : "Send USDC.";
+}
 
-  return (
-    <section
-      className="grid w-full justify-items-center gap-3 border-t pt-4"
-      aria-label="Supported receive assets on Base"
-    >
-      <p className="text-xs font-medium text-muted-foreground">
-        Supported on Base
-      </p>
-      <div className="flex items-center justify-center gap-4">
-        <span className="inline-flex items-center gap-2 text-sm font-medium">
-          <CurrencyMark currency="USD" symbol="$" />
-          <span>USDC</span>
-        </span>
-        {localAsset ? (
-          <span className="inline-flex items-center gap-2 text-sm font-medium">
-            <CurrencyMark
-              currency={localAsset.cashCurrency}
-              symbol={region.currency.symbol}
-            />
-            <span>{localAsset.symbol}</span>
-          </span>
-        ) : null}
-      </div>
-      <p className="max-w-sm text-center text-xs text-muted-foreground">
-        Plus other tokens in Home&apos;s supported Base inventory
-      </p>
-    </section>
-  );
+export function SupportedAssets({ regionId }: { regionId: RegionId }) {
+  return <p className="text-sm font-medium">{receiveAssetGuidance(regionId)}</p>;
 }
 
 function supportedRegionalAsset(

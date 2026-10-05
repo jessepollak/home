@@ -1,5 +1,9 @@
 [
   {
+    "path": "apps/web/client/funding/receive-qr.module.css",
+    "reason": "QR codes must stay dark-on-light in both appearances for scanner contrast."
+  },
+  {
     "path": "apps/web/client/landing/supported-globe.module.css",
     "reason": "Interactive SVG globe routes, markers, drag states, and masked static fallback require scoped selectors and geometry."
   },
