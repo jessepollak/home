@@ -212,7 +212,7 @@ export function fixtureRoutes({
     }],
     ["**/api/market-prices", marketPricesFixture()],
     ...["nvdac", "metac"].map((assetId) => [`**/api/market-prices/history?assetId=${assetId}&range=1W`, priceHistoryFixture(assetId)] as const),
-    ["**/api/actions", { actions: [...actionsBody.actions, {
+    ["**/api/actions", { ...actionsBody, actions: [...actionsBody.actions, {
       ...cashoutFixtureAction,
       cashout: { ...cashoutFixtureProgress, depositBlockNumber: balances.block.number },
     }, conversionFixtureAction] }],

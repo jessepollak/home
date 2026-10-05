@@ -1,7 +1,15 @@
-import { expect, test } from "bun:test";
+import "@/client/account/dom-test-harness";
+
+import { afterEach, expect, test } from "bun:test";
+import { getHomeQueryClient } from "@/client/query/query-client";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
+import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import { buildBalancesSnapshotFixture } from "@/shared/balances/fixtures";
-import { selectPendingCashoutEscrow } from "./pending-cashout";
+import { selectPendingCashoutEscrow, usePendingCashoutEscrow } from "./pending-cashout";
+
+const { cleanup, renderHook, waitFor } = await import("@testing-library/react");
+
+afterEach(() => { cleanup(); getHomeQueryClient().clear(); });
 
 const snapshot = buildBalancesSnapshotFixture();
 const deposit: RecentMoneyActionOperation = {
@@ -20,6 +28,33 @@ const withdraw = (status: RecentMoneyActionOperation["status"]): RecentMoneyActi
 });
 const withProgress = (changes: Partial<NonNullable<RecentMoneyActionOperation["cashout"]>>): RecentMoneyActionOperation =>
   ({ ...deposit, cashout: { ...deposit.cashout!, ...changes } });
+
+const session: VerifiedAccountSession = {
+  user: { subject: "cashout-estimate-owner" }, smartAccount: { address: snapshot.owner.address, chainId: 8453 }, accountProvider: "cdp-embedded",
+};
+
+test("an exhaustive version 1 list permits a known empty cash-out estimate", async () => {
+  const fetchOperations = async () => ({ version: 1, truncated: false, actions: [] });
+  const { result } = renderHook(() => usePendingCashoutEscrow(session, snapshot, fetchOperations));
+  await waitFor(() => expect(result.current).toBeNull());
+});
+
+test.each([
+  ["version 1 truncated", { version: 1, truncated: true, actions: [] }],
+  ["missing version", { truncated: false, actions: [] }],
+  ["old version", { version: 0, truncated: false, actions: [] }],
+  ["unknown version", { version: 2, truncated: false, actions: [] }],
+] as const)("a %s list keeps the cash-out estimate unreadable", async (_label, payload) => {
+  const fetchOperations = async () => payload;
+  const { result } = renderHook(() => usePendingCashoutEscrow(session, snapshot, fetchOperations));
+  await waitFor(() => expect(result.current).toEqual({ state: "unreadable" }));
+});
+
+test("a list read error keeps the cash-out estimate unreadable", async () => {
+  const fetchOperations = async () => { throw new Error("Actions unavailable"); };
+  const { result } = renderHook(() => usePendingCashoutEscrow(session, snapshot, fetchOperations));
+  await waitFor(() => expect(result.current).toEqual({ state: "unreadable" }));
+});
 
 test("selects only the remaining escrow of eligible pending Peer orders", () => {
   expect(selectPendingCashoutEscrow([], snapshot)).toBeNull();
@@ -73,13 +108,56 @@ test("an unconfirmed order ahead of the snapshot is omitted without marking the 
   expect(selectPendingCashoutEscrow([withProgress({ progressConfirmed: false })], stale)).toBeNull();
 });
 
-test("an ahead-of-snapshot deposit with a pending return is skipped without a partial total", () => {
+test("an ahead-of-snapshot deposit with a pending return is indeterminate", () => {
   const stale = { ...snapshot, block: { ...snapshot.block, number: (BigInt(snapshot.block.number) - BigInt(1)).toString() } };
-  expect(selectPendingCashoutEscrow([deposit, withdraw("pending")], stale)).toBeNull();
+  expect(selectPendingCashoutEscrow([deposit, withdraw("pending")], stale)).toEqual({ state: "indeterminate" });
 });
 
 test.each(["pending", "unknown", "confirmed"] as const)("marks a %s withdrawal indeterminate", (status) => {
   expect(selectPendingCashoutEscrow([deposit, withdraw(status)], snapshot)).toEqual({ state: "indeterminate" });
+});
+
+test.each([
+  ["pending", { state: "indeterminate" }],
+  ["unknown", { state: "indeterminate" }],
+  ["failed", null],
+] as const)("reconciles a returned deposit with a %s withdrawal", (status, expected) => {
+  const returned = withProgress({ state: "returned", returnedAtomic: "50000000", remainingAtomic: "0" });
+  expect(selectPendingCashoutEscrow([returned, withdraw(status)], snapshot)).toEqual(expected);
+  const known = withProgress({ depositId: "known-escrow" });
+  expect(selectPendingCashoutEscrow([returned, withdraw(status), { ...known, action: { ...known.action, id: "known-cashout" } }], snapshot))
+    .toEqual({ state: "escrow", baseUnits: "50000000", partial: expected !== null });
+});
+
+test.each([
+  ["block ahead of snapshot", (BigInt(snapshot.block.number) + BigInt(1)).toString(), undefined, { state: "indeterminate" }],
+  ["block at snapshot", snapshot.block.number, undefined, null],
+  ["block before snapshot", (BigInt(snapshot.block.number) - BigInt(1)).toString(), undefined, null],
+  ["missing block and unsettled", undefined, undefined, { state: "indeterminate" }],
+  ["missing block and settled", undefined, "2026-09-15T13:00:00Z", null],
+] as const)("reconciles a confirmed withdrawal with %s", (_label, receiptBlockNumber, settledAt, expected) => {
+  const linkedWithdraw = { ...withdraw("confirmed"), receiptBlockNumber, settledAt };
+  const returned = withProgress({ state: "returned", returnedAtomic: "50000000", remainingAtomic: "0" });
+  expect(selectPendingCashoutEscrow([returned, linkedWithdraw], snapshot)).toEqual(expected);
+  const known = withProgress({ depositId: "known-escrow" });
+  expect(selectPendingCashoutEscrow([returned, linkedWithdraw, { ...known, action: { ...known.action, id: "known-cashout" } }], snapshot))
+    .toEqual({ state: "escrow", baseUnits: "50000000", partial: expected !== null });
+});
+
+test.each([
+  ["confirmed block ahead of snapshot", { ...withdraw("confirmed"), receiptBlockNumber: (BigInt(snapshot.block.number) + BigInt(1)).toString() }, { state: "indeterminate" }],
+  ["confirmed block at snapshot", { ...withdraw("confirmed"), receiptBlockNumber: snapshot.block.number }, null],
+  ["confirmed block before snapshot", { ...withdraw("confirmed"), receiptBlockNumber: (BigInt(snapshot.block.number) - BigInt(1)).toString() }, null],
+  ["confirmed missing block and unsettled", withdraw("confirmed"), { state: "indeterminate" }],
+  ["confirmed missing block and settled", { ...withdraw("confirmed"), settledAt: "2026-09-15T13:00:00Z" }, null],
+  ["pending", withdraw("pending"), { state: "indeterminate" }],
+  ["unknown", withdraw("unknown"), { state: "indeterminate" }],
+  ["failed", withdraw("failed"), null],
+] as const)("reconciles a withdrawal-only list with %s", (_label, withdrawal, expected) => {
+  expect(selectPendingCashoutEscrow([withdrawal], snapshot)).toEqual(expected);
+  const known = withProgress({ depositId: "known-escrow" });
+  expect(selectPendingCashoutEscrow([withdrawal, known], snapshot))
+    .toEqual({ state: "escrow", baseUnits: "50000000", partial: expected !== null });
 });
 
 test("a failed linked withdrawal does not hide still-escrowed funds", () => {

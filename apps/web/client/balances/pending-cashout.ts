@@ -14,17 +14,28 @@ const UNREADABLE_ESTIMATE = { state: "unreadable" } as const;
 const INDETERMINATE_ESTIMATE = { state: "indeterminate" } as const;
 const LOADING_ESTIMATE = { state: "loading" } as const;
 
+function withdrawalUnobserved(withdraw: RecentMoneyActionOperation, snapshot: BalancesSnapshot): boolean {
+  return withdraw.status !== "confirmed" || (withdraw.receiptBlockNumber !== undefined
+    ? BigInt(withdraw.receiptBlockNumber) > BigInt(snapshot.block.number)
+    : withdraw.settledAt === undefined);
+}
 
 export function selectPendingCashoutEscrow(operations: readonly RecentMoneyActionOperation[], snapshot: BalancesSnapshot): PendingCashoutEstimate {
   let remaining = BigInt(0);
   let indeterminate = false;
+  for (const operation of operations) {
+    if (operation.action.kind === "cash-out-withdraw" && operation.status !== "failed" && withdrawalUnobserved(operation, snapshot)) {
+      indeterminate = true;
+    }
+  }
   for (const operation of operations) {
     if (operation.action.kind !== "cash-out") continue;
     const withdraw = linkedCashoutWithdraw(operation, operations);
     const cashout = operation.cashout;
     const presentation = cashoutProgress(operation, withdraw);
     if (!presentation.inProgress) {
-      if (!cashout) indeterminate = true;
+      if (!cashout || presentation.stage === "returned" && withdraw && withdraw.status !== "failed" &&
+        withdrawalUnobserved(withdraw, snapshot)) indeterminate = true;
       continue;
     }
     if (!cashout?.depositId || !cashout.depositBlockNumber || !/^\d+$/.test(cashout.depositBlockNumber) ||

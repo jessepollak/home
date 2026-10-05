@@ -149,7 +149,7 @@ function storyActions(status: "pending" | "confirmed" | "failed"): AccountWallet
     kind: action.kind, status,
     createdAt: action.createdAt, confirmedAt: action.createdAt,
     summary: { title: action.title, amounts: action.amounts, warnings: action.warnings, expiresAt: action.expiresAt, metadata: action.metadata },
-  }] });
+  }], version: 1, truncated: false });
 }
 
 type DialogStorySurfaceProps = {

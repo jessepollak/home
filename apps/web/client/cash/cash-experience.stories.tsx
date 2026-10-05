@@ -252,7 +252,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
   const fetchAccountResource: AccountWalletClient["fetchAccountResource"] = async (path) => path.includes("/api/trades?")
     ? { version: 2, status: "unavailable", reason: "asset-unsupported" }
     : path === "/api/actions"
-      ? { actions: [] }
+      ? { version: 1, truncated: false, actions: [] }
       : { version: 1, usdcReserveBaseUnits: "20000" };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
   const cashRate = homeParity ? "4.08% APY" : null;
@@ -1047,7 +1047,7 @@ const pendingGbSnapshot = withCashUnitPrice(buildBalancesSnapshotFixture({ regio
 function pendingCashoutArgs(state: PendingCashoutStoryState, snapshot = pendingUsSnapshot) {
   return { snapshot, regionId: snapshot.region, pendingCashout: selectPendingCashoutEscrow(pendingCashoutOperations(state, snapshot), snapshot) };
 }
-function expectPendingCashout(cash: string, pending: string | null) {
+function expectPendingCashout(cash: string, pending: string | null, atLeast = false) {
   return async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     const hero = within(canvasElement).getByLabelText("Cash balance");
     await expect(within(hero).getAllByRole("img")[0]).toHaveAccessibleName(cash);
@@ -1057,12 +1057,15 @@ function expectPendingCashout(cash: string, pending: string | null) {
       return;
     }
     await expect(line).toHaveTextContent(/^Pending cash-out/);
+    if (atLeast) await expect(line).toHaveTextContent(/^Pending cash-out.*At least/);
+    else await expect(line).not.toHaveTextContent("At least");
     await expect(within(line!).getByRole("img", { name: pending })).toBeVisible();
   };
 }
 export const PendingCashoutNone: Story = { args: pendingCashoutArgs("none"), play: expectPendingCashout("$1,234.00", null) };
 export const PendingCashoutWaiting: Story = { args: pendingCashoutArgs("waiting"), play: expectPendingCashout("$1,234.00", "$50.00") };
 export const PendingCashoutPartiallyPaid: Story = { args: pendingCashoutArgs("partial"), play: expectPendingCashout("$1,234.00", "$20.00") };
+export const PendingCashoutPartialEstimate: Story = { args: { snapshot: pendingUsSnapshot, regionId: pendingUsSnapshot.region, pendingCashout: { state: "escrow", baseUnits: "20000000", partial: true } }, play: expectPendingCashout("$1,234.00", "$20.00", true) };
 export const PendingCashoutPaid: Story = { args: pendingCashoutArgs("paid"), play: expectPendingCashout("$1,234.00", null) };
 export const PendingCashoutReturned: Story = { args: pendingCashoutArgs("returned"), play: expectPendingCashout("$1,234.00", null) };
 export const PendingCashoutWaitingDesktop: Story = { args: pendingCashoutArgs("waiting"), parameters: { viewport: { defaultViewport: "desktop" } }, play: expectPendingCashout("$1,234.00", "$50.00") };

@@ -25,17 +25,20 @@ export type ActionListItem = {
   confirmedAt: string;
   submittedAt?: string;
   settledAt?: string;
+  receiptBlockNumber?: string;
   providerHandle?: string;
   transactionHash?: string;
   owner: MoneyActionOwner;
   cashout?: CashoutProgress;
 };
+export const LIST_ACTIONS_CONTRACT_VERSION = 1 as const;
 export const RECENT_ACTIONS_LIMIT = 100 as const;
 export const RETAINED_SAVINGS_DEPOSITS_LIMIT = 20 as const;
 
 export type ListActionsResponse = {
+  version: typeof LIST_ACTIONS_CONTRACT_VERSION;
   actions: ActionListItem[];
-  truncated?: boolean;
+  truncated: boolean;
   retainedSavingsDeposits?: ActionListItem[];
   retainedSavingsDepositsUnavailable?: true;
 };
@@ -60,6 +63,7 @@ export type RecentMoneyActionOperation = {
   updatedAt: string;
   submittedAt?: string;
   settledAt?: string;
+  receiptBlockNumber?: string;
 };
 
 export type UnparsedSavingsDeposit = { status: DerivedActionStatus | null; settledAt?: string; vaultAddress: string | null };
@@ -83,7 +87,7 @@ export function isRecentActionsResponse(value: unknown): value is { actions: unk
   return isRecord(value) && Array.isArray(value.actions);
 }
 export function readRecentActionsTruncated(value: unknown): boolean {
-  return isRecord(value) && value.truncated === true;
+  return !isRecord(value) || value.version !== LIST_ACTIONS_CONTRACT_VERSION || value.truncated !== false;
 }
 
 export function readRecentActionsIncomplete(value: unknown, session: VerifiedAccountSession): boolean {
@@ -187,6 +191,8 @@ function parseRecentActionItems(items: unknown[], session: VerifiedAccountSessio
       updatedAt: item.confirmedAt,
       ...(typeof item.submittedAt === "string" && Number.isFinite(Date.parse(item.submittedAt)) ? { submittedAt: item.submittedAt } : {}),
       ...(typeof item.settledAt === "string" && Number.isFinite(Date.parse(item.settledAt)) ? { settledAt: item.settledAt } : {}),
+      ...(item.kind === "cash-out-withdraw" && typeof item.receiptBlockNumber === "string" && /^\d+$/.test(item.receiptBlockNumber)
+        ? { receiptBlockNumber: item.receiptBlockNumber } : {}),
       ...(cashout ? { cashout } : {}),
       ...(transactionHash ? { transactionHash } : {}),
       ...(userOperationHash ? { userOperationHash } : {}),

@@ -225,12 +225,12 @@ function balanceStatusReasons(snapshot: BalancesSnapshot, loanUnpriced: boolean,
   return reasons;
 }
 
-export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null } | null {
-  if (escrow?.state === "indeterminate") return { value: null };
+export function presentPendingCashout(snapshot: BalancesSnapshot, escrow: PendingCashoutEstimate): { value: string | null; atLeast: boolean } | null {
+  if (escrow?.state === "indeterminate") return { value: null, atLeast: false };
   if (escrow?.state !== "escrow" || BigInt(escrow.baseUnits) === BigInt(0)) return null;
   const amount = pricePendingCashout(snapshot, escrow);
   return amount === "unpriced" || BigInt(amount.atoms) === BigInt(0) || !snapshot.quoteCurrency
-    ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region) };
+    ? null : { value: formatPresentationFiat(amount, snapshot.quoteCurrency, 2, snapshot.region), atLeast: escrow.partial };
 }
 
 function signedNetWithPending(net: ExactDecimal, negative: boolean, pending: ExactDecimal): { value: ExactDecimal; negative: boolean } {
