@@ -22,7 +22,7 @@ const noop = () => undefined;
 const localCashRegions = new Set<RegionId>(["BR", "ID"]);
 const unavailableSummary: HomeMoneySummary = {
   cash: { status: "unavailable", value: null },
-  investments: { status: "unavailable", value: null, assetCount: 0, ownedCount: 0 },
+  investments: { status: "unavailable", value: null, assetCount: 0, assetCountStatus: "partial", ownedCount: 0 },
   borrow: { kind: "unavailable" },
 };
 

@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FeatureIntro } from "@/components/ui/feature-intro";
-import { Alert, AlertDescription, AlertIcon } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription, AlertIcon } from "@/components/ui/alert";
 import { presentCashSelection, presentCashTotal, presentPendingCashout } from "@/shared/balances/present";
 import {
   selectBalanceTotals,
@@ -64,6 +64,7 @@ export type CashOverviewProps = {
   pendingDeposits?: { vaultAddress: string; vaultName: string; amountBaseUnits: string }[];
   balanceStatus?: "ready" | "loading" | "failed";
   balanceActionStale?: boolean;
+  refreshFailed?: boolean;
   metadata: MorphoVaultsResult | null;
   vaultStatus?: "ready" | "loading" | "failed";
   nowMs: number;
@@ -413,6 +414,7 @@ export function CashOverview({
   pendingDeposits = [],
   balanceStatus = "ready",
   balanceActionStale = false,
+  refreshFailed = false,
   metadata,
   vaultStatus = "ready",
   nowMs,
@@ -517,11 +519,6 @@ export function CashOverview({
             ) : (
               <>
                 <div
-                  aria-describedby={
-                    summary?.status === "partial"
-                      ? "cash-balance-partial"
-                      : undefined
-                  }
                   className={`text-4xl font-semibold tabular-nums ${
                     summary?.status !== "complete"
                       ? "text-muted-foreground"
@@ -533,9 +530,10 @@ export function CashOverview({
                       align="start"
                       reserveDigits={false}
                       value={cashValue}
+                      aria-describedby={summary?.status === "partial" ? "cash-balance-partial" : undefined}
                     />
                   ) : (
-                    unavailableValue()
+                    <span role="img" aria-label="Unavailable">—</span>
                   )}
                 </div>
                 {pendingValue ? (
@@ -580,6 +578,7 @@ export function CashOverview({
                     Some balances are unavailable
                   </p>
                 ) : null}
+                {refreshFailed && activeSnapshot ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription>{onRetryBalances ? <AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryBalances}>Try again</Button></AlertAction> : null}</Alert> : null}
               </>
             )}
           </div>
@@ -601,6 +600,7 @@ export function CashOverview({
           Try again
         </Button>
       ) : null) : (
+        <>
         <div className={onConvert && convertible ? "grid grid-cols-2 gap-2" : "grid gap-2"}>
           <Button size="lg" className="h-11 w-full" {...(onAddMoneyIntent ? moneySheetIntent(onAddMoneyIntent) : {})} onClick={(event) => onAddMoney({ opener: event.currentTarget })}>
             <Plus aria-hidden="true" />
@@ -612,6 +612,13 @@ export function CashOverview({
             Convert
           </Button> : null}
         </div>
+        {summary?.status === "unavailable" && onRetryBalances ? (
+          <Button variant="outline" size="lg" className="h-11 w-full" onClick={onRetryBalances}>
+            <RotateCw aria-hidden="true" />
+            Try again
+          </Button>
+        ) : null}
+        </>
       )}
       {!failed && (!empty || vaultStatus === "failed" || savingsPending) ? (
         <>

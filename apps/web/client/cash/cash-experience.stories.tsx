@@ -171,6 +171,7 @@ type SurfaceProps = {
   failPreparation?: boolean;
   balanceStale?: boolean;
   balanceActionStale?: boolean;
+  refreshFailed?: boolean;
   pendingActionsError?: boolean;
   initialView?: "cash" | "savings";
   nowMs?: number;
@@ -178,7 +179,7 @@ type SurfaceProps = {
   regionId?: RegionId;
 };
 
-function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, saveMode = "on", failPreparation = false, balanceStale = false, balanceActionStale = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
+function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "ready", vaultStatus = "ready", homeParity = false, pendingExecution = false, ticking = false, snapshotToggle = false, saveMode = "on", failPreparation = false, balanceStale = false, balanceActionStale = false, refreshFailed = false, pendingActionsError = false, reducedMotion = false, initialView = "cash", nowMs = NOW, pendingCashout = null, regionId = "US" }: SurfaceProps) {
   const [view, setView] = useState(initialView);
   const clock = useRef(nowMs);
   const now = useCallback(() => clock.current, []);
@@ -256,7 +257,7 @@ function CashStorySurface({ snapshot, balanceStatus: initialBalanceStatus = "rea
       : { version: 1, usdcReserveBaseUnits: "20000" };
   const summary = liveSnapshot ? presentBalances({ status: "ready", snapshot: liveSnapshot, error: null }).summary : null;
   const cashRate = homeParity ? "4.08% APY" : null;
-  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale} balanceActionStale={balanceActionStale} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
+  const cashSurface = <CashExperience view={view} snapshot={liveSnapshot} pendingCashout={pendingCashout} balanceStatus={balanceStatus} balanceStale={balanceStale || balanceActionStale} balanceActionStale={balanceActionStale} refreshFailed={refreshFailed} session={session} now={now} fetchVaults={vaultStatus === "loading" ? () => new Promise(() => {}) : fetchVaults} fetchAccountResource={pendingActionsError ? async () => { throw new Error("Actions unavailable"); } : fetchAccountResource} onOpenSavings={() => setView("savings")} onAddMoney={addMoney} onRetryBalances={retryBalances} prepareMoneyAction={prepareMoneyAction} executeMoneyAction={executeMoneyAction} />;
   return (
     <PresentationRegionProvider regionId={regionId}>
       <ProductOfferingProvider value={offering}>
@@ -1073,3 +1074,28 @@ export const PendingCashoutNoneGb: Story = { args: pendingCashoutArgs("none", pe
 export const PendingCashoutWaitingGb: Story = { args: pendingCashoutArgs("waiting", pendingGbSnapshot), play: expectPendingCashout("£80.00", "£40.00") };
 export const PendingCashoutPartiallyPaidGb: Story = { args: pendingCashoutArgs("partial", pendingGbSnapshot), play: expectPendingCashout("£80.00", "£16.00") };
 export const PendingCashoutReturnedGb: Story = { args: pendingCashoutArgs("returned", pendingGbSnapshot), play: expectPendingCashout("£80.00", null) };
+
+export const Partial: Story = { args: { snapshot: holdingUnavailableSnapshot }, play: async ({ canvasElement }) => {
+  const hero = within(within(canvasElement).getByLabelText("Cash balance"));
+  await expect(hero.getByText("Some balances are unavailable")).toBeVisible();
+  await expect(hero.getByRole("img", { name: "$234.00" })).toHaveAccessibleDescription("Some balances are unavailable");
+} };
+export const Unavailable: Story = { args: { snapshot: unfundedUsdcUnavailableSnapshot }, play: async ({ canvasElement }) => {
+  const canvas = within(canvasElement);
+  const hero = within(canvas.getByLabelText("Cash balance"));
+  await expect(hero.getByRole("img", { name: "Unavailable" })).toHaveTextContent("—");
+  await expect(canvas.getByLabelText("Cash balance")).not.toHaveTextContent("$0.00");
+  await expect(canvas.queryByText(/Earn up to/)).toBeNull();
+  await expect(canvas.getByRole("button", { name: "Add money" })).toBeVisible();
+  await expect(canvas.getByRole("button", { name: "Try again" })).toBeVisible();
+  await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+  await expect(retryBalances).toHaveBeenCalledOnce();
+} };
+export const RefreshFailed: Story = { args: { snapshot: cashOnlySnapshot, refreshFailed: true }, play: async ({ canvasElement }) => {
+  const hero = within(within(canvasElement).getByLabelText("Cash balance"));
+  await expect(hero.getByRole("img", { name: "$351.00" })).toBeVisible();
+  await expect(hero.getByText("Couldn't refresh")).toBeVisible();
+  await userEvent.click(hero.getByRole("button", { name: "Try again" }));
+  await expect(retryBalances).toHaveBeenCalledOnce();
+} };
+export const EmptyWallet: Story = { args: EmptyNux.args, play: EmptyNux.play };

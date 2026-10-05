@@ -277,6 +277,7 @@ export type CashExperienceProps = {
   balanceStatus: "ready" | "loading" | "failed";
   balanceStale?: boolean;
   balanceActionStale?: boolean;
+  refreshFailed?: boolean;
   pendingCashout?: PendingCashoutEstimate;
   onRetryBalances?: () => void;
   onAddMoney: (options?: { replaceFlow?: boolean; opener?: HTMLElement | null }) => void;
@@ -300,6 +301,7 @@ export function CashExperience({
   balanceStatus,
   balanceStale = false,
   balanceActionStale = false,
+  refreshFailed = false,
   pendingCashout = null,
   onRetryBalances,
   onAddMoney,
@@ -846,6 +848,7 @@ export function CashExperience({
           regionId={region}
           snapshot={liveSnapshot}
           balanceActionStale={balanceActionStale}
+          refreshFailed={refreshFailed && liveSnapshot !== null}
           pendingCashout={pendingCashout}
           pendingDeposits={pendingDeposits}
           balanceStatus={balanceStatus}
@@ -1039,6 +1042,7 @@ export function AuthenticatedCashExperience(props: {
         }
         balanceStale={snapshot?.stale === true || balances.refreshError === true || balances.actionStale === true}
         balanceActionStale={balances.actionStale === true}
+        refreshFailed={balances.refreshError === true && snapshot !== null}
         onRetryBalances={balancesSession ? () => void balances.retry() : undefined}
         onAddMoneyIntent={moneySheetIntent(preloadAddMoneySheet, () => prefetchAddMoneyMethods(account, region, regionReady, queryClient)).onFocus}
         onAddMoney={(options) => {
