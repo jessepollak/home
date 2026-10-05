@@ -30,6 +30,10 @@ Every slice states:
 
 Keep implementation details, migrations, test additions, adapters, and other technical subtasks inside the owning slice. They are engineering work, not separate product approvals. Reuse the existing delivery issue when possible.
 
+## Changing an existing surface
+
+When the work changes a screen customers already use, acceptance states customer outcomes, not prescribed controls. Verify every "hidden", "vague", "missing" or "unsupported" premise against code before stating it, name the owned components to reuse, and check each new capability against **Not now**. Adding a control or removing existing content is a **Decision** for Jesse's selection, never `Decision: None`. See [shape a product proposal](../.agents/skills/shape-product-proposal/SKILL.md#changing-an-existing-surface).
+
 ## Evidence planning
 
 For user-visible work, name the relevant browser path and current-head preview evidence. For money-moving work, plan the required rungs under the [verification ladder](operating-manual.md#verification-ladder). If policy blocks a rung because a cap is exhausted or the confirmation amount is unknowable, write `Real money: not tested` and name that bound.
