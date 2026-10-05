@@ -43,7 +43,9 @@ export type ActivityLedgerNextActionKind =
   | "clear-order"
   | "cancel-order"
   | "withdraw-returned-funds"
-  | "cancel-cash-out";
+  | "cancel-cash-out"
+  | "unlock-card"
+  | "add-money";
 export type Transaction = {
   value: string;
   display: string;
@@ -158,7 +160,7 @@ const allowed: Record<ActivityLedgerStatus, readonly ActivityLedgerNextActionKin
   "waiting-chain": [],
   "waiting-home": [],
   confirmed: [],
-  failed: ["retry"],
+  failed: ["retry", "unlock-card", "add-money"],
   expired: ["start-again"],
   ambiguous: ["clear-order"],
   reversed: ["withdraw-returned-funds"],
@@ -170,7 +172,9 @@ export function isActivityLedgerNextActionAllowed(
   family: ActivityLedgerFamily,
   kind: ActivityLedgerNextActionKind,
 ): boolean {
-  if (!allowed[status]?.includes(kind) || family === "card") return false;
+  if (!allowed[status]?.includes(kind)) return false;
+  if (kind === "unlock-card" || kind === "add-money") return family === "card";
+  if (family === "card") return false;
   if (kind === "resume-verification" || kind === "complete-payment" || kind === "clear-order" || kind === "cancel-order") {
     return family === "funding-order";
   }

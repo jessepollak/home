@@ -264,7 +264,7 @@ function Surface({
           recentLabel={recentLabel} />
       )}
       <ActivityLedgerDetailSheet item={selected} open={isOpen} onDismiss={() => setIsOpen(false)}
-        onClosed={closed} onAction={fn()} canOpenAsset={canOpenAsset} onOpenAsset={onOpenAsset} />
+        onClosed={closed} onAction={fn()} canAct={() => true} canOpenAsset={canOpenAsset} onOpenAsset={onOpenAsset} />
     </main>
   );
 }
