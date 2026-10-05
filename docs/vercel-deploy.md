@@ -1,19 +1,109 @@
 # Vercel deploy (bun monorepo)
 
-This is an operator build-settings note, not production authorization. Use the [operator checklist](operator-checklist.md) for instance-specific values and where to configure them.
+Follow this path to launch your own instance, finish Admin setup, and maintain it. It is not production or real-money authorization. Use the [operator checklist](operator-checklist.md) for instance-specific values and provider configuration.
+
+## Launch
+
+1. **Fork Home on GitHub.** A fork keeps the upstream relationship for later updates. The [README deploy button](../README.md#deploy-your-own) instead copies Home into a new repository and sets Root Directory; it neither provisions a database nor sets the Install Command.
+2. In Vercel, choose **Add New → Project**, import your fork, and apply these settings. Check the Install Command even if you used the button.
+
+   | Setting | Value |
+   | --- | --- |
+   | Root Directory | `apps/web` |
+   | Framework preset | Next.js |
+   | Install Command | `bun install --frozen-lockfile` |
+   | Build Command | `bun run build` |
+   | Node.js | 22+ |
+   | Fluid compute | Enabled (Project Settings → Functions) |
+
+   The build runs `bun run db:migrate && next build`. With `DATABASE_URL` set, production builds apply migrations; non-production Vercel builds skip them unless explicitly enabled. See [Environment](#environment) before configuring previews.
+3. **Attach PostgreSQL separately.** Add the Neon integration from the Vercel Marketplace and connect its database to the Home project, or paste your own server-only `DATABASE_URL` into Vercel environment settings with `sslmode=require` (or `verify-full`). Use Neon's pooled hostname on Vercel. Database provisioning is an operator step, not something Home or the deploy button does. Keep scratch and preview databases separate from production.
+4. Generate a session secret on your own device, for example `openssl rand -base64 32`. Paste it only into the Home project's Vercel environment settings as server-only `HOME_SESSION_SECRET`; it must be at least 32 UTF-8 bytes. Never put it in Git, a public form, or evidence.
+5. Obtain the **Base smart-account address** of each administrator and set server-only `HOME_OPERATOR_ADDRESSES` in Vercel to a comma-separated list of unique `0x` addresses with 40 hex characters. Use the account that will sign in with Base Account, not a different wallet or an email-sign-in account. If you do not know its address, deploy with the session secret first, sign in with **Continue with Base Account**, and open **Account** from the Home header or desktop sidebar (`/home?account=settings`). In its **Account** section, select the address under the Basename or **Base account**, then choose **Copy address** in the full-address popover. This control uses the signed-in smart-account address. Copy only that address into the allowlist, not session responses or cookies. Opening `/api/session` directly is not an address lookup: native Base sessions require the `X-Home-Account-Provider: base-account` request header. This is the verified session described in [Base Account sign-in](base-account.md#manual-user-smoke); it requires no transfer. Until the allowlist is configured, Admin remains denied.
+6. **Redeploy** after setting the environment variables. Sign in with Base Account on the deployed Home origin, open `/admin`, and use **Overview → Setup**. If a separate deployment-access gate is enabled, pass it first; it does not make you an administrator.
+
+### First-run Setup
+
+Required checks are **Session signing** (`HOME_SESSION_SECRET`, at least 32 UTF-8 bytes), **Administrators** (`HOME_OPERATOR_ADDRESSES`), and **Database** (`DATABASE_URL`). The database check only verifies a connection and the presence of `schema_migrations` and `operator_settings`; it is not a check that every migration is current.
+
+| Setup state | Meaning and recovery |
+| --- | --- |
+| Missing | A required variable is unset. Set it in Vercel environment settings, redeploy, and return to Admin. For Database, attach PostgreSQL and set `DATABASE_URL`. |
+| Invalid | A configured value fails its format check. Correct the session secret or administrator list, redeploy, and return. An unset or invalid allowlist denies all Admin access, so fix it in Vercel rather than through Admin. |
+| Unavailable | The database is configured but its check failed. Check the connection URL, database availability, network access, and credentials; redeploy if the environment changed, then reload Admin. |
+| Needs migration | The database connected, but a required table is missing. Redeploy production to apply migrations, or run `DATABASE_URL=<database-url> bun run --cwd apps/web db:migrate` against the intended database from a private operator environment. Then reload Admin. Never run this against production from an unrelated preview. |
+| Ready | The variable checks passed, or the database connected with the required tables present. This does not verify optional provider connections or authorize production use. |
+
+Leaving Home to change Vercel settings, redeploying, and reloading `/admin` recomputes progress; there is no saved wizard state. There is **no public setup wizard or first-user administrator**. Optional checks — **Email sign-in**, **Hosted RPC**, **Prices**, **Secrets keyring**, and **Funding quotes** — do not block required setup. A credential marked **set** is not a verified provider connection; follow that provider's enablement checks before use.
+
+Setup links to **General settings** (`/admin/settings`), **Products and markets** (`/admin/settings/products`), and **Money in and out** (`/admin/settings/funding`). Review these before offering new entries. **Running version** shows the commit, branch, environment, and deployment ID from `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_REF`, `VERCEL_ENV`, and `VERCEL_DEPLOYMENT_ID`. Without a valid commit SHA it says **Build metadata is absent**; do not infer a running commit from a moving branch name.
+
+## Update, backup and recovery
+
+### Update a fork
+
+1. Record the full running commit and deployment ID from **Admin → Overview → Running version**. In your local fork, add the upstream remote once, fetch, and inspect the changes before merging or deploying:
+
+   ```sh
+   git remote add upstream https://github.com/jessepollak/home.git
+   git fetch upstream
+   git diff --name-only <running-commit>..upstream/main -- apps/web/server/db/migrations apps/web/server/funding/migrations .env.example apps/web/shared/operator-settings/contract.ts
+   ```
+
+   If `upstream` already exists, verify its URL rather than adding it again. Review the actual diff, not just filenames, including any settings domain definitions imported by the contract. Check migrations, new environment requirements, and each domain's `schemaVersion`. There is no generic migration-compatibility gate. If Running version lacks metadata, establish the serving deployment's commit in Vercel before proceeding.
+2. **Before merging or running any merge validation**, take a backup and rehearse its restore using the steps below. Keep the pre-update settings metadata so you can compare it after deployment.
+3. Merge `upstream/main` into your fork's deployment branch with `git merge upstream/main`. Resolve conflicts while preserving intentional local changes and review the resolved diff against the running commit. Run `bun check` with `DATABASE_URL` unset or pointing only at a local/isolated scratch database, **never the serving database**. The check includes the app build, which applies migrations when `DATABASE_URL` is set, including values loaded from `apps/web/.env.local`; `env -u DATABASE_URL` alone does not prevent that file from supplying it. Use `DATABASE_URL="" bun check` to explicitly disable database access, or explicitly supply the isolated scratch URL. Only then push to a branch that auto-deploys.
+4. Deploy the reviewed merge with the [launch settings](#launch). Confirm Admin → Running version shows the expected merged commit and deployment ID. Run `db:settings-fingerprint` again and confirm settings revisions and `valueSha256` hashes are unchanged unless an explicitly reviewed change required otherwise. The full fingerprint should match for a same-schema update with no settings or audit changes; applied migrations or new audit entries change the full fingerprint, so compare those separately with the expected changes. Do not accept an unexplained difference.
+
+### Backup and restore rehearsal
+
+Use PostgreSQL client tools compatible with your database. Set `SOURCE_DATABASE_URL` and `SCRATCH_DATABASE_URL` privately; never record their values. Capture the source metadata close to the backup, while settings and audit metadata are stable:
+
+```sh
+DATABASE_URL="$SOURCE_DATABASE_URL" bun run --silent --cwd apps/web db:settings-fingerprint
+TZ=UTC pg_dump --format=custom --file home-before-update.dump "$SOURCE_DATABASE_URL"
+TZ=UTC bun run --silent --cwd apps/web db:backup-check -- --file home-before-update.dump --max-age-hours 24
+```
+
+Alternatively, record the database provider's restore point and its time, then rehearse the provider's restore flow. A provider restore point is not a dump file and is not checked by `db:backup-check`.
+
+`db:backup-check` inspects a custom-format dump with `pg_restore --list` without connecting to a database. It prints JSON metadata and a status line. `--silent` prevents Bun from echoing the full dump path. The default age limit is 24 hours; age uses the older of archive creation time and file modification time, so touching or copying a dump cannot make an old archive look fresh. JSON reports both `archiveCreatedAt` and `modifiedAt`. The archive header records wall-clock time without a reliable zone: run both `pg_dump` and `db:backup-check` with `TZ=UTC`. A header whose time cannot be parsed reports `unreadable` rather than falling back to file modification time.
+
+| Outcome | Exit | Next step |
+| --- | --- | --- |
+| recent | 0 | Readable archive with required settings and migration entries within the age limit; rehearse its restore. |
+| stale | 1 | Archive exceeds the age limit; take a fresh backup before updating. |
+| missing | 2 | File is absent or empty; create a backup. |
+| unreadable | 3 | Archive cannot be inspected or required entries are missing; check the file, format, permissions, and availability of `pg_restore`, then create or check a valid backup. |
+
+**A readable artifact or provider restore point is not a verified restore.** Restore into an isolated scratch database or Neon branch, never production and never a preview sharing production's database. For an empty scratch database:
+
+```sh
+pg_restore --exit-on-error --no-owner --dbname "$SCRATCH_DATABASE_URL" home-before-update.dump
+DATABASE_URL="$SCRATCH_DATABASE_URL" bun run --silent --cwd apps/web db:settings-fingerprint
+```
+
+For a provider restore point, use the provider's restore-to-new-database/branch flow instead. Compare the source snapshot taken at backup time with the scratch result. `db:settings-fingerprint` uses a read-only transaction and emits JSON: migration count/latest, each settings domain's `schemaVersion`, `revision`, `updatedAt`, and `valueSha256`, audit count, and an aggregate `fingerprint`. It does not print settings values. Missing `DATABASE_URL` exits 2; connection or query failure exits 3. A matching result checks this metadata, not every restored table or external service; investigate differences before updating.
+
+Keep the dump private: it contains customer data and may contain sealed secrets. Record only non-secret metadata in evidence: commit, deployment ID, migration count/latest, settings fingerprint/revisions/hashes, audit count, and backup-check JSON with a non-sensitive filename. Never record database URLs, customer records, cookies, provider credentials, or encryption keys.
+
+A local rehearsal exercised a custom-format dump and isolated restore with 29 migrations, one saved regions setting, and one audit entry. Source and scratch metadata matched, as did a same-schema migration rerun. That is not hosted launch, Vercel rollback, provider-restore, or production recovery verification.
+
+### Application rollback
+
+Use **Vercel Instant Rollback** to return to a previous production deployment only after checking the diff between the running and target commits shows **no database migration and no settings `schemaVersion` change**. Check imported domain definitions too, retain the same database/keyring, and review the [secrets-at-rest rollback restriction](secrets-at-rest.md#balance-webhook-signing-secrets). Otherwise stop: an application rollback does not undo database changes, and older code rejects a stored settings schema version higher than it knows, causing that domain to fail closed. No generic gate proves backward compatibility.
+
+Before rolling back, follow the [funding rollback caveat](operator-checklist.md#roll-back): corridors paused only in saved settings can reopen in older releases; removing provider credentials can strand open orders by stopping status refresh and webhooks. Do not remove them while those orders remain open. After rollback, reload Admin and confirm **Running version** shows the restored older commit and expected deployment ID, then compare the settings metadata again. If the target predates Running version, stop rather than claiming this confirmation succeeded.
+
+### Database recovery
+
+Database recovery requires **explicit approval from whoever owns the instance**. Restore the chosen backup or restore point to a **new database or Neon branch**, verify it in isolation, then repoint Vercel's `DATABASE_URL` and redeploy compatible application code. Do not overwrite production as a rehearsal or recovery shortcut.
+
+Keep the same `HOME_SECRET_*` keyring, including the current and previous keys and key version needed by the restored rows, so sealed rows stay readable; follow [Secrets at rest](secrets-at-rest.md) for rotation and recovery limits. Never export keys into evidence. Confirm Running version and the restored settings metadata after redeployment. **Onchain transactions and provider events are not undone by a database restore**; reconcile them separately before resuming operations.
 
 ## Home application
 
-Your Home Vercel project uses **Root Directory** `apps/web`; Vercel runs `bun run build` there, which is `bun run db:migrate && next build`, so migrations run in the production build step (the gate skips non-production Vercel builds and unset `DATABASE_URL`).
-
-| Setting | Value |
-| --- | --- |
-| Root Directory | `apps/web` |
-| Framework preset | Next.js |
-| Install Command | `bun install --frozen-lockfile` |
-| Build Command | `bun run build` |
-| Node.js | 22+ |
-| Fluid compute | Enabled (Project Settings → Functions) |
+Use the [Launch settings](#launch) for the Home application project. The following sections cover platform behavior and additional protections.
 
 ### Database pool lifecycle
 
@@ -33,7 +123,7 @@ After the setting change, the operator runs unauthenticated live probes for the 
 
 ### Administrator access
 
-Set server-only `HOME_OPERATOR_ADDRESSES` to comma-separated `0x` + 40-hex-character Base smart-account addresses and redeploy. Blank, malformed, or duplicate entries deny every administrator; surrounding ASCII whitespace is accepted. Rotation or recovery means editing the list and redeploying: new addresses are admitted, removed addresses are denied, and customer sessions and data remain untouched. The deployment access gate, when enabled, runs first; a valid Home session and separate operator decision follow. `/admin` pages require a server-reverified native session, not a CDP render hint; the admin API also accepts verified CDP bearer authentication. The Settings section at `/admin` includes an Invest pane for discovery visibility; without a database it shows a full-catalog notice, and when the database read is unavailable it shows a retry-later notice. Support chat routes `/api/support/chat` and `/api/support/handoff` and administrator routes `/api/admin/support/assistant/credential` and `/api/admin/support/conversations/[id]/handler` remain behind the shared deployment-access gate; none are public or machine routes. Each request separately checks its customer or operator session, and every mutation enforces same-origin JSON. The assistant key is supplied by an operator, sealed in PostgreSQL with the existing server-only `HOME_SECRET_ENCRYPTION_KEY`/`HOME_SECRET_KEY_VERSION` keyring, and never placed in client or deployment variables. Missing keyring disables the assistant without changing the shared firewall. The operator console at `/admin` provides navigation and empty-state sections, plus the Settings fee form, the support inbox, and the Money fee revenue view when the settings store and database are available; Account entry and the remaining operational data views are not yet available.
+Set server-only `HOME_OPERATOR_ADDRESSES` to comma-separated `0x` + 40-hex-character Base smart-account addresses and redeploy. Blank, malformed, or duplicate entries deny every administrator; surrounding ASCII whitespace is accepted. Rotation or recovery means editing the list and redeploying: new addresses are admitted, removed addresses are denied, and customer sessions and data remain untouched. The deployment access gate, when enabled, runs first; a valid Home session and separate operator decision follow. `/admin` pages require a server-reverified native session, not a CDP render hint; the admin API also accepts verified CDP bearer authentication. The Settings section at `/admin` includes an Invest pane for discovery visibility; without a database it shows a full-catalog notice, and when the database read is unavailable it shows a retry-later notice. Support chat routes `/api/support/chat` and `/api/support/handoff` and administrator routes `/api/admin/support/assistant/credential` and `/api/admin/support/conversations/[id]/handler` remain behind the shared deployment-access gate; none are public or machine routes. Each request separately checks its customer or operator session, and every mutation enforces same-origin JSON. The assistant key is supplied by an operator, sealed in PostgreSQL with the existing server-only `HOME_SECRET_ENCRYPTION_KEY`/`HOME_SECRET_KEY_VERSION` keyring, and never placed in client or deployment variables. Missing keyring disables the assistant without changing the shared firewall. The operator console at `/admin` starts with the Overview setup checklist and Running version. It also provides Settings, the support inbox, and the Money fee revenue view when the settings store and database are available; Account entry and some operational data views are not yet available.
 
 On an authorized protected deployment, supply deployment access separately, then probe `curl -i https://<host>/api/admin/session`: without Home authentication expect 401, with a non-admin session expect 403, and with an administrator session expect 200 and the address. Check `Cache-Control` includes `private` and `no-store` for each; do not record access cookies, bearer tokens, or personal data. These are manual protected-deployment checks, not proof from local CI.
 

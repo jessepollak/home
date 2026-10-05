@@ -89,8 +89,8 @@ Built on this branch today. Provider integrations still need live, funded confir
 
 **Operator console** (early)
 
-- An administrator-authorized console at `/admin` whose Settings section edits offered regions and Invest discovery visibility; changes are written to an admin audit log.
-- Invite links with first-touch attribution and a Growth summary. The other console sections are empty states for now.
+- An administrator-authorized console at `/admin` with an Overview setup checklist and running version. Settings edits offered regions, products, funding corridors, fees, and Invest discovery visibility; changes are written to an admin audit log.
+- Invite links with first-touch attribution and a Growth summary. Some operational views remain empty states.
 
 **Design**
 
@@ -105,6 +105,14 @@ Built on this branch today. Provider integrations still need live, funded confir
 - Layer boundaries, dead code, and design-system rules are enforced in lint and CI, with Playwright and Storybook coverage.
 
 In progress: tokenized stock trading, card programs (provider foundations only), operator fees, applying saved brand settings to customer pages, and the operator support inbox.
+
+## Deploy your own
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fjessepollak%2Fhome&root-directory=apps%2Fweb&env=HOME_SESSION_SECRET&envDescription=Session%20secret%20of%20at%20least%2032%20bytes&envLink=https%3A%2F%2Fgithub.com%2Fjessepollak%2Fhome%2Fblob%2Fmain%2Fdocs%2Fvercel-deploy.md%23launch)
+
+The button copies Home into a new repository and sets Root Directory to `apps/web`. It does not provision a database or set the Install Command. It asks only for `HOME_SESSION_SECRET`; add `HOME_OPERATOR_ADDRESSES` after you know your Base smart-account address, as the guide explains. For a fork that keeps upstream updates, fork Home on GitHub, then use Vercel **Add New → Project** to import your fork with the [launch settings](docs/vercel-deploy.md#launch).
+
+Follow that guide through database provisioning, first-run Admin setup, and [updates, backups, and recovery](docs/vercel-deploy.md#update-backup-and-recovery). A completed setup is not production or real-money authorization.
 
 ## Get started
 
@@ -128,14 +136,14 @@ bun dev
 ```
 For a fresh worktree of an existing clone, run `bun run worktree:bootstrap` first: it installs a real dependency tree and reports a base that is behind `origin`'s default branch without rebasing. Add `-- --copy-env` to copy `apps/web/.env.local` from the primary checkout when it is absent.
 
-Open `http://localhost:3000`. Public surfaces work without credentials. The optional pre-release deployment password gate is disabled unless `HOME_ACCESS_REQUIRED=1`; it is not Home customer or administrator authentication. Production rollout and rollback are documented in [Vercel deploy](docs/vercel-deploy.md#pre-release-production-access).
+Open `http://localhost:3000`. Public surfaces work without credentials. The optional pre-release deployment password gate is disabled unless `HOME_ACCESS_REQUIRED=1`; it is not Home customer or administrator authentication. Hosted launch and recovery are documented in [Vercel deploy](docs/vercel-deploy.md#launch); the separate [pre-release access gate](docs/vercel-deploy.md#pre-release-production-access) does not grant production authorization.
 
 | Sign-in method | Requirements | Guide |
 | --- | --- | --- |
-| Base Account | `HOME_SESSION_SECRET` (at least 32 characters); no CDP project and no database | [Base Account](docs/base-account.md) |
+| Base Account | `HOME_SESSION_SECRET` (at least 32 UTF-8 bytes); no CDP project and no database | [Base Account](docs/base-account.md) |
 | Email | Your own CDP project and an allowed local origin | [CDP setup](docs/cdp-setup.md) |
 
-A secret shorter than 32 characters silently disables the Base Account button. Keep secrets server-side and out of Git.
+A secret shorter than 32 UTF-8 bytes after trimming silently disables the Base Account button. Keep secrets server-side and out of Git.
 
 Actions require PostgreSQL through `DATABASE_URL`. The current action contract is [Actions](docs/actions.md) under [Architecture](docs/architecture.md): Home keeps one confirmed action record; the server authors calldata; the client dispatches through CDP or Base; provider and chain data determine status.
 
@@ -150,6 +158,8 @@ bun typecheck  # generated route types and strict TypeScript
 bun build      # production build
 bun check      # repository gates, test, lint, typecheck, and build
 ```
+
+`bun build` and `bun check` apply database migrations when `DATABASE_URL` is set, including through `apps/web/.env.local`. Never validate against a serving database: use an isolated local/scratch database or run `DATABASE_URL="" bun check` to override any env-file value. For deployed updates, [back up and rehearse the restore before merging or validating](docs/vercel-deploy.md#update-a-fork).
 
 ## Customize it
 

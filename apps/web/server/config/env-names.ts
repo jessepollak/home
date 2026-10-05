@@ -95,6 +95,8 @@ export const ALLOWED_ENV_NAMES = [
   "RIPIO_WEBHOOK_SECRET_CO",
   "VERCEL_DEPLOYMENT_ID",
   "VERCEL_ENV",
+  "VERCEL_GIT_COMMIT_REF",
+  "VERCEL_GIT_COMMIT_SHA",
 ] as const;
 
 export type AllowedEnvName = (typeof ALLOWED_ENV_NAMES)[number];

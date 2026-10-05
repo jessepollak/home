@@ -57,7 +57,7 @@ The remaining distinct browser regressions run with `bun run --cwd apps/web test
 
 The hosted 15-case trial exceeded the 75s suite budget. The final 7-case selection removes eight detailed/overlapping gate journeys while preserving them in regression; it keeps the existing budget rather than extending it.
 
-The fast suite uses two workers and serial HTTP compilation of only `/admin/settings/funding` and `/cash/savings` before workers start. This avoids concurrent first-navigation compilation; it uses isolated fixture cookies, rejects redirects/non-200 responses, disposes the request context, and remains inside the same global/job budgets. The broad admin browser warm-up is reserved for regression. Smoke keeps one diagnostic retry, failure screenshots and retained failure traces. Traces still record attempted actions and DOM/network evidence; continuous video encoding is removed. CI installs the pinned Chromium headless shell only, using Chromium shared libraries already provided by the Ubuntu hosted image. Successful runs also retain JSON test timings. The existing required check name remains **Chromium smoke**.
+The fast suite uses two workers and serial HTTP compilation of `/admin`, `/admin/settings/funding`, and `/cash/savings` before workers start. This avoids concurrent first-navigation compilation; it uses isolated fixture cookies, rejects redirects/non-200 responses, disposes the request context, and remains inside the same global/job budgets. The broad admin browser warm-up is reserved for regression. Smoke keeps one diagnostic retry, failure screenshots and retained failure traces. Traces still record attempted actions and DOM/network evidence; continuous video encoding is removed. CI installs the pinned Chromium headless shell only, using Chromium shared libraries already provided by the Ubuntu hosted image. Successful runs also retain JSON test timings. The existing required check name remains **Chromium smoke**.
 
 ## Runtime budget and remaining options
 
@@ -68,7 +68,7 @@ The target is the complete Chromium job, not all CI or queue time. Playwright ha
 | Option | Expected effect | Decision |
 | --- | --- | --- |
 | Small essential suite, two workers | Removes most of the ~13m serial workload | Implemented; measure cold hosted runtime. |
-| Serial compilation of two cold navigation targets | Prevents workers racing over Next dev compilation; compile time counts inside the global and job budgets | Implemented; no cross-run cache needed. |
+| Serial compilation of three cold navigation targets | Prevents workers racing over Next dev compilation; compile time counts inside the global and job budgets | Implemented; no cross-run cache needed. |
 | Delete duplicate matrices | Removes ~100s of old full-suite work and repeated flake opportunities | Implemented, with retained behavior mapping above. |
 | Install only headless shell; remove video encoding | Less download and per-context recording work | Implemented; no browser-version change. |
 | Avoid redundant apt installation on hosted Ubuntu | First hosted install spent ~49s on apt metadata, unrelated font downloads and graphics-library upgrades; browser download was ~2s | Implemented: use existing shared libraries; missing dependencies still fail browser launch. |

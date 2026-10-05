@@ -31,6 +31,8 @@
     "test:browser-production-navigation": "HOME_PLAYWRIGHT_PRODUCTION=1 playwright test --config playwright.config.ts --project chromium-production-navigation",
     "test:browser-install": "playwright install --with-deps chromium",
     "db:migrate": "bun --conditions=react-server ./server/db/migrate.ts",
+    "db:backup-check": "bun --conditions=react-server ./server/db/backup-check-command.ts",
+    "db:settings-fingerprint": "bun --conditions=react-server ./server/db/settings-fingerprint-command.ts",
     "db:backfill-operator": "bun --conditions=react-server ./server/operator-events/backfill-command.ts",
     "db:backfill-customer-ids": "bun --conditions=react-server ./server/customers/record-ids-backfill-command.ts",
     "cdp-swaps:checkpoint": "bun --conditions=react-server ./server/actions/kinds/trade/checkpoint-command.ts",
