@@ -26,6 +26,7 @@ interface StartOptions {
   logPath: string;
   command: { file: string; args: string[] };
   cwd: string;
+  cards?: boolean;
   deadlineMs?: number;
 }
 
@@ -196,7 +197,7 @@ export async function startFixtureServer(options: StartOptions): Promise<Fixture
 }
 
 async function startLockedFixtureServer(options: StartOptions): Promise<FixtureState> {
-  const { port, statePath, logPath, command, cwd, deadlineMs = 120_000 } = options;
+  const { port, statePath, logPath, command, cwd, cards = false, deadlineMs = 120_000 } = options;
   const previous = readFixtureState(statePath, port);
   if (previous && groupIsAlive(previous.pid)) {
     throw new Error(`fixture server already running on port ${port} (group ${previous.pid}); stop it first`);
@@ -211,6 +212,7 @@ async function startLockedFixtureServer(options: StartOptions): Promise<FixtureS
       detached: true,
       stdio: ["ignore", descriptor, descriptor],
       env: {
+        ...(cards ? { BRIDGE_CARDS_ENABLED: "1" } : {}),
         DATABASE_URL: "",
         HOME: homedir(),
         PATH: process.env.PATH,
@@ -332,18 +334,25 @@ export async function runFixtureServer(args: string[]): Promise<number> {
   try {
     const [action, ...flags] = args;
     if (action !== "start" && action !== "stop") {
-      throw new Error("Usage: fixture-server start|stop [--port <n>] [--state <path>]");
+      throw new Error("Usage: fixture-server start [--port <n>] [--state <path>] [--cards] | stop [--port <n>] [--state <path>]");
     }
     let explicitPort: string | undefined;
     let explicitState: string | undefined;
-    for (let index = 0; index < flags.length; index += 2) {
+    let cards = false;
+    for (let index = 0; index < flags.length; index += 1) {
       const flag = flags[index];
+      if (flag === "--cards") {
+        if (action !== "start") throw new Error("--cards is only valid with start.");
+        cards = true;
+        continue;
+      }
       const value = flags[index + 1];
       if (!value || value.startsWith("--") || (flag !== "--port" && flag !== "--state")) {
         throw new Error(`Invalid fixture-server option ${flag}; use --port <n> or --state <path>.`);
       }
       if (flag === "--port") explicitPort = value;
       else explicitState = value;
+      index += 1;
     }
     const port = parseFixturePort(explicitPort, process.env.HOME_FIXTURE_PORT);
     const directory = join(tmpdir(), "home-fixture-server");
@@ -354,6 +363,7 @@ export async function runFixtureServer(args: string[]): Promise<number> {
       const state = await startFixtureServer({
         port,
         statePath,
+        cards,
         logPath: join(directory, `${port}.log`),
         command: { file: "bun", args: ["run", "dev", "--", "--port", String(port)] },
         cwd: resolve(import.meta.dir, ".."),
