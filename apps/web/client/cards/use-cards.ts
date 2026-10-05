@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { AccountWalletClient } from "@/client/account/cdp-client";
 import { browserHomeQueryClient, disabledQueryKey, ownerQueryKey, ownerQueryMeta, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import {
@@ -11,6 +11,7 @@ import {
   type CardEphemeralKeyResponse,
   type CardsResponse,
 } from "@/shared/cards/contract";
+import { CARD_PENDING_WINDOW_MS, CARD_RETURN_WINDOW_MS, cardsPollInterval } from "./card-polling";
 
 type FetchAccountResource = AccountWalletClient["fetchAccountResource"];
 
@@ -30,19 +31,28 @@ export class CardRefreshError extends Error {
 
 type ConfirmRead = (response: CardsResponse) => boolean;
 
-export function useCards({ ownerKey, fetchAccountResource }: {
+export function useCards({ ownerKey, fetchAccountResource, intervalMs }: {
   ownerKey: string | null;
   fetchAccountResource: FetchAccountResource;
+  intervalMs?: number;
 }) {
   const queryClient = useHomeQueryClient(browserHomeQueryClient());
   const queryKey = useMemo(() => ownerKey ? ownerQueryKey(ownerKey, "cards") : disabledQueryKey("cards"), [ownerKey]);
-  const query = useHomeQuery({
+  const pollWindow = useRef<{ owner: string | null; returnUntil: number; pendingUntil: number | null }>({ owner: null, returnUntil: 0, pendingUntil: null });
+  const query = useHomeQuery<CardsResponse>({
     queryKey,
     enabled: Boolean(ownerKey),
     meta: ownerKey ? ownerQueryMeta(ownerKey, "memory") : undefined,
     staleTime: 15_000,
     retry: false,
     refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      if (pollWindow.current.owner !== ownerKey) pollWindow.current = { owner: ownerKey, returnUntil: 0, pendingUntil: null };
+      const now = Date.now();
+      const state = query.state.data?.state;
+      if (state === "verification-pending" && pollWindow.current.pendingUntil === null) pollWindow.current.pendingUntil = now + CARD_PENDING_WINDOW_MS;
+      return cardsPollInterval(state, pollWindow.current, now, intervalMs);
+    },
     queryFn: async ({ signal }): Promise<CardsResponse> => {
       const response = parseCardsResponse(await fetchAccountResource("/api/cards", { signal }));
       if (!response) throw new Error("Invalid cards response");
@@ -57,6 +67,7 @@ export function useCards({ ownerKey, fetchAccountResource }: {
     if (url.pathname !== "/card" || url.searchParams.get("return") !== "verification") return;
     url.searchParams.delete("return");
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+    pollWindow.current = { owner: ownerKey, returnUntil: Date.now() + CARD_RETURN_WINDOW_MS, pendingUntil: null };
     void refresh();
   }, [ownerKey, refresh]);
   const reread = useCallback(async (): Promise<CardsResponse> => {
