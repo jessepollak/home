@@ -538,22 +538,41 @@ export function presentActivityLedgerEntries(
   });
 }
 
+function cardDecline(reason: CardPurchase["declineReasonCode"]): Pick<ActivityLedgerItem, "statusLabel" | "ownerSentence" | "nextAction"> {
+  switch (reason) {
+    case "card_inactive": return {
+      statusLabel: "Card was locked",
+      ownerSentence: { title: "Declined because your card was locked", description: "Nothing was charged." },
+      nextAction: { kind: "unlock-card", label: "Unlock card" },
+    };
+    case "insufficient_funds": return {
+      statusLabel: "Not enough Cash",
+      ownerSentence: { title: "Not enough available to spend", description: "Nothing was charged. Add money and try again." },
+      nextAction: { kind: "add-money", label: "Add money" },
+    };
+    default: return {
+      statusLabel: "Declined",
+      ownerSentence: { title: "Declined", description: "Nothing was charged." },
+    };
+  }
+}
+
 function cardItem(purchase: CardPurchase, options: Options): ActivityLedgerItem {
   const amount = formatFiatAmount(BigInt(purchase.amountMinor), 2, purchase.currency, { regionId: options.regionId });
   const status = ({ pending: "waiting-provider", declined: "failed", completed: "confirmed",
     reversed: "reversed", refunded: "refunded" } as const)[purchase.status];
-  const statusLabel = purchase.status === "declined" && purchase.declineReasonCode
-    ? `Declined · ${purchase.declineReasonCode.replaceAll("_", " ")}`
-    : purchase.status[0]!.toUpperCase() + purchase.status.slice(1);
+  const presentation = purchase.status === "declined" ? cardDecline(purchase.declineReasonCode) : {
+    statusLabel: purchase.status[0]!.toUpperCase() + purchase.status.slice(1),
+    ...(purchase.status === "reversed" ? { ownerSentence: { title: "Reversed", description: "Your balance didn't change." } } : {}),
+  };
   const unchanged = purchase.status === "declined" || purchase.status === "reversed";
   const prefix = purchase.status === "refunded" ? "+" : unchanged ? "" : "−";
   return {
-    family: "card", id: purchase.id, status, statusLabel, timestamp: purchase.createdAt, updatedAt: purchase.updatedAt,
+    family: "card", id: purchase.id, status, ...presentation, timestamp: purchase.createdAt, updatedAt: purchase.updatedAt,
     dateLabel: formatPresentationDate(purchase.createdAt, { style: "activity-short", ...options }),
     fullDateLabel: formatPresentationDate(purchase.createdAt, { style: "activity-full", ...options }),
     title: purchase.merchantName, amount: `${prefix}${amount}`, detailAmount: `${prefix}${amount}`,
     direction: purchase.status === "refunded" ? "in" : unchanged ? "none" : "out",
-    ...(unchanged ? { ownerSentence: { title: purchase.status === "declined" ? "Declined" : "Reversed", description: "Your balance didn't change." } } : {}),
     mark: { kind: "glyph", glyph: "card" }, activateLabel: `View ${purchase.merchantName} card purchase details`,
     detail: { family: "card", merchant: purchase.merchantName, cardLabel: "Card" },
   };

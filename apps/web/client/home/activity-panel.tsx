@@ -23,6 +23,7 @@ import type { RegionId } from "@/config/regions";
 import { useCashOutWithdrawJourney } from "@/client/activity/cash-out-withdraw-journey";
 import { openPanelAfterClose, useOptionalHomeShellRouting } from "./panel-routing";
 import { ShimmerRows } from "./panel-shared";
+import { useOptionalShellPage } from "./shell-page-context";
 import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder } from "@/client/funding/cancel-order";
 import { fundingOrderKey } from "@/client/funding/funding-queries";
 import { readFundingOrderResponse } from "@/shared/funding/contracts/order";
@@ -112,6 +113,7 @@ export function ConnectedActivityPanel({
     },
   }));
   const routing = useOptionalHomeShellRouting();
+  const cardsEnabled = useOptionalShellPage()?.cardsEnabled === true;
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelActionKind, setCancelActionKind] = useState<ActivityLedgerNextActionKind | null>(null);
@@ -290,6 +292,19 @@ export function ConnectedActivityPanel({
       retryActions={retryActions}
       retryOrders={retryOrders}
       onOrderAction={(order, kind) => { void onOrderAction(order, kind); }}
+      canCardAct={(kind) => kind === "add-money" || cardsEnabled}
+      onCardAction={routing ? (kind, close) => {
+        if (kind === "add-money") {
+          if (routing.setFlow("add-money", { mode: "push", opener: null })) {
+            routing.setActivityReturn?.(null);
+            setReviewOpened((count) => count + 1);
+          }
+        } else if (cardsEnabled) {
+          routing.setActivityReturn?.(null);
+          close();
+          routing.openPanel("card");
+        }
+      } : undefined}
       onCancelCashout={(operation) => { void cancelCashout(operation); }}
       canOpenAsset={routing?.canOpenAssetDetail}
       onOpenAsset={(assetKey) => {

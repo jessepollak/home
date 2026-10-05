@@ -549,8 +549,8 @@ test("Activity renders seeded card purchases across all statuses and decline rea
 
   const recent = activity.getByRole("list", { name: "Recent" });
   for (const { merchant, label, amount } of [
-    { merchant: "Lyft", label: "Declined · card inactive", amount: "$18.20" },
-    { merchant: "Whole Foods Market", label: "Declined · insufficient funds", amount: "$64.10" },
+    { merchant: "Lyft", label: "Card was locked", amount: "$18.20" },
+    { merchant: "Whole Foods Market", label: "Not enough Cash", amount: "$64.10" },
     { merchant: "Whole Foods Market", label: "Completed", amount: "−$42.18" },
     { merchant: "Grand Hotel", label: "Reversed", amount: "$100.00" },
     { merchant: "Apple", label: "Refunded", amount: "+$9.99" },
