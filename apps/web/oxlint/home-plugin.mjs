@@ -49,6 +49,7 @@ import { noFetchInClientComponents, queryKeyFactory } from "./rules/client-data.
 import { noAddressLiteralRegex } from "./rules/address-literals.mjs";
 import { noRawProcessEnv } from "./rules/raw-env.mjs";
 import { noFullPortfolioPresentation } from "./rules/portfolio-presentation.mjs";
+import { noRawClipboardWrite } from "./rules/clipboard.mjs";
 
 import { boundedCdpEventQuery } from "./rules/cdp-event-query.mjs";
 import { noLocalCdpJwt } from "./rules/no-local-cdp-jwt.mjs";
@@ -103,6 +104,7 @@ const homePlugin = {
     "query-key-factory": queryKeyFactory,
     "no-address-literal-regex": noAddressLiteralRegex,
     "no-raw-process-env": noRawProcessEnv,
+    "no-raw-clipboard-write": noRawClipboardWrite,
     "no-comments": noComments,
     "no-sheet-primitives": noSheetPrimitives,
     "no-sheet-primitive-reexports": noSheetPrimitiveReexports,

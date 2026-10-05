@@ -203,6 +203,16 @@
       "rules": { "home/no-sheet-primitives": "error" }
     },
     {
+      "files": ["{app,client,components}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
+      "excludeFiles": [
+        "components/copyable-value.tsx",
+        "**/*.test.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/*.stories.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
+        "**/tests/**", "**/testing/**", "**/explorations/**"
+      ],
+      "rules": { "home/no-raw-clipboard-write": "error" }
+    },
+    {
       "files": ["{app,client,components,stories}/**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"],
       "excludeFiles": ["components/ui/**"],
       "rules": { "home/no-sheet-primitive-reexports": "error" }
