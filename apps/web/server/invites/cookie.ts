@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readHomeSessionSecret } from "@/server/config/env";
+
 import { createHmac } from "node:crypto";
 import { isInviteCode } from "@/shared/invites/contract";
 import { cookie, readCookie, readSignedValue, signedValue } from "@/server/auth/signed-cookie";
@@ -13,13 +15,13 @@ function inviteSecret(secretValue: string | undefined): Buffer | null {
   return createHmac("sha256", secret).update("home-invite").digest();
 }
 
-export function issueInviteCookie(request: Request, code: string, now: Date = new Date(), secretValue = process.env.HOME_SESSION_SECRET): string | null {
+export function issueInviteCookie(request: Request, code: string, now: Date = new Date(), secretValue = readHomeSessionSecret()): string | null {
   const secret = inviteSecret(secretValue);
   if (!secret || !isInviteCode(code)) return null;
   return cookie(HOME_INVITE_COOKIE, signedValue(secret, `${code}:${Math.floor(now.getTime() / 1000)}`), request, MAX_AGE_SECONDS);
 }
 
-export function readInviteCookie(request: Request, now: Date = new Date(), secretValue = process.env.HOME_SESSION_SECRET): string | null {
+export function readInviteCookie(request: Request, now: Date = new Date(), secretValue = readHomeSessionSecret()): string | null {
   const secret = inviteSecret(secretValue);
   const token = readCookie(request, HOME_INVITE_COOKIE).value;
   if (!secret || !token) return null;

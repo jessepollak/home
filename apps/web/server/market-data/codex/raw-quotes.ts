@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import { LRUCache } from "lru-cache";
 
 import type { PortfolioAddress } from "@/config/portfolio-assets";
@@ -133,7 +135,7 @@ export function getCodexRawQuotes(
   inputs: readonly CodexRawQuoteInput[],
   options: { freshnessMs?: number; signal?: AbortSignal } = {},
 ): Promise<PriceQuote[]> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (sharedApiKey !== apiKey) {
     sharedApiKey = apiKey;
     sharedReaders.clear();

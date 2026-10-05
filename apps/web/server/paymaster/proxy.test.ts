@@ -3,7 +3,8 @@ import { isRecord } from "@/shared/guards";
 import { describe, expect, test } from "bun:test";
 import { encodeFunctionData, erc20Abi, keccak256 } from "viem";
 import { encodeCoinbaseExecuteBatch } from "@/server/chain/coinbase-smart-account";
-import type { ActionRow, ActionsStore } from "@/server/actions/store";
+import type { ActionRow } from "@/server/actions/store";
+import type { MoneyActionCall } from "@/shared/money-actions/types";
 import { makePaymasterApproval } from "./fee";
 import { createPaymasterProxyHandler } from "./proxy";
 
@@ -16,8 +17,8 @@ const timestamp = Date.parse("2026-09-28T12:00:00.000Z");
 const summary = { title: "Send", amounts: [], warnings: [], expiresAt: new Date(timestamp + 600000).toISOString(), networkFee: { payment: "usdc", token: usdc, paymaster: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c", decimals: 6, maxFeeBaseUnits: "100000" } } satisfies ActionRow["summary"];
 const calls = [
   makePaymasterApproval(BigInt(100000)),
-  { to: usdc as `0x${string}`, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [account, BigInt(1000000)] }), value: "0" },
-];
+  { to: usdc, data: encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [account, BigInt(1000000)] }), value: "0" },
+] satisfies MoneyActionCall[];
 const callData = encodeCoinbaseExecuteBatch(calls);
 const row = { owner_key: JSON.stringify(["user", account, 8453, "cdp-embedded"]), summary, created_at: new Date(timestamp).toISOString(), confirmed_at: new Date(timestamp).toISOString(), confirmed_call_data_hash: keccak256(callData) };
 const result = { paymasterAndData: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c1234", tokenPayment: { address: usdc, maxFee: "0x186a0", decimals: 6, name: "USDC" } };
@@ -25,8 +26,8 @@ const result = { paymasterAndData: "0x2FAEB0760D4230Ef2aC21496Bb4F0b47D634FD4c12
 function call(options: { method?: string; sender?: string; callData?: unknown; chain?: number | string; row?: Pick<ActionRow, "owner_key" | "summary" | "created_at" | "confirmed_at" | "confirmed_call_data_hash"> | null; result?: unknown; now?: number; entryPoint?: string; id?: string } = {}) {
   let forwarded = 0;
   const handler = createPaymasterProxyHandler({
-    store: { getForPaymaster: async () => options.row === undefined ? row : options.row } as unknown as ActionsStore,
-    client: { request: async () => { forwarded++; return options.result ?? result; } } as never,
+    store: { getForPaymaster: async () => options.row === undefined ? row : options.row },
+    client: { request: async () => { forwarded++; return options.result ?? result; } },
     now: () => options.now ?? timestamp,
   });
   const method = options.method ?? "pm_getPaymasterStubData";
@@ -36,6 +37,26 @@ function call(options: { method?: string; sender?: string; callData?: unknown; c
 }
 
 describe("paymaster proxy", () => {
+  test.each(["oversized", "content-length", "malformed", "empty", "aborted"])("rejects %s bodies before forwarding", async (failure) => {
+    let forwarded = 0;
+    const handler = createPaymasterProxyHandler({
+      store: { getForPaymaster: async () => row },
+      client: { request: async () => { forwarded++; return result; } },
+      now: () => timestamp,
+    });
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "pm_getAcceptedPaymentTokens", params: [ep, "0x2105"] });
+    const request = new Request("https://home.test/api/actions/123/paymaster", {
+      method: "POST",
+      headers: failure === "content-length" ? { "content-length": String(256 * 1024 + 1) } : undefined,
+      signal: failure === "aborted" ? AbortSignal.abort() : undefined,
+      body: failure === "oversized" ? " ".repeat(256 * 1024) + body : failure === "malformed" ? "{" : failure === "empty" ? undefined : body,
+    });
+    const response = await handler(request, { params: Promise.resolve({ id }) });
+    expect(response.status).toBe(400);
+    expect(await readJson(response)).toEqual({ error: { code: "INVALID_RPC", message: "A JSON-RPC object is required." } });
+    expect(forwarded).toBe(0);
+    expect(request.body?.locked ?? false).toBe(false);
+  });
   test.each(["pm_getPaymasterStubData", "pm_getPaymasterData"])("passes a matching %s operation below the approved cap through", async (method) => {
     const { response, forwarded } = call({ method });
     const res = await response;
@@ -45,7 +66,7 @@ describe("paymaster proxy", () => {
     expect(forwarded()).toBe(1);
   });
   test("accepts only the confirmed fee-prepended trade batch", async () => {
-    const tradeCalls = [calls[0]!, { ...calls[1]!, data: "0x095ea7b3" as const }, { to: account as `0x${string}`, data: "0x1234abcd" as const, value: "0" }];
+    const tradeCalls = [calls[0]!, { ...calls[1]!, data: "0x095ea7b3" as const }, { to: account, data: "0x1234abcd" as const, value: "0" }] satisfies MoneyActionCall[];
     const tradeData = encodeCoinbaseExecuteBatch(tradeCalls);
     const tradeRow = { ...row, summary: { ...summary, title: "Buy Bitcoin" }, confirmed_call_data_hash: keccak256(tradeData) };
     const accepted = call({ row: tradeRow, callData: tradeData });

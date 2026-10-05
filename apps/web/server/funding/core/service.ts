@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { createHash, randomUUID } from "node:crypto";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import type { FundingErrorCode } from "@/shared/funding/contracts/errors";
@@ -63,7 +65,7 @@ export class FundingCore {
   private readonly now: () => Date;
   private readonly customerStore: FundingProviderCustomerStore;
   constructor(private readonly deps: FundingCoreDependencies) {
-    this.env = deps.env ?? process.env;
+    this.env = deps.env ?? serverEnvironment();
     this.now = deps.now ?? (() => new Date());
     this.customerStore = deps.customerStore ?? new MemoryFundingProviderCustomerStore();
     this.regionOffered = deps.regionOffered ?? isRegionOffered;

@@ -5,6 +5,7 @@ import { baseRpc, parseRpcQuantity } from "@/server/chain/rpc";
 import { readErc20ExecutionIdentity, TokenChainUnavailable, TokenUnreadable } from "@/server/chain/erc20-execution-identity";
 import { readsToken0 } from "@/server/chain/pair";
 import { getCdpAccessTokenValidator } from "@/server/cdp/provider";
+import { readCdpCredentials } from "@/server/config/env";
 import { privateError, privateJson } from "@/server/http/private-response";
 import { convertDirectionAdmitted, resolveTradeAsset } from "@/shared/trading/assets";
 import { resolveConvertPair } from "@/shared/currencies/convert";
@@ -28,10 +29,9 @@ export function createTradeAvailabilityHandler(deps: {
   return async function GET(request: Request): Promise<Response> {
     const session = await (deps.authorize ?? authorizeSession)(request);
     if (session instanceof Response) return session;
-    const env = deps.env ?? process.env;
     const unavailable = (reason: TradeUnavailableReason) =>
       privateJson(parseTradeAvailabilityResponse({ version: TRADE_AVAILABILITY_CONTRACT_VERSION, status: "unavailable", reason })!, 200);
-    if (!env.CDP_API_KEY_ID?.trim() || !env.CDP_API_KEY_SECRET?.trim()) return unavailable("provider-unconfigured");
+    if (readCdpCredentials(deps.env).status !== "complete") return unavailable("provider-unconfigured");
     if (!session.smartAccount) return unavailable("account-unavailable");
     try {
       const signer = await (deps.resolveSigner ?? createTradeSignerResolver({ getValidator: getCdpAccessTokenValidator }))(request, session, request.signal);

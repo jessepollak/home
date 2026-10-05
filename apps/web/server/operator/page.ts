@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { cookies } from "next/headers";
 import { HOME_CDP_LIVE_COOKIE, HOME_CDP_SESSION_COOKIE, type RenderCookieStore } from "@/server/auth/cdp-render-session";
 import { HOME_SESSION_COOKIE, readNativeBaseSessionToken } from "@/server/auth/native-base-session";
@@ -8,7 +10,7 @@ import { readOperatorConfig } from "./config";
 
 export function decideOperatorPageAccess(
   store: RenderCookieStore,
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = serverEnvironment(),
   now: Date = new Date(),
 ): OperatorDecision {
   const native = store.getAll(HOME_SESSION_COOKIE);

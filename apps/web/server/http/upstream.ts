@@ -96,13 +96,15 @@ export type UpstreamResult<T> =
   | { ok: true; status: number; headers: Headers; value: T; durationMs: number }
   | { ok: false; kind: "aborted" | "timeout" | "transport"; dispatched: boolean; cause?: unknown; durationMs: number }
   | { ok: false; kind: "invalid"; cause?: unknown; durationMs: number }
-  | { ok: false; kind: "http"; status: number; durationMs: number }
+  | { ok: false; kind: "http"; status: number; headers: Headers; body?: Uint8Array; durationMs: number }
   | { ok: false; kind: "oversized"; limitBytes: number; durationMs: number };
 
 export type UpstreamRequestOptions<T = unknown> = {
   init?: Omit<RequestInit, "signal">;
   deadline: UpstreamDeadline;
   maxBytes: number;
+  maxHeaderBytes?: number;
+  errorBodyMaxBytes?: number;
   parse?: (value: unknown) => T;
   responseType?: "json" | "text";
   fetchImpl?: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>;
@@ -181,12 +183,18 @@ export async function upstreamRequest(
   if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 1) {
     throw new RangeError("Upstream maxBytes must be a positive safe integer.");
   }
+  if (options.maxHeaderBytes !== undefined && (!Number.isSafeInteger(options.maxHeaderBytes) || options.maxHeaderBytes < 1)) {
+    throw new RangeError("Upstream maxHeaderBytes must be a positive safe integer.");
+  }
+  if (options.errorBodyMaxBytes !== undefined && (!Number.isSafeInteger(options.errorBodyMaxBytes) || options.errorBodyMaxBytes < 1)) {
+    throw new RangeError("Upstream errorBodyMaxBytes must be a positive safe integer.");
+  }
   const { deadline, maxBytes, log } = options;
   const start = deadline.now();
   let dispatched = false;
   let responseStatus: number | undefined;
   const method = options.init?.method?.toUpperCase() ?? "GET";
-  const fail = (kind: FailureKind, details: { status?: number; cause?: unknown } = {}): UpstreamResult<unknown> => {
+  const fail = (kind: FailureKind, details: { status?: number; headers?: Headers; body?: Uint8Array; cause?: unknown } = {}): UpstreamResult<unknown> => {
     const durationMs = Math.max(0, deadline.now() - start);
     if (log) {
       const status = details.status ?? responseStatus;
@@ -203,7 +211,10 @@ export async function upstreamRequest(
         durationMs,
       });
     }
-    if (kind === "http") return { ok: false, kind, status: details.status!, durationMs };
+    if (kind === "http") {
+      if (details.status === undefined || details.headers === undefined) throw new Error("Upstream http failure requires status and headers.");
+      return { ok: false, kind, status: details.status, headers: details.headers, ...(details.body === undefined ? {} : { body: details.body }), durationMs };
+    }
     if (kind === "oversized") return { ok: false, kind, limitBytes: maxBytes, durationMs };
     if (kind === "invalid") return { ok: false, kind, ...(details.cause === undefined ? {} : { cause: details.cause }), durationMs };
     return { ok: false, kind, dispatched, ...(details.cause === undefined ? {} : { cause: details.cause }), durationMs };
@@ -245,15 +256,39 @@ export async function upstreamRequest(
       cancelBody(response.body);
       return fail("invalid");
     }
-    if (!response.ok) {
-      cancelBody(response.body);
-      return fail("http", { status: response.status });
-    }
     const declaredLengthHeader = response.headers.get("content-length");
     const encoding = response.headers.get("content-encoding");
     const declaredLength = (!encoding || encoding.trim().toLowerCase() === "identity") &&
       declaredLengthHeader !== null && /^\d+$/.test(declaredLengthHeader)
       ? Number(declaredLengthHeader) : undefined;
+    if (!response.ok) {
+      let body: Uint8Array | undefined;
+      if (
+        options.errorBodyMaxBytes === undefined ||
+        (declaredLength !== undefined && declaredLength > options.errorBodyMaxBytes)
+      ) {
+        cancelBody(response.body);
+      } else {
+        try {
+          const bytes = await boundedBytes(response.body, options.errorBodyMaxBytes, deadline.signal);
+          if (bytes !== "oversized" && !deadline.interruptionKind()) body = bytes;
+        } catch {
+          return fail("http", { status: response.status, headers: response.headers });
+        }
+      }
+      return fail("http", { status: response.status, headers: response.headers, body });
+    }
+    if (options.maxHeaderBytes !== undefined) {
+      const encoder = new TextEncoder();
+      let headerBytes = 0;
+      response.headers.forEach((value, name) => {
+        headerBytes += encoder.encode(name).byteLength + encoder.encode(value).byteLength;
+      });
+      if (headerBytes > options.maxHeaderBytes) {
+        cancelBody(response.body);
+        return fail("invalid");
+      }
+    }
     const validLength = declaredLength !== undefined && Number.isSafeInteger(declaredLength) ? declaredLength : undefined;
     if (declaredLength !== undefined && declaredLength > maxBytes) {
       cancelBody(response.body);

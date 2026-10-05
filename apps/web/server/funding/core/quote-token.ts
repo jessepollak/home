@@ -1,6 +1,7 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { timingSafeEqualBytes } from "@/server/http/hmac";
 import type { Quote } from "@/shared/funding/provider-contract";
 
 export type FundingQuoteClaims = {
@@ -38,7 +39,7 @@ export function authenticateFundingQuote(token: string, secret: string): Authent
     const supplied = Buffer.from(signature, "base64url");
     if (payloadBytes.toString("base64url") !== payload || supplied.toString("base64url") !== signature) return null;
     const expected = createHmac("sha256", secret).update(payload).digest();
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return null;
+    if (!timingSafeEqualBytes(supplied, expected)) return null;
     const claims = JSON.parse(payloadBytes.toString("utf8")) as unknown;
     if (!validClaims(claims)) return null;
     return { claims, canonicalToken: `${payload}.${signature}` };

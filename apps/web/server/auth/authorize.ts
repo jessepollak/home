@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readHomeSessionSecret } from "@/server/config/env";
+
 import {
   ACCOUNT_PROVIDER_HEADER,
   BASE_CHAIN_ID,
@@ -21,7 +23,7 @@ type SessionBoundary = (
 
 export const sessionHandler = createSessionHandler({
   getValidator: () => getCdpAccessTokenValidator(),
-  baseAccountEnabled: () => isHomeSessionConfigured(process.env.HOME_SESSION_SECRET),
+  baseAccountEnabled: () => isHomeSessionConfigured(readHomeSessionSecret()),
 });
 
 export async function authorizeSession(

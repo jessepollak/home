@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import {
   investAssets,
   type InvestAsset,
@@ -132,7 +134,7 @@ let sharedReader: ReturnType<typeof createCodexMarketPricesReader> | null = null
 let sharedKey: string | undefined;
 
 export function getCodexMarketPrices(): Promise<MarketPricesResponse> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedReader || sharedKey !== apiKey) {
     sharedKey = apiKey;
     sharedReader = createCodexMarketPricesReader({ apiKey });

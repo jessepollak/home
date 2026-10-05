@@ -1,5 +1,8 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
+import { createUpstreamDeadline, upstreamRequest } from "@/server/http/upstream";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type {
   FundingDirection,
@@ -8,6 +11,8 @@ import type {
   FundingWebhookManifest,
   OfframpContext,
   ProviderContext,
+  ProviderRequestOptions,
+  ProviderRequestResult,
 } from "@/shared/funding/provider-contract";
 
 export const PROVIDER_FETCH_TIMEOUT_MS = 6_000;
@@ -79,10 +84,10 @@ type ContextOptions = {
   timeoutMs?: number;
   sandbox?: boolean;
 };
-const providerFetchImplementations = new WeakMap<typeof fetch, typeof fetch>();
+const providerRequestIdentities = new WeakMap<ProviderContext["request"], typeof fetch>();
 
-export function providerFetchImplementation(providerFetch: typeof fetch): typeof fetch {
-  return providerFetchImplementations.get(providerFetch) ?? providerFetch;
+export function providerRequestIdentity(request: ProviderContext["request"]): ProviderContext["request"] | typeof fetch {
+  return providerRequestIdentities.get(request) ?? request;
 }
 
 export function createProviderContext(options: ContextOptions & { direction: "offramp" }): OfframpContext;
@@ -112,7 +117,7 @@ export function createProviderContext(options: ContextOptions): ProviderContext 
   }
 
   const selectedCapability = capabilityFor(options.manifest, direction, options.sandbox === true);
-  const source = options.env ?? process.env;
+  const source = options.env ?? serverEnvironment();
   const declaredEnvironment: Record<string, string> = {};
   for (const name of directional.env) {
     const value = source[name]?.trim();
@@ -133,69 +138,53 @@ export function createProviderContext(options: ContextOptions): ProviderContext 
   const allowedOrigins = normalizeOrigins(selectedCapability.apiOrigins);
   const fetchImplementation = options.fetchImplementation ?? fetch;
 
-  const boundedFetch = (async (
-    input: RequestInfo | URL,
-    init: RequestInit = {},
-  ): Promise<Response> => {
-    const url = requestUrl(input);
+  const request = async <T = unknown>(
+    input: string,
+    requestOptions: ProviderRequestOptions<T>,
+  ): Promise<ProviderRequestResult<T>> => {
+    let url: URL;
+    try {
+      url = requestUrl(input);
+    } catch {
+      return { ok: false, kind: "invalid" };
+    }
     if (!allowedOrigins.has(url.origin)) {
       throw new FundingProviderFetchError(
         `Funding provider origin ${url.origin} is not allowed.`,
       );
     }
-
-    const controller = new AbortController();
-    let interrupted = false;
-    let rejectInterruption: (error: FundingProviderFetchError) => void = () => undefined;
-    const interruption = new Promise<never>((_resolve, reject) => {
-      rejectInterruption = reject;
-    });
-    const interrupt = (message: string, cause?: unknown) => {
-      if (interrupted) return;
-      interrupted = true;
-      controller.abort(cause);
-      rejectInterruption(new FundingProviderFetchError(message, { cause }));
-    };
-    const timeout = setTimeout(
-      () => interrupt("The funding provider request timed out."),
-      timeoutMs,
-    );
-    const externalSignal = init.signal;
-    const abortFromExternal = () => interrupt(
-      "The funding provider request was aborted.",
-      externalSignal?.reason,
-    );
-    if (externalSignal?.aborted) {
-      clearTimeout(timeout);
-      throw new FundingProviderFetchError(
-        "The funding provider request was already aborted.",
-        { cause: externalSignal.reason },
-      );
-    }
-    externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
-
     try {
-      return await Promise.race([
-        fetchImplementation(input, {
-          ...init,
-          redirect: "manual",
-          signal: controller.signal,
-        }),
-        interruption,
-      ]);
-    } catch (error) {
-      if (error instanceof FundingProviderFetchError) throw error;
-      throw new FundingProviderFetchError(
-        "The funding provider request failed.",
-        { cause: error },
-      );
-    } finally {
-      clearTimeout(timeout);
-      externalSignal?.removeEventListener("abort", abortFromExternal);
+      const result = await upstreamRequest(input, {
+        deadline: createUpstreamDeadline({ timeoutMs, signal: requestOptions.signal }),
+        fetchImpl: fetchImplementation,
+        init: {
+          method: requestOptions.method,
+          headers: requestOptions.headers,
+          body: requestOptions.body,
+          cache: "no-store",
+        },
+        maxBytes: requestOptions.maxBytes,
+        maxHeaderBytes: requestOptions.maxHeaderBytes,
+        errorBodyMaxBytes: requestOptions.errorBodyMaxBytes,
+        responseType: requestOptions.responseType,
+        parse: requestOptions.parse ?? ((value) => value as T),
+      });
+      if (result.ok) return { ok: true, status: result.status, value: result.value };
+      if (result.kind === "http") {
+        return {
+          ok: false,
+          kind: "http",
+          status: result.status,
+          ...(result.body === undefined ? {} : { body: result.body }),
+        };
+      }
+      return { ok: false, kind: result.kind };
+    } catch {
+      return { ok: false, kind: "invalid" };
     }
-  }) as typeof fetch;
+  };
 
-  providerFetchImplementations.set(boundedFetch, fetchImplementation);
+  providerRequestIdentities.set(request, fetchImplementation);
   const common = {
     binding: Object.freeze({
       region: binding.region,
@@ -207,7 +196,7 @@ export function createProviderContext(options: ContextOptions): ProviderContext 
     }),
     env: Object.freeze(declaredEnvironment),
     sandbox: options.sandbox === true,
-    fetch: boundedFetch,
+    request,
   };
   return Object.freeze(
     direction === "offramp"

@@ -117,6 +117,21 @@ describe("CDP access-token provider", () => {
     ]);
   });
 
+  test("passes trimmed server credentials to the SDK", async () => {
+    const constructorOptions: Array<Record<string, string>> = [];
+    class FakeCdpClient {
+      endUser = { validateAccessToken: async () => ({}) };
+      constructor(options: Record<string, string>) {
+        constructorOptions.push(options);
+      }
+    }
+    await createCdpAccessTokenValidator({
+      env: { CDP_API_KEY_ID: " \tserver-key-id\n", ["CDP_API_KEY_" + "SECRET"]: "\nserver-key-private-part \t" },
+      loadSdk: async () => ({ CdpClient: FakeCdpClient }),
+    });
+    expect(constructorOptions).toEqual([{ apiKeyId: "server-key-id", ["apiKey" + "Secret"]: "server-key-private-part" }]);
+  });
+
   test("maps invalid, expired, and cross-project validation rejections to unauthenticated", async () => {
     for (const providerError of [
       { statusCode: 401, errorType: "unauthorized" },

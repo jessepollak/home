@@ -1,5 +1,5 @@
 import { authorizeFundingSession, getFundingCore } from "@/server/funding/core/runtime";
-import { handleFundingQuotePost } from "./handler";
+import { handleFundingQuotePost } from "@/server/funding/handlers/quotes";
 
 
 export async function POST(request: Request): Promise<Response> {

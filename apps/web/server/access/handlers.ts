@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { readBoundedRequestText } from "@/server/http/request";
 import { readAccessConfig, type AccessConfig } from "./config";
 import { ACCESS_TOKEN_TTL_MS, issueAccessToken } from "./token";
 import { clearCookie, cookie, equalText, requestOrigin } from "@/server/auth/signed-cookie";
@@ -60,7 +61,9 @@ async function readForm(request: Request): Promise<URLSearchParams | null> {
     (length !== null && (!Number.isFinite(length) || length < 0 || length > MAX_BODY_BYTES))
   ) return null;
   try {
-    const text = await request.text();
+    const body = await readBoundedRequestText(request, { maxBytes: MAX_BODY_BYTES, fatal: false, ignoreContentLength: true });
+    if (body.kind !== "ok" && body.kind !== "empty") return null;
+    const text = body.kind === "ok" ? body.text : "";
     if (Buffer.byteLength(text, "utf8") > MAX_BODY_BYTES) return null;
     return new URLSearchParams(text);
   } catch {

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { type AccountRenderSeed } from "@/shared/account/session-types";
 import {
   HOME_SESSION_COOKIE,
@@ -14,7 +16,7 @@ export type RenderSession = AccountRenderSeed;
 
 export function readRenderSession(
   cookies: RenderCookieStore,
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = serverEnvironment(),
   now: Date = new Date(),
 ): RenderSession | null {
   const nativeCookies = cookies.getAll(HOME_SESSION_COOKIE);

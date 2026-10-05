@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import type { ExactDecimal } from "@/shared/balances/types";
 import { MemoryPriceObservationStore } from "./memory-price-observation-store";
@@ -113,7 +115,7 @@ export class PostgresPriceObservationStore implements PriceObservationStore {
 let runtimeStore: PriceObservationStore | null = null;
 
 export function getPriceObservationStore(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
 ): PriceObservationStore {
   if (runtimeStore) return runtimeStore;
   runtimeStore = env.DATABASE_URL?.trim()

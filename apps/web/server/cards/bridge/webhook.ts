@@ -1,6 +1,7 @@
 import "server-only";
 
-import { createHash, createHmac, createPublicKey, timingSafeEqual, verify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, verify } from "node:crypto";
+import { timingSafeEqualBytes } from "@/server/http/hmac";
 import type { BridgeConfig } from "./config";
 import type { CardObservation, CardProvider, CardVerification } from "../provider";
 
@@ -47,7 +48,7 @@ export function createStripeWebhookProvider(config: BridgeConfig, now: () => num
       if (stamps.length !== 1 || candidates.length === 0) return { outcome: "rejected" };
       const expected = createHmac("sha256", config.stripeWebhookSecret).update(stamps[0].slice(2)).update(".").update(raw).digest();
       let matched = false;
-      for (const candidate of candidates) matched = timingSafeEqual(expected, Buffer.from(candidate.slice(3), "hex")) || matched;
+      for (const candidate of candidates) matched = timingSafeEqualBytes(expected, Buffer.from(candidate.slice(3), "hex")) || matched;
       if (!matched) return { outcome: "rejected" };
       const data = parseObject(raw);
       if (!data || !id(data.id) || typeof data.type !== "string" || !object(data.data) || !object(data.data.object) ||

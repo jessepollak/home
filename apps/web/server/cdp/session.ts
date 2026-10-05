@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readHomeSessionSecret } from "@/server/config/env";
+
 import {
   ACCOUNT_PROVIDER_HEADER,
   BASE_CHAIN_ID,
@@ -283,7 +285,7 @@ export function createSessionHandler({
     const nativeBaseAccountEnabled = typeof baseAccountEnabled === "function"
       ? baseAccountEnabled()
       : baseAccountEnabled ?? isHomeSessionConfigured(
-        homeSessionSecret ?? process.env.HOME_SESSION_SECRET,
+        homeSessionSecret ?? readHomeSessionSecret(),
       );
     const nativeSession = nativeBaseAccountEnabled
       ? readNativeBaseSession(request, homeSessionSecret)

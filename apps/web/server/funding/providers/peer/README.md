@@ -35,7 +35,7 @@ Pinned boundaries:
 
 ### Deliberate SDK egress deviation
 
-The exact installed `@zkp2p/cash` 0.5.3 and `@zkp2p/sdk` 0.14.1 APIs expose pinned curator/indexer URLs but no fetch implementation injection for the calls used here. Home therefore cannot route those SDK requests through `ctx.fetch` without unsafe global monkey-patching. The adapter fail-closes unless both origins equal Home's manifest literals, passes those literal URLs to both clients, pins the Base RPC URL, and configures the SDK/API and RPC timeouts at 6 seconds where the installed APIs allow. The Cash client's indexer calls retain the package's internal timeout behavior because its client options expose no timeout or `AbortSignal`.
+The exact installed `@zkp2p/cash` 0.5.3 and `@zkp2p/sdk` 0.14.1 APIs expose pinned curator/indexer URLs but no fetch implementation injection for the calls used here. Home therefore cannot route those SDK requests through `ctx.request` without unsafe global monkey-patching. The adapter fail-closes unless both origins equal Home's manifest literals, passes those literal URLs to both clients, pins the Base RPC URL, and configures the SDK/API and RPC timeouts at 6 seconds where the installed APIs allow. The Cash client's indexer calls retain the package's internal timeout behavior because its client options expose no timeout or `AbortSignal`.
 
 ### Owner-list representation and malformed-row policy
 

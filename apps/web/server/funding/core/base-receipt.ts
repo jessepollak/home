@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { baseRpc, parseRpcQuantity } from "@/server/chain/rpc";
 import { getFundingAsset } from "@/shared/funding/assets";
 import type { FundingOrder } from "./store";
@@ -8,13 +10,13 @@ import type { ReceiptMatch } from "./service";
 const TRANSFER_TOPIC = `0x${"ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"}`;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
 
-export async function readCurrentBaseBlock(env: Readonly<Record<string, string | undefined>> = process.env, fetchImplementation: typeof fetch = fetch): Promise<string> {
+export async function readCurrentBaseBlock(env: Readonly<Record<string, string | undefined>> = serverEnvironment(), fetchImplementation: typeof fetch = fetch): Promise<string> {
   const value = await rpc("eth_blockNumber", [], env, fetchImplementation);
   try { return parseRpcQuantity(value, "block number").toString(10); }
   catch { throw new Error("invalid-base-block"); }
 }
 
-export async function verifyBaseFundingReceipt(order: FundingOrder, hash: `0x${string}`, env: Readonly<Record<string, string | undefined>> = process.env, fetchImplementation: typeof fetch = fetch): Promise<ReceiptMatch> {
+export async function verifyBaseFundingReceipt(order: FundingOrder, hash: `0x${string}`, env: Readonly<Record<string, string | undefined>> = serverEnvironment(), fetchImplementation: typeof fetch = fetch): Promise<ReceiptMatch> {
   const asset = getFundingAsset(order.assetId);
   if (!HASH.test(hash) || !order.expectedTokenAmountAtomic || !asset) return null;
   const value = await rpc("eth_getTransactionReceipt", [hash], env, fetchImplementation);

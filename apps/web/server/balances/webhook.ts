@@ -1,6 +1,7 @@
 import "server-only";
 
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
+import { timingSafeEqualBytes } from "@/server/http/hmac";
 import { emitServerEvent } from "@/server/observability/log";
 import { HISTORY_CHAIN_ID, type HistoryStore } from "./history/types";
 import type { BalanceSnapshotStore } from "./snapshot-store";
@@ -146,7 +147,7 @@ export function verifyCdpWebhookSignature(raw: Uint8Array, header: string | null
     if (!/^[0-9a-fA-F]{64}$/.test(signature)) return false;
     const expected = createHmac("sha256", secret).update(payload).digest();
     const candidate = Buffer.from(signature, "hex");
-    return candidate.length === expected.length && timingSafeEqual(candidate, expected);
+    return timingSafeEqualBytes(candidate, expected);
   });
 }
 

@@ -1,6 +1,10 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
+import { parseAddress, parseHash32, type Address, type Hash32 } from "@/shared/chain/hex";
 import { fundingAssets } from "@/shared/funding/assets";
+import type { ProviderContext, ProviderRequestOptions, ProviderRequestResult } from "@/shared/funding/provider-contract";
 
 const RIPIO_PRODUCTION_ORIGIN = "https://skala.ripio.com";
 const RIPIO_BASE_CHAIN = "BASE" as const;
@@ -59,10 +63,8 @@ const RIPIO_ASSETS = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_RESPONSE_BYTES = 64 * 1024;
 const MAX_RESPONSE_HEADER_BYTES = 16 * 1024;
-const RESPONSE_BODY_TIMEOUT_MS = 6_000;
 
 type Environment = Record<string, string | undefined>;
-type RipioFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export class RipioProviderError extends Error {
   readonly code:
@@ -96,7 +98,7 @@ export type RipioKycStatus = string;
 export type RipioTransactionReference = {
   transactionId: string;
   status: string;
-  txnHash: string | null;
+  txnHash: Hash32 | null;
   customerId?: string;
   quoteId?: string;
   externalRef?: string;
@@ -104,7 +106,7 @@ export type RipioTransactionReference = {
   fromCurrency?: string;
   toCurrency?: string;
   chain?: string;
-  destination?: `0x${string}`;
+  destination?: Address;
   paymentMethodType?: string;
   amount?: string;
   latestRefund: { status: string; rejectionReason: string | null } | null;
@@ -154,11 +156,11 @@ export type RipioClient = {
 
 export function createRipioClient(country: RipioCountry, options: {
   env?: Environment;
-  fetchImplementation?: RipioFetch;
+  request: ProviderContext["request"];
   now?: () => number;
-} = {}): RipioClient {
-  const env = options.env ?? process.env;
-  const fetchImplementation = options.fetchImplementation ?? fetch;
+}): RipioClient {
+  const env = options.env ?? serverEnvironment();
+  const transport = options.request;
   const now = options.now ?? Date.now;
   const clientId = env[`RIPIO_CLIENT_ID_${country}`]?.trim();
   const clientSecret = env[`RIPIO_CLIENT_SECRET_${country}`]?.trim();
@@ -168,9 +170,12 @@ export function createRipioClient(country: RipioCountry, options: {
     if (!clientId || !clientSecret) throw new RipioProviderError("not-configured");
     if (clientId.length > 512 || clientSecret.length > 512) throw new RipioProviderError("invalid-request");
     if (cachedToken && cachedToken.expiresAt - 60_000 > now()) return cachedToken.value;
-    let response: Response;
+    let response: ProviderRequestResult<unknown>;
     try {
-      response = await fetchImplementation(`${RIPIO_PRODUCTION_ORIGIN}/oauth2/token/`, {
+      response = await transport(`${RIPIO_PRODUCTION_ORIGIN}/oauth2/token/`, {
+        maxBytes: MAX_RESPONSE_BYTES,
+        maxHeaderBytes: MAX_RESPONSE_HEADER_BYTES,
+        responseType: "json",
         method: "POST",
         headers: {
           Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
@@ -181,11 +186,19 @@ export function createRipioClient(country: RipioCountry, options: {
     } catch (error) {
       throw new RipioProviderError("unavailable", null, error);
     }
-    if (response.status === 401 || response.status === 403) {
-      throw new RipioProviderError("unauthorized", response.status);
+    if (!response.ok) {
+      if (response.kind === "http") {
+        if (response.status === 401 || response.status === 403) {
+          cachedToken = null;
+          throw new RipioProviderError("unauthorized", response.status);
+        }
+        throw new RipioProviderError("unavailable", response.status);
+      }
+      throw new RipioProviderError(
+        response.kind === "oversized" || response.kind === "invalid" ? "invalid-response" : "unavailable",
+      );
     }
-    if (!response.ok) throw new RipioProviderError("unavailable", response.status);
-    const value = await readJson(response);
+    const value = response.value;
     if (
       !isRecord(value) ||
       typeof value.access_token !== "string" ||
@@ -202,12 +215,15 @@ export function createRipioClient(country: RipioCountry, options: {
     return cachedToken.value;
   }
 
-  async function request(path: string, init: RequestInit = {}, create = false): Promise<unknown> {
+  async function request(path: string, init: Pick<ProviderRequestOptions, "method" | "body" | "headers"> = {}, create = false): Promise<unknown> {
     const token = await accessToken();
-    let response: Response;
+    let response: ProviderRequestResult<unknown>;
     try {
-      response = await fetchImplementation(`${RIPIO_PRODUCTION_ORIGIN}${path}`, {
+      response = await transport(`${RIPIO_PRODUCTION_ORIGIN}${path}`, {
         ...init,
+        maxBytes: MAX_RESPONSE_BYTES,
+        maxHeaderBytes: MAX_RESPONSE_HEADER_BYTES,
+        responseType: "json",
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: "application/json",
@@ -218,18 +234,25 @@ export function createRipioClient(country: RipioCountry, options: {
     } catch (error) {
       throw new RipioProviderError(create ? "ambiguous-create" : "unavailable", null, error);
     }
-    if (response.status === 401 || response.status === 403) {
-      cachedToken = null;
-      throw new RipioProviderError("unauthorized", response.status);
-    }
     if (!response.ok) {
+      if (response.kind !== "http") {
+        throw new RipioProviderError(
+          response.kind === "oversized" || response.kind === "invalid"
+            ? "invalid-response"
+            : create ? "ambiguous-create" : "unavailable",
+        );
+      }
+      if (response.status === 401 || response.status === 403) {
+        cachedToken = null;
+        throw new RipioProviderError("unauthorized", response.status);
+      }
       const uncertainCreate = create && response.status !== 400;
       throw new RipioProviderError(
         uncertainCreate ? "ambiguous-create" : response.status < 500 ? "invalid-request" : "unavailable",
         response.status,
       );
     }
-    return readJson(response);
+    return response.value;
   }
 
   return {
@@ -269,7 +292,7 @@ export function createRipioClient(country: RipioCountry, options: {
       );
     },
     async createOnramp(input) {
-      if (![input.customerId, input.quoteId, input.externalRef].every(validUuid) || !validAddress(input.destination) || (country === "BR" && !validDecimal(input.fiatAmount))) {
+      if (![input.customerId, input.quoteId, input.externalRef].every(validUuid) || parseAddress(input.destination) === null || (country === "BR" && !validDecimal(input.fiatAmount))) {
         throw new RipioProviderError("invalid-request");
       }
       return parseCreateResponse(
@@ -382,13 +405,12 @@ function parseTransaction(value: unknown, expectedTransactionId?: string): Ripio
   const depositAddress = optionalString(value, "depositAddress");
   const amount = optionalString(value, "amount");
   if (source !== undefined && source !== "ON_RAMP") throw new RipioProviderError("invalid-response");
-  if (depositAddress !== undefined && !validAddress(depositAddress)) throw new RipioProviderError("invalid-response");
+  const destination = parseAddress(depositAddress);
+  if (depositAddress !== undefined && destination === null) throw new RipioProviderError("invalid-response");
   if (amount !== undefined && !validDecimal(amount)) throw new RipioProviderError("invalid-response");
   const txnHash = value.txnHash === undefined || value.txnHash === null
     ? null
-    : typeof value.txnHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(value.txnHash)
-      ? value.txnHash
-      : invalidTransactionField();
+    : parseHash32(value.txnHash) ?? invalidTransactionField();
   return {
     transactionId: value.transactionId,
     status: value.status,
@@ -400,7 +422,7 @@ function parseTransaction(value: unknown, expectedTransactionId?: string): Ripio
     ...(fromCurrency ? { fromCurrency } : {}),
     ...(toCurrency ? { toCurrency } : {}),
     ...(chain ? { chain } : {}),
-    ...(depositAddress ? { destination: depositAddress } : {}),
+    ...(destination ? { destination } : {}),
     ...(paymentMethodType ? { paymentMethodType } : {}),
     ...(amount ? { amount } : {}),
     latestRefund: parseLatestRefund(value.latestRefund),
@@ -466,48 +488,8 @@ function optionalUuid(value: Record<string, unknown>, field: string): string | u
 }
 function invalidTransactionField(): never { throw new RipioProviderError("invalid-response"); }
 function conflicts(actual: string | undefined, expected: string): boolean { return actual !== undefined && actual !== expected; }
-async function readJson(response: Response): Promise<unknown> {
-  assertBoundedHeaders(response);
-  const declared = response.headers.get("content-length");
-  if (declared && (!/^\d+$/.test(declared) || Number(declared) > MAX_RESPONSE_BYTES)) {
-    throw new RipioProviderError("invalid-response", response.status);
-  }
-  const reader = response.body?.getReader();
-  if (!reader) throw new RipioProviderError("invalid-response", response.status);
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new RipioProviderError("invalid-response", response.status)), RESPONSE_BODY_TIMEOUT_MS);
-    });
-    while (true) {
-      const { done, value } = await Promise.race([reader.read(), timeout]);
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_RESPONSE_BYTES) throw new RipioProviderError("invalid-response", response.status);
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
-  } catch (error) {
-    if (error instanceof RipioProviderError) throw error;
-    throw new RipioProviderError("invalid-response", response.status, error);
-  } finally {
-    if (timer) clearTimeout(timer);
-    await reader.cancel().catch(() => undefined);
-  }
-}
-function assertBoundedHeaders(response: Response): void {
-  let size = 0;
-  response.headers.forEach((value, name) => { size += Buffer.byteLength(name) + Buffer.byteLength(value); });
-  if (size > MAX_RESPONSE_HEADER_BYTES) throw new RipioProviderError("invalid-response", response.status);
-}
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value); }
 function validUuid(value: unknown): value is string { return typeof value === "string" && UUID.test(value); }
-function validAddress(value: unknown): value is `0x${string}` { return typeof value === "string" && /^0x[0-9a-fA-F]{40}$/.test(value); }
 function validDecimal(value: unknown): value is string { return typeof value === "string" && /^(0|[1-9][0-9]*)(\.[0-9]+)?$/.test(value); }
 function exactRipioEntitlement(input: RipioQuoteRequest): boolean {
   const asset = RIPIO_ASSETS[input.country];
@@ -515,7 +497,7 @@ function exactRipioEntitlement(input: RipioQuoteRequest): boolean {
     && input.toCurrency === asset.token
     && input.chain === RIPIO_BASE_CHAIN
     && validUuid(input.customerId)
-    && /^0x[0-9a-fA-F]{40}$/.test(input.destination)
+    && parseAddress(input.destination) !== null
     && asset.paymentMethods.includes(input.paymentMethodType as never)
     && validDecimal(input.fromAmount)
     && /[1-9]/.test(input.fromAmount);

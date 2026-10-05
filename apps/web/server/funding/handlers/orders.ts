@@ -1,3 +1,5 @@
+import "server-only";
+
 import { FUNDING_ORDER_VERSION, readFundingOrderResponse } from "@/shared/funding/contracts/order";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
 import {
@@ -16,8 +18,8 @@ import {
   parseResolveFundingOrderRequest,
 } from "@/shared/funding/contracts/order-resolution";
 import { assertFundingOpenOrderResponse, FUNDING_OPEN_ORDER_VERSION, parseFundingOpenOrderQuery } from "@/shared/funding/contracts/open-order";
-import { emitUnknownFundingOrderRouteFailure } from "./event";
-import { readJson } from "@/shared/http/read-json";
+import { emitUnknownFundingOrderRouteFailure } from "./orders-event";
+import { readJsonBody } from "@/server/http/request";
 import { FUNDING_ORDER_CANCELLATION_VERSION, parseCancelFundingOrderRequest, readCancelFundingOrderResponse } from "@/shared/funding/contracts/order-cancellation";
 
 type FundingOrderPostDependencies = {
@@ -72,12 +74,9 @@ export async function handleFundingOrderPost(
   if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
     return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
   }
-  let body: unknown;
-  try {
-    body = await readJson(request);
-  } catch {
-    return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
-  }
+  const read = await readJsonBody(request, { maxBytes: 64 * 1024 });
+  if (read.kind !== "ok") return privateError("INVALID_ORDER_REQUEST", "A valid quote token is required.", 400);
+  const body = read.value;
   try {
     const response = {
       version: FUNDING_ORDER_VERSION,
@@ -182,12 +181,9 @@ export async function handleFundingOrderResolutionPost(
   if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
     return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
   }
-  let body: unknown;
-  try {
-    body = await readJson(request);
-  } catch {
-    return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
-  }
+  const read = await readJsonBody(request, { maxBytes: 64 * 1024 });
+  if (read.kind !== "ok") return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
+  const body = read.value;
   if (!parseResolveFundingOrderRequest(body)) {
     return privateError("INVALID_ORDER_RESOLUTION_REQUEST", "A valid resolution request is required.", 400);
   }
@@ -225,12 +221,9 @@ export async function handleFundingOrderCancellationPost(
   if (request.headers.get("content-type")?.split(";", 1)[0] !== "application/json") {
     return privateError("INVALID_ORDER_CANCELLATION_REQUEST", "A valid cancellation request is required.", 400);
   }
-  let body: unknown;
-  try {
-    body = await readJson(request);
-  } catch {
-    return privateError("INVALID_ORDER_CANCELLATION_REQUEST", "A valid cancellation request is required.", 400);
-  }
+  const read = await readJsonBody(request, { maxBytes: 64 * 1024 });
+  if (read.kind !== "ok") return privateError("INVALID_ORDER_CANCELLATION_REQUEST", "A valid cancellation request is required.", 400);
+  const body = read.value;
   if (!parseCancelFundingOrderRequest(body)) {
     return privateError("INVALID_ORDER_CANCELLATION_REQUEST", "A valid cancellation request is required.", 400);
   }

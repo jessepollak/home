@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlExecutor } from "@/server/db/sql";
 import { recordCustomerIds } from "@/server/customers/record-ids";
 import { SECRET_ENVELOPE_PATTERN, envelopeKeyVersion } from "@/server/secrets/at-rest";
@@ -106,4 +108,4 @@ export class PostgresFundingProviderUserTokenStore implements FundingProviderUse
   }
   async countNotAtVersion(activeVersion: number) { const result = await this.query("SELECT count(*)::integer AS count FROM funding_provider_user_tokens WHERE key_version <> $1", [activeVersion]); return Number(result.rows[0]?.count ?? 0); }
 }
-export function createRuntimeFundingProviderUserTokenStore(env: Readonly<Record<string, string | undefined>> = process.env) { return new PostgresFundingProviderUserTokenStore(getSqlExecutor(env)); }
+export function createRuntimeFundingProviderUserTokenStore(env: Readonly<Record<string, string | undefined>> = serverEnvironment()) { return new PostgresFundingProviderUserTokenStore(getSqlExecutor(env)); }

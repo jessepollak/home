@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import {
   ACTIVITY_PAGE_SIZE,
   ACTIVITY_WINDOW_DAYS,
@@ -183,7 +185,7 @@ async function valueWithinBudget(
 }
 
 export function resolveActivityHistorySource(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  env: Readonly<Record<string, string | undefined>> = serverEnvironment(),
 ): ActivityHistorySource {
   const configured = env.ACTIVITY_HISTORY_SOURCE === undefined
     ? "cdp-sql"
@@ -214,7 +216,7 @@ export const getRecentBaseActivity: ActivityReader = async (
   const history = source === "cdp-address-history"
     ? createCdpAddressHistory({
         assets,
-        transport: createCdpAddressHistoryFromEnv(process.env, {
+        transport: createCdpAddressHistoryFromEnv(serverEnvironment(), {
           timeoutMs: 6_000,
         }),
       })

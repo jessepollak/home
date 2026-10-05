@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { createPublicClient, encodeFunctionData, http, parseAbi } from "viem";
 import { base } from "viem/chains";
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
@@ -78,7 +80,7 @@ export async function prepareCashoutAction(
     candidate.directions.offramp?.paymentMethods.some((method) => method.id === input.platform),
   );
   const direction = binding?.directions.offramp;
-  const env = dependencies.env ?? process.env;
+  const env = dependencies.env ?? serverEnvironment();
   if (!provider?.offramp || !binding || !direction || !environmentAvailable(direction.env, env)) unavailable();
   const regionOffered = await (dependencies.regionOffered ?? isRegionOffered)(binding.region).catch(() => null);
   if (regionOffered === null) throw new CashoutPreparationError("settings-unavailable", "Cash out is unavailable right now. Try again shortly.");
@@ -212,7 +214,7 @@ export async function prepareCashoutWithdrawAction(
     candidate.region === input.region && candidate.assetId === BASE_USDC.fundingId && candidate.directions.offramp,
   );
   const method = binding?.directions.offramp?.paymentMethods[0];
-  const env = dependencies.env ?? process.env;
+  const env = dependencies.env ?? serverEnvironment();
   if (!provider?.offramp || !binding || !method) unavailable();
   const currentMode = resolveFundingMode(provider.manifest, "offramp", env);
   const mode = modeForDeposit(provider.manifest, input.depositId) ?? currentMode;

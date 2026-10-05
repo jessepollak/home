@@ -215,6 +215,23 @@ export type FundingOfframpProvider = {
   withdrawnAmountFromReceipt(receipt: OfframpReceipt, input: { owner: `0x${string}`; depositId: string }): string | null;
 };
 
+export type ProviderRequestOptions<T = unknown> = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  headers?: Readonly<Record<string, string>>;
+  body?: string;
+  signal?: AbortSignal;
+  maxBytes: number;
+  maxHeaderBytes?: number;
+  errorBodyMaxBytes?: number;
+  responseType?: "json" | "text";
+  parse?: (value: unknown) => T;
+};
+
+export type ProviderRequestResult<T> =
+  | { ok: true; status: number; value: T }
+  | { ok: false; kind: "http"; status: number; body?: Uint8Array }
+  | { ok: false; kind: "aborted" | "timeout" | "transport" | "oversized" | "invalid" };
+
 export type ProviderContext = {
   binding: {
     region: CountryCode;
@@ -226,7 +243,7 @@ export type ProviderContext = {
   };
   env: Readonly<Record<string, string>>;
   sandbox: boolean;
-  fetch: typeof fetch;
+  request: <T = unknown>(input: string, options: ProviderRequestOptions<T>) => Promise<ProviderRequestResult<T>>;
 };
 
 export type OfframpContext = ProviderContext & {

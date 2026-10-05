@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import {
   registryActivityTokenMetadata,
   sanitizeActivityTokenDecimals,
@@ -40,7 +42,7 @@ let activityCodexApiKey: string | undefined;
 function getActivityCodexTokenLookup(
   addresses: readonly `0x${string}`[],
 ): Promise<Map<string, CodexTokenLookupEntry>> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!activityCodexLookup || activityCodexApiKey !== apiKey) {
     activityCodexApiKey = apiKey;
     activityCodexLookup = createCodexTokenLookup({

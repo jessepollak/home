@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { getSqlExecutor, type SqlQueryOptions } from "@/server/db/sql";
 import type { SettingsEntry } from "@/shared/operator-settings/contract";
 import { INVEST_HIDE_ALL, INVEST_SETTINGS_DEFAULTS, INVEST_SETTINGS_DOMAIN, parseInvestSettings, type InvestSettings } from "@/shared/operator-settings/invest";
@@ -15,7 +17,7 @@ const READ_DEADLINE_MS = 750;
 
 type Reader = (signal: AbortSignal) => Promise<{ value: InvestSettings; source: "default" | "stored" } | null>;
 
-function runtimeReader(env: Readonly<Record<string, string | undefined>> = process.env): Reader {
+function runtimeReader(env: Readonly<Record<string, string | undefined>> = serverEnvironment()): Reader {
   return async (signal) => {
     if (!env.DATABASE_URL?.trim()) return null;
     const entry = await new OperatorSettingsStore(getSqlExecutor(env)).read(INVEST_SETTINGS_DOMAIN, { timeoutMs: READ_DEADLINE_MS, signal });

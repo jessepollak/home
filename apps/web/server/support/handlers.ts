@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readDatabaseUrl } from "@/server/config/env";
+
 import { ACCOUNT_PROVIDER_HEADER, type VerifiedAccountSession } from "@/shared/account/session-types";
 import { SUPPORT_CONTRACT_VERSION, parseCustomerSupportChatRequest, parseCustomerSupportHandoffRequest, parseSupportCredentialPutRequest, parseOperatorSupportHandlerRequest, parseOperatorSupportListQuery, parseOperatorSupportReplyRequest, parseOperatorSupportStatusRequest, parseSupportMessageCursor, parseSupportReadRequest, type OperatorSupportConversationResponse, type SupportAssistantCapability, type SupportErrorCode, type SupportHandler, type SupportStreamData } from "@/shared/support/contract";
 import { createUIMessageStream, createUIMessageStreamResponse, streamText, stepCountIs, tool, type LanguageModel } from "ai";
@@ -55,7 +57,7 @@ async function conversationJson(result: OperatorSupportConversationResponse | nu
   response.headers.set("ETag", await conversationEtag(result));
   return response;
 }
-function getStore(deps: Dependencies): SupportStore | null { return deps.store ? deps.store() : process.env.DATABASE_URL?.trim() ? new SupportStore(getSqlExecutor()) : null; }
+function getStore(deps: Dependencies): SupportStore | null { return deps.store ? deps.store() : readDatabaseUrl() ? new SupportStore(getSqlExecutor()) : null; }
 function getAudit(deps: Dependencies): AdminAuditLog { return deps.audit ? deps.audit() : new AdminAuditLog(getSqlExecutor()); }
 function getAssistant(deps: Dependencies): SupportAssistantStore { return deps.assistant ? deps.assistant() : new SupportAssistantStore(getSqlExecutor()); }
 async function effective(deps: Dependencies): Promise<EffectiveAssistant> { return getAssistant(deps).effective(); }

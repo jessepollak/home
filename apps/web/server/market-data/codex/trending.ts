@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import {
   BASE_CHAIN_ID,
   cryptoAssets,
@@ -223,7 +225,7 @@ export function getCodexTrendingMemeAdmission(
   contractAddress: string,
   networkId: number,
 ): Promise<boolean> {
-  const apiKey = process.env.CODEX_API_KEY;
+  const apiKey = readCodexApiKey();
   if (!sharedAdmissionReader || sharedAdmissionKey !== apiKey) {
     sharedAdmissionKey = apiKey;
     sharedAdmissionReader = createCodexTrendingMemeAdmissionReader({ apiKey });

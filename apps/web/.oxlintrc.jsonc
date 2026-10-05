@@ -41,6 +41,8 @@
   ],
   "rules": {
     "home/bounded-cdp-event-query": "error",
+    "home/no-raw-process-env": "error",
+    "home/no-local-cdp-jwt": "error",
     "nextjs/google-font-display": "error",
     "nextjs/google-font-preconnect": "error",
     "nextjs/inline-script-id": "error",

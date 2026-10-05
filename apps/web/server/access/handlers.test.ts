@@ -107,6 +107,49 @@ describe("access login", () => {
     }
   });
 
+  test("bounds streamed forms and preserves invalid-access failure contracts", async () => {
+    const controller = new AbortController();
+    const headers = request("").headers;
+    const failed = new Request("https://home.test/api/access", {
+      method: "POST", headers,
+      body: new ReadableStream<Uint8Array>({ start(stream) { stream.error(new Error("read failed")); } }),
+    });
+    let cancelled = false;
+    const aborted = new Request("https://home.test/api/access", {
+      method: "POST", headers, signal: controller.signal,
+      body: new ReadableStream<Uint8Array>({ cancel() { cancelled = true; } }),
+    });
+    const pending = handle(aborted);
+    controller.abort();
+    const cases = [
+      await pending,
+      await handle(failed),
+      await handle(request(body(CREDENTIAL).padEnd(4097, "&"))),
+      await handle(request(body(CREDENTIAL), { "content-type": "application/json" })),
+      await handle(request(body(CREDENTIAL), { "content-length": "invalid" })),
+    ];
+    for (const response of cases) {
+      expect(response.status).toBe(400);
+      expect(accessErrorCode(await response.json())).toBe("INVALID_ACCESS");
+      expect(response.headers.has("set-cookie")).toBe(false);
+    }
+    expect(cancelled).toBe(true);
+    expect(aborted.body?.locked).toBe(false);
+  });
+
+  test("retains form length boundary, Number-coercible lengths and replacement UTF-8", async () => {
+    expect((await handle(request(body(CREDENTIAL).padEnd(4096, "&")))).status).toBe(303);
+    for (const length of ["1e2", "1.5", "0x10", ""]) {
+      expect((await handle(request(body(CREDENTIAL), { "content-length": length }))).status).toBe(303);
+    }
+    const prefix = new TextEncoder().encode(body(CREDENTIAL, "/"));
+    const response = await handle(new Request("https://home.test/api/access", {
+      method: "POST", headers: request("").headers, body: new Uint8Array([...prefix, 0xff]),
+    }));
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("https://home.test/%EF%BF%BD");
+  });
+
   test("fails closed without exposing configuration detail", async () => {
     const unavailable = createAccessLoginHandler({ getConfig: () => ({ kind: "misconfigured" }) });
     const response = await unavailable(request(body(CREDENTIAL)));

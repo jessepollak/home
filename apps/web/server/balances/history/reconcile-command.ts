@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readCodexApiKey } from "@/server/config/env";
+
 import { createCoinbaseDailyFxReader } from "@/server/activity/valuation/coinbase-daily-fx";
 import { createCodexHistoricalCloseReader } from "@/server/activity/valuation/codex-closes";
 import { getBalanceSnapshotStore } from "@/server/balances/snapshot-store";
@@ -58,10 +60,10 @@ async function main() {
       }
     } }, chain });
     const series = createHistorySeries({ store, chain,
-      readCloses: createCodexHistoricalCloseReader({ apiKey: process.env.CODEX_API_KEY }),
+      readCloses: createCodexHistoricalCloseReader({ apiKey: readCodexApiKey() }),
       readFx: createCoinbaseDailyFxReader({}),
     });
-    const catalogReader = createCodexRecognizedTokenCatalogReader({ apiKey: process.env.CODEX_API_KEY });
+    const catalogReader = createCodexRecognizedTokenCatalogReader({ apiKey: readCodexApiKey() });
     const reader = createHistoryReader({ ingest, series, chain, catalog: async () => {
       const result = await catalogReader();
       return new Map(result.entries.map((entry) => [entry.address.toLowerCase(), entry]));

@@ -2,6 +2,7 @@ import "server-only";
 
 import { baseRpc, parseRpcQuantity } from "@/server/chain/rpc";
 import { readErc20ExecutionIdentity } from "@/server/chain/erc20-execution-identity";
+import { readCdpCredentials } from "@/server/config/env";
 import type { Address } from "@/shared/trading/server-types";
 import { createCdpSwapsClient } from "./cdp-swaps";
 import { checkpointExitCode, runSwapsCheckpoint } from "./checkpoint";
@@ -20,7 +21,7 @@ function amount(value: string, decimals: number): bigint {
 }
 
 async function main() {
-  if (!process.env.CDP_API_KEY_ID?.trim() || !process.env.CDP_API_KEY_SECRET?.trim()) {
+  if (readCdpCredentials().status !== "complete") {
     console.error("CDP Swaps credentials are required.");
     process.exitCode = 1;
     return;

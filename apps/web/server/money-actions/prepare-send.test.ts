@@ -50,6 +50,25 @@ function request(assetId: string, amountBaseUnits: string, extra: Record<string,
 }
 
 describe("prepare send", () => {
+  test.each(["oversized", "content-length", "malformed", "empty", "aborted"])("rejects %s bodies before issuance", async (failure) => {
+    let issued = 0;
+    const handler = createPrepareSendMoneyActionHandler({
+      authorize: async () => authorized(),
+      issue: async () => { issued++; throw new Error("invalid body reached issuance"); },
+    });
+    const body = JSON.stringify({ assetId: "usdc", recipient: OTHER, amountBaseUnits: "1" });
+    const input = new Request("https://home.test/api/money-actions/send", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(failure === "content-length" ? { "content-length": String(64 * 1024 + 1) } : {}) },
+      signal: failure === "aborted" ? AbortSignal.abort() : undefined,
+      body: failure === "oversized" ? " ".repeat(64 * 1024) + body : failure === "malformed" ? "{" : failure === "empty" ? undefined : body,
+    });
+    const response = await handler(input);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: { code: "INVALID_SEND_REQUEST", message: "Use a valid Base recipient, asset, and integer amount." } });
+    expect(issued).toBe(0);
+    expect(input.body?.locked ?? false).toBe(false);
+  });
   const cases = [
     { assetId: "usdc", amountBaseUnits: "1000001", decimals: 6, native: false },
     { assetId: "cbbtc", amountBaseUnits: "100000", decimals: 8, native: false },

@@ -49,7 +49,7 @@ import {
 import type { ActionHandleResolver } from "./reconcile";
 import { followActionUntilSettled, type FollowActionDeps } from "./follow-through";
 import { confirmedAtMs, getDefaultActionHandleResolver, isReconcileCandidate, reconcileRow, rotatingWindow, settleRow } from "./settle";
-import { readJson } from "@/shared/http/read-json";
+import { readJsonBody } from "@/server/http/request";
 import { getBorrowMarketRef, type BorrowMarketRef } from "@/shared/borrowing/config";
 import { actionKindForBorrowOperation, increasesBorrowRisk, isBorrowOperation, type BorrowOperation } from "@/shared/borrowing/types";
 import { getVerifiedSaveVault, isSaveActionAllowed, type VerifiedSaveVaultRef } from "@/shared/savings/config";
@@ -317,7 +317,8 @@ export function createConfirmActionHandler(dependencies: {
 
     let calls = draftCalls;
     if (!replay && draft.kind === "trade") {
-      const body = await readJson(request).catch(() => null);
+      const result = await readJsonBody(request, { maxBytes: 64 * 1024 });
+      const body = result.kind === "ok" ? result.value : null;
       const signature: TradeConfirmRequest["signature"] | null = isRecord(body) && typeof body.signature === "string" && /^0x(?:[0-9a-fA-F]{2})+$/.test(body.signature)
         ? body.signature.toLowerCase() as `0x${string}`
         : null;
@@ -441,7 +442,8 @@ export function createHandleActionHandler(dependencies: {
       return privateError(code, message, status);
     };
     const { id } = await context.params;
-    const body = await readJson(request).catch(() => null);
+    const result = await readJsonBody(request, { maxBytes: 64 * 1024 });
+    const body = result.kind === "ok" ? result.value : null;
     if (!uuidPattern.test(id) || !isRecord(body)) return fail("INVALID_ACTION_HANDLE", "A valid action handle is required.", 400);
     const providerHandle = typeof body.providerHandle === "string" && /^[\x21-\x7e]{1,512}$/.test(body.providerHandle)
       ? body.providerHandle : undefined;
@@ -483,7 +485,8 @@ export function createDeclineActionHandler(dependencies: {
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
     if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
-    const body = parseDeclineActionRequest(await readJson(request).catch(() => null));
+    const read = await readJsonBody(request, { maxBytes: 64 * 1024 });
+    const body = parseDeclineActionRequest(read.kind === "ok" ? read.value : null);
     if (!body) {
       return privateError("INVALID_ACTION_DECLINE", "A valid versioned decline request is required.", 400);
     }
@@ -519,7 +522,8 @@ export function createRetryActionHandler(dependencies: {
     if (owner instanceof Response) return owner;
     const { id } = await context.params;
     if (!uuidPattern.test(id)) return privateError("INVALID_ACTION", "A valid action id is required.", 400);
-    const body = parseRetryActionRequest(await readJson(request).catch(() => null));
+    const read = await readJsonBody(request, { maxBytes: 64 * 1024 });
+    const body = parseRetryActionRequest(read.kind === "ok" ? read.value : null);
     if (!body) return privateError("INVALID_ACTION_RETRY", "A valid versioned retry request is required.", 400);
     const store = dependencies.store ?? getActionsStore();
     const row = await store.get(owner, id);

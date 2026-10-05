@@ -1,5 +1,7 @@
 import "server-only";
 
+import { serverEnvironment } from "@/server/config/env";
+
 import { createPublicClient, http, type TransactionReceipt } from "viem";
 import { base } from "viem/chains";
 import { resolveBaseRpcUrl } from "@/server/chain/rpc";
@@ -262,6 +264,167 @@ export async function refreshCashoutProgress(input: {
   return [...byAction.values()].map((record) => ({ ...record, progressConfirmed: confirmed.has(record.action_id) }));
 }
 
+type CashoutRead<T> = { status: "available"; value: T } | { status: "unavailable" };
+type CashoutRefreshContext = {
+  now?: Date;
+  providerReads?: number;
+  refreshed?: number;
+  claimed?: boolean;
+  aborted?: boolean;
+  depositProof?: CashoutRead<string | null>;
+  payeeHash?: CashoutRead<`0x${string}`>;
+  order?: CashoutRead<OfframpOrder>;
+  verifiedOrder?: OfframpOrder;
+  orders?: CashoutRead<readonly OfframpOrder[]>;
+  linkedDepositIds?: CashoutRead<readonly string[]>;
+  link?: CashoutRead<CashoutOrderRow | null>;
+  withdrawal?: CashoutRead<string | null>;
+  withdrawalApplied?: boolean;
+};
+type CashoutProgressUpdate = Parameters<ProgressStore["updateCashoutProgress"]>[2];
+type CashoutRefreshStep =
+  | { kind: "ensure-order"; actionId: string }
+  | { kind: "prove-deposit" | "read-withdraw-receipt"; transactionHash: string }
+  | { kind: "read-order"; depositId: string }
+  | { kind: "read-payee-hash" | "read-orders" | "read-linked-deposits" | "read-record" }
+  | { kind: "link-deposit"; depositId: string; proven: boolean }
+  | { kind: "update-order" | "update-returned" | "settle-failed" | "settle-delivered" | "settle-returned"; update: CashoutProgressUpdate };
+type CashoutRefreshPlan =
+  | { kind: "current"; steps: []; reason: "settled" | "no-actionable-data" | "budget" | "aborted" }
+  | { kind: "missing"; steps: [{ kind: "ensure-order"; actionId: string }] }
+  | { kind: "partial"; steps: CashoutRefreshStep[]; reason?: "unavailable" | "time-required" }
+  | { kind: "terminal"; steps: CashoutRefreshStep[] };
+
+/** @public The #1208 follow-up consumes this pure cash-out refresh planner. */
+export function planCashoutRefresh(record: CashoutOrderRow | null | undefined, rows: readonly CashoutReceiptRow[], context: CashoutRefreshContext = {}): CashoutRefreshPlan {
+  const current = (reason: Extract<CashoutRefreshPlan, { kind: "current" }>["reason"]): CashoutRefreshPlan => ({ kind: "current", steps: [], reason });
+  const partial = (step: CashoutRefreshStep): CashoutRefreshPlan => ({ kind: "partial", steps: [step] });
+  const unavailable = (): CashoutRefreshPlan => ({ kind: "partial", steps: [], reason: "unavailable" });
+  if (record?.settled_at) return current("settled");
+  if (context.aborted) return current("aborted");
+  const deposit = rows.find(({ row }) => row.kind === "cash-out" && (!record || row.id === record.action_id && row.owner_key === record.owner_key));
+  if (!deposit) return current("no-actionable-data");
+  const { row, receipt: observedReceipt } = deposit;
+  const metadata = row.summary.metadata;
+  if (metadata?.product !== "cashout" || metadata.operation !== "deposit") return current("no-actionable-data");
+  if (!record) return row.confirmed_at ? { kind: "missing", steps: [{ kind: "ensure-order", actionId: row.id }] } : current("no-actionable-data");
+  const failed = (target = record): CashoutRefreshPlan => ({ kind: "terminal", steps: [{ kind: "settle-failed", update: {
+    state: "failed", filledAtomic: target.filled_atomic, returnedAtomic: target.returned_atomic,
+    remainingAtomic: target.remaining_atomic, withdrawable: false, settled: true,
+  } }] });
+  if (row.outcome === "not_submitted" && !record.deposit_proven) return failed();
+  let providerReads = context.providerReads ?? 0;
+  let claimed = context.claimed ?? false;
+  const canRead = () => providerReads < 2 && (claimed || (context.refreshed ?? 0) < 2);
+  const receipt = receiptProof(row, observedReceipt);
+  const sameDeposit = (next: ActionRow, depositId: string) => next.owner_key === record.owner_key && next.kind === "cash-out-withdraw" &&
+    next.summary.metadata?.product === "cashout" && next.summary.metadata.operation === "withdraw" &&
+    next.summary.metadata.depositId.toLowerCase() === depositId.toLowerCase();
+  const applyOrder = (order: OfframpOrder, linked: boolean): CashoutRefreshPlan => {
+    const withdrawals = rows.filter(({ row: next }) => sameDeposit(next, order.depositId) && !next.outcome);
+    if (linked && order.state === "returned" && !context.now && withdrawals.some(({ row: next }) =>
+      !next.transaction_hash && !next.provider_handle && !next.handle_recorded_at && next.confirmed_at && !next.declined_reported_at)) {
+      return { kind: "partial", steps: [], reason: "time-required" };
+    }
+    const pendingWithdrawal = withdrawals.some(({ row: next }) => context.now
+      ? unresolvedCashoutWithdrawal(next, record.owner_key, context.now)
+      : !!(next.transaction_hash || next.provider_handle || next.handle_recorded_at));
+    const settled = linked && (order.state === "delivered" || order.state === "returned" && !pendingWithdrawal);
+    const update: CashoutProgressUpdate = { state: order.state, filledAtomic: order.filledAmountAtomic,
+      returnedAtomic: order.returnedAmountAtomic, remainingAtomic: order.remainingAmountAtomic,
+      withdrawable: linked && order.nextActions.includes("withdraw"), settled };
+    return { kind: settled ? "terminal" : "partial", steps: [{ kind: settled
+      ? order.state === "delivered" ? "settle-delivered" : "settle-returned" : "update-order", update }] };
+  };
+  const recordDepositId = record.deposit_id;
+  if (recordDepositId) {
+    const withdraw = rows.find(({ row: next }) => sameDeposit(next, recordDepositId) && next.outcome === "succeeded" && next.transaction_hash);
+    if (withdraw && canRead()) {
+      const transactionHash = withdraw.row.transaction_hash;
+      if (!transactionHash) return current("no-actionable-data");
+      claimed = true;
+      if (!context.withdrawal) return partial({ kind: "read-withdraw-receipt", transactionHash });
+      if (context.withdrawal.status === "available" && context.withdrawal.value !== null && !context.withdrawalApplied) {
+        const returned = BigInt(context.withdrawal.value);
+        const settled = returned > BigInt(0) && BigInt(record.filled_atomic) + returned === BigInt(record.amount_atomic);
+        return { kind: settled ? "terminal" : "partial", steps: [{ kind: settled ? "settle-returned" : "update-returned", update: {
+          state: settled ? "returned" : record.state, filledAtomic: record.filled_atomic,
+          returnedAtomic: returned > BigInt(0) ? returned.toString() : record.returned_atomic,
+          remainingAtomic: settled ? "0" : record.remaining_atomic, withdrawable: false, settled,
+        } }] };
+      }
+    }
+    if (context.verifiedOrder) return applyOrder(context.verifiedOrder, true);
+    if (!canRead()) return current("budget");
+    if (!context.order) return partial({ kind: "read-order", depositId: recordDepositId });
+    return context.order.status === "available" ? applyOrder(context.order.value, true) : unavailable();
+  }
+  let unproven = receipt === "failed" || receipt === "unavailable" || receipt === "unattributed";
+  if (receipt === "confirmed" && row.transaction_hash && canRead()) {
+    claimed = true;
+    if (!context.depositProof) return partial({ kind: "prove-deposit", transactionHash: row.transaction_hash });
+    const depositId = context.depositProof.status === "available" ? context.depositProof.value : null;
+    if (!depositId) unproven = true;
+    else {
+      if (!context.order) return partial({ kind: "read-order", depositId });
+      providerReads += 1;
+      if (context.order.status === "unavailable") return unavailable();
+      const order = context.order.value;
+      if (matchesAction(order, record, metadata, metadata.payeeHash)) {
+        if (row.outcome !== "succeeded") return applyOrder(order, false);
+        if (!context.link) return partial({ kind: "link-deposit", depositId, proven: true });
+        if (context.link.status === "unavailable") return unavailable();
+        if (!context.link.value) return partial({ kind: "read-record" });
+        if (!context.link.value.deposit_id && !context.link.value.settled_at) return failed(context.link.value);
+        if (context.link.value.settled_at) return current("settled");
+        const linkedDepositId = context.link.value.deposit_id;
+        if (linkedDepositId?.toLowerCase() === depositId.toLowerCase()) return applyOrder(order, true);
+        return linkedDepositId && canRead() ? partial({ kind: "read-order", depositId: linkedDepositId }) : current("budget");
+      }
+      unproven = true;
+    }
+  }
+  if ((row.outcome === "succeeded" || receipt !== "confirmed" || !row.transaction_hash) && (!row.transaction_hash || unproven) && canRead()) {
+    let payeeHash = metadata.payeeHash;
+    if (!payeeHash) {
+      if (providerReads > 0) return current("budget");
+      claimed = true;
+      if (!context.payeeHash) return partial({ kind: "read-payee-hash" });
+      providerReads += 1;
+      if (context.payeeHash.status === "unavailable") return unavailable();
+      payeeHash = context.payeeHash.value;
+    }
+    if (!canRead()) return current("budget");
+    if (!context.orders) return partial({ kind: "read-orders" });
+    if (context.orders.status === "unavailable") return unavailable();
+    if (!context.linkedDepositIds) return partial({ kind: "read-linked-deposits" });
+    if (context.linkedDepositIds.status === "unavailable") return unavailable();
+    const linked = new Set(context.linkedDepositIds.value);
+    const identified = context.orders.value.filter((order) => matchesOrder(order, record, metadata) &&
+      !linked.has(order.depositId.toLowerCase()) && matchesPayee(order, payeeHash));
+    const candidates = identified.filter((order) => changedSincePrepare(order, row));
+    const undated = identified.some((order) => !(Date.parse(order.updatedAt) > 0));
+    if (candidates.length === 1) {
+      const [order] = candidates;
+      if (!order) return current("no-actionable-data");
+      if (!context.link) return partial({ kind: "link-deposit", depositId: order.depositId, proven: false });
+      if (context.link.status === "unavailable") return unavailable();
+      if (context.link.value?.settled_at) return current("settled");
+      if (context.link.value?.deposit_id?.toLowerCase() === order.depositId.toLowerCase()) return applyOrder(order, true);
+      providerReads += 1;
+      return context.link.value?.deposit_id && canRead()
+        ? partial({ kind: "read-order", depositId: context.link.value.deposit_id }) : current("no-actionable-data");
+    }
+    const hashless = row.transaction_hash === null && row.provider_handle === null && row.handle_recorded_at === null && row.confirmed_at !== null;
+    const confirmedAt = row.confirmed_at;
+    const abandoned = hashless && confirmedAt !== null && context.now !== undefined && context.now.getTime() - new Date(confirmedAt).getTime() > UNKNOWN_WINDOW_MS;
+    if (candidates.length === 0 && !undated && (row.outcome === "reverted" || abandoned)) return failed();
+    if (candidates.length === 0 && !undated && hashless && !context.now) return { kind: "partial", steps: [], reason: "time-required" };
+    return current("no-actionable-data");
+  }
+  return current(canRead() ? "no-actionable-data" : "budget");
+}
+
 export function cashoutWithdrawalInFlight(rows: readonly CashoutReceiptRow[], owner: MoneyActionOwner, depositId: string, now: Date): boolean {
   return rows.some(({ row }) => unresolvedCashoutWithdrawal(row, actionOwnerKey(owner), now) &&
     row.summary.metadata?.product === "cashout" && row.summary.metadata.operation === "withdraw" &&
@@ -347,7 +510,7 @@ function recoveryContext(provider: FundingProvider, record: CashoutOrderRow, env
     : record.environment === "sandbox";
   const deployment = sandbox ? provider.manifest.offramp?.sandbox : provider.manifest.offramp?.production;
   if (!deployment || (escrow && deployment.contracts.escrow.toLowerCase() !== escrow)) throw new Error("Cash-out deployment unavailable.");
-  return createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "offramp", paymentMethodId: method.id, env: env ?? process.env, sandbox });
+  return createProviderContext({ manifest: provider.manifest, region: binding.region, direction: "offramp", paymentMethodId: method.id, env: env ?? serverEnvironment(), sandbox });
 }
 
 async function readTransactionReceipt(hash: `0x${string}`, signal: AbortSignal): Promise<Pick<TransactionReceipt, "logs">> {
