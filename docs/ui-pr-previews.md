@@ -15,13 +15,13 @@ Keep `## Preview` visible after the short `## What changes` brief. Its first lin
 
 Put every retained screenshot or clip directly in Preview as a GitHub attachment in one compact Markdown table. Each row label describes the visible state and CSS-pixel viewport. There is no screenshot cap; choose the adaptive form that carries useful evidence. Keep only labels, the link, and media here; browser observations, limitations, cleanup, and findings belong in the collapsed Evidence section.
 
-When the pre-change baseline materially improves judgment, use a paired comparison. Pair identical state, data, and CSS-pixel viewport in one row, with Before and After as side-by-side columns, never as separate rows; **After is the current PR head**:
+When the pre-change baseline materially improves judgment, use a paired comparison. Pair identical state, data, CSS-pixel viewport, and appearance (light or dark) in one row, with Before and After as side-by-side columns, never as separate rows; **After is the current PR head**. A change to an existing surface always includes at least one paired row of its primary state:
 
 | State + viewport | Board | Before | After |
 |---|---|---|---|
 | Save review — 390×844 CSS px | `story:journeys-savings-deposit--deposit` | GitHub screenshot attachment of the PR base | GitHub screenshot attachment of the current PR head |
 
-When Before adds no information, use current-head evidence only instead of filling empty comparison cells:
+For a new surface, or for additional states where Before adds no information, use current-head evidence only instead of filling empty comparison cells:
 
 | State + viewport | Board | Evidence |
 |---|---|---|
@@ -76,7 +76,7 @@ Keep findings separate from the screenshot tables, inside Evidence, not Preview.
 
 Severity is `blocker`, `major`, or `minor` for actionable defects. Review against the [issue's design scope](../.agents/skills/design-engineering/SKILL.md#follow-the-issue-scope) and acceptance criteria:
 
-- **Maintenance:** unsupported stylistic preference does not block a bounded fix; correctness, accessibility and coherence findings need concrete evidence.
+- **Maintenance:** unsupported stylistic preference does not block a bounded fix; correctness, accessibility and coherence findings need concrete evidence. A head that is visibly worse than its base on an existing surface is a `major` finding, even when an acceptance item asked for the change.
 - **Exploration:** visual quality is the work under review. Assess the proposal against the brief; compare alternatives only when requested and name unresolved visual choices; technical readiness does not satisfy an art-direction brief. When requested, show neutral comparisons before critic rankings or authorship. Do not convert the critic's favorite into an accepted design.
 - **Adoption:** compare against Jesse's selected revision at matching state/data/viewport, explain material differences, and resolve unintended divergence before claiming fidelity. Record actual integration and interaction coverage.
 
