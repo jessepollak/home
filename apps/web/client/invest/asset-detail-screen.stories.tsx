@@ -9,7 +9,7 @@ import { MoneyMotionProvider } from "@/components/money-ticker";
 import { BASE_CHAIN_ID, investAssets, type InvestAsset } from "@/config/invest-assets";
 import { balancesSnapshot } from "@/tests/browser/fixtures/balances";
 import type { Holding } from "@/shared/balances/types";
-import type { MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
+import { expectedMarketPriceHistorySource, type MarketPriceRange } from "@/shared/invest/contracts/market-price-history";
 import type { MarketDataState, MarketSession } from "@/shared/invest/invest-market";
 import { formatPresentationDate, formatPresentationPrice, formatSignedPercentChange } from "@/shared/formatting";
 import { AssetDetailScreen } from "./asset-detail-screen";
@@ -87,7 +87,8 @@ function historyResponse(
 ) {
   const base = priceById[assetId] ?? priceById.cbbtc!;
   const end = clock - (state === "stale" ? staleOffsetMs : 0);
-  const count = pointCounts[range];
+  const stockHistory = assetId === "nvdac";
+  const count = stockHistory ? 32 : pointCounts[range];
   const seed = Array.from(`${assetId}:${range}`).reduce(
     (value, character) => Math.imul(value ^ character.charCodeAt(0), 16777619), 2166136261,
   );
@@ -107,13 +108,15 @@ function historyResponse(
   });
   const lastOffset = offsets.at(-1) ?? 0;
   return {
-    version: 1,
-    provider: "codex",
+    version: 2,
+    provider: stockHistory ? "chainlink" : "codex",
+    source: expectedMarketPriceHistorySource(assetId),
     assetId,
     range,
     currency: "USD",
     fetchedAt: new Date(clock).toISOString(),
     status: state === "empty" ? "empty" : "ready",
+    ...(stockHistory ? { coverage: { sampled: state === "empty" ? 0 : count, observed: state === "empty" ? 0 : count, gaps: [] } } : {}),
     points: state === "empty" ? [] : offsets.map((offset, index) => {
       const progress = index / (count - 1);
       const trend = startFactor + (endFactor - startFactor) * progress;
@@ -284,7 +287,7 @@ export const StockHeld: Story = { args: { assetId: "nvdac", position: "stock" },
   await expect(await canvas.findByText("1.25 NVDAc", undefined, chartWait)).toBeVisible();
   const balance = within(canvas.getByText("Your balance").closest("li")!);
   await expect(balance.getByText("$224.50")).toBeVisible();
-  await expect(canvas.getByText("DEX market price")).toBeVisible();
+  await expect(canvas.queryByText(/DEX market price/)).not.toBeInTheDocument();
   await expect(canvas.queryByText("Last close")).not.toBeInTheDocument();
 } };
 export const StockLastClose: Story = { args: { assetId: "nvdac", position: "stock", stockSession: "closed" }, play: async ({ canvasElement }) => {
@@ -292,8 +295,8 @@ export const StockLastClose: Story = { args: { assetId: "nvdac", position: "stoc
   await expect(await canvas.findByText("1.25 NVDAc", undefined, chartWait)).toBeVisible();
   const balance = within(canvas.getByText("Your balance").closest("li")!);
   await expect(balance.getByText("$224.50")).toBeVisible();
-  await expect(balance.getByText("Last close")).toBeVisible();
-  await expect(canvas.getAllByText("Last close")).toHaveLength(2);
+  await expect(balance.getByText(/^Last close/)).toBeVisible();
+  await expect(canvas.getAllByText(/^Last close/)).toHaveLength(2);
 } };
 export const StockPaused: Story = { args: { assetId: "nvdac", position: "stock", stockSession: "paused" }, play: async ({ canvasElement }) => {
   const canvas = within(canvasElement);

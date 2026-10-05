@@ -20,6 +20,8 @@ const variations = Array.from({ length: 168 }, (_, index) => {
 });
 const history = {
   status: "ready" as const,
+  source: null,
+  asOf: chartEnd,
   points: variations.map((variation, index) => {
     const fraction = index / 167;
     return {
@@ -31,6 +33,8 @@ const history = {
 
 const stockHistory = {
   status: "ready" as const,
+  source: null,
+  asOf: chartEnd,
   points: Array.from({ length: 168 }, (_, index) => ({
     time: new Date(chartEnd - (167 - index) * 3_600_000).toISOString(),
     value: String(index === 167 ? 237.49 : 235.31 + 2.18 * index / 167 + Math.sin(index * 0.17) * Math.sin(Math.PI * index / 167) * 0.8),

@@ -9,6 +9,9 @@ export type ChartReadout = { value: string; time: string; index: number };
 export const rangeSeconds: Record<MarketPriceRange, number> = {
   "1D": 86400, "1W": 604800, "1M": 2592000, "3M": 7776000, "1Y": 31536000,
 };
+export const rangeLabels: Record<MarketPriceRange, string> = {
+  "1D": "Past day", "1W": "Past week", "1M": "Past month", "3M": "Past 3 months", "1Y": "Past year",
+};
 const motionQuery = "(prefers-reduced-motion: reduce)";
 
 function subscribeMotion(notify: () => void) {

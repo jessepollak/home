@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { parseHistoryResponse, resolveMarketPriceAssetIdentity } from "./market-price-history";
+import { expectedMarketPriceHistorySource, parseHistoryResponse, resolveMarketPriceAssetIdentity } from "./market-price-history";
 
 const point = { time: "2026-09-07T00:00:00.000Z", value: "64210.5" };
 import type { MarketPriceHistoryResponse } from "./market-price-history";
 
 const response: MarketPriceHistoryResponse = {
-  version: 1, provider: "codex", assetId: "cbbtc", range: "1W", currency: "USD",
+  version: 2, provider: "codex", source: expectedMarketPriceHistorySource("cbbtc"), assetId: "cbbtc", range: "1W", currency: "USD",
   fetchedAt: "2026-09-07T20:30:00.000Z", status: "ready", points: [point],
 };
 
@@ -14,7 +14,7 @@ describe("market history contract", () => {
     for (const value of [
       null,
       [],
-      { ...response, version: 2 },
+      { ...response, version: 1 },
       { ...response, provider: "other" },
       { ...response, assetId: null },
       { ...response, assetId: undefined },
@@ -48,9 +48,9 @@ describe("market history contract", () => {
 
   test("preserves legacy string identities and optional field normalization", () => {
     expect(parseHistoryResponse({
-      ...response, assetId: "unconfigured-string", currency: undefined, fetchedAt: 1,
+      ...response, source: null, assetId: "unconfigured-string", currency: undefined, fetchedAt: 1,
       status: "unavailable", unavailableReason: "not-configured", extra: true, points: [{ ...point, extra: true }],
-    })).toEqual({ ...response, assetId: "unconfigured-string", fetchedAt: null, status: "unavailable", unavailableReason: "not-configured" });
+    })).toEqual({ ...response, source: null, assetId: "unconfigured-string", fetchedAt: null, status: "unavailable", unavailableReason: "not-configured" });
   });
 
   test("retains declared unavailable reasons", () => {
@@ -87,5 +87,31 @@ describe("market history contract", () => {
     "unknown",
   ])("rejects malformed or noncanonical dynamic identities: %s", (assetId) => {
     expect(resolveMarketPriceAssetIdentity(assetId)).toBeNull();
+  });
+});
+
+
+describe("v2 source-bound histories", () => {
+  const stock: MarketPriceHistoryResponse = { ...response, assetId: "nvdac", provider: "chainlink", source: expectedMarketPriceHistorySource("nvdac"), points: [{ ...point, session: "closed" as const }], coverage: { sampled: 32, observed: 1, gaps: [{ from: "2026-09-01T00:00:00.000Z", to: point.time, reason: "not-deployed" as const }] } };
+  test("preserves observed sessions and explicit coverage", () => {
+    expect(parseHistoryResponse(stock)).toEqual(stock);
+  });
+  test("rejects incompatible sources, sessions, ordering, bounds and coverage", () => {
+    for (const invalid of [
+      { ...stock, provider: "codex", source: response.source },
+      { ...stock, coverage: undefined },
+      { ...stock, status: "empty", points: [], coverage: undefined },
+      { ...stock, coverage: { sampled: 32, observed: 1, gaps: [] } },
+      { ...stock, status: "empty", points: [], coverage: { sampled: 32, observed: 0, gaps: [] } },
+      { ...stock, source: expectedMarketPriceHistorySource("aaplc") },
+      { ...response, points: [{ ...point, session: "open" }] },
+      { ...response, points: [point, point] },
+      { ...response, points: [{ ...point, time: "2026-09-08T00:00:00.000Z" }, point] },
+      { ...stock, points: Array.from({ length: 33 }, (_, index) => ({ ...point, time: new Date(Date.parse(point.time) + index * 1000).toISOString() })), coverage: undefined },
+      { ...stock, coverage: { sampled: 32, observed: 2, gaps: [] } },
+      { ...stock, coverage: { sampled: 0, observed: 1, gaps: [] } },
+      { ...stock, coverage: { sampled: 33, observed: 1, gaps: [] } },
+      { ...response, coverage: { sampled: 1, observed: 1, gaps: [] } },
+    ]) expect(parseHistoryResponse(invalid)).toBeNull();
   });
 });

@@ -61,6 +61,7 @@
     "scripts/device-profile/harness.ts!",
     "scripts/performance/cpu-check.ts!",
     "scripts/invest-catalog/refresh.ts!",
+    "scripts/invest-history-sample.ts!",
     "scripts/immersve-probe.ts!",
     "scripts/bridge-allowance-fork.ts!"
   ],

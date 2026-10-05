@@ -34,6 +34,7 @@
     "db:backfill-operator": "bun --conditions=react-server ./server/operator-events/backfill-command.ts",
     "db:backfill-customer-ids": "bun --conditions=react-server ./server/customers/record-ids-backfill-command.ts",
     "cdp-swaps:checkpoint": "bun --conditions=react-server ./server/actions/kinds/trade/checkpoint-command.ts",
+    "invest:history-sample": "bun --conditions=react-server ./scripts/invest-history-sample.ts",
     "invest-catalog:refresh": "bun --conditions=react-server ./scripts/invest-catalog/refresh.ts",
     "history:reconcile": "bun --conditions=react-server ./server/balances/history/reconcile-command.ts",
     "secrets:rotate": "bun --conditions=react-server ../../scripts/secret-envelopes.ts",

@@ -76,7 +76,7 @@ test("fixture glob routing distinguishes exact path and query and preserves orde
 test("proxy serves deterministic synthetic history accepted by the client parser for every range and asset", async () => {
   const anchor = Date.parse("2026-09-01T12:00:00Z");
   const handler = createHandler({ port: 4199, host: "127.0.0.1", upstream: "http://127.0.0.1:3199", rows: 300, outDir: tmpdir() }, "harness", "toolkit", () => anchor + 120_000);
-  for (const assetId of ["cbbtc", "eth", "base:0x1111111111111111111111111111111111111111"]) {
+  for (const assetId of ["cbbtc", "cbxrp", "nvdac", "base:0x1111111111111111111111111111111111111111"]) {
     for (const range of MARKET_PRICE_RANGES) {
       const url = `http://localhost/api/market-prices/history?${new URLSearchParams({ assetId, range })}`;
       const response = await handler(new Request(url));
@@ -86,9 +86,9 @@ test("proxy serves deterministic synthetic history accepted by the client parser
       expect(String(history?.assetId)).toBe(assetId);
       expect(history?.range).toBe(range);
       expect(history?.status).toBe("ready");
-      expect(history?.points).toHaveLength(241);
+      expect(history?.points).toHaveLength(assetId === "nvdac" ? 32 : 241);
       expect(Date.parse(history!.points.at(-1)!.time)).toBe(anchor + 120_000);
-      expect(new Set(history!.points.map((point) => point.value)).size).toBeGreaterThan(100);
+      expect(new Set(history!.points.map((point) => point.value)).size).toBeGreaterThan(assetId === "nvdac" ? 20 : 100);
       expect(fixtureBody(new URL(url), 300, anchor)).toEqual(history);
     }
   }

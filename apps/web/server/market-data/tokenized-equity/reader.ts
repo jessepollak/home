@@ -72,6 +72,7 @@ export async function readTokenizedEquityReferences(
   }
   return feeds.map((feed, index) => {
     try {
+      if (results[index * 3 + 1] === "0x") return { assetId: feed.assetId, status: "unavailable", reason: "not-deployed", block: block.reference };
       const decimals = decodeFunctionResult({ abi: feedAbi, functionName: "decimals", data: wordData(results[index * 3], 1) });
       const [roundId, answer, , updatedAt] = decodeFunctionResult({ abi: feedAbi, functionName: "latestRoundData", data: wordData(results[index * 3 + 1], 5) });
       const [multiplier, paused] = decodeFunctionResult({ abi: registryAbi, functionName: "getOracleParams", data: wordData(results[index * 3 + 2], 2) });
