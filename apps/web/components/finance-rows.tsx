@@ -36,6 +36,7 @@ type FinanceRowCommonProps = {
   value?: ReactNode;
   valueContext?: ReactNode;
   valueContextTitle?: string;
+  valueContextLines?: 1 | 2 | "wrap";
   valueTone?: FinanceRowTone;
 };
 
@@ -100,6 +101,7 @@ function FinanceRow({
   value,
   valueContext,
   valueContextTitle,
+  valueContextLines,
   valueTone = "default",
   action,
   onActivate,
@@ -144,7 +146,7 @@ function FinanceRow({
       )}
       {valueContext === undefined ? null : (
         <ItemDescription
-          lines={labelSuffix === undefined ? 1 : "wrap"}
+          lines={valueContextLines ?? (labelSuffix === undefined ? 1 : "wrap")}
           className={labelSuffix === undefined ? "w-full text-end" : "order-5 mt-0.5 ms-auto max-w-full shrink-0 text-end"}
           tone={disclosure ? "disclosure" : undefined}
           title={valueContextTitle}

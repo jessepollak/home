@@ -360,6 +360,12 @@ export const SavingsAfterActionStale: Story = { args: { initialView: "savings", 
   await expect(within(hero).getByRole("img", { name: "$883.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
   await expect(within(hero).queryByText(/^Earning /)).toBeNull();
 } };
+export const SavingsSnapshotStale: Story = { args: { initialView: "savings", snapshot: { ...fundedSnapshot, stale: true } }, play: async ({ canvasElement }) => {
+  const hero = within(canvasElement).getByLabelText("Savings balance");
+  await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
+  await expect(within(hero).getByRole("img", { name: "$883.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
+  await expect(within(hero).queryByText(/^Earning /)).toBeNull();
+} };
 export const Funded: Story = { play: assertFunded };
 export const SixHeldCurrencies: Story = { args: { snapshot: sixCurrencySnapshot }, play: async ({ canvasElement }) => {
   const region = within(within(canvasElement).getByRole("region", { name: "Currencies" }));
@@ -511,6 +517,15 @@ export const PartialSavings: Story = { args: { snapshot: partialSavingsSnapshot 
   await expect(within(hero).getByRole("img", { name: "$800.00" })).toBeVisible();
   await expect(within(hero).getByText("Some savings are unavailable")).toBeVisible();
   await expect(hero.querySelector("[aria-describedby='savings-balance-partial']")).not.toBeNull();
+} };
+export const PartialSavingsStale: Story = { args: { snapshot: { ...partialSavingsSnapshot, stale: true } }, play: async ({ canvasElement }) => {
+  const row = await within(canvasElement).findByRole("button", { name: /US dollar.*\$800\.00.*Partial · May be out of date/ });
+  await expect(within(row).getByText("Partial · May be out of date")).toBeVisible();
+} };
+export const PartialSavingsStaleDetail: Story = { args: { snapshot: { ...partialSavingsSnapshot, stale: true }, initialView: "savings" }, play: async ({ canvasElement }) => {
+  const hero = within(canvasElement).getByLabelText("Savings balance");
+  await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
+  await expect(within(hero).getByText("Some savings are unavailable")).toBeVisible();
 } };
 const partialVaultMetadata = { ...metadata, candidates: metadata.candidates.filter((vault) => vault.vaultAddress !== STEAKHOUSE) };
 export const SavingsMetadataPartial: Story = { parameters: { msw: { handlers: [http.get("/api/savings/vaults", () => HttpResponse.json(partialVaultMetadata))] } }, play: async ({ canvasElement }) => {
@@ -875,6 +890,35 @@ export const CashSavingsHiddenWhileSavePaused: Story = { args: { snapshot: cashO
   await expect(await screen.findByRole("region", { name: "Currencies" })).toBeVisible();
   await expect(screen.queryByRole("region", { name: "Savings" })).toBeNull();
   await expect(screen.queryByText(/APY/)).toBeNull();
+} };
+export const CashSavingsVisibleWhileSavePausedStale: Story = { args: { snapshot: { ...cashOnlySnapshot, stale: true }, saveMode: "exit-only" }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  await expect(await screen.findByRole("region", { name: "Currencies" })).toBeVisible();
+  const savings = within(await screen.findByRole("region", { name: "Savings" }));
+  const row = savings.getByRole("button", { description: "Open savings" });
+  await expect(row).toBeEnabled();
+  await expect(within(row).getByText("May be out of date")).toBeVisible();
+} };
+export const CashSavingsVisibleWhileSavePausedActionStale: Story = { args: { snapshot: cashOnlySnapshot, saveMode: "exit-only", balanceActionStale: true }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  const savings = await screen.findByRole("region", { name: "Savings" });
+  await expect(savings).toBeVisible();
+  const row = within(savings).getByRole("button", { description: "Open savings" });
+  await expect(within(row).getByText("May be out of date")).toBeVisible();
+} };
+export const CashSavingsVisibleWhileSavePausedEmptyStale: Story = { args: { snapshot: { ...emptySnapshot, stale: true }, saveMode: "exit-only" }, play: async ({ canvasElement }) => {
+  const screen = detail(canvasElement);
+  await expect(screen.queryByRole("region", { name: "Currencies" })).toBeNull();
+  const savings = within(await screen.findByRole("region", { name: "Savings" }));
+  const row = savings.getByRole("button", { description: "Open savings" });
+  await expect(row).toBeVisible();
+  await expect(row).toBeEnabled();
+  await expect(within(row).getByText("May be out of date")).toBeVisible();
+  await userEvent.click(row);
+  await expect(await within(canvasElement).findByRole("heading", { name: "Savings", level: 1 })).toBeVisible();
+  const hero = await within(canvasElement).findByLabelText("Savings balance");
+  await expect(within(hero).getByText("Balance may be out of date")).toBeVisible();
+  await expect(within(hero).getByRole("img", { name: "$0.00" }).closest("[aria-describedby]")).toHaveAttribute("aria-describedby", "savings-balance-stale");
 } };
 export const CashSavingsPendingWhileSavePaused: Story = { args: { snapshot: cashOnlySnapshot, initialView: "savings", snapshotToggle: true }, play: async ({ canvasElement }) => {
   const screen = detail(canvasElement);
