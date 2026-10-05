@@ -6,7 +6,18 @@ import { presentActivityLedgerItems } from "@/client/activity/activity-ledger-it
 import { ActivityLedgerDetailSheet } from "@/client/activity/activity-ledger-sheet";
 import { isActivityLedgerNextActionAllowed } from "@/client/activity/activity-ledger";
 import type { UseActivityResult } from "@/client/activity/use-activity";
+import { cardUnlockAvailable } from "@/client/cards/use-cards";
+import { CARDS_CONTRACT_VERSION, type CardsResponse } from "@/shared/cards/contract";
 import { CARD_PURCHASES_VERSION, type CardPurchase } from "@/shared/cards/transactions-contract";
+
+function cardsFixture(state: "frozen" | "active"): CardsResponse {
+  return {
+    version: CARDS_CONTRACT_VERSION, state,
+    cards: [{ id: "ic_fixture1107", status: state, last4: "1107" }],
+    provenance: { bridge: "available", stripe: "available", fetchedAt: "2026-09-24T12:00:00.000Z" },
+  };
+}
+const frozenCards = cardsFixture("frozen");
 
 function purchase(reason: string | null): CardPurchase {
   return {
@@ -24,8 +35,8 @@ function detail(card: CardPurchase) {
 }
 
 const onCardAction = fn();
-function DeclinePanel({ reason, handler = true, cardsEnabled = true }: {
-  reason: string | null; handler?: boolean; cardsEnabled?: boolean;
+function DeclinePanel({ reason, handler = true, cardsEnabled = true, cards = frozenCards }: {
+  reason: string | null; handler?: boolean; cardsEnabled?: boolean; cards?: CardsResponse;
 }) {
   const card = purchase(reason);
   const [initialDetailItem, setInitialDetailItem] = useState(() => detail(card));
@@ -43,7 +54,8 @@ function DeclinePanel({ reason, handler = true, cardsEnabled = true }: {
     <h1 className="sr-only">Card purchase activity</h1>
     <ActivityPanelView activity={activity} initialDetailItem={detailDismissed ? null : initialDetailItem} regionId="US"
       onDetailsSelectionChange={(item) => { if (item) setInitialDetailItem(item); else setDetailDismissed(true); }}
-      onCardAction={handler ? onCardAction : undefined} canCardAct={(kind) => kind === "add-money" || cardsEnabled} />
+      onCardAction={handler ? onCardAction : undefined}
+      canCardAct={(kind) => kind === "add-money" || (cardsEnabled && cardUnlockAvailable(cards))} />
   </main>;
 }
 
@@ -71,6 +83,21 @@ export const Locked: Story = {
     const row = await screen.findByRole("button", { name: /^Fixture Market/ });
     await expect(row).toHaveAccessibleName(/Card was locked/);
     await expect(row).not.toHaveAccessibleName(/Action needed/);
+  },
+};
+export const CardUnlocked: Story = {
+  args: { cards: cardsFixture("active") },
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    const alert = await screen.findByRole("alert");
+    const dialog = within(screen.getByRole("dialog"));
+    await expect(alert).toHaveTextContent("Declined because your card was locked");
+    await expect(dialog.getByRole("alert")).toHaveTextContent("Nothing was charged.");
+    await expect(dialog.queryByRole("button", { name: "Unlock card" })).toBeNull();
+    await expect(dialog.queryByRole("button", { name: "Add money" })).toBeNull();
+    await userEvent.click(dialog.getByRole("button", { name: "Close Fixture Market details" }));
+    await expect(screen.queryByRole("dialog")).toBeNull();
+    await expect(await screen.findByRole("button", { name: /^Fixture Market/ })).toBeVisible();
   },
 };
 export const InsufficientFunds: Story = {

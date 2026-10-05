@@ -12,7 +12,8 @@ import { activityOrdersPath, activityOrdersQuery } from "@/client/activity/activ
 import { recentActionsQuery, useRecentActionsStatus } from "@/client/actions/recent-actions-query";
 import { browserHomeQueryClient, ownerQueryKey, useHomeMutation, useHomeQuery, useHomeQueryClient } from "@/client/query/query-client";
 import { ownerMutation } from "@/client/query/mutation-options";
-import { AccountWalletContext } from "@/client/account/cdp-client";
+import { AccountWalletContext, type AccountWalletClient } from "@/client/account/cdp-client";
+import { cardUnlockAvailable, useCards } from "@/client/cards/use-cards";
 import { cashoutOrderAction, cashoutProgress, cashoutWithdrawForDeposit, linkedCashoutWithdraw } from "@/client/activity/cash-out-presenter";
 import type { RecentMoneyActionOperation } from "@/shared/actions/contracts/list";
 import type { ActivityOrder } from "@/shared/activity/contract-orders";
@@ -114,6 +115,11 @@ export function ConnectedActivityPanel({
   }));
   const routing = useOptionalHomeShellRouting();
   const cardsEnabled = useOptionalShellPage()?.cardsEnabled === true;
+  const fetchCards = useCallback<AccountWalletClient["fetchAccountResource"]>(async (path, options) => {
+    if (!wallet) throw new Error("Cards are unavailable.");
+    return wallet.fetchAccountResource(path, options);
+  }, [wallet]);
+  const cards = useCards({ ownerKey: cardsEnabled ? wallet?.ownerKey ?? null : null, fetchAccountResource: fetchCards });
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelActionKind, setCancelActionKind] = useState<ActivityLedgerNextActionKind | null>(null);
@@ -292,7 +298,7 @@ export function ConnectedActivityPanel({
       retryActions={retryActions}
       retryOrders={retryOrders}
       onOrderAction={(order, kind) => { void onOrderAction(order, kind); }}
-      canCardAct={(kind) => kind === "add-money" || cardsEnabled}
+      canCardAct={(kind) => kind === "add-money" || (cardsEnabled && !cards.query.isError && cardUnlockAvailable(cards.query.data))}
       onCardAction={routing ? (kind, close) => {
         if (kind === "add-money") {
           if (routing.setFlow("add-money", { mode: "push", opener: null })) {
