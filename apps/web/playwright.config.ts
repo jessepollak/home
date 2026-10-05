@@ -55,6 +55,8 @@ function findExecutable(
   return undefined;
 }
 
+const products = process.env.HOME_PLAYWRIGHT_PRODUCTS === "1";
+if (products && !process.env.DATABASE_URL) throw new Error("Run Products coverage with test:browser-products.");
 const regression = process.env.HOME_PLAYWRIGHT_REGRESSION === "1";
 const productionNavigation = process.env.HOME_PLAYWRIGHT_PRODUCTION === "1";
 const executablePath = cachedChromiumExecutable();
@@ -90,13 +92,15 @@ process.env["HOME_ACCESS_PASSWORD"] = accessCredential;
 process.env.HOME_ACCESS_SIGNING_SECRET = accessSigningSecret;
 
 export default defineConfig({
-  globalSetup: regression ? "./tests/browser/global-setup.ts" : productionNavigation ? undefined : "./tests/browser/smoke-setup.ts",
+  globalSetup: products ? undefined : regression ? "./tests/browser/global-setup.ts" : productionNavigation ? undefined : "./tests/browser/smoke-setup.ts",
   testDir: "./tests/browser",
-  testMatch: "**/*.pw.ts",
-  fullyParallel: !regression && !productionNavigation,
-  workers: regression || productionNavigation ? 1 : 2,
-  globalTimeout: !regression && !productionNavigation && process.env.CI ? 90_000 : undefined,
-  ...browserSmokeCiPolicy(Boolean(process.env.CI), { rejectRetryOnlyPass: regression }),
+  testMatch: products ? "products-settings.pw.ts" : "**/*.pw.ts",
+  testIgnore: products ? [] : ["**/products-settings.pw.ts"],
+  fullyParallel: !products && !regression && !productionNavigation,
+  workers: products || regression || productionNavigation ? 1 : 2,
+  globalTimeout: products ? 180_000 : !regression && !productionNavigation && process.env.CI ? 90_000 : undefined,
+  ...browserSmokeCiPolicy(Boolean(process.env.CI), { rejectRetryOnlyPass: products || regression }),
+  ...(products ? { outputDir: "test-results/products", reporter: [["list"], ["json", { outputFile: "test-results/products.json" }]] } satisfies Parameters<typeof defineConfig>[0] : {}),
   ...(productionNavigation ? {
     retries: 0,
     outputDir: "test-results/production-navigation",
@@ -111,6 +115,7 @@ export default defineConfig({
     env: {
       ...process.env,
       HOME_PLAYWRIGHT_SMOKE: "1",
+      DATABASE_URL: products ? process.env.DATABASE_URL ?? "" : "",
       HOME_OPERATOR_ADDRESSES: "0x1111111111111111111111111111111111111111,0x3333333333333333333333333333333333333333",
       HOME_SESSION_SECRET: "playwright-smoke-home-session-secret-32-bytes!!",
       HOME_ACCESS_REQUIRED: "1",
@@ -140,7 +145,7 @@ export default defineConfig({
   },
   projects: [
     {
-      name: productionNavigation ? "chromium-production-navigation" : "chromium-smoke",
+      name: products ? "chromium-products" : productionNavigation ? "chromium-production-navigation" : "chromium-smoke",
       ...(productionNavigation
         ? { testMatch: ["shell-pages.pw.ts", "invest-search.pw.ts"], grep: /production:|floating asset search/ }
         : { grep: regression ? undefined : /@smoke/, grepInvert: /production:/ }),

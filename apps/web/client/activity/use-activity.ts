@@ -9,6 +9,7 @@ import {
 } from "@/shared/activity/contract";
 import { mergeActivityPages, sameActivityTransfer } from "@/shared/activity/pages";
 import { ACTIVITY_WINDOW_DAYS } from "@/shared/activity/types";
+import { CARD_PURCHASES_VERSION } from "@/shared/cards/transactions-contract";
 import type {
   ActivityPage,
   ActivityState,
@@ -661,7 +662,7 @@ export function useActivity(
     return {
       ...mergedPage,
       cards: {
-        version: snapshot.cards.version,
+        version: CARD_PURCHASES_VERSION,
         status: snapshot.cards.status === "unavailable" || mergedPage.cards?.status === "unavailable"
           ? "unavailable" : "ready",
         rows: snapshot.cards.rows.filter((row) => {

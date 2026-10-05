@@ -69,6 +69,18 @@ bun run --cwd apps/web fixture-server stop
 
 Apply this cleanup also on interruptions/failures, using the same `HOME_FIXTURE_PORT` (or explicit `--port`) as start. Never `pkill`, `killall`, or kill by port/name. State in PR evidence whether the recorded process group was stopped or already gone, and whether the helper confirmed the port was free. If another process holds the port after shutdown, the helper fails loudly instead of reporting success.
 
+### Operator Products persistence
+
+`bun run --cwd apps/web test:browser-products` runs the Products and markets browser path against real settings and audit APIs backed by PostgreSQL. Export `HOME_PRODUCTS_PG_TEST_URL` for a disposable database on `localhost`, `127.0.0.1` or `::1`; the URL must name its database user and have no query options or fragment. A local PostgreSQL 14 service with schema-creation permission is required. Do not use `DATABASE_URL` as the fixture input or put this configuration in Next-loadable env files; the runner rejects those files and missing/remote fixture URLs instead of skipping.
+
+The runner creates a randomized schema, applies only `010_operator_settings.sql` through the shared migration helper, and starts Playwright with that schema as the sole search path (no `public`). An empty settings table intentionally exercises deployment provenance. A single browser sequence owns its settings/audit state; every invocation starts fresh and drops only its own schema on success, failure or handled interruption. No provider credentials are inherited. Playwright owns and stops the development server. Other browser fixtures and the existing no-database operator boundary tests run separately and retain their unavailable-state coverage.
+
+Coverage includes pausing Save and saved actor/time provenance; persistent vault and market Reducing only; re-enabling review with Cancel and explicit Turn on; a second page winning a real revision race; and a changed signed operator cookie triggering real `OPERATOR_CHANGED`. Real GETs and audit reads establish successful persistence and rejected-write non-persistence, and browser reloads establish the saved/latest state and operator. No Products settings or audit response is mocked. CI runs this command with its PostgreSQL 14 service in the existing PostgreSQL contract job and the manual browser-regression workflow.
+
+Playwright-rung: persisted-state / dispatch
+
+Browser control → signed-cookie request → real route/store transaction → audit → reload cannot be established by a presenter test. This credential-free fixture does not prove live-provider or funded behavior. The `/admin/audit` page remains a placeholder; audit persistence is verified through its real API.
+
 ### Production warm navigation
 
 Ordinary `test:browser-smoke` stays on `next dev`, which refetches RSC payloads on navigation. The separate `chromium-production-navigation` project selects the production warm-navigation assertion and the floating asset-search history cases at 390px and 1280px, with no skip or retry. Run it when shell routing, prefetch, router-cache or search-result history behavior changes:

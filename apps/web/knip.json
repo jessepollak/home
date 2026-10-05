@@ -45,6 +45,7 @@
     "live-login.ts!",
     // Fixture server lifecycle CLI is run directly by its package script.
     "scripts/fixture-server.ts!",
+    "scripts/products-browser.ts!",
     // Review context CLI is run directly by its package script.
     "scripts/review-context.ts!",
     "scripts/review-links.ts!",

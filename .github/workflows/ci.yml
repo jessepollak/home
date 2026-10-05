@@ -446,3 +446,20 @@ jobs:
           while IFS= read -r -d '' file; do tests+=("$file"); done < <(git ls-files -z -- 'apps/web/**/*postgres*.test.ts')
           test "${#tests[@]}" -gt 0
           bun test "${tests[@]}"
+
+      - name: Install Chromium for operator persistence coverage
+        run: bun run --cwd apps/web playwright install --with-deps --only-shell chromium
+
+      - name: Test Products saves against isolated PostgreSQL
+        env:
+          HOME_PRODUCTS_PG_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/home_test
+        run: bun run --cwd apps/web test:browser-products
+
+      - name: Upload Products browser results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-products-results
+          path: apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
