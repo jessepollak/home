@@ -76,6 +76,22 @@ Each economic position counts once: vault shares are valued as a position, not a
 
 Funding already has the full plugin shape: one provider directory, one registration line, one conformance test (`describeFundingAdapter`); Coinbase Onramp and Ripio sit behind it. Coinbase uses the generic Orders API for quote, one create, and status reconciliation, then renders the allowlisted Embedded Orders payment link in an iframe; production still requires Coinbase enablement and verified domains. Apply that shape to another seam when a real extension demonstrates the contract; configuration entries do not need plugin directories. Shared code changes only when an instruction kind or product kind is new.
 
+## Building blocks
+
+Shared primitives live under `apps/web/` at these owners.
+
+| Block | Owner | Owns |
+|---|---|---|
+| Server HTTP | `server/http/request.ts`, `server/http/upstream.ts`, `server/http/private-response.ts` | Bounded request reads, deadline-bound upstream requests, and private responses |
+| Server auth | `server/cdp/auth.ts` | CDP request JWT signing and typed auth failures |
+| Server env | `server/config/env.ts` | Validated environment getters and credential reads |
+| Chain hex | `shared/chain/hex.ts` | Validated, lowercase branded addresses and 32-byte hashes |
+| Amounts | `shared/amounts/decimal.ts` | Exact decimal/base-unit parsing and formatting, positive amount bounds, and provider decimal reads |
+| Process cache | `server/cache/bounded.ts` | Bounded process-local TTL storage and singleflight loads |
+| Query factories | `client/query/query-options.ts` | Owner/public query and infinite-query options with scope keys, stale times, and owner persistence metadata |
+| Owner boundary | `client/account/owner-keys.ts` | Owner identity keys and session/UI boundary keys |
+| Query view state | `client/query/query-view-state.ts` | Query view-state classification, including failures with cached data |
+
 ## Data model
 
 Growing-data queries use selective indexed access and bounded work; add appropriate missing indexes with the query and verify the actual plan. [SQL performance](sql-performance.md) defines plan evidence, provider query bounds, justified scan exceptions, and migration rollout requirements.

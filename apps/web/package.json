@@ -99,6 +99,7 @@
     "agentation": "3.0.2",
     "es-module-lexer": "2.3.2",
     "fake-indexeddb": "6.2.4",
+    "fast-check": "4.10.2",
     "knip": "6.37.0",
     "msw": "2.15.0",
     "msw-storybook-addon": "3.0.3",

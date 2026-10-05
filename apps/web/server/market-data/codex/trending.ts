@@ -12,6 +12,7 @@ import {
   type InvestAsset,
 } from "@/config/invest-assets";
 import type { MarketSnapshot } from "@/shared/invest/invest-market";
+import { readPositiveDecimal } from "@/shared/amounts/decimal";
 import { createBoundedCache } from "@/server/cache/bounded";
 import { sanitizeImageUrl } from "../asset-icons/image-url";
 import { formatChangeLabel } from "./change-label";
@@ -25,7 +26,6 @@ import {
   executeCodexGraphql,
   readAddress,
   readInteger,
-  readPositiveDecimal,
   readRecord,
   type FetchLike,
 } from "./execute";

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { readPositiveDecimal } from "@/shared/amounts/decimal";
+
 import { readCodexApiKey } from "@/server/config/env";
 
 import {
@@ -357,15 +359,6 @@ function readInteger(value: unknown): number | null {
   if (typeof value !== "string" || !/^(0|[1-9]\d*)$/.test(value)) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function readPositiveDecimal(value: unknown): string | null {
-  if (typeof value !== "string" || value !== value.trim()) return null;
-  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)) {
-    return null;
-  }
-  const mantissa = value.split(/[eE]/, 1)[0] ?? "";
-  return /[1-9]/.test(mantissa) ? value : null;
 }
 
 function contractKey(networkId: number, address: string) {

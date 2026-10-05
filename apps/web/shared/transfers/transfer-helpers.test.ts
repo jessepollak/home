@@ -41,6 +41,13 @@ describe("transfer amount helpers", () => {
     expect(formatSendConfirmAmount("100000", "cbbtc")).toBe("0.001\u00A0cbBTC");
   });
 
+  test("accepts the uint256 maximum and rejects one base unit above it", () => {
+    const maximum = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+    expect(parseTransferAmount(maximum, 0)).toBe(maximum);
+    expect(() => parseTransferAmount("115792089237316195423570985008687907853269984665640564039457584007913129639936", 0))
+      .toThrow(TransferExecutionError);
+  });
+
   test("rejects exponent notation, excess precision, zero, and malformed addresses", () => {
     for (const value of ["1e-6", "1.0000001", "0", "-1", ".5", "01"]) {
       expect(() => parseTransferAmount(value, 6)).toThrow(TransferExecutionError);
