@@ -75,6 +75,8 @@ No funded authorization was performed.
 
 ## Validation
 
+For the guarded, headed non-funded Embedded Orders proof, see the [Coinbase onramp agent-browser sandbox harness](../../../../../../docs/coinbase-onramp-agent-browser.md). It stays opt-in, local-only, and outside automated tests.
+
 ```sh
 bun test apps/web/server/funding apps/web/shared/funding apps/web/client/funding
 bun check
