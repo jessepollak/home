@@ -95,3 +95,18 @@ describe("observability scrub security matrix", () => {
 
 
 });
+
+describe("observability scrub credential key identifiers", () => {
+  test("redacts key-ID assignments in plain, header-style, and JSON forms", () => {
+    const scrubbed = scrubString([
+      "CDP_API_KEY_ID=placeholder-canary",
+      "API_KEY_ID: placeholder-canary",
+      '{"cdpApiKeyId":"placeholder-canary"}',
+      "mode=standard",
+    ].join("\n"));
+
+    expect(scrubbed).not.toContain("placeholder-canary");
+    expect(scrubbed.match(/\[REDACTED\]/g)).toHaveLength(3);
+    expect(scrubbed).toContain("mode=standard");
+  });
+});

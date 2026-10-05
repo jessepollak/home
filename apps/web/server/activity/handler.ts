@@ -377,7 +377,7 @@ function activityReadError(error: unknown): Response {
       case "not-configured":
         return privateError(
           "ACTIVITY_NOT_CONFIGURED",
-          "Activity history is not configured. Check ACTIVITY_HISTORY_SOURCE and its required server credentials.",
+          "Try again later.",
           503,
         );
       case "timed-out":
