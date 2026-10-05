@@ -437,7 +437,8 @@ export function CashOverview({
   const failed = balanceStatus === "failed";
   const activeSnapshot = failed ? null : snapshot;
   const pendingValue = activeSnapshot ? presentPendingCashout(activeSnapshot, pendingCashout) : null;
-  const balanceComplete = balanceStatus === "ready" && activeSnapshot?.stale !== true && activeSnapshot?.coverage.registry === "complete" && activeSnapshot.coverage.catalog === "complete";
+  const savingsStale = balanceActionStale || activeSnapshot?.stale === true;
+  const balanceComplete = balanceStatus === "ready" && !savingsStale && activeSnapshot?.coverage.registry === "complete" && activeSnapshot.coverage.catalog === "complete";
   const summary = useMemo(() => activeSnapshot
     ? presentCashTotal(activeSnapshot)
     : null, [activeSnapshot]);
@@ -466,6 +467,7 @@ export function CashOverview({
   const savingsHeld = holdings.some(({ held }) => held);
   const pendingTotal = pendingDeposits.reduce((sum, deposit) => sum + BigInt(deposit.amountBaseUnits), BigInt(0));
   const savingsPending = !loading && pendingDeposits.length > 0 && total === BigInt(0) && !partial;
+  const savingsUncertain = !balanceComplete || savingsPending;
   const empty =
     !loading &&
     summary?.status === "complete" &&
@@ -620,7 +622,7 @@ export function CashOverview({
         ) : null}
         </>
       )}
-      {!failed && (!empty || vaultStatus === "failed" || savingsPending) ? (
+      {!failed && (!empty || vaultStatus === "failed" || savingsUncertain) ? (
         <>
           {!empty ? (
             <section
@@ -690,7 +692,7 @@ export function CashOverview({
               </Card>
             </section>
           ) : null}
-          {(!balanceComplete || saveEntryOffered(offering, vaultStatus === "failed" ? null : metadata?.candidates) || total > BigInt(0) || partial || savingsPending) ? <section
+          {(savingsUncertain || saveEntryOffered(offering, vaultStatus === "failed" ? null : metadata?.candidates) || total > BigInt(0) || partial) ? <section
             aria-labelledby="cash-savings-heading"
             aria-busy={loading || vaultStatus === "loading" || undefined}
           >
@@ -740,9 +742,11 @@ export function CashOverview({
                           )
                         ) : undefined
                       }
-                      valueTone={balanceActionStale || partial ? "muted" : "default"}
+                      valueTone={savingsStale || partial ? "muted" : "default"}
+                      valueContextLines="wrap"
                       valueContext={
-                        balanceActionStale ? "May be out of date" : partial && total > BigInt(0) ? "Partial" : undefined
+                        [partial && total > BigInt(0) ? "Partial" : null, savingsStale ? "May be out of date" : null]
+                          .filter(Boolean).join(" · ") || undefined
                       }
                       onActivate={onOpenSavings}
                       activateLabel="Open savings"
@@ -843,7 +847,8 @@ export function SavingsDetail({
     activeSnapshot?.holdings.find((holding) => holding.id === "usdc")?.balance
       .status !== "ready" ||
     vaultStatus !== "ready";
-  const showActionStale = balanceActionStale && !balanceFailed && balanceStatus === "ready" && activeSnapshot !== null && (!partial || total > BigInt(0));
+  const staleBalance = balanceActionStale || balanceStale || activeSnapshot?.stale === true;
+  const showStale = staleBalance && !balanceFailed && balanceStatus === "ready" && activeSnapshot !== null && (!partial || total > BigInt(0));
   const startSavingRef = useRef<HTMLButtonElement>(null);
   const recovery = (
     <Empty>
@@ -884,11 +889,11 @@ export function SavingsDetail({
                 aria-describedby={
                   [
                     partial && !balanceFailed ? "savings-balance-partial" : null,
-                    showActionStale ? "savings-balance-stale" : null,
+                    showStale ? "savings-balance-stale" : null,
                   ].filter(Boolean).join(" ") || undefined
                 }
                 className={`text-4xl font-semibold tabular-nums ${
-                  partial || balanceFailed || showActionStale ? "text-muted-foreground" : ""
+                  partial || balanceFailed || showStale ? "text-muted-foreground" : ""
                 }`}
               >
                 {balanceFailed || (partial && total === BigInt(0)) ? (
@@ -899,7 +904,7 @@ export function SavingsDetail({
                     reserveDigits={false}
                     value={
                       pendingEmpty ? formatUsdStablecoinAmount(pendingTotal.toString())
-                      : partial || balanceActionStale || growth === BigInt(0)
+                      : partial || staleBalance || growth === BigInt(0)
                         ? formatUsdStablecoinAmount(total.toString())
                         : formatPresentationFiat(
                             { atoms: (total + growth).toString(), scale: 6 },
@@ -913,7 +918,7 @@ export function SavingsDetail({
               </div>
             )}
             {pendingEmpty ? <p className="text-sm text-muted-foreground">Pending</p> : null}
-            {showActionStale ? <p id="savings-balance-stale" className="text-sm text-muted-foreground">Balance may be out of date</p> : null}
+            {showStale ? <p id="savings-balance-stale" className="text-sm text-muted-foreground">Balance may be out of date</p> : null}
             {partial && !balanceFailed ? (
               <p
                 id="savings-balance-partial"
@@ -922,7 +927,7 @@ export function SavingsDetail({
                 Some savings are unavailable
               </p>
             ) : null}
-            {!balanceFailed && !balanceActionStale && vaultStatus === "ready" && total > BigInt(0) ? (
+            {!balanceFailed && !staleBalance && vaultStatus === "ready" && total > BigInt(0) ? (
               earningApy ? (
                 <p className="text-sm text-market-gain">Earning {earningApy}</p>
               ) : (
