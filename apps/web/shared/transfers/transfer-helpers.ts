@@ -1,4 +1,5 @@
 import { getDirectPortfolioAssets, type DirectPortfolioAsset } from "@/config/portfolio-assets";
+import { DecimalAmountError, parsePositiveAmount, UINT256_MAX } from "@/shared/amounts/decimal";
 import { currencyRecordForContract } from "@/shared/currencies/registry";
 import type { CurrencyRepresentation } from "@/shared/currencies/types";
 import {
@@ -13,9 +14,7 @@ import {
   type TransferAssetId,
 } from "./types";
 
-const UINT256_MAX = (BigInt(1) << BigInt(256)) - BigInt(1);
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
-const decimalAmountPattern = /^(?:0|[1-9][0-9]*)(?:\.([0-9]+))?$/;
 const decimalIntegerPattern = /^(?:0|[1-9][0-9]*)$/;
 export const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
 
@@ -74,26 +73,12 @@ export function parseTransferAmount(
   value: string,
   decimals: number,
 ): string {
-  if (!Number.isSafeInteger(decimals) || decimals < 0 || decimals > 255) {
-    throw new TransferExecutionError("invalid-request");
+  try {
+    return parsePositiveAmount(value.trim(), decimals).toString(10);
+  } catch (error) {
+    if (error instanceof DecimalAmountError) throw new TransferExecutionError("invalid-request");
+    throw error;
   }
-
-  const normalized = value.trim();
-  const match = decimalAmountPattern.exec(normalized);
-  if (!match) {
-    throw new TransferExecutionError("invalid-request");
-  }
-
-  const [whole, fraction = ""] = normalized.split(".");
-  if (fraction.length > decimals) {
-    throw new TransferExecutionError("invalid-request");
-  }
-
-  const baseUnits = BigInt(`${whole}${fraction.padEnd(decimals, "0")}`);
-  if (baseUnits <= BigInt(0) || baseUnits > UINT256_MAX) {
-    throw new TransferExecutionError("invalid-request");
-  }
-  return baseUnits.toString(10);
 }
 
 export function formatSendConfirmAmount(

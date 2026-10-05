@@ -1,3 +1,5 @@
+import { DecimalAmountError, parsePositiveAmount } from "@/shared/amounts/decimal";
+
 export const WAD = BigInt("1000000000000000000");
 export const ORACLE_PRICE_SCALE = BigInt("1000000000000000000000000000000000000");
 export const VIRTUAL_ASSETS = BigInt("1");
@@ -112,11 +114,12 @@ export function liquidationPriceRaw(debtAssets: bigint, collateralAssets: bigint
 
 /** @public exercised by server/borrowing/math.test.ts */
 export function parseTokenAmount(value: string, decimals: number): bigint {
-  const normalized = value.trim();
-  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(normalized)) throw new TypeError("Enter a positive decimal amount without commas or exponent notation.");
-  const [whole, fraction = ""] = normalized.split(".");
-  if (fraction.length > decimals) throw new TypeError(`This asset supports at most ${decimals} decimal places.`);
-  const amount = BigInt(whole) * (BigInt("10") ** BigInt(decimals)) + BigInt((fraction + "0".repeat(decimals)).slice(0, decimals) || "0");
-  if (amount <= BigInt("0")) throw new TypeError("Amount must be greater than zero.");
-  return amount;
+  try {
+    return parsePositiveAmount(value.trim(), decimals);
+  } catch (error) {
+    if (!(error instanceof DecimalAmountError)) throw error;
+    if (error.reason === "precision") throw new TypeError(`This asset supports at most ${decimals} decimal places.`);
+    if (error.reason === "zero") throw new TypeError("Amount must be greater than zero.");
+    throw new TypeError("Enter a positive decimal amount without commas or exponent notation.");
+  }
 }

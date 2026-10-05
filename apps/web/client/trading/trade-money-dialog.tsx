@@ -29,6 +29,7 @@ import {
   TRADE_ACTION_CONTRACT_VERSION, TRADE_SELL_ALL, TRADE_SLIPPAGE_BPS,
   isTradeErrorCode, type TradeActionParams, type TradeDirection, type TradeMoneyActionMetadata, type TradeToken,
 } from "@/shared/trading/contract";
+import { parseTradeAmount } from "@/shared/trading/amount";
 import { tradeCustomerAmounts, type TradeCustomerAmounts } from "@/shared/trading/fee-amounts";
 import { type CashConversionCurrency, cashConversionPair, cashConversionTrade } from "@/shared/trading/cash-conversion";
 import { tradeRateLabel } from "@/shared/trading/review";
@@ -296,12 +297,6 @@ export function TradeMoneyFlow({ direction, session, token, assetName, available
   </MoneyModalStep>;
 }
 
-function parseTradeAmount(value: string, decimals: number): string | null {
-  const match = /^(\d+)(?:\.(\d+))?$/.exec(value.trim().replace(/\.$/, ""));
-  if (!match || (match[2]?.length ?? 0) > decimals) return null;
-  const atoms = BigInt(match[1] + (match[2] ?? "").padEnd(decimals, "0"));
-  return atoms > BigInt(0) ? atoms.toString() : null;
-}
 function matchesPreparedTrade(action: PreparedMoneyAction, session: VerifiedAccountSession, request: TradeActionParams, token: TradeToken): boolean {
   const metadata = action.metadata;
   const traded = metadata?.product === "trade" ? request.direction === "buy" ? metadata.toAsset : metadata.fromAsset : null;

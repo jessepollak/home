@@ -6,6 +6,7 @@ import { createBoundedCache } from "@/server/cache/bounded";
 
 import { investAssets } from "@/config/invest-assets";
 import { parseExactDecimal } from "@/shared/balances/math";
+import { readPositiveDecimal } from "@/shared/amounts/decimal";
 import {
   MARKET_STATS_VERSION,
   type MarketStats,
@@ -20,7 +21,6 @@ import {
   executeCodexGraphql,
   readAddress,
   readInteger,
-  readPositiveDecimal,
   readRecord,
   type FetchLike,
 } from "./execute";

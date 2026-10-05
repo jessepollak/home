@@ -9,6 +9,7 @@ import {
 } from "@/config/portfolio-assets";
 import { sanitizeImageUrl } from "@/server/market-data/asset-icons/image-url";
 import { parseExactDecimal } from "@/shared/balances/math";
+import { readPositiveDecimal } from "@/shared/amounts/decimal";
 import type { ExactDecimal } from "@/shared/balances/quotes";
 import { CodexMarketDataError } from "./client";
 import { CODEX_REQUEST_TIMEOUT_MS } from "./config";
@@ -16,7 +17,6 @@ import {
   executeCodexGraphql,
   readAddress,
   readInteger,
-  readPositiveDecimal,
   readRecord,
   type FetchLike,
 } from "./execute";

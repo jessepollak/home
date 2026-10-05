@@ -130,6 +130,15 @@ describe("Morpho borrowing integer math", () => {
     expect(() => parseTokenAmount("1.0000001", 6)).toThrow("at most 6");
     expect(() => parseTokenAmount("1e3", 6)).toThrow();
   });
+  test("rejects zero token amounts with the existing amount error", () => {
+    expect(() => parseTokenAmount("0.000000", 6)).toThrow(new TypeError("Amount must be greater than zero."));
+  });
+
+  test("rejects token amounts above uint256 with the existing syntax error", () => {
+    expect(() => parseTokenAmount("115792089237316195423570985008687907853269984665640564039457584007913129639936", 0))
+      .toThrow(new TypeError("Enter a positive decimal amount without commas or exponent notation."));
+  });
+
   test("converts health factor to price-drop liquidation buffer bps", () => {
     expect(liquidationBufferBps(null)).toBeNull();
     expect(liquidationBufferBps(BigInt("1000000000000000000"))).toBe(BigInt(0));

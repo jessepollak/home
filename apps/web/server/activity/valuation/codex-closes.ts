@@ -3,13 +3,13 @@ import "server-only";
 import {
   executeCodexGraphql,
   readInteger,
-  readPositiveDecimal,
   readRecord,
   type FetchLike,
 } from "@/server/market-data/codex/execute";
 import { createBoundedCache } from "@/server/cache/bounded";
 import { createWriteOrder } from "@/server/cache/write-order";
 import { parseExactDecimal } from "@/shared/balances/math";
+import { readPositiveDecimal } from "@/shared/amounts/decimal";
 import { ACTIVITY_BASE_CHAIN_ID } from "@/shared/activity/types";
 import {
   ACTIVITY_VALUATION_BAR_RESOLUTION_MINUTES,

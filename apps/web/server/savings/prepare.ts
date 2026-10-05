@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { VerifiedAccountSession } from "@/shared/account/session-types";
+import { formatDecimalAmount } from "@/shared/amounts/decimal";
 import type {
   MoneyActionDraft,
   SavingsMoneyActionMetadata,
@@ -43,7 +44,8 @@ import { getMorphoVaultCandidates } from "@/server/morpho";
 
 const ACTION_VALIDITY_MS = 5 * 60_000;
 export const SAVE_DEPOSIT_MIN_SHARES_TOLERANCE_BPS = 10;
-const SHARE_PRICE_SCALE = BigInt("10") ** BigInt("27");
+/** @public exercised by server/savings/share-bound.property.test.ts */
+export const SHARE_PRICE_SCALE = BigInt("10") ** BigInt("27");
 const WAD = BigInt("1000000000000000000");
 const addressPattern = /^0x[0-9a-fA-F]{40}$/;
 const integerPattern = /^(?:0|[1-9][0-9]*)$/;
@@ -255,8 +257,8 @@ function prepareDeposit(
       },
     ],
     warnings: commonWarnings(state, expiresAt).concat([
-      `Source-block limits: maxDeposit ${formatUnits(state.limit, BASE_USDC_DECIMALS)} USDC; wallet balance ${formatUnits(state.usdcBalance, BASE_USDC_DECIMALS)} USDC.`,
-      `The deposit reverts if it would mint fewer than ${formatUnits(shareBound.minimumShares, state.shareDecimals)} vault shares (0.1% below the preview).`,
+      `Source-block limits: maxDeposit ${formatDecimalAmount(state.limit, BASE_USDC_DECIMALS)} USDC; wallet balance ${formatDecimalAmount(state.usdcBalance, BASE_USDC_DECIMALS)} USDC.`,
+      `The deposit reverts if it would mint fewer than ${formatDecimalAmount(shareBound.minimumShares, state.shareDecimals)} vault shares (0.1% below the preview).`,
       state.allowance < amount
         ? `This atomic plan sets an exact ${amount.toString(10)} base-unit USDC approval for the Morpho adapter, which moves the same USDC into the vault in the same transaction.`
         : "The existing USDC allowance for the Morpho adapter covers this deposit, so no new approval is included.",
@@ -305,7 +307,7 @@ function prepareWithdrawal(
       },
     ],
     warnings: commonWarnings(state, expiresAt).concat([
-      `Source-block limits: maxWithdraw ${formatUnits(state.limit, BASE_USDC_DECIMALS)} USDC; share balance ${formatUnits(state.sharesBalance, state.shareDecimals)}.`,
+      `Source-block limits: maxWithdraw ${formatDecimalAmount(state.limit, BASE_USDC_DECIMALS)} USDC; share balance ${formatDecimalAmount(state.sharesBalance, state.shareDecimals)}.`,
       "The reviewed USDC amount is exact. The displayed share burn is the ERC-4626 preview and can change before execution; the direct withdraw call either returns the exact assets or reverts.",
       `Both receiver and owner are the verified smart account ${account}.`,
     ]),
@@ -526,14 +528,6 @@ function formatWadPercent(value: bigint): string {
   const whole = scaled / BigInt(1_000_000);
   const fraction = (scaled % BigInt(1_000_000)).toString().padStart(6, "0").replace(/0+$/, "");
   return fraction ? `${whole.toString()}.${fraction}%` : `${whole.toString()}%`;
-}
-
-function formatUnits(value: bigint, decimals: number): string {
-  if (decimals === 0) return value.toString(10);
-  const digits = value.toString(10).padStart(decimals + 1, "0");
-  const whole = digits.slice(0, -decimals);
-  const fraction = digits.slice(-decimals).replace(/0+$/, "");
-  return fraction ? `${whole}.${fraction}` : whole;
 }
 
 function usdcAssetId() {
