@@ -30,9 +30,6 @@
     "apps/web/client/borrowing/borrow-overview.tsx": {
       "react/no-unstable-nested-components": 1
     },
-    "apps/web/client/funding/add-money-dialog.tsx": {
-      "jsx-a11y/no-noninteractive-tabindex": 1
-    },
     "apps/web/client/funding/order-flow.tsx": {
       "react/no-array-index-key": 3
     },

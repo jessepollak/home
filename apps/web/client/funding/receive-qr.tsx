@@ -2,12 +2,11 @@
 
 import { useMemo } from "react";
 import { encode } from "uqr";
-import styles from "./receive-qr.module.css";
 
 export const RECEIVE_QR_DISPLAY_PX = 220;
 
 export function ReceiveQr({ value, label }: { value: string; label: string }) {
-  const qr = useMemo(() => encode(value, { ecc: "M", border: 4 }), [value]);
+  const qr = useMemo(() => encode(value, { ecc: "M", border: 1 }), [value]);
   const path = useMemo(() => modulesToPath(qr.data), [qr.data]);
 
   return (
@@ -24,9 +23,9 @@ export function ReceiveQr({ value, label }: { value: string; label: string }) {
       <rect
         width={qr.size}
         height={qr.size}
-        className={styles.paper}
+        className="fill-primary-foreground"
       />
-      <path d={path} className={styles.ink} />
+      <path d={path} className="fill-primary" />
     </svg>
   );
 }
