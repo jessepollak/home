@@ -6,7 +6,7 @@ import { DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { AppDrawer, MoneyModalBody, MoneyModalStep } from "@/client/money-modal";
 import { CircleAlertIcon, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type FormEvent, type ReactNode } from "react";
-import { classifyEmailCodeError } from "./auth-errors";
+import { classifyEmailCodeError, classifyEmailSendError } from "./auth-errors";
 import {
   BaseAccountLoginError,
   useAccountWallet,
@@ -213,9 +213,11 @@ export function AccountSignInSheet({
       if (sequence !== uiAttemptSequence.current) return;
       setFlowId(result.flowId);
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_SECONDS * 1000);
-    } catch {
+    } catch (error) {
       if (sequence === uiAttemptSequence.current) {
-        setAuthError("We could not send a code. Check the address and try again.");
+        setAuthError(classifyEmailSendError(error) === "provider-unavailable"
+          ? "Email sign-in is temporarily unavailable. Try again in a few minutes."
+          : "We could not send a code. Check the address and try again.");
       }
     } finally {
       if (sequence === uiAttemptSequence.current) setIsSendingCode(false);
