@@ -13,6 +13,7 @@ import { DiscoverAssetRow } from "./discover-asset-row";
 
 export function DiscoverShelf({
   title,
+  headingLevel = 3,
   assets,
   market,
   status = "ready",
@@ -21,6 +22,7 @@ export function DiscoverShelf({
   onOpenAsset,
 }: {
   title: string;
+  headingLevel?: 2 | 3;
   assets: readonly InvestAsset[];
   market: MarketDataState;
   status?: MemeShelfStatus;
@@ -37,7 +39,7 @@ export function DiscoverShelf({
           <SectionHeader
             headingId={titleId}
             title={title}
-            ariaLevel={3}
+            ariaLevel={headingLevel}
             action={
               <Button variant="ghost" size="card-action" onClick={onSeeAll}>
                 See all ›

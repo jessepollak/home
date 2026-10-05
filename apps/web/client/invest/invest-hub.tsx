@@ -46,7 +46,6 @@ export function InvestHub({
   return (
     <section
       className="w-full"
-      aria-label={hosted ? "Invest" : undefined}
       aria-labelledby={hosted ? undefined : "invest-title"}
     >
       {hosted ? null : (
@@ -61,6 +60,7 @@ export function InvestHub({
             <DiscoverShelf
               key={shelf.id}
               title={shelf.title}
+              headingLevel={hosted ? 2 : 3}
               assets={getShelfPreviewAssets(shelf, memeAssets, investVisibility)}
               market={shelfMarkets[shelf.category]}
               status={shelf.id === "memes" ? memeStatus : "ready"}

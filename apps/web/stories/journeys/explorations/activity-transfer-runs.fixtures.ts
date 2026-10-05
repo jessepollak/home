@@ -54,6 +54,11 @@ export const pendingSend: RecentMoneyActionOperation = {
   status: "pending", createdAt: "2026-09-26T12:00:00.000Z", updatedAt: "2026-09-26T12:00:00.000Z",
 };
 
+export const loadingActivity: Extract<UseActivityResult, { status: "loading" }> = {
+  status: "loading", page: null, loadingMore: false, loadMoreError: false, continuing: false,
+  retry: noop, refresh: noop, setSentinelVisible: noop, retryLoadMore: noop,
+};
+
 export function activity(records: ActivityTransfer[]): Extract<UseActivityResult, { status: "ready" }> {
   const to = "2026-09-26T12:00:00.000Z";
   return {

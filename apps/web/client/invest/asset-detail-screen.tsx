@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -116,11 +116,9 @@ export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onB
   const headerScrub = referenceHeader ? null : scrub;
   const headerChange = referenceHeader ? null : change;
   const marketReadout = scrub && !resting.pending ? `${scrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""} · ${scrub.time}` : change;
-  return <section aria-label={hosted ? asset.displayName : undefined}
-    aria-labelledby={hosted ? undefined : "invest-asset-title"}
-    style={hosted ? { "--asset-surface": "var(--color-muted)" } as CSSProperties : undefined}
+  return <section aria-labelledby={hosted ? undefined : "invest-asset-title"}
     className={hosted
-      ? "-mx-4 flex min-w-0 flex-col gap-4 overflow-x-clip px-4 sm:mx-0 sm:px-0"
+      ? "-mx-4 flex min-w-0 flex-col gap-4 overflow-x-clip bg-background px-4 sm:mx-0 sm:px-0"
       : "mx-auto flex w-full max-w-2xl min-w-0 flex-col gap-4 overflow-x-clip px-4 py-4 sm:px-0"}>
     {hosted ? null : <header className="flex min-w-0 items-center gap-2">
       <Button variant="ghost" size="icon" className="size-11" onClick={onBack} aria-label="Back">
@@ -152,7 +150,7 @@ export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onB
     <AssetChart key={asset.id} assetId={asset.id} range={range} onRangeChange={onRangeChange}
       clock={clock} onReadout={setScrub} onResting={onResting} fallback={ChartLoadFallback} />
     {ownership ?? <AssetPosition asset={asset} assetMarkResolution={assetMarkResolution} />}
-    <AssetStats asset={asset} market={market} clock={clock} />
+    <AssetStats asset={asset} market={market} clock={clock} headingLevel={hosted ? 2 : 3} />
     {asset.category === "stock" ? <TradeActions asset={asset} layout="sticky" /> : null}
     <p className="text-xs text-muted-foreground">{asset.category === "stock"
       ? "Reference price in USD from Chainlink. DEX market price from Codex."
