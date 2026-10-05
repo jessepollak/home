@@ -447,6 +447,13 @@ describe("presentation money formatting", () => {
     }
   });
 
+  test("keeps native cash review precision without numeric rounding", () => {
+    expect(formatExactPresentationCashAmount("1234567", 2, "IDR", "ID")).toBe("Rp\u00a012.345,67");
+    expect(formatExactPresentationCashAmount("1234567890123456789", 18, "BRL", "BR")).toBe("R$\u00a01,234567890123456789");
+    expect(formatExactPresentationCashAmount("1", 18, "BRL", "BR")).toBe("R$\u00a00,000000000000000001");
+    expect(formatExactPresentationCashAmount("9007199254740993500001", 6, "USD", "US")).toBe("$9,007,199,254,740,993.500001");
+  });
+
   test("keeps ordinary and tiny market prices exact within display bounds", () => {
     expect(formatPresentationPrice("231.708792875")).toBe("$231.71");
     expect(formatPresentationPrice("12345678901234567890.1")).toBe(
