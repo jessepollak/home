@@ -11,7 +11,6 @@ import { CoverageFilters } from "@/client/coverage/coverage-filters";
 import { SupportedGlobeDynamic } from "@/client/landing/supported-globe-dynamic";
 import { countryFlag } from "@/client/landing/globe-geometry";
 import {
-  COVERAGE_REGISTRY_CHECKED_AT,
   coverageHomeStatuses,
   coverageIssuerStatuses,
   coveragePortfolioStatuses,
@@ -94,10 +93,8 @@ export default async function CoveragePage({ searchParams }: PageProps<"/coverag
         provider: record.homeRoute.providerId,
         asset: record.homeRoute.assetId,
         paymentMethods: record.homeRoute.paymentMethodIds,
-        evidence: record.homeRoute.evidence,
       },
       quote: record.quoteObservation,
-      registryCheckedAt: COVERAGE_REGISTRY_CHECKED_AT,
     };
   });
 

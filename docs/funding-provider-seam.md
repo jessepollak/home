@@ -269,7 +269,7 @@ Order matters only where noted; everything else can run in parallel under the [d
 
 Cut after review to keep the first version small. Each is a follow-up if a real need appears.
 
-- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — record risk-bounded live evidence in the PR/runbook when it is safe and operator-authorized, not in new machinery.
+- Live-proof JSON, `verify-proof`, `enablement-check`, separate merge/enable gates — not built; a route's registry `status` is its availability statement, and live or funded actions still need the [verification ladder](operating-manual.md#verification-ladder)'s authorization.
 - Template generator, `sync-providers`, status generator — copy a reference adapter; one line in `index.ts`.
 - Rollout registry and eligibility allowlists — credentials connect a corridor, and the operator offers it from **Money in and out**. An allowlist is a one-variable follow-up if hosted Home needs it.
 - Webhook inbox and cross-binding recovery — unmatched webhooks are logged; status polling covers the gap.
@@ -342,7 +342,7 @@ Provider-owned customer identity is separate from `funding_orders`. A provider o
 
 Migration `007_funding_provider_customers.sql` reconciles legacy non-null order customer references as `pending`: an order proves identity binding, not verification. Existing order references remain immutable snapshots, but runtime customer lookup no longer scans orders. Owner-scoped customer GET performs at most one Ripio status read for each pending-started row on that query. Exact `COMPLETED` promotes by CAS to `verified`; exact `FAILED` promotes by CAS to `rejected`; every other status, 404, malformed/contradictory response, and HTTP/transport uncertainty preserves pending. Status refresh is read-only at the provider and never issues a write. Quote creation still requires stored `verified` state.
 
-A provider-rejected or dispatch-ambiguous customer setup is terminal in the customer flow and is never retried automatically. An operator must reconcile the durable row with the provider and explicitly restart setup through a separately reviewed recovery process. Ripio follows the public documentation as the implemented contract; production behavior remains unverified and requires separately authorized acceptance. No live acceptance is claimed. If merged independently, PR #614 supersedes PR #603's code while preserving exact head `74db447b` and its contributor attribution in branch ancestry.
+A provider-rejected or dispatch-ambiguous customer setup is terminal in the customer flow and is never retried automatically. An operator must reconcile the durable row with the provider and explicitly restart setup through a separately reviewed recovery process. Ripio follows the public documentation as the implemented contract. Any live or funded provider action still needs separately authorized acceptance. If merged independently, PR #614 supersedes PR #603's code while preserving exact head `74db447b` and its contributor attribution in branch ancestry.
 
 ## Coinbase reusable user credential (#573)
 

@@ -26,9 +26,8 @@ export type CoverageTableRow = {
     }[];
   };
   issuer: { status: "documented" | "conditional" | "not-found" | "not-researched"; rail: string; audience: string; evidence: { url: string; checkedAt: string } | null };
-  home: { status: "none" | "planned" | "in-build" | "sandbox" | "live"; provider: string | null; asset: string | null; paymentMethods: readonly string[]; evidence: { proofRef: string; checkedAt: string } | null };
+  home: { status: "none" | "planned" | "in-build" | "sandbox" | "live"; provider: string | null; asset: string | null; paymentMethods: readonly string[] };
   quote: { quotedAt: string; spreadBps: number | null; feeSummary: string; sourceUrl: string } | null;
-  registryCheckedAt: string;
 };
 
 const stablecoinTraffic = { identified: "Yellow", "not-identified": "Red" } as const;
@@ -91,7 +90,6 @@ function createColumns(onOpenChange: (countryCode: string, column: string, open:
       { label: "Provider", value: value.home.provider ?? "None" },
       { label: "Asset", value: value.home.asset ?? "None" },
       { label: "Payment methods", value: value.home.paymentMethods.join(", ") || "None" },
-      value.home.evidence ? { label: "Hosted production", value: `${value.home.evidence.proofRef}; checked ${value.home.evidence.checkedAt}` } : { label: "Hosted production", value: `No evidence recorded; registry checked ${value.registryCheckedAt}` },
     ]} /></div>;
   } },
   ];
