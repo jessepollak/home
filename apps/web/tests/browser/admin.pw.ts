@@ -28,6 +28,24 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
     await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Business" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Setup", exact: true })).toBeVisible();
+    const database = page.getByRole("listitem", { name: "Database", exact: true });
+    await expect(database.getByText("Missing", { exact: true })).toBeVisible();
+    await expect(database.getByText("DATABASE_URL: unset", { exact: true })).toBeVisible();
+    await expect(database.getByText("Set these variables in your hosting project's environment variables, redeploy, then return to Admin.", { exact: false })).toBeVisible();
+    await expect(page.getByRole("listitem", { name: "Prices", exact: true }).getByText("Optional", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Running version", exact: true })).toBeVisible();
+    await expect(page.getByText("Build metadata is absent (local or self-hosted build).", { exact: true })).toBeVisible();
+    const setupProducts = page.getByRole("region", { name: "Setup", exact: true }).getByRole("link", { name: /Products and markets/ });
+    await setupProducts.focus();
+    await page.keyboard.press("Enter");
+    await expectNavigation(page, /\/admin\/settings\/products$/);
+    await expect(page.getByRole("heading", { name: "Products and markets", exact: true })).toBeVisible();
+    await page.goBack();
+    await expectNavigation(page, /\/admin$/);
+    await expect(page.getByRole("heading", { name: "Setup", exact: true })).toBeVisible();
+    await expect(setupProducts).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(page.getByText("Needs attention isn't available yet.")).toBeVisible();
     await expect(page.getByText("Business metrics aren't available yet.")).toBeVisible();
     if (viewport.width === 1280) {
@@ -208,21 +226,32 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 
 
 test("settings links to operator editors, including Products without a database", { tag: "@smoke" }, async ({ page, context }) => {
   await setSession(context, admin);
-  await page.goto("/admin/settings");
+  await page.goto("/admin");
   await expect(page.locator("[data-operator-ready=true]")).toBeVisible();
-  await page.getByRole("link", { name: "Money in and out" }).click();
-  // A first dev-server navigation compiles this authenticated route on demand.
-  await expectNavigation(page, /\/admin\/settings\/funding$/);
-  await expect(page.getByRole("heading", { name: "Money in and out", exact: true })).toBeVisible();
-  await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Settings", exact: true }).click();
-  await expectNavigation(page, /\/admin\/settings$/);
-  await page.getByRole("link", { name: /Products and markets/ }).click();
+  await expect(page.getByRole("heading", { name: "Setup", exact: true })).toBeVisible();
+  const database = page.getByRole("listitem", { name: "Database", exact: true });
+  await expect(database.getByText("Missing", { exact: true })).toBeVisible();
+  await expect(database.getByText("DATABASE_URL: unset", { exact: true })).toBeVisible();
+  await expect(database.getByText("Set these variables in your hosting project's environment variables, redeploy, then return to Admin.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("listitem", { name: "Prices", exact: true }).getByText("Optional", { exact: true })).toBeVisible();
+  await expect(page.getByText("Build metadata is absent (local or self-hosted build).", { exact: true })).toBeVisible();
+  await page.getByRole("region", { name: "Setup", exact: true }).getByRole("link", { name: /Products and markets/ }).click();
   await expectNavigation(page, /\/admin\/settings\/products$/);
   await expect(page.getByRole("heading", { name: "Products and markets", exact: true })).toBeVisible();
   await expect(page.getByText("Settings could not load.", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Save settings", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(page.getByText("Settings could not load.", { exact: true })).toBeVisible();
+  await page.goBack();
+  await expectNavigation(page, /\/admin$/);
+  await expect(page.getByRole("heading", { name: "Setup", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: /General settings/ }).click();
+  await expectNavigation(page, /\/admin\/settings$/);
+  await page.getByRole("link", { name: "Money in and out" }).click();
+  await expectNavigation(page, /\/admin\/settings\/funding$/);
+  await expect(page.getByRole("heading", { name: "Money in and out", exact: true })).toBeVisible();
+  await page.getByRole("navigation", { name: "Operator sections" }).getByRole("link", { name: "Settings", exact: true }).click();
+  await expectNavigation(page, /\/admin\/settings$/);
 });
 
 test("no Home session redirects to sign-in, while deployment access runs first", async ({ page, context }) => {

@@ -2,6 +2,14 @@
 
 Each operator sets these values for their own instance; this checklist lists what to set and where, never the values themselves.
 
+## First run
+
+Follow the [guided Vercel launch](vercel-deploy.md#launch), then sign in with Base Account and open **Admin → Overview → Setup**. The checklist recomputes required and optional checks when you reload after changing hosting settings and redeploying. Required setup completion is not production or real-money authorization.
+
+## Updates and recovery
+
+Use [Update, backup and recovery](vercel-deploy.md#update-backup-and-recovery) for upstream merges, backups, isolated restore rehearsals, application rollback, and approved database recovery. Read the [funding rollback caveat](#roll-back) before returning to an older release.
+
 ## Products and markets
 
 At Admin → Settings → Products and markets, a saved settings row wins over deployment values. Without a saved row the pane shows deployment values; reading the pane does not write anything. Review and save to change offerings. Settings only narrow code and credential availability: turning off new entries leaves existing positions and exits available. A first save identical to deployment values leaves the row absent.
@@ -12,7 +20,7 @@ At Admin → Settings → Products and markets, a saved settings row wins over d
 | --- | --- | --- |
 | Home project name and team/scope | Vercel project and team | [Vercel deploy](vercel-deploy.md) |
 | Production origin and branch origin pattern `https://<project>-git-<sanitized-branch>-<scope>.vercel.app` | Vercel project domains and Git branch URLs | [Vercel deploy](vercel-deploy.md), [CDP setup](cdp-setup.md#branch-stable-origin) |
-| Root `apps/web`, Next.js, frozen Bun install, build, Node.js version | Vercel project build settings | [Vercel deploy](vercel-deploy.md#home-application) |
+| Root `apps/web`, Next.js, frozen Bun install, build, Node.js version | Vercel project build settings | [Launch settings](vercel-deploy.md#launch) |
 | Deployment Protection and Firewall rate-limit rules | Vercel project settings and Firewall | [Vercel deploy](vercel-deploy.md#pre-release-production-access) |
 | Skew Protection (12-hour max age) | Vercel project advanced settings | [Vercel deploy](vercel-deploy.md#skew-protection) |
 | Speed Insights | Vercel project settings | [Performance observability](performance-observability.md#production-verification) |
@@ -74,7 +82,8 @@ The root [`.env.example`](../.env.example) is the complete list of names and the
 | --- | --- | --- |
 | `HOME_ACCESS_REQUIRED`, `HOME_ACCESS_PASSWORD`, `HOME_ACCESS_SIGNING_SECRET` | Vercel environment | [Vercel deploy](vercel-deploy.md#pre-release-production-access) |
 | `HOME_OPERATOR_ADDRESSES` | Vercel environment | [Vercel deploy](vercel-deploy.md#administrator-access) |
-| `HOME_SESSION_SECRET` (at least 32 characters; required for Base Account sign-in) | Vercel environment; local `.env.local` | [Base Account](base-account.md) |
+| `VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_REF`, `VERCEL_ENV`, `VERCEL_DEPLOYMENT_ID` (identify Admin → Overview → Running version) | Provided by Vercel system environment variables, not operator-generated secrets | [First-run Setup](vercel-deploy.md#first-run-setup) |
+| `HOME_SESSION_SECRET` (at least 32 UTF-8 bytes; required for Base Account sign-in) | Vercel environment; local `.env.local` | [Base Account](base-account.md) |
 | `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET` (required for email sign-in validation, balance enumeration, the balance webhook, and CDP SQL Activity history; no separate SQL key is needed) | Vercel environment; local `.env.local` | [CDP setup](cdp-setup.md), [Vercel deploy](vercel-deploy.md#cdp-balance-activity-webhook), [CDP SQL](cdp-sql.md#authentication-decision) |
 | `CDP_SQL_AUTH_MODE`, `CDP_SQL_CLIENT_API_KEY` (optional; only to use a dedicated SQL client key instead of the CDP server key) | Vercel environment; local `.env.local` | [CDP SQL](cdp-sql.md#authentication-decision) |
 | `CODEX_API_KEY` (server-only; required for token prices, balance valuations, Invest discovery, and historical Activity valuations) | Vercel environment; local `.env.local` | [Codex prices](codex-prices.md#server-setup), [Activity valuation](activity-valuation.md) |
