@@ -599,9 +599,9 @@ export const Recovery: Story = { beforeEach() { recoveryRequests = 0; }, paramet
   await expect(tray.getByRole("button", { name: "Withdraw" })).toBeEnabled();
   await userEvent.click(tray.getByRole("button", { name: "Close Gauntlet USDC Prime details" }));
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  await expect(await screen.findByText("More ways to save")).toBeVisible();
+  await waitFor(() => expect(manageRow(screen, "Gauntlet USDC Prime")).toHaveAccessibleName(/4\.10% APY/));
   await expect(manageRow(screen, "Gauntlet USDC Prime")).toBeEnabled();
-  await expect(recoveryRequests).toBe(2);
+  await expect(within(screen.getByRole("region", { name: "More ways to save" })).getByRole("button", { name: /^Spark USDC Vault/, description: "Deposit to Spark USDC Vault" })).toBeVisible();
 } };
 export const DepositJourney: Story = { play: async ({ canvasElement }) => {
   const screen = await openSavings(canvasElement);
