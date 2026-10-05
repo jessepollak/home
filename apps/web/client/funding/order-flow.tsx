@@ -19,7 +19,6 @@ import { cancellationErrorCopy, cancellationNeedsRefetch, useCancelFundingOrder 
 import {
   formatFiatAmount,
   formatPresentationDate,
-  formatPresentationTokenAmount,
   presentationCurrencyMetadata,
 } from "@/shared/formatting";
 import {
@@ -42,6 +41,7 @@ import type { FundingBinding } from "@/shared/funding/contracts/providers";
 import { mutationOptions } from "@tanstack/react-query";
 import { ownerMutation } from "@/client/query/mutation-options";
 import { readFundingFailure } from "@/shared/funding/contracts/errors";
+import { formatOnrampFee, formatOnrampReceive } from "@/shared/funding/quoted-amount-format";
 import {
   readQuoteDraft,
   type QuoteDraft,
@@ -434,12 +434,7 @@ function QuoteReview({
   const deposit = formatFiatAmount(draft.quote.enteredFiatAmount ?? draft.quote.fiatAmount, binding.currency, {
     regionId,
   });
-  const receive = formatPresentationTokenAmount(
-    draft.quote.tokenAmountAtomic,
-    binding.assetDecimals,
-    binding.assetSymbol,
-    { regionId, useNoBreakSpace: true },
-  );
+  const receive = formatOnrampReceive(draft.quote.tokenAmountAtomic, binding);
   return (
     <>
       <MoneyModalBody hasFooter className="gap-4 pt-4">
@@ -460,7 +455,7 @@ function QuoteReview({
                     // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
-                    value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
+                    value={formatOnrampFee(fee.amount, fee.currency)}
                   />
                 ))
               ) : (
@@ -515,15 +510,7 @@ function ProviderEconomicsReview({
   cancellationError: string | null;
 }) {
   const fees = order.fees ?? [];
-  const regionId = presentationCurrencyMetadata(
-    binding.currency,
-  ).defaultRegionId;
-  const receive = formatPresentationTokenAmount(
-    order.expectedTokenAmountAtomic!,
-    binding.assetDecimals,
-    binding.assetSymbol,
-    { regionId, useNoBreakSpace: true },
-  );
+  const receive = formatOnrampReceive(order.expectedTokenAmountAtomic!, binding);
   const instruction = order.instructions;
   const pay =
     instruction && instruction.kind !== "redirect"
@@ -549,7 +536,7 @@ function ProviderEconomicsReview({
                     // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
                     key={`${fee.label}:${index}`}
                     label={fee.label}
-                    value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
+                    value={formatOnrampFee(fee.amount, fee.currency)}
                   />
                 ))
               ) : (
@@ -716,15 +703,7 @@ function SettledAmounts({
 }) {
   const fees = order.fees ?? [];
   if (!fees.length || !order.expectedTokenAmountAtomic) return null;
-  const regionId = presentationCurrencyMetadata(
-    binding.currency,
-  ).defaultRegionId;
-  const receive = formatPresentationTokenAmount(
-    order.expectedTokenAmountAtomic,
-    binding.assetDecimals,
-    binding.assetSymbol,
-    { regionId, useNoBreakSpace: true },
-  );
+  const receive = formatOnrampReceive(order.expectedTokenAmountAtomic, binding);
   return (
     <dl>
       <DefinitionRow label="Receive" value={receive} />
@@ -733,7 +712,7 @@ function SettledAmounts({
           // oxlint-disable-next-line react/no-array-index-key -- Provider fee breakdown has no guaranteed unique fee identifier.
           key={`${fee.label}:${index}`}
           label={fee.label}
-          value={formatFiatAmount(fee.amount, fee.currency, { currencyNative: true })}
+          value={formatOnrampFee(fee.amount, fee.currency)}
         />
       ))}
     </dl>
