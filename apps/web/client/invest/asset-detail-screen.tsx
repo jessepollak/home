@@ -118,7 +118,7 @@ export function AssetDetailScreen({ asset, market, assetMarkResolution = {}, onB
   const marketReadout = scrub && !resting.pending ? `${scrub.value}${quote.valueCurrency !== "USD" ? " USD" : ""} · ${scrub.time}` : change;
   return <section aria-labelledby={hosted ? undefined : "invest-asset-title"}
     className={hosted
-      ? "-mx-4 flex min-w-0 flex-col gap-4 overflow-x-clip bg-background px-4 sm:mx-0 sm:px-0"
+      ? "-mx-4 -mt-4 flex min-w-0 flex-col gap-4 overflow-x-clip bg-background px-4 pt-4 sm:mx-0 sm:mt-0 sm:px-0 sm:pt-0"
       : "mx-auto flex w-full max-w-2xl min-w-0 flex-col gap-4 overflow-x-clip px-4 py-4 sm:px-0"}>
     {hosted ? null : <header className="flex min-w-0 items-center gap-2">
       <Button variant="ghost" size="icon" className="size-11" onClick={onBack} aria-label="Back">
