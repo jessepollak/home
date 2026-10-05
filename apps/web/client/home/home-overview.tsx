@@ -3,6 +3,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Banknote, ChartLine, HandCoins } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BalanceRow } from "@/components/finance-rows";
 import { GlyphMark } from "@/components/currency-mark";
@@ -73,7 +75,7 @@ export function HomeOverview({
   return (
     <div className="space-y-4 lg:grid lg:grid-cols-[minmax(320px,3fr)_minmax(340px,2fr)] lg:items-start lg:gap-6 lg:space-y-0 xl:gap-8">
       <div ref={moneyRef} data-sticky-fit={stickyFits} className={`space-y-4 self-start ${stickyFits ? "lg:[@media(min-height:640px)]:sticky lg:top-(--home-money-sticky-top)" : ""}`}>
-        <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} />
+        <HomeTotalBalance assetBalances={assetBalances} accountKey={accountKey} onRetryBalances={retryBalances} />
         {actions ? <div className="grid grid-cols-2 gap-2" aria-label="Money actions">{actions}</div> : null}
         <HomeMoneySummary
           summary={assetBalances?.summary ?? null}
@@ -100,9 +102,11 @@ export function HomeSectionHeading({ id, children }: { id: string; children: Rea
 function HomeTotalBalance({
   assetBalances,
   accountKey,
+  onRetryBalances,
 }: {
   assetBalances?: HomeAssetBalancesPresentation;
   accountKey: string | null;
+  onRetryBalances?: () => void;
 }) {
   const statusId = useId();
   const isLoading = assetBalances?.status === "loading";
@@ -150,6 +154,7 @@ function HomeTotalBalance({
           </div>
         )}
         </div>
+        {assetBalances?.refreshFailed && assetBalances.status === "ready" ? <Alert role="status"><AlertDescription>Couldn&apos;t refresh</AlertDescription>{onRetryBalances ? <AlertAction><Button variant="link" size="inline" className="-my-3 min-h-11" onClick={onRetryBalances}>Try again</Button></AlertAction> : null}</Alert> : null}
         {isLoading ? (
           <div className="space-y-2" aria-hidden="true">
             <Skeleton className="h-2 w-full" />
@@ -183,7 +188,7 @@ export function HomeBalanceBreakdown({ items }: { items: readonly MoneyBreakdown
 
 const unavailableSummary: HomeMoneySummaryModel = {
   cash: { status: "unavailable", value: null },
-  investments: { status: "unavailable", value: null, assetCount: 0, ownedCount: 0 },
+  investments: { status: "unavailable", value: null, assetCount: 0, assetCountStatus: "partial", ownedCount: 0 },
   borrow: { kind: "unavailable" },
 };
 
@@ -282,7 +287,8 @@ function InvestmentsRow({
   onOpen: () => void;
   onRetryBalances?: () => void;
 }) {
-  const empty = summary.ownedCount === 0 && summary.status === "complete";
+  const countStatus = summary.assetCountStatus ?? summary.status;
+  const empty = summary.ownedCount === 0 && summary.status === "complete" && countStatus === "complete";
   return (
     <BalanceRow
       icon={<GlyphMark size="sm"><ChartLine /></GlyphMark>}
@@ -291,9 +297,7 @@ function InvestmentsRow({
       reserveContext
       context={summary.assetCount === 0
         ? empty ? "Start investing" : undefined
-        : summary.assetCount === 1
-          ? "Across 1 asset"
-          : `Across ${summary.assetCount} assets`}
+        : `Across ${countStatus === "partial" ? "at least " : ""}${summary.assetCount} ${summary.assetCount === 1 ? "asset" : "assets"}`}
       value={empty ? undefined : summaryValue(summary.value)}
       valueTone={summaryTone(summary.value)}
       valueContext={summary.status === "partial" ? "Partial balance" : undefined}

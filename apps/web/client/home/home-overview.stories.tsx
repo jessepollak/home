@@ -215,13 +215,10 @@ const noBorrowBalances = presentation(buildBalancesSnapshotFixture({
 
 const emptyBalances = presentation(buildBalancesSnapshotFixture());
 
-const partialBalances = presentation(buildBalancesSnapshotFixture({
-  registry: {
-    ...cash,
-    eth: { balance: unavailableBalance, value: { status: "unavailable" } },
-  },
-  borrow: { coverage: "partial", positions: [] },
-}));
+const partialBalances = presentation(buildBalancesSnapshotFixture({ registry: {
+  ...cash, idrx: { balance: unavailableBalance },
+  eth: { balance: ready("1"), value: priced("USD", "2400") }, cbbtc: { balance: unavailableBalance },
+}, borrow: { coverage: "partial", positions: [] } }));
 
 const partialBorrowBalances = presentation(buildBalancesSnapshotFixture({
   registry: cash,
@@ -647,7 +644,10 @@ export const PartialBalances: Story = {
     await expect(canvasElement.querySelector("[data-home-status]")).not.toBeNull();
     await expect(canvasElement.querySelector("[data-home-total-status]")).toBeNull();
     const hero = within(canvas.getByLabelText("Total balance"));
-    const total = hero.getAllByRole("img", { name: "$12.34" })[0];
+    const total = hero.getAllByRole("img", { name: "$36.34" })[0];
+    await expect(canvas.getByRole("button", { description: "Open Cash" })).toHaveTextContent("Partial balance");
+    await expect(canvas.getByRole("button", { description: "Open Investments" })).toHaveTextContent("Partial balance");
+    await expect(canvas.getByRole("button", { description: "Open Investments" })).toHaveTextContent("Across at least 1 asset");
     await expect(total).toHaveAccessibleDescription("Partial balance");
     await expect(total).toHaveAttribute("data-animated", "false");
     const detail = await openHeaderStatus(canvasElement);
@@ -977,4 +977,33 @@ export const PendingCashoutPartiallyPaidGb: Story = {
 export const PendingCashoutReturnedGb: Story = {
   args: pendingCashoutArgs("returned", pendingGbSnapshot),
   play: expectPendingCashout("£142.57", null),
+};
+
+export const UnavailableBalances: Story = {
+  args: { assetBalances: presentation(buildBalancesSnapshotFixture({ registry: {
+    usdc: { balance: unavailableBalance }, eth: { balance: unavailableBalance },
+  } })), operations: [] },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    for (const label of ["Cash", "Investments"]) {
+      const row = canvas.getByRole("button", { description: `Open ${label}` });
+      await expect(row).toHaveTextContent("—");
+      await expect(row).toHaveAccessibleName(/Unavailable/);
+      await expect(row).not.toHaveTextContent("$0.00");
+      await expect(canvas.getByRole("button", { name: `Retry ${label} balance` })).toBeVisible();
+    }
+    await expect(canvas.queryByText("Start investing")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Retry Investments balance" }));
+    await expect(args.onRetry).toHaveBeenCalledOnce();
+  },
+};
+export const RefreshFailed: Story = {
+  args: { assetBalances: { ...fundedBalances, refreshFailed: true }, operations: [] },
+  play: async ({ args, canvasElement }) => {
+    const hero = within(within(canvasElement).getByLabelText("Total balance"));
+    await expect(hero.getByRole("img", { name: "$60.54" })).toBeVisible();
+    await expect(hero.getByText("Couldn't refresh")).toBeVisible();
+    await userEvent.click(hero.getByRole("button", { name: "Try again" }));
+    await expect(args.onRetry).toHaveBeenCalledOnce();
+  },
 };

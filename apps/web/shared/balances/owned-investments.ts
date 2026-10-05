@@ -1,3 +1,4 @@
+import type { BalanceFigureStatus } from "./present";
 import { addFractions, exactDecimalToFraction, roundFractionPreservingPositive } from "./math";
 import { isInvestmentHolding, selectCollateralHoldings, selectInvestmentHoldings } from "./select";
 import type { AssetKey, BalancesSnapshot, BorrowCollateralHolding, ExactDecimal, Holding } from "./types";
@@ -11,30 +12,38 @@ export type OwnedInvestment = {
   availableZero: Holding | null;
   collateral: BorrowCollateralHolding[];
   amount: ExactDecimal | null;
+  status: BalanceFigureStatus;
 };
 
 function availableHolding(holding: Holding) {
   return holding.cashCurrency === null && holding.kind !== "vault-share" && !holding.collateral && holding.source !== "borrow";
 }
 
-function investmentAmount(holdings: Holding[]): ExactDecimal | null {
-  const values = [];
-  for (const holding of holdings) {
-    if (holding.balance.status !== "ready" || holding.value.status !== "priced") return null;
-    values.push(exactDecimalToFraction(holding.value.amount));
+function investmentAmount(holdings: Holding[], snapshot: BalancesSnapshot): Pick<OwnedInvestment, "amount" | "status"> {
+  if (!snapshot.quoteCurrency || holdings.some((holding) => holding.value.status === "unpriced" && holding.value.reason === "no-quote-currency")) {
+    return { status: "unavailable", amount: null };
   }
-  return roundFractionPreservingPositive(addFractions(values));
+  const values = [];
+  let missing = false;
+  for (const holding of holdings) {
+    if (holding.balance.status !== "ready") missing = true;
+    else if (holding.value.status === "priced") values.push(exactDecimalToFraction(holding.value.amount));
+    else if (BigInt(holding.balance.baseUnits) > BigInt(0)) missing = true;
+  }
+  const sum = addFractions(values);
+  const status = !missing ? "complete" : sum.numerator > BigInt(0) ? "partial" : "unavailable";
+  return { status, amount: status === "unavailable" ? null : roundFractionPreservingPositive(sum) };
 }
 
 function ownedInvestments(snapshot: BalancesSnapshot, selectedKey?: AssetKey): OwnedInvestment[] {
   const wallet = selectInvestmentHoldings(snapshot).filter((holding) => selectedKey === undefined || holding.key === selectedKey);
   const rows = new Map<AssetKey, OwnedInvestment>();
-  for (const holding of wallet) rows.set(holding.key, { key: holding.key, holding, wallet: holding, availableZero: null, collateral: [], amount: null });
+  for (const holding of wallet) rows.set(holding.key, { key: holding.key, holding, wallet: holding, availableZero: null, collateral: [], amount: null, status: "unavailable" });
   for (const holding of selectCollateralHoldings(snapshot)) {
     if (selectedKey !== undefined && holding.key !== selectedKey) continue;
     const row = rows.get(holding.key);
     if (row) row.collateral.push(holding);
-    else rows.set(holding.key, { key: holding.key, holding, wallet: null, availableZero: null, collateral: [holding], amount: null });
+    else rows.set(holding.key, { key: holding.key, holding, wallet: null, availableZero: null, collateral: [holding], amount: null, status: "unavailable" });
   }
   for (const row of rows.values()) {
     if (row.wallet || !row.collateral.length) continue;
@@ -44,7 +53,7 @@ function ownedInvestments(snapshot: BalancesSnapshot, selectedKey?: AssetKey): O
   }
   return [...rows.values()].map((row) => {
     const holdings = [...(row.wallet ? [row.wallet] : []), ...row.collateral];
-    return { ...row, amount: investmentAmount(holdings) };
+    return { ...row, ...investmentAmount(holdings, snapshot) };
   });
 }
 
@@ -65,13 +74,13 @@ export function* investmentSelection(snapshot: BalancesSnapshot): Generator<void
   let work = 0;
   for (const holding of snapshot.holdings) {
     if (availableHolding(holding)) available.set(holding.key, holding);
-    if (isInvestmentHolding(holding)) rows.set(holding.key, { key: holding.key, holding, wallet: holding, availableZero: null, collateral: [], amount: null });
+    if (isInvestmentHolding(holding)) rows.set(holding.key, { key: holding.key, holding, wallet: holding, availableZero: null, collateral: [], amount: null, status: "unavailable" });
     if (++work % 128 === 0) yield;
   }
   for (const holding of selectCollateralHoldings(snapshot)) {
     const row = rows.get(holding.key);
     if (row) row.collateral.push(holding);
-    else rows.set(holding.key, { key: holding.key, holding, wallet: null, availableZero: null, collateral: [holding], amount: null });
+    else rows.set(holding.key, { key: holding.key, holding, wallet: null, availableZero: null, collateral: [holding], amount: null, status: "unavailable" });
   }
   let ordered: OrderedInvestment[] = [];
   for (const row of rows.values()) {
@@ -81,7 +90,7 @@ export function* investmentSelection(snapshot: BalancesSnapshot): Generator<void
       else if (holding?.balance.status === "ready" && holding.balance.baseUnits === "0") row.availableZero = holding;
     }
     const holdings = [...(row.wallet ? [row.wallet] : []), ...row.collateral];
-    row.amount = investmentAmount(holdings);
+    Object.assign(row, investmentAmount(holdings, snapshot));
     ordered.push({ row, fraction: row.amount ? exactDecimalToFraction(row.amount) : null });
     if (++work % 128 === 0) yield;
   }
@@ -132,5 +141,5 @@ export function selectOwnedInvestment(snapshot: BalancesSnapshot, key: AssetKey)
   const row = ownedInvestments(snapshot, key)[0];
   if (row) return row;
   const holding = snapshot.holdings.find((item) => item.key === key && availableHolding(item) && item.balance.status === "ready" && item.balance.baseUnits === "0");
-  return holding ? { key, holding, wallet: holding, availableZero: holding, collateral: [], amount: holding.value.status === "priced" ? holding.value.amount : null } : null;
+  return holding ? { key, holding, wallet: holding, availableZero: holding, collateral: [], ...investmentAmount([holding], snapshot) } : null;
 }

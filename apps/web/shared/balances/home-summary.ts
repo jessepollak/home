@@ -17,7 +17,7 @@ const presentationSchema = z.object({
     value: text, weight: z.number().check(z.minimum(0)), status,
   })).check(z.maxLength(4)),
   summary: z.object({
-    cash: z.object(amount), investments: z.object({ ...amount, assetCount: count, ownedCount: count }),
+    cash: z.object(amount), investments: z.object({ ...amount, assetCount: count, assetCountStatus: z.optional(status), ownedCount: count }),
     borrow: z.union([
       z.object({ kind: z.literal("none"), hasCollateral: z.boolean() }), z.object({ kind: z.literal("unavailable") }),
       z.object({ ...amount, kind: z.literal("position"), rate: z.nullable(text),
@@ -52,7 +52,10 @@ export function recentHomeRates(rates: HomeRateLabels | undefined, now = Date.no
   return result;
 }
 export function homeSummaryPresentation(record: HomeSummaryRecord): HomeBalancesPresentation {
-  return { ...record.presentation, revalidating: true, cachedAt: record.updatedAt };
+  return { ...record.presentation,
+    summary: { ...record.presentation.summary, investments: { ...record.presentation.summary.investments,
+      assetCountStatus: record.presentation.summary.investments.assetCountStatus ?? record.presentation.summary.investments.status } },
+    revalidating: true, cachedAt: record.updatedAt };
 }
 export function encodeHomeSummaryCookie(record: HomeSummaryRecord): string | null {
   const value = encodeURIComponent(JSON.stringify(record));
